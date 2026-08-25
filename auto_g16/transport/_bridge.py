@@ -11,12 +11,11 @@ from typing import Final, Mapping
 from ._canonical import TransportBoundaryError, canonical_json_bytes, strict_canonical_json
 
 _BOOTSTRAP_PROTOCOL: Final = "auto-g16-v3-rtwin-bootstrap/2"
-_BOOTSTRAP_SOURCE_NAME: Final = "auto-g16-v3-rtwin-bootstrap-v2.py"
+_BOOTSTRAP_SOURCE_NAME: Final = "auto-g16-v3-rtwin-bootstrap-v2-py36.py"
 _FRAME_MAGIC: Final = b"AGV3"
 _TOKEN = re.compile(r"^[A-Za-z0-9_:.\\/ -]+$")
 
-_BOOTSTRAP_SOURCE: Final = r'''from __future__ import annotations
-import base64,hashlib,json,os,re,stat,struct,subprocess,sys
+_BOOTSTRAP_SOURCE: Final = r'''import base64,hashlib,json,os,re,stat,struct,subprocess,sys
 MAGIC=b"AGV3"; PROTOCOL="auto-g16-v3-rtwin-bootstrap/2"; FILE_CAP=134217728
 SYNTHETIC_DIALECT="auto-g16-v3-pbs-resource-enactment/synthetic-test/1"
 TORQUE_DIALECT="auto-g16-v3-pbs-resource-enactment/torque-6.1.0-nodes-ppn/1"
@@ -222,19 +221,161 @@ main()
 '''
 _BOOTSTRAP_SOURCE_BYTES: Final = _BOOTSTRAP_SOURCE.encode("utf-8")
 _BOOTSTRAP_SOURCE_SHA256: Final = sha256(_BOOTSTRAP_SOURCE_BYTES).hexdigest()
-_BOOTSTRAP_SOURCE_SIZE: Final = 15597
-_BOOTSTRAP_SOURCE_LF_COUNT: Final = 204
-_BOOTSTRAP_SOURCE_EXPECTED_SHA256: Final = "b0b1bcaf8ab8697a80676ac1015503a2fb64c21949678f20bf05f3bd849fb10e"
+_BOOTSTRAP_SOURCE_SIZE: Final = 15562
+_BOOTSTRAP_SOURCE_LF_COUNT: Final = 203
+_BOOTSTRAP_SOURCE_EXPECTED_SHA256: Final = "ad0ba2af50a3bfedf186acf13d8468d5951f5d201b71687ba5dd2ef7b2a208ae"
 if (
     len(_BOOTSTRAP_SOURCE_BYTES) != _BOOTSTRAP_SOURCE_SIZE
     or _BOOTSTRAP_SOURCE_SHA256 != _BOOTSTRAP_SOURCE_EXPECTED_SHA256
     or _BOOTSTRAP_SOURCE_BYTES.count(b"\n") != _BOOTSTRAP_SOURCE_LF_COUNT
     or b"\r" in _BOOTSTRAP_SOURCE_BYTES
     or b"\x00" in _BOOTSTRAP_SOURCE_BYTES
-    or not _BOOTSTRAP_SOURCE_BYTES.startswith(b"from __future__ import annotations\n")
+    or not _BOOTSTRAP_SOURCE_BYTES.startswith(b"import base64,hashlib,json,os,re,stat,struct,subprocess,sys\n")
     or not _BOOTSTRAP_SOURCE_BYTES.endswith(b"main()\n")
 ):
     raise RuntimeError("source-controlled bootstrap source identity drifted")
+
+_RTWIN_LAUNCHER_NAME: Final = "auto-g16-v3-rtwin-launcher-v1.ps1"
+_RTWIN_LAUNCHER_SOURCE: Final = r'''param(
+ [Parameter(Mandatory=$true)][string]$ManifestPath,
+ [Parameter(Mandatory=$true)][long]$ManifestSize,
+ [Parameter(Mandatory=$true)][string]$ManifestSha256,
+ [Parameter(Mandatory=$true)][string]$BootstrapPath,
+ [Parameter(Mandatory=$true)][long]$BootstrapSize,
+ [Parameter(Mandatory=$true)][string]$BootstrapSha256,
+ [Parameter(Mandatory=$true)][string]$ConfigPath,
+ [Parameter(Mandatory=$true)][long]$ConfigSize,
+ [Parameter(Mandatory=$true)][string]$ConfigSha256,
+ [Parameter(Mandatory=$true)][string]$KnownHostsPath,
+ [Parameter(Mandatory=$true)][long]$KnownHostsSize,
+ [Parameter(Mandatory=$true)][string]$KnownHostsSha256,
+ [Parameter(Mandatory=$true)][string]$ServerAlias,
+ [Parameter(Mandatory=$true)][int]$ServerPort,
+ [Parameter(Mandatory=$true)][string]$ServerUser,
+ [Parameter(Mandatory=$true)][int]$ExpectedInnerLength,
+ [Parameter(Mandatory=$true)][string]$ExpectedInnerSha256
+)
+$ErrorActionPreference='Stop'
+$Utf8=New-Object System.Text.UTF8Encoding($false,$true)
+function Fail-AutoG16 { exit 97 }
+function Read-AutoG16([string]$Path,[long]$Size,[string]$Digest) {
+ $Item=Get-Item -LiteralPath $Path -Force
+ if($Item.PSIsContainer -or (($Item.Attributes -band [IO.FileAttributes]::ReparsePoint)-ne 0) -or $Item.Length-ne$Size){Fail-AutoG16}
+ $Bytes=[IO.File]::ReadAllBytes($Path)
+ if($Bytes.Length-ne$Size){Fail-AutoG16}
+ $Hasher=[Security.Cryptography.SHA256]::Create()
+ try{$Actual=([BitConverter]::ToString($Hasher.ComputeHash($Bytes))).Replace('-','').ToLowerInvariant()}finally{$Hasher.Dispose()}
+ if($Actual-ne$Digest){Fail-AutoG16}
+ return ,$Bytes
+}
+function Quote-Posix([string]$Value) {
+ if($Value.IndexOf([char]0)-ge 0 -or $Value.IndexOf("`r")-ge 0 -or $Value.IndexOf("`n")-ge 0){Fail-AutoG16}
+ $Sq=[char]39;$Dq=[char]34
+ return [string]$Sq+$Value.Replace([string]$Sq,[string]$Sq+$Dq+$Sq+$Dq+$Sq)+$Sq
+}
+function Quote-Crt([string]$Value) {
+ if($Value.IndexOf([char]0)-ge 0){Fail-AutoG16}
+ if($Value.Length-gt 0 -and $Value.IndexOfAny([char[]]@(' ',"`t",'"'))-lt 0){return $Value}
+ $Result='"';$Slashes=0
+ foreach($Character in $Value.ToCharArray()){
+  if($Character-eq'\'){$Slashes++;continue}
+  if($Character-eq'"'){$Result+=('\'*(2*$Slashes+1)-join'')+'"';$Slashes=0;continue}
+  $Result+=('\'*$Slashes-join'')+$Character;$Slashes=0
+ }
+ return $Result+('\'*(2*$Slashes)-join'')+'"'
+}
+$ManifestBytes=Read-AutoG16 $ManifestPath $ManifestSize $ManifestSha256
+$BootstrapBytes=Read-AutoG16 $BootstrapPath $BootstrapSize $BootstrapSha256
+$ConfigBytes=Read-AutoG16 $ConfigPath $ConfigSize $ConfigSha256
+$KnownHostsBytes=Read-AutoG16 $KnownHostsPath $KnownHostsSize $KnownHostsSha256
+try{$Manifest=ConvertFrom-Json -InputObject $Utf8.GetString($ManifestBytes)}catch{Fail-AutoG16}
+$Names=@($Manifest.trust_roots.PSObject.Properties.Name|Sort-Object)
+$Expected=@('mac_scp','mac_ssh','rtwin_launcher','rtwin_remote_shell','rtwin_scp','rtwin_ssh','server_python','server_qstat','server_qsub','server_remote_shell')
+if($Manifest.schema-ne'auto-g16-v3-transport-deployment-manifest/2' -or $Manifest.bootstrap_protocol-ne'auto-g16-v3-rtwin-bootstrap/2' -or ($Names-join',')-ne($Expected-join',')){Fail-AutoG16}
+$RtwinSsh=$Manifest.trust_roots.rtwin_ssh
+$RtwinScp=$Manifest.trust_roots.rtwin_scp
+$BeforeSsh=Read-AutoG16 $RtwinSsh.path $RtwinSsh.expected_size_bytes $RtwinSsh.expected_sha256
+$BeforeScp=Read-AutoG16 $RtwinScp.path $RtwinScp.expected_size_bytes $RtwinScp.expected_sha256
+try{$Bootstrap=$Utf8.GetString($BootstrapBytes)}catch{Fail-AutoG16}
+$ManifestBase64=[Convert]::ToBase64String($ManifestBytes)
+$ServerPython=$Manifest.trust_roots.server_python.path
+$ServerTokens=@($ServerPython,'-I','-S','-B','-c',$Bootstrap,$ManifestBase64)
+$ServerCommand=($ServerTokens|ForEach-Object{Quote-Posix $_})-join' '
+$Arguments=@('-F',$ConfigPath,'-o','BatchMode=yes','-o','IdentitiesOnly=yes','-o','StrictHostKeyChecking=yes','-o',('UserKnownHostsFile='+$KnownHostsPath),'-o',('GlobalKnownHostsFile='+$KnownHostsPath),'-o','IdentityAgent=none','-o','PreferredAuthentications=publickey','-o','PubkeyAuthentication=yes','-o','PasswordAuthentication=no','-o','KbdInteractiveAuthentication=no','-o','GSSAPIAuthentication=no','-o','HostbasedAuthentication=no','-o','VerifyHostKeyDNS=no','-o','UpdateHostKeys=no','-p',[string]$ServerPort,'-l',$ServerUser,'--',$ServerAlias,$ServerCommand)
+$ArgumentLine=($Arguments|ForEach-Object{Quote-Crt $_})-join' '
+if($ArgumentLine.Length-ge 30000){Fail-AutoG16}
+$InnerBytes=$Utf8.GetBytes($ArgumentLine)
+$InnerHasher=[Security.Cryptography.SHA256]::Create()
+try{$InnerDigest=([BitConverter]::ToString($InnerHasher.ComputeHash($InnerBytes))).Replace('-','').ToLowerInvariant()}finally{$InnerHasher.Dispose()}
+if($ArgumentLine.Length-ne$ExpectedInnerLength -or $InnerDigest-ne$ExpectedInnerSha256){Fail-AutoG16}
+$Process=New-Object System.Diagnostics.Process
+$Process.StartInfo.UseShellExecute=$false
+$Process.StartInfo.FileName=$RtwinSsh.path
+$Process.StartInfo.Arguments=$ArgumentLine
+$Process.StartInfo.RedirectStandardInput=$true
+$Process.StartInfo.RedirectStandardOutput=$true
+$Process.StartInfo.RedirectStandardError=$true
+if(-not $Process.Start()){Fail-AutoG16}
+$InputTask=[Console]::OpenStandardInput().CopyToAsync($Process.StandardInput.BaseStream)
+$Output=New-Object IO.MemoryStream
+$ErrorOutput=New-Object IO.MemoryStream
+$OutputBuffer=New-Object byte[] 65536
+$ErrorBuffer=New-Object byte[] 65536
+$OutputTask=$Process.StandardOutput.BaseStream.ReadAsync($OutputBuffer,0,$OutputBuffer.Length)
+$ErrorTask=$Process.StandardError.BaseStream.ReadAsync($ErrorBuffer,0,$ErrorBuffer.Length)
+$InputOpen=$true;$OutputOpen=$true;$ErrorOpen=$true
+while($InputOpen -or $OutputOpen -or $ErrorOpen){
+ $Pending=New-Object 'Collections.Generic.List[Threading.Tasks.Task]'
+ if($InputOpen){$Pending.Add($InputTask)}
+ if($OutputOpen){$Pending.Add($OutputTask)}
+ if($ErrorOpen){$Pending.Add($ErrorTask)}
+ $Completed=$Pending[[Threading.Tasks.Task]::WaitAny($Pending.ToArray())]
+ if($InputOpen -and [Object]::ReferenceEquals($Completed,$InputTask)){
+  try{$InputTask.GetAwaiter().GetResult()}catch{try{$Process.Kill()}catch{};Fail-AutoG16}
+  $Process.StandardInput.Close();$InputOpen=$false
+ }
+ if($OutputOpen -and [Object]::ReferenceEquals($Completed,$OutputTask)){
+  try{$Count=$OutputTask.GetAwaiter().GetResult()}catch{try{$Process.Kill()}catch{};Fail-AutoG16}
+  if($Count-eq 0){$OutputOpen=$false}else{
+   if($Output.Length+$Count-gt 179306496){try{$Process.Kill()}catch{};Fail-AutoG16}
+   $Output.Write($OutputBuffer,0,$Count)
+   $OutputTask=$Process.StandardOutput.BaseStream.ReadAsync($OutputBuffer,0,$OutputBuffer.Length)
+  }
+ }
+ if($ErrorOpen -and [Object]::ReferenceEquals($Completed,$ErrorTask)){
+  try{$Count=$ErrorTask.GetAwaiter().GetResult()}catch{try{$Process.Kill()}catch{};Fail-AutoG16}
+  if($Count-eq 0){$ErrorOpen=$false}else{
+   if($ErrorOutput.Length+$Count-gt 65536){try{$Process.Kill()}catch{};Fail-AutoG16}
+   $ErrorOutput.Write($ErrorBuffer,0,$Count)
+   $ErrorTask=$Process.StandardError.BaseStream.ReadAsync($ErrorBuffer,0,$ErrorBuffer.Length)
+  }
+ }
+}
+$Process.WaitForExit()
+$AfterSsh=Read-AutoG16 $RtwinSsh.path $RtwinSsh.expected_size_bytes $RtwinSsh.expected_sha256
+$AfterScp=Read-AutoG16 $RtwinScp.path $RtwinScp.expected_size_bytes $RtwinScp.expected_sha256
+$AfterManifest=Read-AutoG16 $ManifestPath $ManifestSize $ManifestSha256
+$AfterBootstrap=Read-AutoG16 $BootstrapPath $BootstrapSize $BootstrapSha256
+$AfterConfig=Read-AutoG16 $ConfigPath $ConfigSize $ConfigSha256
+$AfterKnownHosts=Read-AutoG16 $KnownHostsPath $KnownHostsSize $KnownHostsSha256
+$Output.Position=0;$Output.CopyTo([Console]::OpenStandardOutput())
+$ErrorOutput.Position=0;$ErrorOutput.CopyTo([Console]::OpenStandardError())
+exit $Process.ExitCode
+'''
+_RTWIN_LAUNCHER_BYTES: Final = _RTWIN_LAUNCHER_SOURCE.encode("utf-8")
+_RTWIN_LAUNCHER_SHA256: Final = "2eb539d4510988f892b52beeb743e088a27853cdfd9dc60ef0890978e0863444"
+_RTWIN_LAUNCHER_SIZE: Final = 7684
+_RTWIN_LAUNCHER_LF_COUNT: Final = 125
+if (
+    len(_RTWIN_LAUNCHER_BYTES) != _RTWIN_LAUNCHER_SIZE
+    or sha256(_RTWIN_LAUNCHER_BYTES).hexdigest() != _RTWIN_LAUNCHER_SHA256
+    or _RTWIN_LAUNCHER_BYTES.count(b"\n") != _RTWIN_LAUNCHER_LF_COUNT
+    or b"\r" in _RTWIN_LAUNCHER_BYTES
+    or b"\x00" in _RTWIN_LAUNCHER_BYTES
+    or not _RTWIN_LAUNCHER_BYTES.startswith(b"param(\n")
+    or not _RTWIN_LAUNCHER_BYTES.endswith(b"exit $Process.ExitCode\n")
+):
+    raise RuntimeError("source-controlled RTwin launcher identity drifted")
 
 def _encode_frame(value: Mapping[str, object]) -> bytes:
     raw = canonical_json_bytes(dict(value)); return _FRAME_MAGIC + struct.pack(">Q", len(raw)) + raw
@@ -305,6 +446,48 @@ def _ssh_effect_options(config:object,known_hosts:object)->list[str]:
     ): values.extend(("-o",option))
     return values
 
+_POWERSHELL_LOADER_TEMPLATE_V1: Final = (
+    "$ErrorActionPreference='Stop';$p=@LAUNCHER_PATH@;$i=Get-Item -LiteralPath $p -Force;"
+    "if($i.PSIsContainer -or (($i.Attributes -band [IO.FileAttributes]::ReparsePoint)-ne 0) -or $i.Length-ne@LAUNCHER_SIZE@){exit 97};"
+    "$b=[IO.File]::ReadAllBytes($p);"
+    "$a=([BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($b))).Replace('-','').ToLowerInvariant();"
+    "if($a-ne'@LAUNCHER_SHA@'){exit 97};"
+    "$u=New-Object System.Text.UTF8Encoding($false,$true);$s=$u.GetString($b);$x=[ScriptBlock]::Create($s);"
+    "&$x -ManifestPath @MANIFEST_PATH@ -ManifestSize @MANIFEST_SIZE@ -ManifestSha256 '@MANIFEST_SHA@'"
+    " -BootstrapPath @BOOTSTRAP_PATH@ -BootstrapSize @BOOTSTRAP_SIZE@ -BootstrapSha256 '@BOOTSTRAP_SHA@'"
+    " -ConfigPath @CONFIG_PATH@ -ConfigSize @CONFIG_SIZE@ -ConfigSha256 '@CONFIG_SHA@'"
+    " -KnownHostsPath @KNOWN_PATH@ -KnownHostsSize @KNOWN_SIZE@ -KnownHostsSha256 '@KNOWN_SHA@'"
+    " -ServerAlias @SERVER_ALIAS@ -ServerPort @SERVER_PORT@ -ServerUser @SERVER_USER@"
+    " -ExpectedInnerLength @INNER_LENGTH@ -ExpectedInnerSha256 '@INNER_SHA@'"
+)
+_POWERSHELL_LOADER_TEMPLATE_V1_BYTES: Final = _POWERSHELL_LOADER_TEMPLATE_V1.encode("ascii")
+_POWERSHELL_LOADER_TEMPLATE_V1_SIZE: Final = 1021
+_POWERSHELL_LOADER_TEMPLATE_V1_SHA256: Final = "e9417a66f6597791c519c403dd709a9bd791d516e3c421a1eb79cb6dc9fd0a47"
+if len(_POWERSHELL_LOADER_TEMPLATE_V1_BYTES)!=_POWERSHELL_LOADER_TEMPLATE_V1_SIZE or sha256(_POWERSHELL_LOADER_TEMPLATE_V1_BYTES).hexdigest()!=_POWERSHELL_LOADER_TEMPLATE_V1_SHA256:
+    raise RuntimeError("source-controlled PowerShell loader template identity drifted")
+
+def _render_inner_rtwin_arguments(authority:object,server:object)->str:
+    roots=authority.manifest.trust_roots; effect=authority.ssh_effect
+    manifest_arg=base64.b64encode(authority.manifest.raw_bytes).decode("ascii")
+    server_tokens=(roots["server_python"].path,"-I","-S","-B","-c")
+    server_command=" ".join((*(_posix_quote_v1(item) for item in server_tokens),_posix_quote_bootstrap_source_v1(_BOOTSTRAP_SOURCE),_posix_quote_v1(manifest_arg)))
+    inner=[*_ssh_effect_options(effect.rtwin_to_server.config,effect.rtwin_to_server.known_hosts),"-p",str(server.port),"-l",server.user,"--",server.alias,server_command]
+    arguments=" ".join(_crt_quote(item) for item in inner)
+    if len(arguments)>=30000: raise TransportBoundaryError("RTwin inner command exceeds the closed boundary")
+    return arguments
+
+def _render_powershell_loader_v1(replacements:Mapping[str,str])->str:
+    expected={"@LAUNCHER_PATH@","@LAUNCHER_SIZE@","@LAUNCHER_SHA@","@MANIFEST_PATH@","@MANIFEST_SIZE@","@MANIFEST_SHA@","@BOOTSTRAP_PATH@","@BOOTSTRAP_SIZE@","@BOOTSTRAP_SHA@","@CONFIG_PATH@","@CONFIG_SIZE@","@CONFIG_SHA@","@KNOWN_PATH@","@KNOWN_SIZE@","@KNOWN_SHA@","@SERVER_ALIAS@","@SERVER_PORT@","@SERVER_USER@","@INNER_LENGTH@","@INNER_SHA@"}
+    if set(replacements)!=expected: raise TransportBoundaryError("PowerShell loader replacement inventory is invalid")
+    rendered=_POWERSHELL_LOADER_TEMPLATE_V1
+    for token in sorted(expected):
+        value=replacements[token]
+        if type(value) is not str or token in value or rendered.count(token)!=1: raise TransportBoundaryError("PowerShell loader replacement is invalid")
+        rendered=rendered.replace(token,value)
+    if "@" in rendered or '"' in rendered or any(character in rendered for character in "%!\r\n"):
+        raise TransportBoundaryError("PowerShell loader is outside the closed CMD grammar")
+    return rendered
+
 def _build_rtwin_command(snapshot: object, authority: object) -> tuple[str, ...]:
     manifest=authority.manifest; roots=manifest.trust_roots; grammar=roots["rtwin_remote_shell"].shell_grammar
     profile=snapshot.resolved_server_profile
@@ -317,29 +500,31 @@ def _build_rtwin_command(snapshot: object, authority: object) -> tuple[str, ...]
         or manifest.sha256!=sha256(manifest.raw_bytes).hexdigest()
         or manifest.size_bytes!=len(manifest.raw_bytes)
     ): raise TransportBoundaryError("deployment authority differs from execution snapshot")
-    if grammar=="cmd-v1": _cmd_quote_v1(roots["rtwin_ssh"].path); raise TransportBoundaryError("cmd-v1 cannot attest RTwin executables under nine-root v1")
-    if grammar!="powershell-v1": raise TransportBoundaryError("unsupported RTwin shell grammar")
-    target=snapshot.resolved_server_profile.target_identity; manifest_arg=base64.b64encode(manifest.raw_bytes).decode("ascii")
-    server_tokens=(roots["server_python"].path,"-I","-S","-B","-c")
-    server_command=" ".join(
-        (*(_posix_quote_v1(item) for item in server_tokens),
-         _posix_quote_bootstrap_source_v1(_BOOTSTRAP_SOURCE),
-         _posix_quote_v1(manifest_arg))
-    )
+    if grammar!="cmd-powershell-launcher-v1": raise TransportBoundaryError("unsupported RTwin shell grammar")
+    launcher=roots["rtwin_launcher"]
+    if (
+        launcher.expected_sha256!=_RTWIN_LAUNCHER_SHA256
+        or launcher.expected_size_bytes!=_RTWIN_LAUNCHER_SIZE
+    ): raise TransportBoundaryError("RTwin launcher differs from source-controlled bytes")
     effect=authority.ssh_effect; server=effect.rtwin_to_server.target
-    inner=[*_ssh_effect_options(effect.rtwin_to_server.config,effect.rtwin_to_server.known_hosts),"-p",str(server.port),"-l",server.user,"--",server.alias,server_command]
-    arguments=" ".join(_crt_quote(item) for item in inner); ssh=_powershell_quote_v1(roots["rtwin_ssh"].path); scp=_powershell_quote_v1(roots["rtwin_scp"].path)
-    rtwin_config=_powershell_quote_v1(effect.rtwin_to_server.config.path); rtwin_known=_powershell_quote_v1(effect.rtwin_to_server.known_hosts.path)
-    attest=(
-        f"Test-AutoG16 {ssh} {roots['rtwin_ssh'].expected_size_bytes} '{roots['rtwin_ssh'].expected_sha256}';"
-        f"Test-AutoG16 {scp} {roots['rtwin_scp'].expected_size_bytes} '{roots['rtwin_scp'].expected_sha256}';"
-        f"Test-AutoG16 {rtwin_config} {effect.rtwin_to_server.config.expected_size_bytes} '{effect.rtwin_to_server.config.expected_sha256}';"
-        f"Test-AutoG16 {rtwin_known} {effect.rtwin_to_server.known_hosts.expected_size_bytes} '{effect.rtwin_to_server.known_hosts.expected_sha256}';"
+    def q(value:str)->str: return _powershell_quote_v1(value)
+    inner_arguments=_render_inner_rtwin_arguments(authority,server)
+    loader=_render_powershell_loader_v1({
+        "@LAUNCHER_PATH@":q(launcher.path),"@LAUNCHER_SIZE@":str(launcher.expected_size_bytes),"@LAUNCHER_SHA@":str(launcher.expected_sha256),
+        "@MANIFEST_PATH@":q(authority.manifest_path),"@MANIFEST_SIZE@":str(manifest.size_bytes),"@MANIFEST_SHA@":manifest.sha256,
+        "@BOOTSTRAP_PATH@":q(authority.bootstrap_source_path),"@BOOTSTRAP_SIZE@":str(authority.bootstrap_source_size_bytes),"@BOOTSTRAP_SHA@":authority.bootstrap_source_sha256,
+        "@CONFIG_PATH@":q(effect.rtwin_to_server.config.path),"@CONFIG_SIZE@":str(effect.rtwin_to_server.config.expected_size_bytes),"@CONFIG_SHA@":effect.rtwin_to_server.config.expected_sha256,
+        "@KNOWN_PATH@":q(effect.rtwin_to_server.known_hosts.path),"@KNOWN_SIZE@":str(effect.rtwin_to_server.known_hosts.expected_size_bytes),"@KNOWN_SHA@":effect.rtwin_to_server.known_hosts.expected_sha256,
+        "@SERVER_ALIAS@":q(server.alias),"@SERVER_PORT@":str(server.port),"@SERVER_USER@":q(server.user),
+        "@INNER_LENGTH@":str(len(inner_arguments)),"@INNER_SHA@":sha256(inner_arguments.encode("utf-8")).hexdigest(),
+    })
+    remote_command=(
+        f"{_cmd_quote_v1(roots['rtwin_remote_shell'].path)} -NoProfile -NonInteractive -Command \"{loader}\""
     )
-    script=("$ErrorActionPreference='Stop';function Test-AutoG16([string]$p,[long]$s,[string]$h){$f=Get-Item -LiteralPath $p -Force;if($f.PSIsContainer -or (($f.Attributes -band [IO.FileAttributes]::ReparsePoint)-ne 0) -or $f.Length-ne$s){exit 97};$x=(Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant();if($x-ne$h){exit 97}};"
-            +attest+"$p=New-Object System.Diagnostics.Process;$p.StartInfo.UseShellExecute=$false;"+f"$p.StartInfo.FileName={ssh};$p.StartInfo.Arguments={_powershell_quote_fixed_launcher_v1(arguments)};"+"$p.StartInfo.RedirectStandardInput=$true;$p.StartInfo.RedirectStandardOutput=$true;$p.StartInfo.RedirectStandardError=$true;$p.Start()|Out-Null;$i=[Console]::OpenStandardInput().CopyToAsync($p.StandardInput.BaseStream);$o=$p.StandardOutput.BaseStream.CopyToAsync([Console]::OpenStandardOutput());$e=$p.StandardError.BaseStream.CopyToAsync([Console]::OpenStandardError());$i.GetAwaiter().GetResult();$p.StandardInput.Close();$p.WaitForExit();$o.GetAwaiter().GetResult();$e.GetAwaiter().GetResult();$c=$p.ExitCode;"+attest+"exit $c")
+    if len(remote_command)>=4096 or _BOOTSTRAP_SOURCE in remote_command or manifest.raw_bytes.decode("utf-8") in remote_command:
+        raise TransportBoundaryError("RTwin outer command exceeds the closed boundary")
     mac=effect.mac_to_rtwin.target
-    command=[roots["mac_ssh"].path,*_ssh_effect_options(effect.mac_to_rtwin.config,effect.mac_to_rtwin.known_hosts),"-p",str(mac.port),"-l",mac.user,"--",mac.alias,script]
+    command=[roots["mac_ssh"].path,*_ssh_effect_options(effect.mac_to_rtwin.config,effect.mac_to_rtwin.known_hosts),"-p",str(mac.port),"-l",mac.user,"--",mac.alias,remote_command]
     return tuple(command)
 
-__all__=["_BOOTSTRAP_PROTOCOL","_BOOTSTRAP_SOURCE","_BOOTSTRAP_SOURCE_BYTES","_BOOTSTRAP_SOURCE_NAME","_BOOTSTRAP_SOURCE_SHA256","_build_rtwin_command","_cmd_quote_v1","_crt_quote","_decode_response_frame","_encode_request_frame","_posix_quote_bootstrap_source_v1","_posix_quote_v1","_powershell_quote_fixed_launcher_v1","_powershell_quote_v1"]
+__all__=["_BOOTSTRAP_PROTOCOL","_BOOTSTRAP_SOURCE","_BOOTSTRAP_SOURCE_BYTES","_BOOTSTRAP_SOURCE_NAME","_BOOTSTRAP_SOURCE_SHA256","_POWERSHELL_LOADER_TEMPLATE_V1","_POWERSHELL_LOADER_TEMPLATE_V1_SHA256","_POWERSHELL_LOADER_TEMPLATE_V1_SIZE","_RTWIN_LAUNCHER_BYTES","_RTWIN_LAUNCHER_LF_COUNT","_RTWIN_LAUNCHER_NAME","_RTWIN_LAUNCHER_SHA256","_RTWIN_LAUNCHER_SIZE","_RTWIN_LAUNCHER_SOURCE","_build_rtwin_command","_cmd_quote_v1","_crt_quote","_decode_response_frame","_encode_request_frame","_posix_quote_bootstrap_source_v1","_posix_quote_v1","_powershell_quote_fixed_launcher_v1","_powershell_quote_v1","_render_inner_rtwin_arguments","_render_powershell_loader_v1"]
