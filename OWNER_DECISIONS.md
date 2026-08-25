@@ -793,3 +793,50 @@ for live authority. After integration, the live packet creates a new
 ServerProfile revision and new resolved identity before any Attempt exists.
 No `execute_once`, Core claim, workspace mutation, qsub, Gaussian, qdel,
 cleanup, automatic retry, deployment, or other live effect is authorized.
+
+## OD-24: The repaired RTwin live chain has one attested fixed launcher
+
+The first live attempt proved that Windows OpenSSH presents its remote command
+to CMD and that the deployed server Python is exactly CPython 3.6.8. Manifest
+v1, its nine-root inventory, the raw-PowerShell outer command, and bootstrap
+source `b0b1bcaf8ab8697a80676ac1015503a2fb64c21949678f20bf05f3bd849fb10e`
+therefore remain immutable historical failed-live evidence.
+
+New live-capable profiles use private deployment manifest v2 with exactly the
+existing nine roots plus `rtwin_launcher`. CMD is the unavoidable Windows
+OpenSSH command-boundary grammar, `rtwin_remote_shell` remains the explicit
+system PowerShell deployment root, and `rtwin_launcher` is the tenth exact
+regular/non-reparse size-and-SHA-bound fixed source-controlled file. This role
+split records deployment reality without an unattested eleventh executable.
+
+The CMD-visible command invokes exact PowerShell with a short closed loader and
+is strictly shorter than 4096 characters. The loader opens the exact launcher,
+rejects a directory or reparse point, reads and verifies its exact bytes,
+strictly decodes those same bytes, creates exactly one ScriptBlock from them,
+and invokes that in-memory ScriptBlock. It never uses `-File`, a temporary
+copy, stdin source, or a caller RUN/EXEC/SHELL/COMMAND surface.
+
+The exact bootstrap and manifest v2 bytes are current-profile runtime data,
+not deployment roots. Existing `ServerProfile.runtime_contents` owns their
+bytes and runtime identities, while the Transport-private platform keys
+`rtwin_bootstrap_source_path` and `rtwin_deployment_manifest_path` bind their
+exact RTwin paths. The launcher attests both files and the existing RTwin
+SSH/SCP, config, and known-host evidence, constructs only the frozen nested SSH
+argv, launches exact `rtwin_ssh` through a non-shell Process API, forwards the
+sole AGV3 stdin frame as binary, bounds output, reattests, and returns the child
+status. Neither large runtime file appears in the outer command.
+
+The corrected bootstrap remains protocol/table `/2` because request framing,
+operations, bindings, responses, and effect semantics do not change. Its new
+source identity removes the unsupported future import and must compile and
+start under exact manifest-bound CPython 3.6.8 before any workspace operation.
+After integration only, deployment may publish exactly the launcher, bootstrap
+runtime file, and manifest runtime file through fresh no-overwrite targets.
+Deployment grants no Attempt workspace, staging, qsub, Gaussian, qdel,
+cleanup, deletion, or retry authority.
+
+ServerProfile revision 2, the old Attempt, its Batch Submit Approval,
+ExecutionSnapshot, and Operational Confirmation remain historical and cannot
+authorize the repair. Successful deployment and read-only qualification require
+a new revision 3 resolution. A later recovery Attempt still requires a separate
+Owner gate and entirely new operational approval chain.
