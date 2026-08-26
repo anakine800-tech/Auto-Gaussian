@@ -943,3 +943,60 @@ kill is forbidden. This repair authorizes product/docs/tests integration and
 revision-5 two-file deployment packet preparation only. It authorizes no
 deployment, nested real qualification, workspace/staging, qsub, Gaussian,
 cleanup, retry, or recovery Attempt.
+
+## OD-27: One complete AGV3 response may close an owned Windows OpenSSH child
+
+The revision-5 launcher and manifest remain immutable successful deployment
+evidence, while their production qualification remains failed evidence. Exact
+read-only probes proved a Windows OpenSSH 9.5p1 completion defect: when either
+stdout or stderr is redirected through `System.Diagnostics.Process` and the
+remote command emits bytes, the exact bytes arrive but the owned `ssh.exe`
+does not naturally terminate. Explicit `-T`, closed stdin, explicit remote
+stdout/stderr closure, and `CreateNoWindow = false` do not change the result.
+Without redirected output the child terminates, but the launcher cannot
+capture and attest the AGV3 response. This decision selects response-complete
+owned-child teardown and defers any file/helper/extra-trust-root channel.
+
+The successor launcher remains a mechanical frame boundary. It must first
+capture exactly one complete response frame: ASCII `AGV3`, one unsigned
+64-bit big-endian payload length no greater than `179306484`, and exactly the
+declared payload bytes. Partial header, partial payload, wrong magic,
+oversize, stderr bytes, or any byte beyond the declared frame can never enter
+the completion path. The launcher does not decode JSON or validate protocol,
+operation, status, result, binding, or scientific meaning.
+
+After the complete response and nested-stdin closure, the launcher grants the
+exact child a fixed monotonic 5000-millisecond natural-completion grace while
+continuing bounded stdout/stderr drains. Natural process exit plus EOF remains
+accepted. If the exact `System.Diagnostics.Process` object created by this
+launcher is still alive at the deadline, the launcher may terminate only that
+owned PID, wait for its termination and both redirected streams to close, and
+accept only when the captured stdout remains exactly the single frame and
+stderr remains empty. A kill failure, identity ambiguity, extra byte, or
+diagnostic byte fails closed. No name-based, tree-wide, wildcard, discovered,
+or replacement-process termination is permitted.
+
+On that narrow owned-teardown path the launcher may return successful
+mechanical transport completion after all existing postlaunch executable,
+manifest, bootstrap, config, and known-host attestations pass. The Controller
+still performs the existing strict canonical response validation. A complete
+frame with malformed JSON, wrong protocol, wrong operation, wrong status,
+wrong result shape, stale binding, or any other semantic defect remains
+rejected. Bytes alone never establish success.
+
+This is the sole exception to the historical nested-process natural-EOF rule.
+It changes neither bootstrap bytes nor its post-request EOF check, AGV3
+protocol `/2`, operation schemas, manifest schema v2, ten trust roots, public
+APIs, resource authority, workspace/artifact identity, nor effect sequencing.
+`REPLAY` remains zero effect. A missing or rejected response after a possibly
+effectful request remains `UNKNOWN` with no automatic retry and no second
+qsub. The Core WINNER seam and qsub-at-most-once rule are unchanged.
+
+The source-controlled successor is `auto-g16-v3-rtwin-launcher-v4.ps1`,
+11790 bytes, 200 LF, zero CR/NUL, SHA-256
+`52ce86be68356832b5b357c1c088aee9fc1b19701fe98115ef97b2a077dd7f60`.
+A new manifest-v2 content instance and immutable ServerProfile revision 6
+must bind that identity. This decision authorizes contract, product, tests,
+normal integration, and a revision-6 two-file deployment packet only. It does
+not authorize deployment, qualification, Attempt creation, workspace/staging,
+qsub, Gaussian, qdel, cleanup, retry, or any calculation effect.

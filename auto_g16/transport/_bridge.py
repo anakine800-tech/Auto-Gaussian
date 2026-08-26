@@ -235,7 +235,7 @@ if (
 ):
     raise RuntimeError("source-controlled bootstrap source identity drifted")
 
-_RTWIN_LAUNCHER_NAME: Final = "auto-g16-v3-rtwin-launcher-v3.ps1"
+_RTWIN_LAUNCHER_NAME: Final = "auto-g16-v3-rtwin-launcher-v4.ps1"
 _RTWIN_LAUNCHER_SOURCE: Final = r'''param(
  [Parameter(Mandatory=$true)][string]$ManifestPath,
  [Parameter(Mandatory=$true)][long]$ManifestSize,
@@ -360,21 +360,51 @@ $OutputTask=$Process.StandardOutput.BaseStream.ReadAsync($OutputBuffer,0,$Output
 $ErrorTask=$Process.StandardError.BaseStream.ReadAsync($ErrorBuffer,0,$ErrorBuffer.Length)
 $InputTask=$Process.StandardInput.BaseStream.WriteAsync($RequestFrame,0,$RequestFrame.Length)
 $InputOpen=$true;$OutputOpen=$true;$ErrorOpen=$true
+$ResponseExpected=[long]-1;$ResponseComplete=$false;$CompletionWatch=$null;$OwnedTeardown=$false
 while($InputOpen -or $OutputOpen -or $ErrorOpen){
  $Pending=New-Object 'Collections.Generic.List[Threading.Tasks.Task]'
  if($InputOpen){$Pending.Add($InputTask)}
  if($OutputOpen){$Pending.Add($OutputTask)}
  if($ErrorOpen){$Pending.Add($ErrorTask)}
- $Completed=$Pending[[Threading.Tasks.Task]::WaitAny($Pending.ToArray())]
+ if($ResponseComplete -and -not $OwnedTeardown -and -not $Process.HasExited){
+  $CompletedIndex=[Threading.Tasks.Task]::WaitAny($Pending.ToArray(),100)
+  if($CompletedIndex-lt 0){
+   if($null-ne$CompletionWatch -and $CompletionWatch.ElapsedMilliseconds-ge 5000){
+    try{if(-not $Process.HasExited){$Process.Kill();$OwnedTeardown=$true;$Process.WaitForExit()}}catch{
+     try{$ExitedDuringKill=$Process.HasExited}catch{Fail-AutoG16}
+     if(-not $ExitedDuringKill){Fail-AutoG16}
+    }
+   }
+   continue
+  }
+ }else{$CompletedIndex=[Threading.Tasks.Task]::WaitAny($Pending.ToArray())}
+ $Completed=$Pending[$CompletedIndex]
  if($InputOpen -and [Object]::ReferenceEquals($Completed,$InputTask)){
   try{$InputTask.GetAwaiter().GetResult();$Process.StandardInput.BaseStream.Flush();$Process.StandardInput.Close()}catch{try{$Process.Kill()}catch{};Fail-AutoG16}
   $InputOpen=$false
+  if($ResponseComplete -and $null-eq$CompletionWatch){$CompletionWatch=[Diagnostics.Stopwatch]::StartNew()}
  }
  if($OutputOpen -and [Object]::ReferenceEquals($Completed,$OutputTask)){
   try{$Count=$OutputTask.GetAwaiter().GetResult()}catch{try{$Process.Kill()}catch{};Fail-AutoG16}
   if($Count-eq 0){$OutputOpen=$false}else{
    if($Output.Length+$Count-gt 179306496){try{$Process.Kill()}catch{};Fail-AutoG16}
    $Output.Write($OutputBuffer,0,$Count)
+   if($ResponseExpected-lt 0 -and $Output.Length-ge 12){
+    $ResponseBytes=$Output.GetBuffer()
+    if($ResponseBytes[0]-ne 65 -or $ResponseBytes[1]-ne 71 -or $ResponseBytes[2]-ne 86 -or $ResponseBytes[3]-ne 51){try{$Process.Kill()}catch{};Fail-AutoG16}
+    [long]$ResponsePayloadLength=0
+    for($ResponseIndex=4;$ResponseIndex-lt 12;$ResponseIndex++){
+     if($ResponsePayloadLength-gt 700416){try{$Process.Kill()}catch{};Fail-AutoG16}
+     $ResponsePayloadLength=($ResponsePayloadLength*256)+[long]$ResponseBytes[$ResponseIndex]
+    }
+    if($ResponsePayloadLength-gt 179306484){try{$Process.Kill()}catch{};Fail-AutoG16}
+    $ResponseExpected=[long](12+$ResponsePayloadLength)
+   }
+   if($ResponseExpected-ge 0 -and $Output.Length-gt$ResponseExpected){try{$Process.Kill()}catch{};Fail-AutoG16}
+   if(-not $ResponseComplete -and $ResponseExpected-ge 0 -and $Output.Length-eq$ResponseExpected){
+    $ResponseComplete=$true
+    if(-not $InputOpen){$CompletionWatch=[Diagnostics.Stopwatch]::StartNew()}
+   }
    $OutputTask=$Process.StandardOutput.BaseStream.ReadAsync($OutputBuffer,0,$OutputBuffer.Length)
   }
  }
@@ -387,7 +417,15 @@ while($InputOpen -or $OutputOpen -or $ErrorOpen){
   }
  }
 }
-$Process.WaitForExit()
+if(-not $ResponseComplete -or $Output.Length-ne$ResponseExpected -or $ErrorOutput.Length-ne 0){
+ try{if(-not $Process.HasExited){$Process.Kill();$Process.WaitForExit()}}catch{}
+ Fail-AutoG16
+}
+if(-not $Process.HasExited){
+ $Remaining=5000
+ if($null-ne$CompletionWatch){$Remaining=[Math]::Max(0,5000-[int]$CompletionWatch.ElapsedMilliseconds)}
+ if(-not $Process.WaitForExit($Remaining)){$Process.Kill();$OwnedTeardown=$true;$Process.WaitForExit()}
+}
 $AfterSsh=Read-AutoG16 $RtwinSsh.path $RtwinSsh.expected_size_bytes $RtwinSsh.expected_sha256
 $AfterScp=Read-AutoG16 $RtwinScp.path $RtwinScp.expected_size_bytes $RtwinScp.expected_sha256
 $AfterManifest=Read-AutoG16 $ManifestPath $ManifestSize $ManifestSha256
@@ -396,12 +434,13 @@ $AfterConfig=Read-AutoG16 $ConfigPath $ConfigSize $ConfigSha256
 $AfterKnownHosts=Read-AutoG16 $KnownHostsPath $KnownHostsSize $KnownHostsSha256
 $Output.Position=0;$Output.CopyTo([Console]::OpenStandardOutput())
 $ErrorOutput.Position=0;$ErrorOutput.CopyTo([Console]::OpenStandardError())
+if($OwnedTeardown){exit 0}
 exit $Process.ExitCode
 '''
 _RTWIN_LAUNCHER_BYTES: Final = _RTWIN_LAUNCHER_SOURCE.encode("utf-8")
-_RTWIN_LAUNCHER_SHA256: Final = "7247beda73482146c26b997702c9f74e6e9fb930e0bc55605fde42caa218658f"
-_RTWIN_LAUNCHER_SIZE: Final = 9579
-_RTWIN_LAUNCHER_LF_COUNT: Final = 161
+_RTWIN_LAUNCHER_SHA256: Final = "52ce86be68356832b5b357c1c088aee9fc1b19701fe98115ef97b2a077dd7f60"
+_RTWIN_LAUNCHER_SIZE: Final = 11790
+_RTWIN_LAUNCHER_LF_COUNT: Final = 200
 if (
     len(_RTWIN_LAUNCHER_BYTES) != _RTWIN_LAUNCHER_SIZE
     or sha256(_RTWIN_LAUNCHER_BYTES).hexdigest() != _RTWIN_LAUNCHER_SHA256

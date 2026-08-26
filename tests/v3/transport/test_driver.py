@@ -60,7 +60,7 @@ class ManifestAndCommandTests(TransportFixture):
         self.assertEqual(manifest.trust_roots["rtwin_remote_shell"].shell_grammar, "cmd-powershell-launcher-v1")
         launcher=manifest.trust_roots["rtwin_launcher"]
         self.assertEqual((launcher.expected_size_bytes,launcher.expected_sha256),(_RTWIN_LAUNCHER_SIZE,_RTWIN_LAUNCHER_SHA256))
-        self.assertEqual((launcher.path,launcher.deployment_identity),(r"C:\AutoG16Runtime\auto-g16-v3-rtwin-launcher-v3.ps1","auto-g16-v3-rtwin-launcher-v3"))
+        self.assertEqual((launcher.path,launcher.deployment_identity),(r"C:\AutoG16Runtime\auto-g16-v3-rtwin-launcher-v4.ps1","auto-g16-v3-rtwin-launcher-v4"))
 
     def test_production_qsub_qstat_manifest_evidence_is_exact(self) -> None:
         profile = self.profile()

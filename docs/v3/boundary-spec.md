@@ -4651,3 +4651,66 @@ reconciled by exact identity and count. Count zero is mandatory. A nonzero
 count requires a separate exact-process termination gate; this contract grants
 no broad kill, cleanup, deletion, or deployment authority. It also grants no
 workspace/staging, qsub, Gaussian, retry, recovery Attempt, or live effect.
+
+## V30-TRANSPORT-WINDOWS-OPENSSH-REDIRECTED-OUTPUT-COMPLETION-CONTRACT-01 boundary
+
+Revision-5 deployment remains PASS and its deployed launcher/manifest remain
+immutable. Production qualification remains failed evidence because exact
+Windows OpenSSH 9.5p1 returned emitted bytes through redirected stdout/stderr
+but kept the owned child process nonterminal. This section supersedes only the
+nested response-completion rule. It does not authorize a revision-5 replay or
+alter any deployed file.
+
+The launcher mechanically recognizes response completion in this exact order:
+
+1. collect at least the 12-byte response header under the existing
+   179306496-byte stdout cap;
+2. require bytes 0..3 to equal ASCII `AGV3`;
+3. decode bytes 4..11 as one unsigned 64-bit big-endian length;
+4. require that length to be at most 179306484;
+5. collect exactly `12 + length` bytes;
+6. require zero stderr bytes and zero stdout bytes beyond that exact frame.
+
+No earlier state is response-complete. Partial header/payload, bad magic,
+oversize, stderr, cap overflow, extra byte, or second frame rejects. A full
+frame does not mean protocol success: the launcher parses no JSON and assigns
+no operation, binding, status, result, retry, scheduler, or scientific
+authority.
+
+After both `NESTED_STDIN_CLOSED` and `RESPONSE_FRAME_COMPLETE`, a source-fixed
+monotonic 5000-millisecond grace begins. Throughout the grace the existing
+bounded asynchronous drains continue, so late extra output or stderr rejects.
+If the child exits naturally, both streams must still reach EOF and the exact
+child exit status is preserved. If it remains alive after the grace, only the
+exact `Process` instance that this launcher created may be terminated. The
+launcher then waits for that exact process and both pipes to close, rejects any
+new bytes, and performs every existing postlaunch attestation before emitting
+the buffered response. The owned-teardown mechanical outcome maps to launcher
+exit zero only after those predicates pass. There is no process discovery,
+PID-only lookup, name filter, tree kill, substitute process, or retry.
+
+The Controller remains the sole response semantic authority. Its existing
+decoder requires the exact frame length and canonical JSON, exact `/2`
+protocol, matching operation, closed status/result schema, and operation-
+specific binding. A malformed or semantically wrong complete frame therefore
+fails after mechanical transport completion. For a possibly-effectful request,
+anything short of one Controller-accepted response retains `UNKNOWN` and zero
+automatic retry; it never permits a second qsub.
+
+The unchanged bootstrap still reads one complete request and requires request
+EOF. Its response bytes, AGV3 `/2`, seven operations, manifest schema v2, ten
+trust roots, command construction, resource enactment, no-overwrite rules,
+physical identities, and all public APIs remain unchanged. General process
+completion/EOF rules elsewhere remain binding; this exception applies only to
+the attested revision-6 RTwin launcher and its one owned nested Windows
+OpenSSH child after an exact response frame.
+
+The successor is `auto-g16-v3-rtwin-launcher-v4.ps1`, 11790 bytes, 200 LF,
+zero CR/NUL, SHA-256
+`52ce86be68356832b5b357c1c088aee9fc1b19701fe98115ef97b2a077dd7f60`.
+Bootstrap identity remains 15562 bytes and SHA-256
+`ad0ba2af50a3bfedf186acf13d8468d5951f5d201b71687ba5dd2ef7b2a208ae`.
+A successor manifest-v2 content instance changes only the launcher identity
+and path; ServerProfile revision 6 must resolve a new profile ID and effective
+digest. Integration prepares, but does not authorize, its fresh two-file
+no-overwrite deployment.
