@@ -82,6 +82,36 @@ def _acquire_launcher_frame_model(stream: _HeldOpenFrameStream) -> bytes:
     return header + read_exact(size)
 
 
+def _classify_launcher_response_model(
+    stdout: bytes,
+    *,
+    stderr: bytes = b"",
+    child_exited: bool = False,
+    grace_elapsed_ms: int = 0,
+) -> str:
+    """Test oracle for the launcher's mechanical response-completion seam."""
+
+    if len(stdout) < 12:
+        raise ValueError("partial AGV3 response header")
+    if stdout[:4] != b"AGV3":
+        raise ValueError("bad AGV3 response magic")
+    size = int.from_bytes(stdout[4:12], "big")
+    if size > 179_306_484:
+        raise ValueError("AGV3 response payload too large")
+    expected = 12 + size
+    if len(stdout) < expected:
+        raise ValueError("partial AGV3 response payload")
+    if len(stdout) > expected:
+        raise ValueError("extra or multiple AGV3 response bytes")
+    if stderr:
+        raise ValueError("bootstrap diagnostic stderr is nonempty")
+    if child_exited:
+        return "NATURAL_COMPLETION"
+    if grace_elapsed_ms >= 5_000:
+        return "OWNED_CHILD_TEARDOWN"
+    return "WAIT_FOR_OWNED_CHILD"
+
+
 class TransportContractTests(unittest.TestCase):
     def test_public_inventory_is_exact(self) -> None:
         self.assertEqual(tuple(transport.__all__), (
@@ -132,9 +162,9 @@ class TransportContractTests(unittest.TestCase):
         ast.parse(_BOOTSTRAP_SOURCE,feature_version=(3,6))
 
     def test_rtwin_launcher_is_exact_and_narrow(self) -> None:
-        self.assertEqual(_RTWIN_LAUNCHER_NAME,"auto-g16-v3-rtwin-launcher-v3.ps1")
+        self.assertEqual(_RTWIN_LAUNCHER_NAME,"auto-g16-v3-rtwin-launcher-v4.ps1")
         self.assertEqual(_RTWIN_LAUNCHER_BYTES,_RTWIN_LAUNCHER_SOURCE.encode("utf-8"))
-        self.assertEqual((_RTWIN_LAUNCHER_SIZE,_RTWIN_LAUNCHER_LF_COUNT,_RTWIN_LAUNCHER_SHA256),(9579,161,"7247beda73482146c26b997702c9f74e6e9fb930e0bc55605fde42caa218658f"))
+        self.assertEqual((_RTWIN_LAUNCHER_SIZE,_RTWIN_LAUNCHER_LF_COUNT,_RTWIN_LAUNCHER_SHA256),(11790,200,"52ce86be68356832b5b357c1c088aee9fc1b19701fe98115ef97b2a077dd7f60"))
         self.assertEqual(sha256(_RTWIN_LAUNCHER_BYTES).hexdigest(),_RTWIN_LAUNCHER_SHA256)
         self.assertNotIn(b"\r",_RTWIN_LAUNCHER_BYTES)
         self.assertNotIn(b"\x00",_RTWIN_LAUNCHER_BYTES)
@@ -161,7 +191,16 @@ class TransportContractTests(unittest.TestCase):
         self.assertIn("BaseStream.ReadAsync($OutputBuffer,0,$OutputBuffer.Length)",_RTWIN_LAUNCHER_SOURCE)
         self.assertIn("if($Output.Length+$Count-gt 179306496)",_RTWIN_LAUNCHER_SOURCE)
         self.assertIn("if($ErrorOutput.Length+$Count-gt 65536)",_RTWIN_LAUNCHER_SOURCE)
-        self.assertLess(_RTWIN_LAUNCHER_SOURCE.index("if($Output.Length+$Count-gt 179306496)"),_RTWIN_LAUNCHER_SOURCE.index("$Process.WaitForExit()"))
+        self.assertIn("$ResponseExpected=[long]-1;$ResponseComplete=$false",_RTWIN_LAUNCHER_SOURCE)
+        self.assertIn("$CompletionWatch.ElapsedMilliseconds-ge 5000",_RTWIN_LAUNCHER_SOURCE)
+        self.assertIn("$Output.Length-gt$ResponseExpected",_RTWIN_LAUNCHER_SOURCE)
+        self.assertIn("if($OwnedTeardown){exit 0}",_RTWIN_LAUNCHER_SOURCE)
+        self.assertNotIn("Stop-Process",_RTWIN_LAUNCHER_SOURCE)
+        self.assertNotIn("taskkill",_RTWIN_LAUNCHER_SOURCE.lower())
+        self.assertLess(
+            _RTWIN_LAUNCHER_SOURCE.index("if($ResponseComplete -and -not $OwnedTeardown"),
+            _RTWIN_LAUNCHER_SOURCE.index("$Process.Kill();$OwnedTeardown=$true"),
+        )
         self.assertNotIn("StandardOutput.BaseStream.CopyToAsync",_RTWIN_LAUNCHER_SOURCE)
         self.assertNotIn("StandardError.BaseStream.CopyToAsync",_RTWIN_LAUNCHER_SOURCE)
         for forbidden in ("qdel","ALLOCATE_WORKSPACE","STAGE_EXACT_FILE","SUBMIT_QSUB_ONCE"):
@@ -228,6 +267,68 @@ class TransportContractTests(unittest.TestCase):
         self.assertIn("if($ErrorOpen){$Pending.Add($ErrorTask)}", pump)
         self.assertNotIn("BaseStream.Write($RequestFrame", pump)
         self.assertNotIn("OpenStandardInput", pump)
+
+    def test_complete_unique_response_allows_only_owned_child_teardown(self) -> None:
+        response = b"AGV3" + (4).to_bytes(8, "big") + b"data"
+        self.assertEqual(
+            _classify_launcher_response_model(response, child_exited=True),
+            "NATURAL_COMPLETION",
+        )
+        self.assertEqual(
+            _classify_launcher_response_model(response, grace_elapsed_ms=4_999),
+            "WAIT_FOR_OWNED_CHILD",
+        )
+        self.assertEqual(
+            _classify_launcher_response_model(response, grace_elapsed_ms=5_000),
+            "OWNED_CHILD_TEARDOWN",
+        )
+
+    def test_partial_invalid_oversize_extra_or_stderr_never_tears_down_as_success(self) -> None:
+        valid = b"AGV3" + (4).to_bytes(8, "big") + b"data"
+        cases = {
+            "partial-header": valid[:8],
+            "partial-payload": valid[:-1],
+            "wrong-magic": b"BAD!" + valid[4:],
+            "oversize": b"AGV3" + (179_306_485).to_bytes(8, "big"),
+            "extra-byte": valid + b"x",
+            "second-frame": valid + valid,
+        }
+        for name, raw in cases.items():
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                _classify_launcher_response_model(raw, grace_elapsed_ms=5_000)
+        with self.assertRaises(ValueError):
+            _classify_launcher_response_model(valid, stderr=b"diagnostic", grace_elapsed_ms=5_000)
+
+    def test_controller_still_owns_response_semantics_after_mechanical_completion(self) -> None:
+        bodies = {
+            "malformed-json": b"nope",
+            "noncanonical-json": b'{"status": "ok"}\n',
+            "wrong-protocol": canonical_json_bytes({
+                "operation": "QUERY_SCHEDULER", "protocol": "wrong-protocol",
+                "result": {}, "status": "ok",
+            }),
+            "wrong-operation": canonical_json_bytes({
+                "operation": "FETCH_EXACT_FILE", "protocol": _BOOTSTRAP_PROTOCOL,
+                "result": {}, "status": "ok",
+            }),
+            "wrong-status": canonical_json_bytes({
+                "operation": "QUERY_SCHEDULER", "protocol": _BOOTSTRAP_PROTOCOL,
+                "result": {}, "status": "error",
+            }),
+            "wrong-result-type": canonical_json_bytes({
+                "operation": "QUERY_SCHEDULER", "protocol": _BOOTSTRAP_PROTOCOL,
+                "result": [], "status": "ok",
+            }),
+        }
+        for name, body in bodies.items():
+            frame = b"AGV3" + len(body).to_bytes(8, "big") + body
+            with self.subTest(name=name):
+                self.assertEqual(
+                    _classify_launcher_response_model(frame, grace_elapsed_ms=5_000),
+                    "OWNED_CHILD_TEARDOWN",
+                )
+                with self.assertRaises(transport.TransportBoundaryError):
+                    _decode_response_frame(frame, cap=65_536, operation="QUERY_SCHEDULER")
 
     def test_short_loader_template_identity_and_inventory_are_exact(self) -> None:
         self.assertEqual(_POWERSHELL_LOADER_TEMPLATE_V1_SIZE,1021)

@@ -1682,3 +1682,47 @@ expansion.
     Before later deployment/qualification, exact read-only reconciliation must
     prove the six prior residual processes are now count zero; otherwise the
     next gate is exact-process termination, not deployment.
+
+## V30-TRANSPORT-WINDOWS-OPENSSH-REDIRECTED-OUTPUT-COMPLETION-CONTRACT-01 acceptance
+
+1. Revision-5 deployment remains PASS, qualification remains failed evidence,
+   and no test, PR, or integration action modifies or republishes its deployed
+   files. No workspace, qsub, Gaussian, qdel, cleanup, retry, or Attempt is
+   created.
+2. The launcher recognizes completion only after exact `AGV3`, a bounded
+   uint64 length, and all declared payload bytes. Partial header/payload, bad
+   magic, oversize, stdout overflow, stderr, an extra byte, or a second frame
+   can never reach the controlled-success branch.
+3. After exact nested-stdin closure and response completion, bounded drains
+   continue through an exact monotonic 5000-millisecond natural-exit grace.
+   Natural exit/EOF remains valid. A still-live child may be terminated only
+   through the exact `Process` instance created by the launcher; no broad,
+   name-based, discovered, replacement, or process-tree termination exists.
+4. After owned teardown, both streams close, captured stdout remains exactly
+   one frame, stderr remains empty, every postlaunch attestation passes, and
+   only then may the launcher return mechanical success. Kill failure, extra
+   output, diagnostic output, or postlaunch drift fails closed.
+5. Complete malformed JSON and exact complete frames carrying wrong protocol,
+   operation, status, result, or binding pass no semantic authority. Existing
+   Controller decoding rejects each vector. Merely receiving stdout never
+   means success.
+6. Bootstrap bytes/digest, request EOF validation, AGV3 `/2`, seven operation
+   schemas, manifest schema v2, ten roots, operation table, public APIs, Torque
+   renderer, workspace/artifact identities, and resource sole authority remain
+   byte-for-byte or semantically unchanged as applicable.
+7. Existing effect regressions remain PASS: `REPLAY` produces zero effect,
+   `UNKNOWN` produces zero automatic retry/second qsub, qsub remains at most
+   once, and no response-completion path can manufacture a Core claim or new
+   effect authority.
+8. Launcher identity is exactly `auto-g16-v3-rtwin-launcher-v4.ps1`, 11790
+   bytes, 200 LF, SHA-256
+   `52ce86be68356832b5b357c1c088aee9fc1b19701fe98115ef97b2a077dd7f60`.
+   A successor manifest-v2 instance and ServerProfile revision 6 bind the new
+   identity; bootstrap remains unchanged.
+9. Focused Transport, affected selector evidence, and the changed synthetic
+   V30-A composition path pass without any network/live test. Independent
+   adversarial review reports `P0/P1/P2/P3 = 0/0/0/0`.
+10. Integration authorizes only preparation of the exact revision-6 two-file
+    deployment packet. Deployment, real qualification, recovery Attempt,
+    approvals, snapshot, operational confirmation, and calculation effects
+    remain separate Owner gates.
