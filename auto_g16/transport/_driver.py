@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 from dataclasses import dataclass, field
 from hashlib import sha256
 import os
@@ -17,7 +18,7 @@ from typing import Final, Mapping, Protocol
 
 from auto_g16.execution import ExecutionSnapshot, ServerProfile, assert_execution_snapshot_identity, resolve_server_profile
 
-from ._bridge import _BOOTSTRAP_PROTOCOL, _BOOTSTRAP_SOURCE_BYTES, _BOOTSTRAP_SOURCE_NAME, _RTWIN_LAUNCHER_SHA256, _RTWIN_LAUNCHER_SIZE, _build_rtwin_command, _decode_response_frame, _encode_request_frame
+from ._bridge import _BOOTSTRAP_PROTOCOL, _BOOTSTRAP_SOURCE_BYTES, _BOOTSTRAP_SOURCE_NAME, _RTWIN_LAUNCHER_SHA256, _RTWIN_LAUNCHER_SIZE, _build_mac_proxyjump_command, _build_rtwin_command, _decode_response_frame, _encode_request_frame
 from ._canonical import TransportBoundaryError, canonical_json_bytes, strict_canonical_json
 
 _FIXED_ENV: Final = {"LANG":"C","LC_ALL":"C","PYTHONNOUSERSITE":"1","PYTHONUTF8":"1"}
@@ -38,6 +39,14 @@ _SSH_CONFIG_PATHS: Final = MappingProxyType({
     "mac-ssh-config":"mac_ssh_config_path","mac-known-hosts":"mac_known_hosts_path",
     "rtwin-ssh-config":"rtwin_ssh_config_path","rtwin-known-hosts":"rtwin_known_hosts_path",
 })
+_PROXYJUMP_CONFIG_NAMES: Final = ("mac-proxyjump-ssh-config","mac-rtwin-known-hosts","mac-final-known-hosts","mac-final-public-key")
+_PROXYJUMP_CONFIG_PATHS: Final = MappingProxyType({
+    "mac-proxyjump-ssh-config":"mac_proxyjump_ssh_config_path",
+    "mac-rtwin-known-hosts":"mac_rtwin_known_hosts_path",
+    "mac-final-known-hosts":"mac_final_known_hosts_path",
+    "mac-final-public-key":"mac_final_public_key_path",
+})
+_OPTION1_MAC_SSH: Final = ("/usr/bin/ssh",1_584_576,"17542914a3fb55e7efeb35a90d594a21c84bf6a4cfe1fc8ddff5606dc2658fc3")
 _WINDOWS_DRIVE: Final = re.compile(r"^[A-Z]:\\")
 _WINDOWS_RESERVED: Final = {"CON","PRN","AUX","NUL",*(f"COM{index}" for index in range(1,10)),*(f"LPT{index}" for index in range(1,10))}
 _TABLE_NAME: Final = "auto-g16-rtwin-operation-table/2"
@@ -94,8 +103,11 @@ class _SSHConfigHop:
 class _SSHEffectAuthority:
     mac_to_rtwin:_SSHConfigHop; rtwin_to_server:_SSHConfigHop
 @dataclass(frozen=True,slots=True)
+class _MacProxyJumpEffectAuthority:
+    route:str; config:_BoundEffectFile; rtwin_known_hosts:_BoundEffectFile; final_known_hosts:_BoundEffectFile; final_public_key:_BoundEffectFile; final_identity_fingerprint:str; final_identity_file_identity:tuple[int,int,int,int,int]; rtwin_target:_SSHConfigTarget; final_target:_SSHConfigTarget
+@dataclass(frozen=True,slots=True)
 class _DeploymentAuthority:
-    manifest:_DeploymentManifest; resource_dialect:_ResourceDialect; ssh_effect:_SSHEffectAuthority; resolved_server_profile_id:str; effective_config_sha256:str; execution_snapshot_id:str; bootstrap_source_sha256:str; bootstrap_source_size_bytes:int; bootstrap_source_path:str; manifest_path:str
+    manifest:_DeploymentManifest; resource_dialect:_ResourceDialect; ssh_effect:_SSHEffectAuthority|_MacProxyJumpEffectAuthority; resolved_server_profile_id:str; effective_config_sha256:str; execution_snapshot_id:str; bootstrap_source_sha256:str; bootstrap_source_size_bytes:int; bootstrap_source_path:str|None; manifest_path:str|None
 @dataclass(frozen=True,slots=True,kw_only=True)
 class _Invocation:
     operation:_Operation; argv:tuple[str,...]; cwd:str; request:Mapping[str,object]; authority:_DeploymentAuthority
@@ -245,7 +257,102 @@ def _parse_ssh_config(raw:bytes,*,platform:str,config_name:str,config_path:str,k
     bound=_BoundEffectFile(config_name,config_path,platform,sha256(raw).hexdigest(),len(raw))
     return bound,_SSHConfigTarget(alias,host,int(port_text),user,identity)
 
-def _resolve_ssh_effect(profile:ServerProfile,current:object)->_SSHEffectAuthority:
+def _parse_openssh_ed25519_public_identity(raw:bytes)->str:
+    if type(raw) is not bytes or not raw.endswith(b"\n") or raw.endswith(b"\n\n") or b"\r" in raw or b"\x00" in raw:
+        raise TransportBoundaryError("Mac ProxyJump final public key bytes are invalid")
+    try: fields=raw[:-1].decode("ascii",errors="strict").split(" ")
+    except UnicodeDecodeError as exc: raise TransportBoundaryError("Mac ProxyJump final public key is not ASCII") from exc
+    if len(fields) not in {2,3} or fields[0]!="ssh-ed25519" or not fields[1] or len(fields)==3 and not fields[2]:
+        raise TransportBoundaryError("Mac ProxyJump final public key grammar is invalid")
+    try: blob=base64.b64decode(fields[1].encode("ascii"),validate=True)
+    except Exception as exc: raise TransportBoundaryError("Mac ProxyJump final public key encoding is invalid") from exc
+    if base64.b64encode(blob).decode("ascii")!=fields[1] or len(blob)!=51:
+        raise TransportBoundaryError("Mac ProxyJump final public key encoding is noncanonical")
+    name_size=int.from_bytes(blob[:4],"big"); key_size=int.from_bytes(blob[4+name_size:8+name_size],"big")
+    if name_size!=11 or blob[4:15]!=b"ssh-ed25519" or key_size!=32 or len(blob)!=8+name_size+key_size:
+        raise TransportBoundaryError("Mac ProxyJump final public key blob is invalid")
+    return "SHA256:"+base64.b64encode(sha256(blob).digest()).decode("ascii").rstrip("=")
+
+def _parse_mac_proxyjump_config(raw:bytes,*,config_path:str,rtwin_known_hosts_path:str,final_known_hosts_path:str,final_public_key_raw:bytes,current:object)->_MacProxyJumpEffectAuthority:
+    config_name="mac-proxyjump-ssh-config"
+    if type(raw) is not bytes or not raw or raw.startswith(b"\xef\xbb\xbf") or b"\x00" in raw or b"\r" in raw or b"\t" in raw or not raw.endswith(b"\n") or raw.endswith(b"\n\n"):
+        raise TransportBoundaryError("Mac ProxyJump config byte grammar is invalid")
+    try: text=raw.decode("utf-8",errors="strict")
+    except UnicodeDecodeError as exc: raise TransportBoundaryError("Mac ProxyJump config is not strict UTF-8") from exc
+    blocks:list[dict[str,str]]=[]; comments:list[str]=[]
+    current_block:dict[str,str]|None=None
+    for line in text[:-1].split("\n"):
+        if not line: continue
+        if line.startswith("#"):
+            comments.append(line); continue
+        match=re.fullmatch(r" *([A-Za-z][A-Za-z0-9]*) ([^ ]+)",line)
+        if match is None: raise TransportBoundaryError("Mac ProxyJump config line grammar is invalid")
+        key,value=match.groups()
+        if key=="Host":
+            current_block={"Host":value}; blocks.append(current_block); continue
+        if current_block is None or key in current_block: raise TransportBoundaryError("Mac ProxyJump config directive inventory is invalid")
+        current_block[key]=value
+    common={"Host","HostName","Port","User","IdentityFile","CertificateFile","IdentitiesOnly","IdentityAgent","PreferredAuthentications","PubkeyAuthentication","PasswordAuthentication","KbdInteractiveAuthentication","GSSAPIAuthentication","HostbasedAuthentication","StrictHostKeyChecking","UserKnownHostsFile","GlobalKnownHostsFile","UpdateHostKeys","VerifyHostKeyDNS","ForwardAgent","RequestTTY","BatchMode"}
+    fingerprint=_parse_openssh_ed25519_public_identity(final_public_key_raw)
+    if len(comments)!=2 or comments[0]!=f"# AutoG16FinalIdentityFingerprint {fingerprint}":
+        raise TransportBoundaryError("Mac ProxyJump final identity fingerprint is invalid")
+    identity_match=re.fullmatch(r"# AutoG16FinalIdentityFileIdentity ([0-9]+):([0-9]+):([0-9]+):([0-9]+):([0-9]+)",comments[1])
+    if identity_match is None: raise TransportBoundaryError("Mac ProxyJump final identity file identity is invalid")
+    final_file_identity=tuple(int(value) for value in identity_match.groups())
+    if len(blocks)!=2 or set(blocks[0])!=common or set(blocks[1])!=common|{"ProxyJump"}:
+        raise TransportBoundaryError("Mac ProxyJump config must contain exactly the jump and final hosts")
+    jump,final=blocks
+    fixed={
+        "IdentitiesOnly":"yes","IdentityAgent":"none","CertificateFile":"none","PreferredAuthentications":"publickey","PubkeyAuthentication":"yes",
+        "PasswordAuthentication":"no","KbdInteractiveAuthentication":"no","GSSAPIAuthentication":"no","HostbasedAuthentication":"no",
+        "StrictHostKeyChecking":"yes","GlobalKnownHostsFile":"/dev/null","UpdateHostKeys":"no","VerifyHostKeyDNS":"no",
+        "ForwardAgent":"no","RequestTTY":"no","BatchMode":"yes",
+    }
+    if any(block.get(key)!=value for block in blocks for key,value in fixed.items()):
+        raise TransportBoundaryError("Mac ProxyJump config security directives are invalid")
+    target=getattr(current,"target_identity"); jumps=target["jump_topology"]
+    if len(jumps)!=1: raise TransportBoundaryError("exactly one RTwin ProxyJump hop is required")
+    hop=jumps[0]
+    if (jump["HostName"],jump["Port"],jump["User"])!=(hop["host"],str(hop["port"]),hop["user"]):
+        raise TransportBoundaryError("Mac ProxyJump config differs from RTwin hop")
+    if (final["HostName"],final["Port"],final["User"])!=(target["destination_host"],str(target["destination_port"]),getattr(current,"remote_user")):
+        raise TransportBoundaryError("Mac ProxyJump config differs from server target")
+    aliases=(jump["Host"],final["Host"])
+    if aliases[0]==aliases[1] or any(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*",alias) is None for alias in aliases) or final["ProxyJump"]!=jump["Host"]:
+        raise TransportBoundaryError("Mac ProxyJump aliases are invalid")
+    if jump["UserKnownHostsFile"]!=rtwin_known_hosts_path or final["UserKnownHostsFile"]!=final_known_hosts_path:
+        raise TransportBoundaryError("Mac ProxyJump known-host path differs from profile")
+    jump_identity=_closed_effect_path(jump["IdentityFile"],"macos","Mac ProxyJump RTwin IdentityFile")
+    final_identity=_closed_effect_path(final["IdentityFile"],"macos","Mac ProxyJump final IdentityFile")
+    if jump_identity==final_identity: raise TransportBoundaryError("Mac ProxyJump identities must be distinct")
+    bound=_BoundEffectFile(config_name,config_path,"macos",sha256(raw).hexdigest(),len(raw))
+    return _MacProxyJumpEffectAuthority(
+        "mac-openssh-proxyjump-v1",bound,
+        _BoundEffectFile("mac-rtwin-known-hosts",rtwin_known_hosts_path,"macos","",0),
+        _BoundEffectFile("mac-final-known-hosts",final_known_hosts_path,"macos","",0),
+        _BoundEffectFile("mac-final-public-key","","macos",sha256(final_public_key_raw).hexdigest(),len(final_public_key_raw)),
+        fingerprint,final_file_identity,
+        _SSHConfigTarget(jump["Host"],jump["HostName"],int(jump["Port"]),jump["User"],jump_identity),
+        _SSHConfigTarget(final["Host"],final["HostName"],int(final["Port"]),final["User"],final_identity),
+    )
+
+def _resolve_ssh_effect(profile:ServerProfile,current:object)->_SSHEffectAuthority|_MacProxyJumpEffectAuthority:
+    names=tuple(name for name,_content in profile.config_files)
+    if len(names)==len(_PROXYJUMP_CONFIG_NAMES) and set(names)==set(_PROXYJUMP_CONFIG_NAMES):
+        contents=dict(profile.config_files); paths=getattr(current,"platform_paths"); bound={}
+        for logical_name,path_key in _PROXYJUMP_CONFIG_PATHS.items():
+            try:path=_closed_effect_path(paths[path_key],"macos",path_key)
+            except KeyError as exc: raise TransportBoundaryError("Mac ProxyJump effect path inventory is incomplete") from exc
+            raw=contents[logical_name]
+            if logical_name!="mac-proxyjump-ssh-config":
+                if type(raw) is not bytes or not raw: raise TransportBoundaryError(f"{logical_name} bytes are invalid")
+                bound[logical_name]=_BoundEffectFile(logical_name,path,"macos",sha256(raw).hexdigest(),len(raw))
+        value=_parse_mac_proxyjump_config(
+            contents["mac-proxyjump-ssh-config"],config_path=_closed_effect_path(paths["mac_proxyjump_ssh_config_path"],"macos","mac_proxyjump_ssh_config_path"),
+            rtwin_known_hosts_path=bound["mac-rtwin-known-hosts"].path,final_known_hosts_path=bound["mac-final-known-hosts"].path,
+            final_public_key_raw=contents["mac-final-public-key"],current=current,
+        )
+        return _MacProxyJumpEffectAuthority(value.route,value.config,bound["mac-rtwin-known-hosts"],bound["mac-final-known-hosts"],bound["mac-final-public-key"],value.final_identity_fingerprint,value.final_identity_file_identity,value.rtwin_target,value.final_target)
     if set(name for name,_content in profile.config_files)!=set(_SSH_CONFIG_NAMES) or len(profile.config_files)!=len(_SSH_CONFIG_NAMES):
         raise TransportBoundaryError("SSH effect config inventory is invalid")
     contents=dict(profile.config_files); paths=getattr(current,"platform_paths")
@@ -284,12 +391,17 @@ def _resolve_deployment_authority(snapshot:ExecutionSnapshot,current_profile:Ser
     if source_identity!=expected_source: raise TransportBoundaryError("bootstrap source differs from source")
     manifest=_parse_deployment_manifest(raw); dialect=_parse_resource_descriptor(descriptor_raw); _validate_resource_deployment(manifest,dialect); ssh_effect=_resolve_ssh_effect(frozen_profile,current)
     launcher=manifest.trust_roots["rtwin_launcher"]
-    if (launcher.expected_size_bytes,launcher.expected_sha256)!=(_RTWIN_LAUNCHER_SIZE,_RTWIN_LAUNCHER_SHA256): raise TransportBoundaryError("RTwin launcher differs from source-controlled bytes")
-    try:
-        bootstrap_path=_closed_effect_path(frozen.platform_paths["rtwin_bootstrap_source_path"],"windows","rtwin_bootstrap_source_path")
-        manifest_path=_closed_effect_path(frozen.platform_paths["rtwin_deployment_manifest_path"],"windows","rtwin_deployment_manifest_path")
-    except KeyError as exc: raise TransportBoundaryError("RTwin runtime data path inventory is incomplete") from exc
-    if bootstrap_path in {manifest_path,launcher.path} or manifest_path==launcher.path: raise TransportBoundaryError("RTwin runtime data paths are not distinct")
+    if isinstance(ssh_effect,_MacProxyJumpEffectAuthority):
+        mac_ssh=manifest.trust_roots["mac_ssh"]
+        if (mac_ssh.path,mac_ssh.expected_size_bytes,mac_ssh.expected_sha256)!=_OPTION1_MAC_SSH: raise TransportBoundaryError("Option-1 Mac OpenSSH identity differs from qualification")
+        bootstrap_path=manifest_path=None
+    else:
+        if (launcher.expected_size_bytes,launcher.expected_sha256)!=(_RTWIN_LAUNCHER_SIZE,_RTWIN_LAUNCHER_SHA256): raise TransportBoundaryError("RTwin launcher differs from source-controlled bytes")
+        try:
+            bootstrap_path=_closed_effect_path(frozen.platform_paths["rtwin_bootstrap_source_path"],"windows","rtwin_bootstrap_source_path")
+            manifest_path=_closed_effect_path(frozen.platform_paths["rtwin_deployment_manifest_path"],"windows","rtwin_deployment_manifest_path")
+        except KeyError as exc: raise TransportBoundaryError("RTwin runtime data path inventory is incomplete") from exc
+        if bootstrap_path in {manifest_path,launcher.path} or manifest_path==launcher.path: raise TransportBoundaryError("RTwin runtime data paths are not distinct")
     return _DeploymentAuthority(manifest,dialect,ssh_effect,frozen.resolved_server_profile_id,frozen.effective_config_sha256,snapshot.execution_snapshot_id,expected_source["sha256"],expected_source["size_bytes"],bootstrap_path,manifest_path)
 
 def _assert_deployment_snapshot(snapshot:ExecutionSnapshot,authority:_DeploymentAuthority)->None:
@@ -340,6 +452,15 @@ def _attest_local_effect_file(bound:_BoundEffectFile)->tuple[int,int]:
         if os.read(fd,1) or digest.hexdigest()!=bound.expected_sha256: raise TransportBoundaryError(f"{bound.name} bytes drifted")
         return opened.st_dev,opened.st_ino
     finally: os.close(fd)
+
+def _attest_identity_reference(path:str,expected:tuple[int,int,int,int,int]|None=None)->tuple[int,int,int,int,int]:
+    try: value=os.stat(path,follow_symlinks=False)
+    except OSError as exc: raise TransportBoundaryError("Mac SSH identity reference is unavailable") from exc
+    if not stat.S_ISREG(value.st_mode) or stat.S_IMODE(value.st_mode)!=0o600 or value.st_uid!=os.getuid():
+        raise TransportBoundaryError("Mac SSH identity reference is unsafe")
+    actual=(value.st_dev,value.st_ino,value.st_size,value.st_mtime_ns,value.st_ctime_ns)
+    if expected is not None and actual!=expected: raise TransportBoundaryError("Mac SSH identity reference differs from profile")
+    return actual
 
 def _canonical_b64(value:object)->bytes:
     import base64
@@ -435,17 +556,25 @@ class _SubprocessRTWinDriver:
         if not invocation.authority.resource_dialect.live_capable:
             return b"",b"",None,"transport-error",False,False
         roots=invocation.authority.manifest.trust_roots
-        local_files=(invocation.authority.ssh_effect.mac_to_rtwin.config,invocation.authority.ssh_effect.mac_to_rtwin.known_hosts)
-        before={name:_attest_local(roots[name]) for name in ("mac_ssh","mac_scp")}
+        effect=invocation.authority.ssh_effect
+        if isinstance(effect,_MacProxyJumpEffectAuthority):
+            local_files=(effect.config,effect.rtwin_known_hosts,effect.final_known_hosts,effect.final_public_key); root_names=("mac_ssh",)
+            identity_paths=((effect.rtwin_target.identity_file,None),(effect.final_target.identity_file,effect.final_identity_file_identity))
+            command=_build_mac_proxyjump_command(snapshot,invocation.authority)
+        else:
+            local_files=(effect.mac_to_rtwin.config,effect.mac_to_rtwin.known_hosts); root_names=("mac_ssh","mac_scp")
+            identity_paths=(); command=_build_rtwin_command(snapshot,invocation.authority)
+        before={name:_attest_local(roots[name]) for name in root_names}
         before.update({bound.name:_attest_local_effect_file(bound) for bound in local_files})
+        before.update({f"identity-{index}":_attest_identity_reference(path,expected) for index,(path,expected) in enumerate(identity_paths)})
         request=_encode_request_frame(invocation.request,cap=invocation.operation.stdin_cap)
-        command=_build_rtwin_command(snapshot,invocation.authority)
         process=None
         try:
             process=subprocess.Popen(command,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=dict(_FIXED_ENV),shell=False,start_new_session=True)
             stdout,stderr,returncode,status,eofout,eoferr=self._communicate_bounded(process,request,invocation.operation)
-            after={name:_attest_local(roots[name]) for name in ("mac_ssh","mac_scp")}
+            after={name:_attest_local(roots[name]) for name in root_names}
             after.update({bound.name:_attest_local_effect_file(bound) for bound in local_files})
+            after.update({f"identity-{index}":_attest_identity_reference(path,expected) for index,(path,expected) in enumerate(identity_paths)})
             if before!=after: return b"",b"",None,"transport-error",False,False
             if status!="completed": return stdout,stderr,returncode,status,eofout,eoferr
             return stdout,stderr,returncode,"completed",True,True
@@ -492,4 +621,4 @@ def _is_fetch_result_closed(value:object)->bool:
     if value.status!="found": return not value.content and all(item is None for item in values)
     return type(value.before_identity) is str and type(value.after_identity) is str and type(value.before_size) is int and type(value.after_size) is int and type(value.before_sha256) is str and type(value.after_sha256) is str
 
-__all__=["_BOOTSTRAP_PROTOCOL","_DeploymentAuthority","_DeploymentManifest","_FIXED_ENV","_FetchResult","_Invocation","_MANIFEST_NAME","_OPERATION_TABLE_BYTES","_OPERATION_TABLE_SHA256","_RESOURCE_DESCRIPTOR_NAME","_RTWinDriver","_SubprocessRTWinDriver","_SYNTHETIC_RESOURCE_DIALECT","_TORQUE_RESOURCE_DIALECT","_TextResult","_assert_deployment_snapshot","_attest_local_effect_file","_is_fetch_result_closed","_is_text_result_closed","_operation","_parse_deployment_manifest","_parse_resource_descriptor","_render_qsub_argv","_resolve_deployment_authority","_resource_enactment"]
+__all__=["_BOOTSTRAP_PROTOCOL","_DeploymentAuthority","_DeploymentManifest","_FIXED_ENV","_FetchResult","_Invocation","_MANIFEST_NAME","_MacProxyJumpEffectAuthority","_OPERATION_TABLE_BYTES","_OPERATION_TABLE_SHA256","_OPTION1_MAC_SSH","_RESOURCE_DESCRIPTOR_NAME","_RTWinDriver","_SubprocessRTWinDriver","_SYNTHETIC_RESOURCE_DIALECT","_TORQUE_RESOURCE_DIALECT","_TextResult","_assert_deployment_snapshot","_attest_identity_reference","_attest_local_effect_file","_is_fetch_result_closed","_is_text_result_closed","_operation","_parse_deployment_manifest","_parse_openssh_ed25519_public_identity","_parse_resource_descriptor","_render_qsub_argv","_resolve_deployment_authority","_resource_enactment"]

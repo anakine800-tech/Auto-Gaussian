@@ -42,9 +42,11 @@
   Result-attribution dependency is satisfied. ScientificValidation must not
   parse raw Gaussian output. The historical `GaussianLogParser` semantics and
   generic parser-version Result authority are preserved.
-  This status closeout performs no product or contract mutation. The remaining
-  EXEC-02 work and OpenSSH are deferred; deployment, retry,
-  qdel/delete/cleanup, and live work remain unauthorized.
+  `V30-A-OPTION1-MAC-PROXYJUMP-PRODUCT-INTEGRATION-01` selects the qualified
+  Mac OpenSSH + RTwin ProxyJump production successor and integrates its minimal
+  private Transport seam. ServerProfile revision 8 is the first Option-1
+  profile. Deployment, retry, qdel/delete/cleanup, and live calculation work
+  remain unauthorized.
 - **Observe contract and implementation integrated:**
   `V30-OBS-MIN-CONTRACT-01` is
   `CLOSED / FROZEN / INTEGRATED`. It freezes only read-only exact-Attempt
@@ -217,29 +219,31 @@
   `V30-PBS-TORQUE-DIALECT-01` is `CLOSED / FROZEN / INTEGRATED`; its exact
   source-controlled renderer and deployment-evidence checks are qualified on
   authoritative main. This qualification grants no live qsub authority.
-- **Current gate:** `V30-TRANSPORT-AGV3-EOF-INDEPENDENT-FORWARDING-01` is
-  active on `main@2b60bc8a6fcc35a1dba1a55b060f09b24ad9d3d1`. Revision-4
-  two-file deployment is `2/2 PRESENT-VALID`, but its read-only qualification
-  is failed evidence: the launcher copied outer stdin through EOF before
-  closing nested stdin, while the unchanged bootstrap required post-frame EOF.
-  The product successor mechanically acquires the exact capped AGV3 frame
-  before nested start, writes it byte-identically, and closes nested stdin
-  without waiting for outer EOF. Protocol/table/bootstrap and every upstream
-  API remain unchanged. The successor launcher is
-  `auto-g16-v3-rtwin-launcher-v3.ps1`, 9579 bytes / 161 LF / SHA-256
-  `7247beda...`; a new manifest-v2 content instance and ServerProfile revision
-  5 are required. The first live Attempt remains `NOT_SUBMITTED` and
-  permanently nonreexecutable.
-- **Live:** calculation execution remains `NO-GO`. This exact gate authorizes
-  product integration and preparation of a revision-5 two-file successor
-  launcher plus manifest deployment packet only. Six residual processes from
-  the failed qualification must read-only reconcile to zero before that future
-  deployment; otherwise an exact-process termination Gate is required. This
-  gate grants no RTwin persistent write,
-  Attempt workspace, staging, qstat/qsub, PBS, Gaussian, cleanup, retry, or
-  other calculation effect. After exact-main closeout the next Owner decision
-  is `AUTHORIZE REVISION-5 TWO-FILE DEPLOYMENT / HOLD`, subject to the residual
-  process gate.
+- **Current gate:** `V30-A-OPTION1-MAC-PROXYJUMP-PRODUCT-INTEGRATION-01` is
+  `CLOSED / INTEGRATED`. The selected route is Mac `/usr/bin/ssh` -> exact
+  private config -> RTwin `ProxyJump` -> final server. Real qualification
+  proved exact 12-byte DATA and EOF, with zero write, retry, or residual.
+  Windows ProcessStartInfo and STARTUPINFOEX stdin routes are rejected for real
+  DATA; file-backed Windows stdin remains historical unqualified evidence and
+  none is an Option-1 fallback. ServerProfile revision 8 binds the qualified
+  OpenSSH 10.3p1 identity, explicit RTwin/final trust, and dedicated final-key
+  fingerprint without reading private key bytes. Its resolved profile ID is
+  `44f3b829-e2d1-5500-b463-5acd8851d279`, effective config SHA-256 is
+  `110bac5e2fbcecd2a01a81f8df5004f797cb191b2089b620b4379db28a7cb99d`,
+  and its exact ten-root manifest is 3294 bytes with SHA-256
+  `bf422724e83cc16031136783fb042207959cb0cd7f602e7d0f63df787350019e`.
+  The successor profile additionally binds the exact 120-byte public-key
+  artifact (SHA-256 `aca9b1b823ea36c501e76fd755a2acff4f3bd38dafc0f5fa436f4c59ab565f67`)
+  and the qualified private key's physical metadata without reading private
+  bytes. Both hops bind `CertificateFile none`, disabling implicit sibling
+  user-certificate loading. Earlier revision-8 drafts without the public-key
+  artifact or this certificate closure are rejected historical evidence and
+  grant no authority.
+- **Live:** calculation execution remains `NO-GO`. Product integration and
+  merge authorize no production config deployment, Attempt workspace, staging,
+  qstat/qsub, PBS, Gaussian, cleanup, retry, or other calculation effect. The
+  next Owner decision is `OPTION-1 PRODUCTION DEPLOYMENT + PRODUCTION
+  QUALIFICATION`.
 - **Readiness:** `V30-A-SYNTHETIC-COMPOSITION-01` is `CLOSED / INTEGRATED`.
   The exact integrated composition proves the complete offline authority chain,
   the required negative paths, `WINNER`/`REPLAY` sequencing, explicit
@@ -248,8 +252,9 @@
   authoritative main after exact-main validation, `V30-A-READINESS-01` is
   `PASS` for the complete OFFLINE chain including scheduler resource
   enactment. The production renderer and exact-main evidence are closed.
-  LIVE remains `NO-GO` pending the separate `V30-A LIVE OWNER GATE`; OpenSSH
-  remains deferred.
+  LIVE remains `NO-GO`; the selected OpenSSH route is integrated but production
+  deployment and production qualification remain pending separate Owner
+  authority.
 - **CI authority:** Under the current branch-protection and code-scanning
   configuration, the five required PR contexts are merge authority. Dynamic
   CodeQL is a post-merge exact-main attestation. Any material configuration or
@@ -258,7 +263,6 @@
   them to local time. Do not report unchanged status minute by minute, rerun a
   still-running job, impose an unapproved timeout, or classify a slow harness
   as a product failure. Report state changes, anomalies, and terminal status.
-- **Do not start under this docs task:** product mutation, further roadmap
-  work, or V30-A live execution. The remaining EXEC-02 work and OpenSSH remain
-  deferred; production changes, deployment, live smoke, and real
-  SSH/RTwin/PBS/Gaussian operations remain unauthorized.
+- **Do not start after integration:** further roadmap work, deployment, live
+  qualification, recovery Attempt, or V30-A calculation execution. Real
+  SSH/RTwin deployment and all PBS/Gaussian operations remain unauthorized.

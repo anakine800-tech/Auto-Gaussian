@@ -552,14 +552,18 @@ if len(_POWERSHELL_LOADER_TEMPLATE_V1_BYTES)!=_POWERSHELL_LOADER_TEMPLATE_V1_SIZ
     raise RuntimeError("source-controlled PowerShell loader template identity drifted")
 
 def _render_inner_rtwin_arguments(authority:object,server:object)->str:
-    roots=authority.manifest.trust_roots; effect=authority.ssh_effect
-    manifest_arg=base64.b64encode(authority.manifest.raw_bytes).decode("ascii")
-    server_tokens=(roots["server_python"].path,"-I","-S","-B","-c")
-    server_command=" ".join((*(_posix_quote_v1(item) for item in server_tokens),_posix_quote_exact_bootstrap_bytes_v2(_BOOTSTRAP_SOURCE_BYTES),_posix_quote_v1(manifest_arg)))
+    effect=authority.ssh_effect
+    server_command=_render_server_command(authority)
     inner=[*_ssh_effect_options(effect.rtwin_to_server.config,effect.rtwin_to_server.known_hosts),"-p",str(server.port),"-l",server.user,"--",server.alias,server_command]
     arguments=" ".join(_crt_quote(item) for item in inner)
     if len(arguments)>=30000: raise TransportBoundaryError("RTwin inner command exceeds the closed boundary")
     return arguments
+
+def _render_server_command(authority:object)->str:
+    roots=authority.manifest.trust_roots
+    manifest_arg=base64.b64encode(authority.manifest.raw_bytes).decode("ascii")
+    server_tokens=(roots["server_python"].path,"-I","-S","-B","-c")
+    return " ".join((*(_posix_quote_v1(item) for item in server_tokens),_posix_quote_exact_bootstrap_bytes_v2(_BOOTSTRAP_SOURCE_BYTES),_posix_quote_v1(manifest_arg)))
 
 def _render_powershell_loader_v1(replacements:Mapping[str,str])->str:
     expected={"@LAUNCHER_PATH@","@LAUNCHER_SIZE@","@LAUNCHER_SHA@","@MANIFEST_PATH@","@MANIFEST_SIZE@","@MANIFEST_SHA@","@BOOTSTRAP_PATH@","@BOOTSTRAP_SIZE@","@BOOTSTRAP_SHA@","@CONFIG_PATH@","@CONFIG_SIZE@","@CONFIG_SHA@","@KNOWN_PATH@","@KNOWN_SIZE@","@KNOWN_SHA@","@SERVER_ALIAS@","@SERVER_PORT@","@SERVER_USER@","@INNER_LENGTH@","@INNER_SHA@"}
@@ -612,4 +616,28 @@ def _build_rtwin_command(snapshot: object, authority: object) -> tuple[str, ...]
     command=[roots["mac_ssh"].path,*_ssh_effect_options(effect.mac_to_rtwin.config,effect.mac_to_rtwin.known_hosts),"-p",str(mac.port),"-l",mac.user,"--",mac.alias,remote_command]
     return tuple(command)
 
-__all__=["_BOOTSTRAP_PROTOCOL","_BOOTSTRAP_SOURCE","_BOOTSTRAP_SOURCE_BYTES","_BOOTSTRAP_SOURCE_NAME","_BOOTSTRAP_SOURCE_SHA256","_POWERSHELL_LOADER_TEMPLATE_V1","_POWERSHELL_LOADER_TEMPLATE_V1_SHA256","_POWERSHELL_LOADER_TEMPLATE_V1_SIZE","_RTWIN_LAUNCHER_BYTES","_RTWIN_LAUNCHER_LF_COUNT","_RTWIN_LAUNCHER_NAME","_RTWIN_LAUNCHER_SHA256","_RTWIN_LAUNCHER_SIZE","_RTWIN_LAUNCHER_SOURCE","_build_rtwin_command","_cmd_quote_v1","_crt_quote","_decode_response_frame","_encode_request_frame","_posix_quote_exact_bootstrap_bytes_v2","_posix_quote_v1","_powershell_quote_fixed_launcher_v1","_powershell_quote_v1","_render_inner_rtwin_arguments","_render_powershell_loader_v1"]
+def _build_mac_proxyjump_command(snapshot:object,authority:object)->tuple[str,...]:
+    manifest=authority.manifest; roots=manifest.trust_roots; profile=snapshot.resolved_server_profile
+    if (
+        authority.execution_snapshot_id!=snapshot.execution_snapshot_id
+        or authority.resolved_server_profile_id!=profile.resolved_server_profile_id
+        or authority.effective_config_sha256!=profile.effective_config_sha256
+        or authority.bootstrap_source_sha256!=_BOOTSTRAP_SOURCE_SHA256
+        or authority.bootstrap_source_size_bytes!=len(_BOOTSTRAP_SOURCE_BYTES)
+        or manifest.sha256!=sha256(manifest.raw_bytes).hexdigest()
+        or manifest.size_bytes!=len(manifest.raw_bytes)
+    ): raise TransportBoundaryError("deployment authority differs from execution snapshot")
+    effect=authority.ssh_effect
+    if getattr(effect,"route",None)!="mac-openssh-proxyjump-v1":
+        raise TransportBoundaryError("Mac ProxyJump authority is unavailable")
+    server=effect.final_target
+    command=(roots["mac_ssh"].path,"-F",effect.config.path,"--",server.alias,_render_server_command(authority))
+    if (
+        any(not isinstance(token,str) or any(character in token for character in "\x00\r\n") for token in command[:-1])
+        or not isinstance(command[-1],str)
+        or any(character in command[-1] for character in "\x00\r")
+    ):
+        raise TransportBoundaryError("Mac ProxyJump command is invalid")
+    return command
+
+__all__=["_BOOTSTRAP_PROTOCOL","_BOOTSTRAP_SOURCE","_BOOTSTRAP_SOURCE_BYTES","_BOOTSTRAP_SOURCE_NAME","_BOOTSTRAP_SOURCE_SHA256","_POWERSHELL_LOADER_TEMPLATE_V1","_POWERSHELL_LOADER_TEMPLATE_V1_SHA256","_POWERSHELL_LOADER_TEMPLATE_V1_SIZE","_RTWIN_LAUNCHER_BYTES","_RTWIN_LAUNCHER_LF_COUNT","_RTWIN_LAUNCHER_NAME","_RTWIN_LAUNCHER_SHA256","_RTWIN_LAUNCHER_SIZE","_RTWIN_LAUNCHER_SOURCE","_build_mac_proxyjump_command","_build_rtwin_command","_cmd_quote_v1","_crt_quote","_decode_response_frame","_encode_request_frame","_posix_quote_exact_bootstrap_bytes_v2","_posix_quote_v1","_powershell_quote_fixed_launcher_v1","_powershell_quote_v1","_render_inner_rtwin_arguments","_render_powershell_loader_v1","_render_server_command"]

@@ -557,3 +557,29 @@ Controller, open OpenSSH, or perform live work.
 - **Non-goals:** No deployment, nested real qualification, workspace/staging,
   qsub/Gaussian, retry, qdel, deletion/cleanup, recovery Attempt, OpenSSH, or
   generic transport redesign.
+
+### `V30-A-OPTION1-MAC-PROXYJUMP-PRODUCT-INTEGRATION-01`
+
+- **Outcome:** Mechanically integrate the already-qualified Mac
+  `/usr/bin/ssh` plus one RTwin `ProxyJump` route and freeze ServerProfile
+  revision 8. Windows nested-stdin routes remain historical and are never an
+  Option-1 fallback.
+- **Reuse:** KEEP AGV3 framing/decoding, TransportStore, Core/effect semantics,
+  bootstrap, resource/PBS authority, Observe/Result; WRAP the existing bounded
+  subprocess supervisor; PORT exact Mac OpenSSH/config/trust/identity-reference
+  mechanics; REPLACE only the profile-selected Windows nested command route.
+- **Scope:** Private Transport bridge/driver helpers, focused Transport tests,
+  and the minimum authority/status/context documents. No public API/schema,
+  protocol, bootstrap, trust-root, or authority change.
+- **Identity:** Bind `/usr/bin/ssh`, 1584576 bytes, SHA-256 `17542914...`, and
+  final-key public fingerprint `SHA256:aqyVwyOa9wRiA93G52/rirqt/8ktUhUfX2Cja709w/s`.
+  The exact public-key artifact and qualified private-file physical identity
+  are profile-bound. Private keys remain local mode-0600 references whose bytes
+  are never read. Both hops require `CertificateFile none`, closing implicit
+  sibling user-certificate discovery.
+- **Validation:** Focused Option-1 vectors, affected Transport/composition,
+  static and sensitive-data audits, independent `0/0/0/0` review, Required CI,
+  and CodeQL. Normal merge is authorized when exact-main compatibility passes.
+- **Non-goals:** No deployment, new Attempt/approval/snapshot, workspace,
+  qstat/qsub, Gaussian, qdel, cleanup, automatic retry, global SSH config
+  mutation, agent forwarding, generic framework, or architecture exploration.
