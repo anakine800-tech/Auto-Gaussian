@@ -185,22 +185,26 @@ focused_tests = ["tests/test_execution_batch.py", "tests/test_idempotent_executi
 
 [[component]]
 id = "transport"
-status = "contract-frozen"
+status = "option1-proxyjump-integrated"
 required_sections = [
   "OWNER_DECISIONS.md#od-06-transport-targets",
   "OWNER_DECISIONS.md#od-17-v30-a-composition-is-rtwin-first-and-has-one-execution-effect-owner",
   "OWNER_DECISIONS.md#od-21-scheduler-resources-are-snapshot-authority-enacted-by-a-closed-dialect-renderer",
   "OWNER_DECISIONS.md#od-22-the-first-production-scheduler-dialect-is-exact-torque-610-single-node-ppn",
+  "OWNER_DECISIONS.md#od-28-v30-a-production-transport-uses-mac-openssh-proxyjump",
   "docs/v3/reuse-adjudication.md#auto-g16-v3-reuse-adjudication",
   "docs/v3/boundary-spec.md#v30-exec-02-composition-contract-01-rtwin-first-composition-contract",
   "docs/v3/boundary-spec.md#snapshot-derived-pbs-resource-enactment",
   "docs/v3/boundary-spec.md#exact-torque-610-production-dialect",
+  "docs/v3/boundary-spec.md#v30-a-option1-mac-proxyjump-product-integration-01-boundary",
   "docs/v3/acceptance.md#v30-exec-02-composition-contract-01-rtwin-first-v30-a-composition",
   "docs/v3/acceptance.md#v30-exec-resource-enactment-contract-01",
   "docs/v3/acceptance.md#v30-pbs-torque-dialect-01-exact-production-torque-renderer",
+  "docs/v3/acceptance.md#v30-a-option1-mac-proxyjump-product-integration-01-acceptance",
   "docs/v3/AUTONOMOUS_DEVELOPMENT.md#v30-exec-02",
   "docs/v3/AUTONOMOUS_DEVELOPMENT.md#v30-exec-resource-enactment-contract-01",
   "docs/v3/AUTONOMOUS_DEVELOPMENT.md#v30-pbs-torque-dialect-01",
+  "docs/v3/AUTONOMOUS_DEVELOPMENT.md#v30-a-option1-mac-proxyjump-product-integration-01",
   "docs/v3/STATUS.md#auto-g16-v3-status",
 ]
 code_paths = [

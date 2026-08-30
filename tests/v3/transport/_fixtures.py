@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 from collections import deque
 from hashlib import sha256
 
@@ -20,6 +21,7 @@ from auto_g16.transport._driver import (
     _Invocation,
     _MANIFEST_NAME,
     _OPERATION_TABLE_BYTES,
+    _OPTION1_MAC_SSH,
     _RESOURCE_DESCRIPTOR_NAME,
     _SYNTHETIC_RESOURCE_DIALECT,
     _TORQUE_RESOURCE_DIALECT,
@@ -50,6 +52,7 @@ def _manifest_bytes(
     deployment_id: str = "synthetic-rtwin-deployment-v1",
     windows_grammar: str = "cmd-powershell-launcher-v1",
     torque_executables: bool = False,
+    option1_mac_ssh: bool = False,
 ) -> bytes:
     def file_root(path: str, platform: str, mode: str, identity: str, content: bytes) -> dict[str, object]:
         return {
@@ -104,6 +107,14 @@ def _manifest_bytes(
             "expected_sha256": "3ecac5943864adef1a4d0b9aa235861a5fa573d8c3c7fd2b615694148ba5f85a",
             "expected_size_bytes": 185_656,
             "path": "/usr/local/bin/qstat",
+        }
+    if option1_mac_ssh:
+        roots["mac_ssh"] = {
+            **roots["mac_ssh"],
+            "deployment_identity": "macos-openssh-10.3p1-libressl-3.3.6-option1-qualified",
+            "expected_sha256": _OPTION1_MAC_SSH[2],
+            "expected_size_bytes": _OPTION1_MAC_SSH[1],
+            "path": _OPTION1_MAC_SSH[0],
         }
     return canonical_json_bytes({
         "bootstrap_protocol": _BOOTSTRAP_PROTOCOL,
@@ -214,6 +225,97 @@ class TransportFixture(ExecutionFixture):
                 ("rtwin-ssh-config",rtwin_config),("rtwin-known-hosts",rtwin_known),
             ],
             runtime_contents={_MANIFEST_NAME: manifest, _TABLE_NAME: _OPERATION_TABLE_BYTES, _BOOTSTRAP_SOURCE_NAME: _BOOTSTRAP_SOURCE_BYTES, _RESOURCE_DESCRIPTOR_NAME: resource_descriptor},
+        )
+
+    def proxyjump_profile(self, *, resource_descriptor: bytes = RESOURCE_DESCRIPTOR_BYTES) -> execution.ServerProfile:
+        rtwin_known_hosts = self.temporary / "option1-rtwin-known-hosts"
+        final_known_hosts = self.temporary / "option1-final-known-hosts"
+        config_path = self.temporary / "option1-proxyjump-config"
+        rtwin_identity = self.temporary / "option1-rtwin-identity"
+        final_identity = self.temporary / "option1-final-identity"
+        final_public_key = self.temporary / "option1-final-identity.pub"
+        rtwin_known_hosts.write_bytes(b"192.0.2.10 ssh-ed25519 AAAAC3NzaSyntheticRtwinKey\n")
+        final_known_hosts.write_bytes(b"198.51.100.20 ssh-ed25519 AAAAC3NzaSyntheticServerKey\n")
+        for path in (rtwin_identity, final_identity):
+            path.write_bytes(b"synthetic identity reference; product must not read these bytes")
+            path.chmod(0o600)
+        public_blob=b"\x00\x00\x00\x0bssh-ed25519\x00\x00\x00\x20"+bytes(range(32))
+        public_bytes=b"ssh-ed25519 "+base64.b64encode(public_blob)+b" synthetic-option1\n"
+        public_fingerprint="SHA256:"+base64.b64encode(sha256(public_blob).digest()).decode("ascii").rstrip("=")
+        final_public_key.write_bytes(public_bytes)
+        final_stat=final_identity.stat()
+        final_file_identity=":".join(str(value) for value in (final_stat.st_dev,final_stat.st_ino,final_stat.st_size,final_stat.st_mtime_ns,final_stat.st_ctime_ns))
+        common = (
+            "    IdentitiesOnly yes\n"
+            "    IdentityAgent none\n"
+            "    CertificateFile none\n"
+            "    PreferredAuthentications publickey\n"
+            "    PubkeyAuthentication yes\n"
+            "    PasswordAuthentication no\n"
+            "    KbdInteractiveAuthentication no\n"
+            "    GSSAPIAuthentication no\n"
+            "    HostbasedAuthentication no\n"
+            "    StrictHostKeyChecking yes\n"
+        )
+        suffix = (
+            "    GlobalKnownHostsFile /dev/null\n"
+            "    UpdateHostKeys no\n"
+            "    VerifyHostKeyDNS no\n"
+            "    ForwardAgent no\n"
+            "    RequestTTY no\n"
+            "    BatchMode yes\n"
+        )
+        config = (
+            f"# AutoG16FinalIdentityFingerprint {public_fingerprint}\n"
+            f"# AutoG16FinalIdentityFileIdentity {final_file_identity}\n"
+            "Host auto-g16-option1-rtwin-v1\n"
+            "    HostName 192.0.2.10\n"
+            "    Port 22\n"
+            "    User jump-user\n"
+            f"    IdentityFile {rtwin_identity}\n"
+            + common
+            + f"    UserKnownHostsFile {rtwin_known_hosts}\n"
+            + suffix
+            + "\nHost auto-g16-option1-final-server-v1\n"
+            "    HostName 198.51.100.20\n"
+            "    Port 22\n"
+            "    User server-user\n"
+            "    ProxyJump auto-g16-option1-rtwin-v1\n"
+            f"    IdentityFile {final_identity}\n"
+            + common
+            + f"    UserKnownHostsFile {final_known_hosts}\n"
+            + suffix
+        ).encode("utf-8")
+        config_path.write_bytes(config)
+        executable_bytes = {"mac-ssh": b"synthetic unused Mac SSH bytes", "mac-scp": b"synthetic unused Mac SCP bytes"}
+        executable_paths = {name: self.temporary / f"option1-{name}" for name in executable_bytes}
+        for name, path in executable_paths.items():
+            path.write_bytes(executable_bytes[name]); path.chmod(0o700)
+        manifest = _manifest_bytes(
+            str(executable_paths["mac-ssh"]),str(executable_paths["mac-scp"]),
+            mac_ssh_bytes=executable_bytes["mac-ssh"],mac_scp_bytes=executable_bytes["mac-scp"],
+            deployment_id="synthetic-option1-proxyjump-v1",torque_executables=resource_descriptor==TORQUE_RESOURCE_DESCRIPTOR_BYTES,
+            option1_mac_ssh=True,
+        )
+        return execution.ServerProfile(
+            server_profile_id="profile-transport-option1",profile_revision=12,transport_kind="legacy_rtwin_pbs",
+            target_host="198.51.100.20",target_port=22,remote_user="server-user",
+            jump_topology=[("192.0.2.10",22,"jump-user")],host_key_policy="strict",batch_mode=True,identities_only=True,
+            remote_root=execution.LEGACY_REMOTE_ROOT,
+            platform_paths={
+                "rtwin_root":r"C:\RTWIN",
+                "mac_proxyjump_ssh_config_path":str(config_path),
+                "mac_rtwin_known_hosts_path":str(rtwin_known_hosts),
+                "mac_final_known_hosts_path":str(final_known_hosts),
+                "mac_final_public_key_path":str(final_public_key),
+            },
+            config_files=[
+                ("mac-proxyjump-ssh-config",config),
+                ("mac-rtwin-known-hosts",rtwin_known_hosts.read_bytes()),
+                ("mac-final-known-hosts",final_known_hosts.read_bytes()),
+                ("mac-final-public-key",public_bytes),
+            ],
+            runtime_contents={_MANIFEST_NAME:manifest,_TABLE_NAME:_OPERATION_TABLE_BYTES,_BOOTSTRAP_SOURCE_NAME:_BOOTSTRAP_SOURCE_BYTES,_RESOURCE_DESCRIPTOR_NAME:resource_descriptor},
         )
 
     def transport_snapshot(self, *, profile: execution.ServerProfile | None = None, prepared_bytes: bytes = INPUT_BYTES, cores: int = 8, memory_mb: int = 12_288, walltime_seconds: int = 3_600, queue: str | None = "simple") -> tuple[execution.ExecutionSnapshot, execution.ServerProfile]:

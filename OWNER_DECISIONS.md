@@ -1000,3 +1000,53 @@ must bind that identity. This decision authorizes contract, product, tests,
 normal integration, and a revision-6 two-file deployment packet only. It does
 not authorize deployment, qualification, Attempt creation, workspace/staging,
 qsub, Gaussian, qdel, cleanup, retry, or any calculation effect.
+
+## OD-28: V30-A production Transport uses Mac OpenSSH ProxyJump
+
+The selected V30-A production successor route is the qualified Mac controller
+`/usr/bin/ssh` path through one RTwin `ProxyJump` to the final server. The
+Windows nested-SSH stdin implementations remain immutable historical evidence
+and are not fallback routes for an Option-1 profile. ProcessStartInfo redirected
+stdin and STARTUPINFOEX anonymous-pipe stdin are rejected for real DATA;
+file-backed Windows stdin is closed as unqualified.
+
+An Option-1 profile is selected only by the exact four-file config inventory:
+one deterministic private SSH config, one explicit Mac-to-RTwin known-hosts
+artifact, one explicit Mac-to-final-server known-hosts artifact, and the
+dedicated final-server public-key artifact. The config
+must contain exactly one RTwin block and one final-server block, bind the final
+block to the RTwin alias with `ProxyJump`, and require public-key-only
+authentication, `IdentitiesOnly yes`, `IdentityAgent none`,
+`CertificateFile none` on both hops,
+`StrictHostKeyChecking yes`, `GlobalKnownHostsFile /dev/null`,
+`ForwardAgent no`, `RequestTTY no`, and `BatchMode yes`. `ProxyCommand`, global
+SSH config mutation, direct-Mac fallback, agent forwarding, password fallback,
+TOFU, and architecture fallback are forbidden.
+
+The qualified executable is `/usr/bin/ssh`, 1584576 bytes, SHA-256
+`17542914a3fb55e7efeb35a90d594a21c84bf6a4cfe1fc8ddff5606dc2658fc3`.
+The final identity reference binds public fingerprint
+`SHA256:aqyVwyOa9wRiA93G52/rirqt/8ktUhUfX2Cja709w/s`. Product code may attest the
+private identity path as a current-user-owned, non-symlink regular file with
+mode `0600`, but must never open, read, hash, copy, or persist its private
+bytes. The profile binds the separately readable public-key artifact and its
+calculated OpenSSH fingerprint, plus the previously qualified private file's
+exact device/inode/size/mtime/ctime tuple. Public-key, private physical
+identity, or config mismatch fails closed.
+OpenSSH sibling `IdentityFile-cert.pub` auto-discovery is therefore disabled;
+no unbound user certificate may enter either authentication hop.
+
+The existing AGV3 encoder/decoder, bootstrap source and `/2` protocol,
+TransportStore, resource/PBS authority, response semantics, WINNER/REPLAY/
+UNKNOWN rules, and all public APIs remain unchanged. The Mac process receives
+the one complete buffered AGV3 request on stdin and owns EOF propagation and
+bounded stdout/stderr collection. ServerProfile revision 8 is the first
+Option-1 profile; the public historical `legacy_rtwin_pbs` discriminator is
+retained solely to avoid an incompatible Execution API change, while the exact
+private config inventory selects the route with no fallback.
+
+This decision authorizes minimal product integration, offline validation,
+review, PR, CI, and normal merge. It authorizes no production deployment,
+recovery Attempt, workspace/staging, qstat, qsub, Gaussian, qdel, cleanup, or
+calculation effect. The next Owner gate is Option-1 production deployment and
+production qualification.
