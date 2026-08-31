@@ -22,6 +22,7 @@ from auto_g16.transport._bridge import (
 )
 from auto_g16.transport._canonical import canonical_json_bytes
 from auto_g16.transport._driver import (
+    _FetchResult,
     _MANIFEST_NAME,
     _RESOURCE_DESCRIPTOR_NAME,
     _Invocation,
@@ -38,6 +39,7 @@ from auto_g16.transport._driver import (
     _resolve_deployment_authority,
     _resource_enactment,
 )
+from auto_g16.transport.rtwin import _result_object
 
 from ._fixtures import RESOURCE_DESCRIPTOR_BYTES, TORQUE_RESOURCE_DESCRIPTOR_BYTES, TransportFixture
 
@@ -378,6 +380,78 @@ class ManifestAndCommandTests(TransportFixture):
 
 
 class DriverBoundaryTests(TransportFixture):
+    @staticmethod
+    def _allocate_invocation(snapshot, profile):
+        return _Invocation(
+            operation=_operation("ALLOCATE_WORKSPACE"), argv=(), cwd=snapshot.workspace_binding.remote_attempt_dir,
+            request={"binding": {}, "operation": "ALLOCATE_WORKSPACE", "payload": {}, "protocol": "auto-g16-v3-rtwin-bootstrap/2"},
+            authority=_resolve_deployment_authority(snapshot, profile),
+        )
+
+    @staticmethod
+    def _allocate_response(snapshot):
+        result = {"remote_workspace": snapshot.workspace_binding.remote_attempt_dir, "workspace_physical_token_base64": "dG9rZW4="}
+        envelope = canonical_json_bytes({"operation": "ALLOCATE_WORKSPACE", "protocol": "auto-g16-v3-rtwin-bootstrap/2", "result": result, "status": "ok"})
+        return result, b"AGV3" + len(envelope).to_bytes(8, "big") + envelope
+
+    def test_unexpected_stderr_fails_closed_without_discarding_bounded_text_evidence(self) -> None:
+        profile = self.profile()
+        snapshot, _ = self.transport_snapshot(profile=profile)
+        invocation = self._allocate_invocation(snapshot, profile)
+        _, stdout = self._allocate_response(snapshot)
+        stderr = b"bounded diagnostic warning\n"
+        driver = _SubprocessRTWinDriver()
+        with patch.object(driver, "_run", return_value=(stdout, stderr, 0, "completed", True, True)) as run, patch("auto_g16.transport._driver._decode_response_frame") as decode:
+            result = driver.invoke_text(snapshot, invocation)
+        run.assert_called_once()
+        decode.assert_not_called()
+        self.assertEqual((result.stdout, result.stderr), (stdout, stderr))
+        self.assertEqual((result.returncode, result.completion_status), (0, "completed"))
+        self.assertEqual((result.eof_stdout, result.eof_stderr), (True, True))
+
+    def test_valid_stdout_without_stderr_remains_canonical_accepted_result(self) -> None:
+        profile = self.profile()
+        snapshot, _ = self.transport_snapshot(profile=profile)
+        invocation = self._allocate_invocation(snapshot, profile)
+        expected, stdout = self._allocate_response(snapshot)
+        driver = _SubprocessRTWinDriver()
+        with patch.object(driver, "_run", return_value=(stdout, b"", 0, "completed", True, True)) as run:
+            result = driver.invoke_text(snapshot, invocation)
+        run.assert_called_once()
+        self.assertEqual(result.stdout, canonical_json_bytes(expected))
+        self.assertTrue(result.stdout.endswith(b"\n"))
+        self.assertEqual(_result_object(result), expected)
+
+    def test_fetch_transport_failure_preserves_bounded_raw_evidence(self) -> None:
+        profile = self.profile()
+        snapshot, _ = self.transport_snapshot(profile=profile)
+        invocation = _Invocation(
+            operation=_operation("FETCH_EXACT_FILE"), argv=("input.log",), cwd=snapshot.workspace_binding.remote_attempt_dir,
+            request={"payload": {"remote_relative_name": "input.log", "expected_size_bytes": 1, "expected_file_physical_token_base64": "dG9rZW4="}},
+            authority=_resolve_deployment_authority(snapshot, profile),
+        )
+        stdout = b"AGV3-bounded-fetch-response-evidence"
+        stderr = b"bounded diagnostic warning\n"
+        driver = _SubprocessRTWinDriver()
+        with patch.object(driver, "_run", return_value=(stdout, stderr, 0, "completed", True, True)), patch("auto_g16.transport._driver._decode_response_frame") as decode:
+            result = driver.invoke_fetch(snapshot, invocation)
+        decode.assert_not_called()
+        self.assertEqual(result.status, "transport-error")
+        self.assertEqual((result.transport_stdout, result.transport_stderr), (stdout, stderr))
+        self.assertEqual((result.transport_returncode, result.transport_completion_status), (0, "completed"))
+        self.assertEqual((result.transport_eof_stdout, result.transport_eof_stderr), (True, True))
+
+    def test_found_fetch_rejects_transport_failure_evidence(self) -> None:
+        content = b"exact bytes"
+        digest = sha256(content).hexdigest()
+        with self.assertRaises(transport.TransportBoundaryError):
+            _FetchResult(
+                status="found", content=content, before_identity="token", after_identity="token",
+                before_size=len(content), after_size=len(content), before_sha256=digest, after_sha256=digest,
+                transport_stderr=b"warning", transport_returncode=0,
+                transport_eof_stdout=True, transport_eof_stderr=True, transport_completion_status="completed",
+            )
+
     def test_fetch_response_must_match_exact_request_identity(self) -> None:
         profile = self.profile()
         snapshot, _ = self.transport_snapshot(profile=profile)

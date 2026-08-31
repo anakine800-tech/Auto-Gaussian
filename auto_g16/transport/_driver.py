@@ -120,12 +120,14 @@ class _TextResult:
         if self.completion_status not in {"completed","timeout","transport-error"}: raise TransportBoundaryError("completion status is invalid")
 @dataclass(frozen=True,slots=True,kw_only=True)
 class _FetchResult:
-    status:str; content:bytes=b""; before_identity:str|None=None; after_identity:str|None=None; before_size:int|None=None; after_size:int|None=None; before_sha256:str|None=None; after_sha256:str|None=None
+    status:str; content:bytes=b""; before_identity:str|None=None; after_identity:str|None=None; before_size:int|None=None; after_size:int|None=None; before_sha256:str|None=None; after_sha256:str|None=None; transport_stdout:bytes=b""; transport_stderr:bytes=b""; transport_returncode:int|None=None; transport_eof_stdout:bool|None=None; transport_eof_stderr:bool|None=None; transport_completion_status:str|None=None
     def __post_init__(self)->None:
-        if self.status not in {"found","missing","unstable","transport-error"} or type(self.content) is not bytes: raise TransportBoundaryError("fetch result types are invalid")
+        if self.status not in {"found","missing","unstable","transport-error"} or type(self.content) is not bytes or type(self.transport_stdout) is not bytes or type(self.transport_stderr) is not bytes or (self.transport_returncode is not None and type(self.transport_returncode) is not int) or (self.transport_eof_stdout is not None and type(self.transport_eof_stdout) is not bool) or (self.transport_eof_stderr is not None and type(self.transport_eof_stderr) is not bool) or (self.transport_completion_status is not None and self.transport_completion_status not in {"completed","timeout","transport-error"}): raise TransportBoundaryError("fetch result types are invalid")
         values=(self.before_identity,self.after_identity,self.before_size,self.after_size,self.before_sha256,self.after_sha256)
+        transport_evidence=(self.transport_stdout,self.transport_stderr,self.transport_returncode,self.transport_eof_stdout,self.transport_eof_stderr,self.transport_completion_status)
         if self.status=="found":
             if any(value is None for value in values) or type(self.before_identity) is not str or type(self.after_identity) is not str or type(self.before_size) is not int or type(self.after_size) is not int or type(self.before_sha256) is not str or type(self.after_sha256) is not str: raise TransportBoundaryError("found fetch result is incomplete")
+            if transport_evidence!=(b"",b"",None,None,None,None): raise TransportBoundaryError("found fetch result carries transport failure evidence")
         elif self.content or any(value is not None for value in values): raise TransportBoundaryError("non-found fetch result carries authority")
 
 class _RTWinDriver(Protocol):
@@ -586,7 +588,7 @@ class _SubprocessRTWinDriver:
             return b"",b"",None,"transport-error",False,False
     def invoke_text(self,snapshot:ExecutionSnapshot,invocation:_Invocation)->_TextResult:
         stdout,stderr,code,status,eofout,eoferr=self._run(snapshot,invocation)
-        if status!="completed" or code!=0 or stderr: return _TextResult(stdout=b"",stderr=b"",returncode=code,eof_stdout=eofout,eof_stderr=eoferr,completion_status=status)
+        if status!="completed" or code!=0 or stderr: return _TextResult(stdout=stdout,stderr=stderr,returncode=code,eof_stdout=eofout,eof_stderr=eoferr,completion_status=status)
         try: result=_decode_response_frame(stdout,operation=invocation.operation.name,cap=invocation.operation.stdout_cap)
         except TransportBoundaryError: return _TextResult(stdout=b"",stderr=b"",returncode=None,eof_stdout=eofout,eof_stderr=eoferr,completion_status="transport-error")
         try: _validate_result(invocation.operation.name,result)
@@ -598,7 +600,7 @@ class _SubprocessRTWinDriver:
         return _TextResult(stdout=canonical_json_bytes(result),stderr=b"",returncode=0,eof_stdout=True,eof_stderr=True,completion_status="completed")
     def invoke_fetch(self,snapshot:ExecutionSnapshot,invocation:_Invocation)->_FetchResult:
         stdout,stderr,code,status,eofout,eoferr=self._run(snapshot,invocation)
-        if status!="completed" or code!=0 or stderr or not eofout or not eoferr: return _FetchResult(status="transport-error")
+        if status!="completed" or code!=0 or stderr or not eofout or not eoferr: return _FetchResult(status="transport-error",transport_stdout=stdout,transport_stderr=stderr,transport_returncode=code,transport_eof_stdout=eofout,transport_eof_stderr=eoferr,transport_completion_status=status)
         try:
             result=_decode_response_frame(stdout,operation=invocation.operation.name,cap=invocation.operation.stdout_cap); _validate_result(invocation.operation.name,result); content=_canonical_b64(result["content_base64"]); token=result["file_physical_token_base64"]
             payload=invocation.request["payload"]
@@ -616,9 +618,9 @@ def _operation(name:str)->_Operation:
 def _is_text_result_closed(value:object)->bool:
     return isinstance(value,_TextResult) and type(value.stdout) is bytes and type(value.stderr) is bytes and (value.returncode is None or type(value.returncode) is int) and type(value.eof_stdout) is bool and type(value.eof_stderr) is bool and value.completion_status in {"completed","timeout","transport-error"}
 def _is_fetch_result_closed(value:object)->bool:
-    if not isinstance(value,_FetchResult) or value.status not in {"found","missing","unstable","transport-error"} or type(value.content) is not bytes: return False
+    if not isinstance(value,_FetchResult) or value.status not in {"found","missing","unstable","transport-error"} or type(value.content) is not bytes or type(value.transport_stdout) is not bytes or type(value.transport_stderr) is not bytes or (value.transport_returncode is not None and type(value.transport_returncode) is not int) or (value.transport_eof_stdout is not None and type(value.transport_eof_stdout) is not bool) or (value.transport_eof_stderr is not None and type(value.transport_eof_stderr) is not bool) or (value.transport_completion_status is not None and value.transport_completion_status not in {"completed","timeout","transport-error"}): return False
     values=(value.before_identity,value.after_identity,value.before_size,value.after_size,value.before_sha256,value.after_sha256)
     if value.status!="found": return not value.content and all(item is None for item in values)
-    return type(value.before_identity) is str and type(value.after_identity) is str and type(value.before_size) is int and type(value.after_size) is int and type(value.before_sha256) is str and type(value.after_sha256) is str
+    return type(value.before_identity) is str and type(value.after_identity) is str and type(value.before_size) is int and type(value.after_size) is int and type(value.before_sha256) is str and type(value.after_sha256) is str and (value.transport_stdout,value.transport_stderr,value.transport_returncode,value.transport_eof_stdout,value.transport_eof_stderr,value.transport_completion_status)==(b"",b"",None,None,None,None)
 
 __all__=["_BOOTSTRAP_PROTOCOL","_DeploymentAuthority","_DeploymentManifest","_FIXED_ENV","_FetchResult","_Invocation","_MANIFEST_NAME","_MacProxyJumpEffectAuthority","_OPERATION_TABLE_BYTES","_OPERATION_TABLE_SHA256","_OPTION1_MAC_SSH","_RESOURCE_DESCRIPTOR_NAME","_RTWinDriver","_SubprocessRTWinDriver","_SYNTHETIC_RESOURCE_DIALECT","_TORQUE_RESOURCE_DIALECT","_TextResult","_assert_deployment_snapshot","_attest_identity_reference","_attest_local_effect_file","_is_fetch_result_closed","_is_text_result_closed","_operation","_parse_deployment_manifest","_parse_openssh_ed25519_public_identity","_parse_resource_descriptor","_render_qsub_argv","_resolve_deployment_authority","_resource_enactment"]
