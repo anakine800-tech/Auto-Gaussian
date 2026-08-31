@@ -261,6 +261,7 @@ class TransportFixture(ExecutionFixture):
             "    GlobalKnownHostsFile /dev/null\n"
             "    UpdateHostKeys no\n"
             "    VerifyHostKeyDNS no\n"
+            "    WarnWeakCrypto no\n"
             "    ForwardAgent no\n"
             "    RequestTTY no\n"
             "    BatchMode yes\n"

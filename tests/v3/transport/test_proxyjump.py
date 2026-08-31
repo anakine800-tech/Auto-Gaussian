@@ -92,8 +92,28 @@ class Option1ProxyJumpContractTests(TransportFixture):
                 with self.assertRaises(transport.TransportBoundaryError):
                     _resolve_deployment_authority(snapshot, changed)
         self.assertIn(b"ForwardAgent no", original)
+        self.assertEqual(original.count(b"WarnWeakCrypto no\n"), 2)
         self.assertEqual(original.count(b"CertificateFile none\n"), 2)
         self.assertNotIn(b"ProxyCommand", original)
+
+    def test_proxyjump_config_requires_exact_warning_suppression_on_both_hops(self) -> None:
+        profile = self.proxyjump_profile()
+        mutations = (
+            lambda raw: raw.replace(b"    WarnWeakCrypto no\n", b"", 1),
+            lambda raw: raw.replace(b"    WarnWeakCrypto no\n", b"    WarnWeakCrypto yes\n", 1),
+            lambda raw: raw.replace(b"    WarnWeakCrypto no\n", b"    WarnWeakCrypto maybe\n", 1),
+            lambda raw: raw.replace(
+                b"    WarnWeakCrypto no\n",
+                b"    WarnWeakCrypto no\n    WarnWeakCrypto no\n",
+                1,
+            ),
+        )
+        for mutate in mutations:
+            with self.subTest(mutation=mutate):
+                changed = self._replace_config(profile, mutate)
+                snapshot, _ = self.transport_snapshot(profile=changed)
+                with self.assertRaises(transport.TransportBoundaryError):
+                    _resolve_deployment_authority(snapshot, changed)
 
     def test_sibling_certificates_have_no_implicit_authority(self) -> None:
         profile = self.proxyjump_profile()
