@@ -51,20 +51,20 @@ _WINDOWS_DRIVE: Final = re.compile(r"^[A-Z]:\\")
 _WINDOWS_RESERVED: Final = {"CON","PRN","AUX","NUL",*(f"COM{index}" for index in range(1,10)),*(f"LPT{index}" for index in range(1,10))}
 _TABLE_NAME: Final = "auto-g16-rtwin-operation-table/2"
 _TABLE_OBJECT: Final = {
-    "version":_TABLE_NAME,"cwd_policy":"exact-remote-attempt-workspace","shell":False,"env":_FIXED_ENV,
+    "version":_TABLE_NAME,"cwd_policy":"qsub-client-and-scheduled-shell-exact-remote-attempt-workspace","shell":False,"env":_FIXED_ENV,
     "limits":{"max_artifact_requests":4,"max_artifact_bytes":134217728,"max_capture_bytes":268435456},
     "operations":[
         {"name":"ALLOCATE_WORKSPACE","token":"allocate-workspace","argv_template":[],"timeout_seconds":30,"stdin_cap":65536,"stdout_cap":65536,"stderr_cap":65536},
         {"name":"STAGE_EXACT_FILE","token":"stage-exact-file","argv_template":["{logical_name}","{sha256}","{size_bytes}"],"timeout_seconds":900,"stdin_cap":179306496,"stdout_cap":65536,"stderr_cap":65536},
-        {"name":"SUBMIT_QSUB_ONCE","token":"submit-qsub-once","argv_template":["{scheduler_dialect_id}","{cores}","{memory_mb}","{walltime_seconds}","{queue}","{pbs_basename}"],"timeout_seconds":30,"stdin_cap":65536,"stdout_cap":65536,"stderr_cap":65536},
+        {"name":"SUBMIT_QSUB_ONCE","token":"submit-qsub-once","argv_template":["{scheduler_dialect_id}","{remote_workspace}","{cores}","{memory_mb}","{walltime_seconds}","{queue}","{pbs_basename}"],"timeout_seconds":30,"stdin_cap":65536,"stdout_cap":65536,"stderr_cap":65536},
         {"name":"QUERY_SCHEDULER","token":"query-scheduler","argv_template":["-f","{job_id}"],"timeout_seconds":30,"stdin_cap":65536,"stdout_cap":524288,"stderr_cap":65536},
         {"name":"STAT_EXACT_FILE","token":"stat-exact-file","argv_template":["{remote_relative_name}"],"timeout_seconds":30,"stdin_cap":65536,"stdout_cap":65536,"stderr_cap":65536},
         {"name":"FETCH_EXACT_FILE","token":"fetch-exact-file","argv_template":["{remote_relative_name}"],"timeout_seconds":900,"stdin_cap":65536,"stdout_cap":179306496,"stderr_cap":65536},
         {"name":"RECONCILE_SUBMISSION","token":"reconcile-submission","argv_template":[],"timeout_seconds":30,"stdin_cap":65536,"stdout_cap":262144,"stderr_cap":65536},
     ]}
 _OPERATION_TABLE_BYTES: Final = canonical_json_bytes(_TABLE_OBJECT)
-_OPERATION_TABLE_SHA256: Final = "14cdd511bb6c4eb78af8f07d774cfdae27fc1c661dae8692b45e48ccd7fa31af"
-if len(_OPERATION_TABLE_BYTES)!=1570 or sha256(_OPERATION_TABLE_BYTES).hexdigest()!=_OPERATION_TABLE_SHA256: raise RuntimeError("source-controlled operation table drifted")
+_OPERATION_TABLE_SHA256: Final = "ce3efce070694831c32dbadd71fc2e7991f02cd985055193966666ea19dc9ffc"
+if len(_OPERATION_TABLE_BYTES)!=1623 or sha256(_OPERATION_TABLE_BYTES).hexdigest()!=_OPERATION_TABLE_SHA256: raise RuntimeError("source-controlled operation table drifted")
 
 @dataclass(frozen=True,slots=True)
 class _Operation:
@@ -180,16 +180,17 @@ def _resource_enactment(snapshot:ExecutionSnapshot,authority:_DeploymentAuthorit
     if queue is not None and (not isinstance(queue,str) or not queue or queue!=queue.strip() or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*",queue) is None): raise TransportBoundaryError("snapshot queue is invalid")
     return _ResourceEnactment(snapshot.execution_snapshot_id,request.resolved_resource_request_id,request.cores,request.memory_mb,request.walltime_seconds,queue,authority.resource_dialect.dialect_id)
 
-def _render_qsub_argv(enactment:_ResourceEnactment,pbs_basename:str)->tuple[str,...]:
+def _render_qsub_argv(enactment:_ResourceEnactment,pbs_basename:str,remote_workspace:str)->tuple[str,...]:
     if not isinstance(enactment,_ResourceEnactment) or not isinstance(pbs_basename,str) or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*",pbs_basename) is None: raise TransportBoundaryError("qsub render input is invalid")
+    if not isinstance(remote_workspace,str) or not remote_workspace.startswith("/") or remote_workspace!=str(PurePosixPath(remote_workspace)) or any(part in {".",".."} for part in PurePosixPath(remote_workspace).parts): raise TransportBoundaryError("qsub workdir is invalid")
     if enactment.scheduler_dialect_id==_SYNTHETIC_RESOURCE_DIALECT:
-        argv=["--auto-g16-synthetic-cores",str(enactment.cores),"--auto-g16-synthetic-memory-mb",str(enactment.memory_mb),"--auto-g16-synthetic-walltime-seconds",str(enactment.walltime_seconds)]
+        argv=["--auto-g16-synthetic-workdir",remote_workspace,"--auto-g16-synthetic-cores",str(enactment.cores),"--auto-g16-synthetic-memory-mb",str(enactment.memory_mb),"--auto-g16-synthetic-walltime-seconds",str(enactment.walltime_seconds)]
         if enactment.queue is not None: argv.extend(["--auto-g16-synthetic-queue",enactment.queue])
         argv.append(pbs_basename); return tuple(argv)
     if enactment.scheduler_dialect_id==_TORQUE_RESOURCE_DIALECT:
         if enactment.queue!=_TORQUE_V30_A_QUEUE: raise TransportBoundaryError("Torque V30-A queue must be exact")
         resources=f"nodes=1:ppn={enactment.cores},mem={enactment.memory_mb}mb,walltime={enactment.walltime_seconds}"
-        return ("-l",resources,"-q",_TORQUE_V30_A_QUEUE,pbs_basename)
+        return ("-d",remote_workspace,"-l",resources,"-q",_TORQUE_V30_A_QUEUE,pbs_basename)
     raise TransportBoundaryError("resource dialect is not source-controlled")
 
 def _validate_resource_deployment(manifest:_DeploymentManifest,dialect:_ResourceDialect)->None:
@@ -388,7 +389,7 @@ def _resolve_deployment_authority(snapshot:ExecutionSnapshot,current_profile:Ser
     except KeyError as exc: raise TransportBoundaryError("required Transport runtime content is missing") from exc
     if manifest_identity!={"sha256":sha256(raw).hexdigest(),"size_bytes":len(raw)}: raise TransportBoundaryError("manifest differs from snapshot")
     if descriptor_identity!={"sha256":sha256(descriptor_raw).hexdigest(),"size_bytes":len(descriptor_raw)}: raise TransportBoundaryError("resource descriptor differs from snapshot")
-    if table_identity!={"sha256":_OPERATION_TABLE_SHA256,"size_bytes":1570}: raise TransportBoundaryError("operation table differs from source")
+    if table_identity!={"sha256":_OPERATION_TABLE_SHA256,"size_bytes":len(_OPERATION_TABLE_BYTES)}: raise TransportBoundaryError("operation table differs from source")
     expected_source={"sha256":sha256(_BOOTSTRAP_SOURCE_BYTES).hexdigest(),"size_bytes":len(_BOOTSTRAP_SOURCE_BYTES)}
     if source_identity!=expected_source: raise TransportBoundaryError("bootstrap source differs from source")
     manifest=_parse_deployment_manifest(raw); dialect=_parse_resource_descriptor(descriptor_raw); _validate_resource_deployment(manifest,dialect); ssh_effect=_resolve_ssh_effect(frozen_profile,current)

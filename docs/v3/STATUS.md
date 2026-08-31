@@ -1,5 +1,16 @@
 # Auto-G16 v3 Status
 
+- **Current closeout:** Exact finite-path reconciliation for historical
+  `680.master` proves a workdir-related failure: the physically bound
+  Attempt-03 workspace retains the exact staged GJF while the exact Torque
+  stdout reports that Gaussian could not open that relative input. Attempt-03
+  remains consumed historical evidence and is not backfilled or retried.
+  `V30-EXEC-PBS-WORKDIR-ENACTMENT-CONTRACT-01` is the active bounded successor:
+  Torque must receive exact `-d <snapshot-bound Attempt workspace>` and the
+  bootstrap must replay the named workspace physical identity immediately
+  before qsub. Integration authorizes no deployment, new Attempt, staging,
+  scheduler read, fetch, qsub, Gaussian, qdel, or cleanup.
+
 - **Current phase:** `V30-EXEC-02-COMPOSITION-CONTRACT-01`,
   `V30-TRANSPORT-BOOTSTRAP-CHAIN-03`,
   `V30-TRANSPORT-BOOTSTRAP-SOURCE-CLARIFY-01`, and

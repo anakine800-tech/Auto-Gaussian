@@ -39,7 +39,7 @@ class TransportStoreTests(TransportFixture):
             "SELECT deployment_manifest_name,bootstrap_protocol,bootstrap_source_name,bootstrap_source_sha256,bootstrap_source_size_bytes FROM transport_runtime_attestation WHERE runtime_attestation_id=?",
             (runtime["runtime_attestation_id"],),
         ).fetchone()
-        self.assertEqual(row,("transport-deployment-manifest-v2.json","auto-g16-v3-rtwin-bootstrap/2","auto-g16-v3-rtwin-bootstrap-v2-py36.py","ad0ba2af50a3bfedf186acf13d8468d5951f5d201b71687ba5dd2ef7b2a208ae",15562))
+        self.assertEqual(row,("transport-deployment-manifest-v2.json","auto-g16-v3-rtwin-bootstrap/2","auto-g16-v3-rtwin-bootstrap-v2-py36.py","a90edecf87916c149e865256d69e6f57820cb29336380bd45d2107c7c00c64f0",15926))
 
     def test_create_reopen_preserves_exact_store_identity(self) -> None:
         store_id = self.transport_store.transport_store_id

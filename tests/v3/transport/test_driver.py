@@ -62,7 +62,7 @@ class ManifestAndCommandTests(TransportFixture):
         self.assertEqual(manifest.trust_roots["rtwin_remote_shell"].shell_grammar, "cmd-powershell-launcher-v1")
         launcher=manifest.trust_roots["rtwin_launcher"]
         self.assertEqual((launcher.expected_size_bytes,launcher.expected_sha256),(_RTWIN_LAUNCHER_SIZE,_RTWIN_LAUNCHER_SHA256))
-        self.assertEqual((launcher.path,launcher.deployment_identity),(r"C:\AutoG16Runtime\auto-g16-v3-rtwin-launcher-v4.ps1","auto-g16-v3-rtwin-launcher-v4"))
+        self.assertEqual((launcher.path,launcher.deployment_identity),(r"C:\AutoG16Runtime\auto-g16-v3-rtwin-launcher-v5.ps1","auto-g16-v3-rtwin-launcher-v5"))
 
     def test_production_qsub_qstat_manifest_evidence_is_exact(self) -> None:
         profile = self.profile()
@@ -111,7 +111,8 @@ class ManifestAndCommandTests(TransportFixture):
             "queue": "simple",
             "scheduler_dialect_id": "auto-g16-v3-pbs-resource-enactment/synthetic-test/1",
         })
-        self.assertEqual(_render_qsub_argv(enactment, "job.pbs"), (
+        self.assertEqual(_render_qsub_argv(enactment, "job.pbs", "/srv/p/attempt-1"), (
+            "--auto-g16-synthetic-workdir", "/srv/p/attempt-1",
             "--auto-g16-synthetic-cores", "8",
             "--auto-g16-synthetic-memory-mb", "12288",
             "--auto-g16-synthetic-walltime-seconds", "3600",
@@ -130,11 +131,12 @@ class ManifestAndCommandTests(TransportFixture):
         dialect = _parse_resource_descriptor(TORQUE_RESOURCE_DESCRIPTOR_BYTES)
         self.assertTrue(dialect.live_capable)
         enactment = _resource_enactment(snapshot, _resolve_deployment_authority(snapshot, profile))
-        self.assertEqual(_render_qsub_argv(enactment, "job.pbs"), (
+        self.assertEqual(_render_qsub_argv(enactment, "job.pbs", "/srv/p/attempt-1"), (
+            "-d", "/srv/p/attempt-1",
             "-l", "nodes=1:ppn=8,mem=12288mb,walltime=3600",
             "-q", "batch", "job.pbs",
         ))
-        self.assertNotIn("/usr/local/bin/qsub", _render_qsub_argv(enactment, "job.pbs"))
+        self.assertNotIn("/usr/local/bin/qsub", _render_qsub_argv(enactment, "job.pbs", "/srv/p/attempt-1"))
 
     def test_torque_exact_positive_vectors_cover_minimum_typical_and_full_node(self) -> None:
         for cores, memory_mb, walltime_seconds, expected in (
@@ -144,7 +146,7 @@ class ManifestAndCommandTests(TransportFixture):
         ):
             with self.subTest(cores=cores):
                 enactment = _ResourceEnactment("snapshot-1", "resources-1", cores, memory_mb, walltime_seconds, "batch", _TORQUE_RESOURCE_DIALECT)
-                self.assertEqual(_render_qsub_argv(enactment, "job.pbs"), ("-l", expected, "-q", "batch", "job.pbs"))
+                self.assertEqual(_render_qsub_argv(enactment, "job.pbs", "/srv/p/attempt-1"), ("-d", "/srv/p/attempt-1", "-l", expected, "-q", "batch", "job.pbs"))
 
     def test_resource_integers_and_renderer_tokens_are_closed(self) -> None:
         for field in ("cores", "memory_mb", "walltime_seconds"):
@@ -158,7 +160,12 @@ class ManifestAndCommandTests(TransportFixture):
             with self.subTest(basename=basename):
                 enactment = _ResourceEnactment("snapshot-1", "resources-1", 8, 12_288, 3_600, "batch", _TORQUE_RESOURCE_DIALECT)
                 with self.assertRaises(transport.TransportBoundaryError):
-                    _render_qsub_argv(enactment, basename)
+                    _render_qsub_argv(enactment, basename, "/srv/p/attempt-1")
+        for workspace in ("relative", "/srv/../other", "/srv//attempt-1", ""):
+            with self.subTest(workspace=workspace):
+                enactment = _ResourceEnactment("snapshot-1", "resources-1", 8, 12_288, 3_600, "batch", _TORQUE_RESOURCE_DIALECT)
+                with self.assertRaises(transport.TransportBoundaryError):
+                    _render_qsub_argv(enactment, "job.pbs", workspace)
 
     def test_torque_queue_is_mandatory_and_exact(self) -> None:
         for queue in (None, "simple", "batch2"):
@@ -167,7 +174,7 @@ class ManifestAndCommandTests(TransportFixture):
                 snapshot, _ = self.transport_snapshot(profile=profile, queue=queue)
                 enactment = _resource_enactment(snapshot, _resolve_deployment_authority(snapshot, profile))
                 with self.assertRaises(transport.TransportBoundaryError):
-                    _render_qsub_argv(enactment, "job.pbs")
+                    _render_qsub_argv(enactment, "job.pbs", "/srv/p/attempt-1")
 
     def test_torque_descriptor_rejects_unproved_qsub_or_qstat_identity(self) -> None:
         for root_name in ("server_qsub", "server_qstat"):

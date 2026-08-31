@@ -89,6 +89,12 @@ def open_workspace(binding,create=False):
     return rootfd,projectfd,attemptfd
 def closefds(values):
     for value in reversed(values): os.close(value)
+def attest_workspace_name(fd,b):
+    fds=open_workspace(b)
+    try:
+        current=os.fstat(fd); named=os.fstat(fds[2])
+        if (current.st_dev,current.st_ino)!=(named.st_dev,named.st_ino): die("workspace-drift")
+    finally: closefds(fds)
 def artifact_token(fd,b,p):
     s=os.fstat(fd); return canonical(["auto-g16-artifact-token/1",b["workspace_authority_id"],p["artifact_kind"],p["logical_name"],p["sha256"],p["size_bytes"],s.st_dev,s.st_ino])
 def artifact_from_token(identity,b,kind):
@@ -178,11 +184,12 @@ def main():
             pbs_name=attest_artifact(fd,b,"pbs-template",b["pbs_template_artifact_physical_token_base64"])
             if pbs_name!=p["pbs_basename"]: die("artifact-drift")
             if r["scheduler_dialect_id"]==SYNTHETIC_DIALECT:
-                args=["--auto-g16-synthetic-cores",str(r["cores"]),"--auto-g16-synthetic-memory-mb",str(r["memory_mb"]),"--auto-g16-synthetic-walltime-seconds",str(r["walltime_seconds"])]
+                args=["--auto-g16-synthetic-workdir",b["remote_workspace"],"--auto-g16-synthetic-cores",str(r["cores"]),"--auto-g16-synthetic-memory-mb",str(r["memory_mb"]),"--auto-g16-synthetic-walltime-seconds",str(r["walltime_seconds"])]
                 if r["queue"] is not None: args.extend(["--auto-g16-synthetic-queue",r["queue"]])
                 args.append(p["pbs_basename"]); die("non-production-resource-dialect")
             if r["queue"]!="batch": die("invalid-torque-queue")
-            args=["-l","nodes=1:ppn="+str(r["cores"])+",mem="+str(r["memory_mb"])+"mb,walltime="+str(r["walltime_seconds"]),"-q","batch",p["pbs_basename"]]
+            attest_workspace_name(fd,b)
+            args=["-d",b["remote_workspace"],"-l","nodes=1:ppn="+str(r["cores"])+",mem="+str(r["memory_mb"])+"mb,walltime="+str(r["walltime_seconds"]),"-q","batch",p["pbs_basename"]]
             completed=run_exact(roots["server_qsub"],args,fd,65536,65536)
             if completed.returncode!=0 or completed.stderr: die("qsub-failed")
             try: job=completed.stdout.decode("ascii").strip()
@@ -221,9 +228,9 @@ main()
 '''
 _BOOTSTRAP_SOURCE_BYTES: Final = _BOOTSTRAP_SOURCE.encode("utf-8")
 _BOOTSTRAP_SOURCE_SHA256: Final = sha256(_BOOTSTRAP_SOURCE_BYTES).hexdigest()
-_BOOTSTRAP_SOURCE_SIZE: Final = 15562
-_BOOTSTRAP_SOURCE_LF_COUNT: Final = 203
-_BOOTSTRAP_SOURCE_EXPECTED_SHA256: Final = "ad0ba2af50a3bfedf186acf13d8468d5951f5d201b71687ba5dd2ef7b2a208ae"
+_BOOTSTRAP_SOURCE_SIZE: Final = 15926
+_BOOTSTRAP_SOURCE_LF_COUNT: Final = 210
+_BOOTSTRAP_SOURCE_EXPECTED_SHA256: Final = "a90edecf87916c149e865256d69e6f57820cb29336380bd45d2107c7c00c64f0"
 if (
     len(_BOOTSTRAP_SOURCE_BYTES) != _BOOTSTRAP_SOURCE_SIZE
     or _BOOTSTRAP_SOURCE_SHA256 != _BOOTSTRAP_SOURCE_EXPECTED_SHA256
@@ -235,7 +242,7 @@ if (
 ):
     raise RuntimeError("source-controlled bootstrap source identity drifted")
 
-_RTWIN_LAUNCHER_NAME: Final = "auto-g16-v3-rtwin-launcher-v4.ps1"
+_RTWIN_LAUNCHER_NAME: Final = "auto-g16-v3-rtwin-launcher-v5.ps1"
 _RTWIN_LAUNCHER_SOURCE: Final = r'''param(
  [Parameter(Mandatory=$true)][string]$ManifestPath,
  [Parameter(Mandatory=$true)][long]$ManifestSize,
@@ -282,10 +289,10 @@ function Quote-Posix([string]$Value) {
  return [string]$Sq+$Value.Replace([string]$Sq,[string]$Sq+$Dq+$Sq+$Dq+$Sq)+$Sq
 }
 function Quote-PosixFixedBootstrap([byte[]]$Bytes) {
- if($Bytes.Length-ne 15562){Fail-AutoG16}
+ if($Bytes.Length-ne 15926){Fail-AutoG16}
  $Hasher=[Security.Cryptography.SHA256]::Create()
  try{$Actual=([BitConverter]::ToString($Hasher.ComputeHash($Bytes))).Replace('-','').ToLowerInvariant()}finally{$Hasher.Dispose()}
- if($Actual-ne'ad0ba2af50a3bfedf186acf13d8468d5951f5d201b71687ba5dd2ef7b2a208ae'){Fail-AutoG16}
+ if($Actual-ne'a90edecf87916c149e865256d69e6f57820cb29336380bd45d2107c7c00c64f0'){Fail-AutoG16}
  try{$Value=$Utf8.GetString($Bytes)}catch{Fail-AutoG16}
  $Roundtrip=$Utf8.GetBytes($Value)
  if($Roundtrip.Length-ne$Bytes.Length){Fail-AutoG16}
@@ -438,7 +445,7 @@ if($OwnedTeardown){exit 0}
 exit $Process.ExitCode
 '''
 _RTWIN_LAUNCHER_BYTES: Final = _RTWIN_LAUNCHER_SOURCE.encode("utf-8")
-_RTWIN_LAUNCHER_SHA256: Final = "52ce86be68356832b5b357c1c088aee9fc1b19701fe98115ef97b2a077dd7f60"
+_RTWIN_LAUNCHER_SHA256: Final = "184b806c07f05fdd1e51a669e9ff245f43c22b22b2efa17e5578f501d2e2d06d"
 _RTWIN_LAUNCHER_SIZE: Final = 11790
 _RTWIN_LAUNCHER_LF_COUNT: Final = 200
 if (

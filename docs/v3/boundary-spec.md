@@ -4760,3 +4760,38 @@ the new 3294-byte manifest SHA-256 is
 `bf422724e83cc16031136783fb042207959cb0cd7f602e7d0f63df787350019e`.
 No public Execution/Transport API or schema changes.
 Deployment and every calculation effect remain separate Owner gates.
+
+## Scheduled job working-directory enactment
+
+The resource renderer also derives one mechanical workdir argument from the
+already-bound `remote_workspace`. Its semantic source is exclusively
+`ExecutionSnapshot.workspace_binding.remote_attempt_dir`; it is not a resource
+field and does not enter `ResourceEnactment`. For the exact Torque dialect the
+complete argument tuple is:
+
+```text
+("-d", "<exact remote Attempt workspace>",
+ "-l", "nodes=1:ppn=C,mem=Mmb,walltime=W",
+ "-q", "batch", "B")
+```
+
+The qsub client continues to execute with descriptor-derived cwd equal to the
+same workspace. Immediately before qsub, the bootstrap reopens the exact named
+workspace no-follow, replays its frozen physical token, and compares the named
+descriptor's device/inode with the retained descriptor. Any path, symlink,
+replacement, token, or descriptor mismatch rejects before qsub.
+
+The request schema is unchanged: `remote_workspace` remains in the existing
+submitted binding and no argv/workdir value is accepted from the payload. The
+private operation table declares `remote_workspace` as a submit renderer input
+and its cwd policy covers both qsub client and scheduled shell. Protocol `/2`,
+the seven operations, manifest schema v2, and public APIs are unchanged.
+
+The exact successor operation table is 1623 bytes with SHA-256
+`ce3efce070694831c32dbadd71fc2e7991f02cd985055193966666ea19dc9ffc`.
+The fixed Python-3.6 bootstrap is 15926 bytes, 210 LF, zero CR/NUL, with
+SHA-256 `a90edecf87916c149e865256d69e6f57820cb29336380bd45d2107c7c00c64f0`.
+The corresponding source-controlled RTwin launcher-v5 is 11790 bytes, 200 LF,
+with SHA-256
+`184b806c07f05fdd1e51a669e9ff245f43c22b22b2efa17e5578f501d2e2d06d`.
+Predecessor identities remain immutable historical evidence.

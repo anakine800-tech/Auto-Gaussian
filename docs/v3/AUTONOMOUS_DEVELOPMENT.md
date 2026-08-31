@@ -583,3 +583,17 @@ Controller, open OpenSSH, or perform live work.
 - **Non-goals:** No deployment, new Attempt/approval/snapshot, workspace,
   qstat/qsub, Gaussian, qdel, cleanup, automatic retry, global SSH config
   mutation, agent forwarding, generic framework, or architecture exploration.
+
+### V30-EXEC-PBS-WORKDIR-ENACTMENT-CONTRACT-01
+
+- **Outcome:** Enact the exact snapshot-bound Attempt workspace as both qsub
+  client cwd and scheduled Torque shell cwd, with named-path physical replay
+  immediately before qsub.
+- **Scope:** Private Transport renderer, fixed bootstrap, operation-table and
+  runtime identities, focused/affected tests, minimum authority/status/context
+  docs, and append-only future acquisition evidence closeout.
+- **Preserve:** Existing `SUBMIT_QSUB_ONCE` request schema, AGV3 `/2`, ten-root
+  trust model, public APIs, resource sole authority, at-most-once submission,
+  `REPLAY` zero effect, and `UNKNOWN` no retry.
+- **Stop:** Any public API/protocol/schema/trust change, live deployment,
+  scheduler read, fetch, retry, cleanup, or new calculation Attempt.
