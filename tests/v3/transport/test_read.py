@@ -36,6 +36,77 @@ class SchedulerReadTests(TransportFixture):
             evidence = self.read_adapter(FakeDriver(text_results=(result,))).read_scheduler(snapshot, binding, profile)
             self.assertEqual((evidence.state, evidence.freshness), expected)
 
+    def test_torque_unknown_job_error_dialect_is_exact_and_fail_closed(self) -> None:
+        snapshot, profile = self.transport_snapshot()
+        binding = self.persisted_binding(snapshot, profile, job_id="680.master")
+        production = qstat(
+            b"",
+            stderr=b"qstat: Unknown Job Id Error 680.master\n",
+            returncode=153,
+        )
+        evidence = self.read_adapter(
+            FakeDriver(text_results=(production,))
+        ).read_scheduler(snapshot, binding, profile)
+        self.assertEqual((evidence.state, evidence.freshness), ("absent", "fresh"))
+        self.assertEqual(evidence.evidence_size_bytes, 39)
+        self.assertEqual(
+            evidence.evidence_sha256,
+            "b3d7eaf6aaa437d120e6bcbfa69b4835f5ad05a5cd91065d9eda86c7adf27c2f",
+        )
+
+        diagnostic = b"qstat: Unknown Job Id Error 680.master\n"
+        negative_results = {
+            "wrong-job-id": qstat(
+                b"",
+                stderr=b"qstat: Unknown Job Id Error 681.master\n",
+                returncode=153,
+            ),
+            "extra-prefix": qstat(
+                b"", stderr=b"prefix " + diagnostic, returncode=153
+            ),
+            "extra-suffix": qstat(
+                b"", stderr=diagnostic[:-1] + b" suffix\n", returncode=153
+            ),
+            "extra-lf": qstat(b"", stderr=diagnostic + b"\n", returncode=153),
+            "crlf": qstat(
+                b"", stderr=diagnostic[:-1] + b"\r\n", returncode=153
+            ),
+            "wrong-case": qstat(
+                b"",
+                stderr=b"qstat: unknown Job Id Error 680.master\n",
+                returncode=153,
+            ),
+            "wrong-returncode": qstat(b"", stderr=diagnostic, returncode=152),
+            "stdout-nonempty": qstat(
+                b"unexpected stdout\n", stderr=diagnostic, returncode=153
+            ),
+            "eof-incomplete": _TextResult(
+                stdout=b"",
+                stderr=diagnostic,
+                returncode=153,
+                eof_stdout=True,
+                eof_stderr=False,
+                completion_status="completed",
+            ),
+            "completion-not-completed": _TextResult(
+                stdout=b"",
+                stderr=diagnostic,
+                returncode=153,
+                eof_stdout=True,
+                eof_stderr=True,
+                completion_status="timeout",
+            ),
+        }
+        for name, raw_result in negative_results.items():
+            with self.subTest(name=name):
+                classified = self.read_adapter(
+                    FakeDriver(text_results=(raw_result,))
+                ).read_scheduler(snapshot, binding, profile)
+                self.assertEqual(
+                    (classified.state, classified.freshness),
+                    ("unknown", "unknown"),
+                )
+
     def test_postlaunch_qstat_executable_drift_remains_unknown(self) -> None:
         snapshot, profile = self.transport_snapshot()
         binding = self.persisted_binding(snapshot, profile)
