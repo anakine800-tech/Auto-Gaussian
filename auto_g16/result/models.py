@@ -33,12 +33,20 @@ _GAUSSIAN_LOG_TUPLE = (
     "1.0.0",
     _GAUSSIAN_RESULT_KIND,
 )
-_GAUSSIAN_JOB_TUPLE = (
+_GAUSSIAN_JOB_TUPLE_V1 = (
     "auto-g16-v3-gaussian-job",
     "1.0.0",
     _GAUSSIAN_JOB_RESULT_KIND,
 )
-_GAUSSIAN_JOB_GRAMMAR_ID = "auto-g16-v3-gaussian-job-grammar/1"
+_GAUSSIAN_JOB_TUPLE_V2 = (
+    "auto-g16-v3-gaussian-job",
+    "1.1.0",
+    _GAUSSIAN_JOB_RESULT_KIND,
+)
+_GAUSSIAN_JOB_GRAMMAR_IDS = {
+    _GAUSSIAN_JOB_TUPLE_V1: "auto-g16-v3-gaussian-job-grammar/1",
+    _GAUSSIAN_JOB_TUPLE_V2: "auto-g16-v3-gaussian-job-grammar/2",
+}
 _PROGRAM_FACT_KEYS = frozenset(
     {
         "program_status",
@@ -415,11 +423,13 @@ def _ordered_spans(spans: list[tuple[int, int, int]]) -> None:
         raise ResultBoundaryError("distinct attributed evidence spans overlap")
 
 
-def _attributed_program_facts(value: Mapping[str, object]) -> None:
+def _attributed_program_facts(
+    value: Mapping[str, object], parser_tuple: tuple[str, str, str]
+) -> None:
     _require_exact_keys(value, set(_ATTRIBUTED_FACT_KEYS), "facts")
     if type(value["facts_schema_version"]) is not int or value["facts_schema_version"] != 1:
         raise ResultBoundaryError("facts_schema_version must be 1")
-    if value["grammar_id"] != _GAUSSIAN_JOB_GRAMMAR_ID:
+    if value["grammar_id"] != _GAUSSIAN_JOB_GRAMMAR_IDS[parser_tuple]:
         raise ResultBoundaryError("facts.grammar_id is not the frozen grammar")
     source = _source(value["source_artifact"])
     job = _span(value["job_section"], source, "facts.job_section")
@@ -428,22 +438,48 @@ def _attributed_program_facts(value: Mapping[str, object]) -> None:
         raise ResultBoundaryError("attributed program_status must be terminal")
     normal = _require_size(value["normal_termination_count"], "normal count")
     error = _require_size(value["error_termination_count"], "error count")
-    if (normal, error) != ((1, 0) if status == "normal-termination" else (0, 1)):
-        raise ResultBoundaryError("terminal counts do not match program_status")
+    if parser_tuple == _GAUSSIAN_JOB_TUPLE_V1:
+        if (normal, error) != (
+            (1, 0) if status == "normal-termination" else (0, 1)
+        ):
+            raise ResultBoundaryError("terminal counts do not match program_status")
+    elif (
+        normal + error < 1
+        or (status == "normal-termination" and (normal < 1 or error != 0))
+        or (status == "error-termination" and error < 1)
+    ):
+        raise ResultBoundaryError("composite terminal counts do not match program_status")
 
     all_spans: list[tuple[int, int, int]] = []
     terminal = _tuple(value["termination_evidence"], "termination_evidence")
-    if len(terminal) != 1 or not isinstance(terminal[0], Mapping):
-        raise ResultBoundaryError("termination_evidence must contain exactly one item")
-    _require_exact_keys(terminal[0], {"kind", "source_span"}, "termination item")
-    if terminal[0]["kind"] != status:
-        raise ResultBoundaryError("termination evidence kind does not match status")
-    terminal_span = _span(
-        terminal[0]["source_span"], source, "termination span", job
-    )
-    if job[1] != terminal_span[1]:
+    if len(terminal) != normal + error:
+        raise ResultBoundaryError("termination evidence cardinality disagrees with counts")
+    if parser_tuple == _GAUSSIAN_JOB_TUPLE_V1 and len(terminal) != 1:
+        raise ResultBoundaryError("grammar-1 termination evidence must contain exactly one item")
+    terminal_spans: list[tuple[int, int]] = []
+    observed_normal = observed_error = 0
+    for index, item in enumerate(terminal):
+        if not isinstance(item, Mapping):
+            raise ResultBoundaryError("termination evidence must contain mappings")
+        _require_exact_keys(item, {"kind", "source_span"}, "termination item")
+        kind = item["kind"]
+        if kind not in {"normal-termination", "error-termination"}:
+            raise ResultBoundaryError("termination evidence kind is unsupported")
+        observed_normal += kind == "normal-termination"
+        observed_error += kind == "error-termination"
+        terminal_span = _span(item["source_span"], source, "termination span", job)
+        if terminal_spans and terminal_spans[-1] >= terminal_span:
+            raise ResultBoundaryError("termination evidence is not ordered")
+        terminal_spans.append(terminal_span)
+        all_spans.append((*terminal_span, index))
+    if (observed_normal, observed_error) != (normal, error):
+        raise ResultBoundaryError("termination evidence kinds disagree with counts")
+    if status == "normal-termination" and observed_error:
+        raise ResultBoundaryError("normal status cannot contain error termination")
+    if status == "error-termination" and not observed_error:
+        raise ResultBoundaryError("error status requires error termination evidence")
+    if job[1] != terminal_spans[-1][1]:
         raise ResultBoundaryError("job section must end at the terminal record")
-    all_spans.append((*terminal_span, 0))
 
     for flag_name, collection_name, kind_order in (
         ("optimization_completed_marker", "optimization_completed_evidence", 1),
@@ -575,12 +611,12 @@ def _program_facts(
     if parser_tuple[2] == _GAUSSIAN_RESULT_KIND:
         _legacy_program_facts(value)
         return
-    if parser_tuple != _GAUSSIAN_JOB_TUPLE:
+    if parser_tuple not in _GAUSSIAN_JOB_GRAMMAR_IDS:
         raise ResultBoundaryError("parse outcome uses an unsupported parser tuple")
     if status is ParseStatus.PARSED:
         if not value or diagnostics:
             raise ResultBoundaryError("parsed gaussian-job-facts require facts and no diagnostic")
-        _attributed_program_facts(value)
+        _attributed_program_facts(value, parser_tuple)
         return
     if value or len(diagnostics) != 1 or diagnostics[0] not in _ATTRIBUTED_DIAGNOSTICS:
         raise ResultBoundaryError("non-parsed gaussian-job-facts require one closed diagnostic and empty facts")

@@ -1299,6 +1299,60 @@ This additive contract changes no Core API/schema and reopens no Execution,
 Approval, or Workflow contract. It authorizes no ScientificValidation
 implementation, transport, PBS, Gaussian, deployment, retry, or live action.
 
+### Composite internal-step Gaussian job successor
+
+The additive successor retains the public `GaussianJobParser` name and
+`gaussian-job-facts` kind but freezes a new exact tuple and grammar:
+
+```text
+parser_name    = auto-g16-v3-gaussian-job
+parser_version = 1.1.0
+result_kind    = gaussian-job-facts
+grammar_id     = auto-g16-v3-gaussian-job-grammar/2
+```
+
+The existing `1.0.0` tuple remains bound only to grammar-1. Both tuples use
+outer `ParseOutcome` schema version 1, coexist append-only for one envelope,
+and retain distinct deterministic Result identities. No old outcome is
+migrated, reinterpreted, overwritten, or backfilled.
+
+Grammar-2 admits exactly one external `JOB_START`. It rejects a second
+external `JOB_START` and `LINK1_LITERAL`. An internal step is an exact
+`Proceeding to internal job step number N.` marker, optionally with the
+Gaussian-emitted `Link1:` prefix; the first `N` is 2 and later values must be
+3, 4, and so on without gaps, repeats, or decreases. An internal step may
+start only after the preceding component's exact normal terminal and never
+after an error terminal. The parser must close every component and the final
+component before returning `PARSED`.
+
+At parser top level, an exact `GRAD_BOUNDARY` is a structural separator within
+the same external invocation and emits no scientific fact. The same anchor in
+an unfinished optimization, frequency, geometry, or other admitted child
+production fails under that child production. It is never a free wildcard.
+
+`job_section` spans the complete external invocation through the final
+terminal. `termination_evidence` contains every physical terminal item in
+strict byte order; the normal and error counts equal those exact items. Overall
+`normal-termination` requires one or more terminal items, all normal, a closed
+contiguous internal-step chain, no error item, and a final normal terminal.
+Any error item yields `error-termination` and forbids continuation. Extra or
+unexplained terminals are unparseable.
+
+The existing optimization, stationary, geometry, and frequency fact shapes
+remain unchanged. ScientificValidation dispatches on the complete tuple.
+Grammar-1 retains its singular terminal rule and final-pair selection.
+Grammar-2 requires an all-normal terminal sequence and chooses the rightmost
+closed optimization/stationary pair whose stationary span ends no later than
+the first attributed frequency block. The unique rightmost complete geometry
+before that optimization span and the complete ordered frequency-block suffix
+after that stationary span are then evaluated under the unchanged nonlinear
+minimum policy. A frequency block with no preceding closed pair is
+`INCOMPLETE`; no raw bytes are reopened by ScientificValidation.
+
+This successor changes no public fact field, Core/Result schema, validation
+classification, reason vocabulary, acceptance record, execution authority, or
+live boundary.
+
 ## V30-MIN-VALIDATE-CONTRACT-01 Minimum Scientific Validation Contract
 
 **Contract status: FROZEN / INTEGRATED; IMPLEMENTATION NOT AUTHORIZED.**
@@ -1569,13 +1623,16 @@ blocks and values, classification, and exactly one closed primary
 `reason_code`. There is no current/latest lookup, cross-capture, cross-envelope,
 cross-Result, cross-parser, or cross-Attempt evidence splice.
 
-The exact supported parser tuple is:
+The exact supported parser tuples are:
 
 ```text
 parser_name    = auto-g16-v3-gaussian-job
-parser_version = 1.0.0
+parser_version = 1.0.0 | 1.1.0
 result_kind    = gaussian-job-facts
 ```
+
+Version `1.0.0` is bound only to grammar-1; version `1.1.0` is bound only to
+grammar-2. Every other tuple remains unsupported.
 
 The envelope must be complete and the ParseOutcome must bind that exact
 envelope and same Attempt. Every relied-upon span must bind the exact
@@ -1596,17 +1653,21 @@ is permitted.
 
 ### Deterministic attributed-evidence selection
 
-For a parsed supported tuple, ScientificValidation first requires exactly one
+For a parsed grammar-1 tuple, ScientificValidation first requires exactly one
 normal terminal fact, no error terminal fact, and `program_status =
-normal-termination`. A context-attributed error termination is always
-`INCOMPLETE`, never `NOT_MINIMUM` or `VALIDATED_MINIMUM`.
+normal-termination`. For grammar-2 it requires at least one normal terminal,
+zero error terminals, terminal-evidence cardinality equal to the normal count,
+and every terminal item normal. A context-attributed error termination is
+always `INCOMPLETE`, never `NOT_MINIMUM` or `VALIDATED_MINIMUM`.
 
 `optimization_completed_evidence` and `stationary_point_evidence` must be
 non-empty tuples of equal cardinality. They pair only by the same tuple index.
 For every index, the complete optimization span must precede its stationary
-span; each pair must precede the next pair. The accepted pair is the final
-pair. A missing, unequal, interleaved, or otherwise non-closing pair sequence is
-`INCOMPLETE`; no marker boolean repairs it.
+span; each pair must precede the next pair. Grammar-1 accepts the final pair.
+Grammar-2 accepts the rightmost closed pair whose stationary span ends no later
+than the first attributed frequency block. A missing, unequal, interleaved,
+otherwise non-closing sequence, or grammar-2 frequency evidence preceding
+every pair is `INCOMPLETE`; no marker boolean repairs it.
 
 The final optimized geometry is the unique rightmost complete
 `geometry_blocks` item in source-byte order whose `source_span.end` is less

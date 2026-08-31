@@ -12,9 +12,9 @@ from typing import Final
 from .models import CaptureCompleteness, MalformedEnvelopeError, OutputEnvelope, ParseOutcome, ParseStatus
 
 PARSER_NAME: Final = "auto-g16-v3-gaussian-job"
-PARSER_VERSION: Final = "1.0.0"
+PARSER_VERSION: Final = "1.1.0"
 RESULT_KIND: Final = "gaussian-job-facts"
-GRAMMAR_ID: Final = "auto-g16-v3-gaussian-job-grammar/1"
+GRAMMAR_ID: Final = "auto-g16-v3-gaussian-job-grammar/2"
 
 H0, H1 = rb"[ \t]*", rb"[ \t]+"
 UINT, INT = rb"[0-9]+", rb"[+-]?[0-9]+"
@@ -34,7 +34,8 @@ P = {
     "charge": _rx(H1 + rb"Charge" + H1 + rb"=" + H1 + INT + H1 + rb"Multiplicity" + H1 + rb"=" + H1 + rb"[1-9][0-9]*" + H0),
     "grad": _rx(H1 + rb"(?:Grad){2,}" + H0),
     "link1": _rx(H0 + rb"--Link1--" + H0),
-    "internal": _rx(H1 + rb"Proceeding" + H1 + rb"to" + H1 + rb"internal" + H1 + rb"job" + H1 + rb"step" + H1 + rb"number" + H1 + rb"[2-9][0-9]*\." + H0),
+    "internal": _rx(H1 + rb"(?:Link1:" + H1 + rb")?Proceeding" + H1 + rb"to" + H1 + rb"internal" + H1 + rb"job" + H1 + rb"step" + H1 + rb"number" + H1 + rb"(?P<n>[2-9][0-9]*)\." + H0),
+    "internal_enter": _rx(H1 + rb"\(Enter" + H1 + rb"[\x21-\x7e]*/l1\.exe\)" + H0),
     "unsupported_orientation": _rx(H1 + rb"Z-Matrix orientation:" + H0),
     "normal": _rx(H1 + rb"Normal termination of Gaussian 16(?:" + H1 + rb"at" + H1 + rb"[\x20-\x7e]+)?\.?" + H0),
     "error_a": _rx(H1 + rb"Error" + H1 + rb"termination" + H1 + rb"via" + H1 + rb"Lnk1e" + H1 + rb"in" + H1 + rb"[\x21-\x7e]+" + H1 + rb"at" + H1 + rb"[\x20-\x7e]+\." + H0),
@@ -235,6 +236,13 @@ def _prefix_failure(line: _Line) -> _Recognition | None:
             return result if isinstance(result, _Recognition) else None
     for prefix, code in PREFIXES:
         if body.startswith(prefix):
+            if prefix in {
+                b"Maximum Force",
+                b"RMS Force",
+                b"Maximum Displacement",
+                b"RMS Displacement",
+            } and body[len(prefix) :].lstrip(b" \t").startswith(b"="):
+                continue
             return _line_fail(code, line)
     return None
 
@@ -314,8 +322,9 @@ def _recognize(data: bytes, source: Mapping[str, object]) -> _Recognition:
         return failed
     state, return_state, index = "PREAMBLE", "MACHINE_BODY", 0
     job_start = terminal_line = last_grammar_line = None
-    terminal_kind = geometry_kind = None
+    geometry_kind = None
     echo_molecule = predicted_seen = False
+    next_internal_step = 2
     opt_done = None
     group_modes: tuple[int, ...] = ()
     group_values: tuple[float, ...] = ()
@@ -327,13 +336,14 @@ def _recognize(data: bytes, source: Mapping[str, object]) -> _Recognition:
     freq_blocks: list[dict[str, object]] = []
     thermos: dict[str, dict[str, object]] = {}
     geometries: list[dict[str, object]] = []
+    terminals: list[dict[str, object]] = []
 
     def consumed(line: _Line) -> None:
         nonlocal last_grammar_line
         last_grammar_line = line
 
     def body_step(line: _Line, parent: str) -> tuple[str, _Recognition | None]:
-        nonlocal return_state, predicted_seen, opt_done, geometry_start, geometry_kind, geometry_atoms, terminal_line, terminal_kind, last_mode
+        nonlocal return_state, predicted_seen, opt_done, geometry_start, geometry_kind, geometry_atoms, terminal_line, last_mode
         parsed_scf = _scf(line)
         if isinstance(parsed_scf, _Recognition):
             return parent, parsed_scf
@@ -367,7 +377,10 @@ def _recognize(data: bytes, source: Mapping[str, object]) -> _Recognition:
             return parent, None
         kind = _terminal(line)
         if kind:
-            terminal_kind, terminal_line = kind, line
+            terminal_line = line
+            terminals.append(
+                {"kind": kind, "source_span": _span(source, line.start, line.end)}
+            )
             consumed(line)
             return "TERMINATED", None
         if _multi(line):
@@ -376,7 +389,10 @@ def _recognize(data: bytes, source: Mapping[str, object]) -> _Recognition:
             return parent, _line_fail("unsupported-program", line, ParseStatus.UNSUPPORTED)
         if _m("unsupported_orientation", line):
             return parent, _line_fail("unsupported-valid-gaussian-grammar", line, ParseStatus.UNSUPPORTED)
-        if _m("symbolic", line) or _m("charge", line) or _m("grad", line):
+        if _m("grad", line):
+            consumed(line)
+            return parent, None
+        if _m("symbolic", line) or _m("charge", line):
             return parent, _line_fail("unparseable-echo-boundary", line)
         allowed = {"scf", "opt_header", "fh1", "orientation", "normal", "error_a", "error_b"}
         if _orphan(line, allowed):
@@ -403,7 +419,18 @@ def _recognize(data: bytes, source: Mapping[str, object]) -> _Recognition:
                 state = "MACHINE_BODY"; consumed(line)
             elif not _m("blank", line): echo_molecule = True; consumed(line)
         elif state in {"MACHINE_BODY", "FREQUENCY_BODY"}:
-            if state == "FREQUENCY_BODY" and (mode := _m("modes", line)):
+            mode = _m("modes", line) if state == "FREQUENCY_BODY" else None
+            next_sym = _m("sym", lines[index + 1]) if index + 1 < len(lines) else None
+            next_body = _body(lines[index + 2]) if index + 2 < len(lines) else None
+            frequency_continuation = bool(
+                mode
+                and next_sym
+                and len(next_sym.group("v").split()) == len(mode.group("v").split())
+                and next_body is not None
+                and next_body.startswith(b"Frequencies")
+            )
+            if frequency_continuation:
+                assert mode is not None
                 modes = tuple(int(v) for v in mode.group("v").split())
                 if any(b != a + 1 for a, b in zip(modes, modes[1:])) or (last_mode is not None and modes[0] != last_mode + 1):
                     return _line_fail("unparseable-frequency-block", line)
@@ -490,29 +517,51 @@ def _recognize(data: bytes, source: Mapping[str, object]) -> _Recognition:
                 assert atom is not None; geometry_atoms.append(atom); consumed(line)
         elif state == "TERMINATED":
             if _m("blank", line): pass
-            elif _multi(line): return _line_fail("unsupported-multiple-job", line, ParseStatus.UNSUPPORTED)
+            elif _m("internal_enter", line):
+                if terminals[-1]["kind"] != "normal-termination":
+                    return _line_fail("unparseable-trailing-content", line)
+                state = "INTERNAL_ENTER"; consumed(line)
+            elif (internal := _m("internal", line)):
+                step = int(internal.group("n"))
+                if terminals[-1]["kind"] != "normal-termination" or step != next_internal_step:
+                    return _line_fail("unparseable-ambiguous-transition", line)
+                next_internal_step += 1
+                state, echo_molecule = "INPUT_MOLECULE", False; consumed(line)
+            elif _m("job", line) or _m("link1", line): return _line_fail("unsupported-multiple-job", line, ParseStatus.UNSUPPORTED)
             elif _m("other_program", line): return _line_fail("unsupported-program", line, ParseStatus.UNSUPPORTED)
             elif _terminal(line): return _line_fail("unparseable-terminal", line)
             else: return _line_fail("unparseable-trailing-content", line)
+        elif state == "INTERNAL_ENTER":
+            internal = _m("internal", line)
+            if internal is None:
+                return _line_fail("unparseable-ambiguous-transition", line)
+            step = int(internal.group("n"))
+            if step != next_internal_step:
+                return _line_fail("unparseable-ambiguous-transition", line)
+            next_internal_step += 1
+            state, echo_molecule = "INPUT_MOLECULE", False; consumed(line)
         if advance: index += 1
 
     last_span = None if last_grammar_line is None else (last_grammar_line.start, last_grammar_line.end)
     if state == "PREAMBLE": return _fail("unparseable-job-start", len(data), None)
     if state in {"INPUT_ECHO", "INPUT_MOLECULE", "INPUT_BOUND"}: return _fail("unparseable-echo-boundary", len(data), last_span)
+    if state == "INTERNAL_ENTER": return _fail("unparseable-ambiguous-transition", len(data), last_span)
     if state.startswith("OPT_"): return _fail("unparseable-optimization-block", len(data), last_span)
     if state == "FREQUENCY_BODY": return _fail("unparseable-terminal", len(data), last_span)
     if state.startswith("FREQ_") or state.startswith("FREQUENCY_"): return _fail("unparseable-frequency-block", len(data), last_span)
     if state.startswith("GEOM_"): return _fail("unparseable-geometry-block", len(data), last_span)
     if state in {"MACHINE_BODY", "FREQUENCY_BODY"}: return _fail("unparseable-terminal", len(data), last_span)
-    if state != "TERMINATED" or job_start is None or terminal_line is None or terminal_kind is None: return _fail("unparseable-ambiguous-transition", len(data), None)
+    if state != "TERMINATED" or job_start is None or terminal_line is None or not terminals: return _fail("unparseable-ambiguous-transition", len(data), None)
 
     frequencies = tuple(value for block in freq_blocks for value in block["frequencies_cm-1"])
-    terminal_item = {"kind": terminal_kind, "source_span": _span(source, terminal_line.start, terminal_line.end)}
+    normal_count = sum(item["kind"] == "normal-termination" for item in terminals)
+    error_count = sum(item["kind"] == "error-termination" for item in terminals)
+    terminal_kind = "normal-termination" if error_count == 0 else "error-termination"
     facts = {
         "facts_schema_version": 1, "grammar_id": GRAMMAR_ID, "source_artifact": dict(source),
         "job_section": _span(source, job_start.start, terminal_line.end), "program_status": terminal_kind,
-        "normal_termination_count": int(terminal_kind == "normal-termination"), "error_termination_count": int(terminal_kind == "error-termination"),
-        "termination_evidence": (terminal_item,), "optimization_completed_marker": bool(opts), "optimization_completed_evidence": tuple(opts),
+        "normal_termination_count": normal_count, "error_termination_count": error_count,
+        "termination_evidence": tuple(terminals), "optimization_completed_marker": bool(opts), "optimization_completed_evidence": tuple(opts),
         "stationary_point_marker": bool(stations), "stationary_point_evidence": tuple(stations), "scf_calculation_count": len(scfs),
         "scf_calculations": tuple(scfs), "final_energy_hartree": scfs[-1]["energy_hartree"] if scfs else None,
         "frequency_count": len(frequencies), "frequency_parse_complete": True, "imaginary_frequency_count": sum(v < 0 for v in frequencies),

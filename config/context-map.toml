@@ -74,9 +74,13 @@ focused_tests = [
 id = "v30-result"
 status = "contract-frozen"
 required_sections = [
+  "OWNER_DECISIONS.md#od-30-one-external-gaussian-invocation-may-contain-attributed-internal-steps",
   "docs/v3/boundary-spec.md#v30-result-01-frozen-result-provenance-contract",
+  "docs/v3/boundary-spec.md#composite-internal-step-gaussian-job-successor",
   "docs/v3/acceptance.md#v30-result-01-frozen-result-provenance-boundary",
+  "docs/v3/acceptance.md#v30-a-gaussian-optfreq-composite-job-result-successor",
   "docs/v3/AUTONOMOUS_DEVELOPMENT.md#v30-result-01",
+  "docs/v3/AUTONOMOUS_DEVELOPMENT.md#v30-a-gaussian-optfreq-composite-job-result-contract-parser-repair-01",
 ]
 code_paths = [
   "auto_g16/result/",
@@ -94,8 +98,11 @@ id = "v30-scientific-validation"
 status = "contract-frozen"
 required_sections = [
   "OWNER_DECISIONS.md#od-13-minimum-validation-consumes-attributed-result-facts-only",
+  "OWNER_DECISIONS.md#od-30-one-external-gaussian-invocation-may-contain-attributed-internal-steps",
   "docs/v3/boundary-spec.md#v30-min-validate-contract-01-minimum-scientific-validation-contract",
+  "docs/v3/boundary-spec.md#composite-internal-step-gaussian-job-successor",
   "docs/v3/acceptance.md#v30-min-validate-contract-01-minimum-scientific-validation",
+  "docs/v3/acceptance.md#v30-a-gaussian-optfreq-composite-job-result-successor",
   "docs/v3/AUTONOMOUS_DEVELOPMENT.md#v30-min-validate-contract-01",
   "docs/v3/boundary-spec.md#additive-gaussian-job-attribution-contract",
   "docs/v3/acceptance.md#v30-result-section-attribution-additive-gaussian-job-facts",

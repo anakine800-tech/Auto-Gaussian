@@ -67,6 +67,41 @@ class MinimumValidationServiceTests(unittest.TestCase):
         self.assertEqual(item.selected_frequencies_cm1, (0.0, 100.0, 200.0))
         self.assertEqual(len(item.selected_frequency_blocks), 2)
 
+    def test_grammar2_composite_terminals_and_cross_component_opt_freq_validate(self) -> None:
+        _core, item = self.validate(
+            parser_version="1.1.0",
+            facts_options={
+                "terminal_specs": (
+                    ("normal-termination", 200, 220),
+                    ("normal-termination", 880, 900),
+                ),
+                "optimization_spans": ((100, 110), (400, 410)),
+                "stationary_spans": ((120, 130), (420, 430)),
+                "frequency_specs": ((140, 150, (100.0, 200.0, 300.0)),),
+            },
+        )
+        self.assertIs(item.classification, Classification.VALIDATED_MINIMUM)
+        self.assertEqual(item.reason_code, "validated-minimum")
+        self.assertEqual(item.accepted_optimization_span["start"], 100)  # type: ignore[index]
+        self.assertEqual(item.accepted_stationary_span["start"], 120)  # type: ignore[index]
+        self.assertEqual(item.selected_frequencies_cm1, (100.0, 200.0, 300.0))
+
+    def test_grammar2_requires_frequency_after_an_accepted_stationary_pair(self) -> None:
+        _core, item = self.validate(
+            parser_version="1.1.0",
+            facts_options={
+                "terminal_specs": (
+                    ("normal-termination", 200, 220),
+                    ("normal-termination", 880, 900),
+                ),
+                "optimization_spans": ((300, 310),),
+                "stationary_spans": ((320, 330),),
+                "frequency_specs": ((140, 150, (100.0, 200.0, 300.0)),),
+            },
+        )
+        self.assertIs(item.classification, Classification.INCOMPLETE)
+        self.assertEqual(item.reason_code, "incomplete-marker-pair")
+
     def test_unique_rightmost_pre_optimization_geometry_is_selected(self) -> None:
         options = {
             "geometry_specs": (
