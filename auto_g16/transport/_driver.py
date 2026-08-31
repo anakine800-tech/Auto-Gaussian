@@ -294,7 +294,7 @@ def _parse_mac_proxyjump_config(raw:bytes,*,config_path:str,rtwin_known_hosts_pa
             current_block={"Host":value}; blocks.append(current_block); continue
         if current_block is None or key in current_block: raise TransportBoundaryError("Mac ProxyJump config directive inventory is invalid")
         current_block[key]=value
-    common={"Host","HostName","Port","User","IdentityFile","CertificateFile","IdentitiesOnly","IdentityAgent","PreferredAuthentications","PubkeyAuthentication","PasswordAuthentication","KbdInteractiveAuthentication","GSSAPIAuthentication","HostbasedAuthentication","StrictHostKeyChecking","UserKnownHostsFile","GlobalKnownHostsFile","UpdateHostKeys","VerifyHostKeyDNS","ForwardAgent","RequestTTY","BatchMode"}
+    common={"Host","HostName","Port","User","IdentityFile","CertificateFile","IdentitiesOnly","IdentityAgent","PreferredAuthentications","PubkeyAuthentication","PasswordAuthentication","KbdInteractiveAuthentication","GSSAPIAuthentication","HostbasedAuthentication","StrictHostKeyChecking","UserKnownHostsFile","GlobalKnownHostsFile","UpdateHostKeys","VerifyHostKeyDNS","WarnWeakCrypto","ForwardAgent","RequestTTY","BatchMode"}
     fingerprint=_parse_openssh_ed25519_public_identity(final_public_key_raw)
     if len(comments)!=2 or comments[0]!=f"# AutoG16FinalIdentityFingerprint {fingerprint}":
         raise TransportBoundaryError("Mac ProxyJump final identity fingerprint is invalid")
@@ -308,7 +308,7 @@ def _parse_mac_proxyjump_config(raw:bytes,*,config_path:str,rtwin_known_hosts_pa
         "IdentitiesOnly":"yes","IdentityAgent":"none","CertificateFile":"none","PreferredAuthentications":"publickey","PubkeyAuthentication":"yes",
         "PasswordAuthentication":"no","KbdInteractiveAuthentication":"no","GSSAPIAuthentication":"no","HostbasedAuthentication":"no",
         "StrictHostKeyChecking":"yes","GlobalKnownHostsFile":"/dev/null","UpdateHostKeys":"no","VerifyHostKeyDNS":"no",
-        "ForwardAgent":"no","RequestTTY":"no","BatchMode":"yes",
+        "WarnWeakCrypto":"no","ForwardAgent":"no","RequestTTY":"no","BatchMode":"yes",
     }
     if any(block.get(key)!=value for block in blocks for key,value in fixed.items()):
         raise TransportBoundaryError("Mac ProxyJump config security directives are invalid")
