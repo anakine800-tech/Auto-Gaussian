@@ -85,6 +85,8 @@ def attributed_facts(
     stationary_spans: Sequence[tuple[int, int]] = ((120, 130),),
     geometry_specs: Sequence[tuple[int, int, Sequence[int]]] | None = None,
     frequency_specs: Sequence[tuple[int, int, Sequence[float]]] | None = None,
+    grammar_id: str = "auto-g16-v3-gaussian-job-grammar/1",
+    terminal_specs: Sequence[tuple[str, int, int]] | None = None,
     source_changes: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     source = _source(envelope)
@@ -107,17 +109,24 @@ def attributed_facts(
     else:
         blocks = tuple(frequency_specs)
     all_frequencies = tuple(float(item) for _start, _end, group in blocks for item in group)
-    terminal_kind = program_status
+    terminals = (
+        ((program_status, 880, 900),)
+        if terminal_specs is None
+        else tuple(terminal_specs)
+    )
+    normal_count = sum(kind == "normal-termination" for kind, _start, _end in terminals)
+    error_count = sum(kind == "error-termination" for kind, _start, _end in terminals)
     return {
         "facts_schema_version": 1,
-        "grammar_id": "auto-g16-v3-gaussian-job-grammar/1",
+        "grammar_id": grammar_id,
         "source_artifact": source,
         "job_section": _span(source, 0, 900),
         "program_status": program_status,
-        "normal_termination_count": 1 if program_status == "normal-termination" else 0,
-        "error_termination_count": 1 if program_status == "error-termination" else 0,
-        "termination_evidence": (
-            {"kind": terminal_kind, "source_span": _span(source, 880, 900)},
+        "normal_termination_count": normal_count,
+        "error_termination_count": error_count,
+        "termination_evidence": tuple(
+            {"kind": kind, "source_span": _span(source, start, end)}
+            for kind, start, end in terminals
         ),
         "optimization_completed_marker": bool(optimization_spans),
         "optimization_completed_evidence": tuple(
@@ -201,6 +210,12 @@ def stored_chain(
     )
     if parse_status is ParseStatus.PARSED and result_kind == "gaussian-job-facts":
         options = {} if facts_options is None else dict(facts_options)
+        options.setdefault(
+            "grammar_id",
+            "auto-g16-v3-gaussian-job-grammar/2"
+            if parser_version == "1.1.0"
+            else "auto-g16-v3-gaussian-job-grammar/1",
+        )
         facts = attributed_facts(envelope, **options)
     else:
         facts = {}

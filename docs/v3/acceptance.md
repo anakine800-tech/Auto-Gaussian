@@ -445,6 +445,60 @@ expected offsets by calling the parser under test is forbidden.
 | forged cross-envelope/artifact/out-of-range/reordered/overlapping span | reject before append and again on reopen |
 | same Result ID with different spans | append conflict; no overwrite |
 
+## V30-A Gaussian Opt/Freq Composite Job Result Successor
+
+**Status: OWNER AUTHORIZED IMPLEMENTATION.** The successor is accepted only
+when all of the following hold without changing the public fact shape:
+
+1. `GaussianJobParser` publishes exactly `auto-g16-v3-gaussian-job` / `1.1.0`
+   / `gaussian-job-facts` and every parsed fact mapping binds grammar
+   `auto-g16-v3-gaussian-job-grammar/2`.
+2. Historical `1.0.0` / grammar-1 payloads construct, persist, reopen, and
+   retain their original identity and exact-one-terminal semantics.
+3. One external invocation with no internal step remains parsable under
+   grammar-2. A second external start or exact `--Link1--` remains unsupported.
+4. Internal steps start at 2 and are strictly contiguous. Starts at 3,
+   duplicate 2, sequence 2-to-4, or continuation after error fail closed.
+5. Each internal marker is preceded by a closed normal component. Multiple
+   terminals without corresponding internal structure, an extra terminal
+   inside a component, or a nonterminal final component is unparseable.
+6. Repeated exact `GradGrad...` separators are accepted only at parser top
+   level. A separator inside an unfinished optimization, frequency, geometry,
+   or other child production fails with that production's closed diagnostic.
+7. A successful two-component Opt/Freq fixture reports two ordered normal
+   terminal spans, zero error terminals, one complete external `job_section`,
+   exact optimization/stationary spans, exact geometry spans, and exact
+   frequency blocks. Physical terminals are not collapsed.
+8. Grammar-2 normal status requires every component terminal to be normal and
+   the final component to be closed. Any error terminal produces overall error
+   status and cannot be followed by a successful continuation.
+9. ScientificValidation accepts both exact parser generations. Grammar-1
+   retains exactly one normal terminal. Grammar-2 requires normal count at
+   least one, zero errors, equal terminal-evidence cardinality, and every item
+   normal.
+10. For grammar-2, the accepted optimization/stationary pair is the rightmost
+    closed pair preceding the first frequency block. The unique final geometry
+    before that optimization and every frequency block after its stationary
+    marker remain the sole attributed minimum evidence. A frequency block
+    before every closed pair cannot validate a minimum.
+11. Nonlinear `3*N-6`, atomic-number-zero handling, exact `< 0.0` negative
+    threshold, four classifications, provenance closure, deterministic
+    identities, persistence, and separate ScientificAcceptance remain
+    unchanged.
+12. The immutable 110346-byte V30-A capture with SHA-256
+    `b2dd97287870c22d23934e60d835616492a6923256b40cebe41413d3f7e99a08`
+    is parsed only as ordinary grammar-2 input, with no artifact-specific
+    branch, fixed offset, molecule name, filename, or digest special case.
+13. Exact-capture qualification is zero-network and produces `PARSED`, two
+    normal terminals, zero error terminals, three frequencies
+    `(2017.6012, 3611.7356, 3835.6281)`, and a three-atom selected geometry.
+14. Focused and affected offline checks, independent P0/P1/P2/P3 review,
+    required CI, CodeQL, merge identity, and exact-main replay all pass before
+    the successor may terminalize the historical live Attempt.
+15. No test or replay opens SSH, reads scheduler state, fetches, executes,
+    allocates, stages, submits, retries, cancels, deletes, cleans, deploys, or
+    creates another Attempt.
+
 ## V30-MIN-VALIDATE-CONTRACT-01: Minimum Scientific Validation
 
 **Status: CONTRACT FROZEN / INTEGRATED; IMPLEMENTATION NOT AUTHORIZED.** These
@@ -460,10 +514,11 @@ authority:
 2. ScientificValidation accepts no Gaussian path or artifact bytes, opens no
    output, runs no Gaussian regex, reconstructs no missing fact, and performs
    no raw-substring or raw-context interpretation.
-3. Only `auto-g16-v3-gaussian-job` / `1.0.0` / `gaussian-job-facts` may support
-   minimum classification. Legacy `gaussian-log-facts`, unknown tuples, and a
-   Result with `ParseStatus.UNSUPPORTED` are `UNSUPPORTED`, never converted,
-   merged, backfilled, or reparsed.
+3. Only `auto-g16-v3-gaussian-job` / (`1.0.0` grammar-1 or `1.1.0`
+   grammar-2) / `gaussian-job-facts` may support minimum classification.
+   Legacy `gaussian-log-facts`, unknown tuples, and a Result with
+   `ParseStatus.UNSUPPORTED` are `UNSUPPORTED`, never converted, merged,
+   backfilled, or reparsed.
 4. The exact plan/revision -> Attempt -> same-Attempt InputBinding -> COMPLETE
    OutputEnvelope -> same-envelope ParseOutcome/result ID -> policy/version
    chain is replayed through public records. Latest/current lookup and evidence
@@ -472,13 +527,16 @@ authority:
    exact Result source artifact, envelope, job section, logical name, kind,
    size, and SHA-256. Partial/unparseable evidence, malformed provenance, or a
    missing supported fact is `INCOMPLETE`.
-6. A normal classification requires exactly one attributed normal terminal
-   fact and no error terminal fact. Attributed error termination is
-   `INCOMPLETE`, never `NOT_MINIMUM` or `VALIDATED_MINIMUM`.
+6. Grammar-1 normal classification requires exactly one attributed normal
+   terminal and no error terminal. Grammar-2 requires one or more ordered
+   normal terminals, no error terminal, and exact count/evidence agreement.
+   Attributed error termination is `INCOMPLETE`, never `NOT_MINIMUM` or
+   `VALIDATED_MINIMUM`.
 7. Optimization and stationary evidence tuples are non-empty and equal in
-   length, pair by index, and close in strict source order. The final pair is
-   the accepted pair; missing, unequal, interleaved, or ambiguous pairing is
-   `INCOMPLETE`.
+   length, pair by index, and close in strict source order. Grammar-1 accepts
+   the final pair. Grammar-2 accepts the rightmost closed pair preceding the
+   first attributed frequency block. Missing, unequal, interleaved, ambiguous,
+   or wholly post-frequency pairing is `INCOMPLETE`.
 8. Final optimized geometry is the unique rightmost complete Result geometry
    block whose span ends at or before the accepted optimization marker begins.
    Selection uses spans only. No orientation preference, nearest-looking block,

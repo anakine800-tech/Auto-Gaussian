@@ -26,11 +26,20 @@ from .models import (
 from .store import SQLiteScientificValidationStore
 
 
-_SUPPORTED_RESULT_TUPLE = (
+_SUPPORTED_RESULT_TUPLE_V1 = (
     "auto-g16-v3-gaussian-job",
     "1.0.0",
     "gaussian-job-facts",
 )
+_SUPPORTED_RESULT_TUPLE_V2 = (
+    "auto-g16-v3-gaussian-job",
+    "1.1.0",
+    "gaussian-job-facts",
+)
+_SUPPORTED_RESULT_TUPLES = {
+    _SUPPORTED_RESULT_TUPLE_V1,
+    _SUPPORTED_RESULT_TUPLE_V2,
+}
 
 
 def _same_semantics(left: Mapping[str, object], right: Mapping[str, object]) -> bool:
@@ -216,7 +225,7 @@ def validate_minimum(
         parse_outcome.parser_version,
         parse_outcome.result_kind,
     )
-    if parser_tuple != _SUPPORTED_RESULT_TUPLE:
+    if parser_tuple not in _SUPPORTED_RESULT_TUPLES:
         return _outcome(
             input_binding,
             envelope,
@@ -257,14 +266,32 @@ def validate_minimum(
             reason_code="incomplete-error-termination",
         )
     terminal = facts["termination_evidence"]
-    if (
-        facts["program_status"] != "normal-termination"
-        or facts["normal_termination_count"] != 1
-        or facts["error_termination_count"] != 0
-        or not isinstance(terminal, tuple)
-        or len(terminal) != 1
-        or terminal[0]["kind"] != "normal-termination"  # type: ignore[index]
-    ):
+    if parser_tuple == _SUPPORTED_RESULT_TUPLE_V1:
+        terminal_closed = (
+            facts["program_status"] == "normal-termination"
+            and facts["normal_termination_count"] == 1
+            and facts["error_termination_count"] == 0
+            and isinstance(terminal, tuple)
+            and len(terminal) == 1
+            and terminal[0]["kind"] == "normal-termination"  # type: ignore[index]
+        )
+    else:
+        normal_count = facts["normal_termination_count"]
+        terminal_closed = (
+            facts["program_status"] == "normal-termination"
+            and isinstance(normal_count, int)
+            and not isinstance(normal_count, bool)
+            and normal_count >= 1
+            and facts["error_termination_count"] == 0
+            and isinstance(terminal, tuple)
+            and len(terminal) == normal_count
+            and all(
+                isinstance(item, Mapping)
+                and item.get("kind") == "normal-termination"
+                for item in terminal
+            )
+        )
+    if not terminal_closed:
         return _outcome(
             input_binding,
             envelope,
@@ -312,8 +339,39 @@ def validate_minimum(
             classification=MinimumValidationClassification.INCOMPLETE,
             reason_code="incomplete-marker-pair",
         )
-    accepted_optimization = optimization[-1]
-    accepted_stationary = stationary[-1]
+    accepted_pair_index = len(optimization) - 1
+    if parser_tuple == _SUPPORTED_RESULT_TUPLE_V2:
+        frequency_blocks = facts["frequency_blocks"]
+        first_frequency_start: int | None = None
+        if isinstance(frequency_blocks, tuple) and frequency_blocks:
+            first = frequency_blocks[0]
+            if isinstance(first, Mapping) and isinstance(
+                first.get("source_span"), Mapping
+            ):
+                first_frequency_start = _span_bounds(first["source_span"])[0]  # type: ignore[arg-type]
+        eligible_pairs = (
+            ()
+            if first_frequency_start is None
+            else tuple(
+                index
+                for index, stat_span in enumerate(stationary)
+                if isinstance(stat_span, Mapping)
+                and _span_bounds(stat_span)[1] <= first_frequency_start
+            )
+        )
+        if not eligible_pairs:
+            return _outcome(
+                input_binding,
+                envelope,
+                parse_outcome,
+                source_artifact=source_artifact,
+                job_section=job_section,
+                classification=MinimumValidationClassification.INCOMPLETE,
+                reason_code="incomplete-marker-pair",
+            )
+        accepted_pair_index = eligible_pairs[-1]
+    accepted_optimization = optimization[accepted_pair_index]
+    accepted_stationary = stationary[accepted_pair_index]
     assert isinstance(accepted_optimization, Mapping)
     assert isinstance(accepted_stationary, Mapping)
 

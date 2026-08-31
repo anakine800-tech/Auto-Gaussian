@@ -98,6 +98,29 @@ def frequency_section(mode_numbers: bytes) -> tuple[bytes, ...]:
     )
 
 
+def composite_transcript(*, internal_step: int = 2) -> bytes:
+    rows = (
+        LINES[0],
+        LINES[5],
+        LINES[6],
+        LINES[7],
+        LINES[8],
+        *LINES[27:35],
+        *LINES[10:17],
+        LINES[36],
+        b" (Enter /opt/soft/g16/l1.exe)",
+        f" Link1:  Proceeding to internal job step number  {internal_step}.".encode(),
+        b" #P Geom=AllCheck Freq",
+        LINES[6],
+        b" O,0,0.0,0.0,0.0",
+        LINES[8],
+        b" GradGradGradGrad",
+        *LINES[17:27],
+        LINES[36],
+    )
+    return b"\n".join(rows) + b"\n"
+
+
 def envelope(
     data: bytes,
     *,
@@ -165,7 +188,7 @@ class GaussianJobParserTests(unittest.TestCase):
                 GaussianJobParser.parser_version,
                 GaussianJobParser.result_kind,
             ),
-            ("auto-g16-v3-gaussian-job", "1.0.0", "gaussian-job-facts"),
+            ("auto-g16-v3-gaussian-job", "1.1.0", "gaussian-job-facts"),
         )
         self.assertEqual(outcome.parse_status, ParseStatus.PARSED)
         self.assertEqual(outcome.diagnostics, ())
@@ -192,6 +215,82 @@ class GaussianJobParserTests(unittest.TestCase):
         self.assertEqual(len(facts["geometry_blocks"]), 1)
         self.assertNotIn("scientific_acceptance", facts)
         self.assertNotIn(-999.0, facts["frequencies_cm-1"])
+
+    def test_grammar2_composite_internal_step_preserves_all_terminal_evidence(self) -> None:
+        raw = composite_transcript()
+        outcome = parse(raw)
+        self.assertEqual(outcome.parse_status, ParseStatus.PARSED)
+        self.assertEqual(outcome.facts["grammar_id"], "auto-g16-v3-gaussian-job-grammar/2")
+        self.assertEqual(outcome.facts["normal_termination_count"], 2)
+        self.assertEqual(outcome.facts["error_termination_count"], 0)
+        terminals = outcome.facts["termination_evidence"]
+        self.assertEqual(len(terminals), 2)
+        self.assertTrue(all(item["kind"] == "normal-termination" for item in terminals))
+        self.assertLess(terminals[0]["source_span"]["end"], terminals[1]["source_span"]["start"])
+        self.assertEqual(outcome.facts["job_section"]["end"], terminals[-1]["source_span"]["end"])
+        self.assertEqual(outcome.facts["frequencies_cm-1"], (-123.4, 200.0, 300.0))
+        self.assertEqual(len(outcome.facts["optimization_completed_evidence"]), 1)
+
+    def test_grammar2_internal_sequence_and_component_closure_fail_closed(self) -> None:
+        starts_at_three = parse(composite_transcript(internal_step=3))
+        self.assertEqual(starts_at_three.diagnostics, ("unparseable-ambiguous-transition",))
+
+        duplicate = composite_transcript() + b"".join(
+            (
+                b" (Enter /opt/soft/g16/l1.exe)\n",
+                b" Proceeding to internal job step number 2.\n",
+            )
+        )
+        self.assertEqual(
+            parse(duplicate).diagnostics,
+            ("unparseable-ambiguous-transition",),
+        )
+
+        skipped = composite_transcript() + b"".join(
+            (
+                b" (Enter /opt/soft/g16/l1.exe)\n",
+                b" Proceeding to internal job step number 4.\n",
+            )
+        )
+        self.assertEqual(
+            parse(skipped).diagnostics,
+            ("unparseable-ambiguous-transition",),
+        )
+
+        error_first = composite_transcript().replace(
+            LINES[36] + b"\n",
+            b" Error termination via Lnk1e in /opt/g16/l9999.exe at Thu Aug 21 00:00:00 2026.\n",
+            1,
+        )
+        self.assertEqual(
+            parse(error_first).diagnostics,
+            ("unparseable-trailing-content",),
+        )
+
+        unexplained_terminal = composite_transcript() + LINES[36] + b"\n"
+        self.assertEqual(
+            parse(unexplained_terminal).diagnostics,
+            ("unparseable-terminal",),
+        )
+        trailing_external = composite_transcript() + LINES[0] + b"\n"
+        trailing_result = parse(trailing_external)
+        self.assertEqual(
+            (trailing_result.parse_status, trailing_result.diagnostics),
+            (ParseStatus.UNSUPPORTED, ("unsupported-multiple-job",)),
+        )
+
+    def test_grammar2_grad_is_only_safe_at_parser_top_level(self) -> None:
+        top_level = parse(composite_transcript())
+        self.assertEqual(top_level.parse_status, ParseStatus.PARSED)
+        in_geometry = composite_transcript().replace(
+            b" Center Atomic Atomic Coordinates (Angstroms)\n",
+            b" GradGradGrad\n",
+            1,
+        )
+        self.assertEqual(
+            parse(in_geometry).diagnostics,
+            ("unparseable-orphan-anchor",),
+        )
 
     def test_crlf_and_unterminated_terminal_keep_original_byte_offsets(self) -> None:
         lf_lines, failed = _tokenize(transcript())
@@ -537,6 +636,36 @@ class GaussianJobParserTests(unittest.TestCase):
             with initialized_store(database) as reopened:
                 view = ResultProvenanceService(reopened).current_view("attempt-1")
                 self.assertEqual({result.result_kind for result in view.selected_results}, {"gaussian-log-facts", "gaussian-job-facts"})
+
+        historical_payload = thaw(new.payload())
+        historical_payload["parser_version"] = "1.0.0"
+        historical_payload["facts"]["grammar_id"] = "auto-g16-v3-gaussian-job-grammar/1"
+        historical = ParseOutcome.from_payload(historical_payload)
+        self.assertNotEqual(historical.result_id, new.result_id)
+        with tempfile.TemporaryDirectory() as temporary:
+            database = Path(temporary) / "runtime.sqlite3"
+            store = initialized_store(database)
+            service = ResultProvenanceService(store)
+            service.record_input_binding(binding())
+            service.record_output_envelope(item)
+            service.record_parse_outcome(historical)
+            service.record_parse_outcome(new)
+            store.close()
+            with initialized_store(database) as reopened:
+                selected = ResultProvenanceService(reopened).current_view(
+                    "attempt-1"
+                ).selected_results
+                self.assertEqual(
+                    tuple(result.parser_version for result in selected),
+                    ("1.0.0", "1.1.0"),
+                )
+
+        composite = parse(composite_transcript())
+        invalid_v1 = thaw(composite.payload())
+        invalid_v1["parser_version"] = "1.0.0"
+        invalid_v1["facts"]["grammar_id"] = "auto-g16-v3-gaussian-job-grammar/1"
+        with self.assertRaisesRegex(ResultBoundaryError, "grammar-1|terminal counts"):
+            ParseOutcome.from_payload(invalid_v1)
 
         payload = thaw(new.payload())
         payload["facts"]["source_artifact"]["envelope_observation_id"] = "other-envelope"

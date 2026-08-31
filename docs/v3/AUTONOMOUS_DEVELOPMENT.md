@@ -248,6 +248,36 @@ for their owned surfaces.
   Contract Review. Completion authorizes neither publication nor
   `V30-RESULT-SECTION-ATTRIBUTION-IMPL-01`.
 
+### V30-A-GAUSSIAN-OPTFREQ-COMPOSITE-JOB-RESULT-CONTRACT-PARSER-REPAIR-01
+
+- **Outcome:** Add parser `1.1.0` / grammar-2 support for one external Gaussian
+  invocation with a closed contiguous internal-step chain, then let existing
+  ScientificValidation consume the unchanged attributed fact shape.
+- **Scope:** `auto_g16.result` parser/model tuple dispatch,
+  `auto_g16.scientific_validation` tuple-aware terminal and evidence
+  selection, focused/affected offline tests, the named authority documents,
+  exact immutable-capture qualification, independent review, PR, CI, merge,
+  and exact-main zero-network replay.
+- **Compatibility:** `1.0.0` / grammar-1 remains readable and keeps its exact
+  semantics. The new tuple changes Result identity naturally; no old Result,
+  envelope, input binding, or public schema is mutated.
+- **Autonomy:** `OWNER-GUIDED`, with implementation, normal PR, and merge
+  explicitly authorized by the current Owner Gate after zero findings and
+  green required checks.
+- **Stop rules:** Stop for a second external job, `--Link1--` workflow,
+  non-contiguous or ambiguous internal steps, schema/API/reason-vocabulary
+  change, raw-byte interpretation in ScientificValidation, artifact-specific
+  special casing, an exact-capture parse failure after the narrow repair, or
+  any network/live/deployment/effect requirement.
+- **Acceptance:** Prove the complete negative and positive grammar matrix,
+  legacy reopen, exact two-terminal capture facts, unchanged minimum policy,
+  exact three-mode positive frequencies, three-atom selected geometry,
+  deterministic append-only identities, and zero product effects.
+- **Handoff:** After merge, preserve old and new ParseOutcomes, select the new
+  current Result, terminalize Core only through its public lifecycle if the
+  composite is all-normal, record minimum validation and an eligible but
+  unaccepted ReviewBundle, and return for Owner scientific acceptance.
+
 ### V30-MIN-VALIDATE-CONTRACT-01
 
 - **Outcome:** Freeze the smallest post-Result boundary that classifies one

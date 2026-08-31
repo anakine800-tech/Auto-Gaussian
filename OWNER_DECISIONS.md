@@ -1079,3 +1079,39 @@ and launcher byte identities. Protocol `/2`, manifest schema v2, ten trust
 roots, resource authority, qsub-at-most-once, `REPLAY` zero effect, and
 `UNKNOWN` no retry remain unchanged. A later live use requires a new profile
 revision and fresh Attempt/approval/snapshot/confirmation authority.
+
+## OD-30: One external Gaussian invocation may contain attributed internal steps
+
+The Result successor tuple `auto-g16-v3-gaussian-job` / `1.1.0` /
+`gaussian-job-facts` uses source-controlled grammar
+`auto-g16-v3-gaussian-job-grammar/2`. It preserves the existing public fact
+shape and `ParseOutcome` schema while recognizing exactly one external Gaussian
+16 invocation whose internally generated steps are numbered contiguously from
+2. A second external `Entering Gaussian System` marker and `--Link1--` remain
+unsupported. Historical `1.0.0` / grammar-1 outcomes remain immutable,
+readable, and independently identified.
+
+Grammar-2 attributes every component terminal in byte order. Multiple normal
+terminals are legal only when the closed internal-step chain explains them;
+every component must terminate, any error terminal makes the overall program
+status error, and no continuation may follow an error. Repeated `GradGrad...`
+lines are structural separators only at parser top level and remain fatal
+inside an unfinished optimization, frequency, geometry, or other child
+production. The complete external invocation is one `job_section`; physical
+terminal counts and spans are never collapsed.
+
+ScientificValidation supports both exact parser generations. Grammar-1 keeps
+its exactly-one-normal-terminal rule. Grammar-2 accepts a structurally closed
+all-normal terminal sequence and selects the rightmost closed
+optimization/stationary pair preceding the first attributed frequency block;
+the final geometry is still the unique rightmost geometry preceding that
+accepted optimization marker, and the complete attributed frequency suffix
+after its stationary marker remains authoritative. Mode count, the exact
+`< 0.0` negative-frequency threshold, provenance closure, and the separate
+human ScientificAcceptance gate do not change.
+
+This decision authorizes the narrow Result/model/parser/validator repair,
+offline exact-capture replay, focused/affected validation, independent review,
+PR, CI, and normal merge. It grants no SSH, scheduler read, fetch, execution,
+workspace, staging, qsub, Gaussian, qdel, cleanup, deployment, retry, or new
+Attempt authority.
