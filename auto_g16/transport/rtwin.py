@@ -45,7 +45,8 @@ def _qstat_classification(binding:ExactRemoteJobBinding,result:_TextResult)->tup
         result=_TextResult(stdout=b"",stderr=b"",returncode=None,eof_stdout=False,eof_stderr=False,completion_status="transport-error")
     evidence=canonical_bytes([result.stdout,result.stderr,result.returncode,result.eof_stdout,result.eof_stderr,result.completion_status]); digest=sha256(evidence).hexdigest(); size=len(result.stdout)+len(result.stderr)
     if result.completion_status!="completed" or not result.eof_stdout or not result.eof_stderr: return "unknown","unknown",digest,size
-    if result.returncode==153 and result.stdout==b"" and result.stderr==f"qstat: Unknown Job Id {binding.job_id}\n".encode("ascii"): return "absent","fresh",digest,size
+    absent_diagnostics=(f"qstat: Unknown Job Id {binding.job_id}\n".encode("ascii"),f"qstat: Unknown Job Id Error {binding.job_id}\n".encode("ascii"))
+    if result.returncode==153 and result.stdout==b"" and result.stderr in absent_diagnostics: return "absent","fresh",digest,size
     if result.returncode!=0 or result.stderr or b"\x00" in result.stdout or b"\r" in result.stdout: return "unknown","unknown",digest,size
     try: text=result.stdout.decode("utf-8")
     except UnicodeDecodeError: return "unknown","unknown",digest,size
