@@ -95,6 +95,34 @@ class ScientificValidationStoreTests(unittest.TestCase):
             reopened.minimum_validations_for_attempt("attempt-1"), (first, second)
         )
 
+    def test_grammar2_validated_minimum_persists_and_reopens(self) -> None:
+        core, binding, envelope, parse_outcome = stored_chain(
+            parser_version="1.1.0",
+            facts_options={
+                "terminal_specs": (
+                    ("normal-termination", 200, 220),
+                    ("normal-termination", 880, 900),
+                ),
+                "optimization_spans": ((100, 110),),
+                "stationary_spans": ((120, 130),),
+                "frequency_specs": ((140, 150, (100.0, 200.0, 300.0)),),
+            },
+        )
+        self.addCleanup(core.close)
+        outcome = validate_minimum(core, binding, envelope, parse_outcome)
+        self.assertIs(outcome.classification, Classification.VALIDATED_MINIMUM)
+
+        store = SQLiteScientificValidationStore.create_new(self.path)
+        self.assertEqual(record_minimum_validation(store, outcome), outcome)
+        store.close()
+
+        reopened = SQLiteScientificValidationStore.open_existing(self.path)
+        self.addCleanup(reopened.close)
+        self.assertEqual(
+            reopened.load_minimum_validation(outcome.minimum_validation_outcome_id),
+            outcome,
+        )
+
     def test_same_identity_with_changed_content_conflicts(self) -> None:
         store = SQLiteScientificValidationStore.create_new(self.path)
         self.addCleanup(store.close)

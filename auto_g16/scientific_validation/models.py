@@ -554,11 +554,18 @@ def _payload_text(record: MinimumValidationOutcome | ScientificAcceptance) -> st
     )
 
 
-_SUPPORTED_RESULT_TUPLE: Final = (
-    "auto-g16-v3-gaussian-job",
-    "1.0.0",
-    "gaussian-job-facts",
-)
+_SUPPORTED_RESULT_TUPLES: Final = {
+    (
+        "auto-g16-v3-gaussian-job",
+        "1.0.0",
+        "gaussian-job-facts",
+    ),
+    (
+        "auto-g16-v3-gaussian-job",
+        "1.1.0",
+        "gaussian-job-facts",
+    ),
+}
 _REASON_CLASSIFICATIONS: Final = {
     "incomplete-provenance": MinimumValidationClassification.INCOMPLETE,
     "incomplete-capture": MinimumValidationClassification.INCOMPLETE,
@@ -660,10 +667,10 @@ def _assert_minimum_validation_semantics(
 
     parser_tuple = (record.parser_name, record.parser_version, record.result_kind)
     if record.reason_code == "unsupported-result-tuple":
-        if parser_tuple == _SUPPORTED_RESULT_TUPLE:
+        if parser_tuple in _SUPPORTED_RESULT_TUPLES:
             _semantic_integrity("unsupported tuple reason names the supported tuple")
     elif record.reason_code not in {"incomplete-provenance", "incomplete-capture"}:
-        if parser_tuple != _SUPPORTED_RESULT_TUPLE:
+        if parser_tuple not in _SUPPORTED_RESULT_TUPLES:
             _semantic_integrity("supported-policy reason names an unsupported tuple")
 
     absent_evidence = (
