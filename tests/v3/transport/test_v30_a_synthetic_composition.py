@@ -221,6 +221,7 @@ class V30ASyntheticCompositionTests(TransportFixture):
         self.assertIs(outcome.claim, core.SubmissionIntentClaim.WINNER)
         self.assertIs(outcome.attempt_state, core.AttemptState.SUBMITTED)
         self.assertEqual(driver.text_calls[-1][1].argv, (
+            "-d", snapshot.workspace_binding.remote_attempt_dir,
             "-l", "nodes=1:ppn=8,mem=12288mb,walltime=3600",
             "-q", "batch", "job.pbs",
         ))

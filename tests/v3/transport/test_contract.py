@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from dataclasses import fields, is_dataclass
 import ast
 from hashlib import sha256
@@ -143,16 +144,16 @@ class TransportContractTests(unittest.TestCase):
         self.assertEqual(tuple(inspect.signature(transport.RTWinReadAdapter).parameters), ("transport_store",))
 
     def test_operation_table_and_fixed_bootstrap_are_source_controlled(self) -> None:
-        self.assertEqual(len(_OPERATION_TABLE_BYTES), 1570)
+        self.assertEqual(len(_OPERATION_TABLE_BYTES), 1623)
         self.assertEqual(sha256(_OPERATION_TABLE_BYTES).hexdigest(), _OPERATION_TABLE_SHA256)
-        self.assertEqual(_OPERATION_TABLE_SHA256, "14cdd511bb6c4eb78af8f07d774cfdae27fc1c661dae8692b45e48ccd7fa31af")
+        self.assertEqual(_OPERATION_TABLE_SHA256, "ce3efce070694831c32dbadd71fc2e7991f02cd985055193966666ea19dc9ffc")
         self.assertEqual(_BOOTSTRAP_SOURCE_NAME, "auto-g16-v3-rtwin-bootstrap-v2-py36.py")
         self.assertEqual(_BOOTSTRAP_SOURCE_BYTES, _BOOTSTRAP_SOURCE.encode("utf-8"))
-        self.assertEqual(len(_BOOTSTRAP_SOURCE_BYTES), 15562)
-        self.assertEqual(_BOOTSTRAP_SOURCE_BYTES.count(b"\n"), 203)
+        self.assertEqual(len(_BOOTSTRAP_SOURCE_BYTES), 15926)
+        self.assertEqual(_BOOTSTRAP_SOURCE_BYTES.count(b"\n"), 210)
         self.assertNotIn(b"\r", _BOOTSTRAP_SOURCE_BYTES)
         self.assertNotIn(b"\x00", _BOOTSTRAP_SOURCE_BYTES)
-        self.assertEqual(sha256(_BOOTSTRAP_SOURCE_BYTES).hexdigest(), "ad0ba2af50a3bfedf186acf13d8468d5951f5d201b71687ba5dd2ef7b2a208ae")
+        self.assertEqual(sha256(_BOOTSTRAP_SOURCE_BYTES).hexdigest(), "a90edecf87916c149e865256d69e6f57820cb29336380bd45d2107c7c00c64f0")
         self.assertTrue(_BOOTSTRAP_SOURCE_BYTES.startswith(b"import base64,hashlib,json,os,re,stat,struct,subprocess,sys\n"))
         self.assertNotIn(b"from __future__ import annotations",_BOOTSTRAP_SOURCE_BYTES)
         self.assertTrue(_BOOTSTRAP_SOURCE_BYTES.endswith(b"main()\n"))
@@ -162,9 +163,9 @@ class TransportContractTests(unittest.TestCase):
         ast.parse(_BOOTSTRAP_SOURCE,feature_version=(3,6))
 
     def test_rtwin_launcher_is_exact_and_narrow(self) -> None:
-        self.assertEqual(_RTWIN_LAUNCHER_NAME,"auto-g16-v3-rtwin-launcher-v4.ps1")
+        self.assertEqual(_RTWIN_LAUNCHER_NAME,"auto-g16-v3-rtwin-launcher-v5.ps1")
         self.assertEqual(_RTWIN_LAUNCHER_BYTES,_RTWIN_LAUNCHER_SOURCE.encode("utf-8"))
-        self.assertEqual((_RTWIN_LAUNCHER_SIZE,_RTWIN_LAUNCHER_LF_COUNT,_RTWIN_LAUNCHER_SHA256),(11790,200,"52ce86be68356832b5b357c1c088aee9fc1b19701fe98115ef97b2a077dd7f60"))
+        self.assertEqual((_RTWIN_LAUNCHER_SIZE,_RTWIN_LAUNCHER_LF_COUNT,_RTWIN_LAUNCHER_SHA256),(11790,200,"184b806c07f05fdd1e51a669e9ff245f43c22b22b2efa17e5578f501d2e2d06d"))
         self.assertEqual(sha256(_RTWIN_LAUNCHER_BYTES).hexdigest(),_RTWIN_LAUNCHER_SHA256)
         self.assertNotIn(b"\r",_RTWIN_LAUNCHER_BYTES)
         self.assertNotIn(b"\x00",_RTWIN_LAUNCHER_BYTES)
@@ -363,7 +364,8 @@ class TransportContractTests(unittest.TestCase):
         self.assertIn('set(r)!={"execution_snapshot_id","resolved_resource_request_id","cores","memory_mb","walltime_seconds","queue","scheduler_dialect_id"}', _BOOTSTRAP_SOURCE)
         self.assertLess(_BOOTSTRAP_SOURCE.index('args.append(p["pbs_basename"]); die("non-production-resource-dialect")'), _BOOTSTRAP_SOURCE.index('completed=run_exact(roots["server_qsub"],args'))
         self.assertIn('if r["queue"]!="batch": die("invalid-torque-queue")', _BOOTSTRAP_SOURCE)
-        self.assertIn('args=["-l","nodes=1:ppn="+str(r["cores"])+",mem="+str(r["memory_mb"])+"mb,walltime="+str(r["walltime_seconds"]),"-q","batch",p["pbs_basename"]]', _BOOTSTRAP_SOURCE)
+        self.assertIn('attest_workspace_name(fd,b)', _BOOTSTRAP_SOURCE)
+        self.assertIn('args=["-d",b["remote_workspace"],"-l","nodes=1:ppn="+str(r["cores"])+",mem="+str(r["memory_mb"])+"mb,walltime="+str(r["walltime_seconds"]),"-q","batch",p["pbs_basename"]]', _BOOTSTRAP_SOURCE)
 
     def test_bootstrap_rejects_nonexecutables_and_postlaunch_replacement(self) -> None:
         tree = ast.parse(_BOOTSTRAP_SOURCE)
@@ -449,13 +451,70 @@ class TransportContractTests(unittest.TestCase):
         namespace["open_workspace"] = Mock(return_value=(10, 11, 12))
         namespace["closefds"] = Mock()
         namespace["attest_artifact"] = Mock(side_effect=lambda _fd, _binding, kind, _identity: "input.gjf" if kind=="prepared-input" else "job.pbs")
+        namespace["attest_workspace_name"] = Mock()
         namespace["run_exact"] = Mock(return_value=subprocess.CompletedProcess([], 0, stdout=b"123.server\n", stderr=b""))
         namespace["respond"] = Mock()
         namespace["main"]()
-        expected = ["-l", "nodes=1:ppn=22,mem=51200mb,walltime=43200", "-q", "batch", "job.pbs"]
+        expected = ["-d", "/srv/p/attempt-1", "-l", "nodes=1:ppn=22,mem=51200mb,walltime=43200", "-q", "batch", "job.pbs"]
         namespace["run_exact"].assert_called_once_with(qsub_root, expected, 12, 65536, 65536)
+        namespace["attest_workspace_name"].assert_called_once_with(12, binding)
         namespace["respond"].assert_called_once_with("SUBMIT_QSUB_ONCE", {"job_id":"123.server"})
         self.assertNotIn("argv", request["payload"])
+
+    def test_bootstrap_reattests_named_workspace_immediately_before_qsub(self) -> None:
+        tree = ast.parse(_BOOTSTRAP_SOURCE)
+        namespace: dict[str, object] = {}
+        exec(compile(ast.Module(body=tree.body[:-1], type_ignores=[]), "<fixed-bootstrap-test>", "exec"), namespace)
+        attest = namespace["attest_workspace_name"]
+        with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
+            retained = os.open(first, os.O_RDONLY | os.O_DIRECTORY)
+            same = os.open(first, os.O_RDONLY | os.O_DIRECTORY)
+            different = os.open(second, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                namespace["open_workspace"] = Mock(return_value=(20, 21, same))
+                namespace["closefds"] = Mock()
+                attest(retained, {"remote_workspace":"/srv/p/attempt-1"})
+                namespace["open_workspace"] = Mock(return_value=(30, 31, different))
+                with self.assertRaises(SystemExit):
+                    attest(retained, {"remote_workspace":"/srv/p/attempt-1"})
+            finally:
+                os.close(different)
+                os.close(same)
+                os.close(retained)
+
+    def test_bootstrap_named_workspace_replacement_and_symlink_reject(self) -> None:
+        tree = ast.parse(_BOOTSTRAP_SOURCE)
+        namespace: dict[str, object] = {}
+        exec(compile(ast.Module(body=tree.body[:-1], type_ignores=[]), "<fixed-bootstrap-test>", "exec"), namespace)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "root"
+            project = root / "project-1"
+            attempt = project / "attempt-1"
+            attempt.mkdir(parents=True)
+            binding = {
+                "attempt_id":"attempt-1",
+                "execution_snapshot_id":"snapshot-1",
+                "submission_intent_id":"intent-1",
+                "remote_workspace":str(attempt),
+            }
+            descriptor = os.open(attempt, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                binding["workspace_physical_token_base64"] = base64.b64encode(
+                    namespace["workspace_token"](descriptor, binding)
+                ).decode("ascii")
+            finally:
+                os.close(descriptor)
+            opened = namespace["open_workspace"](binding)
+            namespace["closefds"](opened)
+            original = project / "original-attempt"
+            attempt.rename(original)
+            attempt.mkdir()
+            with self.assertRaises((SystemExit, OSError)):
+                namespace["open_workspace"](binding)
+            attempt.rmdir()
+            attempt.symlink_to(original, target_is_directory=True)
+            with self.assertRaises((SystemExit, OSError)):
+                namespace["open_workspace"](binding)
 
     def test_posix_variable_and_exact_fixed_source_quoting_are_separate(self) -> None:
         self.assertEqual(shlex.split(_posix_quote_v1("")), [""])
@@ -516,8 +575,8 @@ class TransportContractTests(unittest.TestCase):
         )
         self.assertIn(generic, _RTWIN_LAUNCHER_SOURCE)
         self.assertIn("function Quote-PosixFixedBootstrap([byte[]]$Bytes)", _RTWIN_LAUNCHER_SOURCE)
-        self.assertIn("if($Bytes.Length-ne 15562){Fail-AutoG16}", _RTWIN_LAUNCHER_SOURCE)
-        self.assertIn("if($Actual-ne'ad0ba2af50a3bfedf186acf13d8468d5951f5d201b71687ba5dd2ef7b2a208ae'){Fail-AutoG16}", _RTWIN_LAUNCHER_SOURCE)
+        self.assertIn("if($Bytes.Length-ne 15926){Fail-AutoG16}", _RTWIN_LAUNCHER_SOURCE)
+        self.assertIn("if($Actual-ne'a90edecf87916c149e865256d69e6f57820cb29336380bd45d2107c7c00c64f0'){Fail-AutoG16}", _RTWIN_LAUNCHER_SOURCE)
         self.assertIn("$Roundtrip=$Utf8.GetBytes($Value)", _RTWIN_LAUNCHER_SOURCE)
         self.assertIn("if($Value.IndexOf([char]0)-ge 0 -or $Value.IndexOf(\"`r\")-ge 0){Fail-AutoG16}", _RTWIN_LAUNCHER_SOURCE)
         self.assertNotIn("$Value.IndexOf(\"`n\")", _RTWIN_LAUNCHER_SOURCE.split("function Quote-PosixFixedBootstrap", 1)[1].split("function Quote-Crt", 1)[0])

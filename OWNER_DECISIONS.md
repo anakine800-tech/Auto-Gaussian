@@ -1050,3 +1050,32 @@ review, PR, CI, and normal merge. It authorizes no production deployment,
 recovery Attempt, workspace/staging, qstat, qsub, Gaussian, qdel, cleanup, or
 calculation effect. The next Owner gate is Option-1 production deployment and
 production qualification.
+
+## OD-29: Scheduled job cwd is enacted from the bound Attempt workspace
+
+`ExecutionSnapshot.workspace_binding.remote_attempt_dir` is the sole authority
+for both the qsub client's cwd and the scheduled shell's initial cwd. The PBS
+template, caller, environment, scheduler default, server profile, and resource
+descriptor cannot supply, replace, or override this path.
+
+For the exact qualified Torque renderer, Transport derives final argv as
+`("-d", remote_attempt_dir, "-l", resources, "-q", "batch",
+pbs_basename)`. The existing `SUBMIT_QSUB_ONCE` binding already carries the
+exact remote workspace; no new public API, AGV3 operation, payload key, or
+second workdir authority is created. Immediately before qsub, the fixed
+bootstrap reopens the exact named workspace with the existing no-follow rules,
+replays the frozen workspace physical token, and proves it is the same
+device/inode as the retained workspace descriptor. Drift rejects before qsub.
+
+The exact `680.master` finite-path reconciliation is immutable live evidence:
+the physically bound Attempt workspace retained the exact staged GJF while the
+exact Torque stdout reported that Gaussian could not open that relative GJF.
+It proves a workdir-related failure for that consumed Attempt; it does not
+authorize Result backfill, retry, cleanup, deployment, a new Attempt, or
+another qsub.
+
+This private mechanical successor changes the operation-table, fixed bootstrap,
+and launcher byte identities. Protocol `/2`, manifest schema v2, ten trust
+roots, resource authority, qsub-at-most-once, `REPLAY` zero effect, and
+`UNKNOWN` no retry remain unchanged. A later live use requires a new profile
+revision and fresh Attempt/approval/snapshot/confirmation authority.

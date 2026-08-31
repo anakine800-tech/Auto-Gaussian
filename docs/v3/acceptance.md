@@ -1775,3 +1775,34 @@ expansion.
     independent adversarial review reports `P0/P1/P2/P3 = 0/0/0/0`. Product
     integration, PR, CI, and normal merge perform zero deployment, Attempt,
     workspace, qstat, qsub, Gaussian, qdel, cleanup, or automatic retry.
+
+## V30-EXEC-PBS-WORKDIR-ENACTMENT-CONTRACT-01
+
+1. The only scheduled-workdir authority is the exact current
+   `ExecutionSnapshot.workspace_binding.remote_attempt_dir`.
+2. Torque argv begins with exact `("-d", remote_attempt_dir)` and retains the
+   reviewed resource, queue, and PBS basename tokens afterward.
+3. Caller argv, PBS directives, environment, scheduler default, profile value,
+   and payload override cannot select a different workdir.
+4. Immediately before qsub, the named path is reopened no-follow, its physical
+   token is replayed, and its device/inode equals the retained workspace
+   descriptor. Replacement, symlink, splice, or drift rejects before qsub.
+5. The qsub client descriptor cwd and scheduled `-d` path equal the same exact
+   workspace. No shell, PATH qsub, retry, fallback, or second qsub is added.
+6. `SUBMIT_QSUB_ONCE`, AGV3 `/2`, payload schema, manifest schema v2, ten trust
+   roots, public APIs, and Result model remain unchanged.
+7. Synthetic vectors include the bound workdir and negative vectors cover
+   invalid paths, workspace replacement, authority splice, caller override,
+   `REPLAY`, and `UNKNOWN`.
+8. Fixed source, operation table, and launcher successor identities replay
+   exactly: table 1623 bytes /
+   `ce3efce070694831c32dbadd71fc2e7991f02cd985055193966666ea19dc9ffc`,
+   bootstrap 15926 bytes / 210 LF /
+   `a90edecf87916c149e865256d69e6f57820cb29336380bd45d2107c7c00c64f0`,
+   and launcher-v5 11790 bytes / 200 LF /
+   `184b806c07f05fdd1e51a669e9ff245f43c22b22b2efa17e5578f501d2e2d06d`.
+   Live use requires the next profile revision and a fresh authority chain;
+   this integration authorizes no deployment or calculation effect.
+9. Future scheduler/output acquisitions persist append-only per-acquisition
+   sequence, timestamp, operation, bounded raw result identity/bytes, and
+   classification. Aggregate terminal summaries do not replace that evidence.

@@ -52,6 +52,7 @@ class RTWinExecutionTests(TransportFixture):
             },
         })
         self.assertEqual(submit.argv, (
+            "--auto-g16-synthetic-workdir", snapshot.workspace_binding.remote_attempt_dir,
             "--auto-g16-synthetic-cores", "8",
             "--auto-g16-synthetic-memory-mb", "12288",
             "--auto-g16-synthetic-walltime-seconds", "3600",

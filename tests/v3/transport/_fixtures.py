@@ -70,7 +70,7 @@ def _manifest_bytes(
         "mac_scp": file_root(mac_scp_path, "macos", "controller-file-v1", "synthetic-mac-scp", mac_scp_bytes),
         "rtwin_ssh": file_root(r"C:\Windows\System32\OpenSSH\ssh.exe", "windows", "rtwin-shell-file-v1", "synthetic-rtwin-ssh", b"rtwin ssh executable bytes"),
         "rtwin_scp": file_root(r"C:\Windows\System32\OpenSSH\scp.exe", "windows", "rtwin-shell-file-v1", "synthetic-rtwin-scp", b"rtwin scp executable bytes"),
-        "rtwin_launcher": file_root("C:\\AutoG16Runtime\\" + _RTWIN_LAUNCHER_NAME, "windows", "rtwin-shell-file-v1", "auto-g16-v3-rtwin-launcher-v4", _RTWIN_LAUNCHER_BYTES),
+        "rtwin_launcher": file_root("C:\\AutoG16Runtime\\" + _RTWIN_LAUNCHER_NAME, "windows", "rtwin-shell-file-v1", "auto-g16-v3-rtwin-launcher-v5", _RTWIN_LAUNCHER_BYTES),
         "rtwin_remote_shell": {
             "attestation_mode": "deployment-root-v1",
             "deployment_identity": "synthetic-windows-shell",

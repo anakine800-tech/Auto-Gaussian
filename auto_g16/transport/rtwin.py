@@ -103,7 +103,7 @@ class RTWinExecutionAdapter:
         binding={**_workspace_binding(snapshot,runtime,workspace),"prepared_input_artifact_authority_id":prepared["artifact_authority_id"],"prepared_input_artifact_physical_token_base64":_b64(prepared["artifact_physical_token"]),"pbs_template_artifact_authority_id":pbs["artifact_authority_id"],"pbs_template_artifact_physical_token_base64":_b64(pbs["artifact_physical_token"])}
         operation=_operation("SUBMIT_QSUB_ONCE"); enactment=_resource_enactment(snapshot,authority); pbs_basename=snapshot.pbs_template_binding.logical_name
         payload={"pbs_basename":pbs_basename,"resource_enactment":enactment.payload()}
-        invocation=_Invocation(operation=operation,argv=_render_qsub_argv(enactment,pbs_basename),cwd=snapshot.workspace_binding.remote_attempt_dir,request=_request(operation.name,binding,payload),authority=authority)
+        invocation=_Invocation(operation=operation,argv=_render_qsub_argv(enactment,pbs_basename,snapshot.workspace_binding.remote_attempt_dir),cwd=snapshot.workspace_binding.remote_attempt_dir,request=_request(operation.name,binding,payload),authority=authority)
         try: result=_result_object(_invoke_text(self._driver,snapshot,invocation)); job=result["job_id"]
         except Exception as exc: raise PossiblyEffectfulError(EffectKind.SUBMISSION,"qsub-outcome-ambiguous") from exc
         if not isinstance(job,str) or _JOB_ID.fullmatch(job) is None: raise PossiblyEffectfulError(EffectKind.SUBMISSION,"qsub-job-id-invalid")
