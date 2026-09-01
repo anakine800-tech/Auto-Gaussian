@@ -627,3 +627,43 @@ Controller, open OpenSSH, or perform live work.
   `REPLAY` zero effect, and `UNKNOWN` no retry.
 - **Stop:** Any public API/protocol/schema/trust change, live deployment,
   scheduler read, fetch, retry, cleanup, or new calculation Attempt.
+
+### V31-SHARED-CONTRACT-01
+
+- **Outcome:** Freeze the smallest shared v3.1 contract for Project first-use
+  physical provisioning, additive versioned Gaussian/xTB/CREST execution,
+  conformer handoff, thermodynamic handoff, and deterministic TS-seed member
+  projection.
+- **Scope:** `OWNER_DECISIONS.md`, the minimum `docs/v3/**` authority documents,
+  and `config/context-map.toml` only when required for authoritative routing.
+  Contract text may define future public shapes but creates no product or
+  schema implementation.
+- **Public budget:** At most two new execution-domain public records:
+  `ProgramExecutionSpec` and `ProgramExecutionSnapshot`. Provisioning-domain
+  `ProjectPhysicalBinding` is separate. ProgramAdapter is a private closed
+  registry for exactly Gaussian/xTB/CREST. Ensemble-domain public records are
+  `SamplingProfile`, `ConformerEnsemble`, and
+  `ThermodynamicEnsemble`; TS-seed projection stays
+  `ConformerEnsemble.ts_seed_members`.
+- **Preserve:** V30 `PreparedInputBinding`, `PbsTemplateBinding`, and
+  `ExecutionSnapshot`; Core Project shape/schema; Transport topology/protocol;
+  parser/grammar and Result meanings; V30 vectors; approval/effect/no-overwrite/
+  uncertainty semantics.
+- **Policy:** SamplingProfile independently freezes all applicable thresholds
+  and policies before observations. Thermodynamics separately preserves raw
+  RRHO, per-conformer treated qRRHO, and final degeneracy-weighted ensemble
+  aggregation with no unverified defaults or duplicated conformational entropy.
+- **Autonomy:** `OWNER-GUIDED`, contract-only and zero-effect. The explicit
+  Owner boundary authorizes the contract candidate, offline validation,
+  independent review, and one local commit only.
+- **Validation:** docs/contract-focused checks, authoritative selector result,
+  the selector-required v3-full tests once on the frozen candidate, static/CI
+  contract/diff/sensitive checks, clean preflight, and fresh independent
+  findings-first review. P0/P1 block.
+- **Stop rules:** Stop on base/tree drift; a third execution public record;
+  public adapter/plugin surface; hard-coded universal threshold/default;
+  in-place V30 reinterpretation; Core/Transport/parser/vector/product/test
+  mutation; implementation or live need; or any P0/P1.
+- **Handoff:** Local commit with exact base/head/tree/diff/test/review evidence
+  and PR-ready scope. Do not push, create a PR, merge, deploy, provision, run a
+  program, submit, retry, clean up, or accept science.

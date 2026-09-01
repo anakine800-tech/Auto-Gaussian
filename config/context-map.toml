@@ -252,6 +252,19 @@ code_paths = ["skills/auto-g16-conformer-search/scripts/conformer_core.py"]
 focused_tests = ["tests/test_conformer_search.py"]
 
 [[component]]
+id = "v31-shared-contract"
+status = "contract-frozen-candidate"
+required_sections = [
+  "OWNER_DECISIONS.md#od-31-v31-shares-one-versioned-execution-and-ensemble-contract",
+  "docs/v3/boundary-spec.md#v31-shared-contract-01-shared-execution-and-ensemble-contract",
+  "docs/v3/acceptance.md#v31-flexible-molecule-ensemble",
+  "docs/v3/AUTONOMOUS_DEVELOPMENT.md#v31-shared-contract-01",
+  "docs/v3/STATUS.md#auto-g16-v3-status",
+]
+code_paths = []
+focused_tests = []
+
+[[component]]
 id = "reaction-workflow"
 status = "acceptance-target"
 required_sections = [

@@ -1115,3 +1115,70 @@ offline exact-capture replay, focused/affected validation, independent review,
 PR, CI, and normal merge. It grants no SSH, scheduler read, fetch, execution,
 workspace, staging, qsub, Gaussian, qdel, cleanup, deployment, retry, or new
 Attempt authority.
+
+## OD-31: v3.1 shares one versioned execution and ensemble contract
+
+V31 adds, rather than reinterprets, the execution and ensemble semantics needed
+by a flexible-molecule study. The V30 `PreparedInputBinding`,
+`PbsTemplateBinding`, and `ExecutionSnapshot` types, their identities, and every
+existing Attempt remain immutable. A V31 Attempt instead binds one new
+`ProgramExecutionSpec` and its `ProgramExecutionSnapshot` successor; no Attempt
+may be represented by both generations or converted between them in place.
+
+Execution gains exactly two public records: `ProgramExecutionSpec`, which
+closes program identity, adapter/version, exact inputs, typed data, tokenized
+argv, and required/optional outputs, and `ProgramExecutionSnapshot`, which
+binds that exact spec to one Attempt, Project physical binding, resources,
+target, workspace, and derived scheduler artifacts. `ProjectPhysicalBinding`
+belongs to the separate physical-provisioning boundary and does not consume the
+two-record execution budget. Core `Project` remains exactly `{project_id}` and
+the Core schema is unchanged.
+
+First-use provisioning has exactly three outcomes. An absent target permits
+one exact nonrecursive no-follow mkdir followed by a durable physical binding.
+An existing target with an exact prior Product binding permits only physical
+re-attestation and idempotent reuse, never a second mkdir. An existing target
+without a Product binding yields `UNBOUND_EXISTING`, performs zero effects, and
+stops for a later Owner migration/adoption decision. Provisioning never
+overwrites, deletes, truncates, follows a replacement, or retries an uncertain
+effect automatically.
+
+`ProgramAdapter` is a private, source-controlled closed registry, not a public
+protocol or plugin surface. Its only program discriminants are `gaussian`,
+`xtb`, and `crest`. The primary invocation meaning is closed typed data plus an
+ordered argv token tuple under an exact adapter version. A caller-supplied
+shell command string, ambient executable selection, open environment map, or
+extension bag is forbidden. Any scheduler script is a secondary deterministic
+artifact derived from the same closed semantics, not a second command
+authority. Transport topology and protocols remain unchanged.
+
+V31 adds public `SamplingProfile`, `ConformerEnsemble`, and
+`ThermodynamicEnsemble` records outside the execution domain. `SamplingProfile`
+is independent because every applicable sampling, legality, clustering,
+coverage, thermodynamic-eligibility, and TS-seed-eligibility policy must be
+frozen before observations and may be reused by immutable ensemble revisions.
+It contains every applicable threshold and parameter explicitly; V31 freezes
+no universal energy window, Top-N, RMSD, quota, temperature, low-frequency, or
+other numeric default.
+
+`ConformerEnsemble` closes species/electronic-state and stereochemical identity,
+source and geometry provenance, sampling observations, the complete audit and
+negative-evidence ledger, cluster/dedup decisions, coverage, and deterministic
+thermodynamic and TS-seed eligibility projections. TS-seed eligibility is the
+ordered `ConformerEnsemble.ts_seed_members` projection, not a new public record
+or an assertion that any member is a transition state. A later TS-seed artifact
+still owns reaction-hypothesis and reaction-coordinate lineage review.
+
+`ThermodynamicEnsemble` binds one exact conformer ensemble, a compatible common
+method, temperature, standard state, low-frequency scheme and every parameter,
+implementation identity, degeneracy convention, raw per-conformer RRHO terms,
+per-conformer treated qRRHO terms, and the final partition/population result.
+Aggregation uses the treated per-conformer free energies exactly once.
+Conformational mixing already represented by the partition sum must not be
+added again as a separate entropy correction.
+
+This decision authorizes only the `V31-SHARED-CONTRACT-01` contract freeze,
+offline documentation validation, independent review, and a local PR-ready
+commit. It authorizes no product or schema implementation, Project
+provisioning, structure generation, xTB, CREST, Gaussian, transport, scheduler,
+deployment, retry, cleanup, push, PR creation, merge, or scientific acceptance.
