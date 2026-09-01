@@ -1121,18 +1121,30 @@ Attempt authority.
 V31 adds, rather than reinterprets, the execution and ensemble semantics needed
 by a flexible-molecule study. The V30 `PreparedInputBinding`,
 `PbsTemplateBinding`, and `ExecutionSnapshot` types, their identities, and every
-existing Attempt remain immutable. A V31 Attempt instead binds one new
-`ProgramExecutionSpec` and its `ProgramExecutionSnapshot` successor; no Attempt
-may be represented by both generations or converted between them in place.
+existing Attempt remain immutable and production-usable. A V31 Workflow or
+Batch may intentionally contain Attempts from either execution generation.
+Each individual Attempt selects exactly one generation before effect authority:
+
+- the V30 Gaussian generation remains valid for Gaussian DFT single-point,
+  optimization, frequency, and combined optimization/frequency work through
+  unchanged `PreparedInputBinding`, `PbsTemplateBinding`, and
+  `ExecutionSnapshot`; or
+- the V31 successor generation binds one `ProgramExecutionSpec` and its
+  `ProgramExecutionSnapshot`. xTB and CREST Attempts must use this successor.
+
+No Attempt may bind both generations or convert between them in place. A future
+Gaussian Attempt may use the successor only after a separate Gaussian adapter
+implementation and validation gate. V31 acceptance does not require Gaussian
+migration, and heterogeneous Workflows/Batches are intentional.
 
 Execution gains exactly two public records: `ProgramExecutionSpec`, which
 closes program identity, adapter/version, exact inputs, typed data, tokenized
 argv, and required/optional outputs, and `ProgramExecutionSnapshot`, which
-binds that exact spec to one Attempt, Project physical binding, resources,
-target, workspace, and derived scheduler artifacts. `ProjectPhysicalBinding`
-belongs to the separate physical-provisioning boundary and does not consume the
-two-record execution budget. Core `Project` remains exactly `{project_id}` and
-the Core schema is unchanged.
+binds that exact spec to one successor-generation Attempt, Project physical
+binding, resources, target, workspace, and derived scheduler artifacts.
+`ProjectPhysicalBinding` belongs to the separate physical-provisioning boundary
+and does not consume the two-record execution budget. Core `Project` remains
+exactly `{project_id}` and the Core schema is unchanged.
 
 First-use provisioning has exactly three outcomes. An absent target permits
 one exact nonrecursive no-follow mkdir followed by a durable physical binding.
@@ -1150,7 +1162,10 @@ ordered argv token tuple under an exact adapter version. A caller-supplied
 shell command string, ambient executable selection, open environment map, or
 extension bag is forbidden. Any scheduler script is a secondary deterministic
 artifact derived from the same closed semantics, not a second command
-authority. Transport topology and protocols remain unchanged.
+authority. Initial V31 implementation acceptance requires successor adapters
+for xTB and CREST only. The Gaussian discriminant reserves a closed future
+successor route; it neither migrates nor replaces the production-usable V30
+Gaussian generation. Transport topology and protocols remain unchanged.
 
 V31 adds public `SamplingProfile`, `ConformerEnsemble`, and
 `ThermodynamicEnsemble` records outside the execution domain. `SamplingProfile`

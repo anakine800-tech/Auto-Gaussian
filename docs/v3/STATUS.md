@@ -15,11 +15,17 @@
 
 - **V31 contract candidate:** `V31-SHARED-CONTRACT-01` freezes only the shared
   v3.1 contract for Project first-use physical provisioning, the additive
-  versioned Gaussian/xTB/CREST execution successor, conformer and thermodynamic
-  ensemble handoffs, and deterministic `ConformerEnsemble.ts_seed_members`.
-  It preserves V30 Execution, Core Project/schema, Transport topology, parsers,
-  and vectors. Product/schema implementation, provisioning, program execution,
-  live work, push, PR creation, and merge remain later Owner gates.
+  versioned execution successor required for xTB/CREST, conformer and
+  thermodynamic ensemble handoffs, and deterministic
+  `ConformerEnsemble.ts_seed_members`. A V31 Workflow/Batch may intentionally
+  mix unchanged production-usable V30 Gaussian DFT SP/Opt/Freq/Opt+Freq
+  Attempts with successor-generation xTB/CREST Attempts; each Attempt binds
+  exactly one generation before effect authority. A future Gaussian successor
+  remains behind separate adapter implementation/validation and is not required
+  for V31 acceptance. Core Project/schema, Transport topology, parsers, and
+  vectors remain unchanged. Product/schema implementation, provisioning,
+  program execution, live work, push, PR creation, and merge remain later Owner
+  gates.
 
 - **Current phase:** `V30-EXEC-02-COMPOSITION-CONTRACT-01`,
   `V30-TRANSPORT-BOOTSTRAP-CHAIN-03`,

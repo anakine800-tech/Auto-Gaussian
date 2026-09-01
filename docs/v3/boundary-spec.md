@@ -4867,9 +4867,9 @@ or live effect.
 
 | Disposition | Frozen V31 treatment |
 | --- | --- |
-| **KEEP** | Core `Project` remains exactly `{project_id}`; the Core schema, Task/Attempt lifecycle, approvals, no-overwrite, at-most-one effect, `REPLAY` zero effect, `UNKNOWN` reconciliation-only, and no automatic retry stay authoritative. |
+| **KEEP** | Core `Project` remains exactly `{project_id}`; the Core schema, Task/Attempt lifecycle, approvals, no-overwrite, at-most-one effect, `REPLAY` zero effect, `UNKNOWN` reconciliation-only, and no automatic retry stay authoritative. The V30 Gaussian generation remains production-usable for DFT SP/Opt/Freq/Opt+Freq. |
 | **ADD** | One Project first-use physical-provisioning contract and provisioning-domain `ProjectPhysicalBinding`; the private closed ProgramAdapter registry; public `SamplingProfile`, `ConformerEnsemble`, and `ThermodynamicEnsemble` ensemble records. |
-| **VERSIONED SUCCESSOR** | Public execution records `ProgramExecutionSpec` and `ProgramExecutionSnapshot` support the V31 Gaussian/xTB/CREST path without changing a V30 record or existing Attempt. |
+| **VERSIONED SUCCESSOR** | Public execution records `ProgramExecutionSpec` and `ProgramExecutionSnapshot` are mandatory for xTB/CREST Attempts. A future Gaussian Attempt may use them only after separate adapter implementation/validation; V31 acceptance requires no Gaussian migration. |
 | **DO NOT TOUCH** | V30 `PreparedInputBinding`, `PbsTemplateBinding`, `ExecutionSnapshot`, and vectors; Core Project shape/schema; Approval, Workflow, Observe, Result, ScientificValidation, and Review public contracts; Transport topology/protocol/operations; every current parser and grammar; live/deployment behavior. |
 
 The future V31 product must expose no more than the two named new execution-
@@ -4920,6 +4920,22 @@ receipt, or capability machinery.
 
 ### Additive versioned multi-program execution successor
 
+Generation selection is per Attempt, not per Workflow or Batch. A V31 Workflow
+or Batch may intentionally contain both:
+
+- V30-generation Gaussian Attempts for DFT single-point, optimization,
+  frequency, or combined optimization/frequency work, using the unchanged
+  `PreparedInputBinding`, `PbsTemplateBinding`, and `ExecutionSnapshot`; and
+- successor-generation xTB/CREST Attempts using `ProgramExecutionSpec` and
+  `ProgramExecutionSnapshot`.
+
+The exact generation is fixed before effect authority. One Attempt binds
+exactly one generation, never both, and no in-place generation conversion is
+permitted. Neither Workflow nor Batch imposes one generation on every member.
+A future Gaussian successor Attempt is optional and requires its own separately
+implemented and validated adapter. V31 acceptance does not require or imply
+migration of a Gaussian Task or Attempt.
+
 `ProgramExecutionSpec` has these mandatory semantic fields:
 
 - `program_execution_spec_id`, `program_kind`, `adapter_id`, and positive
@@ -4951,13 +4967,15 @@ The spec contains no Attempt, resource, target, workspace, or scheduler choice.
 - the complete canonical identity payload used to derive both the effect
   intent and snapshot IDs.
 
-The snapshot is the sole V31 program-effect meaning. It is immutable and
-self-authenticating; any byte, token, parameter, adapter version, resource,
+The snapshot is the sole successor-generation program-effect meaning. It is
+immutable and self-authenticating; any byte, token, parameter, adapter version, resource,
 target, Project binding, workspace, or output-declaration change requires a new
 snapshot and current approval/confirmation under a later implementation
-contract. One Attempt selects exactly one execution generation. A V30 Attempt
-cannot acquire a V31 snapshot, and a V31 Attempt cannot also carry V30
+contract. A V30-generation Attempt cannot acquire a `ProgramExecutionSpec` or
+`ProgramExecutionSnapshot`; a successor-generation Attempt cannot carry V30
 `PreparedInputBinding`, `PbsTemplateBinding`, or `ExecutionSnapshot` authority.
+The owning Workflow/Batch may still contain other Attempts from the other
+generation.
 
 `ProgramExecutionSpec.program_kind` is exactly one of `gaussian`, `xtb`, or
 `crest`. `ProgramAdapter` is the name of a private closed registry role only.
@@ -4965,7 +4983,11 @@ The registry contains exactly the three program kinds above and maps each exact
 `(program_kind, adapter_id, adapter_contract_version)` key to closed data
 validation and deterministic rendering. It exports no public adapter object,
 generic plugin hook, arbitrary program name, or caller registry mutation.
-Unknown keys fail closed.
+Unknown keys fail closed. Initial V31 implementation acceptance requires the
+successor only for xTB and CREST. Registry vocabulary for `gaussian` is not an
+implemented or production-qualified Gaussian successor and creates no migration
+requirement; that route remains behind a later adapter implementation and
+validation gate.
 
 Primary invocation semantics live in `ProgramExecutionSpec` as an executable
 identity plus argv tokens and typed data. Every token is separately represented

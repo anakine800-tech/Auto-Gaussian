@@ -1554,7 +1554,10 @@ expansion.
    requires the exact current physical identity.
 7. The private closed ProgramAdapter registry accepts exactly `gaussian`,
    `xtb`, and `crest` under exact adapter versions. Unknown programs or versions
-   fail closed and no public registry mutation exists.
+   fail closed and no public registry mutation exists. Initial V31
+   implementation acceptance requires successor adapters for xTB and CREST
+   only. The Gaussian discriminant neither implements a Gaussian successor nor
+   requires migration from the production-usable V30 Gaussian generation.
 8. `ProgramExecutionSpec` binds program identity, adapter/version, every exact
    immutable input, closed program data, executable identity, argv tokens,
    stdin/data, closed environment, and disjoint exact required/optional output
@@ -1564,9 +1567,16 @@ expansion.
 9. Primary invocation meaning is closed typed data and tokenized argv with
    non-shell process semantics. Caller shell-command strings, ambient PATH/env,
    undeclared files, and script-as-second-authority cases are rejected.
-10. V30 `PreparedInputBinding`, `PbsTemplateBinding`, and `ExecutionSnapshot`
-    remain unchanged. One Attempt selects one generation and cannot be
-    converted or represented in both V30 and V31.
+10. A V31 Workflow or Batch may intentionally contain V30-generation Gaussian
+    Attempts together with successor-generation xTB/CREST Attempts. For each
+    individual Attempt, the exact generation is fixed before effect authority:
+    exactly one generation is bound, never both, and no in-place conversion is
+    permitted. V30 `PreparedInputBinding`, `PbsTemplateBinding`, and
+    `ExecutionSnapshot` remain unchanged and production-usable for Gaussian DFT
+    SP/Opt/Freq/Opt+Freq. xTB and CREST must use `ProgramExecutionSpec` plus
+    `ProgramExecutionSnapshot`. A future Gaussian successor is optional and
+    requires separate adapter implementation and validation; V31 acceptance
+    does not require any Gaussian Task or Attempt to migrate.
 11. `SamplingProfile` is independently identified and frozen before
     observations. It owns every applicable route/quota, legality,
     cluster/dedup, coverage, thermodynamic-eligibility, and TS-seed-eligibility
