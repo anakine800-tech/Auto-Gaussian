@@ -3,26 +3,21 @@ from __future__ import annotations
 from dataclasses import fields
 from hashlib import sha256
 import inspect
-import os
 from pathlib import Path
-import secrets
 import tempfile
 import unittest
 
 import auto_g16.core as core
 import auto_g16.execution as execution
 from auto_g16.execution.program import (
-    _prepare_program_execution_snapshot,
+    _ProgramExecutionSnapshotService,
     _prepare_program_execution_spec,
 )
 from auto_g16.execution.project_provisioning import (
-    _ACTIVE_PROOFS,
-    _PROOF_LOCK,
-    _ProjectBindingReattestation,
+    _ProjectProvisioningService,
     _ProvisioningJournal,
-    _binding_from_existing_local_target,
-    _classify_project_target,
-    _reattest_project_binding,
+    _SYNTHETIC_TEST_HARNESS_PRIVILEGE,
+    _SyntheticRemoteProjectAttestor,
 )
 
 
@@ -79,14 +74,55 @@ class LaneAFixture(unittest.TestCase):
         self.store.create_attempt(
             core.Attempt(attempt_id="attempt-1", task_id="task-1", ordinal=1)
         )
+        self.remote_project_dir = "/home/user100/SDL/project-1"
+        self.remote_physical_identity = "opaque-server-project-v1"
+        self.remote_attestor = (
+            _SyntheticRemoteProjectAttestor._from_privileged_test_fixture(
+                privilege=_SYNTHETIC_TEST_HARNESS_PRIVILEGE,
+                target=self.resolved(),
+                observed_project_dir=self.remote_project_dir,
+                observed_state="ABSENT",
+                observed_parent_physical_identity="opaque-server-parent-v1",
+                observed_project_physical_identity=None,
+                provisioned_project_physical_identity=(
+                    self.remote_physical_identity
+                ),
+            )
+        )
+        self.project_provisioning = (
+            _ProjectProvisioningService._from_privileged_synthetic_attestor(
+                privilege=_SYNTHETIC_TEST_HARNESS_PRIVILEGE,
+                attestor=self.remote_attestor,
+            )
+        )
+        self.project_binding = self.project_provisioning.provision_remote_project(
+            project=self.store.load_project("project-1"),
+            target=self.resolved(),
+            remote_project_dir=self.remote_project_dir,
+            evidence_identity="synthetic-remote-create",
+        )
+        self.snapshot_service = (
+            _ProgramExecutionSnapshotService._for_privileged_synthetic_tests(
+                privilege=_SYNTHETIC_TEST_HARNESS_PRIVILEGE,
+                project_provisioning=self.project_provisioning,
+            )
+        )
 
-    def resolved(self) -> execution.ResolvedServerProfile:
+    def resolved(
+        self,
+        *,
+        server_profile_id: str = "profile-v31",
+        profile_revision: int = 1,
+        target_host: str = "server.example",
+        xtb_executable_path: str = XTB_EXECUTABLE_PATH,
+        crest_executable_path: str = CREST_EXECUTABLE_PATH,
+    ) -> execution.ResolvedServerProfile:
         return execution.resolve_server_profile(
             execution.ServerProfile(
-                server_profile_id="profile-v31",
-                profile_revision=1,
+                server_profile_id=server_profile_id,
+                profile_revision=profile_revision,
                 transport_kind="legacy_rtwin_pbs",
-                target_host="server.example",
+                target_host=target_host,
                 target_port=22,
                 remote_user="user100",
                 jump_topology=[],
@@ -94,7 +130,11 @@ class LaneAFixture(unittest.TestCase):
                 batch_mode=True,
                 identities_only=True,
                 remote_root=execution.LEGACY_REMOTE_ROOT,
-                platform_paths={"rtwin_root": r"C:\RTWIN"},
+                platform_paths={
+                    "rtwin_root": r"C:\RTWIN",
+                    "xtb_executable_path": xtb_executable_path,
+                    "crest_executable_path": crest_executable_path,
+                },
                 config_files=[("ssh_config", b"Host server.example\n")],
                 runtime_contents={
                     "xtb": XTB_EXECUTABLE_BYTES,
@@ -125,37 +165,52 @@ class LaneAFixture(unittest.TestCase):
         )
 
     def physical_binding(self) -> execution.ProjectPhysicalBinding:
-        project = self.store.load_project("project-1")
-        local_binding = _binding_from_existing_local_target(
-            project=project,
-            reviewed_root=str(self.local_root),
-            project_directory=str(self.local_project),
-            evidence_identity="synthetic-local-inspection",
+        return self.project_binding
+
+    def synthetic_authority(
+        self,
+        *,
+        target: execution.ResolvedServerProfile | None = None,
+        observed_project_dir: str | None = None,
+        observed_state: str = "EXISTING",
+        observed_parent_physical_identity: str = "opaque-synthetic-parent",
+        observed_project_physical_identity: str | None = "opaque-synthetic-project",
+        provisioned_project_physical_identity: str | None = None,
+    ) -> tuple[
+        _SyntheticRemoteProjectAttestor,
+        _ProjectProvisioningService,
+        _ProgramExecutionSnapshotService,
+    ]:
+        selected_target = self.resolved() if target is None else target
+        selected_path = (
+            self.remote_project_dir
+            if observed_project_dir is None
+            else observed_project_dir
         )
-        locations = (
-            local_binding.locations[0],
-            {
-                "location_kind": "server",
-                "reviewed_root": execution.LEGACY_REMOTE_ROOT,
-                "project_directory": "/home/user100/SDL/project-1",
-                "provisioning_disposition": "PRODUCT_BOUND_EXISTING",
-                "parent_physical_identity": "opaque-server-parent",
-                "project_physical_identity": "opaque-server-project",
-                "evidence_identity": "evidence-server",
-            },
-            {
-                "location_kind": "rtwin",
-                "reviewed_root": r"C:\RTWIN",
-                "project_directory": r"C:\RTWIN\project-1",
-                "provisioning_disposition": "PRODUCT_BOUND_EXISTING",
-                "parent_physical_identity": "opaque-rtwin-parent",
-                "project_physical_identity": "opaque-rtwin-project",
-                "evidence_identity": "evidence-rtwin",
-            },
+        attestor = _SyntheticRemoteProjectAttestor._from_privileged_test_fixture(
+            privilege=_SYNTHETIC_TEST_HARNESS_PRIVILEGE,
+            target=selected_target,
+            observed_project_dir=selected_path,
+            observed_state=observed_state,
+            observed_parent_physical_identity=observed_parent_physical_identity,
+            observed_project_physical_identity=observed_project_physical_identity,
+            provisioned_project_physical_identity=(
+                provisioned_project_physical_identity
+            ),
         )
-        return execution.ProjectPhysicalBinding._from_inspected(
-            project=project, locations=locations
+        provisioning = (
+            _ProjectProvisioningService._from_privileged_synthetic_attestor(
+                privilege=_SYNTHETIC_TEST_HARNESS_PRIVILEGE,
+                attestor=attestor,
+            )
         )
+        snapshot_service = (
+            _ProgramExecutionSnapshotService._for_privileged_synthetic_tests(
+                privilege=_SYNTHETIC_TEST_HARNESS_PRIVILEGE,
+                project_provisioning=provisioning,
+            )
+        )
+        return attestor, provisioning, snapshot_service
 
     def xtb_spec(self, **changes: object) -> execution.ProgramExecutionSpec:
         return _prepare_program_execution_spec(
@@ -212,10 +267,16 @@ class LaneAFixture(unittest.TestCase):
         *,
         spec: execution.ProgramExecutionSpec | None = None,
         binding: execution.ProjectPhysicalBinding | None = None,
+        target: execution.ResolvedServerProfile | None = None,
+        workspace: execution.WorkspaceBinding | None = None,
+        snapshot_service: _ProgramExecutionSnapshotService | None = None,
     ) -> execution.ProgramExecutionSnapshot:
         selected_spec = self.xtb_spec() if spec is None else spec
         selected_binding = self.physical_binding() if binding is None else binding
-        return _prepare_program_execution_snapshot(
+        selected_service = (
+            self.snapshot_service if snapshot_service is None else snapshot_service
+        )
+        return selected_service.prepare(
             self.store,
             attempt_id="attempt-1",
             calculation_plan_id="plan-1",
@@ -223,47 +284,9 @@ class LaneAFixture(unittest.TestCase):
             program_execution_spec=selected_spec,
             project_physical_binding=selected_binding,
             resolved_resource_request=self.resources(),
-            resolved_server_profile=self.resolved(),
-            workspace_binding=self.workspace(),
-            project_reattestation=self.synthetic_server_reattestation(
-                selected_binding
-            ),
+            resolved_server_profile=self.resolved() if target is None else target,
+            workspace_binding=self.workspace() if workspace is None else workspace,
         )
-
-    @staticmethod
-    def synthetic_server_reattestation(
-        binding: execution.ProjectPhysicalBinding,
-    ) -> _ProjectBindingReattestation:
-        """Register a test-only server proof; no production issuer exists in Lane A."""
-
-        locations = tuple(
-            item for item in binding.locations if item["location_kind"] == "server"
-        )
-        if len(locations) != 1:
-            raise AssertionError("synthetic fixture requires one server location")
-        location = locations[0]
-        proof = object.__new__(_ProjectBindingReattestation)
-        nonce = secrets.token_bytes(32)
-        proof._binding_id = binding.project_physical_binding_id
-        proof._location_kind = "server"
-        proof._reviewed_root = str(location["reviewed_root"])
-        proof._project_directory = str(location["project_directory"])
-        proof._parent_identity = str(location["parent_physical_identity"])
-        proof._target_identity = str(location["project_physical_identity"])
-        proof._local_reinspection = False
-        proof._nonce = nonce
-        with _PROOF_LOCK:
-            _ACTIVE_PROOFS[nonce] = (
-                proof,
-                proof._binding_id,
-                proof._location_kind,
-                proof._reviewed_root,
-                proof._project_directory,
-                proof._parent_identity,
-                proof._target_identity,
-                proof._local_reinspection,
-            )
-        return proof
 
     @staticmethod
     def xtb_data(**changes: object) -> dict[str, object]:
@@ -304,9 +327,14 @@ class ProgramSpecTests(LaneAFixture):
             }.issubset(execution.__all__)
         )
         self.assertFalse(
-            {"ProgramAdapter", "ProgramRegistry", "ExecutablePlugin"}.intersection(
-                execution.__all__
-            )
+            {
+                "ProgramAdapter",
+                "ProgramRegistry",
+                "ExecutablePlugin",
+                "ProjectProvisioningService",
+                "ProjectNamespaceAttestor",
+                "CurrentProjectProof",
+            }.intersection(execution.__all__)
         )
         self.assertEqual(
             tuple(inspect.signature(execution.ProgramExecutionSpec).parameters), ()
@@ -329,6 +357,23 @@ class ProgramSpecTests(LaneAFixture):
                 "invocation",
                 "required_outputs",
                 "optional_outputs",
+            },
+        )
+        self.assertEqual(
+            {
+                item.name
+                for item in fields(execution.ProjectPhysicalBinding)
+                if not item.name.startswith("_")
+            },
+            {
+                "project_physical_binding_id",
+                "project_id",
+                "provisioning_contract_version",
+                "transport_kind",
+                "resolved_server_profile_id",
+                "resolved_target_identity",
+                "provisioning_authority_id",
+                "locations",
             },
         )
 
@@ -455,6 +500,10 @@ class ProgramSpecTests(LaneAFixture):
         cases = (
             {"executable_path": "xtb"},
             {"executable_path": "/opt/auto-g16-fixtures/bin/not-xtb"},
+            {"executable_path": "/usr/local/bin/xtb"},
+            {"executable_path": "/Users/<LOCAL_USER>/project/xtb"},
+            {"executable_path": r"C:\Programs\xtb.exe"},
+            {"executable_path": "/tmp/PATH/xtb"},
             {"executable_sha256": "A" * 64},
             {"executable_size_bytes": 0},
         )
@@ -475,52 +524,94 @@ class ProgramSpecTests(LaneAFixture):
 
 
 class ProvisioningTests(LaneAFixture):
-    def test_exact_three_classifications_and_no_mkdir(self) -> None:
-        project = self.store.load_project("project-1")
-        absent = self.local_root / "absent-project"
-        classification, binding = _classify_project_target(
-            project=project,
-            reviewed_root=str(self.local_root),
-            project_directory=str(absent),
+    def test_binding_is_only_the_exact_remote_final_server_namespace(self) -> None:
+        binding = self.physical_binding()
+        self.assertEqual(binding.transport_kind, "legacy_rtwin_pbs")
+        self.assertEqual(binding.resolved_server_profile_id, self.resolved().resolved_server_profile_id)
+        self.assertEqual(binding.resolved_target_identity, self.resolved().target_identity)
+        self.assertEqual(binding.remote_root, execution.LEGACY_REMOTE_ROOT)
+        self.assertEqual(binding.remote_project_dir, self.remote_project_dir)
+        self.assertEqual(binding.project_physical_identity, self.remote_physical_identity)
+        self.assertEqual(len(binding.locations), 1)
+        self.assertEqual(
+            set(binding.locations[0]),
+            {
+                "location_kind",
+                "reviewed_root",
+                "project_directory",
+                "provisioning_disposition",
+                "parent_physical_identity",
+                "project_physical_identity",
+                "evidence_identity",
+            },
+        )
+        self.assertEqual(binding.locations[0]["location_kind"], "server")
+        self.assertEqual(binding.locations[0]["provisioning_disposition"], "ABSENT")
+        payload_text = repr(binding.semantic_payload())
+        self.assertNotIn(str(self.local_project), payload_text)
+        self.assertNotIn("st_dev", payload_text)
+        self.assertNotIn("st_ino", payload_text)
+
+    def test_exact_three_provisioning_branches_and_no_implicit_adoption(self) -> None:
+        replay_state, replay = self.project_provisioning.classify_remote_project(
+            project=self.store.load_project("project-1"),
+            target=self.resolved(),
+            remote_project_dir=self.remote_project_dir,
+            stored_binding=self.physical_binding(),
+        )
+        self.assertEqual(replay_state, "PRODUCT_BOUND_EXISTING")
+        self.assertIs(replay, self.physical_binding())
+        self.assertEqual(self.remote_attestor._provision_count, 1)
+        self.assertIs(
+            self.project_provisioning.provision_remote_project(
+                project=self.store.load_project("project-1"),
+                target=self.resolved(),
+                remote_project_dir=self.remote_project_dir,
+                evidence_identity="ignored-on-replay",
+                stored_binding=self.physical_binding(),
+            ),
+            self.physical_binding(),
+        )
+        self.assertEqual(self.remote_attestor._provision_count, 1)
+
+        absent_attestor, absent_owner, _snapshot_service = self.synthetic_authority(
+            observed_state="ABSENT",
+            observed_project_physical_identity=None,
+            provisioned_project_physical_identity="new-synthetic-project",
+        )
+        absent_state, absent_binding = absent_owner.classify_remote_project(
+            project=self.store.load_project("project-1"),
+            target=self.resolved(),
+            remote_project_dir=self.remote_project_dir,
             stored_binding=None,
         )
-        self.assertEqual(classification, "ABSENT")
-        self.assertIsNone(binding)
-        self.assertFalse(absent.exists())
+        self.assertEqual(absent_state, "ABSENT")
+        self.assertIsNone(absent_binding)
+        self.assertEqual(absent_attestor._provision_count, 0)
 
-        unbound = self.local_root / "unbound-project"
-        unbound.mkdir()
-        classification, binding = _classify_project_target(
-            project=project,
-            reviewed_root=str(self.local_root),
-            project_directory=str(unbound),
+        existing_attestor, unbound_owner, _snapshot_service = self.synthetic_authority(
+            observed_state="EXISTING",
+            observed_project_physical_identity="unbound-existing-project",
+        )
+        unbound_state, unbound_binding = unbound_owner.classify_remote_project(
+            project=self.store.load_project("project-1"),
+            target=self.resolved(),
+            remote_project_dir=self.remote_project_dir,
             stored_binding=None,
         )
-        self.assertEqual(classification, "UNBOUND_EXISTING")
-        self.assertIsNone(binding)
-
-        durable = _binding_from_existing_local_target(
-            project=project,
-            reviewed_root=str(self.local_root),
-            project_directory=str(self.local_project),
-            evidence_identity="synthetic-inspection-1",
-        )
-        classification, replay = _classify_project_target(
-            project=project,
-            reviewed_root=str(self.local_root),
-            project_directory=str(self.local_project),
-            stored_binding=durable,
-        )
-        self.assertEqual(classification, "PRODUCT_BOUND_EXISTING")
-        self.assertIs(replay, durable)
+        self.assertEqual(unbound_state, "UNBOUND_EXISTING")
+        self.assertIsNone(unbound_binding)
+        with self.assertRaisesRegex(execution.ExecutionValueError, "Owner adoption"):
+            unbound_owner.provision_remote_project(
+                project=self.store.load_project("project-1"),
+                target=self.resolved(),
+                remote_project_dir=self.remote_project_dir,
+                evidence_identity="implicit-adoption-forbidden",
+            )
+        self.assertEqual(existing_attestor._provision_count, 0)
 
     def test_binding_persistence_is_idempotent_and_reopens_exactly(self) -> None:
-        binding = _binding_from_existing_local_target(
-            project=self.store.load_project("project-1"),
-            reviewed_root=str(self.local_root),
-            project_directory=str(self.local_project),
-            evidence_identity="synthetic-inspection-1",
-        )
+        binding = self.physical_binding()
         journal_path = self.root / "provisioning.sqlite3"
         with _ProvisioningJournal(journal_path) as journal:
             journal.append_binding(binding)
@@ -533,32 +624,32 @@ class ProvisioningTests(LaneAFixture):
                 binding.semantic_payload(),
             )
 
-    def test_replacement_symlink_and_physical_drift_fail_closed(self) -> None:
-        project = self.store.load_project("project-1")
-        binding = _binding_from_existing_local_target(
-            project=project,
-            reviewed_root=str(self.local_root),
-            project_directory=str(self.local_project),
-            evidence_identity="synthetic-inspection-1",
+    def test_local_observation_cannot_create_a_remote_project_binding(self) -> None:
+        _attestor, local_only, _snapshot_service = self.synthetic_authority(
+            observed_project_dir=str(self.local_project)
         )
-        original = self.local_root / "project-old"
-        self.local_project.rename(original)
-        self.local_project.mkdir()
-        with self.assertRaisesRegex(execution.ExecutionValueError, "drifted"):
-            _classify_project_target(
-                project=project,
-                reviewed_root=str(self.local_root),
-                project_directory=str(self.local_project),
-                stored_binding=binding,
+        with self.assertRaisesRegex(
+            execution.ExecutionValueError, "exact remote Project target"
+        ):
+            local_only.provision_remote_project(
+                project=self.store.load_project("project-1"),
+                target=self.resolved(),
+                remote_project_dir=self.remote_project_dir,
+                evidence_identity="caller-local-observation",
             )
-        self.local_project.rmdir()
-        self.local_project.symlink_to(original, target_is_directory=True)
-        with self.assertRaisesRegex(execution.ExecutionValueError, "real directory"):
-            _classify_project_target(
-                project=project,
-                reviewed_root=str(self.local_root),
-                project_directory=str(self.local_project),
-                stored_binding=binding,
+
+    def test_remote_project_path_must_be_below_the_profile_root(self) -> None:
+        _attestor, local_only, _snapshot_service = self.synthetic_authority(
+            observed_project_dir=str(self.local_project)
+        )
+        with self.assertRaisesRegex(
+            execution.ExecutionValueError, "not strictly contained"
+        ):
+            local_only.provision_remote_project(
+                project=self.store.load_project("project-1"),
+                target=self.resolved(),
+                remote_project_dir=str(self.local_project),
+                evidence_identity="caller-local-observation",
             )
 
 
@@ -589,15 +680,15 @@ class ProgramSnapshotTests(LaneAFixture):
             },
         )
 
-    def test_snapshot_cwd_is_the_exact_location_selected_by_fresh_proof(self) -> None:
+    def test_snapshot_cwd_is_exact_remote_attempt_dir_and_pbs_has_no_cd(self) -> None:
         binding = self.physical_binding()
         snapshot = self.successor_snapshot(binding=binding)
         self.assertEqual(snapshot.cwd_binding["location_kind"], "server")
         self.assertEqual(snapshot.cwd_binding["path"], self.workspace().remote_attempt_dir)
-        self.assertIn(
-            f"cd -- {self.workspace().remote_attempt_dir}",
-            snapshot.scheduler_artifacts[0]["content_utf8"],
-        )
+        scheduler = snapshot.scheduler_artifacts[0]["content_utf8"]
+        self.assertNotIn("cd ", scheduler)
+        self.assertNotIn(self.workspace().remote_attempt_dir, scheduler)
+        self.assertNotIn(str(self.local_project), scheduler)
 
     def test_v30_and_successor_candidates_can_coexist_before_effect(self) -> None:
         v30 = self.v30_snapshot()
@@ -667,101 +758,123 @@ class ProgramSnapshotTests(LaneAFixture):
             input_bytes=XYZ,
             program_data=self.xtb_data(),
         )
-        with self.assertRaisesRegex(execution.ExecutionValueError, "runtime identity"):
+        with self.assertRaisesRegex(execution.ExecutionValueError, "profile executable"):
             self.successor_snapshot(spec=mismatched)
 
-    def test_stale_project_reattestation_rejects_replaced_directory(self) -> None:
-        binding = self.physical_binding()
-        proof = _reattest_project_binding(binding)
-        original = self.local_root / "project-original"
-        self.local_project.rename(original)
-        self.local_project.mkdir()
-        with self.assertRaisesRegex(execution.ExecutionValueError, "changed"):
-            _prepare_program_execution_snapshot(
-                self.store,
-                attempt_id="attempt-1",
-                calculation_plan_id="plan-1",
-                resource_spec_id="resource-1",
-                program_execution_spec=self.xtb_spec(),
-                project_physical_binding=binding,
-                resolved_resource_request=self.resources(),
-                resolved_server_profile=self.resolved(),
-                workspace_binding=self.workspace(),
-                project_reattestation=proof,
-            )
-
-    def test_project_reattestation_is_single_use(self) -> None:
-        binding = self.physical_binding()
-        proof = self.synthetic_server_reattestation(binding)
-        arguments = {
-            "attempt_id": "attempt-1",
-            "calculation_plan_id": "plan-1",
-            "resource_spec_id": "resource-1",
-            "program_execution_spec": self.xtb_spec(),
-            "project_physical_binding": binding,
-            "resolved_resource_request": self.resources(),
-            "resolved_server_profile": self.resolved(),
-            "workspace_binding": self.workspace(),
-            "project_reattestation": proof,
-        }
-        _prepare_program_execution_snapshot(self.store, **arguments)  # type: ignore[arg-type]
-        with self.assertRaisesRegex(execution.ExecutionValueError, "already consumed"):
-            _prepare_program_execution_snapshot(
-                self.store, **arguments  # type: ignore[arg-type]
-            )
-
-    def test_local_proof_cannot_authorize_the_resolved_server_target(self) -> None:
-        binding = self.physical_binding()
-        with self.assertRaisesRegex(
-            execution.ExecutionValueError, "resolved target location"
+    def test_executable_path_is_owned_by_the_exact_resolved_profile(self) -> None:
+        for path in (
+            "/usr/local/bin/xtb",
+            "/Users/<LOCAL_USER>/project/xtb",
+            r"C:\Programs\xtb.exe",
         ):
-            _prepare_program_execution_snapshot(
-                self.store,
-                attempt_id="attempt-1",
-                calculation_plan_id="plan-1",
-                resource_spec_id="resource-1",
-                program_execution_spec=self.xtb_spec(),
-                project_physical_binding=binding,
-                resolved_resource_request=self.resources(),
-                resolved_server_profile=self.resolved(),
-                workspace_binding=self.workspace(),
-                project_reattestation=_reattest_project_binding(binding),
-            )
+            with self.subTest(path=path), self.assertRaises(
+                execution.ExecutionValueError
+            ):
+                self.successor_snapshot(
+                    target=self.resolved(xtb_executable_path=path)
+                )
 
-    def test_mutating_a_live_local_proof_cannot_forge_server_authority(self) -> None:
+    def test_replaced_remote_project_rejects_snapshot_issuance(self) -> None:
         binding = self.physical_binding()
-        proof = _reattest_project_binding(binding)
-        server = next(
-            item for item in binding.locations if item["location_kind"] == "server"
+        self.remote_attestor._replace_fixture_identity(
+            target=self.resolved(),
+            remote_project_dir=self.remote_project_dir,
+            observed_project_physical_identity="opaque-server-project-replaced",
         )
-        proof._location_kind = "server"
-        proof._reviewed_root = str(server["reviewed_root"])
-        proof._project_directory = str(server["project_directory"])
-        proof._parent_identity = str(server["parent_physical_identity"])
-        proof._target_identity = str(server["project_physical_identity"])
-        proof._local_reinspection = False
-        with self.assertRaisesRegex(
-            execution.ExecutionValueError, "resolved target location"
-        ):
-            _prepare_program_execution_snapshot(
-                self.store,
-                attempt_id="attempt-1",
-                calculation_plan_id="plan-1",
-                resource_spec_id="resource-1",
-                program_execution_spec=self.xtb_spec(),
-                project_physical_binding=binding,
-                resolved_resource_request=self.resources(),
-                resolved_server_profile=self.resolved(),
-                workspace_binding=self.workspace(),
-                project_reattestation=proof,
+        with self.assertRaisesRegex(execution.ExecutionValueError, "exact binding"):
+            self.successor_snapshot(binding=binding)
+
+    def test_private_current_proof_is_target_scoped_and_single_use(self) -> None:
+        binding = self.physical_binding()
+        proof = self.project_provisioning._attest_current(binding, self.resolved())
+        self.assertEqual(
+            self.project_provisioning._consume_current(
+                binding=binding, target=self.resolved(), proof=proof
+            ),
+            self.remote_project_dir,
+        )
+        with self.assertRaisesRegex(execution.ExecutionValueError, "already consumed"):
+            self.project_provisioning._consume_current(
+                binding=binding, target=self.resolved(), proof=proof
             )
 
-    def test_snapshot_rejects_caller_asserted_project_freshness(self) -> None:
+    def test_local_observation_cannot_authorize_remote_snapshot(self) -> None:
+        binding = self.physical_binding()
+        _attestor, _local_owner, local_snapshot_service = self.synthetic_authority(
+            observed_project_dir=str(self.local_project)
+        )
+        with self.assertRaisesRegex(
+            execution.ExecutionValueError, "owning provisioning authority"
+        ):
+            self.successor_snapshot(
+                binding=binding, snapshot_service=local_snapshot_service
+            )
+
+    def test_cross_target_and_profile_revision_cannot_authorize_binding(self) -> None:
+        binding = self.physical_binding()
+        other_target = self.resolved(target_host="other-server.example")
+        _attestor, _owner, other_snapshot_service = self.synthetic_authority(
+            target=other_target,
+            observed_project_dir=self.remote_project_dir,
+        )
+        with self.assertRaisesRegex(execution.ExecutionValueError, "owning"):
+            self.successor_snapshot(
+                binding=binding,
+                target=other_target,
+                snapshot_service=other_snapshot_service,
+            )
+        revised_target = self.resolved(profile_revision=2)
+        _attestor, _owner, revised_snapshot_service = self.synthetic_authority(
+            target=revised_target,
+            observed_project_dir=self.remote_project_dir,
+        )
+        with self.assertRaisesRegex(execution.ExecutionValueError, "owning"):
+            self.successor_snapshot(
+                binding=binding,
+                target=revised_target,
+                snapshot_service=revised_snapshot_service,
+            )
+
+    def test_cross_path_observation_and_workspace_path_drift_reject(self) -> None:
+        binding = self.physical_binding()
+        _attestor, _owner, cross_path_snapshot_service = self.synthetic_authority(
+            observed_project_dir="/home/user100/SDL/other-project"
+        )
+        with self.assertRaisesRegex(
+            execution.ExecutionValueError, "owning provisioning authority"
+        ):
+            self.successor_snapshot(
+                binding=binding, snapshot_service=cross_path_snapshot_service
+            )
+        wrong_workspace = execution.WorkspaceBinding(
+            project=self.store.load_project("project-1"),
+            attempt_id="attempt-1",
+            local_approved_root=str(self.local_root),
+            local_attempt_dir=str(self.local_project / "attempt-1"),
+            rtwin_approved_root=r"C:\RTWIN",
+            rtwin_attempt_dir=r"C:\RTWIN\project-1\attempt-1",
+            remote_approved_root=execution.LEGACY_REMOTE_ROOT,
+            remote_attempt_dir="/home/user100/SDL/other-project/attempt-1",
+        )
+        with self.assertRaisesRegex(execution.ExecutionValueError, "exact remote"):
+            self.successor_snapshot(binding=binding, workspace=wrong_workspace)
+
+    def test_snapshot_accepts_no_caller_proof_or_raw_current_identity(self) -> None:
+        parameters = inspect.signature(self.snapshot_service.prepare).parameters
+        for forbidden in (
+            "project_provisioning_service",
+            "project_reattestation",
+            "proof",
+            "current_identity",
+            "st_dev",
+            "st_ino",
+        ):
+            self.assertNotIn(forbidden, parameters)
         binding = self.physical_binding()
         with self.assertRaisesRegex(
-            execution.ExecutionValueError, "fresh Project reattestation proof"
+            TypeError, "unexpected keyword argument"
         ):
-            _prepare_program_execution_snapshot(
+            self.snapshot_service.prepare(
                 self.store,
                 attempt_id="attempt-1",
                 calculation_plan_id="plan-1",
@@ -771,8 +884,79 @@ class ProgramSnapshotTests(LaneAFixture):
                 resolved_resource_request=self.resources(),
                 resolved_server_profile=self.resolved(),
                 workspace_binding=self.workspace(),
-                project_reattestation=object(),  # type: ignore[arg-type]
+                project_reattestation={  # type: ignore[call-arg]
+                    "current_identity": self.remote_physical_identity
+                },
             )
+
+    def test_second_service_from_persisted_raw_identity_cannot_claim_freshness(self) -> None:
+        binding = self.physical_binding()
+        journal_path = self.root / "second-service.sqlite3"
+        with _ProvisioningJournal(journal_path) as journal:
+            journal.append_binding(binding)
+            persisted = journal.load_binding("project-1")
+        _attestor, _owner, second_snapshot_service = self.synthetic_authority(
+            observed_state="EXISTING",
+            observed_parent_physical_identity=persisted.parent_physical_identity,
+            observed_project_physical_identity=persisted.project_physical_identity,
+        )
+        with self.assertRaisesRegex(execution.ExecutionValueError, "owning"):
+            self.successor_snapshot(
+                binding=persisted,
+                snapshot_service=second_snapshot_service,
+            )
+
+    def test_snapshot_embedded_authorities_and_payload_are_self_authenticating(self) -> None:
+        _attestor, alternate_owner, _snapshot_service = self.synthetic_authority(
+            observed_project_dir="/home/user100/SDL/project-2",
+            observed_state="ABSENT",
+            observed_project_physical_identity=None,
+            provisioned_project_physical_identity="alternate-project-physical",
+        )
+        alternate_binding = alternate_owner.provision_remote_project(
+            project=self.store.load_project("project-1"),
+            target=self.resolved(),
+            remote_project_dir="/home/user100/SDL/project-2",
+            evidence_identity="alternate-binding",
+        )
+        alternate_resources = execution.ResolvedResourceRequest(
+            resource_spec=self.store.load_resource_spec("resource-1"),
+            cores=4,
+            memory_mb=12_288,
+            walltime_seconds=3_600,
+            queue="simple",
+        )
+        alternate_workspace = execution.WorkspaceBinding(
+            project=self.store.load_project("project-1"),
+            attempt_id="attempt-1",
+            local_approved_root=str(self.local_root),
+            local_attempt_dir=str(self.local_project / "attempt-1"),
+            rtwin_approved_root=r"C:\RTWIN",
+            rtwin_attempt_dir=r"C:\RTWIN\project-1\attempt-1",
+            remote_approved_root=execution.LEGACY_REMOTE_ROOT,
+            remote_attempt_dir="/home/user100/SDL/project-2/attempt-1",
+        )
+        mutations = (
+            ("attempt_id", "attempt-other"),
+            ("calculation_plan_id", "plan-other"),
+            ("calculation_plan_revision", 2),
+            ("program_execution_spec", self.xtb_spec(charge=-1)),
+            ("project_physical_binding", alternate_binding),
+            ("resolved_resource_request", alternate_resources),
+            (
+                "resolved_server_profile",
+                self.resolved(profile_revision=2),
+            ),
+            ("workspace_binding", alternate_workspace),
+            ("cwd_binding", {"location_kind": "server", "path": "/tmp"}),
+            ("scheduler_artifacts", ()),
+        )
+        for field_name, replacement in mutations:
+            with self.subTest(field_name=field_name):
+                snapshot = self.successor_snapshot()
+                object.__setattr__(snapshot, field_name, replacement)
+                with self.assertRaises(execution.ExecutionValueError):
+                    snapshot.assert_identity_closed()
 
 
 class OfflineBoundaryTests(unittest.TestCase):
@@ -793,7 +977,6 @@ class OfflineBoundaryTests(unittest.TestCase):
             "qdel",
             "mkdir(",
             "auto_g16.transport",
-            "legacy_rtwin_pbs",
         )
         for token in forbidden:
             with self.subTest(token=token):

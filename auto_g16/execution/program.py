@@ -9,7 +9,7 @@ import re
 import shlex
 from typing import Callable, Final
 
-from auto_g16.core import CalculationPlan, Project, ResourceSpec, SQLiteRuntimeStore
+from auto_g16.core import CalculationPlan, ResourceSpec, SQLiteRuntimeStore
 
 from ._identity import (
     ExecutionValueError,
@@ -22,7 +22,6 @@ from ._identity import (
 )
 from ._paths import (
     require_contained,
-    require_windows_contained,
     validate_portable_name,
     validate_posix_path,
 )
@@ -33,12 +32,16 @@ from .models import (
 )
 from .project_provisioning import (
     ProjectPhysicalBinding,
-    _ProjectBindingReattestation,
-    _consume_project_binding_reattestation,
+    _ProjectProvisioningService,
+    _SYNTHETIC_TEST_HARNESS_PRIVILEGE,
 )
 
 
 _PROGRAM_KINDS: Final = frozenset({"gaussian", "xtb", "crest"})
+_SYNTHETIC_SERVER_EXECUTABLE_PATHS: Final = {
+    "xtb": "/opt/auto-g16-fixtures/bin/xtb",
+    "crest": "/opt/auto-g16-fixtures/bin/crest",
+}
 _TOKEN: Final = re.compile(r"^[A-Za-z0-9_./:@%+=,-]+$")
 _OUTPUT_FIELDS: Final = {
     "logical_role",
@@ -51,6 +54,19 @@ _OUTPUT_FIELDS: Final = {
 }
 _INPUT_FIELDS: Final = {"logical_role", "portable_name", "format", "sha256", "size_bytes"}
 _INVOCATION_FIELDS: Final = {"executable_identity", "argv", "stdin", "environment"}
+_SNAPSHOT_PAYLOAD_FIELDS: Final = {
+    "attempt_id",
+    "calculation_plan_id",
+    "calculation_plan_revision",
+    "program_execution_spec_id",
+    "program_execution_spec_payload_sha256",
+    "project_physical_binding_id",
+    "resolved_resource_request_id",
+    "resolved_server_profile_id",
+    "workspace_binding_id",
+    "cwd_binding",
+    "scheduler_artifacts",
+}
 
 
 def _exact_keys(value: Mapping[str, object], expected: set[str], label: str) -> None:
@@ -124,8 +140,10 @@ def _validate_invocation(value: Mapping[str, object], program_kind: str) -> Mapp
         require_text(executable["absolute_path"], "executable_identity.absolute_path"),
         "executable_identity.absolute_path",
     )
-    if executable_path.rsplit("/", 1)[-1] != program_kind:
-        raise ExecutionValueError("executable basename differs from program_kind")
+    if executable_path != _SYNTHETIC_SERVER_EXECUTABLE_PATHS.get(program_kind):
+        raise ExecutionValueError(
+            "executable path is not the exact qualified synthetic server identity"
+        )
     require_positive_integer(executable["size_bytes"], "executable_identity.size_bytes")
     require_sha256(executable["sha256"], "executable_identity.sha256")
     argv = value["argv"]
@@ -433,8 +451,11 @@ def _prepare_program_execution_spec(
     adapter_id, version, validate_data, renderer = adapter
     data = validate_data(program_data)
     absolute_path = validate_posix_path(executable_path, "executable_path")
-    if absolute_path.rsplit("/", 1)[-1] != program_kind:
-        raise ExecutionValueError("executable path basename differs from program_kind")
+    expected_path = _SYNTHETIC_SERVER_EXECUTABLE_PATHS.get(program_kind)
+    if absolute_path != expected_path:
+        raise ExecutionValueError(
+            "executable path is not the exact qualified synthetic server identity"
+        )
     executable = freeze_mapping(
         {
             "absolute_path": absolute_path,
@@ -471,7 +492,6 @@ def _prepare_program_execution_spec(
 def _render_scheduler_artifact(
     spec: ProgramExecutionSpec,
     resources: ResolvedResourceRequest,
-    cwd: str,
 ) -> tuple[Mapping[str, object], ...]:
     argv = tuple(spec.invocation["argv"])
     command = " ".join(shlex.quote(str(token)) for token in argv)
@@ -491,7 +511,6 @@ def _render_scheduler_artifact(
         lines.append(f"#PBS -q {resources.queue}")
     lines.extend(
         (
-            f"cd -- {shlex.quote(cwd)}",
             f"export OMP_NUM_THREADS={resources.cores}",
             f"exec {command} > {shlex.quote(program_log)} 2>&1",
         )
@@ -510,6 +529,57 @@ def _render_scheduler_artifact(
             "scheduler artifact",
         ),
     )
+
+
+def _assert_executable_matches_resolved_profile(
+    spec: ProgramExecutionSpec, profile: ResolvedServerProfile
+) -> None:
+    executable = spec.invocation["executable_identity"]
+    if not isinstance(executable, Mapping):
+        raise ExecutionValueError("ProgramExecutionSpec executable identity is malformed")
+    path_key = f"{spec.program_kind}_executable_path"
+    profile_path = profile.platform_paths.get(path_key)
+    if not isinstance(profile_path, str):
+        raise ExecutionValueError(
+            "resolved target/profile lacks the exact program executable path authority"
+        )
+    qualified_profile_path = validate_posix_path(
+        profile_path, f"resolved_server_profile.platform_paths.{path_key}"
+    )
+    if qualified_profile_path != _SYNTHETIC_SERVER_EXECUTABLE_PATHS.get(
+        spec.program_kind
+    ):
+        raise ExecutionValueError(
+            "resolved target/profile executable path is not the qualified synthetic "
+            "server identity"
+        )
+    runtime_identity = profile.runtime_identities.get(spec.program_kind)
+    if not isinstance(runtime_identity, Mapping):
+        raise ExecutionValueError(
+            "resolved target/profile lacks the exact program runtime identity"
+        )
+    if set(runtime_identity) != {"sha256", "size_bytes"}:
+        raise ExecutionValueError(
+            "resolved target/profile program runtime identity is not closed"
+        )
+    expected_executable = freeze_mapping(
+        {
+            "absolute_path": qualified_profile_path,
+            "size_bytes": require_positive_integer(
+                runtime_identity["size_bytes"],
+                f"resolved_server_profile.runtime_identities.{spec.program_kind}.size_bytes",
+            ),
+            "sha256": require_sha256(
+                runtime_identity["sha256"],
+                f"resolved_server_profile.runtime_identities.{spec.program_kind}.sha256",
+            ),
+        },
+        "resolved-profile executable authority",
+    )
+    if executable != expected_executable:
+        raise ExecutionValueError(
+            "bound executable differs from resolved profile executable authority"
+        )
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, init=False)
@@ -567,62 +637,141 @@ class ProgramExecutionSnapshot:
         self.resolved_resource_request.assert_identity_closed()
         self.resolved_server_profile.assert_identity_closed()
         self.workspace_binding.assert_identity_closed()
-        if semantic_sha256(self.program_execution_spec.semantic_payload()) != self.program_execution_spec_payload_sha256:
+        if set(self._identity_payload) != _SNAPSHOT_PAYLOAD_FIELDS:
+            raise ExecutionValueError(
+                "ProgramExecutionSnapshot payload has an invalid closed field set"
+            )
+        spec_digest = semantic_sha256(self.program_execution_spec.semantic_payload())
+        if spec_digest != self.program_execution_spec_payload_sha256:
             raise ExecutionValueError("ProgramExecutionSpec payload hash is stale")
-        expected_intent = semantic_id("program-effect-intent", self._identity_payload)
+        _assert_executable_matches_resolved_profile(
+            self.program_execution_spec, self.resolved_server_profile
+        )
+        if (
+            self.project_physical_binding.project_id
+            != self.workspace_binding.project_id
+            or self.workspace_binding.attempt_id != self.attempt_id
+            or self.project_physical_binding.resolved_server_profile_id
+            != self.resolved_server_profile.resolved_server_profile_id
+            or self.project_physical_binding.resolved_target_identity
+            != self.resolved_server_profile.target_identity
+            or self.project_physical_binding.remote_root
+            != self.resolved_server_profile.remote_root
+        ):
+            raise ExecutionValueError(
+                "ProgramExecutionSnapshot embedded authority graph is inconsistent"
+            )
+        remote_attempt_dir = validate_posix_path(
+            f"{self.project_physical_binding.remote_project_dir}/{self.attempt_id}",
+            "remote_attempt_dir",
+        )
+        if self.workspace_binding.remote_attempt_dir != remote_attempt_dir:
+            raise ExecutionValueError(
+                "ProgramExecutionSnapshot workspace is outside its bound remote Project"
+            )
+        cwd_binding = freeze_mapping(
+            {"location_kind": "server", "path": remote_attempt_dir},
+            "verified cwd binding",
+        )
+        scheduler = _render_scheduler_artifact(
+            self.program_execution_spec, self.resolved_resource_request
+        )
+        if self.cwd_binding != cwd_binding or self.scheduler_artifacts != scheduler:
+            raise ExecutionValueError(
+                "ProgramExecutionSnapshot derived public fields are stale"
+            )
+        expected_payload = freeze_mapping(
+            {
+                "attempt_id": self.attempt_id,
+                "calculation_plan_id": self.calculation_plan_id,
+                "calculation_plan_revision": self.calculation_plan_revision,
+                "program_execution_spec_id": self.program_execution_spec_id,
+                "program_execution_spec_payload_sha256": spec_digest,
+                "project_physical_binding_id": self.project_physical_binding_id,
+                "resolved_resource_request_id": (
+                    self.resolved_resource_request.resolved_resource_request_id
+                ),
+                "resolved_server_profile_id": (
+                    self.resolved_server_profile.resolved_server_profile_id
+                ),
+                "workspace_binding_id": self.workspace_binding.workspace_binding_id,
+                "cwd_binding": cwd_binding,
+                "scheduler_artifacts": scheduler,
+            },
+            "ProgramExecutionSnapshot verified identity payload",
+        )
+        if expected_payload != self._identity_payload:
+            raise ExecutionValueError(
+                "ProgramExecutionSnapshot fields differ from its identity payload"
+            )
+        expected_intent = semantic_id("program-effect-intent", expected_payload)
         if expected_intent != self.effect_intent_id:
             raise ExecutionValueError("successor effect intent identity is stale")
         snapshot_payload = freeze_mapping(
-            {"effect_intent_id": expected_intent, **{key: self._identity_payload[key] for key in self._identity_payload}},
+            {
+                "effect_intent_id": expected_intent,
+                **{key: expected_payload[key] for key in expected_payload},
+            },
             "ProgramExecutionSnapshot verification payload",
         )
         if semantic_id("program-execution-snapshot", snapshot_payload) != self.program_execution_snapshot_id:
             raise ExecutionValueError("ProgramExecutionSnapshot identity is stale")
 
 
-def _reattested_project_location(
-    binding: ProjectPhysicalBinding,
-    workspace: WorkspaceBinding,
-    *,
-    location_kind: str,
-    project_directory: str,
-) -> tuple[str, str]:
-    attempt_directories = {
-        "local": workspace.local_attempt_dir,
-        "server": workspace.remote_attempt_dir,
-        "rtwin": workspace.rtwin_attempt_dir,
-    }
-    attempt_directory = attempt_directories.get(location_kind)
-    if attempt_directory is None:
-        raise ExecutionValueError(
-            "fresh Project proof has no matching Attempt workspace"
+class _ProgramExecutionSnapshotService:
+    """Private snapshot factory that owns its Project provisioning authority."""
+
+    __slots__ = ("_project_provisioning",)
+
+    def __init__(self) -> None:
+        raise TypeError("snapshot service requires an owned provisioning authority")
+
+    @classmethod
+    def _for_privileged_synthetic_tests(
+        cls,
+        *,
+        privilege: object,
+        project_provisioning: _ProjectProvisioningService,
+    ) -> _ProgramExecutionSnapshotService:
+        if privilege is not _SYNTHETIC_TEST_HARNESS_PRIVILEGE:
+            raise ExecutionValueError("synthetic snapshot-service privilege is required")
+        if type(project_provisioning) is not _ProjectProvisioningService:
+            raise ExecutionValueError(
+                "snapshot service requires the exact owning provisioning service"
+            )
+        value = object.__new__(cls)
+        value._project_provisioning = project_provisioning
+        return value
+
+    def prepare(
+        self,
+        store: SQLiteRuntimeStore,
+        *,
+        attempt_id: str,
+        calculation_plan_id: str,
+        resource_spec_id: str,
+        program_execution_spec: ProgramExecutionSpec,
+        project_physical_binding: ProjectPhysicalBinding,
+        resolved_resource_request: ResolvedResourceRequest,
+        resolved_server_profile: ResolvedServerProfile,
+        workspace_binding: WorkspaceBinding,
+    ) -> ProgramExecutionSnapshot:
+        return _prepare_program_execution_snapshot_owned(
+            self._project_provisioning,
+            store,
+            attempt_id=attempt_id,
+            calculation_plan_id=calculation_plan_id,
+            resource_spec_id=resource_spec_id,
+            program_execution_spec=program_execution_spec,
+            project_physical_binding=project_physical_binding,
+            resolved_resource_request=resolved_resource_request,
+            resolved_server_profile=resolved_server_profile,
+            workspace_binding=workspace_binding,
         )
-    matching = tuple(
-        location
-        for location in binding.locations
-        if location["location_kind"] == location_kind
-        and location["project_directory"] == project_directory
-    )
-    if len(matching) != 1:
-        raise ExecutionValueError(
-            "fresh Project proof does not select one exact bound location"
-        )
-    if location_kind == "rtwin":
-        require_windows_contained(
-            attempt_directory,
-            project_directory,
-            "successor Attempt workspace",
-        )
-    else:
-        require_contained(
-            attempt_directory,
-            project_directory,
-            "successor Attempt workspace",
-        )
-    return location_kind, attempt_directory
 
 
-def _prepare_program_execution_snapshot(
+def _prepare_program_execution_snapshot_owned(
+    owned_project_provisioning: _ProjectProvisioningService,
     store: SQLiteRuntimeStore,
     *,
     attempt_id: str,
@@ -633,7 +782,6 @@ def _prepare_program_execution_snapshot(
     resolved_resource_request: ResolvedResourceRequest,
     resolved_server_profile: ResolvedServerProfile,
     workspace_binding: WorkspaceBinding,
-    project_reattestation: _ProjectBindingReattestation,
 ) -> ProgramExecutionSnapshot:
     if not isinstance(store, SQLiteRuntimeStore):
         raise ExecutionValueError("successor preparation requires the exact Core store")
@@ -661,43 +809,32 @@ def _prepare_program_execution_snapshot(
         raise ExecutionValueError("workspace binding belongs to another Attempt")
     if resolved_resource_request.resource_spec_id != resource.resource_spec_id:
         raise ExecutionValueError("resolved resources differ from the loaded ResourceSpec")
-    executable = program_execution_spec.invocation["executable_identity"]
-    runtime_identity = resolved_server_profile.runtime_identities.get(
-        program_execution_spec.program_kind
-    )
-    if not isinstance(runtime_identity, Mapping):
-        raise ExecutionValueError("resolved target/profile lacks the exact program runtime identity")
-    if (
-        runtime_identity.get("sha256") != executable["sha256"]  # type: ignore[index]
-        or runtime_identity.get("size_bytes") != executable["size_bytes"]  # type: ignore[index]
-    ):
-        raise ExecutionValueError("bound executable differs from resolved runtime identity")
-    proof_kind, proof_project_directory = _consume_project_binding_reattestation(
-        project_physical_binding, project_reattestation
-    )
-    target_location_kind = "server"
-    if proof_kind != target_location_kind:
+    if type(owned_project_provisioning) is not _ProjectProvisioningService:
         raise ExecutionValueError(
-            "fresh Project proof does not reattest the resolved target location"
+            "snapshot preparation requires the trusted Project provisioning service"
         )
-    matching_target = tuple(
-        location
-        for location in project_physical_binding.locations
-        if location["location_kind"] == target_location_kind
-        and location["reviewed_root"] == resolved_server_profile.remote_root
-        and location["project_directory"] == proof_project_directory
+    _assert_executable_matches_resolved_profile(
+        program_execution_spec, resolved_server_profile
     )
-    if len(matching_target) != 1:
+    current_proof = owned_project_provisioning._attest_current(
+        project_physical_binding, resolved_server_profile
+    )
+    remote_project_dir = owned_project_provisioning._consume_current(
+        binding=project_physical_binding,
+        target=resolved_server_profile,
+        proof=current_proof,
+    )
+    remote_attempt_dir = validate_posix_path(
+        f"{remote_project_dir}/{attempt.attempt_id}", "remote_attempt_dir"
+    )
+    require_contained(remote_attempt_dir, remote_project_dir, "remote_attempt_dir")
+    if workspace_binding.remote_attempt_dir != remote_attempt_dir:
         raise ExecutionValueError(
-            "fresh Project proof does not match the resolved target root"
+            "workspace binding differs from the exact remote Project/Attempt authority"
         )
-    cwd_kind, cwd = _reattested_project_location(
-        project_physical_binding,
-        workspace_binding,
-        location_kind=proof_kind,
-        project_directory=proof_project_directory,
+    scheduler = _render_scheduler_artifact(
+        program_execution_spec, resolved_resource_request
     )
-    scheduler = _render_scheduler_artifact(program_execution_spec, resolved_resource_request, cwd)
     spec_digest = semantic_sha256(program_execution_spec.semantic_payload())
     payload = freeze_mapping(
         {
@@ -710,7 +847,10 @@ def _prepare_program_execution_snapshot(
             "resolved_resource_request_id": resolved_resource_request.resolved_resource_request_id,
             "resolved_server_profile_id": resolved_server_profile.resolved_server_profile_id,
             "workspace_binding_id": workspace_binding.workspace_binding_id,
-            "cwd_binding": {"location_kind": cwd_kind, "path": cwd},
+            "cwd_binding": {
+                "location_kind": "server",
+                "path": remote_attempt_dir,
+            },
             "scheduler_artifacts": scheduler,
         },
         "ProgramExecutionSnapshot identity payload",

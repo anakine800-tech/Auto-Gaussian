@@ -1,15 +1,13 @@
-"""Offline Project physical-binding foundation for the V31 successor."""
+"""Offline remote Project physical-provisioning foundation for V31."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 import json
-import os
 from pathlib import Path
-import sqlite3
-import stat
 import secrets
+import sqlite3
 from threading import RLock
 from typing import Final
 
@@ -22,20 +20,18 @@ from ._identity import (
     semantic_id,
     semantic_sha256,
 )
-from ._paths import (
-    require_contained,
-    require_windows_contained,
-    validate_posix_path,
-    validate_windows_path,
-)
+from ._paths import require_contained, validate_posix_path
+from .models import LEGACY_REMOTE_ROOT, ResolvedServerProfile
 
 
-_CONTRACT_VERSION: Final = "project-physical-provisioning/1"
-_LOCATION_KINDS: Final = frozenset({"local", "rtwin", "server"})
-_DISPOSITIONS: Final = frozenset({"ABSENT", "PRODUCT_BOUND_EXISTING"})
+_CONTRACT_VERSION: Final = "remote-project-physical-binding/2"
+_TRANSPORT_KIND: Final = "legacy_rtwin_pbs"
+_LOCATION_KIND: Final = "server"
 _CLASSIFICATIONS: Final = frozenset(
     {"ABSENT", "PRODUCT_BOUND_EXISTING", "UNBOUND_EXISTING"}
 )
+_BINDING_DISPOSITIONS: Final = frozenset({"ABSENT", "PRODUCT_BOUND_EXISTING"})
+_SYNTHETIC_TEST_HARNESS_PRIVILEGE: Final = object()
 _APPLICATION_ID: Final = 0x41335042
 _USER_VERSION: Final = 1
 _DDL: Final = (
@@ -48,8 +44,6 @@ _DDL: Final = (
     "CREATE TRIGGER project_physical_bindings_no_delete BEFORE DELETE ON "
     "project_physical_bindings BEGIN SELECT RAISE(ABORT,'append-only'); END",
 )
-_PROOF_LOCK: Final = RLock()
-_ACTIVE_PROOFS: Final[dict[bytes, tuple[object, ...]]] = {}
 
 
 def _plain(value: object) -> object:
@@ -62,109 +56,167 @@ def _plain(value: object) -> object:
 
 def _canonical_json(value: object) -> str:
     return json.dumps(
-        _plain(value), ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(",", ":")
+        _plain(value),
+        ensure_ascii=False,
+        allow_nan=False,
+        sort_keys=True,
+        separators=(",", ":"),
     )
 
 
-def _exact_keys(value: Mapping[str, object], expected: set[str], label: str) -> None:
-    if set(value) != expected:
-        raise ExecutionValueError(f"{label} must have an exact closed field set")
+def _validated_target_identity(value: Mapping[str, object]) -> Mapping[str, object]:
+    if set(value) != {
+        "destination_host",
+        "destination_port",
+        "jump_topology",
+        "host_key_policy",
+        "batch_mode",
+        "identities_only",
+    }:
+        raise ExecutionValueError("resolved target identity must have an exact closed field set")
+    return freeze_mapping(dict(value), "resolved target identity")
 
 
-def _path_for_kind(kind: str, path: str, field_name: str) -> str:
-    if kind in {"local", "server"}:
-        return validate_posix_path(path, field_name)
-    return validate_windows_path(path, field_name)
+def _validate_remote_target(
+    profile: ResolvedServerProfile, remote_project_dir: str
+) -> str:
+    if not isinstance(profile, ResolvedServerProfile):
+        raise ExecutionValueError("target must be an exact ResolvedServerProfile")
+    profile.assert_identity_closed()
+    if profile.transport_kind != _TRANSPORT_KIND:
+        raise ExecutionValueError("remote Project binding requires legacy_rtwin_pbs")
+    if profile.remote_root != LEGACY_REMOTE_ROOT:
+        raise ExecutionValueError(
+            f"legacy remote Project root must be {LEGACY_REMOTE_ROOT}"
+        )
+    path = validate_posix_path(remote_project_dir, "remote_project_dir")
+    require_contained(path, profile.remote_root, "remote_project_dir")
+    if path == profile.remote_root:
+        raise ExecutionValueError("remote_project_dir must name a Project below remote_root")
+    return path
 
 
-def _contained_for_kind(kind: str, path: str, root: str, field_name: str) -> None:
-    if kind in {"local", "server"}:
-        require_contained(path, root, field_name)
-    else:
-        require_windows_contained(path, root, field_name)
-
-
-def _validated_location(value: Mapping[str, object], index: int) -> Mapping[str, object]:
-    label = f"locations[{index}]"
-    _exact_keys(
-        value,
-        {
-            "location_kind",
-            "reviewed_root",
-            "project_directory",
-            "provisioning_disposition",
-            "parent_physical_identity",
-            "project_physical_identity",
-            "evidence_identity",
-        },
-        label,
+def _validated_location(value: Mapping[str, object]) -> Mapping[str, object]:
+    if set(value) != {
+        "location_kind",
+        "reviewed_root",
+        "project_directory",
+        "provisioning_disposition",
+        "parent_physical_identity",
+        "project_physical_identity",
+        "evidence_identity",
+    }:
+        raise ExecutionValueError("Project location must have the frozen closed field set")
+    if value["location_kind"] != _LOCATION_KIND:
+        raise ExecutionValueError(
+            "legacy_rtwin_pbs Project binding must contain only the server location"
+        )
+    root = validate_posix_path(
+        require_text(value["reviewed_root"], "reviewed_root"), "reviewed_root"
     )
-    kind = require_text(value["location_kind"], f"{label}.location_kind")
-    if kind not in _LOCATION_KINDS:
-        raise ExecutionValueError(f"{label}.location_kind is outside the closed V31 set")
-    root = _path_for_kind(kind, require_text(value["reviewed_root"], f"{label}.reviewed_root"), f"{label}.reviewed_root")
-    directory = _path_for_kind(
-        kind,
-        require_text(value["project_directory"], f"{label}.project_directory"),
-        f"{label}.project_directory",
+    if root != LEGACY_REMOTE_ROOT:
+        raise ExecutionValueError(
+            f"legacy remote Project root must be {LEGACY_REMOTE_ROOT}"
+        )
+    directory = validate_posix_path(
+        require_text(value["project_directory"], "project_directory"),
+        "project_directory",
     )
-    _contained_for_kind(kind, directory, root, f"{label}.project_directory")
-    disposition = require_text(
-        value["provisioning_disposition"], f"{label}.provisioning_disposition"
-    )
-    if disposition not in _DISPOSITIONS:
-        raise ExecutionValueError(f"{label} cannot bind an unbound-existing target")
+    require_contained(directory, root, "project_directory")
+    if value["provisioning_disposition"] not in _BINDING_DISPOSITIONS:
+        raise ExecutionValueError("Project binding has an invalid provisioning disposition")
     for key in (
         "parent_physical_identity",
         "project_physical_identity",
         "evidence_identity",
     ):
-        require_text(value[key], f"{label}.{key}")
-    return freeze_mapping(dict(value), label)
+        require_text(value[key], key)
+    return freeze_mapping(dict(value), "remote Project location")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, init=False)
 class ProjectPhysicalBinding:
-    """Opaque durable identity for one Core Project's reviewed locations."""
+    """Durable binding for one Project in the final-server namespace."""
 
     project_physical_binding_id: str
     project_id: str
     provisioning_contract_version: str
+    transport_kind: str
+    resolved_server_profile_id: str
+    resolved_target_identity: Mapping[str, object]
+    provisioning_authority_id: str
     locations: tuple[Mapping[str, object], ...]
     _identity_payload: Mapping[str, object] = field(repr=False, compare=False)
 
     def __init__(self) -> None:
-        raise TypeError("ProjectPhysicalBinding is created only from inspected evidence")
+        raise TypeError("ProjectPhysicalBinding is created only by Project provisioning")
+
+    @property
+    def remote_root(self) -> str:
+        return str(self.locations[0]["reviewed_root"])
+
+    @property
+    def remote_project_dir(self) -> str:
+        return str(self.locations[0]["project_directory"])
+
+    @property
+    def project_physical_identity(self) -> str:
+        return str(self.locations[0]["project_physical_identity"])
+
+    @property
+    def parent_physical_identity(self) -> str:
+        return str(self.locations[0]["parent_physical_identity"])
+
+    @property
+    def evidence_identity(self) -> str:
+        return str(self.locations[0]["evidence_identity"])
 
     @classmethod
-    def _from_inspected(
+    def _from_attested(
         cls,
         *,
         project: Project,
-        locations: tuple[Mapping[str, object], ...],
+        target: ResolvedServerProfile,
+        remote_project_dir: str,
+        provisioning_disposition: str,
+        parent_physical_identity: str,
+        project_physical_identity: str,
+        evidence_identity: str,
+        provisioning_authority_id: str,
     ) -> ProjectPhysicalBinding:
         if not isinstance(project, Project):
             raise ExecutionValueError("project must be a public Core Project")
-        if not isinstance(locations, tuple) or not locations:
-            raise ExecutionValueError("locations must be an ordered non-empty tuple")
-        closed = tuple(_validated_location(item, index) for index, item in enumerate(locations))
-        keys = tuple(
-            (item["location_kind"], item["project_directory"]) for item in closed
+        path = _validate_remote_target(target, remote_project_dir)
+        location = _validated_location(
+            {
+                "location_kind": _LOCATION_KIND,
+                "reviewed_root": target.remote_root,
+                "project_directory": path,
+                "provisioning_disposition": provisioning_disposition,
+                "parent_physical_identity": parent_physical_identity,
+                "project_physical_identity": project_physical_identity,
+                "evidence_identity": evidence_identity,
+            }
         )
-        if len(set(keys)) != len(keys):
-            raise ExecutionValueError("locations contain duplicate physical targets")
         payload = freeze_mapping(
             {
                 "project_id": project.project_id,
                 "provisioning_contract_version": _CONTRACT_VERSION,
-                "locations": closed,
+                "transport_kind": _TRANSPORT_KIND,
+                "resolved_server_profile_id": target.resolved_server_profile_id,
+                "resolved_target_identity": _validated_target_identity(
+                    target.target_identity
+                ),
+                "provisioning_authority_id": require_text(
+                    provisioning_authority_id, "provisioning_authority_id"
+                ),
+                "locations": (location,),
             },
             "ProjectPhysicalBinding identity payload",
         )
         value = object.__new__(cls)
-        object.__setattr__(value, "project_id", project.project_id)
-        object.__setattr__(value, "provisioning_contract_version", _CONTRACT_VERSION)
-        object.__setattr__(value, "locations", closed)
+        for name, item in payload.items():
+            object.__setattr__(value, name, item)
         object.__setattr__(value, "_identity_payload", payload)
         object.__setattr__(
             value,
@@ -185,14 +237,28 @@ class ProjectPhysicalBinding:
     def assert_identity_closed(self) -> None:
         if self.provisioning_contract_version != _CONTRACT_VERSION:
             raise ExecutionValueError("ProjectPhysicalBinding contract version is stale")
-        closed = tuple(
-            _validated_location(item, index) for index, item in enumerate(self.locations)
-        )
+        if self.transport_kind != _TRANSPORT_KIND:
+            raise ExecutionValueError("ProjectPhysicalBinding transport is stale")
+        if not isinstance(self.locations, tuple) or len(self.locations) != 1:
+            raise ExecutionValueError(
+                "legacy_rtwin_pbs Project binding requires exactly one server location"
+            )
+        location = _validated_location(self.locations[0])
         payload = freeze_mapping(
             {
-                "project_id": self.project_id,
+                "project_id": require_text(self.project_id, "project_id"),
                 "provisioning_contract_version": self.provisioning_contract_version,
-                "locations": closed,
+                "transport_kind": self.transport_kind,
+                "resolved_server_profile_id": require_text(
+                    self.resolved_server_profile_id, "resolved_server_profile_id"
+                ),
+                "resolved_target_identity": _validated_target_identity(
+                    self.resolved_target_identity
+                ),
+                "provisioning_authority_id": require_text(
+                    self.provisioning_authority_id, "provisioning_authority_id"
+                ),
+                "locations": (location,),
             },
             "ProjectPhysicalBinding verification payload",
         )
@@ -202,245 +268,383 @@ class ProjectPhysicalBinding:
             raise ExecutionValueError("ProjectPhysicalBinding identity is stale")
 
 
-def _opaque_stat_identity(value: os.stat_result, domain: str) -> str:
-    return semantic_sha256(
-        {
-            "domain": domain,
-            "device": value.st_dev,
-            "inode": value.st_ino,
-            "mode": stat.S_IFMT(value.st_mode),
-        }
-    )
-
-
-def _inspect_local_target(
-    *, reviewed_root: str, project_directory: str
-) -> tuple[str, str, str | None]:
-    validate_posix_path(reviewed_root, "reviewed_root")
-    validate_posix_path(project_directory, "project_directory")
-    require_contained(project_directory, reviewed_root, "project_directory")
-    root = Path(reviewed_root)
-    target = Path(project_directory)
-    try:
-        root_stat = os.lstat(root)
-        parent_stat = os.lstat(target.parent)
-    except OSError as exc:
-        raise ExecutionValueError("reviewed provisioning root or parent is unavailable") from exc
-    if stat.S_ISLNK(root_stat.st_mode) or not stat.S_ISDIR(root_stat.st_mode):
-        raise ExecutionValueError("reviewed provisioning root must be a real directory")
-    if stat.S_ISLNK(parent_stat.st_mode) or not stat.S_ISDIR(parent_stat.st_mode):
-        raise ExecutionValueError("Project parent must be a real directory")
-    try:
-        if str(root.resolve(strict=True)) != reviewed_root or str(target.parent.resolve(strict=True)) != str(target.parent):
-            raise ExecutionValueError("provisioning paths must already be canonical and no-follow")
-    except OSError as exc:
-        raise ExecutionValueError("provisioning parent chain is unavailable") from exc
-    parent_identity = _opaque_stat_identity(parent_stat, "project-parent")
-    try:
-        target_stat = os.lstat(target)
-    except FileNotFoundError:
-        return "ABSENT", parent_identity, None
-    except OSError as exc:
-        raise ExecutionValueError("Project target cannot be inspected") from exc
-    if stat.S_ISLNK(target_stat.st_mode) or not stat.S_ISDIR(target_stat.st_mode):
-        raise ExecutionValueError("Project target must be a real directory")
+def _target_key(
+    target: ResolvedServerProfile, remote_project_dir: str
+) -> tuple[str, str, str]:
+    target.assert_identity_closed()
+    path = validate_posix_path(remote_project_dir, "observed remote Project path")
     return (
-        "EXISTING",
-        parent_identity,
-        _opaque_stat_identity(target_stat, "project-directory"),
+        target.resolved_server_profile_id,
+        semantic_sha256(target.target_identity),
+        path,
     )
 
 
-def _classify_project_target(
-    *,
-    project: Project,
-    reviewed_root: str,
-    project_directory: str,
-    stored_binding: ProjectPhysicalBinding | None,
-) -> tuple[str, ProjectPhysicalBinding | None]:
-    """Read-only three-way classification; this function never calls mkdir."""
+class _SyntheticRemoteProjectAttestor:
+    """Explicitly privileged offline stand-in for future Transport observation."""
 
-    if not isinstance(project, Project):
-        raise ExecutionValueError("project must be a public Core Project")
-    state, parent_identity, target_identity = _inspect_local_target(
-        reviewed_root=reviewed_root, project_directory=project_directory
-    )
-    if state == "ABSENT":
-        if stored_binding is not None:
-            raise ExecutionValueError("a Product-bound Project target was replaced or removed")
-        return "ABSENT", None
-    if stored_binding is None:
-        return "UNBOUND_EXISTING", None
-    if not isinstance(stored_binding, ProjectPhysicalBinding):
-        raise ExecutionValueError("stored_binding must be a ProjectPhysicalBinding")
-    stored_binding.assert_identity_closed()
-    if stored_binding.project_id != project.project_id:
-        raise ExecutionValueError("stored Project binding belongs to another Project")
-    matching = tuple(
-        location
-        for location in stored_binding.locations
-        if location["location_kind"] == "local"
-        and location["reviewed_root"] == reviewed_root
-        and location["project_directory"] == project_directory
-    )
-    if len(matching) != 1:
-        raise ExecutionValueError("stored Project binding does not own the exact target")
-    location = matching[0]
-    if (
-        location["parent_physical_identity"] != parent_identity
-        or location["project_physical_identity"] != target_identity
-    ):
-        raise ExecutionValueError("Project target or parent physical identity drifted")
-    return "PRODUCT_BOUND_EXISTING", stored_binding
+    __slots__ = ("_observations", "_provision_count", "_lock")
+
+    def __init__(self) -> None:
+        raise TypeError("synthetic attestors require the privileged test harness")
+
+    @classmethod
+    def _from_privileged_test_fixture(
+        cls,
+        *,
+        privilege: object,
+        target: ResolvedServerProfile,
+        observed_project_dir: str,
+        observed_state: str,
+        observed_parent_physical_identity: str,
+        observed_project_physical_identity: str | None,
+        provisioned_project_physical_identity: str | None = None,
+    ) -> _SyntheticRemoteProjectAttestor:
+        if privilege is not _SYNTHETIC_TEST_HARNESS_PRIVILEGE:
+            raise ExecutionValueError("synthetic Project attestor privilege is required")
+        if not isinstance(target, ResolvedServerProfile):
+            raise ExecutionValueError("synthetic target must be a ResolvedServerProfile")
+        target.assert_identity_closed()
+        if observed_state not in {"ABSENT", "EXISTING"}:
+            raise ExecutionValueError("synthetic Project state is outside the closed set")
+        parent_identity = require_text(
+            observed_parent_physical_identity,
+            "observed_parent_physical_identity",
+        )
+        if observed_state == "EXISTING":
+            project_identity = require_text(
+                observed_project_physical_identity,
+                "observed_project_physical_identity",
+            )
+            if provisioned_project_physical_identity is not None:
+                raise ExecutionValueError(
+                    "existing synthetic target cannot carry a provisioned identity"
+                )
+            provisioned_identity = None
+        else:
+            if observed_project_physical_identity is not None:
+                raise ExecutionValueError("absent synthetic target has a Project identity")
+            project_identity = None
+            provisioned_identity = require_text(
+                provisioned_project_physical_identity,
+                "provisioned_project_physical_identity",
+            )
+        value = object.__new__(cls)
+        value._observations = {
+            _target_key(target, observed_project_dir): (
+                observed_state,
+                parent_identity,
+                project_identity,
+                provisioned_identity,
+            )
+        }
+        value._provision_count = 0
+        value._lock = RLock()
+        return value
+
+    def _observe_current(
+        self, target: ResolvedServerProfile, remote_project_dir: str
+    ) -> tuple[str, str, str | None]:
+        key = _target_key(target, remote_project_dir)
+        with self._lock:
+            observation = self._observations.get(key)
+        if observation is None:
+            raise ExecutionValueError(
+                "no current observation exists for the exact remote Project target"
+            )
+        state, parent_identity, project_identity, _provisioned_identity = observation
+        return str(state), str(parent_identity), (
+            None if project_identity is None else str(project_identity)
+        )
+
+    def _provision_absent_for_test(
+        self, target: ResolvedServerProfile, remote_project_dir: str
+    ) -> tuple[str, str]:
+        key = _target_key(target, remote_project_dir)
+        with self._lock:
+            observation = self._observations.get(key)
+            if observation is None or observation[0] != "ABSENT":
+                raise ExecutionValueError("synthetic target is not absent")
+            _state, parent_identity, _project_identity, provisioned_identity = observation
+            if provisioned_identity is None:
+                raise ExecutionValueError("synthetic provisioned identity is missing")
+            self._observations[key] = (
+                "EXISTING",
+                parent_identity,
+                provisioned_identity,
+                None,
+            )
+            self._provision_count += 1
+        return str(parent_identity), str(provisioned_identity)
+
+    def _replace_fixture_identity(
+        self,
+        *,
+        target: ResolvedServerProfile,
+        remote_project_dir: str,
+        observed_parent_physical_identity: str | None = None,
+        observed_project_physical_identity: str,
+    ) -> None:
+        key = _target_key(target, remote_project_dir)
+        identity = require_text(
+            observed_project_physical_identity, "observed_project_physical_identity"
+        )
+        with self._lock:
+            observation = self._observations.get(key)
+            if observation is None or observation[0] != "EXISTING":
+                raise ExecutionValueError("synthetic replacement target is not existing")
+            parent = (
+                str(observation[1])
+                if observed_parent_physical_identity is None
+                else require_text(
+                    observed_parent_physical_identity,
+                    "observed_parent_physical_identity",
+                )
+            )
+            self._observations[key] = ("EXISTING", parent, identity, None)
 
 
-class _ProjectBindingReattestation:
-    """Private single-consumption proof; raw physical evidence never becomes public."""
+class _CurrentProjectProof:
+    """Private, authority-bound, target-scoped current observation."""
 
     __slots__ = (
         "_binding_id",
-        "_location_kind",
-        "_reviewed_root",
-        "_project_directory",
-        "_parent_identity",
-        "_target_identity",
-        "_local_reinspection",
+        "_provisioning_authority_id",
+        "_resolved_server_profile_id",
+        "_target_identity_sha256",
+        "_remote_project_dir",
+        "_parent_physical_identity",
+        "_project_physical_identity",
+        "_service_token",
         "_nonce",
     )
 
     def __init__(self) -> None:
-        raise TypeError("Project reattestation proofs are issued only by provisioning")
+        raise TypeError("current Project proofs are issued only by provisioning")
 
 
-def _reattest_project_binding(
-    binding: ProjectPhysicalBinding,
-) -> _ProjectBindingReattestation:
-    if not isinstance(binding, ProjectPhysicalBinding):
-        raise ExecutionValueError("binding must be a ProjectPhysicalBinding")
-    binding.assert_identity_closed()
-    local = tuple(
-        item for item in binding.locations if item["location_kind"] == "local"
+class _ProjectProvisioningService:
+    """Private owning authority for Project classification and freshness."""
+
+    __slots__ = (
+        "_attestor",
+        "_authority_id",
+        "_service_token",
+        "_active_proofs",
+        "_lock",
     )
-    if len(local) != 1:
-        raise ExecutionValueError("offline successor preparation requires one local Project binding")
-    location = local[0]
-    state, parent_identity, target_identity = _inspect_local_target(
-        reviewed_root=str(location["reviewed_root"]),
-        project_directory=str(location["project_directory"]),
-    )
-    if state != "EXISTING" or target_identity is None:
-        raise ExecutionValueError("bound Project target is no longer present")
-    if (
-        location["parent_physical_identity"] != parent_identity
-        or location["project_physical_identity"] != target_identity
-    ):
-        raise ExecutionValueError("Project target or parent physical identity drifted")
-    proof = object.__new__(_ProjectBindingReattestation)
-    nonce = secrets.token_bytes(32)
-    proof._binding_id = binding.project_physical_binding_id
-    proof._location_kind = "local"
-    proof._reviewed_root = str(location["reviewed_root"])
-    proof._project_directory = str(location["project_directory"])
-    proof._parent_identity = parent_identity
-    proof._target_identity = target_identity
-    proof._local_reinspection = True
-    proof._nonce = nonce
-    with _PROOF_LOCK:
-        _ACTIVE_PROOFS[nonce] = (
+
+    def __init__(self) -> None:
+        raise TypeError("Project provisioning requires an owning authority")
+
+    @classmethod
+    def _from_privileged_synthetic_attestor(
+        cls,
+        *,
+        privilege: object,
+        attestor: _SyntheticRemoteProjectAttestor,
+    ) -> _ProjectProvisioningService:
+        if privilege is not _SYNTHETIC_TEST_HARNESS_PRIVILEGE:
+            raise ExecutionValueError("synthetic Project provisioning privilege is required")
+        if type(attestor) is not _SyntheticRemoteProjectAttestor:
+            raise ExecutionValueError("Project provisioning requires the exact private attestor")
+        value = object.__new__(cls)
+        value._attestor = attestor
+        value._service_token = secrets.token_bytes(32)
+        value._authority_id = semantic_id(
+            "project-provisioning-authority",
+            {"opaque_authority_nonce": value._service_token.hex()},
+        )
+        value._active_proofs = {}
+        value._lock = RLock()
+        return value
+
+    def classify_remote_project(
+        self,
+        *,
+        project: Project,
+        target: ResolvedServerProfile,
+        remote_project_dir: str,
+        stored_binding: ProjectPhysicalBinding | None,
+    ) -> tuple[str, ProjectPhysicalBinding | None]:
+        if not isinstance(project, Project):
+            raise ExecutionValueError("project must be a public Core Project")
+        path = _validate_remote_target(target, remote_project_dir)
+        state, parent_identity, project_identity = self._attestor._observe_current(
+            target, path
+        )
+        if state == "ABSENT":
+            if stored_binding is not None:
+                raise ExecutionValueError(
+                    "a Product-bound remote Project was replaced or removed"
+                )
+            return "ABSENT", None
+        if state != "EXISTING" or project_identity is None:
+            raise ExecutionValueError("remote Project observation has an invalid state")
+        if stored_binding is None:
+            return "UNBOUND_EXISTING", None
+        self._assert_owned_binding(
+            binding=stored_binding,
+            project=project,
+            target=target,
+            remote_project_dir=path,
+        )
+        if (
+            stored_binding.parent_physical_identity != parent_identity
+            or stored_binding.project_physical_identity != project_identity
+        ):
+            raise ExecutionValueError("remote Project physical identity drifted")
+        return "PRODUCT_BOUND_EXISTING", stored_binding
+
+    def provision_remote_project(
+        self,
+        *,
+        project: Project,
+        target: ResolvedServerProfile,
+        remote_project_dir: str,
+        evidence_identity: str,
+        stored_binding: ProjectPhysicalBinding | None = None,
+    ) -> ProjectPhysicalBinding:
+        classification, replay = self.classify_remote_project(
+            project=project,
+            target=target,
+            remote_project_dir=remote_project_dir,
+            stored_binding=stored_binding,
+        )
+        if classification == "UNBOUND_EXISTING":
+            raise ExecutionValueError(
+                "UNBOUND_EXISTING remote Project requires an Owner adoption decision"
+            )
+        if classification == "PRODUCT_BOUND_EXISTING":
+            if replay is None:
+                raise ExecutionValueError("Product-bound replay lost its binding")
+            return replay
+        if classification != "ABSENT":
+            raise ExecutionValueError("Project classification is outside the closed set")
+        parent_identity, project_identity = self._attestor._provision_absent_for_test(
+            target, remote_project_dir
+        )
+        return ProjectPhysicalBinding._from_attested(
+            project=project,
+            target=target,
+            remote_project_dir=remote_project_dir,
+            provisioning_disposition="ABSENT",
+            parent_physical_identity=parent_identity,
+            project_physical_identity=project_identity,
+            evidence_identity=require_text(evidence_identity, "evidence_identity"),
+            provisioning_authority_id=self._authority_id,
+        )
+
+    def _assert_owned_binding(
+        self,
+        *,
+        binding: ProjectPhysicalBinding,
+        project: Project,
+        target: ResolvedServerProfile,
+        remote_project_dir: str,
+    ) -> None:
+        if not isinstance(binding, ProjectPhysicalBinding):
+            raise ExecutionValueError("binding must be a ProjectPhysicalBinding")
+        binding.assert_identity_closed()
+        if (
+            binding.project_id != project.project_id
+            or binding.transport_kind != target.transport_kind
+            or binding.resolved_server_profile_id
+            != target.resolved_server_profile_id
+            or binding.resolved_target_identity != target.target_identity
+            or binding.remote_root != target.remote_root
+            or binding.remote_project_dir != remote_project_dir
+            or binding.provisioning_authority_id != self._authority_id
+        ):
+            raise ExecutionValueError(
+                "Project binding belongs to another owning provisioning authority or target"
+            )
+
+    def _attest_current(
+        self,
+        binding: ProjectPhysicalBinding,
+        target: ResolvedServerProfile,
+    ) -> _CurrentProjectProof:
+        self._assert_owned_binding(
+            binding=binding,
+            project=Project(project_id=binding.project_id),
+            target=target,
+            remote_project_dir=binding.remote_project_dir,
+        )
+        state, parent_identity, project_identity = self._attestor._observe_current(
+            target, binding.remote_project_dir
+        )
+        if state != "EXISTING" or project_identity is None:
+            raise ExecutionValueError("bound remote Project is not currently existing")
+        proof = object.__new__(_CurrentProjectProof)
+        proof._binding_id = binding.project_physical_binding_id
+        proof._provisioning_authority_id = self._authority_id
+        proof._resolved_server_profile_id = target.resolved_server_profile_id
+        proof._target_identity_sha256 = semantic_sha256(target.target_identity)
+        proof._remote_project_dir = binding.remote_project_dir
+        proof._parent_physical_identity = parent_identity
+        proof._project_physical_identity = project_identity
+        proof._service_token = self._service_token
+        proof._nonce = secrets.token_bytes(32)
+        active = (
             proof,
             proof._binding_id,
-            proof._location_kind,
-            proof._reviewed_root,
-            proof._project_directory,
-            proof._parent_identity,
-            proof._target_identity,
-            proof._local_reinspection,
+            proof._provisioning_authority_id,
+            proof._resolved_server_profile_id,
+            proof._target_identity_sha256,
+            proof._remote_project_dir,
+            proof._parent_physical_identity,
+            proof._project_physical_identity,
+            proof._service_token,
         )
-    return proof
+        with self._lock:
+            self._active_proofs[proof._nonce] = active
+        return proof
 
-
-def _consume_project_binding_reattestation(
-    binding: ProjectPhysicalBinding,
-    proof: _ProjectBindingReattestation,
-) -> tuple[str, str]:
-    if not isinstance(binding, ProjectPhysicalBinding) or not isinstance(
-        proof, _ProjectBindingReattestation
-    ):
-        raise ExecutionValueError("fresh Project reattestation proof is required")
-    with _PROOF_LOCK:
-        active = _ACTIVE_PROOFS.pop(proof._nonce, None)
-        if active is None or active[0] is not proof or len(active) != 8:
-            raise ExecutionValueError("Project reattestation proof is stale or already consumed")
-        (
-            _active_proof,
-            binding_id,
-            location_kind,
-            reviewed_root,
-            project_directory,
-            parent_identity,
-            target_identity,
-            local_reinspection,
-        ) = active
-        if binding_id != binding.project_physical_binding_id:
-            raise ExecutionValueError("Project reattestation proof belongs to another binding")
-        matching = tuple(
-            item
-            for item in binding.locations
-            if item["location_kind"] == location_kind
-            and item["reviewed_root"] == reviewed_root
-            and item["project_directory"] == project_directory
+    def _consume_current(
+        self,
+        *,
+        binding: ProjectPhysicalBinding,
+        target: ResolvedServerProfile,
+        proof: _CurrentProjectProof,
+    ) -> str:
+        if type(proof) is not _CurrentProjectProof:
+            raise ExecutionValueError("fresh private Project proof is required")
+        binding.assert_identity_closed()
+        target.assert_identity_closed()
+        with self._lock:
+            active = self._active_proofs.pop(proof._nonce, None)
+        if active is None or len(active) != 9 or active[0] is not proof:
+            raise ExecutionValueError("Project proof is stale or already consumed")
+        proof_payload = (
+            proof._binding_id,
+            proof._provisioning_authority_id,
+            proof._resolved_server_profile_id,
+            proof._target_identity_sha256,
+            proof._remote_project_dir,
+            proof._parent_physical_identity,
+            proof._project_physical_identity,
+            proof._service_token,
         )
-        if len(matching) != 1 or (
-            matching[0]["parent_physical_identity"] != parent_identity
-            or matching[0]["project_physical_identity"] != target_identity
-        ):
-            raise ExecutionValueError("fresh proof does not match the exact Project binding")
-        if local_reinspection:
-            if location_kind != "local":
-                raise ExecutionValueError("local reinspection proof has an invalid location")
-            state, current_parent_identity, current_target_identity = _inspect_local_target(
-                reviewed_root=str(reviewed_root),
-                project_directory=str(project_directory),
+        expected = (
+            binding.project_physical_binding_id,
+            binding.provisioning_authority_id,
+            target.resolved_server_profile_id,
+            semantic_sha256(target.target_identity),
+            binding.remote_project_dir,
+            binding.parent_physical_identity,
+            binding.project_physical_identity,
+            self._service_token,
+        )
+        if tuple(active[1:]) != proof_payload or proof_payload != expected:
+            raise ExecutionValueError(
+                "fresh Project proof does not match the exact binding and owner"
             )
-            if (
-                state != "EXISTING"
-                or current_target_identity is None
-                or current_parent_identity != parent_identity
-                or current_target_identity != target_identity
-            ):
-                raise ExecutionValueError(
-                    "Project target changed after fresh reattestation"
-                )
-        return str(location_kind), str(project_directory)
-
-
-def _binding_from_existing_local_target(
-    *, project: Project, reviewed_root: str, project_directory: str, evidence_identity: str
-) -> ProjectPhysicalBinding:
-    state, parent_identity, target_identity = _inspect_local_target(
-        reviewed_root=reviewed_root, project_directory=project_directory
-    )
-    if state != "EXISTING" or target_identity is None:
-        raise ExecutionValueError("a durable binding requires an existing inspected target")
-    require_text(evidence_identity, "evidence_identity")
-    return ProjectPhysicalBinding._from_inspected(
-        project=project,
-        locations=(
-            {
-                "location_kind": "local",
-                "reviewed_root": reviewed_root,
-                "project_directory": project_directory,
-                "provisioning_disposition": "PRODUCT_BOUND_EXISTING",
-                "parent_physical_identity": parent_identity,
-                "project_physical_identity": target_identity,
-                "evidence_identity": evidence_identity,
-            },
-        ),
-    )
+        return binding.remote_project_dir
 
 
 class _ProvisioningJournal:
-    """Private append-only store for durable Project physical bindings."""
+    """Private append-only store for durable remote Project bindings."""
 
     def __init__(self, path: Path) -> None:
         if not isinstance(path, Path) or not path.is_absolute():
@@ -508,18 +712,47 @@ class _ProvisioningJournal:
         if len(rows) != 1:
             raise ExecutionValueError("provisioning journal contains duplicate bindings")
         raw = json.loads(rows[0][0])
-        if not isinstance(raw, dict) or set(raw) != {
+        expected = {
             "project_physical_binding_id",
             "project_id",
             "provisioning_contract_version",
+            "transport_kind",
+            "resolved_server_profile_id",
+            "resolved_target_identity",
+            "provisioning_authority_id",
             "locations",
-        }:
+        }
+        if not isinstance(raw, dict) or set(raw) != expected:
             raise ExecutionValueError("persisted Project binding is malformed")
-        value = ProjectPhysicalBinding._from_inspected(
-            project=Project(project_id=raw["project_id"]),
-            locations=tuple(raw["locations"]),
+        if raw["provisioning_contract_version"] != _CONTRACT_VERSION:
+            raise ExecutionValueError("persisted Project binding contract is stale")
+        locations = raw["locations"]
+        if not isinstance(locations, list):
+            raise ExecutionValueError("persisted Project locations are malformed")
+        payload = freeze_mapping(
+            {
+                **{
+                    key: raw[key]
+                    for key in raw
+                    if key not in {"project_physical_binding_id", "locations"}
+                },
+                "locations": tuple(locations),
+            },
+            "persisted Project binding payload",
         )
-        if value.semantic_payload() != freeze_mapping(raw, "persisted Project binding"):
+        value = object.__new__(ProjectPhysicalBinding)
+        for name, item in payload.items():
+            object.__setattr__(value, name, item)
+        object.__setattr__(value, "_identity_payload", payload)
+        object.__setattr__(
+            value,
+            "project_physical_binding_id",
+            raw["project_physical_binding_id"],
+        )
+        value.assert_identity_closed()
+        if value.semantic_payload() != freeze_mapping(
+            {**raw, "locations": tuple(locations)}, "persisted Project binding"
+        ):
             raise ExecutionValueError("persisted Project binding is noncanonical or stale")
         return value
 
@@ -529,14 +762,18 @@ class _ProvisioningJournal:
         try:
             placeholders = ",".join("?" for _ in values)
             try:
-                self._connection.execute(f"INSERT INTO {table} VALUES({placeholders})", values)
+                self._connection.execute(
+                    f"INSERT INTO {table} VALUES({placeholders})", values
+                )
             except sqlite3.IntegrityError:
                 row = self._connection.execute(
                     f"SELECT * FROM {table} WHERE project_physical_binding_id=?",
                     (values[0],),
                 ).fetchone()
                 if row is None or tuple(row) != values:
-                    raise ExecutionValueError("conflicting immutable provisioning authority")
+                    raise ExecutionValueError(
+                        "conflicting immutable provisioning authority"
+                    )
             self._attest()
             self._connection.execute("COMMIT")
         except Exception:
