@@ -61,7 +61,7 @@ class ConformerCoreTests(unittest.TestCase):
             "adapter": {"semantic_identity": "auto-g16-conformer-crest-adapter-v1", "version": "1.0.0+adapter.1"},
             "sampling_method": {"semantic_identity": "crest-imtd-gc-method-v1", "profile_identity": "synthetic-reviewed-profile-v1"},
             "seed_policy": {"mode": "explicit", "values": [seed]},
-            "replica_policy": {"replica_count": 20, "member_index_origin": 0},
+            "replica_policy": {"mode": "single_run", "replica_count": 1, "member_index_origin": 0},
             "budget": {"minimum_observations": 1, "minimum_valid": 1, "maximum_observations": 20},
             "termination": {"criterion": "bounded_steps", "maximum_steps": 200},
             "sampling_energy": {
@@ -76,6 +76,25 @@ class ConformerCoreTests(unittest.TestCase):
             },
         }
 
+    def descriptor_policy(self, *, scalar_compatibility: float = 0.15) -> list[dict[str, object]]:
+        return [
+            {
+                "name": "c_o_distance", "kind": "scalar", "unit": "angstrom", "weight": 0.0,
+                "compatibility_threshold": {"disposition": "applicable", "value": scalar_compatibility, "unit": "angstrom"},
+                "applicability": {"status": "required"},
+            },
+            {
+                "name": "central_torsion", "kind": "periodic_degrees", "unit": "degree", "weight": 0.0,
+                "compatibility_threshold": {"disposition": "applicable", "value": 20.0, "unit": "degree"},
+                "applicability": {"status": "required"},
+            },
+            {
+                "name": "contact_class", "kind": "categorical_set", "unit": "dimensionless", "weight": 0.0,
+                "compatibility_threshold": {"disposition": "applicable", "value": 0.0, "unit": "fraction"},
+                "applicability": {"status": "required"},
+            },
+        ]
+
     def profile(
         self,
         *,
@@ -85,6 +104,7 @@ class ConformerCoreTests(unittest.TestCase):
         review_minimum: float = 0.10,
         review_maximum: float = 0.20,
         descriptor_compatibility: float = 0.15,
+        descriptor_policy: list[dict[str, object]] | None = None,
         crest: dict[str, object] | None = None,
     ) -> SamplingProfile:
         selected_species = species or self.species_binding()
@@ -118,23 +138,7 @@ class ConformerCoreTests(unittest.TestCase):
                 "mapped_rmsd_weight": 1.0,
                 "medoid_tie_breaker": "member_id",
             },
-            descriptor_policy=[
-                {
-                    "name": "c_o_distance", "kind": "scalar", "unit": "angstrom", "weight": 0.0,
-                    "compatibility_threshold": {"disposition": "applicable", "value": descriptor_compatibility, "unit": "angstrom"},
-                    "applicability": {"status": "required"},
-                },
-                {
-                    "name": "central_torsion", "kind": "periodic_degrees", "unit": "degree", "weight": 0.0,
-                    "compatibility_threshold": {"disposition": "applicable", "value": 20.0, "unit": "degree"},
-                    "applicability": {"status": "required"},
-                },
-                {
-                    "name": "contact_class", "kind": "categorical_set", "unit": "dimensionless", "weight": 0.0,
-                    "compatibility_threshold": {"disposition": "applicable", "value": 0.0, "unit": "fraction"},
-                    "applicability": {"status": "required"},
-                },
-            ],
+            descriptor_policy=descriptor_policy or self.descriptor_policy(scalar_compatibility=descriptor_compatibility),
             coverage_policy={
                 "met_status": "sufficient", "unmet_status": "insufficient",
                 "invalid_observation_effect": "uncertain", "global_claim_allowed": False,
@@ -401,6 +405,123 @@ class ConformerCoreTests(unittest.TestCase):
         self.assertFalse(ensemble.members[0]["post_dft_minimum_evidence_available"])
         self.assertEqual(ensemble.thermodynamic_eligible_members, ())
         self.assertEqual(ensemble.ts_seed_members, ())
+
+    def test_owner_replica_1_non_single_external_replica_count_rejects(self) -> None:
+        crest = self.crest_profile()
+        crest["replica_policy"]["replica_count"] = 2
+        with self.assertRaisesRegex(ConformerError, "replica_count must be exact integer one"):
+            self.profile(crest=crest)
+
+        crest = self.crest_profile()
+        crest["replica_policy"]["mode"] = "multi_run"
+        with self.assertRaisesRegex(ConformerError, "mode must be single_run"):
+            self.profile(crest=crest)
+
+    def test_owner_replica_exact_integer_fields_reject_bool_and_float_confusion(self) -> None:
+        mutations = (
+            ("replica_count", True, "replica_count must be exact integer one"),
+            ("replica_count", 1.0, "replica_count must be exact integer one"),
+            ("member_index_origin", False, "member_index_origin must be exact integer zero"),
+            ("member_index_origin", 0.0, "member_index_origin must be exact integer zero"),
+        )
+        for field, value, reason in mutations:
+            with self.subTest(field=field, value=value):
+                crest = self.crest_profile()
+                crest["replica_policy"][field] = value
+                with self.assertRaisesRegex(ConformerError, reason):
+                    self.profile(crest=crest)
+
+    def test_owner_replica_2_more_than_one_seed_rejects(self) -> None:
+        crest = self.crest_profile()
+        crest["seed_policy"]["values"] = [11, 12]
+        with self.assertRaisesRegex(ConformerError, "exactly one integer"):
+            self.profile(crest=crest)
+
+    def test_owner_replica_3_candidate_replica_index_must_be_zero(self) -> None:
+        profile = self.profile()
+        candidate = self.observation(profile, "replica-drift", replica_index=1)
+        ensemble = self.ensemble(profile, [candidate])
+        self.assertIn("source_replica_index_out_of_range", ensemble.negative_evidence[0]["reasons"])
+        self.assertEqual(ensemble.members, ())
+
+    def test_owner_replica_4_candidate_seed_must_equal_exact_profile_seed(self) -> None:
+        profile = self.profile()
+        candidate = self.observation(profile, "seed-drift")
+        candidate["source_binding"]["seed"] = 12
+        ensemble = self.ensemble(profile, [candidate])
+        self.assertIn("source_seed_mismatch", ensemble.negative_evidence[0]["reasons"])
+        self.assertEqual(ensemble.members, ())
+
+    def test_owner_replica_5_single_run_allows_many_observations(self) -> None:
+        profile = self.profile()
+        self.assertEqual(profile.crest_imtd_gc_profile["replica_policy"]["mode"], "single_run")
+        self.assertEqual(profile.crest_imtd_gc_profile["replica_policy"]["replica_count"], 1)
+        self.assertGreater(profile.crest_imtd_gc_profile["budget"]["maximum_observations"], 1)
+
+    def test_owner_replica_6_same_run_distinct_member_locators_are_valid(self) -> None:
+        profile = self.profile()
+        first = self.observation(profile, "same-run-0", member_index=0)
+        second = self.observation(profile, "same-run-1", member_index=1)
+        ensemble = self.ensemble(profile, [first, second])
+        self.assertEqual(tuple(item["status"] for item in ensemble.audit_evidence), ("valid", "valid"))
+        self.assertEqual(tuple(member["member_id"] for member in ensemble.members), ("same-run-0", "same-run-1"))
+
+    def test_owner_single_run_ensemble_rejects_mixed_source_run_identity(self) -> None:
+        profile = self.profile()
+        first_run = self.observation(profile, "first-run", member_index=0)
+        second_run = self.observation(profile, "second-run", member_index=1)
+        second_run["source_binding"]["source_run_id"] = "different-crest-run"
+        forward = self.ensemble(profile, [first_run, second_run])
+        reverse = self.ensemble(profile, [second_run, first_run])
+        for ensemble in (forward, reverse):
+            audit = {item["member_id"]: item for item in ensemble.audit_evidence}
+            self.assertEqual(audit["first-run"]["status"], "invalid")
+            self.assertEqual(audit["second-run"]["status"], "invalid")
+            self.assertIn("source_run_id_mismatch", audit["first-run"]["reasons"])
+            self.assertIn("source_run_id_mismatch", audit["second-run"]["reasons"])
+            self.assertEqual(ensemble.members, ())
+        self.assertEqual(forward.audit_evidence, reverse.audit_evidence)
+        self.assertEqual(forward.conformer_ensemble_id, reverse.conformer_ensemble_id)
+        self.assertEqual(forward.payload_sha256, reverse.payload_sha256)
+
+    def test_owner_descriptor_7_periodic_radian_profile_rejects(self) -> None:
+        policies = self.descriptor_policy()
+        policies[1]["unit"] = "radian"
+        policies[1]["compatibility_threshold"]["unit"] = "radian"
+        with self.assertRaisesRegex(ConformerError, "exactly degree"):
+            self.profile(descriptor_policy=policies)
+
+    def test_owner_descriptor_8_periodic_degree_profile_accepts(self) -> None:
+        profile = self.profile(descriptor_policy=self.descriptor_policy())
+        self.assertEqual(profile.descriptor_policy[1]["unit"], "degree")
+
+    def test_owner_descriptor_9_categorical_angstrom_profile_rejects(self) -> None:
+        policies = self.descriptor_policy()
+        policies[2]["unit"] = "angstrom"
+        with self.assertRaisesRegex(ConformerError, "exactly dimensionless"):
+            self.profile(descriptor_policy=policies)
+
+    def test_owner_descriptor_10_categorical_dimensionless_profile_accepts(self) -> None:
+        profile = self.profile(descriptor_policy=self.descriptor_policy())
+        self.assertEqual(profile.descriptor_policy[2]["unit"], "dimensionless")
+        self.assertEqual(profile.descriptor_policy[2]["compatibility_threshold"]["unit"], "fraction")
+
+    def test_owner_descriptor_11_categorical_threshold_above_one_rejects(self) -> None:
+        policies = self.descriptor_policy()
+        policies[2]["compatibility_threshold"]["value"] = math.nextafter(1.0, math.inf)
+        with self.assertRaisesRegex(ConformerError, "at most one"):
+            self.profile(descriptor_policy=policies)
+
+    def test_owner_descriptor_12_scalar_candidate_unit_mismatch_is_invalid_without_collapse(self) -> None:
+        profile = self.profile()
+        valid = self.observation(profile, "valid", member_index=0)
+        mismatch = self.observation(profile, "unit-mismatch", member_index=1)
+        mismatch["descriptors"]["c_o_distance"]["unit"] = "nanometer"
+        ensemble = self.ensemble(profile, [valid, mismatch])
+        negative = {item["member_id"]: item for item in ensemble.negative_evidence}
+        self.assertIn("descriptor_unit_mismatch:c_o_distance", negative["unit-mismatch"]["reasons"])
+        self.assertEqual(ensemble.dedup_decisions, ())
+        self.assertEqual(tuple(member["member_id"] for member in ensemble.members), ("valid",))
 
     def test_source_profile_provider_mode_configuration_seed_and_replica_must_agree(self) -> None:
         profile = self.profile()

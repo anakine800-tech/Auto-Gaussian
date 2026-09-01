@@ -315,18 +315,19 @@ def _validate_crest_profile(value: Mapping[str, object]) -> None:
     _require(seed_policy["mode"] == "explicit", "seed policy must be explicit")
     seeds = seed_policy["values"]
     _require(
-        isinstance(seeds, Sequence) and not isinstance(seeds, (str, bytes, bytearray)) and bool(seeds)
-        and all(type(seed) is int for seed in seeds) and len(seeds) == len(set(seeds)),
-        "seed values must be a non-empty unique integer sequence",
+        isinstance(seeds, Sequence) and not isinstance(seeds, (str, bytes, bytearray))
+        and len(seeds) == 1 and type(seeds[0]) is int,
+        "initial single-run seed policy must contain exactly one integer",
     )
-    replica = _keys(route["replica_policy"], {"replica_count", "member_index_origin"}, "crest_imtd_gc_profile.replica_policy")
-    replica_count = _positive_integer(replica["replica_count"], "replica_count")
-    _require(replica["member_index_origin"] == 0, "member_index_origin must be zero")
+    replica = _keys(route["replica_policy"], {"mode", "replica_count", "member_index_origin"}, "crest_imtd_gc_profile.replica_policy")
+    _require(replica["mode"] == "single_run", "initial external CREST replica mode must be single_run")
+    _require(type(replica["replica_count"]) is int and replica["replica_count"] == 1, "initial external CREST replica_count must be exact integer one")
+    _require(type(replica["member_index_origin"]) is int and replica["member_index_origin"] == 0, "member_index_origin must be exact integer zero")
     budget = _keys(route["budget"], {"minimum_observations", "minimum_valid", "maximum_observations"}, "crest_imtd_gc_profile.budget")
     minimum_observations = _nonnegative_integer(budget["minimum_observations"], "minimum_observations")
     minimum_valid = _nonnegative_integer(budget["minimum_valid"], "minimum_valid")
     maximum = _positive_integer(budget["maximum_observations"], "maximum_observations")
-    _require(minimum_valid <= minimum_observations <= maximum <= replica_count, "CREST budget ordering is invalid")
+    _require(minimum_valid <= minimum_observations <= maximum, "CREST observation budget ordering is invalid")
     termination = _keys(route["termination"], {"criterion", "maximum_steps"}, "crest_imtd_gc_profile.termination")
     _require(termination["criterion"] == "bounded_steps", "termination criterion must be bounded_steps")
     _positive_integer(termination["maximum_steps"], "termination.maximum_steps")
@@ -373,11 +374,17 @@ def _validate_descriptor_policy(value: Sequence[Mapping[str, object]]) -> None:
         kind = policy["kind"]
         _require(kind in {"scalar", "periodic_degrees", "categorical_set"}, "descriptor kind is unsupported")
         unit = _text(policy["unit"], f"descriptor_policy[{index}].unit")
+        if kind == "periodic_degrees":
+            _require(unit == "degree", "periodic_degrees descriptor unit must be exactly degree")
+        elif kind == "categorical_set":
+            _require(unit == "dimensionless", "categorical_set descriptor unit must be exactly dimensionless")
         _finite(policy["weight"], f"descriptor_policy[{index}].weight", nonnegative=True)
         applicability = _keys(policy["applicability"], {"status"}, f"descriptor_policy[{index}].applicability")
         _require(applicability["status"] == "required", "initial active descriptors must be required")
         threshold_unit = "fraction" if kind == "categorical_set" else unit
-        _tagged_parameter(policy["compatibility_threshold"], f"descriptor_policy[{index}].compatibility_threshold", unit=threshold_unit, nonnegative=True)
+        threshold = _tagged_parameter(policy["compatibility_threshold"], f"descriptor_policy[{index}].compatibility_threshold", unit=threshold_unit, nonnegative=True)
+        if kind == "categorical_set":
+            _require(float(threshold["value"]) <= 1.0, "categorical_set compatibility threshold must be at most one")
 
 
 def create_sampling_profile(
@@ -498,10 +505,9 @@ def _audit_source(profile: SamplingProfile, observation: Mapping[str, object]) -
             reasons.append(f"{key}_malformed")
     if type(source["source_member_index"]) is not int or source["source_member_index"] < 0:
         reasons.append("source_member_index_out_of_range")
-    if type(source["seed"]) is not int or source["seed"] not in route["seed_policy"]["values"]:
+    if type(source["seed"]) is not int or source["seed"] != route["seed_policy"]["values"][0]:
         reasons.append("source_seed_mismatch")
-    replica_count = int(route["replica_policy"]["replica_count"])
-    if type(source["replica_index"]) is not int or not 0 <= source["replica_index"] < replica_count:
+    if type(source["replica_index"]) is not int or source["replica_index"] != 0:
         reasons.append("source_replica_index_out_of_range")
     return reasons
 
@@ -671,11 +677,33 @@ def build_conformer_ensemble(
     audited = [_audit_observation(profile, observation) for observation in observations]
     ids = [item.member_id for item in audited]
     _require(len(ids) == len(set(ids)), "sampling observation member IDs must be unique")
+
+    def source_run_id(item: _AuditedMember) -> str | None:
+        source = item.observation.get("source_binding")
+        if not isinstance(source, Mapping) or set(source) != _SOURCE_KEYS:
+            return None
+        run_id = source["source_run_id"]
+        if not isinstance(run_id, str) or not run_id or run_id != run_id.strip():
+            return None
+        return run_id
+
+    source_run_ids = {run_id for item in audited if (run_id := source_run_id(item)) is not None}
+    if len(source_run_ids) > 1:
+        audited = [
+            replace(
+                item,
+                status=item.status if item.status == "state_changed" else "invalid",
+                reasons=tuple(sorted((*item.reasons, "source_run_id_mismatch"))),
+            )
+            if source_run_id(item) is not None
+            else item
+            for item in audited
+        ]
     locators: dict[tuple[object, ...], list[str]] = {}
     for item in audited:
         source = item.observation.get("source_binding")
         if isinstance(source, Mapping) and set(source) == _SOURCE_KEYS:
-            locator = (source["sampling_profile_id"], source["source_run_id"], source["source_set_id"], source["source_member_index"], source["source_artifact_identity"])
+            locator = (source["sampling_profile_id"], source["source_run_id"], source["source_set_id"], source["source_member_index"])
             locators.setdefault(locator, []).append(item.member_id)
     duplicate_locators = {member for members in locators.values() if len(members) > 1 for member in members}
     audited = [replace(item, status="invalid", reasons=tuple(sorted((*item.reasons, "duplicate_source_locator")))) if item.member_id in duplicate_locators else item for item in audited]
