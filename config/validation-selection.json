@@ -334,6 +334,37 @@
       "fail_closed": false
     },
     {
+      "id": "v31-conformer",
+      "exact_paths": [],
+      "prefixes": [
+        "auto_g16/conformer/",
+        "tests/v31/conformer/"
+      ],
+      "lane": "affected",
+      "tests": [
+        "tests.test_conformer_search",
+        "tests.v31.conformer"
+      ],
+      "required_safety": [],
+      "fail_closed": false
+    },
+    {
+      "id": "v31-thermochemistry",
+      "exact_paths": [],
+      "prefixes": [
+        "auto_g16/thermochemistry/",
+        "tests/v31/thermochemistry/"
+      ],
+      "lane": "affected",
+      "tests": [
+        "tests.test_scientific_closure_lineage",
+        "tests.v31.conformer",
+        "tests.v31.thermochemistry"
+      ],
+      "required_safety": [],
+      "fail_closed": false
+    },
+    {
       "id": "legacy-touch",
       "exact_paths": [],
       "prefixes": [
