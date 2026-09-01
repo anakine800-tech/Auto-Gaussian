@@ -136,6 +136,15 @@ REVIEW_TESTS = [
     "tests.v3.review",
     "tests.v3.scientific_validation",
 ]
+CONFORMER_TESTS = ["tests.test_conformer_search", "tests.v31.conformer"]
+# Thermochemistry consumes the future ConformerEnsemble handoff and the existing
+# deterministic Gaussian thermochemistry lineage. It does not select the legacy
+# conformer Skill as an ownership path; that whole skills/ surface stays legacy.
+THERMOCHEMISTRY_TESTS = [
+    "tests.test_scientific_closure_lineage",
+    "tests.v31.conformer",
+    "tests.v31.thermochemistry",
+]
 
 
 def change(status: str, *paths: str) -> dict[str, object]:
@@ -1231,6 +1240,100 @@ class ValidationSelectorTests(unittest.TestCase):
                 self.assertEqual(decision["lane"], "legacy-release")
                 self.assertTrue(decision["fail_closed"])
                 self.assertEqual(decision["tests"], [])
+
+    def test_v31_routes_own_future_product_and_test_prefixes(self) -> None:
+        cases = (
+            (
+                "conformer",
+                "v31-conformer",
+                CONFORMER_TESTS,
+                "auto_g16/conformer/models.py",
+                "tests/v31/conformer/test_models.py",
+            ),
+            (
+                "thermochemistry",
+                "v31-thermochemistry",
+                THERMOCHEMISTRY_TESTS,
+                "auto_g16/thermochemistry/models.py",
+                "tests/v31/thermochemistry/test_models.py",
+            ),
+        )
+        for label, route, selected_tests, product_path, test_path in cases:
+            product = change("A", product_path)
+            tests = change("A", test_path)
+            decisions = {
+                "product only": self.select(product),
+                "tests only": self.select(tests),
+                "product then tests": self.select(product, tests),
+                "tests then product": self.select(tests, product),
+            }
+            for decision_label, decision in decisions.items():
+                with self.subTest(package=label, decision=decision_label):
+                    self.assertEqual(decision["lane"], "affected")
+                    self.assertEqual(decision["matched_routes"], [route])
+                    self.assertEqual(decision["tests"], selected_tests)
+                    self.assertEqual(decision["safety_evidence"], [])
+                    self.assertFalse(decision["fail_closed"])
+
+            for field in (
+                "changed_paths",
+                "lane",
+                "tests",
+                "matched_routes",
+                "safety_evidence",
+                "fail_closed",
+            ):
+                self.assertEqual(
+                    decisions["product then tests"][field],
+                    decisions["tests then product"][field],
+                )
+
+    def test_v31_routes_keep_upstream_dependencies_and_deterministic_union(self) -> None:
+        conformer = change("M", "auto_g16/conformer/service.py")
+        thermochemistry = change("M", "auto_g16/thermochemistry/service.py")
+        forward = self.select(conformer, thermochemistry)
+        reverse = self.select(thermochemistry, conformer)
+        for field in (
+            "changed_paths",
+            "lane",
+            "tests",
+            "matched_routes",
+            "safety_evidence",
+            "fail_closed",
+        ):
+            self.assertEqual(forward[field], reverse[field])
+        self.assertEqual(forward["lane"], "affected")
+        self.assertEqual(
+            forward["matched_routes"],
+            ["v31-conformer", "v31-thermochemistry"],
+        )
+        self.assertEqual(
+            forward["tests"],
+            sorted({*CONFORMER_TESTS, *THERMOCHEMISTRY_TESTS}),
+        )
+        self.assertEqual(forward["safety_evidence"], [])
+        self.assertFalse(forward["fail_closed"])
+
+    def test_v31_routes_never_weaken_unmapped_or_self_protection(self) -> None:
+        owners = (
+            change("M", "auto_g16/conformer/service.py"),
+            change("M", "auto_g16/thermochemistry/service.py"),
+        )
+        protected_paths = (
+            "unmapped/new_surface.py",
+            "config/validation-selection.json",
+            "scripts/select_validation.py",
+            "scripts/run_tests.py",
+            "tests/test_validation_selector.py",
+            "tests/test_test_runner.py",
+        )
+        for owner in owners:
+            for protected_path in protected_paths:
+                with self.subTest(owner=owner, protected_path=protected_path):
+                    decision = self.select(owner, change("M", protected_path))
+                    self.assertEqual(decision["lane"], "legacy-release")
+                    self.assertTrue(decision["fail_closed"])
+                    self.assertEqual(decision["tests"], [])
 
     def test_future_review_route_does_not_require_current_package(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
