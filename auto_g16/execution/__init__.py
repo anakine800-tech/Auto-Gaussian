@@ -16,6 +16,8 @@ from .models import (
     resolve_server_profile,
 )
 from .preparation import assert_execution_snapshot_identity, prepare_execution_snapshot
+from .program import ProgramExecutionSnapshot, ProgramExecutionSpec
+from .project_provisioning import ProjectPhysicalBinding
 from .runtime import (
     ConfirmedNoEffectError,
     ExecutionAttemptResult,
@@ -44,6 +46,9 @@ __all__ = [
     "PbsTemplateBinding",
     "PossiblyEffectfulError",
     "PreparedInputBinding",
+    "ProgramExecutionSnapshot",
+    "ProgramExecutionSpec",
+    "ProjectPhysicalBinding",
     "ReceiptJournal",
     "RemoteEffectReceipt",
     "ResolvedResourceRequest",
