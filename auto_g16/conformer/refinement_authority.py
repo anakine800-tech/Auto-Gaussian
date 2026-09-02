@@ -166,11 +166,7 @@ def _expected_frequency_mode_count(
 ) -> int:
     coordinates = _coordinates_from_geometry(geometry, elements)
     atom_count = len(coordinates)
-    if atom_count == 1:
-        return 0
-    if atom_count == 2:
-        return 1
-    _require(atom_count >= 3, "frequency authority has no atom inventory")
+    _require(atom_count >= 3, "initial V31 composite minimum authority supports only N>=3 ordinary nonlinear geometries")
     points = tuple(
         tuple(Fraction(Decimal(repr(component))) for component in point)
         for point in coordinates
@@ -190,7 +186,8 @@ def _expected_frequency_mode_count(
         if any(component != 0 for component in cross):
             linear = False
             break
-    return 3 * atom_count - (5 if linear else 6)
+    _require(not linear, "linear geometry is unsupported by initial V31 composite minimum authority")
+    return 3 * atom_count - 6
 
 
 def _render(stage: str, elements: Sequence[object], coordinates: Sequence[Sequence[object]], method: Mapping[str, object]) -> bytes:
@@ -448,7 +445,7 @@ def validate_two_stage_minimum_authority(
     blocks = facts["frequency_blocks"]
     frequencies = tuple(value for block in blocks for value in block["frequencies_cm-1"])
     expected_modes = _expected_frequency_mode_count(opt["selected_geometry"], ensemble.species_binding["elements"])
-    _require(facts["frequency_count"] == len(frequencies) == expected_modes, "frequency mode count does not match exact selected-geometry linearity")
+    _require(facts["frequency_count"] == len(frequencies) == expected_modes, "frequency mode count does not match the initial V31 nonlinear domain")
     _require(facts["imaginary_frequency_count"] == sum(value < 0.0 for value in frequencies) == 0, "frequency result is not a minimum")
     _require(frequency_review_bundle.minimum_validation_classification is MinimumValidationClassification.INCOMPLETE and frequency_review_bundle.primary_reason_code == "incomplete-marker-pair", "Freq V30 outcome must truthfully retain incomplete-marker-pair")
     for block in blocks:

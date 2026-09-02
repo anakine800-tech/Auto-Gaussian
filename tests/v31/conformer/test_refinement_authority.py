@@ -18,7 +18,6 @@ from auto_g16.review import build_review_bundle
 from auto_g16.scientific_validation import SQLiteScientificValidationStore, record_minimum_validation, validate_minimum
 from auto_g16.conformer.refinement_authority import (
     RefinementAuthorityError,
-    _expected_frequency_mode_count,
     build_dft_stage,
     validate_optimization_geometry_authority,
     validate_two_stage_minimum_authority,
@@ -28,7 +27,7 @@ from tests.v31.conformer.test_core import ConformerCoreTests
 
 
 ROOT = Path(__file__).parents[3]
-_ATOMIC_NUMBERS = {"H": 1, "C": 6, "O": 8}
+_ATOMIC_NUMBERS = {"H": 1, "He": 2, "C": 6, "O": 8}
 
 
 class RefinementAuthorityTests(unittest.TestCase):
@@ -175,22 +174,32 @@ class RefinementAuthorityTests(unittest.TestCase):
         values.update(changes)
         return validate_two_stage_minimum_authority(**values)
 
-    def three_atom_ensemble(self, formula, coordinates):
+    def geometry_ensemble(self, formula, coordinates):
         if formula == "CO2":
             atom_order = ["map_o1", "map_c1", "map_o2"]
             elements = ["O", "C", "O"]
             bonds = [["map_o1", "map_c1", 2.0], ["map_c1", "map_o2", 2.0]]
-        else:
+        elif formula == "H2O":
             atom_order = ["map_o1", "map_h1", "map_h2"]
             elements = ["O", "H", "H"]
             bonds = [["map_o1", "map_h1", 1.0], ["map_o1", "map_h2", 1.0]]
+        elif formula == "H2":
+            atom_order = ["map_h1", "map_h2"]
+            elements = ["H", "H"]
+            bonds = [["map_h1", "map_h2", 1.0]]
+        else:
+            self.assertEqual(formula, "He")
+            atom_order = ["map_he1"]
+            elements = ["He"]
+            bonds = []
+        atom_count = len(atom_order)
         species = {
             "graph_identity": f"synthetic-{formula.lower()}-graph-v1",
             "atom_order": atom_order,
             "atom_mapping": {atom: f"source_atom_{index}" for index, atom in enumerate(atom_order, 1)},
             "elements": elements,
             "explicit_hydrogens": [element == "H" for element in elements],
-            "fragment_ids": ["fragment_1"] * 3,
+            "fragment_ids": ["fragment_1"] * atom_count,
             "component_count": 1,
             "bonds": bonds,
             "formal_charge": 0,
@@ -200,7 +209,7 @@ class RefinementAuthorityTests(unittest.TestCase):
         stereochemistry = {"scope": "none", "assignments": {}, "binding_modes": {}}
         rmsd_policy = dict(self.profile.rmsd_policy)
         rmsd_policy["atom_selection"] = "all"
-        rmsd_policy["symmetry_mapping"] = [0, 1, 2]
+        rmsd_policy["symmetry_mapping"] = list(range(atom_count))
         profile = create_sampling_profile(
             revision=1,
             supersedes_sampling_profile_id=None,
@@ -232,8 +241,8 @@ class RefinementAuthorityTests(unittest.TestCase):
         observation["stereochemistry_binding"] = stereochemistry
         return fixture.ensemble(profile, [observation])
 
-    def validate_three_atom(self, formula, coordinates, frequencies):
-        ensemble = self.three_atom_ensemble(formula, coordinates)
+    def validate_geometry(self, formula, coordinates, frequencies, *, source_coordinates=None):
+        ensemble = self.geometry_ensemble(formula, source_coordinates or coordinates)
         member_id = f"member-{formula.lower()}"
         atom_numbers = tuple(_ATOMIC_NUMBERS[element] for element in ensemble.species_binding["elements"])
         opt_plan, opt_prepared, opt_bytes = build_dft_stage(
@@ -280,6 +289,28 @@ class RefinementAuthorityTests(unittest.TestCase):
             frequency_output_envelope=freq_chain["output_envelope"],
             frequency_parse_outcome=freq_chain["parse_outcome"],
             frequency_minimum_validation_outcome_id=freq_chain["minimum_validation_outcome_id"],
+        )
+
+    def validate_small_geometry_at_product_boundary(self, formula, coordinates):
+        ensemble = self.geometry_ensemble(formula, coordinates)
+        member_id = f"member-{formula.lower()}"
+        atom_numbers = tuple(_ATOMIC_NUMBERS[element] for element in ensemble.species_binding["elements"])
+        opt_plan, opt_prepared, opt_bytes = build_dft_stage(
+            ensemble, member_id, stage="opt", calculation_plan_id=f"opt-{formula}", calculation_plan_revision=1,
+            task_id=f"opt-task-{formula}", attempt_id=f"opt-attempt-{formula}", logical_name="opt.gjf", method_binding=self.method,
+        )
+        opt_chain = self.chain(
+            opt_plan, opt_prepared, opt_bytes, frequencies=(),
+            optimization_spans=((100, 110),), stationary_spans=((120, 130),),
+            atom_numbers=atom_numbers, geometry_coordinates=coordinates, ensemble=ensemble,
+        )
+        self.assertEqual(opt_chain["review"].primary_reason_code, "unsupported-atom-cardinality")
+        return self.validate(
+            ensemble=ensemble, member_id=member_id,
+            optimization_plan=opt_plan,
+            optimization_prepared_input_binding=opt_prepared,
+            optimization_prepared_input_bytes=opt_bytes,
+            **{"optimization_" + key: value for key, value in self.persisted_args(opt_chain).items()},
         )
 
     def test_01_deterministic_closed_two_stage_authority(self):
@@ -491,32 +522,26 @@ class RefinementAuthorityTests(unittest.TestCase):
             with self.subTest(method_name=method_name), self.assertRaises(RefinementAuthorityError):
                 self._build(changed)
 
-    def test_41_exact_selected_geometry_linearity_owns_mode_count(self):
-        monatomic = {"atoms": ({"center": 1, "atomic_number": 1, "x": 0.0, "y": 0.0, "z": 0.0},)}
-        diatomic = {"atoms": (
-            {"center": 1, "atomic_number": 1, "x": 0.0, "y": 0.0, "z": 0.0},
-            {"center": 2, "atomic_number": 1, "x": 1.0, "y": 0.0, "z": 0.0},
-        )}
-        self.assertEqual(_expected_frequency_mode_count(monatomic, ("H",)), 0)
-        self.assertEqual(_expected_frequency_mode_count(diatomic, ("H", "H")), 1)
+    def test_41_initial_frequency_domain_is_nonlinear_n_at_least_three(self):
+        with self.assertRaisesRegex(RefinementAuthorityError, "optimization V30 outcome"):
+            self.validate_small_geometry_at_product_boundary("He", ((0.0, 0.0, 0.0),))
+        with self.assertRaisesRegex(RefinementAuthorityError, "optimization V30 outcome"):
+            self.validate_small_geometry_at_product_boundary("H2", ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0)))
         linear = ((-1.0, 0.0, 0.0), (0.0, 0.0, 0.0), (1.0, 0.0, 0.0))
         nonlinear = ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0))
-        with self.assertRaises(RefinementAuthorityError):
-            self.validate_three_atom("CO2", linear, (100.0, 200.0, 300.0))
+        with self.assertRaisesRegex(RefinementAuthorityError, "linear geometry is unsupported"):
+            self.validate_geometry("CO2", linear, (100.0, 200.0, 300.0))
+        with self.assertRaisesRegex(RefinementAuthorityError, "linear geometry is unsupported"):
+            self.validate_geometry("CO2", linear, (100.0, 200.0, 300.0, 400.0))
         self.assertEqual(
-            self.validate_three_atom("CO2", linear, (100.0, 200.0, 300.0, 400.0))["frequency"]["result"]["mode_count"],
-            4,
-        )
-        self.assertEqual(
-            self.validate_three_atom("H2O", nonlinear, (100.0, 200.0, 300.0))["frequency"]["result"]["mode_count"],
+            self.validate_geometry("H2O", nonlinear, (100.0, 200.0, 300.0))["frequency"]["result"]["mode_count"],
             3,
         )
-        degenerate = {"atoms": tuple(
-            {"center": index, "atomic_number": atomic_number, "x": 0.0, "y": 0.0, "z": 0.0}
-            for index, atomic_number in enumerate((8, 6, 8), 1)
-        )}
-        with self.assertRaises(RefinementAuthorityError):
-            _expected_frequency_mode_count(degenerate, ("O", "C", "O"))
+        degenerate = ((0.0, 0.0, 0.0),) * 3
+        with self.assertRaisesRegex(RefinementAuthorityError, "selected geometry is degenerate"):
+            self.validate_geometry(
+                "H2O", degenerate, (100.0, 200.0, 300.0), source_coordinates=nonlinear,
+            )
 
     def test_42_capture_status_and_completeness_are_jointly_required(self):
         self.assertEqual(self.validate()["classification"], "VALIDATED_TWO_STAGE_MINIMUM")
