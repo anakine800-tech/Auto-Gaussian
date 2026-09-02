@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import copy
 from dataclasses import is_dataclass
+from hashlib import sha256
 import math
 from pathlib import Path
 import unittest
@@ -13,7 +14,16 @@ import auto_g16.conformer as conformer
 from auto_g16.conformer import ConformerEnsemble, SamplingProfile
 from auto_g16.conformer._geometry import mapped_rmsd
 from auto_g16.conformer.models import ConformerError, _payload_sha256
-from auto_g16.conformer.service import build_conformer_ensemble, create_sampling_profile
+from auto_g16.conformer.service import (
+    _assert_crest_program_execution_alignment,
+    build_conformer_ensemble,
+    create_sampling_profile,
+)
+from auto_g16.execution.program import (
+    _ADAPTER_REGISTRY,
+    ProgramExecutionSpec,
+    _prepare_program_execution_spec,
+)
 
 
 ROOT = Path(__file__).parents[3]
@@ -53,26 +63,33 @@ class ConformerCoreTests(unittest.TestCase):
     def stereochemistry_binding(self) -> dict[str, object]:
         return {"scope": "locked", "assignments": {"map_c2": "R"}, "binding_modes": {"alcohol_orientation": "reviewed"}}
 
-    def crest_profile(self, *, seed: int = 11) -> dict[str, object]:
+    def crest_profile(self) -> dict[str, object]:
         return {
             "provider": "crest",
             "mode": "imtd-gc",
-            "engine": {"semantic_identity": "crest-engine-release-3.0.2", "version": "3.0.2+build.7"},
-            "adapter": {"semantic_identity": "auto-g16-conformer-crest-adapter-v1", "version": "1.0.0+adapter.1"},
+            "engine": {"semantic_identity": "crest-engine-release-3.0.2", "version": "3.0.2"},
+            "adapter": {"semantic_identity": "auto-g16-v31-crest", "contract_version": 2},
             "sampling_method": {"semantic_identity": "crest-imtd-gc-method-v1", "profile_identity": "synthetic-reviewed-profile-v1"},
-            "seed_policy": {"mode": "explicit", "values": [seed]},
+            "runtype_selector": "-v3",
+            "seed_policy": {
+                "mode": "engine_managed_stochastic",
+                "seed": None,
+                "replay_semantics": "configuration_replay_not_bitwise_trajectory_replay",
+            },
             "replica_policy": {"mode": "single_run", "replica_count": 1, "member_index_origin": 0},
             "budget": {"minimum_observations": 1, "minimum_valid": 1, "maximum_observations": 20},
-            "termination": {"criterion": "bounded_steps", "maximum_steps": 200},
             "sampling_energy": {
                 "unit": "kcal_per_mol_sampling_only",
                 "admission_window": {"disposition": "applicable", "value": 6.0, "unit": "kcal_per_mol_sampling_only"},
             },
             "imtd_gc_controls": {
-                "metadynamics_temperature_kelvin": 300.0,
-                "metadynamics_time_ps": 5.0,
-                "rmsd_threshold_angstrom": 0.5,
-                "rotamer_search": True,
+                "model": "gfn2",
+                "charge": 0,
+                "unpaired_electrons": 0,
+                "metadynamics_length_ps": 5.0,
+                "cregen_rmsd_threshold_angstrom": 0.5,
+                "cregen_temperature_kelvin": 298.15,
+                "normal_md_temperature_kelvin": 300.0,
             },
         }
 
@@ -199,7 +216,7 @@ class ConformerCoreTests(unittest.TestCase):
                 "source_member_index": member_index,
                 "source_geometry_identity": f"geometry-{member_id}",
                 "source_artifact_identity": f"artifact-{member_id}",
-                "seed": route["seed_policy"]["values"][0],
+                "seed": None,
                 "replica_index": replica_index,
             },
             "sampling_energy": {"value": energy, "unit": "kcal_per_mol_sampling_only", "formal_thermodynamics_allowed": False},
@@ -210,6 +227,79 @@ class ConformerCoreTests(unittest.TestCase):
             },
             "relevance_tags": relevance_tags or [],
         }
+
+    def crest_execution_spec(
+        self, profile: SamplingProfile, **changes: object
+    ) -> object:
+        route = profile.crest_imtd_gc_profile
+        controls = route["imtd_gc_controls"]
+        data: dict[str, object] = {
+            "provider": route["provider"],
+            "sampling_mode": route["mode"],
+            "engine_version": route["engine"]["version"],
+            "runtype_selector": route["runtype_selector"],
+            "model": controls["model"],
+            "charge": controls["charge"],
+            "unpaired_electrons": controls["unpaired_electrons"],
+            "metadynamics_length_millipicoseconds": 5000,
+            "cregen_energy_window_millikcal_per_mol": 6000,
+            "cregen_rmsd_threshold_milliangstrom": 500,
+            "cregen_temperature_millikelvin": 298150,
+            "normal_md_temperature_millikelvin": 300000,
+            "stochastic_policy": dict(route["seed_policy"]),
+            "sampling_configuration_identity": _payload_sha256(route),
+        }
+        data.update(changes)
+        executable_bytes = b"auto-g16 synthetic non-production crest fixture\n"
+        return _prepare_program_execution_spec(
+            program_kind="crest",
+            executable_path="/opt/auto-g16-fixtures/bin/crest",
+            executable_size_bytes=len(executable_bytes),
+            executable_sha256=sha256(executable_bytes).hexdigest(),
+            input_name="seed.xyz",
+            input_bytes=b"2\nH2\nH 0 0 0\nH 0 0 0.74\n",
+            program_data=data,
+        )
+
+    def crest_v1_execution_spec(self) -> ProgramExecutionSpec:
+        old_data = {
+            "model": "gfn2",
+            "search_mode": "ttconf",
+            "preset": "normal",
+            "charge": 0,
+            "unpaired_electrons": 0,
+            "energy_window_millikcal_per_mol": 6000,
+            "rmsd_threshold_milliangstrom": 500,
+            "temperature_millikelvin": 298150,
+            "random_seed": 11,
+        }
+        executable_bytes = b"auto-g16 synthetic non-production crest fixture\n"
+        executable = {
+            "absolute_path": "/opt/auto-g16-fixtures/bin/crest",
+            "size_bytes": len(executable_bytes),
+            "sha256": sha256(executable_bytes).hexdigest(),
+        }
+        renderer = _ADAPTER_REGISTRY[("crest", "auto-g16-v31-crest", 1)][3]
+        invocation, required, optional = renderer(executable, "seed.xyz", old_data)
+        xyz = b"2\nH2\nH 0 0 0\nH 0 0 0.74\n"
+        return ProgramExecutionSpec._from_closed(
+            program_kind="crest",
+            adapter_id="auto-g16-v31-crest",
+            adapter_contract_version=1,
+            exact_inputs=(
+                {
+                    "logical_role": "structure",
+                    "portable_name": "seed.xyz",
+                    "format": "xyz",
+                    "sha256": sha256(xyz).hexdigest(),
+                    "size_bytes": len(xyz),
+                },
+            ),
+            program_data=old_data,
+            invocation=invocation,
+            required_outputs=required,
+            optional_outputs=optional,
+        )
 
     def ensemble(self, profile: SamplingProfile, observations: list[dict[str, object]]) -> ConformerEnsemble:
         return build_conformer_ensemble(
@@ -350,17 +440,16 @@ class ConformerCoreTests(unittest.TestCase):
                 crest[container][field] = value
                 with self.subTest(container=container, field=field, value=value), self.assertRaises(ConformerError):
                     self.profile(crest=crest)
-        for container in ("engine", "adapter"):
-            for value in forbidden:
-                crest = self.crest_profile()
-                crest[container]["version"] = value
-                with self.subTest(container=container, field="version", value=value), self.assertRaises(ConformerError):
-                    self.profile(crest=crest)
+        for value in forbidden:
+            crest = self.crest_profile()
+            crest["engine"]["version"] = value
+            with self.subTest(container="engine", field="version", value=value), self.assertRaises(ConformerError):
+                self.profile(crest=crest)
 
-    def test_G_versions_accept_exact_semver_build_and_reject_paths_or_invalid_grammar(self) -> None:
+    def test_G_engine_and_adapter_are_exact_versioned_imtd_gc_authority(self) -> None:
         profile = self.profile()
-        self.assertEqual(profile.crest_imtd_gc_profile["engine"]["version"], "3.0.2+build.7")
-        self.assertEqual(profile.crest_imtd_gc_profile["adapter"]["version"], "1.0.0+adapter.1")
+        self.assertEqual(profile.crest_imtd_gc_profile["engine"]["version"], "3.0.2")
+        self.assertEqual(profile.crest_imtd_gc_profile["adapter"]["contract_version"], 2)
         invalid_versions = (
             "3.0.2/crest",
             r"3.0.2\\crest",
@@ -373,12 +462,16 @@ class ConformerCoreTests(unittest.TestCase):
             "1.0.0+build..7",
             "1.0.0_build",
         )
-        for container in ("engine", "adapter"):
-            for value in invalid_versions:
-                crest = self.crest_profile()
-                crest[container]["version"] = value
-                with self.subTest(container=container, value=value), self.assertRaises(ConformerError):
-                    self.profile(crest=crest)
+        for value in invalid_versions:
+            crest = self.crest_profile()
+            crest["engine"]["version"] = value
+            with self.subTest(container="engine", value=value), self.assertRaises(ConformerError):
+                self.profile(crest=crest)
+        for value in (1, 3, True, 2.0, "2"):
+            crest = self.crest_profile()
+            crest["adapter"]["contract_version"] = value
+            with self.subTest(contract_version=value), self.assertRaises(ConformerError):
+                self.profile(crest=crest)
 
     def test_H_open_candidate_provenance_bag_rejects(self) -> None:
         profile = self.profile()
@@ -406,6 +499,56 @@ class ConformerCoreTests(unittest.TestCase):
         self.assertEqual(ensemble.thermodynamic_eligible_members, ())
         self.assertEqual(ensemble.ts_seed_members, ())
 
+    def test_J_sampling_profile_and_execution_v2_align_exactly(self) -> None:
+        profile = self.profile()
+        spec = self.crest_execution_spec(profile)
+        _assert_crest_program_execution_alignment(profile, spec)
+        self.assertEqual(spec.adapter_contract_version, 2)
+
+    def test_J_ttconf_v1_cannot_satisfy_imtd_gc_sampling_profile(self) -> None:
+        profile = self.profile()
+        legacy = self.crest_v1_execution_spec()
+        legacy.assert_identity_closed()
+        with self.assertRaisesRegex(ConformerError, "iMTD-GC v2 adapter"):
+            _assert_crest_program_execution_alignment(profile, legacy)
+
+    def test_J_sampling_profile_execution_cross_mismatches_fail_closed(self) -> None:
+        profile = self.profile()
+        mismatches = {
+            "model": "gfn1",
+            "charge": 1,
+            "unpaired_electrons": 2,
+            "metadynamics_length_millipicoseconds": 6000,
+            "cregen_energy_window_millikcal_per_mol": 7000,
+            "cregen_rmsd_threshold_milliangstrom": 600,
+            "cregen_temperature_millikelvin": 310000,
+            "normal_md_temperature_millikelvin": 350000,
+            "sampling_configuration_identity": "0" * 64,
+        }
+        for field, value in mismatches.items():
+            with self.subTest(field=field), self.assertRaisesRegex(
+                ConformerError, "mismatches SamplingProfile"
+            ):
+                _assert_crest_program_execution_alignment(
+                    profile, self.crest_execution_spec(profile, **{field: value})
+                )
+
+    def test_J_sampling_profile_rejects_unmapped_or_conflated_crest_fields(self) -> None:
+        for field, value in (
+            ("metadynamics_temperature_kelvin", 300.0),
+            ("rotamer_search", True),
+            ("termination", {"criterion": "bounded_steps", "maximum_steps": 200}),
+        ):
+            crest = self.crest_profile()
+            if field == "termination":
+                crest[field] = value
+            else:
+                crest["imtd_gc_controls"][field] = value
+            with self.subTest(field=field), self.assertRaisesRegex(
+                ConformerError, "exactly"
+            ):
+                self.profile(crest=crest)
+
     def test_owner_replica_1_non_single_external_replica_count_rejects(self) -> None:
         crest = self.crest_profile()
         crest["replica_policy"]["replica_count"] = 2
@@ -431,10 +574,14 @@ class ConformerCoreTests(unittest.TestCase):
                 with self.assertRaisesRegex(ConformerError, reason):
                     self.profile(crest=crest)
 
-    def test_owner_replica_2_more_than_one_seed_rejects(self) -> None:
+    def test_owner_rng_fallback_rejects_fabricated_seed_or_bitwise_claim(self) -> None:
         crest = self.crest_profile()
-        crest["seed_policy"]["values"] = [11, 12]
-        with self.assertRaisesRegex(ConformerError, "exactly one integer"):
+        crest["seed_policy"]["seed"] = 11
+        with self.assertRaisesRegex(ConformerError, "engine-managed"):
+            self.profile(crest=crest)
+        crest = self.crest_profile()
+        crest["seed_policy"]["replay_semantics"] = "bitwise_trajectory_replay"
+        with self.assertRaisesRegex(ConformerError, "engine-managed"):
             self.profile(crest=crest)
 
     def test_owner_replica_3_candidate_replica_index_must_be_zero(self) -> None:
@@ -444,7 +591,7 @@ class ConformerCoreTests(unittest.TestCase):
         self.assertIn("source_replica_index_out_of_range", ensemble.negative_evidence[0]["reasons"])
         self.assertEqual(ensemble.members, ())
 
-    def test_owner_replica_4_candidate_seed_must_equal_exact_profile_seed(self) -> None:
+    def test_owner_engine_managed_source_cannot_claim_an_explicit_seed(self) -> None:
         profile = self.profile()
         candidate = self.observation(profile, "seed-drift")
         candidate["source_binding"]["seed"] = 12
