@@ -38,6 +38,21 @@ from .project_provisioning import (
 
 
 _PROGRAM_KINDS: Final = frozenset({"gaussian", "xtb", "crest"})
+_CREST_SUPPORTED_V2_OPTION_TOKENS: Final = frozenset(
+    {
+        "-v3",
+        "-gfn1",
+        "-gfn2",
+        "-chrg",
+        "-uhf",
+        "-mdlen",
+        "-ewin",
+        "-rthr",
+        "-temp",
+        "-tnmd",
+        "-cross",
+    }
+)
 _SYNTHETIC_SERVER_EXECUTABLE_PATHS: Final = {
     "xtb": "/opt/auto-g16-fixtures/bin/xtb",
     "crest": "/opt/auto-g16-fixtures/bin/crest",
@@ -183,7 +198,7 @@ def _validate_xtb_data(value: Mapping[str, object]) -> Mapping[str, object]:
     return freeze_mapping(dict(value), "xtb program_data")
 
 
-def _validate_crest_data(value: Mapping[str, object]) -> Mapping[str, object]:
+def _validate_crest_v1_data(value: Mapping[str, object]) -> Mapping[str, object]:
     _exact_keys(
         value,
         {
@@ -214,6 +229,73 @@ def _validate_crest_data(value: Mapping[str, object]) -> Mapping[str, object]:
     require_positive_integer(value["temperature_millikelvin"], "CREST temperature")
     _nonnegative_integer(value["random_seed"], "CREST random seed")
     return freeze_mapping(dict(value), "CREST program_data")
+
+
+def _validate_crest_imtd_gc_v2_data(
+    value: Mapping[str, object],
+) -> Mapping[str, object]:
+    _exact_keys(
+        value,
+        {
+            "provider",
+            "sampling_mode",
+            "engine_version",
+            "runtype_selector",
+            "model",
+            "charge",
+            "unpaired_electrons",
+            "metadynamics_length_millipicoseconds",
+            "cregen_energy_window_millikcal_per_mol",
+            "cregen_rmsd_threshold_milliangstrom",
+            "cregen_temperature_millikelvin",
+            "normal_md_temperature_millikelvin",
+            "stochastic_policy",
+            "sampling_configuration_identity",
+        },
+        "CREST iMTD-GC v2 program_data",
+    )
+    if value["provider"] != "crest" or value["sampling_mode"] != "imtd-gc":
+        raise ExecutionValueError("CREST v2 provider/mode must be exact iMTD-GC")
+    if value["engine_version"] != "3.0.2":
+        raise ExecutionValueError("CREST v2 supports exactly engine version 3.0.2")
+    if value["runtype_selector"] != "-v3":
+        raise ExecutionValueError(
+            "CREST v2 requires the explicit version-qualified -v3 iMTD-GC selector"
+        )
+    if value["model"] not in {"gfn1", "gfn2"}:
+        raise ExecutionValueError("CREST model is outside the closed adapter set")
+    _integer(value["charge"], "CREST charge")
+    _nonnegative_integer(value["unpaired_electrons"], "CREST unpaired electrons")
+    for key, label in (
+        ("metadynamics_length_millipicoseconds", "CREST MTD length"),
+        ("cregen_energy_window_millikcal_per_mol", "CREGEN energy window"),
+        ("cregen_rmsd_threshold_milliangstrom", "CREGEN RMSD threshold"),
+        ("cregen_temperature_millikelvin", "CREGEN sorting temperature"),
+        ("normal_md_temperature_millikelvin", "CREST normal-MD temperature"),
+    ):
+        require_positive_integer(value[key], label)
+    stochastic = value["stochastic_policy"]
+    if not isinstance(stochastic, Mapping):
+        raise ExecutionValueError("CREST stochastic_policy must be a closed mapping")
+    _exact_keys(
+        stochastic,
+        {"mode", "seed", "replay_semantics"},
+        "CREST stochastic_policy",
+    )
+    if (
+        stochastic["mode"] != "engine_managed_stochastic"
+        or stochastic["seed"] is not None
+        or stochastic["replay_semantics"]
+        != "configuration_replay_not_bitwise_trajectory_replay"
+    ):
+        raise ExecutionValueError(
+            "CREST v2 stochasticity must use the closed engine-managed policy"
+        )
+    require_sha256(
+        value["sampling_configuration_identity"],
+        "CREST sampling_configuration_identity",
+    )
+    return freeze_mapping(dict(value), "CREST iMTD-GC v2 program_data")
 
 
 def _outputs(*, required: tuple[tuple[str, str, str], ...], optional: tuple[tuple[str, str, str], ...]) -> tuple[tuple[Mapping[str, object], ...], tuple[Mapping[str, object], ...]]:
@@ -269,7 +351,7 @@ def _render_xtb(
     return _invocation(executable, tuple(argv)), required_values, optional_values
 
 
-def _render_crest(
+def _render_crest_v1(
     executable: Mapping[str, object],
     input_name: str,
     data: Mapping[str, object],
@@ -293,17 +375,101 @@ def _render_crest(
         "--temp",
         _fixed_milli(data["temperature_millikelvin"], "CREST temperature"),
     )
-    return (
-        _invocation(executable, argv),
-        _outputs(
-            required=(
-                ("program-log", "crest.out", "text"),
-                ("conformer-ensemble", "crest_conformers.xyz", "xyz-trajectory"),
-            ),
-            optional=(("conformer-energies", "crest.energies", "text"),),
-        )[0],
-        _outputs(required=(), optional=(("conformer-energies", "crest.energies", "text"),))[1],
+    required, optional = _outputs(
+        required=(
+            ("program-log", "crest.out", "text"),
+            ("conformer-ensemble", "crest_conformers.xyz", "xyz-trajectory"),
+        ),
+        optional=(("conformer-energies", "crest.energies", "text"),),
     )
+    return _invocation(executable, argv), required, optional
+
+
+def _render_crest_imtd_gc_v2(
+    executable: Mapping[str, object],
+    input_name: str,
+    data: Mapping[str, object],
+) -> tuple[Mapping[str, object], tuple[Mapping[str, object], ...], tuple[Mapping[str, object], ...]]:
+    # CREST 3.0.2 documents -v3 as an explicit iMTD-GC runtype selector.
+    # That release exposes no user-facing iMTD-GC integer seed option.
+    options = (
+        (str(data["runtype_selector"]), ()),
+        ("-cross", ()),
+        (f"-{data['model']}", ()),
+        ("-chrg", (str(data["charge"]),)),
+        ("-uhf", (str(data["unpaired_electrons"]),)),
+        (
+            "-mdlen",
+            (
+                _fixed_milli(
+                    data["metadynamics_length_millipicoseconds"],
+                    "CREST MTD length",
+                ),
+            ),
+        ),
+        (
+            "-ewin",
+            (
+                _fixed_milli(
+                    data["cregen_energy_window_millikcal_per_mol"],
+                    "CREGEN energy window",
+                ),
+            ),
+        ),
+        (
+            "-rthr",
+            (
+                _fixed_milli(
+                    data["cregen_rmsd_threshold_milliangstrom"],
+                    "CREGEN RMSD threshold",
+                ),
+            ),
+        ),
+        (
+            "-temp",
+            (
+                _fixed_milli(
+                    data["cregen_temperature_millikelvin"],
+                    "CREGEN sorting temperature",
+                ),
+            ),
+        ),
+        (
+            "-tnmd",
+            (
+                _fixed_milli(
+                    data["normal_md_temperature_millikelvin"],
+                    "CREST normal-MD temperature",
+                ),
+            ),
+        ),
+    )
+    _validate_crest_v2_option_tokens(options)
+    argv = (
+        str(executable["absolute_path"]),
+        input_name,
+        *(item for option, values in options for item in (option, *values)),
+    )
+    required, optional = _outputs(
+        required=(
+            ("program-log", "crest.out", "text"),
+            ("conformer-ensemble", "crest_conformers.xyz", "xyz-trajectory"),
+        ),
+        optional=(("conformer-energies", "crest.energies", "text"),),
+    )
+    return _invocation(executable, argv), required, optional
+
+
+def _validate_crest_v2_option_tokens(
+    options: tuple[tuple[str, tuple[str, ...]], ...],
+) -> None:
+    """Validate structured CREST v2 options before argv flattening."""
+
+    for option, _values in options:
+        if option.startswith("--") or option not in _CREST_SUPPORTED_V2_OPTION_TOKENS:
+            raise ExecutionValueError(
+                "CREST v2 option token is outside the exact single-dash allowlist"
+            )
 
 
 def _invocation(
@@ -331,10 +497,30 @@ _Adapter = tuple[
     Callable[[Mapping[str, object]], Mapping[str, object]],
     Callable[[Mapping[str, object], str, Mapping[str, object]], tuple[Mapping[str, object], tuple[Mapping[str, object], ...], tuple[Mapping[str, object], ...]]],
 ]
-_ADAPTERS: Final[Mapping[str, _Adapter | None]] = {
+_ADAPTER_REGISTRY: Final[Mapping[tuple[str, str, int], _Adapter]] = {
+    ("xtb", "auto-g16-v31-xtb", 1): (
+        "auto-g16-v31-xtb",
+        1,
+        _validate_xtb_data,
+        _render_xtb,
+    ),
+    ("crest", "auto-g16-v31-crest", 1): (
+        "auto-g16-v31-crest",
+        1,
+        _validate_crest_v1_data,
+        _render_crest_v1,
+    ),
+    ("crest", "auto-g16-v31-crest", 2): (
+        "auto-g16-v31-crest",
+        2,
+        _validate_crest_imtd_gc_v2_data,
+        _render_crest_imtd_gc_v2,
+    ),
+}
+_INITIAL_ADAPTER_KEYS: Final[Mapping[str, tuple[str, str, int] | None]] = {
     "gaussian": None,
-    "xtb": ("auto-g16-v31-xtb", 1, _validate_xtb_data, _render_xtb),
-    "crest": ("auto-g16-v31-crest", 1, _validate_crest_data, _render_crest),
+    "xtb": ("xtb", "auto-g16-v31-xtb", 1),
+    "crest": ("crest", "auto-g16-v31-crest", 2),
 }
 
 
@@ -369,10 +555,16 @@ class ProgramExecutionSpec:
     ) -> ProgramExecutionSpec:
         if program_kind not in _PROGRAM_KINDS:
             raise ExecutionValueError("program_kind is outside the closed V31 registry")
-        adapter = _ADAPTERS.get(program_kind)
+        adapter = _ADAPTER_REGISTRY.get(
+            (program_kind, adapter_id, adapter_contract_version)
+        )
         if adapter is None:
-            raise ExecutionValueError("Gaussian successor is reserved but not implemented")
-        expected_id, expected_version, validate_data, _renderer = adapter
+            if program_kind == "gaussian":
+                raise ExecutionValueError(
+                    "Gaussian successor is reserved but not implemented"
+                )
+            raise ExecutionValueError("unknown private adapter identity or version")
+        expected_id, expected_version, validate_data, renderer = adapter
         if adapter_id != expected_id or adapter_contract_version != expected_version:
             raise ExecutionValueError("unknown private adapter identity or version")
         if not isinstance(exact_inputs, tuple) or len(exact_inputs) != 1:
@@ -389,6 +581,19 @@ class ProgramExecutionSpec:
         output_keys = tuple((item["logical_role"], item["portable_name"]) for item in (*required, *optional))
         if len(set(output_keys)) != len(output_keys):
             raise ExecutionValueError("required and optional outputs must be disjoint")
+        expected_invocation, expected_required, expected_optional = renderer(
+            closed_invocation["executable_identity"],
+            str(inputs[0]["portable_name"]),
+            data,
+        )
+        if (
+            closed_invocation != expected_invocation
+            or required != expected_required
+            or optional != expected_optional
+        ):
+            raise ExecutionValueError(
+                "ProgramExecutionSpec invocation/output semantics differ from its exact adapter"
+            )
         payload = freeze_mapping(
             {
                 "program_kind": program_kind,
@@ -442,9 +647,10 @@ def _prepare_program_execution_spec(
 ) -> ProgramExecutionSpec:
     if program_kind not in _PROGRAM_KINDS:
         raise ExecutionValueError("unknown program kind")
-    adapter = _ADAPTERS.get(program_kind)
-    if adapter is None:
+    adapter_key = _INITIAL_ADAPTER_KEYS.get(program_kind)
+    if adapter_key is None:
         raise ExecutionValueError("Gaussian successor is reserved but not implemented")
+    adapter = _ADAPTER_REGISTRY[adapter_key]
     validate_portable_name(input_name, "input_name")
     if not isinstance(input_bytes, bytes) or not input_bytes:
         raise ExecutionValueError("program input must be non-empty immutable bytes")

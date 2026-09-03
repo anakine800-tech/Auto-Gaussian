@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
+from decimal import Decimal
 from math import isfinite
 import re
 
@@ -296,28 +297,53 @@ def _validate_geometry_policy(value: Mapping[str, object], species: Mapping[str,
 def _validate_crest_profile(value: Mapping[str, object]) -> None:
     route = _keys(
         value,
-        {"provider", "mode", "engine", "adapter", "sampling_method", "seed_policy",
-         "replica_policy", "budget", "termination", "sampling_energy", "imtd_gc_controls"},
+        {"provider", "mode", "engine", "adapter", "sampling_method",
+         "runtype_selector", "seed_policy", "replica_policy", "budget",
+         "sampling_energy", "imtd_gc_controls"},
         "crest_imtd_gc_profile",
     )
     _require(route["provider"] == "crest", "initial provider must be exactly crest")
     _require(route["mode"] == "imtd-gc", "initial sampling mode must be exactly imtd-gc")
     engine = _keys(route["engine"], {"semantic_identity", "version"}, "crest_imtd_gc_profile.engine")
-    _semantic_identity(engine["semantic_identity"], "crest_imtd_gc_profile.engine.semantic_identity")
-    _semantic_version(engine["version"], "crest_imtd_gc_profile.engine.version")
-    adapter = _keys(route["adapter"], {"semantic_identity", "version"}, "crest_imtd_gc_profile.adapter")
-    _semantic_identity(adapter["semantic_identity"], "crest_imtd_gc_profile.adapter.semantic_identity")
-    _semantic_version(adapter["version"], "crest_imtd_gc_profile.adapter.version")
+    _require(
+        _semantic_identity(engine["semantic_identity"], "crest_imtd_gc_profile.engine.semantic_identity")
+        == "crest-engine-release-3.0.2",
+        "initial CREST engine identity must be release 3.0.2",
+    )
+    _require(
+        _semantic_version(engine["version"], "crest_imtd_gc_profile.engine.version")
+        == "3.0.2",
+        "initial CREST engine version must be exactly 3.0.2",
+    )
+    adapter = _keys(route["adapter"], {"semantic_identity", "contract_version"}, "crest_imtd_gc_profile.adapter")
+    _require(
+        _semantic_identity(adapter["semantic_identity"], "crest_imtd_gc_profile.adapter.semantic_identity")
+        == "auto-g16-v31-crest",
+        "initial CREST adapter identity must be auto-g16-v31-crest",
+    )
+    _require(
+        type(adapter["contract_version"]) is int
+        and adapter["contract_version"] == 2,
+        "initial CREST adapter contract_version must be exact integer two",
+    )
     method = _keys(route["sampling_method"], {"semantic_identity", "profile_identity"}, "crest_imtd_gc_profile.sampling_method")
     _semantic_identity(method["semantic_identity"], "crest_imtd_gc_profile.sampling_method.semantic_identity")
     _semantic_identity(method["profile_identity"], "crest_imtd_gc_profile.sampling_method.profile_identity")
-    seed_policy = _keys(route["seed_policy"], {"mode", "values"}, "crest_imtd_gc_profile.seed_policy")
-    _require(seed_policy["mode"] == "explicit", "seed policy must be explicit")
-    seeds = seed_policy["values"]
     _require(
-        isinstance(seeds, Sequence) and not isinstance(seeds, (str, bytes, bytearray))
-        and len(seeds) == 1 and type(seeds[0]) is int,
-        "initial single-run seed policy must contain exactly one integer",
+        route["runtype_selector"] == "-v3",
+        "initial CREST runtype must use the explicit 3.0.2 -v3 iMTD-GC selector",
+    )
+    seed_policy = _keys(
+        route["seed_policy"],
+        {"mode", "seed", "replay_semantics"},
+        "crest_imtd_gc_profile.seed_policy",
+    )
+    _require(
+        seed_policy["mode"] == "engine_managed_stochastic"
+        and seed_policy["seed"] is None
+        and seed_policy["replay_semantics"]
+        == "configuration_replay_not_bitwise_trajectory_replay",
+        "initial CREST seed policy must be the closed engine-managed policy",
     )
     replica = _keys(route["replica_policy"], {"mode", "replica_count", "member_index_origin"}, "crest_imtd_gc_profile.replica_policy")
     _require(replica["mode"] == "single_run", "initial external CREST replica mode must be single_run")
@@ -328,17 +354,108 @@ def _validate_crest_profile(value: Mapping[str, object]) -> None:
     minimum_valid = _nonnegative_integer(budget["minimum_valid"], "minimum_valid")
     maximum = _positive_integer(budget["maximum_observations"], "maximum_observations")
     _require(minimum_valid <= minimum_observations <= maximum, "CREST observation budget ordering is invalid")
-    termination = _keys(route["termination"], {"criterion", "maximum_steps"}, "crest_imtd_gc_profile.termination")
-    _require(termination["criterion"] == "bounded_steps", "termination criterion must be bounded_steps")
-    _positive_integer(termination["maximum_steps"], "termination.maximum_steps")
     energy = _keys(route["sampling_energy"], {"unit", "admission_window"}, "crest_imtd_gc_profile.sampling_energy")
     unit = _text(energy["unit"], "crest_imtd_gc_profile.sampling_energy.unit")
     _tagged_parameter(energy["admission_window"], "sampling_energy.admission_window", unit=unit, nonnegative=True)
-    controls = _keys(route["imtd_gc_controls"], {"metadynamics_temperature_kelvin", "metadynamics_time_ps", "rmsd_threshold_angstrom", "rotamer_search"}, "crest_imtd_gc_profile.imtd_gc_controls")
-    _finite(controls["metadynamics_temperature_kelvin"], "metadynamics_temperature_kelvin", positive=True)
-    _finite(controls["metadynamics_time_ps"], "metadynamics_time_ps", positive=True)
-    _finite(controls["rmsd_threshold_angstrom"], "rmsd_threshold_angstrom", positive=True)
-    _require(type(controls["rotamer_search"]) is bool, "rotamer_search must be boolean")
+    controls = _keys(
+        route["imtd_gc_controls"],
+        {
+            "model", "charge", "unpaired_electrons",
+            "metadynamics_length_ps", "cregen_rmsd_threshold_angstrom",
+            "cregen_temperature_kelvin", "normal_md_temperature_kelvin",
+        },
+        "crest_imtd_gc_profile.imtd_gc_controls",
+    )
+    _require(controls["model"] in {"gfn1", "gfn2"}, "CREST model is unsupported")
+    _require(type(controls["charge"]) is int, "CREST charge must be an integer")
+    _nonnegative_integer(controls["unpaired_electrons"], "CREST unpaired_electrons")
+    _finite(controls["metadynamics_length_ps"], "metadynamics_length_ps", positive=True)
+    _finite(controls["cregen_rmsd_threshold_angstrom"], "cregen_rmsd_threshold_angstrom", positive=True)
+    _finite(controls["cregen_temperature_kelvin"], "cregen_temperature_kelvin", positive=True)
+    _finite(controls["normal_md_temperature_kelvin"], "normal_md_temperature_kelvin", positive=True)
+
+
+def _assert_crest_program_execution_alignment(
+    profile: SamplingProfile, spec: object
+) -> None:
+    """Private cross-domain validator for one frozen iMTD-GC configuration."""
+
+    from auto_g16.execution.program import ProgramExecutionSpec
+
+    _require(isinstance(profile, SamplingProfile), "profile must be a SamplingProfile")
+    profile_payload = profile._identity_payload()
+    _require(
+        profile.payload_sha256 == _payload_sha256(profile_payload)
+        and profile.sampling_profile_id
+        == f"sampling-profile-{_payload_sha256({'domain': 'sampling-profile', 'payload': profile_payload})}",
+        "SamplingProfile identity is stale",
+    )
+    _require(type(spec) is ProgramExecutionSpec, "spec must be a ProgramExecutionSpec")
+    assert isinstance(spec, ProgramExecutionSpec)
+    spec.assert_identity_closed()
+    _require(spec.program_kind == "crest", "execution program must be crest")
+    _require(
+        spec.adapter_id == "auto-g16-v31-crest"
+        and spec.adapter_contract_version == 2,
+        "execution must use the exact CREST iMTD-GC v2 adapter",
+    )
+    route = profile.crest_imtd_gc_profile
+    controls = route["imtd_gc_controls"]
+    data = spec.program_data
+    _require(
+        controls["charge"] == profile.species_binding["formal_charge"],
+        "SamplingProfile CREST charge mismatches its species binding",
+    )
+    _require(
+        controls["unpaired_electrons"]
+        == profile.species_binding["multiplicity"] - 1,
+        "SamplingProfile CREST UHF count mismatches its species binding",
+    )
+    exact = {
+        "provider": route["provider"],
+        "sampling_mode": route["mode"],
+        "engine_version": route["engine"]["version"],
+        "runtype_selector": route["runtype_selector"],
+        "model": controls["model"],
+        "charge": controls["charge"],
+        "unpaired_electrons": controls["unpaired_electrons"],
+        "stochastic_policy": route["seed_policy"],
+        "sampling_configuration_identity": _payload_sha256(route),
+    }
+    for key, expected in exact.items():
+        _require(data[key] == expected, f"CREST execution {key} mismatches SamplingProfile")
+    milli_pairs = (
+        (
+            controls["metadynamics_length_ps"],
+            data["metadynamics_length_millipicoseconds"],
+            "metadynamics_length",
+        ),
+        (
+            route["sampling_energy"]["admission_window"]["value"],
+            data["cregen_energy_window_millikcal_per_mol"],
+            "cregen_energy_window",
+        ),
+        (
+            controls["cregen_rmsd_threshold_angstrom"],
+            data["cregen_rmsd_threshold_milliangstrom"],
+            "cregen_rmsd_threshold",
+        ),
+        (
+            controls["cregen_temperature_kelvin"],
+            data["cregen_temperature_millikelvin"],
+            "cregen_temperature",
+        ),
+        (
+            controls["normal_md_temperature_kelvin"],
+            data["normal_md_temperature_millikelvin"],
+            "normal_md_temperature",
+        ),
+    )
+    for profile_value, milli_value, label in milli_pairs:
+        _require(
+            Decimal(str(profile_value)) * Decimal(1000) == Decimal(milli_value),
+            f"CREST execution {label} mismatches SamplingProfile",
+        )
 
 
 def _validate_rmsd_policy(value: Mapping[str, object], atom_count: int) -> None:
@@ -505,7 +622,7 @@ def _audit_source(profile: SamplingProfile, observation: Mapping[str, object]) -
             reasons.append(f"{key}_malformed")
     if type(source["source_member_index"]) is not int or source["source_member_index"] < 0:
         reasons.append("source_member_index_out_of_range")
-    if type(source["seed"]) is not int or source["seed"] != route["seed_policy"]["values"][0]:
+    if source["seed"] is not None or route["seed_policy"]["seed"] is not None:
         reasons.append("source_seed_mismatch")
     if type(source["replica_index"]) is not int or source["replica_index"] != 0:
         reasons.append("source_replica_index_out_of_range")
