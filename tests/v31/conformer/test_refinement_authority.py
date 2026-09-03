@@ -337,6 +337,7 @@ class RefinementAuthorityTests(unittest.TestCase):
     def append_frequency_capture(
         self, *, completeness="complete", status="captured",
         parse_status=None, diagnostics=(), sequence=2,
+        frequencies=(0.0, 50.0, 100.0, 150.0, 200.0, 250.0),
     ):
         envelope = OutputEnvelope(
             attempt_id=self.freq_prepared.attempt_id,
@@ -363,7 +364,7 @@ class RefinementAuthorityTests(unittest.TestCase):
             facts = (
                 attributed_facts(
                     envelope,
-                    frequencies=(0.0, 50.0, 100.0, 150.0, 200.0, 250.0),
+                    frequencies=frequencies,
                     optimization_spans=(), stationary_spans=(),
                 )
                 if parse_status == "parsed"
@@ -1475,6 +1476,57 @@ class RefinementAuthorityTests(unittest.TestCase):
             hasattr(conformer, "validate_current_two_stage_minimum_authority")
         )
         self.assertEqual(conformer.__all__, ["ConformerEnsemble", "SamplingProfile"])
+
+    def test_98_newer_complete_parsed_nonminimum_preserves_historical_authority(self):
+        historical = self.validate()
+        self.append_frequency_capture(
+            parse_status="parsed",
+            frequencies=(-1.0, 50.0, 100.0, 150.0, 200.0, 250.0),
+        )
+
+        self.assertEqual(self.validate(), historical)
+        with self.assertRaisesRegex(
+            RefinementAuthorityError, "current selected capture"
+        ):
+            self.validate_current_two_stage()
+
+    def test_99_newer_complete_nonparsed_result_preserves_historical_authority(self):
+        cases = (
+            ("unparseable", ("unparseable-frequency-block",)),
+            ("unsupported", ("unsupported-valid-gaussian-grammar",)),
+        )
+        for index, (parse_status, diagnostics) in enumerate(cases, start=2):
+            with self.subTest(parse_status=parse_status):
+                historical = self.validate()
+                self.append_frequency_capture(
+                    parse_status=parse_status,
+                    diagnostics=diagnostics,
+                    sequence=index,
+                )
+
+                self.assertEqual(self.validate(), historical)
+                with self.assertRaisesRegex(
+                    RefinementAuthorityError, "current selected capture"
+                ):
+                    self.validate_current_two_stage()
+
+    def test_100_historical_authority_identity_survives_newer_result_append(self):
+        before = self.validate()
+        self.append_frequency_capture(
+            parse_status="parsed",
+            frequencies=(-1.0, 50.0, 100.0, 150.0, 200.0, 250.0),
+        )
+        after = self.validate()
+
+        self.assertEqual(after, before)
+        self.assertEqual(
+            after["two_stage_minimum_authority_id"],
+            before["two_stage_minimum_authority_id"],
+        )
+        with self.assertRaisesRegex(
+            RefinementAuthorityError, "current selected capture"
+        ):
+            self.validate_current_two_stage()
 
     def _build(self, method):
         return build_dft_stage(self.ensemble, "member-a", stage="opt", calculation_plan_id="p", calculation_plan_revision=1, task_id="t", attempt_id="a", logical_name="x.gjf", method_binding=method)
