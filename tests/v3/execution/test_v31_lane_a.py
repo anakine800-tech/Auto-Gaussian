@@ -10,8 +10,11 @@ import unittest
 import auto_g16.core as core
 import auto_g16.execution as execution
 from auto_g16.execution.program import (
+    _CREST_SUPPORTED_V2_OPTION_TOKENS,
+    _ADAPTER_REGISTRY,
     _ProgramExecutionSnapshotService,
     _prepare_program_execution_spec,
+    _validate_crest_v2_option_tokens,
 )
 from auto_g16.execution.project_provisioning import (
     _ProjectProvisioningService,
@@ -303,15 +306,26 @@ class LaneAFixture(unittest.TestCase):
     @staticmethod
     def crest_data(**changes: object) -> dict[str, object]:
         value: dict[str, object] = {
+            "provider": "crest",
+            "sampling_mode": "imtd-gc",
+            "engine_version": "3.0.2",
+            "runtype_selector": "-v3",
             "model": "gfn2",
-            "search_mode": "ttconf",
-            "preset": "normal",
             "charge": 0,
             "unpaired_electrons": 0,
-            "energy_window_millikcal_per_mol": 6000,
-            "rmsd_threshold_milliangstrom": 500,
-            "temperature_millikelvin": 298150,
-            "random_seed": 17,
+            "metadynamics_length_millipicoseconds": 5000,
+            "cregen_energy_window_millikcal_per_mol": 6000,
+            "cregen_rmsd_threshold_milliangstrom": 500,
+            "cregen_temperature_millikelvin": 298150,
+            "normal_md_temperature_millikelvin": 300000,
+            "stochastic_policy": {
+                "mode": "engine_managed_stochastic",
+                "seed": None,
+                "replay_semantics": (
+                    "configuration_replay_not_bitwise_trajectory_replay"
+                ),
+            },
+            "sampling_configuration_identity": "1" * 64,
         }
         value.update(changes)
         return value
@@ -416,35 +430,235 @@ class ProgramSpecTests(LaneAFixture):
         self.assertEqual(first.required_outputs[1]["portable_name"], "xtbopt.xyz")
         self.assertEqual(first.optional_outputs, ())
 
-    def test_crest_closed_fixture_has_exact_tokens_and_output_requests(self) -> None:
+    def test_crest_v2_closed_imtd_gc_fixture_has_exact_semantic_tokens(self) -> None:
         spec = self.crest_spec()
+        self.assertEqual(spec.adapter_id, "auto-g16-v31-crest")
+        self.assertEqual(spec.adapter_contract_version, 2)
         self.assertEqual(
             spec.invocation["argv"],
             (
                 CREST_EXECUTABLE_PATH,
                 "seed.xyz",
-                "-ttconf",
-                "normal",
-                "--gfn2",
-                "--chrg",
+                "-v3",
+                "-cross",
+                "-gfn2",
+                "-chrg",
                 "0",
-                "--uhf",
+                "-uhf",
                 "0",
-                "-ttewin",
+                "-mdlen",
+                "5.000",
+                "-ewin",
                 "6.000",
-                "-ttseed",
-                "17",
-                "--rthr",
+                "-rthr",
                 "0.500",
-                "--temp",
+                "-temp",
                 "298.150",
+                "-tnmd",
+                "300.000",
             ),
+        )
+        self.assertEqual(spec.program_data["sampling_mode"], "imtd-gc")
+        self.assertEqual(
+            spec.program_data["runtype_selector"],
+            "-v3",
+        )
+        self.assertEqual(spec.invocation["argv"].count("-v3"), 1)
+        self.assertEqual(spec.invocation["argv"].count("-cross"), 1)
+        self.assertNotIn("-nocross", spec.invocation["argv"])
+        self.assertFalse(any(token.startswith("--") for token in spec.invocation["argv"]))
+        self.assertEqual(
+            spec.program_data["stochastic_policy"],
+            {
+                "mode": "engine_managed_stochastic",
+                "seed": None,
+                "replay_semantics": (
+                    "configuration_replay_not_bitwise_trajectory_replay"
+                ),
+            },
+        )
+        self.assertFalse(any("ttconf" in token.lower() for token in spec.invocation["argv"]))
+        self.assertTrue(
+            {"-ttconf", "-ttseed", "-ttewin", "-ttrank", "-ttsweeps", "-ttgrid"}.isdisjoint(
+                spec.invocation["argv"]
+            )
         )
         self.assertEqual(
             tuple(item["portable_name"] for item in spec.required_outputs),
             ("crest.out", "crest_conformers.xyz"),
         )
         self.assertEqual(spec.optional_outputs[0]["portable_name"], "crest.energies")
+
+    def test_crest_v2_option_tokens_use_the_exact_private_allowlist(self) -> None:
+        def actual_option_tokens(spec: execution.ProgramExecutionSpec) -> tuple[str, ...]:
+            tokens: list[str] = []
+            for token in spec.invocation["argv"][2:]:
+                if not token.startswith("-"):
+                    continue
+                try:
+                    float(token)
+                except ValueError:
+                    tokens.append(token)
+            return tuple(tokens)
+
+        specs = tuple(
+            self.crest_spec(
+                model=model,
+                charge=charge,
+                unpaired_electrons=unpaired_electrons,
+            )
+            for model in ("gfn1", "gfn2")
+            for charge in (-1, 0, 1)
+            for unpaired_electrons in (0, 1)
+        )
+        emission_union: set[str] = set()
+        for spec in specs:
+            emitted = actual_option_tokens(spec)
+            emission_union.update(emitted)
+            self.assertEqual(emitted.count("-v3"), 1)
+            self.assertEqual(emitted.count("-cross"), 1)
+            self.assertNotIn("-nocross", emitted)
+            self.assertFalse(any(token.startswith("--") for token in emitted))
+            model = spec.program_data["model"]
+            self.assertEqual(emitted.count(f"-{model}"), 1)
+            self.assertNotIn("-gfn1" if model == "gfn2" else "-gfn2", emitted)
+        self.assertEqual(emission_union, _CREST_SUPPORTED_V2_OPTION_TOKENS)
+        self.assertNotIn("-nocross", _CREST_SUPPORTED_V2_OPTION_TOKENS)
+
+        negative_charge = self.crest_spec(charge=-1)
+        charge_index = negative_charge.invocation["argv"].index("-chrg")
+        self.assertEqual(negative_charge.invocation["argv"][charge_index + 1], "-1")
+        self.assertNotIn("-1", actual_option_tokens(negative_charge))
+
+        for token in emission_union:
+            with self.subTest(token=token), self.assertRaisesRegex(
+                execution.ExecutionValueError, "single-dash allowlist"
+            ):
+                _validate_crest_v2_option_tokens(((f"--{token[1:]}", ()),))
+
+    def test_crest_v1_ttconf_is_replay_readable_but_not_constructed_initially(self) -> None:
+        old_data = {
+            "model": "gfn2",
+            "search_mode": "ttconf",
+            "preset": "normal",
+            "charge": 0,
+            "unpaired_electrons": 0,
+            "energy_window_millikcal_per_mol": 6000,
+            "rmsd_threshold_milliangstrom": 500,
+            "temperature_millikelvin": 298150,
+            "random_seed": 17,
+        }
+        adapter = _ADAPTER_REGISTRY[("crest", "auto-g16-v31-crest", 1)]
+        executable = {
+            "absolute_path": CREST_EXECUTABLE_PATH,
+            "size_bytes": len(CREST_EXECUTABLE_BYTES),
+            "sha256": sha256(CREST_EXECUTABLE_BYTES).hexdigest(),
+        }
+        invocation, required, optional = adapter[3](executable, "seed.xyz", old_data)
+        legacy = execution.ProgramExecutionSpec._from_closed(
+            program_kind="crest",
+            adapter_id="auto-g16-v31-crest",
+            adapter_contract_version=1,
+            exact_inputs=(
+                {
+                    "logical_role": "structure",
+                    "portable_name": "seed.xyz",
+                    "format": "xyz",
+                    "sha256": sha256(XYZ).hexdigest(),
+                    "size_bytes": len(XYZ),
+                },
+            ),
+            program_data=old_data,
+            invocation=invocation,
+            required_outputs=required,
+            optional_outputs=optional,
+        )
+        legacy.assert_identity_closed()
+        self.assertEqual(legacy.adapter_contract_version, 1)
+        self.assertIn("-ttconf", legacy.invocation["argv"])
+        self.assertEqual(self.crest_spec().adapter_contract_version, 2)
+
+    def test_crest_v2_identity_cannot_carry_ttconf_invocation_bytes(self) -> None:
+        spec = self.crest_spec()
+        invocation = dict(spec.invocation)
+        invocation["argv"] = (
+            CREST_EXECUTABLE_PATH,
+            "seed.xyz",
+            "-ttconf",
+            "normal",
+            "-gfn2",
+        )
+        with self.assertRaisesRegex(
+            execution.ExecutionValueError, "exact adapter"
+        ):
+            execution.ProgramExecutionSpec._from_closed(
+                program_kind="crest",
+                adapter_id="auto-g16-v31-crest",
+                adapter_contract_version=2,
+                exact_inputs=spec.exact_inputs,
+                program_data=spec.program_data,
+                invocation=invocation,
+                required_outputs=spec.required_outputs,
+                optional_outputs=spec.optional_outputs,
+            )
+
+    def test_crest_v2_identity_cannot_omit_explicit_v3_selector(self) -> None:
+        spec = self.crest_spec()
+        invocation = dict(spec.invocation)
+        invocation["argv"] = tuple(
+            token for token in spec.invocation["argv"] if token != "-v3"
+        )
+        with self.assertRaisesRegex(execution.ExecutionValueError, "exact adapter"):
+            execution.ProgramExecutionSpec._from_closed(
+                program_kind="crest",
+                adapter_id="auto-g16-v31-crest",
+                adapter_contract_version=2,
+                exact_inputs=spec.exact_inputs,
+                program_data=spec.program_data,
+                invocation=invocation,
+                required_outputs=spec.required_outputs,
+                optional_outputs=spec.optional_outputs,
+            )
+
+    def test_crest_v2_semantic_options_are_distinct_and_unsupported_inputs_reject(self) -> None:
+        base = self.crest_spec()
+        mutations = {
+            "metadynamics_length_millipicoseconds": (6000, "-mdlen", "6.000"),
+            "cregen_energy_window_millikcal_per_mol": (7000, "-ewin", "7.000"),
+            "cregen_rmsd_threshold_milliangstrom": (600, "-rthr", "0.600"),
+            "cregen_temperature_millikelvin": (310000, "-temp", "310.000"),
+            "normal_md_temperature_millikelvin": (350000, "-tnmd", "350.000"),
+        }
+        for field, (value, option, rendered) in mutations.items():
+            with self.subTest(field=field):
+                changed = self.crest_spec(**{field: value})
+                self.assertNotEqual(
+                    changed.program_execution_spec_id,
+                    base.program_execution_spec_id,
+                )
+                option_index = changed.invocation["argv"].index(option)
+                self.assertEqual(changed.invocation["argv"][option_index + 1], rendered)
+        self.assertTrue(
+            {"--mdlen", "--ewin", "--rthr", "--temp", "--tnmd"}.isdisjoint(
+                base.invocation["argv"]
+            )
+        )
+        for changes in (
+            {"runtype_selector": "-v2i"},
+            {"engine_version": "3.0.1"},
+            {"random_seed": 17},
+            {
+                "stochastic_policy": {
+                    "mode": "explicit_seed",
+                    "seed": 17,
+                    "replay_semantics": "bitwise",
+                }
+            },
+        ):
+            with self.subTest(changes=changes), self.assertRaises(
+                execution.ExecutionValueError
+            ):
+                self.crest_spec(**changes)
 
     def test_unknown_fields_shell_authority_and_gaussian_successor_fail_closed(self) -> None:
         cases = (
