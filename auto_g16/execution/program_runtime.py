@@ -10,6 +10,7 @@ from auto_g16.core import (
     AttemptState,
     Observation,
     ReconciliationResolution,
+    RuntimeStoreError,
     SQLiteRuntimeStore,
     SubmissionIntentClaim,
     SubmissionOutcome,
@@ -374,35 +375,60 @@ def _reconstruct_submit_request(
     )
 
 
+def _assert_effect_intent_replay(
+    store: SQLiteRuntimeStore,
+    snapshot: ProgramExecutionSnapshot,
+) -> None:
+    if store.attempt_state(snapshot.attempt_id) is AttemptState.PLANNED:
+        raise TransportBoundaryError(
+            "successor authority cannot claim a PLANNED effect intent"
+        )
+    try:
+        claim = store.record_submission_intent(
+            snapshot.attempt_id, snapshot.effect_intent_id
+        )
+    except RuntimeStoreError as exc:
+        raise TransportBoundaryError(
+            "successor effect intent does not replay through public Core"
+        ) from exc
+    if claim is not SubmissionIntentClaim.REPLAY:
+        raise TransportBoundaryError(
+            "successor effect intent requires exact public Core REPLAY"
+        )
+
+
 def _reconstruct_ambiguous_submit(
     store: SQLiteRuntimeStore,
     snapshot: ProgramExecutionSnapshot,
     program_transport_store: _transport._ProgramTransportStore,
+    base: Mapping[str, object],
     prior_receipts: tuple[Observation, ...],
 ) -> Observation:
+    _assert_effect_intent_replay(store, snapshot)
     matched = tuple(
         item
         for item in prior_receipts
         if item.data["operation"] == "SUBMIT_QSUB_ONCE"
         and item.data["outcome"] == "UNKNOWN"
     )
-    rows = tuple(tuple(row) for row in store._db().execute(
-        "SELECT intent_id,outcome FROM submission_outcomes WHERE attempt_id=?",
-        (snapshot.attempt_id,),
-    ).fetchall())
-    if (
-        len(matched) != 1
-        or rows != ((snapshot.effect_intent_id, "UNKNOWN"),)
-    ):
+    if len(matched) != 1:
         raise TransportBoundaryError(
             "reconciliation requires one exact Core UNKNOWN submit predecessor"
         )
     receipt = matched[0]
+    prefix = prior_receipts[: prior_receipts.index(receipt)]
+    expected_request = _reconstruct_submit_request(
+        snapshot, program_transport_store, base, prefix
+    )
     request = receipt.data["request"]
     assert isinstance(request, Mapping)
+    if request != expected_request:
+        raise TransportBoundaryError(
+            "ambiguous submit request does not re-close to prior authorities"
+        )
     program_transport_store.require_matching_effect(
-        binding=request["binding"],
-        request=request,
+        binding=expected_request["binding"],
+        request=expected_request,
         classification="UNKNOWN",
         response=receipt.data["response"],
     )
@@ -416,7 +442,8 @@ def _reconstruct_job_authority_from_receipts(
     base: Mapping[str, object],
     receipts: tuple[Observation, ...],
 ) -> dict[str, object]:
-    if store.attempt_state(snapshot.attempt_id) not in {
+    current_state = store.attempt_state(snapshot.attempt_id)
+    if current_state not in {
         AttemptState.SUBMITTED,
         AttemptState.RUNNING,
         AttemptState.SUCCEEDED,
@@ -425,6 +452,7 @@ def _reconstruct_job_authority_from_receipts(
         raise TransportBoundaryError(
             "successor job authority requires a submitted-compatible Core state"
         )
+    _assert_effect_intent_replay(store, snapshot)
     establishing = tuple(
         item
         for item in receipts
@@ -442,29 +470,26 @@ def _reconstruct_job_authority_from_receipts(
     job_id = _receipt_job_id(receipt.data)
     assert job_id is not None
     if receipt.data["operation"] == "SUBMIT_QSUB_ONCE":
-        rows = tuple(tuple(row) for row in store._db().execute(
-            "SELECT intent_id,outcome FROM submission_outcomes WHERE attempt_id=?",
-            (snapshot.attempt_id,),
-        ).fetchall())
-        if rows != ((snapshot.effect_intent_id, "SUBMITTED"),):
-            raise TransportBoundaryError(
-                "Core SUBMITTED outcome does not bind the job receipt"
-            )
         expected_request = _reconstruct_submit_request(
             snapshot, program_transport_store, base, prefix
         )
     else:
-        rows = tuple(tuple(row) for row in store._db().execute(
-            "SELECT observation_id,resolution FROM reconciliations "
-            "WHERE attempt_id=? AND resolution='SUBMITTED'",
-            (snapshot.attempt_id,),
-        ).fetchall())
-        if rows != ((receipt.observation_id, "SUBMITTED"),):
+        try:
+            replayed_state = store.reconcile_unknown(
+                snapshot.attempt_id,
+                receipt.observation_id,
+                ReconciliationResolution.SUBMITTED,
+            )
+        except RuntimeStoreError as exc:
             raise TransportBoundaryError(
-                "Core SUBMITTED reconciliation does not bind the job receipt"
+                "Core SUBMITTED reconciliation does not replay for the job receipt"
+            ) from exc
+        if replayed_state is not current_state:
+            raise TransportBoundaryError(
+                "Core reconciliation replay changed successor Attempt state"
             )
         ambiguous = _reconstruct_ambiguous_submit(
-            store, snapshot, program_transport_store, prefix
+            store, snapshot, program_transport_store, base, prefix
         )
         expected_request = _transport._reconciliation_request(
             base, submit_receipt_id=ambiguous.observation_id
@@ -568,7 +593,7 @@ def _reconstruct_expected_request(
         )
     if operation == "RECONCILE_SUBMISSION":
         ambiguous = _reconstruct_ambiguous_submit(
-            store, snapshot, program_transport_store, prior_receipts
+            store, snapshot, program_transport_store, base, prior_receipts
         )
         return _transport._reconciliation_request(
             base, submit_receipt_id=ambiguous.observation_id

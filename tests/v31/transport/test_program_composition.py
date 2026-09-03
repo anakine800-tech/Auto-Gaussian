@@ -14,11 +14,13 @@ import auto_g16.execution as execution
 import auto_g16.transport as transport
 from auto_g16.execution import program_runtime
 from auto_g16.execution.program_runtime import (
+    _assert_effect_intent_replay,
     _capture_program_outputs,
     _execute_program_once,
     _job_authority,
     _load_receipts,
     _query_program_scheduler,
+    _reconstruct_ambiguous_submit,
     _reconcile_program_submission,
 )
 from auto_g16.execution.program import _prepare_program_execution_spec
@@ -386,6 +388,68 @@ class ProgramCompositionTests(LaneAFixture):
                 store, self.snapshot, program_store, driver
             )
         return None
+
+    def append_unknown_submit(self, store, program_store, base):
+        store.record_submission_intent(
+            self.snapshot.attempt_id, self.snapshot.effect_intent_id
+        )
+        workspace = self.append_allocate(store, program_store, base)
+        material = program_runtime._stage_material(
+            self.snapshot,
+            input_bytes=self.input_bytes,
+            scheduler_artifact_bytes=self.scheduler_bytes,
+        )
+        authorities = tuple(
+            self.append_stage(
+                store, program_store, base, workspace, declaration
+            )
+            for declaration, _content in material
+        )
+        scheduler = next(
+            item
+            for item in authorities
+            if item["artifact_kind"] == "scheduler-script"
+        )
+        inputs = tuple(
+            item
+            for item in authorities
+            if item["artifact_kind"] == "program-input"
+        )
+        request = program_runtime._transport._submit_request(
+            base,
+            workspace,
+            scheduler_portable_name="xtb.pbs",
+            scheduler_artifact_authority_id=str(
+                scheduler["artifact_authority_id"]
+            ),
+            program_input_artifact_authority_ids=tuple(
+                str(item["artifact_authority_id"]) for item in inputs
+            ),
+        )
+        return self.append_dual_source_receipt(
+            store,
+            program_store,
+            snapshot=self.snapshot,
+            request=request,
+            outcome="UNKNOWN",
+            response={"reason": "ambiguous-operation-outcome"},
+        )
+
+    def append_successful_reconciliation(
+        self, store, program_store, base, submit_receipt, *, job_id="999.server"
+    ):
+        request = program_runtime._transport._reconciliation_request(
+            base, submit_receipt_id=submit_receipt.observation_id
+        )
+        return self.append_dual_source_receipt(
+            store,
+            program_store,
+            snapshot=self.snapshot,
+            request=request,
+            outcome="SUCCEEDED",
+            response={"outcome": "SUCCEEDED", "job_id": job_id},
+            job_id=job_id,
+        )
 
     def clone_receipts_with_mutation(
         self,
@@ -2018,6 +2082,326 @@ class ProgramCompositionTests(LaneAFixture):
             )
         }
         self.assertIn("RECONCILE_SUBMISSION", operations)
+
+
+    def test_77_product_uses_zero_private_core_schema_access(self) -> None:
+        source = Path(program_runtime.__file__).read_text(encoding="utf-8")
+        for forbidden in (
+            "._db(",
+            "auto_g16.core.store",
+            "submission_outcomes",
+            "reconciliations",
+            "SELECT",
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, source)
+
+    def test_78_planned_replay_proof_cannot_claim_intent(self) -> None:
+        with patch.object(
+            self.store,
+            "record_submission_intent",
+            wraps=self.store.record_submission_intent,
+        ) as claim:
+            with self.assertRaisesRegex(
+                transport.TransportBoundaryError, "PLANNED effect intent"
+            ):
+                _assert_effect_intent_replay(self.store, self.snapshot)
+        claim.assert_not_called()
+        self.assertIs(
+            self.store.attempt_state(self.snapshot.attempt_id),
+            core.AttemptState.PLANNED,
+        )
+
+    def test_79_nonplanned_exact_effect_intent_replays_publicly(self) -> None:
+        self.assertIs(
+            self.store.record_submission_intent(
+                self.snapshot.attempt_id, self.snapshot.effect_intent_id
+            ),
+            core.SubmissionIntentClaim.WINNER,
+        )
+        before = self.store.attempt_state(self.snapshot.attempt_id)
+        with patch.object(
+            self.store,
+            "record_submission_intent",
+            wraps=self.store.record_submission_intent,
+        ) as claim:
+            _assert_effect_intent_replay(self.store, self.snapshot)
+        claim.assert_called_once_with(
+            self.snapshot.attempt_id, self.snapshot.effect_intent_id
+        )
+        self.assertIs(self.store.attempt_state(self.snapshot.attempt_id), before)
+
+    def test_80_different_existing_effect_intent_replay_rejects(self) -> None:
+        self.store.record_submission_intent(
+            self.snapshot.attempt_id, "different-effect-intent"
+        )
+        before = self.store.attempt_state(self.snapshot.attempt_id)
+        with self.assertRaisesRegex(
+            transport.TransportBoundaryError, "does not replay"
+        ):
+            _assert_effect_intent_replay(self.store, self.snapshot)
+        self.assertIs(self.store.attempt_state(self.snapshot.attempt_id), before)
+
+    def test_81_reconciled_submit_retains_historical_unknown_predecessor(self) -> None:
+        self.begin_unknown_submission()
+        self.driver.reconcile_response = {
+            "outcome": "SUCCEEDED",
+            "job_id": "999.server",
+        }
+        _reconcile_program_submission(
+            self.store,
+            snapshot=self.snapshot,
+            program_transport_store=self.program_transport_store,
+            driver=self.driver,
+        )
+        base = program_runtime._snapshot_binding(
+            self.snapshot, self.program_transport_store, self.driver
+        )
+        receipts = _load_receipts(
+            self.store,
+            self.snapshot,
+            self.program_transport_store,
+            base,
+        )
+        predecessor = _reconstruct_ambiguous_submit(
+            self.store,
+            self.snapshot,
+            self.program_transport_store,
+            base,
+            receipts,
+        )
+        self.assertEqual(predecessor.data["operation"], "SUBMIT_QSUB_ONCE")
+        self.assertEqual(predecessor.data["outcome"], "UNKNOWN")
+        self.assertIs(
+            self.store.attempt_state(self.snapshot.attempt_id),
+            core.AttemptState.SUBMITTED,
+        )
+
+    def test_82_direct_job_authority_uses_public_effect_intent_replay(self) -> None:
+        self.execute()
+        with patch.object(
+            self.store,
+            "record_submission_intent",
+            wraps=self.store.record_submission_intent,
+        ) as claim:
+            authority = _job_authority(
+                self.store,
+                self.snapshot,
+                self.program_transport_store,
+                self.driver,
+            )
+        self.assertEqual(authority["job_id"], "123.server")
+        claim.assert_called_once_with(
+            self.snapshot.attempt_id, self.snapshot.effect_intent_id
+        )
+
+    def test_83_reconciled_job_replays_terminal_core_reconciliation(self) -> None:
+        self.begin_unknown_submission()
+        self.driver.reconcile_response = {
+            "outcome": "SUCCEEDED",
+            "job_id": "999.server",
+        }
+        _reconcile_program_submission(
+            self.store,
+            snapshot=self.snapshot,
+            program_transport_store=self.program_transport_store,
+            driver=self.driver,
+        )
+        receipt = next(
+            item
+            for item in self.store.observations_for_attempt(
+                self.snapshot.attempt_id
+            )
+            if item.observation_type == _RECEIPT_TYPE
+            and item.data["operation"] == "RECONCILE_SUBMISSION"
+        )
+        with patch.object(
+            self.store,
+            "reconcile_unknown",
+            wraps=self.store.reconcile_unknown,
+        ) as reconcile:
+            authority = _job_authority(
+                self.store,
+                self.snapshot,
+                self.program_transport_store,
+                self.driver,
+            )
+        self.assertEqual(authority["job_id"], "999.server")
+        reconcile.assert_called_once_with(
+            self.snapshot.attempt_id,
+            receipt.observation_id,
+            core.ReconciliationResolution.SUBMITTED,
+        )
+
+    def test_84_reconciled_job_authority_read_is_nonmutating(self) -> None:
+        self.begin_unknown_submission()
+        self.driver.reconcile_response = {
+            "outcome": "SUCCEEDED",
+            "job_id": "999.server",
+        }
+        _reconcile_program_submission(
+            self.store,
+            snapshot=self.snapshot,
+            program_transport_store=self.program_transport_store,
+            driver=self.driver,
+        )
+        state_before = self.store.attempt_state(self.snapshot.attempt_id)
+        reconciliation_before = tuple(
+            tuple(row)
+            for row in self.store._db().execute(
+                "SELECT observation_id,resolution FROM reconciliations "
+                "WHERE attempt_id=? ORDER BY observation_id",
+                (self.snapshot.attempt_id,),
+            ).fetchall()
+        )
+        _job_authority(
+            self.store,
+            self.snapshot,
+            self.program_transport_store,
+            self.driver,
+        )
+        reconciliation_after = tuple(
+            tuple(row)
+            for row in self.store._db().execute(
+                "SELECT observation_id,resolution FROM reconciliations "
+                "WHERE attempt_id=? ORDER BY observation_id",
+                (self.snapshot.attempt_id,),
+            ).fetchall()
+        )
+        self.assertIs(
+            self.store.attempt_state(self.snapshot.attempt_id), state_before
+        )
+        self.assertEqual(reconciliation_after, reconciliation_before)
+
+    def test_85_reconciled_receipt_without_terminal_core_record_rejects(self) -> None:
+        store, program_store, driver, base = self.manual_context(
+            "missing-terminal-reconciliation"
+        )
+        submit = self.append_unknown_submit(store, program_store, base)
+        store.record_submission_outcome(
+            self.snapshot.attempt_id,
+            self.snapshot.effect_intent_id,
+            core.SubmissionOutcome.SUBMITTED,
+        )
+        self.append_successful_reconciliation(
+            store, program_store, base, submit
+        )
+        with self.assertRaisesRegex(
+            transport.TransportBoundaryError, "does not replay"
+        ):
+            _job_authority(store, self.snapshot, program_store, driver)
+
+    def test_86_reconciled_receipt_with_wrong_observation_rejects(self) -> None:
+        self.begin_unknown_submission()
+        base = program_runtime._snapshot_binding(
+            self.snapshot, self.program_transport_store, self.driver
+        )
+        submit = next(
+            item
+            for item in _load_receipts(
+                self.store,
+                self.snapshot,
+                self.program_transport_store,
+                base,
+            )
+            if item.data["operation"] == "SUBMIT_QSUB_ONCE"
+        )
+        self.append_successful_reconciliation(
+            self.store, self.program_transport_store, base, submit
+        )
+        alternate = core.Observation(
+            observation_id="alternate-reconciliation-observation",
+            attempt_id=self.snapshot.attempt_id,
+            observation_type="synthetic-reconciliation-proof",
+            data={"resolution": "SUBMITTED"},
+        )
+        self.store.append_observation(alternate)
+        self.store.reconcile_unknown(
+            self.snapshot.attempt_id,
+            alternate.observation_id,
+            core.ReconciliationResolution.SUBMITTED,
+        )
+        with self.assertRaisesRegex(
+            transport.TransportBoundaryError, "does not replay"
+        ):
+            _job_authority(
+                self.store,
+                self.snapshot,
+                self.program_transport_store,
+                self.driver,
+            )
+
+    def test_87_reconciled_receipt_with_wrong_resolution_rejects(self) -> None:
+        self.begin_unknown_submission()
+        base = program_runtime._snapshot_binding(
+            self.snapshot, self.program_transport_store, self.driver
+        )
+        submit = next(
+            item
+            for item in _load_receipts(
+                self.store,
+                self.snapshot,
+                self.program_transport_store,
+                base,
+            )
+            if item.data["operation"] == "SUBMIT_QSUB_ONCE"
+        )
+        receipt = self.append_successful_reconciliation(
+            self.store, self.program_transport_store, base, submit
+        )
+        self.store.reconcile_unknown(
+            self.snapshot.attempt_id,
+            receipt.observation_id,
+            core.ReconciliationResolution.NOT_SUBMITTED,
+        )
+        with self.assertRaisesRegex(
+            transport.TransportBoundaryError, "submitted-compatible"
+        ):
+            _job_authority(
+                self.store,
+                self.snapshot,
+                self.program_transport_store,
+                self.driver,
+            )
+
+    def test_88_unknown_job_read_cannot_create_terminal_reconciliation(self) -> None:
+        self.begin_unknown_submission()
+        state_before = self.store.attempt_state(self.snapshot.attempt_id)
+        reconciliation_before = tuple(
+            tuple(row)
+            for row in self.store._db().execute(
+                "SELECT observation_id,resolution FROM reconciliations "
+                "WHERE attempt_id=? ORDER BY observation_id",
+                (self.snapshot.attempt_id,),
+            ).fetchall()
+        )
+        with patch.object(
+            self.store,
+            "reconcile_unknown",
+            wraps=self.store.reconcile_unknown,
+        ) as reconcile:
+            with self.assertRaisesRegex(
+                transport.TransportBoundaryError, "submitted-compatible"
+            ):
+                _job_authority(
+                    self.store,
+                    self.snapshot,
+                    self.program_transport_store,
+                    self.driver,
+                )
+        reconcile.assert_not_called()
+        reconciliation_after = tuple(
+            tuple(row)
+            for row in self.store._db().execute(
+                "SELECT observation_id,resolution FROM reconciliations "
+                "WHERE attempt_id=? ORDER BY observation_id",
+                (self.snapshot.attempt_id,),
+            ).fetchall()
+        )
+        self.assertIs(
+            self.store.attempt_state(self.snapshot.attempt_id), state_before
+        )
+        self.assertEqual(reconciliation_after, reconciliation_before)
 
 
 if __name__ == "__main__":
