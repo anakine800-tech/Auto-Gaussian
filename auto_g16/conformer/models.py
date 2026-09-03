@@ -216,11 +216,24 @@ class ConformerEnsemble:
         coverage: Mapping[str, object],
         thermodynamic_eligible_members: Sequence[str],
         ts_seed_members: Sequence[str],
+        revision: int = 1,
+        supersedes_conformer_ensemble_id: str | None = None,
     ) -> ConformerEnsemble:
+        if type(revision) is not int or revision < 1:
+            raise ValueError("ConformerEnsemble revision must be a positive integer")
+        if revision == 1:
+            if supersedes_conformer_ensemble_id is not None:
+                raise ValueError("ConformerEnsemble revision 1 cannot supersede an ensemble")
+        elif (
+            not isinstance(supersedes_conformer_ensemble_id, str)
+            or not supersedes_conformer_ensemble_id
+            or supersedes_conformer_ensemble_id != supersedes_conformer_ensemble_id.strip()
+        ):
+            raise ValueError("a successor ConformerEnsemble must name its exact predecessor")
         value = object.__new__(cls)
         object.__setattr__(value, "schema_version", 1)
-        object.__setattr__(value, "revision", 1)
-        object.__setattr__(value, "supersedes_conformer_ensemble_id", None)
+        object.__setattr__(value, "revision", revision)
+        object.__setattr__(value, "supersedes_conformer_ensemble_id", supersedes_conformer_ensemble_id)
         object.__setattr__(value, "project_id", project_id)
         object.__setattr__(value, "calculation_plan_id", calculation_plan_id)
         object.__setattr__(value, "calculation_plan_revision", calculation_plan_revision)
