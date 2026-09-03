@@ -934,6 +934,124 @@ def _validate_current_optimization_geometry_authority(
     )
 
 
+def _validate_current_two_stage_minimum_authority(
+    ensemble: ConformerEnsemble,
+    member_id: str,
+    *,
+    optimization_plan: CalculationPlan,
+    optimization_prepared_input_binding: PreparedInputBinding,
+    optimization_prepared_input_bytes: bytes,
+    optimization_core_store: SQLiteRuntimeStore,
+    optimization_validation_store: SQLiteScientificValidationStore,
+    optimization_input_binding: InputBinding,
+    optimization_output_envelope: OutputEnvelope,
+    optimization_parse_outcome: ParseOutcome,
+    optimization_minimum_validation_outcome_id: str,
+    frequency_plan: CalculationPlan,
+    frequency_prepared_input_binding: PreparedInputBinding,
+    frequency_prepared_input_bytes: bytes,
+    frequency_core_store: SQLiteRuntimeStore,
+    frequency_validation_store: SQLiteScientificValidationStore,
+    frequency_input_binding: InputBinding,
+    frequency_output_envelope: OutputEnvelope,
+    frequency_parse_outcome: ParseOutcome,
+    frequency_minimum_validation_outcome_id: str,
+) -> Mapping[str, object]:
+    """Close current Opt and Freq selections before reusing two-stage authority."""
+
+    _validate_current_optimization_geometry_authority(
+        ensemble,
+        member_id,
+        calculation_plan=optimization_plan,
+        prepared_input_binding=optimization_prepared_input_binding,
+        prepared_input_bytes=optimization_prepared_input_bytes,
+        core_store=optimization_core_store,
+        validation_store=optimization_validation_store,
+        input_binding=optimization_input_binding,
+        output_envelope=optimization_output_envelope,
+        parse_outcome=optimization_parse_outcome,
+        minimum_validation_outcome_id=optimization_minimum_validation_outcome_id,
+    )
+    try:
+        current = ResultProvenanceService(frequency_core_store).current_view(
+            frequency_input_binding.attempt_id
+        )
+    except Exception as exc:
+        raise RefinementAuthorityError(
+            "current frequency Result view does not close"
+        ) from exc
+    _require(
+        current.input_binding == frequency_input_binding
+        and current.input_binding is not None
+        and current.input_binding.payload() == frequency_input_binding.payload()
+        and current.input_binding.observation_id
+        == frequency_input_binding.observation_id,
+        "supplied frequency InputBinding is not the current binding",
+    )
+    selected_envelopes = tuple(
+        item
+        for item in current.envelopes
+        if item.observation_id == current.selected_envelope_id
+    )
+    _require(
+        len(selected_envelopes) == 1
+        and selected_envelopes[0] == frequency_output_envelope
+        and selected_envelopes[0].payload() == frequency_output_envelope.payload()
+        and selected_envelopes[0].observation_id
+        == frequency_output_envelope.observation_id,
+        "supplied frequency OutputEnvelope is not the current selected capture",
+    )
+    _require(
+        not current.incomplete
+        and current.state.value == "parsed"
+        and bool(current.selected_results),
+        "current frequency Result is not completed and parsed",
+    )
+    selected = current.selected_results[-1]
+    _require(
+        selected == frequency_parse_outcome
+        and selected.payload() == frequency_parse_outcome.payload()
+        and selected.result_id == frequency_parse_outcome.result_id
+        and selected.attempt_id == frequency_parse_outcome.attempt_id
+        and selected.envelope_observation_id
+        == frequency_parse_outcome.envelope_observation_id
+        and (
+            selected.parser_name,
+            selected.parser_version,
+            selected.result_kind,
+        )
+        == (
+            frequency_parse_outcome.parser_name,
+            frequency_parse_outcome.parser_version,
+            frequency_parse_outcome.result_kind,
+        )
+        and selected.parse_status.value == "parsed",
+        "supplied frequency ParseOutcome is not the current selected Result",
+    )
+    return validate_two_stage_minimum_authority(
+        ensemble,
+        member_id,
+        optimization_plan=optimization_plan,
+        optimization_prepared_input_binding=optimization_prepared_input_binding,
+        optimization_prepared_input_bytes=optimization_prepared_input_bytes,
+        optimization_core_store=optimization_core_store,
+        optimization_validation_store=optimization_validation_store,
+        optimization_input_binding=optimization_input_binding,
+        optimization_output_envelope=optimization_output_envelope,
+        optimization_parse_outcome=optimization_parse_outcome,
+        optimization_minimum_validation_outcome_id=optimization_minimum_validation_outcome_id,
+        frequency_plan=frequency_plan,
+        frequency_prepared_input_binding=frequency_prepared_input_binding,
+        frequency_prepared_input_bytes=frequency_prepared_input_bytes,
+        frequency_core_store=frequency_core_store,
+        frequency_validation_store=frequency_validation_store,
+        frequency_input_binding=frequency_input_binding,
+        frequency_output_envelope=frequency_output_envelope,
+        frequency_parse_outcome=frequency_parse_outcome,
+        frequency_minimum_validation_outcome_id=frequency_minimum_validation_outcome_id,
+    )
+
+
 def validate_negative_frequency_authority(
     ensemble: ConformerEnsemble,
     member_id: str,
@@ -1007,7 +1125,7 @@ def validate_negative_frequency_authority(
     _require(source_link == expected_source_link, "Freq plan does not consume the exact Opt geometry lineage")
 
     try:
-        validate_two_stage_minimum_authority(
+        _validate_current_two_stage_minimum_authority(
             ensemble,
             member_id,
             optimization_plan=optimization_plan,

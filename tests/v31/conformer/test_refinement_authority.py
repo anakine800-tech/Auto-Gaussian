@@ -27,6 +27,7 @@ from auto_g16.review import build_review_bundle
 from auto_g16.scientific_validation import SQLiteScientificValidationStore, record_minimum_validation, validate_minimum
 from auto_g16.conformer.refinement_authority import (
     RefinementAuthorityError,
+    _validate_current_two_stage_minimum_authority,
     build_dft_stage,
     validate_negative_frequency_authority,
     validate_negative_optimization_authority,
@@ -230,6 +231,31 @@ class RefinementAuthorityTests(unittest.TestCase):
         values.update(changes)
         return validate_negative_frequency_authority(**values)
 
+    def validate_current_two_stage(self, **changes):
+        values = {
+            "ensemble": self.ensemble, "member_id": "member-a",
+            "optimization_plan": self.opt_plan,
+            "optimization_prepared_input_binding": self.opt_prepared,
+            "optimization_prepared_input_bytes": self.opt_bytes,
+            "optimization_core_store": self.opt_chain["core_store"],
+            "optimization_validation_store": self.opt_chain["validation_store"],
+            "optimization_input_binding": self.opt_chain["input_binding"],
+            "optimization_output_envelope": self.opt_chain["output_envelope"],
+            "optimization_parse_outcome": self.opt_chain["parse_outcome"],
+            "optimization_minimum_validation_outcome_id": self.opt_chain["minimum_validation_outcome_id"],
+            "frequency_plan": self.freq_plan,
+            "frequency_prepared_input_binding": self.freq_prepared,
+            "frequency_prepared_input_bytes": self.freq_bytes,
+            "frequency_core_store": self.freq_chain["core_store"],
+            "frequency_validation_store": self.freq_chain["validation_store"],
+            "frequency_input_binding": self.freq_chain["input_binding"],
+            "frequency_output_envelope": self.freq_chain["output_envelope"],
+            "frequency_parse_outcome": self.freq_chain["parse_outcome"],
+            "frequency_minimum_validation_outcome_id": self.freq_chain["minimum_validation_outcome_id"],
+        }
+        values.update(changes)
+        return _validate_current_two_stage_minimum_authority(**values)
+
     def negative_frequency_chain(self, frequencies=(-1.0, 2.0, 3.0, 4.0, 5.0, 6.0), **changes):
         values = {
             "frequencies": frequencies,
@@ -305,6 +331,75 @@ class RefinementAuthorityTests(unittest.TestCase):
         )
         ResultProvenanceService(
             self.opt_chain["core_store"]
+        ).record_parse_outcome(parsed)
+        return parsed
+
+    def append_frequency_capture(
+        self, *, completeness="complete", status="captured",
+        parse_status=None, diagnostics=(), sequence=2,
+    ):
+        envelope = OutputEnvelope(
+            attempt_id=self.freq_prepared.attempt_id,
+            input_binding_observation_id=self.freq_chain["input_binding"].observation_id,
+            execution_snapshot_id=self.freq_chain["input_binding"].execution_snapshot_id,
+            capture_source_id=f"capture-freq-new-{sequence}",
+            capture_sequence=sequence,
+            capture_status=status,
+            capture_completeness=completeness,
+            artifacts=(OutputArtifact(
+                artifact_kind="gaussian-log", logical_name=f"freq-new-{sequence}.log",
+                sha256=sha256(f"freq-new-log-{sequence}".encode()).hexdigest(),
+                size_bytes=1000,
+            ),),
+            capture_manifest_sha256=sha256(
+                f"freq-new-manifest-{sequence}".encode()
+            ).hexdigest(),
+            captured_at_utc=f"2026-09-02T00:01:{sequence:02d}Z",
+        )
+        service = ResultProvenanceService(self.freq_chain["core_store"])
+        service.record_output_envelope(envelope)
+        parsed = None
+        if parse_status is not None:
+            facts = (
+                attributed_facts(
+                    envelope,
+                    frequencies=(0.0, 50.0, 100.0, 150.0, 200.0, 250.0),
+                    optimization_spans=(), stationary_spans=(),
+                )
+                if parse_status == "parsed"
+                else {}
+            )
+            parsed = ParseOutcome(
+                attempt_id=self.freq_prepared.attempt_id,
+                envelope_observation_id=envelope.observation_id,
+                parser_name="auto-g16-v3-gaussian-job", parser_version="1.0.0",
+                result_kind="gaussian-job-facts", parse_status=parse_status,
+                facts=facts, diagnostics=diagnostics,
+            )
+            service.record_parse_outcome(parsed)
+        return envelope, parsed
+
+    def append_same_frequency_envelope_result(self, *, parse_status="parsed", diagnostics=()):
+        envelope = self.freq_chain["output_envelope"]
+        facts = (
+            attributed_facts(
+                envelope,
+                frequencies=(0.0, 50.0, 100.0, 150.0, 200.0, 250.0),
+                optimization_spans=(), stationary_spans=(),
+                grammar_id="auto-g16-v3-gaussian-job-grammar/2",
+            )
+            if parse_status == "parsed"
+            else {}
+        )
+        parsed = ParseOutcome(
+            attempt_id=self.freq_prepared.attempt_id,
+            envelope_observation_id=envelope.observation_id,
+            parser_name="auto-g16-v3-gaussian-job", parser_version="1.1.0",
+            result_kind="gaussian-job-facts", parse_status=parse_status,
+            facts=facts, diagnostics=diagnostics,
+        )
+        ResultProvenanceService(
+            self.freq_chain["core_store"]
         ).record_parse_outcome(parsed)
         return parsed
 
@@ -1265,6 +1360,121 @@ class RefinementAuthorityTests(unittest.TestCase):
         self.append_optimization_capture()
         with self.assertRaisesRegex(RefinementAuthorityError, "current selected capture"):
             self.validate_negative_freq(chain)
+
+    def test_84_current_two_stage_helper_accepts_exact_current_chain(self):
+        authority = self.validate_current_two_stage()
+        self.assertEqual(authority["classification"], "VALIDATED_TWO_STAGE_MINIMUM")
+
+    def test_85_newer_complete_frequency_without_result_stales_old_minimum(self):
+        self.append_frequency_capture()
+        with self.assertRaisesRegex(RefinementAuthorityError, "current selected capture"):
+            self.validate_current_two_stage()
+
+    def test_86_newer_complete_optimization_without_result_stales_two_stage(self):
+        self.append_optimization_capture()
+        with self.assertRaisesRegex(RefinementAuthorityError, "current selected capture"):
+            self.validate_current_two_stage()
+
+    def test_87_same_frequency_envelope_newer_parsed_result_stales_old_minimum(self):
+        self.append_same_frequency_envelope_result()
+        with self.assertRaisesRegex(RefinementAuthorityError, "current selected Result"):
+            self.validate_current_two_stage()
+
+    def test_88_same_frequency_envelope_newer_unparseable_stales_old_minimum(self):
+        self.append_same_frequency_envelope_result(
+            parse_status="unparseable", diagnostics=("unparseable-frequency-block",),
+        )
+        with self.assertRaisesRegex(RefinementAuthorityError, "completed and parsed"):
+            self.validate_current_two_stage()
+
+    def test_89_newer_partial_frequency_with_result_keeps_selected_complete(self):
+        self.append_frequency_capture(
+            completeness="partial", parse_status="partial",
+            diagnostics=("capture-partial",),
+        )
+        self.assertEqual(
+            self.validate_current_two_stage()["classification"],
+            "VALIDATED_TWO_STAGE_MINIMUM",
+        )
+
+    def test_90_newer_partial_frequency_without_result_keeps_selected_complete(self):
+        self.append_frequency_capture(completeness="partial")
+        self.assertEqual(
+            self.validate_current_two_stage()["classification"],
+            "VALIDATED_TWO_STAGE_MINIMUM",
+        )
+
+    def test_91_wrong_supplied_frequency_input_binding_is_not_current(self):
+        forged = replace(
+            self.freq_chain["input_binding"], execution_snapshot_id="other-snapshot",
+        )
+        with self.assertRaisesRegex(RefinementAuthorityError, "current binding"):
+            self.validate_current_two_stage(frequency_input_binding=forged)
+
+    def test_92_same_id_changed_frequency_envelope_payload_is_not_current(self):
+        forged = replace(
+            self.freq_chain["output_envelope"], capture_status="capture-error",
+        )
+        self.assertEqual(
+            forged.observation_id,
+            self.freq_chain["output_envelope"].observation_id,
+        )
+        with self.assertRaisesRegex(RefinementAuthorityError, "current selected capture"):
+            self.validate_current_two_stage(frequency_output_envelope=forged)
+
+    def test_93_same_id_changed_frequency_result_payload_is_not_current(self):
+        envelope = self.freq_chain["output_envelope"]
+        facts = attributed_facts(
+            envelope,
+            frequencies=(0.0, 50.0, 100.0, 150.0, 200.0, 250.0),
+            optimization_spans=(), stationary_spans=(),
+            terminal_specs=(("normal-termination", 870, 900),),
+        )
+        forged = ParseOutcome(
+            attempt_id=self.freq_prepared.attempt_id,
+            envelope_observation_id=envelope.observation_id,
+            parser_name="auto-g16-v3-gaussian-job", parser_version="1.0.0",
+            result_kind="gaussian-job-facts", parse_status="parsed", facts=facts,
+        )
+        self.assertEqual(forged.result_id, self.freq_chain["parse_outcome"].result_id)
+        self.assertNotEqual(forged.payload(), self.freq_chain["parse_outcome"].payload())
+        with self.assertRaisesRegex(RefinementAuthorityError, "current selected Result"):
+            self.validate_current_two_stage(frequency_parse_outcome=forged)
+
+    def test_94_unpersisted_frequency_parser_tuple_cannot_replace_current(self):
+        envelope = self.freq_chain["output_envelope"]
+        facts = attributed_facts(
+            envelope,
+            frequencies=(0.0, 50.0, 100.0, 150.0, 200.0, 250.0),
+            optimization_spans=(), stationary_spans=(),
+            grammar_id="auto-g16-v3-gaussian-job-grammar/2",
+        )
+        forged = ParseOutcome(
+            attempt_id=self.freq_prepared.attempt_id,
+            envelope_observation_id=envelope.observation_id,
+            parser_name="auto-g16-v3-gaussian-job", parser_version="1.1.0",
+            result_kind="gaussian-job-facts", parse_status="parsed", facts=facts,
+        )
+        with self.assertRaisesRegex(RefinementAuthorityError, "current selected Result"):
+            self.validate_current_two_stage(frequency_parse_outcome=forged)
+
+    def test_95_wrong_supplied_frequency_parse_attempt_cannot_close(self):
+        forged = replace(
+            self.freq_chain["parse_outcome"], attempt_id="another-attempt",
+        )
+        with self.assertRaisesRegex(RefinementAuthorityError, "current selected Result"):
+            self.validate_current_two_stage(frequency_parse_outcome=forged)
+
+    def test_96_newer_complete_parsed_frequency_stales_historical_selection(self):
+        self.append_frequency_capture(parse_status="parsed")
+        with self.assertRaisesRegex(RefinementAuthorityError, "current selected capture"):
+            self.validate_current_two_stage()
+
+    def test_97_current_two_stage_helper_is_private_and_not_exported(self):
+        self.assertFalse(
+            hasattr(conformer, "validate_current_two_stage_minimum_authority")
+        )
+        self.assertEqual(conformer.__all__, ["ConformerEnsemble", "SamplingProfile"])
 
     def _build(self, method):
         return build_dft_stage(self.ensemble, "member-a", stage="opt", calculation_plan_id="p", calculation_plan_revision=1, task_id="t", attempt_id="a", logical_name="x.gjf", method_binding=method)
