@@ -13,6 +13,7 @@ from auto_g16.thermochemistry.models import (
 from .models import (
     ConformerEnsemble,
     _identified_payload as _conformer_identified_payload,
+    _payload_sha256 as _conformer_payload_sha256,
 )
 
 
@@ -169,7 +170,11 @@ def _log_positive_integer(value: int) -> float:
     return math.log(value >> shift) + shift * math.log(2.0)
 
 
-def _close_source_provenance(value: object, member_id: str) -> None:
+def _close_source_provenance(
+    value: object,
+    member_id: str,
+    ensemble: ConformerEnsemble,
+) -> None:
     provenance = _closed(value, _SOURCE_PROVENANCE_KEYS, "source provenance")
     predecessor = _closed(
         provenance["predecessor_lineage"],
@@ -183,6 +188,11 @@ def _close_source_provenance(value: object, member_id: str) -> None:
     predecessor_sha = _sha256(
         predecessor["conformer_ensemble_payload_sha256"],
         "predecessor conformer ensemble payload SHA-256",
+    )
+    _require(
+        ensemble.supersedes_conformer_ensemble_id is not None
+        and predecessor_id == ensemble.supersedes_conformer_ensemble_id,
+        "thermochemistry provenance does not name the refined ensemble predecessor",
     )
     member_source = _closed(
         predecessor["member_source"],
@@ -199,12 +209,38 @@ def _close_source_provenance(value: object, member_id: str) -> None:
         member_source["member_id"] == member_id,
         "member source does not bind the thermodynamic member",
     )
+    _require(
+        member_source["sampling_profile_id"] == ensemble.sampling_profile_id
+        and member_source["sampling_profile_payload_sha256"]
+        == ensemble.sampling_profile_payload_sha256,
+        "member source sampling profile differs from the refined ensemble",
+    )
     for name in _MEMBER_SOURCE_KEYS - {
         "conformer_ensemble_id",
         "sampling_profile_id",
         "member_id",
     }:
         _sha256(member_source[name], f"member source {name}")
+    _require(
+        member_source["species_binding_sha256"]
+        == _conformer_payload_sha256(ensemble.species_binding),
+        "member source species binding differs from the refined ensemble",
+    )
+    _require(
+        member_source["stereochemistry_binding_sha256"]
+        == _conformer_payload_sha256(ensemble.stereochemistry_binding),
+        "member source stereochemistry binding differs from the refined ensemble",
+    )
+    for binding_key, source_key in (
+        ("atom_order", "canonical_atom_order_sha256"),
+        ("atom_mapping", "source_atom_map_sha256"),
+    ):
+        if binding_key in ensemble.species_binding:
+            _require(
+                member_source[source_key]
+                == _conformer_payload_sha256(ensemble.species_binding[binding_key]),
+                f"member source {binding_key} differs from the refined ensemble",
+            )
 
     _text(provenance["source_result_id"], "source Result ID")
     _sha256(provenance["source_result_payload_sha256"], "source Result payload SHA-256")
@@ -334,17 +370,31 @@ def _member_ids(ensemble: ConformerEnsemble) -> tuple[str, ...]:
     return tuple(identifiers)
 
 
-def _close_population(
-    ensemble: ConformerEnsemble,
+def _close_thermodynamic_conditions(
     thermodynamics: ThermodynamicEnsemble,
-) -> None:
-    observations = thermodynamics.member_observations
-    _require(type(observations) is tuple, "thermodynamic member observations must be an exact tuple")
+) -> tuple[float, float]:
     temperature = _finite(
         thermodynamics.temperature_k,
         "thermodynamic temperature",
         positive=True,
     )
+    _require(
+        thermodynamics.standard_state in {"1atm", "1M"},
+        "thermodynamic standard state is unsupported",
+    )
+    policy = thermodynamics.thermochemistry_policy
+    _require(
+        isinstance(policy, Mapping)
+        and "temperature_k" in policy
+        and "standard_state" in policy,
+        "thermochemistry policy lacks materialized conditions",
+    )
+    _require(
+        policy["temperature_k"] == thermodynamics.temperature_k
+        and policy["standard_state"] == thermodynamics.standard_state,
+        "thermochemistry policy conditions differ from the ensemble",
+    )
+
     gas_constant = _closed(
         thermodynamics.gas_constant_binding,
         _GAS_CONSTANT_KEYS,
@@ -354,17 +404,80 @@ def _close_population(
         gas_constant["unit_convention"] == "per_mole_hartree_kelvin",
         "gas constant unit convention is unsupported",
     )
-    for name in (
-        "gas_constant_j_per_mol_k",
-        "joule_per_hartree_mol",
-        "gas_constant_hartree_per_mol_k",
-    ):
-        _finite(gas_constant[name], f"gas constant binding {name}", positive=True)
+    gas_constant_j = _finite(
+        gas_constant["gas_constant_j_per_mol_k"],
+        "gas constant in joules per mole kelvin",
+        positive=True,
+    )
+    joule_per_hartree = _finite(
+        gas_constant["joule_per_hartree_mol"],
+        "joules per hartree mole",
+        positive=True,
+    )
     gas_constant_hartree = _finite(
         gas_constant["gas_constant_hartree_per_mol_k"],
         "gas constant in hartree per mole kelvin",
         positive=True,
     )
+    _require(
+        _within(gas_constant_j / joule_per_hartree, gas_constant_hartree),
+        "gas constant representations are inconsistent",
+    )
+
+    binding = thermodynamics.standard_state_binding
+    if thermodynamics.standard_state == "1atm":
+        standard = _closed(
+            binding,
+            {
+                "kind",
+                "pressure_kpa",
+                "temperature_k",
+                "conversion",
+                "concentration_mol_per_l",
+            },
+            "1atm standard-state binding",
+        )
+        _require(
+            standard["kind"] == "1atm"
+            and standard["temperature_k"] == thermodynamics.temperature_k
+            and standard["pressure_kpa"] == 101.325
+            and standard["conversion"] == "ideal_gas_c_equals_p_over_rt",
+            "1atm standard-state binding is inconsistent",
+        )
+        concentration = _finite(
+            standard["concentration_mol_per_l"],
+            "1atm concentration",
+            positive=True,
+        )
+        expected_concentration = 101.325 / (gas_constant_j * temperature)
+        _require(
+            _within(concentration, expected_concentration),
+            "1atm concentration does not follow p over RT",
+        )
+    else:
+        standard = _closed(
+            binding,
+            {"kind", "temperature_k", "conversion", "concentration_mol_per_l"},
+            "1M standard-state binding",
+        )
+        _require(
+            standard["kind"] == "1M"
+            and standard["temperature_k"] == thermodynamics.temperature_k
+            and standard["conversion"] == "exact_molar_concentration"
+            and standard["concentration_mol_per_l"] == 1.0,
+            "1M standard-state binding is inconsistent",
+        )
+    return temperature, gas_constant_hartree
+
+
+def _close_population(
+    ensemble: ConformerEnsemble,
+    thermodynamics: ThermodynamicEnsemble,
+    temperature: float,
+    gas_constant_hartree: float,
+) -> None:
+    observations = thermodynamics.member_observations
+    _require(type(observations) is tuple, "thermodynamic member observations must be an exact tuple")
     rt = gas_constant_hartree * temperature
     _require(math.isfinite(rt) and rt > 0.0, "thermodynamic RT must be finite and positive")
 
@@ -377,19 +490,38 @@ def _close_population(
         item = _closed(observation, _OBSERVATION_KEYS, "thermodynamic member observation")
         member_id = _text(item["member_id"], "thermodynamic member_id")
         observation_ids.append(member_id)
+        refined_members = tuple(
+            member for member in ensemble.members if member.get("member_id") == member_id
+        )
+        _require(
+            len(refined_members) == 1,
+            "thermodynamic member does not resolve exactly once in the refined ensemble",
+        )
+        minimum = refined_members[0].get("two_stage_minimum_authority")
+        _require(
+            isinstance(minimum, Mapping),
+            "refined member lacks two-stage minimum authority",
+        )
+        minimum_id = _text(
+            minimum.get("two_stage_minimum_authority_id"),
+            "refined member two-stage minimum authority ID",
+        )
         _require(
             item["source_refined_conformer_ensemble_id"] == ensemble.conformer_ensemble_id
             and item["source_refined_conformer_ensemble_revision"] == ensemble.revision,
             "thermodynamic member lineage does not bind the refined ensemble",
         )
-        _text(item["two_stage_minimum_authority_id"], "two-stage minimum authority ID")
+        _require(
+            item["two_stage_minimum_authority_id"] == minimum_id,
+            "thermodynamic observation names another two-stage minimum authority",
+        )
         _require(
             item["method_compatibility_id"] == thermodynamics.method_compatibility_id
             and item["method_compatibility_binding"]
             == thermodynamics.method_compatibility_binding,
             "thermodynamic member method lineage differs from the ensemble binding",
         )
-        _close_source_provenance(item["source_provenance"], member_id)
+        _close_source_provenance(item["source_provenance"], member_id, ensemble)
         _close_rrho(item["raw_rrho"], temperature, treated=False)
         treated_gibbs[member_id] = _close_rrho(
             item["treated_qrrho"],
@@ -612,6 +744,12 @@ def _validate_final_ensemble_integration(
         thermodynamics.method_compatibility_id,
         "thermochemistry method",
     )
-    _close_population(ensemble, thermodynamics)
+    temperature, gas_constant_hartree = _close_thermodynamic_conditions(thermodynamics)
+    _close_population(
+        ensemble,
+        thermodynamics,
+        temperature,
+        gas_constant_hartree,
+    )
 
     return ensemble, thermodynamics, ts_seeds

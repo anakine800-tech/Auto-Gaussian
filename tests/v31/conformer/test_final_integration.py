@@ -15,7 +15,11 @@ from auto_g16.conformer.final_integration import (
     _FinalIntegrationError,
     _validate_final_ensemble_integration,
 )
-from auto_g16.conformer.models import ConformerEnsemble, SamplingProfile
+from auto_g16.conformer.models import (
+    ConformerEnsemble,
+    SamplingProfile,
+    _payload_sha256 as _conformer_payload_sha256,
+)
 from auto_g16.thermochemistry.models import (
     ThermodynamicEnsemble,
     _identified_payload,
@@ -26,7 +30,11 @@ def _profile() -> SamplingProfile:
     return SamplingProfile._create(
         revision=1,
         supersedes_sampling_profile_id=None,
-        species_binding={"species_id": "species-1"},
+        species_binding={
+            "species_id": "species-1",
+            "atom_order": ("atom-1", "atom-2", "atom-3"),
+            "atom_mapping": (1, 2, 3),
+        },
         stereochemistry_binding={"stereochemistry_id": "stereo-1"},
         bond_change_policy="forbid",
         geometry_legality_policy={"finite_coordinates": True},
@@ -54,6 +62,9 @@ def _conformer(
             "coordinates_sha256": character * 64,
             "post_dft_status": "validated_minimum",
             "relevance_tags": ("ts_seed",) if member_id in ts_seed_members else (),
+            "two_stage_minimum_authority": {
+                "two_stage_minimum_authority_id": f"minimum-{member_id}",
+            },
         }
         for member_id, character in (("member-a", "a"), ("member-b", "b"), ("member-c", "c"))
     )
@@ -81,8 +92,16 @@ def _conformer(
     )
 
 
-def _source_provenance(member_id: str) -> dict[str, object]:
+def _source_provenance(
+    member_id: str,
+    ensemble: ConformerEnsemble,
+) -> dict[str, object]:
     character = {"member-a": "a", "member-b": "b", "member-c": "c"}[member_id]
+    historical_geometry_character = {
+        "member-a": "d",
+        "member-b": "e",
+        "member-c": "f",
+    }[member_id]
     predecessor_id = "conformer-ensemble-predecessor"
     predecessor_sha = "9" * 64
     source_artifact = {
@@ -99,15 +118,23 @@ def _source_provenance(member_id: str) -> dict[str, object]:
             "member_source": {
                 "conformer_ensemble_id": predecessor_id,
                 "conformer_ensemble_payload_sha256": predecessor_sha,
-                "sampling_profile_id": "sampling-profile-predecessor",
-                "sampling_profile_payload_sha256": "1" * 64,
+                "sampling_profile_id": ensemble.sampling_profile_id,
+                "sampling_profile_payload_sha256": ensemble.sampling_profile_payload_sha256,
                 "member_id": member_id,
-                "member_payload_sha256": character * 64,
-                "canonical_atom_order_sha256": "2" * 64,
-                "source_atom_map_sha256": "3" * 64,
-                "source_geometry_sha256": character * 64,
-                "species_binding_sha256": "4" * 64,
-                "stereochemistry_binding_sha256": "5" * 64,
+                "member_payload_sha256": "7" * 64,
+                "canonical_atom_order_sha256": _conformer_payload_sha256(
+                    ensemble.species_binding["atom_order"]
+                ),
+                "source_atom_map_sha256": _conformer_payload_sha256(
+                    ensemble.species_binding["atom_mapping"]
+                ),
+                "source_geometry_sha256": historical_geometry_character * 64,
+                "species_binding_sha256": _conformer_payload_sha256(
+                    ensemble.species_binding
+                ),
+                "stereochemistry_binding_sha256": _conformer_payload_sha256(
+                    ensemble.stereochemistry_binding
+                ),
             },
         },
         "source_result_id": f"result-{member_id}",
@@ -149,6 +176,7 @@ def _thermodynamic(
     *,
     temperature_k: float = 298.15,
     policy_name: str = "explicit-policy-a",
+    standard_state: str = "1M",
 ) -> ThermodynamicEnsemble:
     gas_constant_hartree = 3.166811563e-6
     reference_gibbs = -100.0
@@ -164,7 +192,11 @@ def _thermodynamic(
     scaled_partition = math.fsum(math.exp(value - log_scale) for value in log_weights)
     log_partition = log_scale + math.log(scaled_partition)
     populations = tuple(math.exp(value - log_partition) for value in log_weights)
-    policy = {"name": policy_name, "temperature_k": temperature_k, "standard_state": "1M"}
+    policy = {
+        "name": policy_name,
+        "temperature_k": temperature_k,
+        "standard_state": standard_state,
+    }
     policy_id, policy_hash = _identified_payload("thermochemistry-policy", policy)
     implementation = {"adapter": "qualified-functional-kernel", "version": 2}
     implementation_id, _implementation_hash = _identified_payload(
@@ -180,9 +212,9 @@ def _thermodynamic(
             "two_stage_minimum_authority_id": f"minimum-{member_id}",
             "method_compatibility_id": method_id,
             "method_compatibility_binding": method,
-            "source_provenance": _source_provenance(member_id),
+            "source_provenance": _source_provenance(member_id, ensemble),
             "temperature_k": temperature_k,
-            "standard_state": "1M",
+            "standard_state": standard_state,
             "raw_rrho": _rrho(gibbs - 0.001, temperature_k, treated=False),
             "treated_qrrho": _rrho(gibbs, temperature_k, treated=True),
             "degeneracy": 1,
@@ -203,14 +235,29 @@ def _thermodynamic(
         )
     )
     population_sum = math.fsum(populations)
+    if standard_state == "1atm":
+        standard_state_binding = {
+            "kind": "1atm",
+            "pressure_kpa": 101.325,
+            "temperature_k": temperature_k,
+            "conversion": "ideal_gas_c_equals_p_over_rt",
+            "concentration_mol_per_l": 101.325 / (8.31446261815324 * temperature_k),
+        }
+    else:
+        standard_state_binding = {
+            "kind": "1M",
+            "temperature_k": temperature_k,
+            "conversion": "exact_molar_concentration",
+            "concentration_mol_per_l": 1.0,
+        }
     return ThermodynamicEnsemble._create(
         conformer_ensemble_id=ensemble.conformer_ensemble_id,
         conformer_ensemble_payload_sha256=ensemble.payload_sha256,
         conformer_ensemble_revision=ensemble.revision,
         source_member_ids=ensemble.thermodynamic_eligible_members,
         temperature_k=temperature_k,
-        standard_state="1M",
-        standard_state_binding={"kind": "1M", "temperature_k": temperature_k},
+        standard_state=standard_state,
+        standard_state_binding=standard_state_binding,
         gas_constant_binding={
             "gas_constant_j_per_mol_k": 8.31446261815324,
             "joule_per_hartree_mol": 2625499.6394799,
@@ -320,6 +367,35 @@ def _replace_observation(
         for item in source.member_observations
     )
     return _clone_thermodynamic(source, member_observations=observations)
+
+
+def _replace_provenance(
+    source: ThermodynamicEnsemble,
+    member_id: str,
+    transform: object,
+) -> ThermodynamicEnsemble:
+    assert callable(transform)
+
+    def replace(item: dict[str, object]) -> dict[str, object]:
+        return {
+            **item,
+            "source_provenance": transform(dict(item["source_provenance"])),
+        }
+
+    return _replace_observation(source, member_id, replace)
+
+
+def _replace_policy(
+    source: ThermodynamicEnsemble,
+    policy: dict[str, object],
+) -> ThermodynamicEnsemble:
+    policy_id, policy_sha = _identified_payload("thermochemistry-policy", policy)
+    return _clone_thermodynamic(
+        source,
+        thermochemistry_policy=policy,
+        thermochemistry_policy_id=policy_id,
+        thermochemistry_policy_payload_sha256=policy_sha,
+    )
 
 
 class FinalEnsembleIntegrationTests(unittest.TestCase):
@@ -668,6 +744,195 @@ if loaded:
             text=True,
         )
         self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+
+    def test_member_minimum_and_predecessor_are_cross_record_bound(self) -> None:
+        wrong_minimum = _replace_observation(
+            self.thermodynamic,
+            "member-a",
+            lambda item: {
+                **item,
+                "two_stage_minimum_authority_id": "minimum-member-b",
+            },
+        )
+        self.assert_rejected(self.refined, wrong_minimum)
+
+        def replace_predecessor(
+            provenance: dict[str, object],
+            *,
+            outer_id: str | None = None,
+            outer_sha: str | None = None,
+            member_updates: dict[str, object] | None = None,
+        ) -> dict[str, object]:
+            predecessor = dict(provenance["predecessor_lineage"])
+            member_source = dict(predecessor["member_source"])
+            if outer_id is not None:
+                predecessor["conformer_ensemble_id"] = outer_id
+            if outer_sha is not None:
+                predecessor["conformer_ensemble_payload_sha256"] = outer_sha
+            member_source.update(member_updates or {})
+            predecessor["member_source"] = member_source
+            return {**provenance, "predecessor_lineage": predecessor}
+
+        internally_consistent_other_predecessor = _replace_provenance(
+            self.thermodynamic,
+            "member-a",
+            lambda provenance: replace_predecessor(
+                provenance,
+                outer_id="another-predecessor",
+                member_updates={"conformer_ensemble_id": "another-predecessor"},
+            ),
+        )
+        self.assert_rejected(self.refined, internally_consistent_other_predecessor)
+
+        nested_id_splice = _replace_provenance(
+            self.thermodynamic,
+            "member-a",
+            lambda provenance: replace_predecessor(
+                provenance,
+                member_updates={"conformer_ensemble_id": "nested-predecessor"},
+            ),
+        )
+        self.assert_rejected(self.refined, nested_id_splice)
+
+        nested_sha_splice = _replace_provenance(
+            self.thermodynamic,
+            "member-a",
+            lambda provenance: replace_predecessor(
+                provenance,
+                member_updates={"conformer_ensemble_payload_sha256": "8" * 64},
+            ),
+        )
+        self.assert_rejected(self.refined, nested_sha_splice)
+
+    def test_profile_species_stereo_and_member_source_cross_bindings_reject_splices(self) -> None:
+        def replace_member_source(
+            provenance: dict[str, object],
+            **updates: object,
+        ) -> dict[str, object]:
+            predecessor = dict(provenance["predecessor_lineage"])
+            predecessor["member_source"] = {
+                **predecessor["member_source"],
+                **updates,
+            }
+            return {**provenance, "predecessor_lineage": predecessor}
+
+        attacks = (
+            {"sampling_profile_id": "sampling-profile-splice"},
+            {"sampling_profile_payload_sha256": "8" * 64},
+            {"species_binding_sha256": "8" * 64},
+            {"stereochemistry_binding_sha256": "8" * 64},
+            {"canonical_atom_order_sha256": "8" * 64},
+            {"source_atom_map_sha256": "8" * 64},
+            {"member_id": "member-b"},
+        )
+        for attack in attacks:
+            with self.subTest(attack=attack):
+                forged = _replace_provenance(
+                    self.thermodynamic,
+                    "member-a",
+                    lambda provenance, attack=attack: replace_member_source(
+                        provenance,
+                        **attack,
+                    ),
+                )
+                self.assert_rejected(self.refined, forged)
+
+    def test_historical_predecessor_geometry_is_not_compared_to_refined_geometry(self) -> None:
+        source = self.thermodynamic.member_observations[0]["source_provenance"][
+            "predecessor_lineage"
+        ]["member_source"]
+        refined_member = self.refined.members[0]
+        self.assertNotEqual(
+            source["source_geometry_sha256"],
+            refined_member["coordinates_sha256"],
+        )
+        result = _validate_final_ensemble_integration(self.refined, self.thermodynamic)
+        self.assertIs(result[0], self.refined)
+
+    def test_gas_constant_representations_must_agree(self) -> None:
+        for replacement in (
+            {
+                **self.thermodynamic.gas_constant_binding,
+                "gas_constant_hartree_per_mol_k": 0.001,
+            },
+            {
+                **self.thermodynamic.gas_constant_binding,
+                "joule_per_hartree_mol": 456.0,
+            },
+        ):
+            with self.subTest(replacement=replacement):
+                self.assert_rejected(
+                    self.refined,
+                    _clone_thermodynamic(
+                        self.thermodynamic,
+                        gas_constant_binding=replacement,
+                    ),
+                )
+
+    def test_policy_identity_and_top_level_conditions_are_closed(self) -> None:
+        policy = dict(self.thermodynamic.thermochemistry_policy)
+        for changed in (
+            {**policy, "temperature_k": 777.0},
+            {**policy, "standard_state": "1atm"},
+        ):
+            with self.subTest(changed=changed):
+                self.assert_rejected(
+                    self.refined,
+                    _replace_policy(self.thermodynamic, changed),
+                )
+
+        other_policy = {**policy, "name": "another-policy"}
+        other_id, other_sha = _identified_payload("thermochemistry-policy", other_policy)
+        self.assert_rejected(
+            self.refined,
+            _clone_thermodynamic(
+                self.thermodynamic,
+                thermochemistry_policy_id=other_id,
+                thermochemistry_policy_payload_sha256=other_sha,
+            ),
+        )
+
+    def test_one_atmosphere_standard_state_binding_is_formula_closed(self) -> None:
+        one_atmosphere = _thermodynamic(self.refined, standard_state="1atm")
+        result = _validate_final_ensemble_integration(self.refined, one_atmosphere)
+        self.assertIs(result[1], one_atmosphere)
+        binding = one_atmosphere.standard_state_binding
+        attacks = (
+            {**binding, "temperature_k": 310.0},
+            {**binding, "pressure_kpa": 100.0},
+            {**binding, "concentration_mol_per_l": 0.5},
+            {**binding, "conversion": "forged-conversion"},
+            {
+                "kind": "1M",
+                "temperature_k": one_atmosphere.temperature_k,
+                "conversion": "exact_molar_concentration",
+                "concentration_mol_per_l": 1.0,
+            },
+        )
+        for attack in attacks:
+            with self.subTest(attack=attack):
+                self.assert_rejected(
+                    self.refined,
+                    _clone_thermodynamic(
+                        one_atmosphere,
+                        standard_state_binding=attack,
+                    ),
+                )
+
+    def test_one_molar_standard_state_binding_is_closed(self) -> None:
+        binding = self.thermodynamic.standard_state_binding
+        for attack in (
+            {**binding, "concentration_mol_per_l": 0.99},
+            {**binding, "temperature_k": 310.0},
+        ):
+            with self.subTest(attack=attack):
+                self.assert_rejected(
+                    self.refined,
+                    _clone_thermodynamic(
+                        self.thermodynamic,
+                        standard_state_binding=attack,
+                    ),
+                )
 
     def test_coverage_and_fragment_adequacy_are_preserved_without_promotion(self) -> None:
         refined = _clone_conformer(
