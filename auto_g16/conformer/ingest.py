@@ -12,6 +12,11 @@ from auto_g16.core import SQLiteRuntimeStore
 from auto_g16.execution import ExecutionValueError
 from auto_g16.execution._identity import semantic_id, semantic_sha256
 from auto_g16.execution.program import ProgramExecutionSnapshot, ProgramExecutionSpec
+from auto_g16.execution.xtb_crest_handoff import (
+    _XtbCrestSeedHandoff,
+    _assert_xtb_crest_seed_handoff_destination,
+)
+from auto_g16.transport import program as _transport
 
 from .models import ConformerError, SamplingProfile, _freeze, _payload_sha256
 from .service import _assert_crest_program_execution_alignment
@@ -28,13 +33,19 @@ _CREST_HARTREE_TO_KCAL_PER_MOL = Decimal("627.509541")
 _ENERGY = re.compile(r"-?(?:0|[1-9][0-9]*)\.[0-9]{8}")
 _COORDINATE = re.compile(r"-?(?:0|[1-9][0-9]*)\.[0-9]{10}")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
-_CREST_SAMPLING_PLAN_SCHEMA = "v31-crest-sampling-plan/1"
-_CREST_SAMPLING_PLAN_FIELDS = {
+_CREST_SAMPLING_PLAN_V1_SCHEMA = "v31-crest-sampling-plan/1"
+_CREST_SAMPLING_PLAN_V1_FIELDS = {
     "schema",
     "sampling_profile_id",
     "sampling_profile_payload_sha256",
     "program_execution_spec_id",
     "program_execution_spec_payload_sha256",
+}
+_CREST_SAMPLING_PLAN_V2_SCHEMA = "v31-crest-sampling-plan/2"
+_CREST_SAMPLING_PLAN_V2_FIELDS = {
+    *_CREST_SAMPLING_PLAN_V1_FIELDS,
+    "preoptimization_handoff_authority_id",
+    "preoptimization_handoff_payload_sha256",
 }
 
 
@@ -154,6 +165,11 @@ def _close_sampling_authority(
     profile: SamplingProfile,
     snapshot: ProgramExecutionSnapshot,
     core_store: SQLiteRuntimeStore,
+    preoptimization_handoff: _XtbCrestSeedHandoff | None,
+    xtb_program_execution_snapshot: ProgramExecutionSnapshot | None = None,
+    xtb_program_transport_store: _transport._ProgramTransportStore | None = None,
+    xtb_validation_driver: _transport._ProgramEffectDriver | None = None,
+    xtb_output_capture: _transport._ProgramOutputCapture | None = None,
 ) -> tuple[ProgramExecutionSpec, Mapping[str, object]]:
     _require(type(profile) is SamplingProfile, "profile must be an exact SamplingProfile")
     _require(
@@ -197,11 +213,52 @@ def _close_sampling_authority(
         "persisted CalculationPlan revision differs from snapshot",
     )
     intent = plan.intent
-    _require(
-        set(intent) == _CREST_SAMPLING_PLAN_FIELDS
-        and intent["schema"] == _CREST_SAMPLING_PLAN_SCHEMA,
-        "persisted CalculationPlan intent is not the closed CREST sampling contract",
-    )
+    if preoptimization_handoff is None:
+        _require(
+            set(intent) == _CREST_SAMPLING_PLAN_V1_FIELDS
+            and intent["schema"] == _CREST_SAMPLING_PLAN_V1_SCHEMA,
+            "persisted CalculationPlan intent is not the closed CREST sampling contract v1",
+        )
+    else:
+        _require(
+            type(preoptimization_handoff) is _XtbCrestSeedHandoff,
+            "preoptimization_handoff must be exact",
+        )
+        _require(
+            set(intent) == _CREST_SAMPLING_PLAN_V2_FIELDS
+            and intent["schema"] == _CREST_SAMPLING_PLAN_V2_SCHEMA,
+            "persisted CalculationPlan intent is not the closed CREST sampling contract v2",
+        )
+        _require(
+            xtb_program_execution_snapshot is not None
+            and xtb_program_transport_store is not None
+            and xtb_validation_driver is not None
+            and xtb_output_capture is not None,
+            "preoptimized CREST ingestion requires exact runtime capture context",
+        )
+        try:
+            _assert_xtb_crest_seed_handoff_destination(
+                preoptimization_handoff,
+                sampling_profile=profile,
+                crest_program_execution_spec=spec,
+                crest_program_execution_snapshot=snapshot,
+                xtb_core_store=core_store,
+                xtb_program_execution_snapshot=xtb_program_execution_snapshot,
+                xtb_program_transport_store=xtb_program_transport_store,
+                xtb_validation_driver=xtb_validation_driver,
+                xtb_output_capture=xtb_output_capture,
+            )
+        except ExecutionValueError as exc:
+            raise ConformerError(
+                f"xTB to CREST preoptimization handoff is not closed: {exc}"
+            ) from exc
+        _require(
+            intent["preoptimization_handoff_authority_id"]
+            == preoptimization_handoff.handoff_authority_id
+            and intent["preoptimization_handoff_payload_sha256"]
+            == preoptimization_handoff.payload_sha256,
+            "persisted CalculationPlan binds a different preoptimization handoff",
+        )
     _require(
         intent["sampling_profile_id"] == profile.sampling_profile_id
         and intent["sampling_profile_payload_sha256"] == profile_payload_sha256,
@@ -217,6 +274,53 @@ def _close_sampling_authority(
     except ExecutionValueError as exc:
         raise ConformerError(f"CREST execution specification is not identity-closed: {exc}") from exc
     return spec, _exact_output_declaration(spec)
+
+
+def _preoptimized_crest_sampling_plan_intent(
+    *,
+    profile: SamplingProfile,
+    program_execution_spec: ProgramExecutionSpec,
+    preoptimization_handoff: _XtbCrestSeedHandoff,
+) -> Mapping[str, object]:
+    """Build the exact private v2 CalculationPlan intent for preoptimized CREST."""
+
+    _require(type(profile) is SamplingProfile, "profile must be an exact SamplingProfile")
+    _require(
+        type(program_execution_spec) is ProgramExecutionSpec,
+        "program_execution_spec must be exact",
+    )
+    try:
+        _assert_xtb_crest_seed_handoff_destination(
+            preoptimization_handoff,
+            sampling_profile=profile,
+            crest_program_execution_spec=program_execution_spec,
+        )
+    except ExecutionValueError as exc:
+        raise ConformerError(
+            f"xTB to CREST preoptimization handoff is not closed: {exc}"
+        ) from exc
+    value = _freeze(
+        {
+            "schema": _CREST_SAMPLING_PLAN_V2_SCHEMA,
+            "sampling_profile_id": profile.sampling_profile_id,
+            "sampling_profile_payload_sha256": profile.payload_sha256,
+            "program_execution_spec_id": (
+                program_execution_spec.program_execution_spec_id
+            ),
+            "program_execution_spec_payload_sha256": semantic_sha256(
+                program_execution_spec.semantic_payload()
+            ),
+            "preoptimization_handoff_authority_id": (
+                preoptimization_handoff.handoff_authority_id
+            ),
+            "preoptimization_handoff_payload_sha256": (
+                preoptimization_handoff.payload_sha256
+            ),
+        },
+        "preoptimized CREST sampling plan intent",
+    )
+    assert isinstance(value, Mapping)
+    return value
 
 
 def _parse_crest_frames(
@@ -287,7 +391,7 @@ def _parse_crest_frames(
     return tuple(frames)
 
 
-def _ingest_crest_conformers_xyz(
+def _ingest_crest_conformers_xyz_common(
     *,
     profile: SamplingProfile,
     program_execution_snapshot: ProgramExecutionSnapshot,
@@ -296,6 +400,11 @@ def _ingest_crest_conformers_xyz(
     artifact_bytes: bytes,
     descriptors_by_member_index: Mapping[int, Mapping[str, object]] | None,
     relevance_tags_by_member_index: Mapping[int, Sequence[str]] | None = None,
+    preoptimization_handoff: _XtbCrestSeedHandoff | None,
+    xtb_program_execution_snapshot: ProgramExecutionSnapshot | None = None,
+    xtb_program_transport_store: _transport._ProgramTransportStore | None = None,
+    xtb_validation_driver: _transport._ProgramEffectDriver | None = None,
+    xtb_output_capture: _transport._ProgramOutputCapture | None = None,
 ) -> tuple[Mapping[str, object], ...]:
     """Translate one exact CREST 3.0.2 ensemble artifact into closed observations."""
 
@@ -303,6 +412,11 @@ def _ingest_crest_conformers_xyz(
         profile=profile,
         snapshot=program_execution_snapshot,
         core_store=core_store,
+        preoptimization_handoff=preoptimization_handoff,
+        xtb_program_execution_snapshot=xtb_program_execution_snapshot,
+        xtb_program_transport_store=xtb_program_transport_store,
+        xtb_validation_driver=xtb_validation_driver,
+        xtb_output_capture=xtb_output_capture,
     )
     _require(
         type(artifact_binding) is _CrestOutputArtifactBinding,
@@ -431,3 +545,60 @@ def _ingest_crest_conformers_xyz(
         assert isinstance(frozen, Mapping)
         observations.append(frozen)
     return tuple(observations)
+
+
+def _ingest_crest_conformers_xyz(
+    *,
+    profile: SamplingProfile,
+    program_execution_snapshot: ProgramExecutionSnapshot,
+    core_store: SQLiteRuntimeStore,
+    artifact_binding: _CrestOutputArtifactBinding,
+    artifact_bytes: bytes,
+    descriptors_by_member_index: Mapping[int, Mapping[str, object]] | None,
+    relevance_tags_by_member_index: Mapping[int, Sequence[str]] | None = None,
+) -> tuple[Mapping[str, object], ...]:
+    """Preserve the historical v1 CREST ingest semantics without xTB authority."""
+
+    return _ingest_crest_conformers_xyz_common(
+        profile=profile,
+        program_execution_snapshot=program_execution_snapshot,
+        core_store=core_store,
+        artifact_binding=artifact_binding,
+        artifact_bytes=artifact_bytes,
+        descriptors_by_member_index=descriptors_by_member_index,
+        relevance_tags_by_member_index=relevance_tags_by_member_index,
+        preoptimization_handoff=None,
+    )
+
+
+def _ingest_preoptimized_crest_conformers_xyz(
+    *,
+    profile: SamplingProfile,
+    program_execution_snapshot: ProgramExecutionSnapshot,
+    core_store: SQLiteRuntimeStore,
+    preoptimization_handoff: _XtbCrestSeedHandoff,
+    xtb_program_execution_snapshot: ProgramExecutionSnapshot,
+    xtb_program_transport_store: _transport._ProgramTransportStore,
+    xtb_validation_driver: _transport._ProgramEffectDriver,
+    xtb_output_capture: _transport._ProgramOutputCapture,
+    artifact_binding: _CrestOutputArtifactBinding,
+    artifact_bytes: bytes,
+    descriptors_by_member_index: Mapping[int, Mapping[str, object]] | None,
+    relevance_tags_by_member_index: Mapping[int, Sequence[str]] | None = None,
+) -> tuple[Mapping[str, object], ...]:
+    """Ingest CREST output only after the private preoptimization chain closes."""
+
+    return _ingest_crest_conformers_xyz_common(
+        profile=profile,
+        program_execution_snapshot=program_execution_snapshot,
+        core_store=core_store,
+        artifact_binding=artifact_binding,
+        artifact_bytes=artifact_bytes,
+        descriptors_by_member_index=descriptors_by_member_index,
+        relevance_tags_by_member_index=relevance_tags_by_member_index,
+        preoptimization_handoff=preoptimization_handoff,
+        xtb_program_execution_snapshot=xtb_program_execution_snapshot,
+        xtb_program_transport_store=xtb_program_transport_store,
+        xtb_validation_driver=xtb_validation_driver,
+        xtb_output_capture=xtb_output_capture,
+    )

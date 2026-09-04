@@ -804,6 +804,246 @@ def _job_authority(
     )
 
 
+def _assert_program_output_capture_authority(
+    store: SQLiteRuntimeStore,
+    *,
+    snapshot: ProgramExecutionSnapshot,
+    program_transport_store: _transport._ProgramTransportStore,
+    driver: _transport._ProgramEffectDriver,
+    capture: _transport._ProgramOutputCapture,
+) -> Mapping[str, object]:
+    """Re-attest one capture from persisted Core and physical-effect authority."""
+
+    if type(store) is not SQLiteRuntimeStore:
+        raise TransportBoundaryError(
+            "capture re-attestation requires the exact Core store"
+        )
+    if type(capture) is not _transport._ProgramOutputCapture:
+        raise TransportBoundaryError(
+            "capture re-attestation requires the exact output capture type"
+        )
+    closed_driver = _transport._require_driver(driver)
+    expected_job = _job_authority(
+        store, snapshot, program_transport_store, closed_driver
+    )
+    current_binding = _snapshot_binding(
+        snapshot, program_transport_store, closed_driver
+    )
+    receipts = _load_receipts(
+        store, snapshot, program_transport_store, current_binding
+    )
+    expected_job_id = str(expected_job["job_authority_id"])
+    if (
+        capture.program_execution_snapshot_id
+        != snapshot.program_execution_snapshot_id
+        or capture.effect_intent_id != snapshot.effect_intent_id
+        or capture.job_authority_id != expected_job_id
+    ):
+        raise TransportBoundaryError(
+            "output capture differs from the exact execution snapshot or replayed job authority"
+        )
+    if type(capture.artifacts) is not tuple:
+        raise TransportBoundaryError("output capture artifacts must be an exact tuple")
+
+    declared = tuple(
+        (item, True) for item in snapshot.program_execution_spec.required_outputs
+    ) + tuple(
+        (item, False) for item in snapshot.program_execution_spec.optional_outputs
+    )
+    declared_keys = tuple(
+        (
+            str(item["logical_role"]),
+            str(item["portable_name"]),
+            str(item["format"]),
+        )
+        for item, _required in declared
+    )
+    if (
+        len(declared_keys) != len(set(declared_keys))
+        or len(capture.artifacts) != len(declared)
+    ):
+        raise TransportBoundaryError(
+            "output capture does not have one artifact per unique declaration"
+        )
+
+    seen_declarations: set[tuple[str, str, str]] = set()
+    seen_fetch_receipts: set[str] = set()
+    for artifact in capture.artifacts:
+        if type(artifact) is not _transport._ProgramOutputArtifact:
+            raise TransportBoundaryError(
+                "output capture contains a non-canonical artifact"
+            )
+        key = (
+            _transport._text(artifact.logical_role, "captured output logical role"),
+            _transport._portable(
+                artifact.portable_name, "captured output portable name"
+            ),
+            _transport._text(artifact.format, "captured output format"),
+        )
+        declaration = _declared_output(
+            snapshot,
+            {
+                "logical_role": key[0],
+                "portable_name": key[1],
+                "format": key[2],
+            },
+        )
+        if key in seen_declarations:
+            raise TransportBoundaryError("output capture repeats a declaration")
+        seen_declarations.add(key)
+        required = any(
+            item is declaration and is_required
+            for item, is_required in declared
+        )
+        if (
+            artifact.program_execution_snapshot_id
+            != snapshot.program_execution_snapshot_id
+            or artifact.effect_intent_id != snapshot.effect_intent_id
+            or artifact.job_authority_id != expected_job_id
+        ):
+            raise TransportBoundaryError(
+                "captured artifact differs from replayed snapshot or job authority"
+            )
+        if artifact.presence not in {"present", "absent"}:
+            raise TransportBoundaryError(
+                "captured artifact presence is outside the closed set"
+            )
+
+        matching_stats = tuple(
+            receipt
+            for receipt in receipts
+            if receipt.data["operation"] == "STAT_EXACT_FILE"
+            and receipt.data["outcome"] == "SUCCEEDED"
+            and isinstance(receipt.data["request"], Mapping)
+            and isinstance(receipt.data["request"].get("payload"), Mapping)
+            and all(
+                receipt.data["request"]["payload"].get(name)
+                == declaration[name]
+                for name in ("logical_role", "portable_name", "format")
+            )
+        )
+        if len(matching_stats) != 1:
+            raise TransportBoundaryError(
+                "captured artifact requires one exact persisted STAT authority"
+            )
+        stat_receipt = matching_stats[0]
+        stat_response, announced_size = _transport._stat_response(
+            stat_receipt.data["response"],
+            name=str(declaration["portable_name"]),
+            max_size_bytes=int(declaration["max_size_bytes"]),
+        )
+
+        if artifact.presence == "absent":
+            if (
+                required
+                or announced_size is not None
+                or artifact.sha256 is not None
+                or artifact.size_bytes is not None
+                or artifact.fetch_receipt_id is not None
+                or artifact.content is not None
+            ):
+                raise TransportBoundaryError(
+                    "only an optional output with exact absent STAT authority may be absent"
+                )
+            continue
+
+        if announced_size is None:
+            raise TransportBoundaryError(
+                "present captured artifact has an absent STAT authority"
+            )
+        if (
+            not isinstance(artifact.sha256, str)
+            or _transport._SHA256.fullmatch(artifact.sha256) is None
+            or isinstance(artifact.size_bytes, bool)
+            or not isinstance(artifact.size_bytes, int)
+            or artifact.size_bytes < 0
+            or type(artifact.content) is not bytes
+            or not isinstance(artifact.fetch_receipt_id, str)
+            or not artifact.fetch_receipt_id
+            or artifact.fetch_receipt_id in seen_fetch_receipts
+        ):
+            raise TransportBoundaryError(
+                "present captured artifact authority is malformed"
+            )
+        seen_fetch_receipts.add(artifact.fetch_receipt_id)
+        content = artifact.content
+        assert isinstance(content, bytes)
+        if (
+            len(content) != artifact.size_bytes
+            or sha256(content).hexdigest() != artifact.sha256
+            or artifact.size_bytes != announced_size
+        ):
+            raise TransportBoundaryError(
+                "captured output bytes differ from their exact authority"
+            )
+        matching_fetches = tuple(
+            receipt
+            for receipt in receipts
+            if receipt.observation_id == artifact.fetch_receipt_id
+            and receipt.data["operation"] == "FETCH_EXACT_FILE"
+            and receipt.data["outcome"] == "SUCCEEDED"
+        )
+        if len(matching_fetches) != 1:
+            raise TransportBoundaryError(
+                "captured output requires its exact successful FETCH receipt"
+            )
+        fetch_receipt = matching_fetches[0]
+        fetch_index = receipts.index(fetch_receipt)
+        if stat_receipt not in receipts[:fetch_index]:
+            raise TransportBoundaryError(
+                "captured FETCH authority lacks its exact preceding STAT"
+            )
+        fetch_request = fetch_receipt.data["request"]
+        if not isinstance(fetch_request, Mapping) or not isinstance(
+            fetch_request.get("payload"), Mapping
+        ):
+            raise TransportBoundaryError("persisted FETCH request is malformed")
+        fetch_payload = fetch_request["payload"]
+        fetch_binding = fetch_request.get("binding")
+        if not isinstance(fetch_binding, Mapping) or (
+            fetch_binding.get("job_authority_id") != expected_job_id
+            or fetch_payload.get("logical_role") != declaration["logical_role"]
+            or fetch_payload.get("portable_name") != declaration["portable_name"]
+            or fetch_payload.get("format") != declaration["format"]
+            or fetch_payload.get("stat_receipt_id")
+            != stat_receipt.observation_id
+        ):
+            raise TransportBoundaryError(
+                "persisted FETCH request differs from captured output authority"
+            )
+        fetch_response = _transport._exact_keys(
+            fetch_receipt.data["response"],
+            {"portable_name", "sha256", "size_bytes", "file_physical_token"},
+            "persisted fetch response",
+        )
+        if (
+            fetch_response["portable_name"] != artifact.portable_name
+            or fetch_response["sha256"] != artifact.sha256
+            or fetch_response["size_bytes"] != artifact.size_bytes
+            or fetch_response["file_physical_token"]
+            != stat_response["file_physical_token"]
+        ):
+            raise TransportBoundaryError(
+                "captured output differs from persisted FETCH authority"
+            )
+
+    if seen_declarations != set(declared_keys):
+        raise TransportBoundaryError(
+            "output capture is missing a declared output artifact"
+        )
+    payload = {
+        "program_execution_snapshot_id": capture.program_execution_snapshot_id,
+        "effect_intent_id": capture.effect_intent_id,
+        "job_authority_id": capture.job_authority_id,
+        "artifacts": tuple(item.identity_payload() for item in capture.artifacts),
+    }
+    if capture.capture_authority_id != _transport._identity(
+        "output-capture", payload
+    ):
+        raise TransportBoundaryError("output capture authority self-identity is stale")
+    return expected_job
+
+
 @dataclass(frozen=True, slots=True)
 class _ProgramExecutionResult:
     claim: SubmissionIntentClaim
