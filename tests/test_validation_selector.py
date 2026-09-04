@@ -145,6 +145,15 @@ THERMOCHEMISTRY_TESTS = [
     "tests.v31.conformer",
     "tests.v31.thermochemistry",
 ]
+V31_OFFLINE_E2E_TESTS = [
+    "tests.test_scientific_closure_lineage",
+    "tests.v3.core.test_store",
+    "tests.v3.execution.test_v31_lane_a",
+    "tests.v31.conformer",
+    "tests.v31.integration",
+    "tests.v31.thermochemistry",
+    "tests.v31.transport.test_program_composition",
+]
 
 
 def change(status: str, *paths: str) -> dict[str, object]:
@@ -1313,6 +1322,51 @@ class ValidationSelectorTests(unittest.TestCase):
         )
         self.assertEqual(forward["safety_evidence"], [])
         self.assertFalse(forward["fail_closed"])
+
+    def test_v31_offline_e2e_route_is_exact_and_adversarially_bounded(self) -> None:
+        for path in (
+            "tests/v31/integration/test_v31_offline_end_to_end.py",
+            "tests/v31/integration/__init__.py",
+        ):
+            with self.subTest(path=path):
+                decision = self.select(change("A", path))
+                self.assertEqual(decision["matched_routes"], ["v31-offline-e2e"])
+                self.assertEqual(decision["lane"], "affected")
+                self.assertEqual(decision["tests"], V31_OFFLINE_E2E_TESTS)
+                self.assertEqual(decision["safety_evidence"], [])
+                self.assertFalse(decision["fail_closed"])
+
+        existing_owners = (
+            (
+                "tests/v31/conformer/test_x.py",
+                "v31-conformer",
+                CONFORMER_TESTS,
+            ),
+            (
+                "tests/v31/thermochemistry/test_x.py",
+                "v31-thermochemistry",
+                THERMOCHEMISTRY_TESTS,
+            ),
+        )
+        for path, route, selected_tests in existing_owners:
+            with self.subTest(path=path):
+                decision = self.select(change("A", path))
+                self.assertEqual(decision["matched_routes"], [route])
+                self.assertEqual(decision["lane"], "affected")
+                self.assertEqual(decision["tests"], selected_tests)
+                self.assertFalse(decision["fail_closed"])
+
+        for path in (
+            "tests/v31/unknown_future_surface/test_x.py",
+            "tests/v31/integration_extra/test_x.py",
+            "tests/v31/future/test_x.py",
+        ):
+            with self.subTest(path=path):
+                decision = self.select(change("A", path))
+                self.assertEqual(decision["matched_routes"], [])
+                self.assertEqual(decision["lane"], "legacy-release")
+                self.assertEqual(decision["tests"], [])
+                self.assertTrue(decision["fail_closed"])
 
     def test_v31_routes_never_weaken_unmapped_or_self_protection(self) -> None:
         owners = (

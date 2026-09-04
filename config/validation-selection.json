@@ -365,6 +365,25 @@
       "fail_closed": false
     },
     {
+      "id": "v31-offline-e2e",
+      "exact_paths": [],
+      "prefixes": [
+        "tests/v31/integration/"
+      ],
+      "lane": "affected",
+      "tests": [
+        "tests.test_scientific_closure_lineage",
+        "tests.v3.core.test_store",
+        "tests.v3.execution.test_v31_lane_a",
+        "tests.v31.conformer",
+        "tests.v31.integration",
+        "tests.v31.thermochemistry",
+        "tests.v31.transport.test_program_composition"
+      ],
+      "required_safety": [],
+      "fail_closed": false
+    },
+    {
       "id": "legacy-touch",
       "exact_paths": [],
       "prefixes": [
