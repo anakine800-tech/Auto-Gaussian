@@ -154,6 +154,14 @@ V31_OFFLINE_E2E_TESTS = [
     "tests.v31.thermochemistry",
     "tests.v31.transport.test_program_composition",
 ]
+CI_OFFLINE_WORKFLOW_TESTS = [
+    "tests.test_audit_ci_contract",
+    "tests.test_audit_python_contract",
+    "tests.test_release_hygiene",
+    "tests.test_test_runner",
+    "tests.test_validation_selector",
+    "tests.v31.thermochemistry",
+]
 
 
 def change(status: str, *paths: str) -> dict[str, object]:
@@ -357,8 +365,8 @@ class ValidationSelectorTests(unittest.TestCase):
             (
                 ".github/workflows/offline-tests.yml",
                 WORKFLOW.read_text(encoding="utf-8") + "\n# control-plane candidate\n",
-                "legacy-release",
-                True,
+                "affected",
+                False,
             ),
             ("unmapped/new_surface.py", "unknown\n", "legacy-release", True),
         )
@@ -449,7 +457,7 @@ class ValidationSelectorTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(metadata, {"lane": "legacy-release", "authoritative": "false"})
 
-    def test_pull_request_requires_authority_but_accepts_canonical_fail_closed(self) -> None:
+    def test_pull_request_requires_authority_and_accepts_canonical_selection(self) -> None:
         script = workflow_route_scripts()[0]
         with tempfile.TemporaryDirectory() as temporary, tempfile.TemporaryDirectory() as runner_temp:
             root = Path(temporary)
@@ -529,10 +537,12 @@ class ValidationSelectorTests(unittest.TestCase):
                 head=fail_closed_head,
             )
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(metadata["lane"], "legacy-release")
+            self.assertEqual(metadata["lane"], "affected")
             self.assertEqual(metadata["authoritative"], "true")
             selection = json.loads(Path(metadata["selection"]).read_text(encoding="utf-8"))
-            self.assertTrue(selection["fail_closed"])
+            self.assertEqual(selection["matched_routes"], ["ci-offline-workflow"])
+            self.assertEqual(selection["tests"], CI_OFFLINE_WORKFLOW_TESTS)
+            self.assertFalse(selection["fail_closed"])
 
     def test_selection_or_artifact_closure_failure_falls_back_to_full(self) -> None:
         script = workflow_route_scripts()[0]
@@ -1388,6 +1398,20 @@ class ValidationSelectorTests(unittest.TestCase):
                     self.assertEqual(decision["lane"], "legacy-release")
                     self.assertTrue(decision["fail_closed"])
                     self.assertEqual(decision["tests"], [])
+
+    def test_ci_offline_workflow_route_is_exact_and_fail_closed_elsewhere(self) -> None:
+        decision = self.select(change("M", ".github/workflows/offline-tests.yml"))
+        self.assertEqual(decision["matched_routes"], ["ci-offline-workflow"])
+        self.assertEqual(decision["lane"], "affected")
+        self.assertEqual(decision["tests"], CI_OFFLINE_WORKFLOW_TESTS)
+        self.assertEqual(decision["safety_evidence"], [])
+        self.assertFalse(decision["fail_closed"])
+
+        future = self.select(change("A", ".github/workflows/future-unowned.yml"))
+        self.assertEqual(future["matched_routes"], [])
+        self.assertEqual(future["lane"], "legacy-release")
+        self.assertEqual(future["tests"], [])
+        self.assertTrue(future["fail_closed"])
 
     def test_future_review_route_does_not_require_current_package(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
