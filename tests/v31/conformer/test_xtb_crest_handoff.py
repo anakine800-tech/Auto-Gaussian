@@ -10,6 +10,8 @@ import unittest
 
 import auto_g16.core as core
 import auto_g16.execution as execution
+import auto_g16.execution.program_runtime as program_runtime
+import auto_g16.transport.program as program_transport
 from auto_g16.conformer.ingest import (
     _CrestOutputArtifactBinding,
     _ingest_crest_conformers_xyz,
@@ -17,14 +19,17 @@ from auto_g16.conformer.ingest import (
     _preoptimized_crest_sampling_plan_intent,
 )
 from auto_g16.conformer.models import ConformerError, _payload_sha256
+from auto_g16.execution._identity import freeze_mapping, semantic_id, semantic_sha256
 from auto_g16.execution.program import (
     _ProgramExecutionSnapshotService,
     _prepare_program_execution_spec,
 )
 from auto_g16.execution.program_runtime import (
     _assert_program_output_capture_authority,
+    _assert_program_terminal_success_authority,
     _capture_program_outputs,
     _execute_program_once,
+    _query_program_scheduler,
 )
 from auto_g16.execution.project_provisioning import (
     _ProjectProvisioningService,
@@ -227,6 +232,10 @@ class XtbCrestSeedHandoffTests(LaneAFixture):
         spec: execution.ProgramExecutionSpec | None = None,
         attempt_id: str = "attempt-1",
         outputs: Mapping[str, bytes] | None = None,
+        scheduler_states: tuple[str, ...] = ("running", "terminal"),
+        scheduler_job_id: str = "123.server",
+        attempt_state: core.AttemptState = core.AttemptState.SUCCEEDED,
+        capture_before_scheduler: bool = False,
     ) -> tuple[execution.ProgramExecutionSnapshot, _ProgramOutputCapture]:
         selected_spec = self.xtb_spec() if spec is None else spec
         snapshot = self.xtb_snapshot(selected_spec, attempt_id=attempt_id)
@@ -250,13 +259,192 @@ class XtbCrestSeedHandoffTests(LaneAFixture):
             },
             driver=driver,
         )
-        capture = _capture_program_outputs(
+        capture = None
+        if capture_before_scheduler:
+            capture = _capture_program_outputs(
+                self.store,
+                snapshot=snapshot,
+                program_transport_store=self.program_transport_store,
+                driver=driver,
+            )
+        for scheduler_state in scheduler_states:
+            if scheduler_state == "unknown":
+                driver.raise_operation = (
+                    "QUERY_SCHEDULER",
+                    RuntimeError("synthetic ambiguous scheduler read"),
+                )
+            else:
+                driver.raise_operation = None
+                driver.query_response = {
+                    "job_id": scheduler_job_id,
+                    "state": scheduler_state,
+                }
+            _query_program_scheduler(
+                self.store,
+                snapshot=snapshot,
+                program_transport_store=self.program_transport_store,
+                driver=driver,
+            )
+        driver.raise_operation = None
+        if attempt_state is not core.AttemptState.SUBMITTED:
+            self.store.advance_attempt(snapshot.attempt_id, attempt_state)
+        if capture is None:
+            capture = _capture_program_outputs(
+                self.store,
+                snapshot=snapshot,
+                program_transport_store=self.program_transport_store,
+                driver=driver,
+            )
+        return snapshot, capture
+
+    def capture_with_preterminal_stat(
+        self,
+    ) -> tuple[execution.ProgramExecutionSnapshot, _ProgramOutputCapture]:
+        """Build the old-valid STAT -> terminal -> FETCH splice."""
+
+        snapshot = self.xtb_snapshot(self.xtb_spec())
+        scheduler = snapshot.scheduler_artifacts[0]
+        driver = _Driver(outputs={"xtb.out": b"normal xtb\n", "xtbopt.xyz": SEED})
+        _execute_program_once(
             self.store,
             snapshot=snapshot,
             program_transport_store=self.program_transport_store,
+            input_bytes={"input.xyz": SEED},
+            scheduler_artifact_bytes={
+                str(scheduler["portable_name"]): str(
+                    scheduler["content_utf8"]
+                ).encode("utf-8")
+            },
             driver=driver,
         )
-        return snapshot, capture
+        base = program_runtime._snapshot_binding(
+            snapshot, self.program_transport_store, driver
+        )
+        job = program_runtime._job_authority(
+            self.store, snapshot, self.program_transport_store, driver
+        )
+        declarations = (
+            *snapshot.program_execution_spec.required_outputs,
+            *snapshot.program_execution_spec.optional_outputs,
+        )
+        optimized = next(
+            item for item in declarations if item["portable_name"] == "xtbopt.xyz"
+        )
+        ordered_declarations = (
+            optimized,
+            *(item for item in declarations if item is not optimized),
+        )
+        artifacts_by_name: dict[str, program_transport._ProgramOutputArtifact] = {}
+        self.store.advance_attempt(snapshot.attempt_id, core.AttemptState.RUNNING)
+        for index, declaration in enumerate(ordered_declarations):
+            name = str(declaration["portable_name"])
+            stat_request = program_transport._stat_request(
+                base,
+                job_authority_id=str(job["job_authority_id"]),
+                declaration=declaration,
+            )
+            stat_response, announced_size = program_transport._stat_response(
+                driver.stat_exact_file(stat_request),
+                name=name,
+                max_size_bytes=int(declaration["max_size_bytes"]),
+            )
+            self.assertIsNotNone(announced_size)
+            assert announced_size is not None
+            token = str(stat_response["file_physical_token"])
+            self.program_transport_store.record_effect(
+                binding=stat_request["binding"],
+                request=stat_request,
+                classification="SUCCEEDED",
+                response=stat_response,
+            )
+            stat_receipt = program_runtime._append_receipt(
+                self.store,
+                snapshot,
+                program_transport_store=self.program_transport_store,
+                current_binding=base,
+                operation="STAT_EXACT_FILE",
+                request=stat_request,
+                outcome="SUCCEEDED",
+                response=stat_response,
+            )
+            if index == 0:
+                driver.query_response = {"job_id": "123.server", "state": "terminal"}
+                _query_program_scheduler(
+                    self.store,
+                    snapshot=snapshot,
+                    program_transport_store=self.program_transport_store,
+                    driver=driver,
+                )
+                self.store.advance_attempt(
+                    snapshot.attempt_id, core.AttemptState.SUCCEEDED
+                )
+            fetch_request = program_transport._fetch_request(
+                base,
+                job_authority_id=str(job["job_authority_id"]),
+                declaration=declaration,
+                announced_size=announced_size,
+                file_physical_token=token,
+                stat_receipt_id=stat_receipt.observation_id,
+            )
+            _fetch, content, digest, size = program_transport._fetch_response(
+                driver.fetch_exact_file(fetch_request),
+                name=name,
+                token=token,
+                announced_size=announced_size,
+                max_size_bytes=int(declaration["max_size_bytes"]),
+            )
+            fetch_response = {
+                "portable_name": name,
+                "sha256": digest,
+                "size_bytes": size,
+                "file_physical_token": token,
+            }
+            self.program_transport_store.record_effect(
+                binding=fetch_request["binding"],
+                request=fetch_request,
+                classification="SUCCEEDED",
+                response=fetch_response,
+            )
+            fetch_receipt = program_runtime._append_receipt(
+                self.store,
+                snapshot,
+                program_transport_store=self.program_transport_store,
+                current_binding=base,
+                operation="FETCH_EXACT_FILE",
+                request=fetch_request,
+                outcome="SUCCEEDED",
+                response=fetch_response,
+            )
+            artifacts_by_name[name] = program_transport._ProgramOutputArtifact(
+                str(declaration["logical_role"]),
+                name,
+                str(declaration["format"]),
+                "present",
+                digest,
+                size,
+                snapshot.program_execution_snapshot_id,
+                snapshot.effect_intent_id,
+                str(job["job_authority_id"]),
+                fetch_receipt.observation_id,
+                content,
+            )
+        artifacts = tuple(
+            artifacts_by_name[str(declaration["portable_name"])]
+            for declaration in declarations
+        )
+        payload = {
+            "program_execution_snapshot_id": snapshot.program_execution_snapshot_id,
+            "effect_intent_id": snapshot.effect_intent_id,
+            "job_authority_id": job["job_authority_id"],
+            "artifacts": tuple(item.identity_payload() for item in artifacts),
+        }
+        return snapshot, program_transport._ProgramOutputCapture(
+            _identity("output-capture", payload),
+            snapshot.program_execution_snapshot_id,
+            snapshot.effect_intent_id,
+            str(job["job_authority_id"]),
+            artifacts,
+        )
 
     @staticmethod
     def recapture(
@@ -520,7 +708,205 @@ class XtbCrestSeedHandoffTests(LaneAFixture):
             capture=capture,
         )
         self.assertEqual(recovered["job_authority_id"], capture.job_authority_id)
+        terminal = _assert_program_terminal_success_authority(
+            self.store,
+            snapshot=snapshot,
+            program_transport_store=self.program_transport_store,
+            driver=driver,
+            capture=capture,
+        )
+        self.assertEqual(terminal["job_authority_id"], capture.job_authority_id)
+        self.assertTrue(terminal["program_terminal_success_authority_id"])
         self.assertEqual(driver.effect_calls, 0)
+
+    def test_capture_under_non_succeeded_core_state_rejects(self) -> None:
+        for index, state in enumerate(
+            (
+                core.AttemptState.SUBMITTED,
+                core.AttemptState.RUNNING,
+                core.AttemptState.FAILED,
+            ),
+            2,
+        ):
+            snapshot, capture = self.capture_xtb(
+                attempt_id=f"attempt-{index}",
+                scheduler_states=("terminal",),
+                attempt_state=state,
+            )
+            with self.subTest(state=state.value), self.assertRaisesRegex(
+                execution.ExecutionValueError, "Core SUCCEEDED"
+            ):
+                self.handoff(snapshot, capture)
+
+    def test_succeeded_without_terminal_scheduler_receipt_rejects(self) -> None:
+        snapshot, capture = self.capture_xtb(scheduler_states=())
+        with self.assertRaisesRegex(
+            execution.ExecutionValueError, "pre-capture scheduler receipt"
+        ):
+            self.handoff(snapshot, capture)
+
+    def test_latest_precapture_running_or_unknown_rejects(self) -> None:
+        for index, state in enumerate(("running", "unknown"), 2):
+            snapshot, capture = self.capture_xtb(
+                attempt_id=f"attempt-{index}",
+                scheduler_states=("terminal", state),
+            )
+            with self.subTest(state=state), self.assertRaisesRegex(
+                execution.ExecutionValueError,
+                "last pre-capture scheduler receipt",
+            ):
+                self.handoff(snapshot, capture)
+
+    def test_capture_before_terminal_scheduler_receipt_rejects(self) -> None:
+        snapshot, capture = self.capture_xtb(
+            scheduler_states=("terminal",),
+            capture_before_scheduler=True,
+        )
+        with self.assertRaisesRegex(
+            execution.ExecutionValueError, "pre-capture scheduler receipt"
+        ):
+            self.handoff(snapshot, capture)
+
+    def test_terminal_response_for_other_job_id_rejects(self) -> None:
+        snapshot, capture = self.capture_xtb(
+            scheduler_states=("terminal",),
+            scheduler_job_id="999.server",
+        )
+        with self.assertRaisesRegex(
+            execution.ExecutionValueError, "last pre-capture scheduler receipt"
+        ):
+            self.handoff(snapshot, capture)
+
+    def test_preterminal_stat_then_terminal_then_fetch_rejects(self) -> None:
+        snapshot, capture = self.capture_with_preterminal_stat()
+        driver = _NoEffectValidationDriver(_Driver().runtime_qualification)
+        recovered = _assert_program_output_capture_authority(
+            self.store,
+            snapshot=snapshot,
+            program_transport_store=self.program_transport_store,
+            driver=driver,
+            capture=capture,
+        )
+        self.assertEqual(recovered["job_authority_id"], capture.job_authority_id)
+        with self.assertRaisesRegex(
+            TransportBoundaryError, "pre-capture scheduler receipt"
+        ):
+            _assert_program_terminal_success_authority(
+                self.store,
+                snapshot=snapshot,
+                program_transport_store=self.program_transport_store,
+                driver=driver,
+                capture=capture,
+            )
+        self.assertEqual(driver.effect_calls, 0)
+
+    def test_forged_terminal_receipt_with_recomputed_identity_rejects(self) -> None:
+        snapshot, capture = self.capture_xtb(scheduler_states=("running",))
+        store = self.submitted_core_without_receipts(snapshot)
+        forged = False
+        for receipt in self.store.observations_for_attempt(snapshot.attempt_id):
+            if (
+                receipt.observation_type == program_transport._RECEIPT_TYPE
+                and receipt.data["operation"] == "QUERY_SCHEDULER"
+            ):
+                payload = dict(receipt.data)
+                request = dict(payload["request"])
+                request_payload = dict(request["payload"])
+                request_payload["job_id"] = "999.server"
+                request["payload"] = request_payload
+                response = dict(payload["response"])
+                response["job_id"] = "999.server"
+                response["state"] = "terminal"
+                payload["request"] = request
+                payload["request_sha256"] = program_transport._digest(request)
+                payload["response"] = response
+                receipt = core.Observation(
+                    observation_id=_identity("effect-receipt", payload),
+                    attempt_id=receipt.attempt_id,
+                    observation_type=receipt.observation_type,
+                    data=payload,
+                )
+                forged = True
+            store.append_observation(receipt)
+        self.assertTrue(forged)
+        store.advance_attempt(snapshot.attempt_id, core.AttemptState.SUCCEEDED)
+        with self.assertRaisesRegex(
+            execution.ExecutionValueError, "does not re-close"
+        ):
+            self.handoff(snapshot, capture, core_store=store)
+
+    def test_missing_physical_terminal_effect_rejects(self) -> None:
+        snapshot, capture = self.capture_xtb()
+        trigger_name, trigger_sql = next(
+            item
+            for item in _PROGRAM_STORE_TRIGGERS
+            if item[0] == "program_effect_physical_authority_no_delete"
+        )
+        connection = self.program_transport_store._connection
+        connection.execute("BEGIN IMMEDIATE")
+        try:
+            connection.execute(f'DROP TRIGGER "{trigger_name}"')
+            deleted = connection.execute(
+                "DELETE FROM program_effect_physical_authority "
+                "WHERE physical_effect_authority_id IN "
+                "(SELECT physical_effect_authority_id "
+                "FROM program_effect_physical_authority "
+                "WHERE operation='QUERY_SCHEDULER' ORDER BY rowid DESC LIMIT 1)"
+            ).rowcount
+            connection.execute(trigger_sql)
+            connection.execute("COMMIT")
+        except Exception:
+            connection.execute("ROLLBACK")
+            raise
+        self.assertEqual(deleted, 1)
+        with self.assertRaisesRegex(
+            execution.ExecutionValueError, "physical-effect authority"
+        ):
+            self.handoff(snapshot, capture)
+
+    def test_rehashed_handoff_terminal_success_authority_splice_rejects(self) -> None:
+        xtb_snapshot, capture = self.capture_xtb()
+        profile = self.profile()
+        crest_spec = self.crest_spec(profile)
+        handoff = self.handoff(
+            xtb_snapshot,
+            capture,
+            profile=profile,
+            crest_spec=crest_spec,
+        )
+        payload = freeze_mapping(
+            {
+                **dict(handoff._identity_payload),
+                "xtb_program_terminal_success_authority_id": "forged-authority",
+            },
+            "forged handoff payload",
+        )
+        for name, value in payload.items():
+            object.__setattr__(handoff, name, value)
+        object.__setattr__(handoff, "_identity_payload", payload)
+        object.__setattr__(
+            handoff,
+            "handoff_authority_id",
+            semantic_id("xtb-crest-seed-handoff", payload),
+        )
+        object.__setattr__(handoff, "payload_sha256", semantic_sha256(payload))
+        handoff.assert_identity_closed()
+        crest_snapshot = self.crest_snapshot(
+            profile=profile,
+            spec=crest_spec,
+            handoff=handoff,
+        )
+        with self.assertRaisesRegex(
+            ConformerError, "runtime-attested xTB capture"
+        ):
+            self.ingest(
+                profile=profile,
+                spec=crest_spec,
+                handoff=handoff,
+                snapshot=crest_snapshot,
+                xtb_snapshot=xtb_snapshot,
+                xtb_capture=capture,
+            )
 
     def test_missing_persisted_submit_receipt_rejects(self) -> None:
         snapshot, capture = self.capture_xtb()

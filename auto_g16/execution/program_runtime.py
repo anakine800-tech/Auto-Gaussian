@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from hashlib import sha256
+from types import MappingProxyType
 
 from auto_g16.core import (
     AttemptState,
@@ -1042,6 +1043,145 @@ def _assert_program_output_capture_authority(
     ):
         raise TransportBoundaryError("output capture authority self-identity is stale")
     return expected_job
+
+
+def _assert_program_terminal_success_authority(
+    store: SQLiteRuntimeStore,
+    *,
+    snapshot: ProgramExecutionSnapshot,
+    program_transport_store: _transport._ProgramTransportStore,
+    driver: _transport._ProgramEffectDriver,
+    capture: _transport._ProgramOutputCapture,
+) -> Mapping[str, object]:
+    """Re-attest terminal program success before promoting captured outputs."""
+
+    expected_job = _assert_program_output_capture_authority(
+        store,
+        snapshot=snapshot,
+        program_transport_store=program_transport_store,
+        driver=driver,
+        capture=capture,
+    )
+    if store.attempt_state(snapshot.attempt_id) is not AttemptState.SUCCEEDED:
+        raise TransportBoundaryError(
+            "program terminal-success authority requires Core SUCCEEDED"
+        )
+
+    closed_driver = _transport._require_driver(driver)
+    current_binding = _snapshot_binding(
+        snapshot, program_transport_store, closed_driver
+    )
+    receipts = _load_receipts(
+        store, snapshot, program_transport_store, current_binding
+    )
+    expected_job_authority_id = str(expected_job["job_authority_id"])
+    evidence_indexes: list[int] = []
+    for artifact in capture.artifacts:
+        stat_receipt_id: object | None = None
+        if artifact.presence == "present":
+            matching_fetches = tuple(
+                (index, receipt)
+                for index, receipt in enumerate(receipts)
+                if receipt.observation_id == artifact.fetch_receipt_id
+                and receipt.data["operation"] == "FETCH_EXACT_FILE"
+                and receipt.data["outcome"] == "SUCCEEDED"
+            )
+            if len(matching_fetches) != 1:
+                raise TransportBoundaryError(
+                    "terminal-success ordering requires the exact capture FETCH receipt"
+            )
+            fetch_index, fetch_receipt = matching_fetches[0]
+            fetch_request = fetch_receipt.data["request"]
+            fetch_payload = (
+                fetch_request.get("payload")
+                if isinstance(fetch_request, Mapping)
+                else None
+            )
+            if not isinstance(fetch_payload, Mapping):
+                raise TransportBoundaryError(
+                    "terminal-success capture FETCH request is malformed"
+                )
+            stat_receipt_id = fetch_payload.get("stat_receipt_id")
+            evidence_indexes.append(fetch_index)
+        matching_stats = tuple(
+            (index, receipt)
+            for index, receipt in enumerate(receipts)
+            if receipt.data["operation"] == "STAT_EXACT_FILE"
+            and receipt.data["outcome"] == "SUCCEEDED"
+            and (
+                stat_receipt_id is None
+                or receipt.observation_id == stat_receipt_id
+            )
+            and isinstance(receipt.data["request"], Mapping)
+            and isinstance(receipt.data["request"].get("payload"), Mapping)
+            and all(
+                receipt.data["request"]["payload"].get(name)
+                == getattr(artifact, name)
+                for name in ("logical_role", "portable_name", "format")
+            )
+        )
+        if len(matching_stats) != 1:
+            raise TransportBoundaryError(
+                "terminal-success ordering requires one exact capture STAT receipt"
+            )
+        stat_index, _stat_receipt = matching_stats[0]
+        evidence_indexes.append(stat_index)
+
+    if not evidence_indexes:
+        raise TransportBoundaryError(
+            "program terminal-success authority requires capture observation evidence"
+        )
+    capture_boundary = min(evidence_indexes)
+    scheduler_receipts = tuple(
+        (index, receipt)
+        for index, receipt in enumerate(receipts[:capture_boundary])
+        if receipt.data["operation"] == "QUERY_SCHEDULER"
+    )
+    if not scheduler_receipts:
+        raise TransportBoundaryError(
+            "program terminal-success authority requires a pre-capture scheduler receipt"
+        )
+    terminal_index, terminal_receipt = scheduler_receipts[-1]
+    terminal_response = terminal_receipt.data["response"]
+    if not isinstance(terminal_response, Mapping):
+        raise TransportBoundaryError("terminal scheduler response is malformed")
+    if (
+        terminal_receipt.data["outcome"] != "SUCCEEDED"
+        or terminal_response.get("job_id") != expected_job["job_id"]
+        or terminal_response.get("state") != "terminal"
+    ):
+        raise TransportBoundaryError(
+            "last pre-capture scheduler receipt is not exact terminal evidence"
+        )
+    if any(index <= terminal_index for index in evidence_indexes):
+        raise TransportBoundaryError(
+            "all capture STAT and FETCH evidence must follow terminal scheduler evidence"
+        )
+
+    payload = {
+        "schema": "program-terminal-success-authority/1",
+        "program_execution_snapshot_id": snapshot.program_execution_snapshot_id,
+        "effect_intent_id": snapshot.effect_intent_id,
+        "attempt_id": snapshot.attempt_id,
+        "job_authority_id": expected_job_authority_id,
+        "job_id": expected_job["job_id"],
+        "terminal_scheduler_receipt_id": terminal_receipt.observation_id,
+        "terminal_scheduler_state": "terminal",
+        "core_attempt_state": AttemptState.SUCCEEDED.value,
+        "program_transport_store_id": expected_job["program_transport_store_id"],
+        "store_instance_id": expected_job["store_instance_id"],
+        "runtime_attestation_id": expected_job["runtime_attestation_id"],
+        "resolved_server_profile_id": expected_job["resolved_server_profile_id"],
+        "remote_workspace": expected_job["remote_workspace"],
+    }
+    return MappingProxyType(
+        {
+            **payload,
+            "program_terminal_success_authority_id": _transport._identity(
+                "program-terminal-success-authority", payload
+            ),
+        }
+    )
 
 
 @dataclass(frozen=True, slots=True)

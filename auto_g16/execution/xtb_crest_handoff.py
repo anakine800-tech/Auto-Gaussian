@@ -20,7 +20,7 @@ from ._identity import (
     semantic_sha256,
 )
 from .program import ProgramExecutionSnapshot, ProgramExecutionSpec
-from .program_runtime import _assert_program_output_capture_authority
+from .program_runtime import _assert_program_terminal_success_authority
 
 
 _HANDOFF_SCHEMA = "v31-xtb-crest-seed-handoff/1"
@@ -36,6 +36,7 @@ _HANDOFF_PAYLOAD_FIELDS = {
     "xtb_program_execution_spec_payload_sha256",
     "xtb_output_capture_authority_id",
     "xtb_job_authority_id",
+    "xtb_program_terminal_success_authority_id",
     "xtb_project_physical_binding_id",
     "xtb_project_id",
     "optimized_geometry_logical_role",
@@ -244,6 +245,7 @@ class _XtbCrestSeedHandoff:
     xtb_program_execution_spec_payload_sha256: str
     xtb_output_capture_authority_id: str
     xtb_job_authority_id: str
+    xtb_program_terminal_success_authority_id: str
     xtb_project_physical_binding_id: str
     xtb_project_id: str
     optimized_geometry_logical_role: str
@@ -281,6 +283,7 @@ class _XtbCrestSeedHandoff:
             "xtb_program_execution_spec_id",
             "xtb_output_capture_authority_id",
             "xtb_job_authority_id",
+            "xtb_program_terminal_success_authority_id",
             "xtb_project_physical_binding_id",
             "xtb_project_id",
             "crest_program_execution_spec_id",
@@ -337,7 +340,7 @@ def _build_xtb_crest_seed_handoff(
     """Close exact captured xTB geometry bytes to one CREST v2 seed input."""
 
     try:
-        _assert_program_output_capture_authority(
+        terminal_success = _assert_program_terminal_success_authority(
             core_store,
             snapshot=xtb_program_execution_snapshot,
             program_transport_store=xtb_program_transport_store,
@@ -438,6 +441,9 @@ def _build_xtb_crest_seed_handoff(
             ),
             "xtb_output_capture_authority_id": xtb_output_capture.capture_authority_id,
             "xtb_job_authority_id": xtb_output_capture.job_authority_id,
+            "xtb_program_terminal_success_authority_id": terminal_success[
+                "program_terminal_success_authority_id"
+            ],
             "xtb_project_physical_binding_id": (
                 xtb_program_execution_snapshot.project_physical_binding_id
             ),
@@ -543,7 +549,7 @@ def _assert_xtb_crest_seed_handoff_destination(
         assert xtb_validation_driver is not None
         assert xtb_output_capture is not None
         try:
-            _assert_program_output_capture_authority(
+            terminal_success = _assert_program_terminal_success_authority(
                 xtb_core_store,
                 snapshot=xtb_program_execution_snapshot,
                 program_transport_store=xtb_program_transport_store,
@@ -572,6 +578,8 @@ def _assert_xtb_crest_seed_handoff_destination(
             == xtb_output_capture.capture_authority_id
             and handoff.xtb_job_authority_id
             == xtb_output_capture.job_authority_id
+            and handoff.xtb_program_terminal_success_authority_id
+            == terminal_success["program_terminal_success_authority_id"]
             and handoff.xtb_project_physical_binding_id
             == xtb_program_execution_snapshot.project_physical_binding_id
             and handoff.xtb_project_id
