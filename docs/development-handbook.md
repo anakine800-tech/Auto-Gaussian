@@ -40,6 +40,15 @@ The normal mapping is one-to-one:
 3. that worktree = one unique short-lived `codex/<purpose>` branch;
 4. that branch = one PR and one review/integration decision.
 
+For BUS-managed development, bind **1 Control Issue + 1 Codex task + 1
+worktree + 1 `codex/` branch + 0/1 PR + 1 integration disposition**. Subject
+to repository contracts and Owner authority, the latest valid CTRL is the
+Executor's mutation authority. EXEC is execution evidence, not authority for
+another mutation; REVIEW PASS is evidence, not merge authority; and a FIX
+requires a new CTRL. Chat history is not canonical project state: the Control
+Issue remains the control ledger, while the PR remains the diff and evidence
+surface.
+
 An independently testable subtask receives its own task/worktree/branch. A
 small related follow-up remains in the original feature context. Do not reuse
 one branch in active worktrees, switch a shared checkout to simulate
