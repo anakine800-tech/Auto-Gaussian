@@ -384,6 +384,24 @@
       "fail_closed": false
     },
     {
+      "id": "ci-offline-workflow",
+      "exact_paths": [
+        ".github/workflows/offline-tests.yml"
+      ],
+      "prefixes": [],
+      "lane": "affected",
+      "tests": [
+        "tests.test_audit_ci_contract",
+        "tests.test_audit_python_contract",
+        "tests.test_validation_selector",
+        "tests.test_test_runner",
+        "tests.test_release_hygiene",
+        "tests.v31.thermochemistry"
+      ],
+      "required_safety": [],
+      "fail_closed": false
+    },
+    {
       "id": "legacy-touch",
       "exact_paths": [],
       "prefixes": [
