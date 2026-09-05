@@ -1413,6 +1413,75 @@ class ValidationSelectorTests(unittest.TestCase):
         self.assertEqual(future["tests"], [])
         self.assertTrue(future["fail_closed"])
 
+    def test_ci_python_contract_route_is_exact_and_fail_closed_elsewhere(self) -> None:
+        decision = self.select(change("M", "scripts/audit_python_contract.py"))
+        self.assertEqual(decision["matched_routes"], ["ci-python-contract"])
+        self.assertEqual(decision["lane"], "affected")
+        self.assertEqual(
+            decision["tests"],
+            [
+                "tests.test_audit_ci_contract",
+                "tests.test_audit_python_contract",
+                "tests.test_release_hygiene",
+            ],
+        )
+        self.assertEqual(decision["safety_evidence"], [])
+        self.assertFalse(decision["fail_closed"])
+
+        for path in (
+            "scripts/audit_future_contract.py",
+            "scripts/audit_python_contract.py.extra",
+            "scripts/audit_python_contract_extra.py",
+        ):
+            with self.subTest(path=path):
+                future = self.select(change("A", path))
+                self.assertEqual(future["matched_routes"], [])
+                self.assertEqual(future["lane"], "legacy-release")
+                self.assertEqual(future["tests"], [])
+                self.assertTrue(future["fail_closed"])
+
+    def test_ci_python_contract_tests_retain_legacy_ownership(self) -> None:
+        regression = change("M", "tests/test_audit_python_contract.py")
+        decision = self.select(regression)
+        self.assertEqual(decision["matched_routes"], ["legacy-touch"])
+        self.assertEqual(decision["lane"], "legacy-release")
+        self.assertEqual(decision["tests"], [])
+        self.assertFalse(decision["fail_closed"])
+
+        changes = (
+            change("M", ".github/workflows/offline-tests.yml"),
+            change("M", "scripts/audit_python_contract.py"),
+            regression,
+        )
+        forward = self.select(*changes)
+        reverse = self.select(*reversed(changes))
+        for field in (
+            "changed_paths",
+            "matched_routes",
+            "lane",
+            "tests",
+            "safety_evidence",
+            "fail_closed",
+        ):
+            self.assertEqual(forward[field], reverse[field])
+        self.assertEqual(
+            forward["matched_routes"],
+            ["ci-offline-workflow", "ci-python-contract", "legacy-touch"],
+        )
+        self.assertEqual(forward["lane"], "legacy-release")
+        self.assertEqual(forward["tests"], [])
+        self.assertFalse(forward["fail_closed"])
+
+    def test_ci_python_contract_route_keeps_selector_self_protection(self) -> None:
+        owner = change("M", "scripts/audit_python_contract.py")
+        for path in self.manifest["self_protecting_paths"]:
+            with self.subTest(path=path):
+                decision = self.select(owner, change("M", path))
+                self.assertEqual(decision["matched_routes"], [])
+                self.assertEqual(decision["lane"], "legacy-release")
+                self.assertEqual(decision["tests"], [])
+                self.assertTrue(decision["fail_closed"])
+
     def test_future_review_route_does_not_require_current_package(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

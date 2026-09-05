@@ -402,6 +402,21 @@
       "fail_closed": false
     },
     {
+      "id": "ci-python-contract",
+      "exact_paths": [
+        "scripts/audit_python_contract.py"
+      ],
+      "prefixes": [],
+      "lane": "affected",
+      "tests": [
+        "tests.test_audit_python_contract",
+        "tests.test_audit_ci_contract",
+        "tests.test_release_hygiene"
+      ],
+      "required_safety": [],
+      "fail_closed": false
+    },
+    {
       "id": "legacy-touch",
       "exact_paths": [],
       "prefixes": [
