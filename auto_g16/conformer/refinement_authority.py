@@ -69,6 +69,11 @@ def _require(condition: bool, message: str) -> None:
         raise RefinementAuthorityError(message)
 
 
+def _parse_outcome_payload_sha256(result: ParseOutcome) -> str:
+    """Hash the canonical Result payload; its derived identity binds separately."""
+    return _payload_sha256(result.payload())
+
+
 def _text(value: object, name: str) -> str:
     _require(isinstance(value, str) and bool(value) and value == value.strip(), f"{name} must be canonical text")
     return value
@@ -422,6 +427,7 @@ def _negative_common_payload(
     method_id: str,
     review: ReviewBundle,
     parsed: Mapping[str, object],
+    parse_outcome: ParseOutcome,
     source_artifact: Mapping[str, object] | None,
 ) -> dict[str, object]:
     envelope = review.output_envelope
@@ -443,7 +449,7 @@ def _negative_common_payload(
         },
         "result": {
             "result_id": parsed["result_id"],
-            "result_payload_sha256": _payload_sha256(parsed),
+            "result_payload_sha256": _parse_outcome_payload_sha256(parse_outcome),
             "attempt_id": parsed["attempt_id"],
             "envelope_observation_id": parsed["envelope_observation_id"],
             "parser": {
@@ -559,7 +565,7 @@ def validate_optimization_geometry_authority(
         )
     )
     _coordinates_from_geometry(geometry, ensemble.species_binding["elements"])
-    result = {"result_id": parsed["result_id"], "result_payload_sha256": _payload_sha256(parsed), "source_artifact": source, "job_section": facts["job_section"], "accepted_optimization_span": outcome["accepted_optimization_span"], "accepted_stationary_span": outcome["accepted_stationary_span"]}
+    result = {"result_id": parsed["result_id"], "result_payload_sha256": _parse_outcome_payload_sha256(parse_outcome), "source_artifact": source, "job_section": facts["job_section"], "accepted_optimization_span": outcome["accepted_optimization_span"], "accepted_stationary_span": outcome["accepted_stationary_span"]}
     payload = {"authority_schema": "v31-conformer-optimization-geometry-authority/1", "source": _source(ensemble, member), "method_id": method_id, "calculation_plan": {"calculation_plan_id": calculation_plan.calculation_plan_id, "revision": calculation_plan.revision, "intent_sha256": _payload_sha256(calculation_plan.intent)}, "prepared_input": prepared_input_binding.semantic_payload(), "result": result, "selected_geometry": geometry, "recovered_atom_map": recovered, "v30_outcome": {"minimum_validation_outcome_id": outcome["minimum_validation_outcome_id"], "classification": "INCOMPLETE", "reason_code": "incomplete-mode-count"}}
     identity = _authority_id("v31-opt-geometry-authority", payload)
     return _freeze_mapping({**payload, "optimization_geometry_authority_id": identity}, "optimization_geometry_authority")
@@ -638,7 +644,7 @@ def validate_two_stage_minimum_authority(
     for block in blocks:
         span = block["source_span"]
         _require(all(span[key] == source[key] for key in source) and facts["job_section"]["start"] <= span["start"] < span["end"] <= facts["job_section"]["end"], "frequency block is not source-bound")
-    frequency_result = {"result_id": parsed["result_id"], "result_payload_sha256": _payload_sha256(parsed), "source_artifact": source, "job_section": facts["job_section"], "frequency_blocks": blocks, "frequencies_cm1": frequencies, "mode_count": len(frequencies), "v30_outcome": {"minimum_validation_outcome_id": frequency_review_bundle.minimum_validation_outcome["minimum_validation_outcome_id"], "classification": "INCOMPLETE", "reason_code": "incomplete-marker-pair"}}
+    frequency_result = {"result_id": parsed["result_id"], "result_payload_sha256": _parse_outcome_payload_sha256(frequency_parse_outcome), "source_artifact": source, "job_section": facts["job_section"], "frequency_blocks": blocks, "frequencies_cm1": frequencies, "mode_count": len(frequencies), "v30_outcome": {"minimum_validation_outcome_id": frequency_review_bundle.minimum_validation_outcome["minimum_validation_outcome_id"], "classification": "INCOMPLETE", "reason_code": "incomplete-marker-pair"}}
     payload = {"authority_schema": "v31-conformer-two-stage-minimum-authority/1", "source": _source(ensemble, member), "method_id": method_id, "optimization": opt, "frequency": {"calculation_plan": {"calculation_plan_id": frequency_plan.calculation_plan_id, "revision": frequency_plan.revision, "intent_sha256": _payload_sha256(frequency_plan.intent)}, "prepared_input": frequency_prepared_input_binding.semantic_payload(), "result": frequency_result}, "classification": "VALIDATED_TWO_STAGE_MINIMUM"}
     identity = _authority_id("v31-two-stage-minimum-authority", payload)
     return _freeze_mapping({**payload, "two_stage_minimum_authority_id": identity}, "two_stage_minimum_authority")
@@ -837,6 +843,7 @@ def validate_negative_optimization_authority(
             method_id=method_id,
             review=review,
             parsed=parsed,
+            parse_outcome=parse_outcome,
             source_artifact=source_artifact,
         ),
         "disposition": "negative",
@@ -1257,6 +1264,7 @@ def validate_negative_frequency_authority(
             method_id=method_id,
             review=review,
             parsed=parsed,
+            parse_outcome=frequency_parse_outcome,
             source_artifact=source_artifact,
         ),
         "optimization": optimization,

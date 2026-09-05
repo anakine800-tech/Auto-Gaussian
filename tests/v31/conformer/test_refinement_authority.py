@@ -6,6 +6,7 @@ from copy import copy
 from dataclasses import replace
 from hashlib import sha256
 import inspect
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -24,6 +25,10 @@ from auto_g16.result import (
     ResultProvenanceService,
 )
 from auto_g16.review import build_review_bundle
+from auto_g16.thermochemistry._gaussian_thermo_facts import (
+    GaussianThermoFactsError,
+    _validate_minimum_and_result,
+)
 from auto_g16.scientific_validation import SQLiteScientificValidationStore, record_minimum_validation, validate_minimum
 from auto_g16.conformer.refinement_authority import (
     RefinementAuthorityError,
@@ -40,6 +45,13 @@ from tests.v31.conformer.test_core import ConformerCoreTests
 
 ROOT = Path(__file__).parents[3]
 _ATOMIC_NUMBERS = {"H": 1, "He": 2, "C": 6, "O": 8}
+
+
+def _canonical_sha256(payload):
+    return sha256(json.dumps(
+        payload, default=dict, ensure_ascii=False, allow_nan=False,
+        sort_keys=True, separators=(",", ":"),
+    ).encode("utf-8")).hexdigest()
 
 
 class RefinementAuthorityTests(unittest.TestCase):
@@ -942,6 +954,10 @@ class RefinementAuthorityTests(unittest.TestCase):
             self.validate_negative_opt(chain)
             for chain in (first, changed_result, changed_review)
         )
+        self.assertEqual(first["parse_outcome"].result_id, changed_result["parse_outcome"].result_id)
+        self.assertNotEqual(first["parse_outcome"].payload(), changed_result["parse_outcome"].payload())
+        for chain, authority in zip((first, changed_result, changed_review), authorities):
+            self.assertEqual(authority["result"]["result_payload_sha256"], _canonical_sha256(chain["parse_outcome"].payload()))
         self.assertNotEqual(authorities[0]["result"]["result_payload_sha256"], authorities[1]["result"]["result_payload_sha256"])
         self.assertNotEqual(authorities[0]["negative_optimization_authority_id"], authorities[1]["negative_optimization_authority_id"])
         self.assertEqual(authorities[0]["result"]["result_payload_sha256"], authorities[2]["result"]["result_payload_sha256"])
@@ -1527,6 +1543,107 @@ class RefinementAuthorityTests(unittest.TestCase):
             RefinementAuthorityError, "current selected capture"
         ):
             self.validate_current_two_stage()
+
+    def assert_canonical_result_payload(self, authority_result, chain):
+        result = chain["parse_outcome"]
+        projection = chain["review"].parse_outcome
+        self.assertNotIn("result_id", result.payload())
+        self.assertEqual(dict(projection), {**result.payload(), "result_id": result.result_id})
+        self.assertEqual(authority_result["result_id"], result.result_id)
+        self.assertEqual(authority_result["result_payload_sha256"], _canonical_sha256(result.payload()))
+        self.assertNotEqual(authority_result["result_payload_sha256"], _canonical_sha256(projection))
+
+    def test_101_positive_opt_uses_canonical_result_payload_hash(self):
+        self.assert_canonical_result_payload(self.opt_authority["result"], self.opt_chain)
+
+    def test_102_positive_freq_uses_canonical_result_payload_hash(self):
+        minimum = self.validate()
+        self.assert_canonical_result_payload(minimum["frequency"]["result"], self.freq_chain)
+
+    def test_103_negative_opt_uses_canonical_result_payload_hash(self):
+        chain = self.chain(
+            self.opt_plan, self.opt_prepared, self.opt_bytes,
+            frequencies=(), optimization_spans=(), stationary_spans=(),
+            program_status="error-termination",
+        )
+        self.assert_canonical_result_payload(self.validate_negative_opt(chain)["result"], chain)
+
+    def test_104_negative_freq_uses_canonical_result_payload_hash(self):
+        chain = self.negative_frequency_chain()
+        self.assert_canonical_result_payload(self.validate_negative_freq(chain)["result"], chain)
+
+    def test_105_review_identity_projection_cannot_redefine_payload_hash(self):
+        result = self.freq_chain["parse_outcome"]
+        projection = dict(self.freq_review.parse_outcome)
+        canonical_hash = _canonical_sha256(result.payload())
+        original_projection_hash = _canonical_sha256(projection)
+        projection["result_id"] = self.opt_chain["parse_outcome"].result_id
+        self.assertNotEqual(_canonical_sha256(projection), original_projection_hash)
+        self.assertNotEqual(_canonical_sha256(projection), canonical_hash)
+        self.assertEqual(
+            self.validate()["frequency"]["result"]["result_payload_sha256"],
+            canonical_hash,
+        )
+        forged_review = copy(self.freq_review)
+        object.__setattr__(forged_review, "parse_outcome", projection)
+        with self.assertRaises(ValueError):
+            forged_review._assert_identity()
+
+    def test_106_real_two_stage_authority_passes_thermochemistry_result_seam(self):
+        result = self.freq_chain["parse_outcome"]
+        minimum = self.validate()
+        source, section = _validate_minimum_and_result(result, minimum)
+        self.assertEqual(source, result.facts["source_artifact"])
+        self.assertEqual(section, result.facts["job_section"])
+
+    def changed_minimum_frequency_result(self, **changes):
+        minimum = self.validate()
+        payload = {key: value for key, value in minimum.items() if key != "two_stage_minimum_authority_id"}
+        payload["frequency"] = {
+            **minimum["frequency"],
+            "result": {**minimum["frequency"]["result"], **changes},
+        }
+        identity = "v31-two-stage-minimum-authority-" + _canonical_sha256({
+            "domain": "v31-two-stage-minimum-authority", "payload": payload,
+        })
+        return {**payload, "two_stage_minimum_authority_id": identity}
+
+    def test_107_identity_inclusive_hash_rejects_even_with_recomputed_outer_id(self):
+        minimum = self.changed_minimum_frequency_result(
+            result_payload_sha256=_canonical_sha256(self.freq_review.parse_outcome),
+        )
+        with self.assertRaisesRegex(GaussianThermoFactsError, "source Result payload differs"):
+            _validate_minimum_and_result(self.freq_chain["parse_outcome"], minimum)
+
+    def test_108_result_id_is_bound_separately_from_canonical_hash(self):
+        result = self.freq_chain["parse_outcome"]
+        minimum = self.changed_minimum_frequency_result(
+            result_id=self.opt_chain["parse_outcome"].result_id,
+        )
+        self.assertEqual(minimum["frequency"]["result"]["result_payload_sha256"], _canonical_sha256(result.payload()))
+        with self.assertRaisesRegex(GaussianThermoFactsError, "source Result identity differs"):
+            _validate_minimum_and_result(result, minimum)
+
+    def test_109_changed_payload_with_same_result_id_changes_hash_and_rejects_old_minimum(self):
+        original = self.validate()
+        chain = self.chain(
+            self.freq_plan, self.freq_prepared, self.freq_bytes,
+            frequencies=(0.0, 50.0, 100.0, 150.0, 200.0, 251.0),
+            optimization_spans=(), stationary_spans=(),
+        )
+        changed = self.validate(**{
+            "frequency_" + key: value for key, value in self.persisted_args(chain).items()
+        })
+        result = chain["parse_outcome"]
+        self.assertEqual(result.result_id, self.freq_chain["parse_outcome"].result_id)
+        self.assert_canonical_result_payload(changed["frequency"]["result"], chain)
+        self.assertNotEqual(
+            changed["frequency"]["result"]["result_payload_sha256"],
+            original["frequency"]["result"]["result_payload_sha256"],
+        )
+        with self.assertRaisesRegex(GaussianThermoFactsError, "source Result payload differs"):
+            _validate_minimum_and_result(result, original)
+        _validate_minimum_and_result(result, changed)
 
     def _build(self, method):
         return build_dft_stage(self.ensemble, "member-a", stage="opt", calculation_plan_id="p", calculation_plan_revision=1, task_id="t", attempt_id="a", logical_name="x.gjf", method_binding=method)
