@@ -745,7 +745,9 @@ class ResourceEffectTimeReplayOwnerTests(unittest.TestCase):
             relative: current_lineage_files[relative]
             for relative in (
                 ".github/workflows/offline-tests.yml",
+                "scripts/audit_python_contract.py",
                 "skills/auto-g16-rtwin-pbs/SKILL.md",
+                "tests/test_audit_python_contract.py",
             )
         }
         ci_contract = CI_CONTRACT.load_contract(

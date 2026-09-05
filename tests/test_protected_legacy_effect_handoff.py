@@ -586,6 +586,76 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_goodvibes_current_lineage_rejects_corruption(self) -> None:
+        fixture_root = ROOT / "tests/fixtures/rtwin_pbs"
+        current_path = fixture_root / "v2_7_production_closure_lineage_successor.json"
+        historical_path = fixture_root / "v2_7_local_draft_integration_successor.json"
+        current = json.loads(current_path.read_text(encoding="utf-8"))
+        historical = json.loads(historical_path.read_text(encoding="utf-8"))
+        original_read_text = Path.read_text
+        audit_paths = (
+            "scripts/audit_python_contract.py",
+            "tests/test_audit_python_contract.py",
+        )
+
+        def replay(current_document, historical_document):
+            def read_text(path, *args, **kwargs):
+                if path == current_path:
+                    return json.dumps(current_document)
+                if path == historical_path:
+                    return json.dumps(historical_document)
+                return original_read_text(path, *args, **kwargs)
+
+            # A fresh, directly invoked case lets subtest assertions propagate.
+            case = ProtectedLegacyEffectHandoffTests(
+                "test_fixture_binds_base_and_additive_candidate_files"
+            )
+            with mock.patch.object(Path, "read_text", read_text):
+                case.test_fixture_binds_base_and_additive_candidate_files()
+
+        replay(current, historical)
+        reordered = copy.deepcopy(current)
+        reordered["files"] = dict(reversed(list(reordered["files"].items())))
+        replay(reordered, historical)
+
+        mutations = []
+        for relative in audit_paths:
+            for field in ("before_sha256", "base_sha256", "sha256"):
+                changed = copy.deepcopy(current)
+                changed["files"][relative][field] = "0" * 64
+                mutations.append((f"{relative}:{field}", changed, historical))
+            changed = copy.deepcopy(current)
+            del changed["files"][relative]
+            mutations.append((f"{relative}:deleted", changed, historical))
+            changed_history = copy.deepcopy(historical)
+            changed_history["files"][relative]["sha256"] = "0" * 64
+            mutations.append((f"{relative}:historical", current, changed_history))
+
+        swapped = copy.deepcopy(current)
+        left, right = (swapped["files"][relative] for relative in audit_paths)
+        left["sha256"], right["sha256"] = right["sha256"], left["sha256"]
+        mutations.append(("swapped_candidate_sha", swapped, historical))
+        for field, value in (
+            ("change_class", "unreviewed"),
+            ("source_commits", ["0" * 40]),
+            ("extra_field", False),
+        ):
+            changed = copy.deepcopy(current)
+            changed["files"][audit_paths[0]][field] = value
+            mutations.append((field, changed, historical))
+        for flag in (
+            "historical_fixture_rewritten",
+            "scientific_semantics_changed",
+            "live_actions",
+        ):
+            changed = copy.deepcopy(current)
+            changed["scope"][flag] = True
+            mutations.append((flag, changed, historical))
+        for label, changed, changed_history in mutations:
+            with self.subTest(corruption=label):
+                with self.assertRaises(AssertionError):
+                    replay(changed, changed_history)
+
     def test_fixture_binds_base_and_additive_candidate_files(self) -> None:
         integration_lineage = QST3_LINEAGE.load(ROOT)
         fixture = json.loads(FIXTURE_PATH.read_text(encoding="utf-8"))
@@ -1182,9 +1252,11 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
         expected_current_paths = {
             ".github/workflows/offline-tests.yml",
             "docs/release-2.7.0-checklist.md",
+            "scripts/audit_python_contract.py",
             "skills/auto-g16-rtwin-pbs/SKILL.md",
             "skills/auto-g16-rtwin-pbs/references/live-approval-record.md",
             "skills/auto-g16-rtwin-pbs/scripts/legacy_rtwin_pbs.py",
+            "tests/test_audit_python_contract.py",
             "tests/test_local_state_binding.py",
             "tests/test_protected_legacy_effect_handoff.py",
             "tests/test_protected_lifecycle_contract.py",
@@ -1196,6 +1268,14 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
             "tests/test_resource_effect_time_replay_owner.py",
         }
         self.assertEqual(set(current_lineage), expected_current_paths)
+        goodvibes_change_classes = {
+            "scripts/audit_python_contract.py": (
+                "goodvibes_ci_qualification_python_contract"
+            ),
+            "tests/test_audit_python_contract.py": (
+                "goodvibes_ci_qualification_python_contract_tests"
+            ),
+        }
         for relative, binding in current_lineage.items():
             with self.subTest(current_lineage_path=relative):
                 self.assertEqual(
@@ -1208,6 +1288,16 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
                         "source_commits",
                     },
                 )
+                if relative in goodvibes_change_classes:
+                    self.assertEqual(
+                        binding["before_sha256"],
+                        local_integration[relative]["sha256"],
+                    )
+                    self.assertEqual(binding["base_sha256"], binding["before_sha256"])
+                    self.assertEqual(
+                        binding["change_class"], goodvibes_change_classes[relative]
+                    )
+                    self.assertEqual(binding["source_commits"], [])
                 assert_current_or_terminal(
                     relative,
                     apply_legacy_effect_owner_test_lineage(

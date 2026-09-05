@@ -141,6 +141,20 @@
       "source_commits": [
         "a4b27c4c716312f28dbffa37c9993609b5ccaceb"
       ]
+    },
+    "scripts/audit_python_contract.py": {
+      "before_sha256": "4ddfd5f91105a9a9afd907c6850ae8b7a6ebeeb35dc7bdee0e6147c961f430f1",
+      "base_sha256": "4ddfd5f91105a9a9afd907c6850ae8b7a6ebeeb35dc7bdee0e6147c961f430f1",
+      "sha256": "ce84845977f324682374a113f3058807cc2e78593b49889df25277c0e87079f2",
+      "change_class": "goodvibes_ci_qualification_python_contract",
+      "source_commits": []
+    },
+    "tests/test_audit_python_contract.py": {
+      "before_sha256": "682f70838bfa024c5003dc03426f7979ca24224e4dd33329bdddceb65627f0f5",
+      "base_sha256": "682f70838bfa024c5003dc03426f7979ca24224e4dd33329bdddceb65627f0f5",
+      "sha256": "8669d67e71022e9f9a92a8924f90c05b381f846745af38b000be2a6ff059c2e5",
+      "change_class": "goodvibes_ci_qualification_python_contract_tests",
+      "source_commits": []
     }
   }
 }
