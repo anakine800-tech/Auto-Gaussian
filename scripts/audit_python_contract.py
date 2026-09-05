@@ -42,6 +42,104 @@ REQUIRES_PYTHON = re.compile(
 CONDA_PIN = re.compile(r"([A-Za-z0-9_.-]+)=([^=<>!~;\s]+)")
 LOCK_PIN = re.compile(r"([A-Za-z0-9_.-]+)==([^=<>!~;\s]+)")
 
+# Independent, exact command allowlist for qualification-only GoodVibes provisioning.
+GOODVIBES_QUALIFICATION_COMMANDS = (
+    r'''set -euo pipefail
+qualification_dir="$(mktemp -d "$RUNNER_TEMP/goodvibes-430.XXXXXX")"
+mkdir "$qualification_dir/wheel" "$qualification_dir/import-root"
+export AUTO_G16_GOODVIBES_430_QUALIFICATION_ROOT="$qualification_dir/import-root"
+export AUTO_G16_GOODVIBES_430_QUALIFICATION_WHEEL="$qualification_dir/wheel/goodvibes-4.3.0-py3-none-any.whl"
+python -m pip download --no-deps --only-binary=:all: --dest "$qualification_dir/wheel" goodvibes==4.3.0
+python - <<'PY'
+from hashlib import sha256
+import os
+from pathlib import Path
+
+root = Path(os.environ["AUTO_G16_GOODVIBES_430_QUALIFICATION_ROOT"])
+wheel = Path(os.environ["AUTO_G16_GOODVIBES_430_QUALIFICATION_WHEEL"])
+if not root.is_absolute() or not wheel.is_absolute():
+    raise SystemExit("qualification paths must be absolute")
+if root.is_symlink() or wheel.is_symlink() or not root.is_dir() or not wheel.is_file():
+    raise SystemExit("qualification paths must be existing non-symlink objects")
+if sorted(item.name for item in wheel.parent.iterdir()) != ["goodvibes-4.3.0-py3-none-any.whl"]:
+    raise SystemExit("download must contain only the exact GoodVibes wheel")
+digest = sha256(wheel.read_bytes()).hexdigest()
+if digest != "06476db73ee456c1fc941590374f2a30182baaf043f6b60dbef85ee77db93997":
+    raise SystemExit("GoodVibes wheel SHA-256 mismatch")
+print(f"verified wheel={wheel.name} sha256={digest}", flush=True)
+PY
+python -m pip install --no-deps --no-index --target "$AUTO_G16_GOODVIBES_430_QUALIFICATION_ROOT" "$AUTO_G16_GOODVIBES_430_QUALIFICATION_WHEEL"
+printf '%s\n' \
+  "AUTO_G16_GOODVIBES_430_QUALIFICATION_ROOT=$AUTO_G16_GOODVIBES_430_QUALIFICATION_ROOT" \
+  "AUTO_G16_GOODVIBES_430_QUALIFICATION_WHEEL=$AUTO_G16_GOODVIBES_430_QUALIFICATION_WHEEL" >> "$GITHUB_ENV"''',
+    r'''python - <<'PY'
+from hashlib import sha256
+import importlib.metadata as metadata
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import time
+import unittest
+
+root = Path(os.environ["AUTO_G16_GOODVIBES_430_QUALIFICATION_ROOT"])
+wheel = Path(os.environ["AUTO_G16_GOODVIBES_430_QUALIFICATION_WHEEL"])
+digest = sha256(wheel.read_bytes()).hexdigest()
+if digest != "06476db73ee456c1fc941590374f2a30182baaf043f6b60dbef85ee77db93997":
+    raise SystemExit("GoodVibes wheel SHA-256 mismatch before qualification")
+distributions = list(metadata.distributions(path=[str(root)]))
+if [(item.metadata["Name"], item.version) for item in distributions] != [("goodvibes", "4.3.0")]:
+    raise SystemExit("qualification root must contain the exact GoodVibes distribution")
+print(json.dumps({
+    "head": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
+    "tree": subprocess.check_output(["git", "rev-parse", "HEAD^{tree}"], text=True).strip(),
+    "version": distributions[0].version, "wheel_sha256": digest,
+    "metadata_sha256": sha256((root / "goodvibes-4.3.0.dist-info/METADATA").read_bytes()).hexdigest(),
+    "AUTO_G16_GOODVIBES_430_QUALIFICATION_ROOT": str(root),
+    "AUTO_G16_GOODVIBES_430_QUALIFICATION_WHEEL": str(wheel),
+}), flush=True)
+sys.path.insert(0, str(root))
+
+def run_suite(name):
+    started = time.monotonic()
+    suite = unittest.defaultTestLoader.loadTestsFromName(name)
+    result = unittest.TextTestRunner(verbosity=2).run(suite)
+    print(json.dumps({
+        "suite": name, "tests": result.testsRun, "skips": len(result.skipped),
+        "failures": len(result.failures), "errors": len(result.errors),
+        "duration_seconds": time.monotonic() - started,
+    }), flush=True)
+    if not result.wasSuccessful() or result.skipped or result.testsRun == 0:
+        raise SystemExit(f"{name}: failures, skips, or zero tests forbid qualification")
+
+from tests.v31.thermochemistry.test_goodvibes_qualification import GoodVibesDifferentialQualification
+
+errors = []
+original_assert = GoodVibesDifferentialQualification.assertLessEqual
+
+def record_comparison(self, observed, tolerance, msg=None):
+    errors.append(float(observed))
+    return original_assert(self, observed, tolerance, msg)
+
+GoodVibesDifferentialQualification.assertLessEqual = record_comparison
+try:
+    run_suite("tests.v31.thermochemistry.test_goodvibes_qualification")
+finally:
+    GoodVibesDifferentialQualification.assertLessEqual = original_assert
+maximum = max(errors) if errors else None
+print(json.dumps({"differential_comparisons": len(errors), "max_absolute_error": maximum}), flush=True)
+if len(errors) != 14 or maximum > 1e-12:
+    raise SystemExit("qualification requires 14 comparisons with max absolute error <= 1e-12")
+run_suite("tests.v31.thermochemistry")
+if Path("tests/v31/integration/test_v31_offline_end_to_end.py").is_file():
+    run_suite("tests.v31.integration")
+else:
+    print("V31 E2E package absent by design in this candidate; integration not run.", flush=True)
+PY''',
+)
+
+
 
 class ContractError(ValueError):
     """A contract input is malformed or uses unsupported syntax."""
@@ -511,6 +609,7 @@ def audit(root: Path) -> dict[str, Any]:
         ),
         "python -m unittest tests.test_rdkit_smoke -v",
         schema_validation_test_command,
+        *GOODVIBES_QUALIFICATION_COMMANDS,
     ]
     _compare(
         errors,

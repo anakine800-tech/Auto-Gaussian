@@ -509,6 +509,97 @@ class PythonContractAuditTests(unittest.TestCase):
                 )
         workflow.write_text(original, encoding="utf-8")
 
+    @staticmethod
+    def _run_payload(command: str) -> str:
+        if "\n" not in command:
+            return f"        run: {command}\n"
+        return "        run: |\n" + "".join(
+            f"          {line}\n" if line else "\n"
+            for line in command.splitlines()
+        )
+
+    def _assert_chemistry_command_change_rejected(self, changed: str) -> None:
+        self.path(".github/workflows/offline-tests.yml").write_text(
+            changed, encoding="utf-8"
+        )
+        report = AUDIT.audit(self.root)
+        self.assertEqual(report["status"], "fail")
+        self.assertTrue(any("chemistry job run commands" in item for item in report["errors"]))
+
+    def test_goodvibes_exact_qualification_sequence_passes(self) -> None:
+        commands = AUDIT.CI_CONTRACT.parse_run_commands(
+            self.path(".github/workflows/offline-tests.yml")
+        )["chemistry-dependencies"]
+        self.assertEqual(len(commands), 8)
+        self.assertEqual(tuple(commands[-2:]), AUDIT.GOODVIBES_QUALIFICATION_COMMANDS)
+        self.assertEqual(AUDIT.audit(self.root)["status"], "pass")
+
+    def test_goodvibes_missing_or_reordered_qualification_commands_fail(self) -> None:
+        original = self.path(".github/workflows/offline-tests.yml").read_text(encoding="utf-8")
+        first, second = map(self._run_payload, AUDIT.GOODVIBES_QUALIFICATION_COMMANDS)
+        for payload in (first, second):
+            with self.subTest(removed=payload.splitlines()[1]):
+                self.assertEqual(original.count(payload), 1)
+                self._assert_chemistry_command_change_rejected(original.replace(payload, "", 1))
+        reordered = original.replace(first, "__QUALIFICATION_FIRST__", 1)
+        reordered = reordered.replace(second, first, 1).replace("__QUALIFICATION_FIRST__", second, 1)
+        self._assert_chemistry_command_change_rejected(reordered)
+
+    def test_goodvibes_artifact_dependency_and_execution_drift_fail(self) -> None:
+        original = self.path(".github/workflows/offline-tests.yml").read_text(encoding="utf-8")
+        changes = (
+            ("goodvibes==4.3.0", "goodvibes==4.3.1"),
+            ("goodvibes-4.3.0-py3-none-any.whl", "goodvibes-4.3.1-py3-none-any.whl"),
+            ('("goodvibes", "4.3.0")', '("goodvibes", "4.3.1")'),
+            ("06476db73ee456c1fc941590374f2a30182baaf043f6b60dbef85ee77db93997", "0" * 64),
+            ("pip download --no-deps", "pip download"),
+            ("pip install --no-deps --no-index", "pip install --no-index"),
+            ("--only-binary=:all:", "--no-binary=:all:"),
+            ("goodvibes==4.3.0", "goodvibes"),
+            ("pip download --no-deps --only-binary=:all:", "pip install goodvibes"),
+            ("or result.skipped", ""),
+            ("len(errors) != 14", "len(errors) != 7"),
+            ("maximum > 1e-12", "maximum > 1e-6"),
+            ("tests/v31/integration/test_v31_offline_end_to_end.py", "tests/v31/integration/future.py"),
+            ('run_suite("tests.v31.thermochemistry")', 'print("thermochemistry skipped")'),
+            ('run_suite("tests.v31.integration")', 'print("integration skipped")'),
+        )
+        for old, new in changes:
+            with self.subTest(old=old):
+                self.assertIn(old, original)
+                self._assert_chemistry_command_change_rejected(original.replace(old, new, 1))
+
+    def test_chemistry_sequence_rejects_extra_commands_before_between_after(self) -> None:
+        original = self.path(".github/workflows/offline-tests.yml").read_text(encoding="utf-8")
+        extra = "      - name: Unreviewed command\n        run: python -c \"print('extra')\"\n"
+        for anchor in (
+            "      - name: Install optional chemistry dependencies\n",
+            "      - name: Run unskipped GoodVibes and thermochemistry qualification\n",
+        ):
+            with self.subTest(anchor=anchor):
+                self.assertEqual(original.count(anchor), 1)
+                self._assert_chemistry_command_change_rejected(original.replace(anchor, extra + anchor, 1))
+        self._assert_chemistry_command_change_rejected(original + extra)
+
+    def test_original_chemistry_schema_and_rdkit_commands_remain_exact(self) -> None:
+        workflow = self.path(".github/workflows/offline-tests.yml")
+        original = workflow.read_text(encoding="utf-8")
+        commands = AUDIT.CI_CONTRACT.parse_run_commands(workflow)["chemistry-dependencies"]
+        self.assertEqual(len(commands[:-2]), 6)
+        for command in commands[:-2]:
+            with self.subTest(command=command):
+                payload = self._run_payload(command)
+                self.assertEqual(original.count(payload), 1)
+                changed = original.replace(payload, self._run_payload(command + " --unexpected"), 1)
+                workflow.write_text(changed, encoding="utf-8")
+                try:
+                    report = AUDIT.audit(self.root)
+                except AUDIT.ContractError as exc:
+                    self.assertEqual(str(exc), "CI Draft 2020-12 command uses unsupported syntax")
+                else:
+                    self.assertEqual(report["status"], "fail")
+                    self.assertTrue(any("chemistry job run commands" in item for item in report["errors"]))
+
     def test_chemistry_lock_cannot_move_away_from_its_entrypoint(self) -> None:
         moved = self.path("requirements/locks/chemistry.lock.txt")
         moved.parent.mkdir()
