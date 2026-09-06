@@ -18,6 +18,7 @@ from auto_g16.conformer.final_integration import (
 from auto_g16.conformer.models import (
     ConformerEnsemble,
     SamplingProfile,
+    _identified_payload as _conformer_identified_payload,
     _payload_sha256 as _conformer_payload_sha256,
 )
 from auto_g16.thermochemistry.models import (
@@ -79,6 +80,7 @@ def _frequency_result(member_id: str) -> dict[str, object]:
 def _conformer(
     profile: SamplingProfile,
     *,
+    predecessor: ConformerEnsemble | None = None,
     coverage_status: str = "sufficient",
     fragment_complete: bool = True,
     thermodynamic_members: tuple[str, ...] = ("member-a", "member-b"),
@@ -117,7 +119,21 @@ def _conformer(
         thermodynamic_eligible_members=thermodynamic_members,
         ts_seed_members=ts_seed_members,
         revision=2,
-        supersedes_conformer_ensemble_id="conformer-ensemble-predecessor",
+        supersedes_conformer_ensemble_id=(predecessor or _predecessor(profile)).conformer_ensemble_id,
+    )
+
+
+def _predecessor(profile: SamplingProfile) -> ConformerEnsemble:
+    members = tuple({
+        "member_id": member_id,
+        "coordinates_angstrom": ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, float(index), 0.0)),
+    } for index, member_id in enumerate(("member-a", "member-b", "member-c"), start=1))
+    return ConformerEnsemble._create(
+        project_id="project-1", calculation_plan_id="plan-1", calculation_plan_revision=3,
+        profile=profile, members=members, sampling_observations=(), audit_evidence=(),
+        negative_evidence=(), dedup_decisions=(), independent_review_blockers=(), clusters=(),
+        coverage={"status": "sufficient"}, thermodynamic_eligible_members=(), ts_seed_members=(),
+        revision=1, supersedes_conformer_ensemble_id=None,
     )
 
 
@@ -126,13 +142,9 @@ def _source_provenance(
     ensemble: ConformerEnsemble,
 ) -> dict[str, object]:
     frequency_result = _frequency_result(member_id)
-    historical_geometry_character = {
-        "member-a": "d",
-        "member-b": "e",
-        "member-c": "f",
-    }[member_id]
-    predecessor_id = "conformer-ensemble-predecessor"
-    predecessor_sha = "9" * 64
+    member = next(item for item in ensemble.members if item["member_id"] == member_id)
+    predecessor_id = ensemble.conformer_ensemble_id
+    predecessor_sha = ensemble.payload_sha256
     return {
         "predecessor_lineage": {
             "conformer_ensemble_id": predecessor_id,
@@ -143,14 +155,14 @@ def _source_provenance(
                 "sampling_profile_id": ensemble.sampling_profile_id,
                 "sampling_profile_payload_sha256": ensemble.sampling_profile_payload_sha256,
                 "member_id": member_id,
-                "member_payload_sha256": "7" * 64,
+                "member_payload_sha256": _conformer_payload_sha256(member),
                 "canonical_atom_order_sha256": _conformer_payload_sha256(
                     ensemble.species_binding["atom_order"]
                 ),
                 "source_atom_map_sha256": _conformer_payload_sha256(
                     ensemble.species_binding["atom_mapping"]
                 ),
-                "source_geometry_sha256": historical_geometry_character * 64,
+                "source_geometry_sha256": _conformer_payload_sha256(member["coordinates_angstrom"]),
                 "species_binding_sha256": _conformer_payload_sha256(
                     ensemble.species_binding
                 ),
@@ -196,6 +208,7 @@ def _rrho(gibbs: float, temperature: float, *, treated: bool) -> dict[str, objec
 def _thermodynamic(
     ensemble: ConformerEnsemble,
     *,
+    predecessor: ConformerEnsemble,
     temperature_k: float = 298.15,
     policy_name: str = "explicit-policy-a",
     standard_state: str = "1M",
@@ -234,7 +247,7 @@ def _thermodynamic(
             "two_stage_minimum_authority_id": f"minimum-{member_id}",
             "method_compatibility_id": method_id,
             "method_compatibility_binding": method,
-            "source_provenance": _source_provenance(member_id, ensemble),
+            "source_provenance": _source_provenance(member_id, predecessor),
             "temperature_k": temperature_k,
             "standard_state": standard_state,
             "raw_rrho": _rrho(gibbs - 0.001, temperature_k, treated=False),
@@ -423,15 +436,153 @@ def _replace_policy(
 class FinalEnsembleIntegrationTests(unittest.TestCase):
     def setUp(self) -> None:
         self.profile = _profile()
-        self.refined = _conformer(self.profile)
-        self.thermodynamic = _thermodynamic(self.refined)
+        self.predecessor = _predecessor(self.profile)
+        self.refined = _conformer(self.profile, predecessor=self.predecessor)
+        self.thermodynamic = _thermodynamic(self.refined, predecessor=self.predecessor)
 
     def assert_rejected(self, ensemble: ConformerEnsemble, thermo: ThermodynamicEnsemble) -> None:
         with self.assertRaises(_FinalIntegrationError):
-            _validate_final_ensemble_integration(ensemble, thermo)
+            _validate_final_ensemble_integration(ensemble, thermo, predecessor_ensemble=self.predecessor)
 
-    def test_exact_pair_preserves_independent_projections_and_authoritative_records(self) -> None:
-        result = _validate_final_ensemble_integration(self.refined, self.thermodynamic)
+    def assert_conformer_identity(self, ensemble: ConformerEnsemble) -> None:
+        identity, payload = _conformer_identified_payload(
+            "conformer-ensemble", ensemble._identity_payload()
+        )
+        self.assertEqual((ensemble.conformer_ensemble_id, ensemble.payload_sha256), (identity, payload))
+
+    def test_predecessor_is_required_keyword_only_authority(self) -> None:
+        with self.assertRaises(TypeError):
+            _validate_final_ensemble_integration(self.refined, self.thermodynamic)
+        with self.assertRaises(TypeError):
+            _validate_final_ensemble_integration(self.refined, self.thermodynamic, self.predecessor)
+        with self.assertRaises(_FinalIntegrationError):
+            _validate_final_ensemble_integration(
+                self.refined, self.thermodynamic, predecessor_ensemble=None
+            )
+
+    def test_A_B_C_E_F_reidentified_refined_inheritance_attacks_reject(self) -> None:
+        attacks = {
+            "A_foreign_plan": {"calculation_plan_id": "foreign-refined-plan"},
+            "B_foreign_plan_revision": {"calculation_plan_revision": 4},
+            "C_foreign_project": {"project_id": "foreign-project"},
+            "E_non_immediate_revision": {"revision": 3},
+            "F_wrong_supersedes": {"supersedes_conformer_ensemble_id": "another-predecessor"},
+        }
+        for case, updates in attacks.items():
+            with self.subTest(case=case):
+                forged = _clone_conformer(self.refined, self.profile, **updates)
+                self.assert_conformer_identity(forged)
+                thermo = _rebind_thermodynamic(self.thermodynamic, forged)
+                self.assertNotEqual(thermo.payload_sha256, self.thermodynamic.payload_sha256)
+                self.assert_rejected(forged, thermo)
+
+    def test_all_seven_inherited_domains_are_individually_closed(self) -> None:
+        attacks = {
+            "project_id": "foreign-project", "calculation_plan_id": "foreign-plan",
+            "calculation_plan_revision": 4, "sampling_profile_id": "foreign-profile",
+            "sampling_profile_payload_sha256": "8" * 64,
+            "species_binding": {**self.refined.species_binding, "species_id": "foreign"},
+            "stereochemistry_binding": {"stereochemistry_id": "foreign"},
+        }
+        for name, value in attacks.items():
+            with self.subTest(field=name):
+                forged = _clone_conformer(self.refined, self.profile)
+                object.__setattr__(forged, name, value)
+                identity, payload = _conformer_identified_payload(
+                    "conformer-ensemble", forged._identity_payload()
+                )
+                object.__setattr__(forged, "conformer_ensemble_id", identity)
+                object.__setattr__(forged, "payload_sha256", payload)
+                self.assert_conformer_identity(forged)
+                with self.assertRaisesRegex(_FinalIntegrationError, "inherited " + name):
+                    _validate_final_ensemble_integration(
+                        forged, _rebind_thermodynamic(self.thermodynamic, forged),
+                        predecessor_ensemble=self.predecessor,
+                    )
+
+    def test_D_wrong_and_L_stale_predecessor_reject(self) -> None:
+        wrong = _clone_conformer(self.predecessor, self.profile, calculation_plan_id="other-plan")
+        self.assert_conformer_identity(wrong)
+        with self.assertRaisesRegex(_FinalIntegrationError, "immediate predecessor"):
+            _validate_final_ensemble_integration(
+                self.refined, self.thermodynamic, predecessor_ensemble=wrong
+            )
+        for field, value in (
+            ("conformer_ensemble_id", "other-predecessor"),
+            ("payload_sha256", "8" * 64),
+            ("calculation_plan_id", "tampered-plan"),
+        ):
+            with self.subTest(field=field):
+                stale = _clone_conformer(self.predecessor, self.profile)
+                object.__setattr__(stale, field, value)
+                with self.assertRaisesRegex(_FinalIntegrationError, "predecessor.*identity is stale"):
+                    _validate_final_ensemble_integration(
+                        self.refined, self.thermodynamic, predecessor_ensemble=stale
+                    )
+
+    def test_G_H_I_J_K_reidentified_predecessor_provenance_attacks_reject(self) -> None:
+        original = self.thermodynamic.member_observations[0]["source_provenance"]["predecessor_lineage"]
+        other = self.thermodynamic.member_observations[1]["source_provenance"]["predecessor_lineage"]["member_source"]
+        attacks = {
+            "G_other_id": {"conformer_ensemble_id": "another-predecessor", "member_source": {
+                **original["member_source"], "conformer_ensemble_id": "another-predecessor"}},
+            "H_other_hash": {"conformer_ensemble_payload_sha256": "8" * 64, "member_source": {
+                **original["member_source"], "conformer_ensemble_payload_sha256": "8" * 64}},
+            "I_other_member": {"member_source": other},
+            "J_member_payload": {"member_source": {
+                **original["member_source"], "member_payload_sha256": other["member_payload_sha256"]}},
+            "K_refined_geometry": {"member_source": {
+                **original["member_source"], "source_geometry_sha256": self.refined.members[0]["coordinates_sha256"]}},
+        }
+        for case, updates in attacks.items():
+            with self.subTest(case=case):
+                forged = _replace_provenance(self.thermodynamic, "member-a", lambda provenance: {
+                    **provenance, "predecessor_lineage": {**original, **updates},
+                })
+                identity, payload = _identified_payload("thermodynamic-ensemble", forged._identity_payload())
+                self.assertEqual((forged.thermodynamic_ensemble_id, forged.payload_sha256), (identity, payload))
+                self.assert_rejected(self.refined, forged)
+
+    def test_predecessor_member_must_resolve_exactly_once(self) -> None:
+        for members in (self.predecessor.members[1:], (*self.predecessor.members, self.predecessor.members[0])):
+            with self.subTest(count=len(members)):
+                predecessor = _clone_conformer(self.predecessor, self.profile, members=members)
+                refined = _clone_conformer(self.refined, self.profile,
+                    supersedes_conformer_ensemble_id=predecessor.conformer_ensemble_id)
+                thermo = _rebind_thermodynamic(self.thermodynamic, refined)
+                observations = []
+                for item in thermo.member_observations:
+                    provenance = item["source_provenance"]
+                    lineage = provenance["predecessor_lineage"]
+                    observations.append({**item, "source_provenance": {**provenance,
+                        "predecessor_lineage": {**lineage,
+                            "conformer_ensemble_id": predecessor.conformer_ensemble_id,
+                            "conformer_ensemble_payload_sha256": predecessor.payload_sha256}}})
+                thermo = _clone_thermodynamic(thermo, member_observations=tuple(observations))
+                with self.assertRaisesRegex(_FinalIntegrationError, "resolve exactly once.*predecessor"):
+                    _validate_final_ensemble_integration(refined, thermo, predecessor_ensemble=predecessor)
+
+    def test_same_foreign_plan_record_rejects_at_normal_builder_and_final_integration(self) -> None:
+        from tests.v31.thermochemistry import test_core as thermo_tests
+
+        fixture = thermo_tests.ThermochemistryCoreTests()
+        fixture.setUp()
+        thermo = fixture.build()
+        _validate_final_ensemble_integration(
+            fixture.refined, thermo, predecessor_ensemble=fixture.prior
+        )
+        for updates in ({"calculation_plan_id": "foreign-refined-plan"}, {"calculation_plan_revision": 99}):
+            with self.subTest(updates=updates):
+                forged = _clone_conformer(fixture.refined, fixture.profile, **updates)
+                self.assert_conformer_identity(forged)
+                rebound = _rebind_thermodynamic(thermo, forged)
+                with self.assertRaisesRegex(thermo_tests.ThermochemistryError, "inherited domain bindings"):
+                    fixture.build(ensemble=forged)
+                with self.assertRaisesRegex(_FinalIntegrationError, "inherited calculation_plan"):
+                    _validate_final_ensemble_integration(forged, rebound, predecessor_ensemble=fixture.prior)
+
+    def test_exact_trio_preserves_independent_projections_and_authoritative_records(self) -> None:
+        result = _validate_final_ensemble_integration(self.refined, self.thermodynamic, predecessor_ensemble=self.predecessor)
 
         self.assertIs(result[0], self.refined)
         self.assertIs(result[1], self.thermodynamic)
@@ -441,7 +592,7 @@ class FinalEnsembleIntegrationTests(unittest.TestCase):
         self.assertAlmostEqual(result[1].member_observations[0]["normalized_population"], 0.75)
         self.assertAlmostEqual(result[1].member_observations[1]["normalized_population"], 0.25)
 
-    def test_exact_pair_binds_all_four_frequency_provenance_fields(self) -> None:
+    def test_exact_trio_binds_all_four_frequency_provenance_fields(self) -> None:
         for observation in self.thermodynamic.member_observations:
             member = next(
                 member for member in self.refined.members
@@ -457,7 +608,7 @@ class FinalEnsembleIntegrationTests(unittest.TestCase):
             ):
                 with self.subTest(member=member["member_id"], field=source_key):
                     self.assertEqual(provenance[source_key], frequency_result[result_key])
-        result = _validate_final_ensemble_integration(self.refined, self.thermodynamic)
+        result = _validate_final_ensemble_integration(self.refined, self.thermodynamic, predecessor_ensemble=self.predecessor)
         self.assertIs(result[1], self.thermodynamic)
 
     def test_self_identified_frequency_provenance_splices_reject(self) -> None:
@@ -492,7 +643,7 @@ class FinalEnsembleIntegrationTests(unittest.TestCase):
                 self.assertEqual(forged.payload_sha256, payload)
                 self.assertNotEqual(forged.payload_sha256, self.thermodynamic.payload_sha256)
                 with self.assertRaisesRegex(_FinalIntegrationError, "differs from.*Freq Result"):
-                    _validate_final_ensemble_integration(self.refined, forged)
+                    _validate_final_ensemble_integration(self.refined, forged, predecessor_ensemble=self.predecessor)
 
     def test_missing_and_malformed_frequency_provenance_reject(self) -> None:
         for field, malformed in (
@@ -555,12 +706,12 @@ class FinalEnsembleIntegrationTests(unittest.TestCase):
         self.assert_rejected(self.refined, self.thermodynamic)
 
         refined = _conformer(self.profile)
-        thermo = _thermodynamic(refined)
+        thermo = _thermodynamic(refined, predecessor=self.predecessor)
         object.__setattr__(refined, "conformer_ensemble_id", "conformer-ensemble-" + "0" * 64)
         self.assert_rejected(refined, thermo)
 
         refined = _conformer(self.profile)
-        thermo = _thermodynamic(refined)
+        thermo = _thermodynamic(refined, predecessor=self.predecessor)
         object.__setattr__(thermo, "thermodynamic_ensemble_id", "thermodynamic-ensemble-" + "0" * 64)
         self.assert_rejected(refined, thermo)
 
@@ -594,7 +745,7 @@ class FinalEnsembleIntegrationTests(unittest.TestCase):
         )
         self.assert_rejected(invalid, _rebind_thermodynamic(self.thermodynamic, invalid))
 
-        result = _validate_final_ensemble_integration(self.refined, self.thermodynamic)
+        result = _validate_final_ensemble_integration(self.refined, self.thermodynamic, predecessor_ensemble=self.predecessor)
         self.assertIn("member-c", result[2])
         self.assertNotIn("member-c", result[1].source_member_ids)
         self.assertNotIn("member-a", result[2])
@@ -794,7 +945,7 @@ class FinalEnsembleIntegrationTests(unittest.TestCase):
                     ),
                 )
                 with self.assertRaises(ValueError):
-                    _validate_final_ensemble_integration(self.refined, forged)
+                    _validate_final_ensemble_integration(self.refined, forged, predecessor_ensemble=self.predecessor)
 
     def test_combined_self_identified_forgery_still_rejects(self) -> None:
         first, second = self.thermodynamic.member_observations
@@ -965,7 +1116,7 @@ if loaded:
             source["source_geometry_sha256"],
             refined_member["coordinates_sha256"],
         )
-        result = _validate_final_ensemble_integration(self.refined, self.thermodynamic)
+        result = _validate_final_ensemble_integration(self.refined, self.thermodynamic, predecessor_ensemble=self.predecessor)
         self.assertIs(result[0], self.refined)
 
     def test_gas_constant_representations_must_agree(self) -> None:
@@ -1012,8 +1163,8 @@ if loaded:
         )
 
     def test_one_atmosphere_standard_state_binding_is_formula_closed(self) -> None:
-        one_atmosphere = _thermodynamic(self.refined, standard_state="1atm")
-        result = _validate_final_ensemble_integration(self.refined, one_atmosphere)
+        one_atmosphere = _thermodynamic(self.refined, predecessor=self.predecessor, standard_state="1atm")
+        result = _validate_final_ensemble_integration(self.refined, one_atmosphere, predecessor_ensemble=self.predecessor)
         self.assertIs(result[1], one_atmosphere)
         binding = one_atmosphere.standard_state_binding
         attacks = (
@@ -1065,7 +1216,7 @@ if loaded:
         )
         thermo = _rebind_thermodynamic(self.thermodynamic, refined)
 
-        result = _validate_final_ensemble_integration(refined, thermo)
+        result = _validate_final_ensemble_integration(refined, thermo, predecessor_ensemble=self.predecessor)
 
         self.assertIs(result[0], refined)
         self.assertEqual(result[0].coverage["status"], "insufficient")
@@ -1073,20 +1224,20 @@ if loaded:
 
     def test_explicit_alternative_temperature_and_policy_remain_valid(self) -> None:
         alternative = _thermodynamic(
-            self.refined,
+            self.refined, predecessor=self.predecessor,
             temperature_k=310.0,
             policy_name="explicit-policy-b",
         )
 
-        result = _validate_final_ensemble_integration(self.refined, alternative)
+        result = _validate_final_ensemble_integration(self.refined, alternative, predecessor_ensemble=self.predecessor)
 
         self.assertIs(result[1], alternative)
         self.assertEqual(result[1].temperature_k, 310.0)
         self.assertEqual(result[1].thermochemistry_policy["name"], "explicit-policy-b")
 
     def test_same_exact_inputs_produce_the_same_private_view(self) -> None:
-        first = _validate_final_ensemble_integration(self.refined, self.thermodynamic)
-        second = _validate_final_ensemble_integration(self.refined, self.thermodynamic)
+        first = _validate_final_ensemble_integration(self.refined, self.thermodynamic, predecessor_ensemble=self.predecessor)
+        second = _validate_final_ensemble_integration(self.refined, self.thermodynamic, predecessor_ensemble=self.predecessor)
         self.assertEqual(first, second)
         self.assertIs(first[0], second[0])
         self.assertIs(first[1], second[1])
