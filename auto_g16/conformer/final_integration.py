@@ -125,7 +125,7 @@ _NUMERIC_REPLAY_TOLERANCE = 1.0e-12
 
 
 class _FinalIntegrationError(ValueError):
-    """The two authoritative V31 records do not compose exactly."""
+    """The three authoritative V31 records do not compose exactly."""
 
 
 def _require(condition: bool, message: str) -> None:
@@ -201,57 +201,46 @@ def _close_source_provenance(
         "predecessor conformer ensemble payload SHA-256",
     )
     _require(
-        ensemble.supersedes_conformer_ensemble_id is not None
-        and predecessor_id == ensemble.supersedes_conformer_ensemble_id,
-        "thermochemistry provenance does not name the refined ensemble predecessor",
+        predecessor_id == ensemble.conformer_ensemble_id
+        and predecessor_sha == ensemble.payload_sha256,
+        "thermochemistry provenance does not bind the exact predecessor ensemble",
     )
     member_source = _closed(
-        predecessor["member_source"],
-        _MEMBER_SOURCE_KEYS,
-        "predecessor member source",
+        predecessor["member_source"], _MEMBER_SOURCE_KEYS, "predecessor member source"
+    )
+    members = tuple(
+        member for member in ensemble.members
+        if isinstance(member, Mapping) and member.get("member_id") == member_id
     )
     _require(
-        member_source["conformer_ensemble_id"] == predecessor_id
-        and member_source["conformer_ensemble_payload_sha256"] == predecessor_sha,
-        "member source does not bind its predecessor ensemble",
+        len(members) == 1,
+        "thermodynamic member does not resolve exactly once in the predecessor ensemble",
     )
-    _text(member_source["sampling_profile_id"], "member source sampling profile ID")
+    member = members[0]
+    coordinates = member.get("coordinates_angstrom")
+    species = ensemble.species_binding
+    _require(type(coordinates) is tuple, "predecessor member coordinates are unavailable")
     _require(
-        member_source["member_id"] == member_id,
-        "member source does not bind the thermodynamic member",
+        "atom_order" in species and "atom_mapping" in species,
+        "predecessor species lacks atom order or mapping",
     )
+    expected_source = {
+        "conformer_ensemble_id": ensemble.conformer_ensemble_id,
+        "conformer_ensemble_payload_sha256": ensemble.payload_sha256,
+        "sampling_profile_id": ensemble.sampling_profile_id,
+        "sampling_profile_payload_sha256": ensemble.sampling_profile_payload_sha256,
+        "member_id": member_id,
+        "member_payload_sha256": _conformer_payload_sha256(member),
+        "canonical_atom_order_sha256": _conformer_payload_sha256(species["atom_order"]),
+        "source_atom_map_sha256": _conformer_payload_sha256(species["atom_mapping"]),
+        "source_geometry_sha256": _conformer_payload_sha256(coordinates),
+        "species_binding_sha256": _conformer_payload_sha256(species),
+        "stereochemistry_binding_sha256": _conformer_payload_sha256(ensemble.stereochemistry_binding),
+    }
     _require(
-        member_source["sampling_profile_id"] == ensemble.sampling_profile_id
-        and member_source["sampling_profile_payload_sha256"]
-        == ensemble.sampling_profile_payload_sha256,
-        "member source sampling profile differs from the refined ensemble",
+        member_source == expected_source,
+        "member source differs from the exact predecessor member projection",
     )
-    for name in _MEMBER_SOURCE_KEYS - {
-        "conformer_ensemble_id",
-        "sampling_profile_id",
-        "member_id",
-    }:
-        _sha256(member_source[name], f"member source {name}")
-    _require(
-        member_source["species_binding_sha256"]
-        == _conformer_payload_sha256(ensemble.species_binding),
-        "member source species binding differs from the refined ensemble",
-    )
-    _require(
-        member_source["stereochemistry_binding_sha256"]
-        == _conformer_payload_sha256(ensemble.stereochemistry_binding),
-        "member source stereochemistry binding differs from the refined ensemble",
-    )
-    for binding_key, source_key in (
-        ("atom_order", "canonical_atom_order_sha256"),
-        ("atom_mapping", "source_atom_map_sha256"),
-    ):
-        if binding_key in ensemble.species_binding:
-            _require(
-                member_source[source_key]
-                == _conformer_payload_sha256(ensemble.species_binding[binding_key]),
-                f"member source {binding_key} differs from the refined ensemble",
-            )
 
     _text(provenance["source_result_id"], "source Result ID")
     _sha256(provenance["source_result_payload_sha256"], "source Result payload SHA-256")
@@ -343,8 +332,8 @@ def _close_rrho(value: object, temperature: float, *, treated: bool) -> float:
     return gibbs
 
 
-def _close_conformer_identity(ensemble: object) -> ConformerEnsemble:
-    _require(type(ensemble) is ConformerEnsemble, "refined ensemble must be a ConformerEnsemble")
+def _close_conformer_identity(ensemble: object, name: str) -> ConformerEnsemble:
+    _require(type(ensemble) is ConformerEnsemble, f"{name} must be a ConformerEnsemble")
     assert isinstance(ensemble, ConformerEnsemble)
     identity, payload_sha256 = _conformer_identified_payload(
         "conformer-ensemble", ensemble._identity_payload()
@@ -352,7 +341,7 @@ def _close_conformer_identity(ensemble: object) -> ConformerEnsemble:
     _require(
         identity == ensemble.conformer_ensemble_id
         and payload_sha256 == ensemble.payload_sha256,
-        "refined ConformerEnsemble identity is stale",
+        f"{name} ConformerEnsemble identity is stale",
     )
     return ensemble
 
@@ -497,6 +486,7 @@ def _close_population(
     thermodynamics: ThermodynamicEnsemble,
     temperature: float,
     gas_constant_hartree: float,
+    predecessor: ConformerEnsemble,
 ) -> None:
     observations = thermodynamics.member_observations
     _require(type(observations) is tuple, "thermodynamic member observations must be an exact tuple")
@@ -549,7 +539,7 @@ def _close_population(
             frequency.get("result"), _FREQUENCY_RESULT_KEYS, "refined minimum Freq Result"
         )
         _close_source_provenance(
-            item["source_provenance"], member_id, ensemble, frequency_result
+            item["source_provenance"], member_id, predecessor, frequency_result
         )
         _close_rrho(item["raw_rrho"], temperature, treated=False)
         treated_gibbs[member_id] = _close_rrho(
@@ -707,10 +697,27 @@ def _close_population(
 def _validate_final_ensemble_integration(
     refined_ensemble: ConformerEnsemble,
     thermodynamic_ensemble: ThermodynamicEnsemble,
+    *,
+    predecessor_ensemble: ConformerEnsemble,
 ) -> tuple[ConformerEnsemble, ThermodynamicEnsemble, tuple[str, ...]]:
     """Return the exact authoritative records and TS projection after closure."""
 
-    ensemble = _close_conformer_identity(refined_ensemble)
+    predecessor = _close_conformer_identity(predecessor_ensemble, "predecessor")
+    ensemble = _close_conformer_identity(refined_ensemble, "refined")
+    _require(
+        ensemble.revision == predecessor.revision + 1
+        and ensemble.supersedes_conformer_ensemble_id == predecessor.conformer_ensemble_id,
+        "refined ensemble does not name the exact immediate predecessor",
+    )
+    for name in (
+        "project_id", "calculation_plan_id", "calculation_plan_revision",
+        "sampling_profile_id", "sampling_profile_payload_sha256",
+        "species_binding", "stereochemistry_binding",
+    ):
+        _require(
+            getattr(ensemble, name) == getattr(predecessor, name),
+            f"refined ensemble inherited {name} differs from predecessor",
+        )
     thermodynamics = _close_thermodynamic_identity(thermodynamic_ensemble)
     _require(
         thermodynamics.conformer_ensemble_id == ensemble.conformer_ensemble_id
@@ -779,6 +786,7 @@ def _validate_final_ensemble_integration(
         thermodynamics,
         temperature,
         gas_constant_hartree,
+        predecessor,
     )
 
     return ensemble, thermodynamics, ts_seeds
