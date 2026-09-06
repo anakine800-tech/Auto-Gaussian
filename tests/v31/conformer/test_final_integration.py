@@ -62,7 +62,10 @@ def _frequency_result(member_id: str) -> dict[str, object]:
         "result_payload_sha256": character * 64,
         "source_artifact": artifact,
         "job_section": {**artifact, "start": 10, "end": 900},
-        "frequency_blocks": ({**artifact, "start": 100, "end": 200},),
+        "frequency_blocks": ({
+            "source_span": {**artifact, "start": 100, "end": 200},
+            "frequencies_cm-1": (100.0, 200.0, 300.0),
+        },),
         "frequencies_cm1": (100.0, 200.0, 300.0),
         "mode_count": 3,
         "v30_outcome": {
