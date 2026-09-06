@@ -48,6 +48,34 @@ def _profile() -> SamplingProfile:
     )
 
 
+def _frequency_result(member_id: str) -> dict[str, object]:
+    character = {"member-a": "a", "member-b": "b", "member-c": "c"}[member_id]
+    artifact = {
+        "envelope_observation_id": f"envelope-{member_id}",
+        "artifact_kind": "gaussian-log",
+        "logical_name": f"{member_id}.log",
+        "sha256": character * 64,
+        "size_bytes": 1000,
+    }
+    return {
+        "result_id": f"result-{member_id}",
+        "result_payload_sha256": character * 64,
+        "source_artifact": artifact,
+        "job_section": {**artifact, "start": 10, "end": 900},
+        "frequency_blocks": ({
+            "source_span": {**artifact, "start": 100, "end": 200},
+            "frequencies_cm-1": (100.0, 200.0, 300.0),
+        },),
+        "frequencies_cm1": (100.0, 200.0, 300.0),
+        "mode_count": 3,
+        "v30_outcome": {
+            "minimum_validation_outcome_id": f"outcome-{member_id}",
+            "classification": "INCOMPLETE",
+            "reason_code": "incomplete-marker-pair",
+        },
+    }
+
+
 def _conformer(
     profile: SamplingProfile,
     *,
@@ -64,6 +92,7 @@ def _conformer(
             "relevance_tags": ("ts_seed",) if member_id in ts_seed_members else (),
             "two_stage_minimum_authority": {
                 "two_stage_minimum_authority_id": f"minimum-{member_id}",
+                "frequency": {"result": _frequency_result(member_id)},
             },
         }
         for member_id, character in (("member-a", "a"), ("member-b", "b"), ("member-c", "c"))
@@ -96,7 +125,7 @@ def _source_provenance(
     member_id: str,
     ensemble: ConformerEnsemble,
 ) -> dict[str, object]:
-    character = {"member-a": "a", "member-b": "b", "member-c": "c"}[member_id]
+    frequency_result = _frequency_result(member_id)
     historical_geometry_character = {
         "member-a": "d",
         "member-b": "e",
@@ -104,13 +133,6 @@ def _source_provenance(
     }[member_id]
     predecessor_id = "conformer-ensemble-predecessor"
     predecessor_sha = "9" * 64
-    source_artifact = {
-        "envelope_observation_id": f"envelope-{member_id}",
-        "artifact_kind": "gaussian-log",
-        "logical_name": f"{member_id}.log",
-        "sha256": character * 64,
-        "size_bytes": 1000,
-    }
     return {
         "predecessor_lineage": {
             "conformer_ensemble_id": predecessor_id,
@@ -137,10 +159,10 @@ def _source_provenance(
                 ),
             },
         },
-        "source_result_id": f"result-{member_id}",
-        "source_result_payload_sha256": "6" * 64,
-        "source_artifact": source_artifact,
-        "job_section": {**source_artifact, "start": 10, "end": 900},
+        "source_result_id": frequency_result["result_id"],
+        "source_result_payload_sha256": frequency_result["result_payload_sha256"],
+        "source_artifact": frequency_result["source_artifact"],
+        "job_section": frequency_result["job_section"],
         "gaussian_thermo_facts": {
             "molecular_mass_amu": 44.01,
             "rotational_symmetry_number": 1,
@@ -418,6 +440,103 @@ class FinalEnsembleIntegrationTests(unittest.TestCase):
         self.assertEqual(result[0].negative_evidence, self.refined.negative_evidence)
         self.assertAlmostEqual(result[1].member_observations[0]["normalized_population"], 0.75)
         self.assertAlmostEqual(result[1].member_observations[1]["normalized_population"], 0.25)
+
+    def test_exact_pair_binds_all_four_frequency_provenance_fields(self) -> None:
+        for observation in self.thermodynamic.member_observations:
+            member = next(
+                member for member in self.refined.members
+                if member["member_id"] == observation["member_id"]
+            )
+            frequency_result = member["two_stage_minimum_authority"]["frequency"]["result"]
+            provenance = observation["source_provenance"]
+            for source_key, result_key in (
+                ("source_result_id", "result_id"),
+                ("source_result_payload_sha256", "result_payload_sha256"),
+                ("source_artifact", "source_artifact"),
+                ("job_section", "job_section"),
+            ):
+                with self.subTest(member=member["member_id"], field=source_key):
+                    self.assertEqual(provenance[source_key], frequency_result[result_key])
+        result = _validate_final_ensemble_integration(self.refined, self.thermodynamic)
+        self.assertIs(result[1], self.thermodynamic)
+
+    def test_self_identified_frequency_provenance_splices_reject(self) -> None:
+        first, second = self.thermodynamic.member_observations
+        source = first["source_provenance"]
+        other = second["source_provenance"]
+        fields = ("source_result_id", "source_result_payload_sha256",
+                  "source_artifact", "job_section")
+        for field in fields:
+            self.assertNotEqual(source[field], other[field])
+        attacks = {
+            "A_other_real_result_id": {fields[0]: other[fields[0]]},
+            "B_other_real_result_hash": {fields[1]: other[fields[1]]},
+            "C_other_id_and_hash": {key: other[key] for key in fields[:2]},
+            "D_other_artifact_and_section": {key: other[key] for key in fields[2:]},
+            "E_other_complete_tuple": {key: other[key] for key in fields},
+            "F_same_artifact_different_valid_span": {
+                "job_section": {**source["job_section"], "start": 20, "end": 800},
+            },
+            "G_valid_format_false_hash": {"source_result_payload_sha256": "0" * 64},
+        }
+        for label, updates in attacks.items():
+            with self.subTest(attack=label):
+                forged = _replace_provenance(
+                    self.thermodynamic, "member-a",
+                    lambda provenance: {**provenance, **updates},
+                )
+                identity, payload = _identified_payload(
+                    "thermodynamic-ensemble", forged._identity_payload()
+                )
+                self.assertEqual(forged.thermodynamic_ensemble_id, identity)
+                self.assertEqual(forged.payload_sha256, payload)
+                self.assertNotEqual(forged.payload_sha256, self.thermodynamic.payload_sha256)
+                with self.assertRaisesRegex(_FinalIntegrationError, "differs from.*Freq Result"):
+                    _validate_final_ensemble_integration(self.refined, forged)
+
+    def test_missing_and_malformed_frequency_provenance_reject(self) -> None:
+        for field, malformed in (
+            ("source_result_id", " "),
+            ("source_result_payload_sha256", "bad-hash"),
+            ("source_artifact", {}),
+            ("job_section", {}),
+        ):
+            for missing in (False, True):
+                with self.subTest(field=field, missing=missing):
+                    def alter(provenance: dict[str, object]) -> dict[str, object]:
+                        if missing:
+                            provenance.pop(field)
+                        else:
+                            provenance[field] = malformed
+                        return provenance
+
+                    forged = _replace_provenance(self.thermodynamic, "member-a", alter)
+                    identity, payload = _identified_payload(
+                        "thermodynamic-ensemble", forged._identity_payload()
+                    )
+                    self.assertEqual(forged.thermodynamic_ensemble_id, identity)
+                    self.assertEqual(forged.payload_sha256, payload)
+                    self.assert_rejected(self.refined, forged)
+
+    def test_refined_minimum_requires_existing_exact_frequency_result_shape(self) -> None:
+        first, *rest = self.refined.members
+        minimum = first["two_stage_minimum_authority"]
+        result = minimum["frequency"]["result"]
+        malformed = [None, {}, {**result, "extra": "forbidden"}]
+        malformed.extend({key: value for key, value in result.items() if key != missing}
+                         for missing in result)
+        frequencies = [None, {}, {"result": None}]
+        frequencies.extend({"result": value} for value in malformed)
+        for frequency in frequencies:
+            with self.subTest(frequency=frequency):
+                refined = _clone_conformer(
+                    self.refined, self.profile,
+                    members=({**first, "two_stage_minimum_authority": {
+                        **minimum, "frequency": frequency,
+                    }}, *rest),
+                )
+                thermo = _rebind_thermodynamic(self.thermodynamic, refined)
+                self.assert_rejected(refined, thermo)
 
     def test_direct_conformer_binding_must_match_id_payload_and_revision(self) -> None:
         for overrides in (

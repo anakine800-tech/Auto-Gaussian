@@ -78,6 +78,16 @@ _SOURCE_PROVENANCE_KEYS = {
     "job_section",
     "gaussian_thermo_facts",
 }
+_FREQUENCY_RESULT_KEYS = {
+    "result_id",
+    "result_payload_sha256",
+    "source_artifact",
+    "job_section",
+    "frequency_blocks",
+    "frequencies_cm1",
+    "mode_count",
+    "v30_outcome",
+}
 _PREDECESSOR_LINEAGE_KEYS = {
     "conformer_ensemble_id",
     "conformer_ensemble_payload_sha256",
@@ -174,6 +184,7 @@ def _close_source_provenance(
     value: object,
     member_id: str,
     ensemble: ConformerEnsemble,
+    frequency_result: Mapping[str, object],
 ) -> None:
     provenance = _closed(value, _SOURCE_PROVENANCE_KEYS, "source provenance")
     predecessor = _closed(
@@ -268,6 +279,17 @@ def _close_source_provenance(
         and 0 <= section["start"] < section["end"] <= source_artifact["size_bytes"],
         "job section span is invalid",
     )
+
+    for provenance_key, result_key in (
+        ("source_result_id", "result_id"),
+        ("source_result_payload_sha256", "result_payload_sha256"),
+        ("source_artifact", "source_artifact"),
+        ("job_section", "job_section"),
+    ):
+        _require(
+            provenance[provenance_key] == frequency_result[result_key],
+            f"source provenance {provenance_key} differs from the member minimum Freq Result",
+        )
 
     facts = _closed(
         provenance["gaussian_thermo_facts"],
@@ -521,7 +543,14 @@ def _close_population(
             == thermodynamics.method_compatibility_binding,
             "thermodynamic member method lineage differs from the ensemble binding",
         )
-        _close_source_provenance(item["source_provenance"], member_id, ensemble)
+        frequency = minimum.get("frequency")
+        _require(isinstance(frequency, Mapping), "refined minimum lacks frequency authority")
+        frequency_result = _closed(
+            frequency.get("result"), _FREQUENCY_RESULT_KEYS, "refined minimum Freq Result"
+        )
+        _close_source_provenance(
+            item["source_provenance"], member_id, ensemble, frequency_result
+        )
         _close_rrho(item["raw_rrho"], temperature, treated=False)
         treated_gibbs[member_id] = _close_rrho(
             item["treated_qrrho"],
