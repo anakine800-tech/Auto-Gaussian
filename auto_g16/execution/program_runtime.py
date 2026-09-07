@@ -33,6 +33,7 @@ def _snapshot_binding(
     snapshot: ProgramExecutionSnapshot,
     program_transport_store: _transport._ProgramTransportStore,
     driver: _transport._ProgramEffectDriver,
+    *, persist: bool = False,
 ) -> dict[str, object]:
     if type(snapshot) is not ProgramExecutionSnapshot:
         raise TransportBoundaryError("successor composition requires exact ProgramExecutionSnapshot")
@@ -46,6 +47,10 @@ def _snapshot_binding(
         snapshot.assert_identity_closed()
     except Exception as exc:
         raise TransportBoundaryError("successor snapshot authority is not closed") from exc
+    if not str(snapshot.program_execution_spec.invocation["executable_identity"]["absolute_path"]).startswith("/opt/auto-g16-fixtures/"):
+        from auto_g16.transport._program_rtwin import _RTWinProgramEffectDriver
+        if type(closed_driver) is not _RTWinProgramEffectDriver or closed_driver._snapshot != snapshot or closed_driver._store is not program_transport_store:
+            raise TransportBoundaryError("real executables require the exact production RTwin driver")
     cwd = _transport._exact_keys(
         snapshot.cwd_binding, {"location_kind", "path"}, "successor cwd binding"
     )
@@ -58,6 +63,7 @@ def _snapshot_binding(
             snapshot.resolved_server_profile.resolved_server_profile_id
         ),
         qualification=closed_driver.runtime_qualification,
+        persist=persist,
     )
     binding = {
         "program_transport_store_id": (
@@ -76,6 +82,30 @@ def _snapshot_binding(
     }
     _transport._validate_binding(binding)
     return binding
+
+
+def _invoke_program_driver(
+    store: SQLiteRuntimeStore, snapshot: ProgramExecutionSnapshot,
+    program_transport_store: _transport._ProgramTransportStore,
+    driver_call: object, request: Mapping[str, object], *args: object,
+) -> Mapping[str, object]:
+    """Execution owns state and dual-source closure; Transport receives mechanics."""
+    from auto_g16.transport._program_rtwin import _RTWinProgramEffectDriver
+    driver = getattr(driver_call, "__self__", None)
+    if type(driver) is not _RTWinProgramEffectDriver:
+        return _transport._call(driver_call, request, *args)
+    base = _snapshot_binding(snapshot, program_transport_store, driver)
+    receipts = _load_receipts(store, snapshot, program_transport_store, base)
+    _assert_effect_intent_replay(store, snapshot)
+    expected = _reconstruct_expected_request(
+        store, snapshot, program_transport_store, base,
+        {"operation": request["operation"], "request": request}, receipts,
+    )
+    if request != expected:
+        raise TransportBoundaryError("production request differs from current predecessor closure")
+    if request["operation"] in {"ALLOCATE_WORKSPACE", "STAGE_EXACT_FILE", "SUBMIT_QSUB_ONCE"} and store.attempt_state(snapshot.attempt_id) is not AttemptState.SUBMISSION_INTENT_RECORDED:
+        raise TransportBoundaryError("production mutations require the Execution WINNER state")
+    return driver._invoke_owned(request, tuple(item.data for item in receipts), *args)
 
 
 def _stage_material(
@@ -385,9 +415,8 @@ def _assert_effect_intent_replay(
             "successor authority cannot claim a PLANNED effect intent"
         )
     try:
-        claim = store.record_submission_intent(
-            snapshot.attempt_id, snapshot.effect_intent_id
-        )
+        from .runtime import _replay_submission_intent
+        claim = _replay_submission_intent(store, snapshot.attempt_id, snapshot.effect_intent_id)
     except RuntimeStoreError as exc:
         raise TransportBoundaryError(
             "successor effect intent does not replay through public Core"
@@ -1149,6 +1178,8 @@ def _assert_program_terminal_success_authority(
         terminal_receipt.data["outcome"] != "SUCCEEDED"
         or terminal_response.get("job_id") != expected_job["job_id"]
         or terminal_response.get("state") != "terminal"
+        or type(terminal_response.get("exit_status")) is not int
+        or terminal_response["exit_status"] != 0
     ):
         raise TransportBoundaryError(
             "last pre-capture scheduler receipt is not exact terminal evidence"
@@ -1192,14 +1223,71 @@ class _ProgramExecutionResult:
     receipts: tuple[Observation, ...]
 
 
-def _execute_program_once(
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _ProgramExecutionPort:
+    """Private generation-specific mechanics, never an approval or claim owner."""
+
+    snapshot: ProgramExecutionSnapshot
+    program_transport_store: _transport._ProgramTransportStore
+    driver: _transport._ProgramEffectDriver
+
+    def _execute_winner(self, store: SQLiteRuntimeStore, prepared: _transport._PreparedProgramEffects, continuation: object) -> None:
+        _execute_claimed_program(
+            store, snapshot=self.snapshot, program_transport_store=self.program_transport_store,
+            prepared=prepared, driver=self.driver,
+            claim=SubmissionIntentClaim.WINNER, continuation=continuation,
+        )
+
+
+def _prepare_program_port(
+    store: SQLiteRuntimeStore, *, port: object, snapshot: ProgramExecutionSnapshot,
+    prepared_input_bytes: bytes, pbs_template_bytes: bytes,
+) -> _transport._PreparedProgramEffects:
+    if type(port) is not _ProgramExecutionPort or port.snapshot is not snapshot:
+        raise TransportBoundaryError("successor execution requires its exact private generation port")
+    if type(prepared_input_bytes) is not bytes or type(pbs_template_bytes) is not bytes:
+        raise TransportBoundaryError("successor input and scheduler must be exact bytes")
+    snapshot.assert_identity_closed()
+    inputs, schedulers = snapshot.program_execution_spec.exact_inputs, snapshot.scheduler_artifacts
+    if len(inputs) != 1 or len(schedulers) != 1:
+        raise TransportBoundaryError("the common entrypoint requires one exact input and scheduler")
+    return _prepare_program_execution(
+        store, snapshot=snapshot, program_transport_store=port.program_transport_store,
+        input_bytes={str(inputs[0]["portable_name"]): prepared_input_bytes},
+        scheduler_artifact_bytes={str(schedulers[0]["portable_name"]): pbs_template_bytes},
+        driver=port.driver,
+    )
+
+
+def _read_program_execution_result(
+    store: SQLiteRuntimeStore, *, snapshot: ProgramExecutionSnapshot,
+    program_transport_store: _transport._ProgramTransportStore,
+    driver: _transport._ProgramEffectDriver, claim: SubmissionIntentClaim,
+) -> _ProgramExecutionResult:
+    """Reconstruct private successor detail from its persisted dual-source authority."""
+    _assert_effect_intent_replay(store, snapshot)
+    base = _snapshot_binding(snapshot, program_transport_store, driver)
+    receipts = _load_receipts(store, snapshot, program_transport_store, base)
+    try:
+        job = _job_authority(store, snapshot, program_transport_store, driver)
+    except TransportBoundaryError:
+        job = None
+    outcome = "SUCCEEDED" if job is not None else (str(receipts[-1].data["outcome"]) if receipts else "FAILED")
+    return _ProgramExecutionResult(claim, outcome, job, receipts)
+
+
+def _prepare_program_execution(
     store: SQLiteRuntimeStore, *, snapshot: ProgramExecutionSnapshot,
     program_transport_store: _transport._ProgramTransportStore,
     input_bytes: Mapping[str, bytes],
     scheduler_artifact_bytes: Mapping[str, bytes], driver: _transport._ProgramEffectDriver,
-) -> _ProgramExecutionResult:
+) -> _transport._PreparedProgramEffects:
     if type(store) is not SQLiteRuntimeStore:
         raise TransportBoundaryError("successor execution requires exact SQLiteRuntimeStore")
+    try:
+        snapshot._assert_current_core(store)
+    except Exception as exc:
+        raise TransportBoundaryError("successor snapshot/Core authority is not closed") from exc
     closed_driver = _transport._require_driver(driver)
     base = _snapshot_binding(snapshot, program_transport_store, closed_driver)
     material = _stage_material(
@@ -1208,26 +1296,39 @@ def _execute_program_once(
     )
     prepared = _transport._prepare_program_effect_requests(base, material)
     prepared.assert_closed()
-    claim = store.record_submission_intent(snapshot.attempt_id, snapshot.effect_intent_id)
+    return prepared
+
+
+def _execute_claimed_program(
+    store: SQLiteRuntimeStore, *, snapshot: ProgramExecutionSnapshot,
+    program_transport_store: _transport._ProgramTransportStore,
+    prepared: _transport._PreparedProgramEffects, driver: _transport._ProgramEffectDriver,
+    claim: SubmissionIntentClaim,
+    continuation: object = None,
+) -> _ProgramExecutionResult:
+    """Private continuation of execute_once; it cannot acquire a Core WINNER."""
+    closed_driver = _transport._require_driver(driver)
+    base = prepared.binding
     if claim is SubmissionIntentClaim.REPLAY:
-        receipts = _load_receipts(
-            store, snapshot, program_transport_store, base
-        )
-        try:
-            job = _job_authority(
-                store, snapshot, program_transport_store, closed_driver
-            )
-        except TransportBoundaryError:
-            job = None
-        outcome = "SUCCEEDED" if job is not None else (str(receipts[-1].data["outcome"]) if receipts else "FAILED")
-        return _ProgramExecutionResult(claim, outcome, job, receipts)
+        return _read_program_execution_result(store, snapshot=snapshot, program_transport_store=program_transport_store, driver=closed_driver, claim=claim)
+
+    from .runtime import _consume_program_continuation
+    try:
+        _consume_program_continuation(continuation, store, snapshot, prepared)
+    except Exception as exc:
+        raise TransportBoundaryError("successor continuation requires the one-use Execution WINNER transfer") from exc
+    if claim is not SubmissionIntentClaim.WINNER or store.attempt_state(snapshot.attempt_id) is not AttemptState.SUBMISSION_INTENT_RECORDED:
+        raise TransportBoundaryError("program effects require the sole Execution WINNER")
+    _assert_effect_intent_replay(store, snapshot)
+    if _snapshot_binding(snapshot, program_transport_store, closed_driver, persist=True) != base:
+        raise TransportBoundaryError("successor runtime changed after claim")
 
     current_operation = "ALLOCATE_WORKSPACE"
     current_request = prepared.allocate_request
     physical_recorded = False
     try:
         workspace_map = _transport._workspace_response(
-            _transport._call(closed_driver.allocate_workspace, current_request),
+            _invoke_program_driver(store, snapshot, program_transport_store, closed_driver.allocate_workspace, current_request),
             snapshot.workspace_binding.remote_attempt_dir,
         )
         program_transport_store.record_effect(
@@ -1250,7 +1351,7 @@ def _execute_program_once(
             current_operation = "STAGE_EXACT_FILE"
             current_request = _transport._stage_request(base, workspace, payload)
             response_map = _transport._stage_response(
-                _transport._call(
+                _invoke_program_driver(store, snapshot, program_transport_store,
                     closed_driver.stage_exact_file, current_request, content
                 ),
                 payload,
@@ -1287,7 +1388,7 @@ def _execute_program_once(
             ),
         )
         submit_map = _transport._submit_response(
-            _transport._call(closed_driver.submit_qsub_once, current_request)
+            _invoke_program_driver(store, snapshot, program_transport_store, closed_driver.submit_qsub_once, current_request)
         )
         job_id = _transport._job_id(submit_map["job_id"])
         program_transport_store.record_effect(
@@ -1365,19 +1466,9 @@ def _query_program_scheduler(
     )
     try:
         result = _transport._scheduler_response(
-            _transport._call(closed_driver.query_scheduler, request),
+            _invoke_program_driver(store, snapshot, program_transport_store, closed_driver.query_scheduler, request),
             str(job["job_id"]),
         )
-        program_transport_store.record_effect(
-            binding=request["binding"], request=request,
-            classification="SUCCEEDED", response=result,
-        )
-        _append_receipt(
-            store, snapshot, program_transport_store=program_transport_store,
-            current_binding=base, operation="QUERY_SCHEDULER",
-            request=request, outcome="SUCCEEDED", response=result,
-        )
-        return dict(result)
     except Exception:
         response = {"reason": "ambiguous-scheduler-read"}
         program_transport_store.record_effect(
@@ -1390,6 +1481,29 @@ def _query_program_scheduler(
             request=request, outcome="UNKNOWN", response=response,
         )
         return {"job_id": job["job_id"], "state": "unknown"}
+
+
+    program_transport_store.record_effect(
+        binding=request["binding"], request=request,
+        classification="SUCCEEDED", response=result,
+    )
+    _append_receipt(
+        store, snapshot, program_transport_store=program_transport_store,
+        current_binding=base, operation="QUERY_SCHEDULER",
+        request=request, outcome="SUCCEEDED", response=result,
+    )
+    _apply_program_scheduler_disposition(store, snapshot, result)
+    return dict(result)
+
+
+def _apply_program_scheduler_disposition(store: SQLiteRuntimeStore, snapshot: ProgramExecutionSnapshot, result: Mapping[str, object]) -> None:
+    disposition = None
+    if result["state"] == "running":
+        disposition = AttemptState.RUNNING
+    elif result["state"] == "terminal" and type(result.get("exit_status")) is int:
+        disposition = AttemptState.SUCCEEDED if result["exit_status"] == 0 else AttemptState.FAILED
+    if disposition is not None:
+        store.advance_attempt(snapshot.attempt_id, disposition)
 
 
 def _reconcile_program_submission(
@@ -1415,7 +1529,7 @@ def _reconcile_program_submission(
     )
     try:
         response = _transport._reconciliation_response(
-            _transport._call(closed_driver.reconcile_submission, request)
+            _invoke_program_driver(store, snapshot, program_transport_store, closed_driver.reconcile_submission, request)
         )
     except Exception:
         response = {"outcome": "UNKNOWN"}
@@ -1449,6 +1563,23 @@ def _reconcile_program_submission(
     return dict(response)
 
 
+def _require_pre_capture_success(
+    store: SQLiteRuntimeStore, snapshot: ProgramExecutionSnapshot,
+    program_transport_store: _transport._ProgramTransportStore,
+    base: Mapping[str, object], job: Mapping[str, object],
+) -> None:
+    if store.attempt_state(snapshot.attempt_id) is not AttemptState.SUCCEEDED:
+        raise TransportBoundaryError("capture requires exact terminal success")
+    receipts = _load_receipts(store, snapshot, program_transport_store, base)
+    scheduler = tuple(item for item in receipts if item.data["operation"] == "QUERY_SCHEDULER")
+    if not scheduler:
+        raise TransportBoundaryError("capture requires a persisted scheduler success receipt")
+    latest = scheduler[-1].data
+    response = latest["response"]
+    if latest["outcome"] != "SUCCEEDED" or response.get("job_id") != job["job_id"] or response.get("state") != "terminal" or type(response.get("exit_status")) is not int or response["exit_status"] != 0:
+        raise TransportBoundaryError("capture requires same-job terminal exit status zero")
+
+
 def _capture_program_outputs(
     store: SQLiteRuntimeStore, *, snapshot: ProgramExecutionSnapshot,
     program_transport_store: _transport._ProgramTransportStore,
@@ -1459,6 +1590,7 @@ def _capture_program_outputs(
     job = _job_authority(
         store, snapshot, program_transport_store, closed_driver
     )
+    _require_pre_capture_success(store, snapshot, program_transport_store, base, job)
     declarations = (
         *((item, True) for item in snapshot.program_execution_spec.required_outputs),
         *((item, False) for item in snapshot.program_execution_spec.optional_outputs),
@@ -1471,7 +1603,7 @@ def _capture_program_outputs(
             declaration=declaration,
         )
         stat_response, announced_size = _transport._stat_response(
-            _transport._call(closed_driver.stat_exact_file, stat_request),
+            _invoke_program_driver(store, snapshot, program_transport_store, closed_driver.stat_exact_file, stat_request),
             name=name, max_size_bytes=declaration["max_size_bytes"],
         )
         if announced_size is None:
@@ -1511,7 +1643,7 @@ def _capture_program_outputs(
             stat_receipt_id=stat_receipt.observation_id,
         )
         _fetch_map, content, digest, size = _transport._fetch_response(
-            _transport._call(closed_driver.fetch_exact_file, fetch_request),
+            _invoke_program_driver(store, snapshot, program_transport_store, closed_driver.fetch_exact_file, fetch_request),
             name=name, token=token, announced_size=announced_size,
             max_size_bytes=declaration["max_size_bytes"],
         )

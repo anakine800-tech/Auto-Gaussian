@@ -145,13 +145,17 @@ _ROOT_KEYS: Final = {"attestation_mode","deployment_identity","expected_sha256",
 def _text(value:object,name:str)->str:
     if not isinstance(value,str) or not value or value!=value.strip() or any(c in value for c in "\x00\r\n"): raise TransportBoundaryError(f"manifest {name} is invalid")
     return value
-def _parse_deployment_manifest(raw:bytes)->_DeploymentManifest:
+def _parse_deployment_manifest(raw:bytes,*,successor:bool=False)->_DeploymentManifest:
+    from ._bridge import _PROGRAM_BOOTSTRAP_PROTOCOL
+    protocol=_PROGRAM_BOOTSTRAP_PROTOCOL if successor else _BOOTSTRAP_PROTOCOL
+    schema="auto-g16-v3-transport-deployment-manifest/3" if successor else _MANIFEST_SCHEMA
+    rules={name:rule for name,rule in _ROOT_RULES.items() if name in {"mac_ssh","server_remote_shell","server_python","server_qsub","server_qstat"}} if successor else _ROOT_RULES
     value=strict_canonical_json(raw,"deployment manifest")
-    if not isinstance(value,dict) or set(value)!={"bootstrap_protocol","deployment_id","schema","trust_roots"} or value["schema"]!=_MANIFEST_SCHEMA or value["bootstrap_protocol"]!=_BOOTSTRAP_PROTOCOL: raise TransportBoundaryError("manifest top-level shape/version is invalid")
+    if not isinstance(value,dict) or set(value)!={"bootstrap_protocol","deployment_id","schema","trust_roots"} or value["schema"]!=schema or value["bootstrap_protocol"]!=protocol: raise TransportBoundaryError("manifest top-level shape/version is invalid")
     roots_raw=value["trust_roots"]
-    if not isinstance(roots_raw,dict) or set(roots_raw)!=set(_ROOT_RULES): raise TransportBoundaryError("manifest root inventory is invalid")
+    if not isinstance(roots_raw,dict) or set(roots_raw)!=set(rules): raise TransportBoundaryError("manifest root inventory is invalid")
     roots={}
-    for name,(platform,mode,required,grammars) in _ROOT_RULES.items():
+    for name,(platform,mode,required,grammars) in rules.items():
         item=roots_raw[name]
         if not isinstance(item,dict) or set(item)!=_ROOT_KEYS or item["platform"]!=platform or item["attestation_mode"]!=mode: raise TransportBoundaryError(f"manifest root {name} shape is invalid")
         path=_text(item["path"],f"{name}.path"); parsed=PureWindowsPath(path) if platform=="windows" else PurePosixPath(path)
@@ -160,7 +164,7 @@ def _parse_deployment_manifest(raw:bytes)->_DeploymentManifest:
         if required and (not isinstance(digest,str) or re.fullmatch(r"[0-9a-f]{64}",digest) is None or type(size) is not int or size<1 or grammar is not None): raise TransportBoundaryError(f"manifest root {name} identity is invalid")
         if not required and (digest is not None or size is not None or not isinstance(grammar,str) or grammar not in grammars): raise TransportBoundaryError(f"manifest root {name} grammar is invalid")
         roots[name]=_TrustRoot(name,mode,_text(item["deployment_identity"],f"{name}.deployment_identity"),digest,size,path,platform,grammar)
-    return _DeploymentManifest(_BOOTSTRAP_PROTOCOL,_text(value["deployment_id"],"deployment_id"),_MANIFEST_SCHEMA,MappingProxyType(roots),raw,sha256(raw).hexdigest(),len(raw))
+    return _DeploymentManifest(protocol,_text(value["deployment_id"],"deployment_id"),schema,MappingProxyType(roots),raw,sha256(raw).hexdigest(),len(raw))
 
 def _parse_resource_descriptor(raw:bytes)->_ResourceDialect:
     value=strict_canonical_json(raw,"resource enactment descriptor")
@@ -379,33 +383,42 @@ def _resolve_ssh_effect(profile:ServerProfile,current:object)->_SSHEffectAuthori
     return _SSHEffectAuthority(_SSHConfigHop(mac_config,bound["mac-known-hosts"],mac_target),_SSHConfigHop(rtwin_config,bound["rtwin-known-hosts"],server_target))
 
 def _resolve_deployment_authority(snapshot:ExecutionSnapshot,current_profile:ServerProfile)->_DeploymentAuthority:
+    try: assert_execution_snapshot_identity(snapshot)
+    except Exception as exc: raise TransportBoundaryError("execution snapshot is invalid") from exc
+    return _resolve_closed_profile_authority(snapshot.resolved_server_profile,current_profile,snapshot.execution_snapshot_id)
+
+def _resolve_closed_profile_authority(frozen:object,current_profile:ServerProfile,scope_identity:str,*,successor:bool=False)->_DeploymentAuthority:
+    from ._bridge import _PROGRAM_BOOTSTRAP_SOURCE_BYTES, _PROGRAM_BOOTSTRAP_SOURCE_NAME
+    manifest_name="transport-deployment-manifest-v3.json" if successor else _MANIFEST_NAME
+    source_name=_PROGRAM_BOOTSTRAP_SOURCE_NAME if successor else _BOOTSTRAP_SOURCE_NAME
+    source_bytes=_PROGRAM_BOOTSTRAP_SOURCE_BYTES if successor else _BOOTSTRAP_SOURCE_BYTES
     try:
-        assert_execution_snapshot_identity(snapshot); frozen_profile=_freeze_profile(current_profile); current=resolve_server_profile(frozen_profile)
+        frozen.assert_identity_closed(); frozen_profile=_freeze_profile(current_profile); current=resolve_server_profile(frozen_profile)
     except Exception as exc: raise TransportBoundaryError("current profile cannot be resolved") from exc
     if _freeze_profile(current_profile)!=frozen_profile: raise TransportBoundaryError("current profile mutated during Transport resolution")
-    frozen=snapshot.resolved_server_profile
     if current!=frozen or current.semantic_payload()!=frozen.semantic_payload() or current.resolved_server_profile_id!=frozen.resolved_server_profile_id or current.effective_config_sha256!=frozen.effective_config_sha256: raise TransportBoundaryError("current profile differs from snapshot")
-    try: raw=frozen_profile.runtime_contents[_MANIFEST_NAME]; descriptor_raw=frozen_profile.runtime_contents[_RESOURCE_DESCRIPTOR_NAME]; manifest_identity=frozen.runtime_identities[_MANIFEST_NAME]; descriptor_identity=frozen.runtime_identities[_RESOURCE_DESCRIPTOR_NAME]; table_identity=frozen.runtime_identities[_TABLE_NAME]; source_identity=frozen.runtime_identities[_BOOTSTRAP_SOURCE_NAME]
+    try: raw=frozen_profile.runtime_contents[manifest_name]; descriptor_raw=frozen_profile.runtime_contents[_RESOURCE_DESCRIPTOR_NAME]; manifest_identity=frozen.runtime_identities[manifest_name]; descriptor_identity=frozen.runtime_identities[_RESOURCE_DESCRIPTOR_NAME]; table_identity=frozen.runtime_identities[_TABLE_NAME]; source_identity=frozen.runtime_identities[source_name]
     except KeyError as exc: raise TransportBoundaryError("required Transport runtime content is missing") from exc
     if manifest_identity!={"sha256":sha256(raw).hexdigest(),"size_bytes":len(raw)}: raise TransportBoundaryError("manifest differs from snapshot")
     if descriptor_identity!={"sha256":sha256(descriptor_raw).hexdigest(),"size_bytes":len(descriptor_raw)}: raise TransportBoundaryError("resource descriptor differs from snapshot")
     if table_identity!={"sha256":_OPERATION_TABLE_SHA256,"size_bytes":len(_OPERATION_TABLE_BYTES)}: raise TransportBoundaryError("operation table differs from source")
-    expected_source={"sha256":sha256(_BOOTSTRAP_SOURCE_BYTES).hexdigest(),"size_bytes":len(_BOOTSTRAP_SOURCE_BYTES)}
+    expected_source={"sha256":sha256(source_bytes).hexdigest(),"size_bytes":len(source_bytes)}
     if source_identity!=expected_source: raise TransportBoundaryError("bootstrap source differs from source")
-    manifest=_parse_deployment_manifest(raw); dialect=_parse_resource_descriptor(descriptor_raw); _validate_resource_deployment(manifest,dialect); ssh_effect=_resolve_ssh_effect(frozen_profile,current)
-    launcher=manifest.trust_roots["rtwin_launcher"]
+    manifest=_parse_deployment_manifest(raw,successor=successor); dialect=_parse_resource_descriptor(descriptor_raw); _validate_resource_deployment(manifest,dialect); ssh_effect=_resolve_ssh_effect(frozen_profile,current)
     if isinstance(ssh_effect,_MacProxyJumpEffectAuthority):
         mac_ssh=manifest.trust_roots["mac_ssh"]
         if (mac_ssh.path,mac_ssh.expected_size_bytes,mac_ssh.expected_sha256)!=_OPTION1_MAC_SSH: raise TransportBoundaryError("Option-1 Mac OpenSSH identity differs from qualification")
         bootstrap_path=manifest_path=None
     else:
+        if successor: raise TransportBoundaryError("successor requires the reviewed Mac ProxyJump route")
+        launcher=manifest.trust_roots["rtwin_launcher"]
         if (launcher.expected_size_bytes,launcher.expected_sha256)!=(_RTWIN_LAUNCHER_SIZE,_RTWIN_LAUNCHER_SHA256): raise TransportBoundaryError("RTwin launcher differs from source-controlled bytes")
         try:
             bootstrap_path=_closed_effect_path(frozen.platform_paths["rtwin_bootstrap_source_path"],"windows","rtwin_bootstrap_source_path")
             manifest_path=_closed_effect_path(frozen.platform_paths["rtwin_deployment_manifest_path"],"windows","rtwin_deployment_manifest_path")
         except KeyError as exc: raise TransportBoundaryError("RTwin runtime data path inventory is incomplete") from exc
         if bootstrap_path in {manifest_path,launcher.path} or manifest_path==launcher.path: raise TransportBoundaryError("RTwin runtime data paths are not distinct")
-    return _DeploymentAuthority(manifest,dialect,ssh_effect,frozen.resolved_server_profile_id,frozen.effective_config_sha256,snapshot.execution_snapshot_id,expected_source["sha256"],expected_source["size_bytes"],bootstrap_path,manifest_path)
+    return _DeploymentAuthority(manifest,dialect,ssh_effect,frozen.resolved_server_profile_id,frozen.effective_config_sha256,scope_identity,expected_source["sha256"],expected_source["size_bytes"],bootstrap_path,manifest_path)
 
 def _assert_deployment_snapshot(snapshot:ExecutionSnapshot,authority:_DeploymentAuthority)->None:
     try: assert_execution_snapshot_identity(snapshot)
@@ -555,7 +568,12 @@ class _SubprocessRTWinDriver:
                 try: stream.close()
                 except OSError: pass
     def _run(self,snapshot:ExecutionSnapshot,invocation:_Invocation)->tuple[bytes,bytes,int|None,str,bool,bool]:
-        _assert_deployment_snapshot(snapshot,invocation.authority)
+        from ._program_rtwin import _ProgramRTWinInvocation, _prepare_program_invocation
+        successor=type(invocation) is _ProgramRTWinInvocation
+        if successor:
+            command,request=_prepare_program_invocation(snapshot,invocation)
+        else:
+            _assert_deployment_snapshot(snapshot,invocation.authority)
         if not invocation.authority.resource_dialect.live_capable:
             return b"",b"",None,"transport-error",False,False
         roots=invocation.authority.manifest.trust_roots
@@ -563,14 +581,14 @@ class _SubprocessRTWinDriver:
         if isinstance(effect,_MacProxyJumpEffectAuthority):
             local_files=(effect.config,effect.rtwin_known_hosts,effect.final_known_hosts,effect.final_public_key); root_names=("mac_ssh",)
             identity_paths=((effect.rtwin_target.identity_file,None),(effect.final_target.identity_file,effect.final_identity_file_identity))
-            command=_build_mac_proxyjump_command(snapshot,invocation.authority)
+            if not successor: command=_build_mac_proxyjump_command(snapshot,invocation.authority)
         else:
             local_files=(effect.mac_to_rtwin.config,effect.mac_to_rtwin.known_hosts); root_names=("mac_ssh","mac_scp")
             identity_paths=(); command=_build_rtwin_command(snapshot,invocation.authority)
         before={name:_attest_local(roots[name]) for name in root_names}
         before.update({bound.name:_attest_local_effect_file(bound) for bound in local_files})
         before.update({f"identity-{index}":_attest_identity_reference(path,expected) for index,(path,expected) in enumerate(identity_paths)})
-        request=_encode_request_frame(invocation.request,cap=invocation.operation.stdin_cap)
+        if not successor: request=_encode_request_frame(invocation.request,cap=invocation.operation.stdin_cap)
         process=None
         try:
             process=subprocess.Popen(command,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=dict(_FIXED_ENV),shell=False,start_new_session=True)

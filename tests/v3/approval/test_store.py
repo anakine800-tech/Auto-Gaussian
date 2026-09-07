@@ -15,6 +15,7 @@ from auto_g16.approval import models as approval_models
 from auto_g16.approval import store as approval_store
 import auto_g16.core as core
 import auto_g16.execution as execution
+from tests.v3.execution import test_v31_lane_a as lane_a_fixtures
 
 from ._fixtures import (
     DISPLAYED_MEANING,
@@ -24,6 +25,89 @@ from ._fixtures import (
     scientific_two,
     snapshot,
 )
+
+
+class ProgramConfirmationPersistenceTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.fixture = lane_a_fixtures.LaneAFixture()
+        self.fixture.setUp()
+        self.addCleanup(self.fixture.doCleanups)
+        self.v30 = self.fixture.v30_snapshot()
+        self.v31 = self.fixture.successor_snapshot()
+        self.claim = mock.patch.object(self.fixture.store, "record_submission_intent", side_effect=AssertionError("approval must be pure"))
+        self.claim_spy = self.claim.start()
+        self.addCleanup(self.claim.stop)
+        self.driver = mock.patch("auto_g16.execution.program_runtime._transport._call", side_effect=AssertionError("approval cannot invoke a driver"))
+        self.driver_spy = self.driver.start()
+        self.addCleanup(self.driver.stop)
+
+    def tearDown(self) -> None:
+        self.claim_spy.assert_not_called()
+        self.driver_spy.assert_not_called()
+
+    def confirmation(self, current):
+        return approval.ExactOperationalConfirmation.for_snapshot(
+            self.fixture.store, current, confirmer_id="offline-reviewer",
+            confirmer_evidence={"displayed": "complete exact snapshot"},
+        )
+
+    def test_two_generations_persist_reopen_and_load_current_in_one_v1_store(self) -> None:
+        database = self.fixture.root / "two-generations.sqlite3"
+        records = tuple(self.confirmation(item) for item in (self.v30, self.v31))
+        with closing(approval.SQLiteApprovalStore(database)) as store:
+            for record in records:
+                store.store_operational_confirmation(record)
+            self.assertEqual(store.evidence_count(), 2)
+        with closing(approval.SQLiteApprovalStore(database)) as reopened:
+            for record, current in zip(records, (self.v30, self.v31)):
+                self.assertEqual(reopened.load_current_operational_confirmation(record.operational_confirmation_id, current), record)
+                reopened.store_operational_confirmation(record)
+                record.assert_current(self.fixture.store, current)
+            self.assertEqual(reopened.evidence_count(), 2)
+            for record, wrong_generation in zip(records, (self.v31, self.v30)):
+                with self.assertRaises(approval.ApprovalStoreConflictError):
+                    reopened.load_current_operational_confirmation(record.operational_confirmation_id, wrong_generation)
+
+    def test_successor_persists_complete_authority_not_only_ids(self) -> None:
+        record = self.confirmation(self.v31)
+        with closing(approval.SQLiteApprovalStore()) as store:
+            store.store_operational_confirmation(record)
+            loaded = store.load_operational_confirmation(record.operational_confirmation_id)
+        semantics = loaded.execution_snapshot_semantics
+        for field in ("program_execution_spec", "project_physical_binding", "resolved_resource_request", "resolved_server_profile", "workspace_binding"):
+            self.assertEqual(semantics[field], getattr(self.v31, field).semantic_payload())
+        self.assertEqual(semantics["scheduler_artifacts"], self.v31.scheduler_artifacts)
+        self.assertEqual(semantics["effect_intent_id"], self.v31.effect_intent_id)
+
+    def test_successor_id_semantics_and_generation_splices_reject_on_append(self) -> None:
+        original = self.confirmation(self.v31)
+        mutations = (
+            lambda data: data["execution_snapshot_semantics"]["cwd_binding"].update(path="/home/user100/SDL/wrong/attempt-1"),
+            lambda data: data.update(execution_snapshot_id=str(uuid5(UUID(int=0), "wrong-envelope"))),
+            lambda data: data["execution_snapshot_semantics"]["program_execution_spec"]["program_data"].update(charge=1),
+            lambda data: data["execution_snapshot_semantics"].update(prepared_input_binding={}),
+            lambda data: data["execution_snapshot_semantics"].pop("project_physical_binding"),
+            lambda data: data["execution_snapshot_semantics"]["resolved_server_profile"]["platform_paths"].update(xtb_executable_path="/unreviewed/xtb"),
+            lambda data: data["execution_snapshot_semantics"]["resolved_resource_request"].update(cores=1),
+            lambda data: data["execution_snapshot_semantics"]["workspace_descriptor_anchor"].update(parent_parts=[]),
+        )
+        for mutate in mutations:
+            with self.subTest(mutation=mutate), closing(approval.SQLiteApprovalStore()) as store:
+                fields = approval_models.plain_value(original.authority_payload())
+                fields["decision"] = approval.ApprovalDecision.APPROVED
+                mutate(fields)
+                changed = approval.ExactOperationalConfirmation._from_values(**fields)
+                with self.assertRaises(approval.ApprovalPersistenceIntegrityError):
+                    store.store_operational_confirmation(changed)
+                self.assertEqual(store.evidence_count(), 0)
+
+    def test_successor_current_snapshot_mutation_is_rejected_before_replay(self) -> None:
+        record = self.confirmation(self.v31)
+        with closing(approval.SQLiteApprovalStore()) as store:
+            store.store_operational_confirmation(record)
+            object.__setattr__(self.v31, "calculation_plan_revision", 2)
+            with self.assertRaises(execution.ExecutionValueError):
+                store.load_current_operational_confirmation(record.operational_confirmation_id, self.v31)
 
 
 class ApprovalStoreTests(unittest.TestCase):

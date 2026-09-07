@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 import os
 import stat
+from threading import RLock
 from typing import Protocol, runtime_checkable
 
 from auto_g16.core import (
@@ -36,6 +37,35 @@ from .models import (
     resolve_server_profile,
 )
 from .preparation import assert_execution_snapshot_identity
+from .program import ProgramExecutionSnapshot
+
+_NEW_SUBMISSION_AUTHORITY = object()
+_PROGRAM_CONTINUATIONS: dict[object, tuple[object, ...]] = {}
+_PROGRAM_CONTINUATION_LOCK = RLock()
+
+
+def _consume_program_continuation(permit: object, store: SQLiteRuntimeStore, snapshot: ProgramExecutionSnapshot, prepared: object) -> None:
+    """Consume only the transfer issued inside the actual execute_once WINNER."""
+    from auto_g16.transport.program import _digest
+    with _PROGRAM_CONTINUATION_LOCK:
+        expected = _PROGRAM_CONTINUATIONS.pop(permit, None)
+    if expected is None or expected[:3] != (store, snapshot, prepared):
+        raise ExecutionValueError("program continuation lacks its one-use Execution WINNER transfer")
+    snapshot.assert_identity_closed()
+    prepared.assert_closed()
+    if expected[3:] != (snapshot.program_execution_snapshot_id, snapshot.effect_intent_id, _digest((prepared.binding, prepared.material))):
+        raise ExecutionValueError("program continuation authority changed after WINNER")
+
+
+def _submission_intent_claim(store: SQLiteRuntimeStore, attempt_id: str, intent_id: str, *, authority: object = None) -> SubmissionIntentClaim:
+    """One Core-call owner; only execute_once can open its new-claim branch."""
+    if authority is not _NEW_SUBMISSION_AUTHORITY and store.attempt_state(attempt_id) is AttemptState.PLANNED:
+        raise ExecutionValueError("read-only intent replay cannot claim a PLANNED Attempt")
+    return store.record_submission_intent(attempt_id, intent_id)
+
+
+def _replay_submission_intent(store: SQLiteRuntimeStore, attempt_id: str, intent_id: str) -> SubmissionIntentClaim:
+    return _submission_intent_claim(store, attempt_id, intent_id)
 
 
 class ExecutionRuntimeError(RuntimeError):
@@ -403,19 +433,30 @@ def _record_unknown(
 def execute_once(
     store: SQLiteRuntimeStore,
     *,
-    snapshot: ExecutionSnapshot,
+    snapshot: ExecutionSnapshot | ProgramExecutionSnapshot,
     current_profile: ServerProfile,
     prepared_input_bytes: bytes,
     pbs_template_bytes: bytes,
     confirmed_execution_snapshot_id: str,
     port: ExecutionPort,
 ) -> ExecutionAttemptResult:
-    """Consume the Core claim once and drive only the synthetic/offline port."""
+    """The sole new submission claim and WINNER effect boundary for both generations."""
 
-    assert_execution_snapshot_identity(snapshot)
-    if not isinstance(port, ExecutionPort):
-        raise ExecutionValueError("port does not implement the frozen ExecutionPort")
-    if store.attempt_state(snapshot.attempt_id) is AttemptState.PLANNED:
+    program_prepared = None
+    if type(snapshot) is ProgramExecutionSnapshot:
+        from .program_runtime import _prepare_program_port
+        if confirmed_execution_snapshot_id != snapshot.program_execution_snapshot_id:
+            raise ExecutionValueError("operational confirmation does not match ProgramExecutionSnapshot")
+        if resolve_server_profile(current_profile) != snapshot.resolved_server_profile:
+            raise ExecutionValueError("mutable ServerProfile drifted before successor effect seam")
+        program_prepared = _prepare_program_port(store, port=port, snapshot=snapshot, prepared_input_bytes=prepared_input_bytes, pbs_template_bytes=pbs_template_bytes)
+        intent_id = snapshot.effect_intent_id
+    else:
+        assert_execution_snapshot_identity(snapshot)
+        if not isinstance(port, ExecutionPort):
+            raise ExecutionValueError("port does not implement the frozen ExecutionPort")
+        intent_id = snapshot.submission_intent_id
+    if program_prepared is None and store.attempt_state(snapshot.attempt_id) is AttemptState.PLANNED:
         if confirmed_execution_snapshot_id != snapshot.execution_snapshot_id:
             raise ExecutionValueError("operational confirmation does not match ExecutionSnapshot")
         if port.contract_version != snapshot.adapter_contract_version:
@@ -432,10 +473,24 @@ def execute_once(
                 "prepared input and PBS template logical names must differ"
             )
 
-    journal = ReceiptJournal(store)
-    claim = store.record_submission_intent(
-        snapshot.attempt_id, snapshot.submission_intent_id
-    )
+    journal = ReceiptJournal(store) if program_prepared is None else None
+    claim = _submission_intent_claim(store, snapshot.attempt_id, intent_id, authority=_NEW_SUBMISSION_AUTHORITY)
+    if program_prepared is not None:
+        from auto_g16.transport.program import _digest
+        permit = None
+        if claim is SubmissionIntentClaim.WINNER:
+            permit = object()
+            with _PROGRAM_CONTINUATION_LOCK:
+                _PROGRAM_CONTINUATIONS[permit] = (store, snapshot, program_prepared, snapshot.program_execution_snapshot_id, snapshot.effect_intent_id, _digest((program_prepared.binding, program_prepared.material)))
+        try:
+            if claim is SubmissionIntentClaim.WINNER:
+                port._execute_winner(store, program_prepared, permit)
+            # V31 detail remains in its own stores. This high-level result has
+            # no V30 receipts and never substitutes for successor authority.
+            return ExecutionAttemptResult(claim=claim, attempt_state=store.attempt_state(snapshot.attempt_id), receipts=())
+        finally:
+            with _PROGRAM_CONTINUATION_LOCK:
+                _PROGRAM_CONTINUATIONS.pop(permit, None)
     if claim is SubmissionIntentClaim.REPLAY:
         return ExecutionAttemptResult(
             claim=claim,

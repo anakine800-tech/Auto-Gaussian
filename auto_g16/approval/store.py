@@ -14,6 +14,7 @@ from uuid import UUID
 
 from auto_g16.execution import (
     ExecutionSnapshot,
+    ProgramExecutionSnapshot,
     assert_execution_snapshot_identity,
 )
 
@@ -27,6 +28,9 @@ from .models import (
     ScientificApproval,
     plain_value,
     require_text,
+    _assert_snapshot_identity,
+    _snapshot_id,
+    _snapshot_semantics,
 )
 
 
@@ -268,6 +272,20 @@ def _validate_snapshot_semantics(
     calculation_plan_id: str,
     calculation_plan_revision: int,
 ) -> Mapping[str, object]:
+    if type(value) is dict and set(value) == ProgramExecutionSnapshot._approval_field_set():
+        try:
+            successor = ProgramExecutionSnapshot._validate_approval_semantics(value)
+        except Exception as exc:
+            raise _integrity_failure("successor snapshot semantics do not reclose") from exc
+        expected = {
+            "program_execution_snapshot_id": execution_snapshot_id,
+            "attempt_id": attempt_id,
+            "calculation_plan_id": calculation_plan_id,
+            "calculation_plan_revision": calculation_plan_revision,
+        }
+        if any(successor[key] != item for key, item in expected.items()):
+            raise _integrity_failure("successor snapshot disagrees with confirmation envelope")
+        return successor
     snapshot = _exact_object(value, _SNAPSHOT_FIELDS, "execution_snapshot_semantics")
     if _uuid5_text(snapshot["execution_snapshot_id"], "snapshot.execution_snapshot_id") != execution_snapshot_id:
         raise _integrity_failure("snapshot identity disagrees with confirmation envelope")
@@ -1185,7 +1203,7 @@ class SQLiteApprovalStore:
     def load_current_operational_confirmation(
         self,
         evidence_id: str,
-        current_snapshot: ExecutionSnapshot,
+        current_snapshot: ExecutionSnapshot | ProgramExecutionSnapshot,
     ) -> ExactOperationalConfirmation:
         """Load evidence only when it exactly binds the current valid snapshot.
 
@@ -1196,14 +1214,14 @@ class SQLiteApprovalStore:
         or external effect.
         """
 
-        assert_execution_snapshot_identity(current_snapshot)
+        _assert_snapshot_identity(current_snapshot)
         record = self.load_operational_confirmation(evidence_id)
         expected = {
-            "execution_snapshot_id": current_snapshot.execution_snapshot_id,
+            "execution_snapshot_id": _snapshot_id(current_snapshot),
             "attempt_id": current_snapshot.attempt_id,
             "calculation_plan_id": current_snapshot.calculation_plan_id,
             "calculation_plan_revision": current_snapshot.calculation_plan_revision,
-            "execution_snapshot_semantics": current_snapshot.semantic_payload(),
+            "execution_snapshot_semantics": _snapshot_semantics(current_snapshot),
         }
         observed = record.authority_payload()
         for field_name, expected_value in expected.items():

@@ -7,6 +7,8 @@ from dataclasses import replace
 from hashlib import sha256
 from pathlib import Path
 import unittest
+from contextlib import nullcontext
+from unittest.mock import patch
 
 import auto_g16.core as core
 import auto_g16.execution as execution
@@ -28,7 +30,6 @@ from auto_g16.execution.program_runtime import (
     _assert_program_output_capture_authority,
     _assert_program_terminal_success_authority,
     _capture_program_outputs,
-    _execute_program_once,
     _query_program_scheduler,
 )
 from auto_g16.execution.project_provisioning import (
@@ -247,55 +248,75 @@ class XtbCrestSeedHandoffTests(LaneAFixture):
                 else outputs
             )
         )
-        _execute_program_once(
+        execution.execute_once(
             self.store,
             snapshot=snapshot,
-            program_transport_store=self.program_transport_store,
-            input_bytes={"input.xyz": SEED},
-            scheduler_artifact_bytes={
-                str(scheduler["portable_name"]): str(
-                    scheduler["content_utf8"]
-                ).encode("utf-8")
-            },
-            driver=driver,
+            current_profile=LaneAFixture.profile(self),
+            confirmed_execution_snapshot_id=snapshot.program_execution_snapshot_id,
+            prepared_input_bytes=SEED,
+            pbs_template_bytes=str(scheduler["content_utf8"]).encode("utf-8"),
+            port=program_runtime._ProgramExecutionPort(snapshot=snapshot, program_transport_store=self.program_transport_store, driver=driver),
         )
-        capture = None
-        if capture_before_scheduler:
-            capture = _capture_program_outputs(
-                self.store,
-                snapshot=snapshot,
-                program_transport_store=self.program_transport_store,
-                driver=driver,
-            )
-        for scheduler_state in scheduler_states:
-            if scheduler_state == "unknown":
-                driver.raise_operation = (
-                    "QUERY_SCHEDULER",
-                    RuntimeError("synthetic ambiguous scheduler read"),
+        adversarial = (
+            scheduler_states not in (("running", "terminal"), ("terminal",))
+            or scheduler_job_id != "123.server"
+            or attempt_state is not core.AttemptState.SUCCEEDED
+            or capture_before_scheduler
+        )
+        # Keep historical forged-evidence tests reaching the promotion boundary.
+        # Positive captures use the real disposition owner; hostile fixtures first
+        # prove the new capture guard rejects, then inject only synthetic evidence.
+        context = patch.object(program_runtime, "_apply_program_scheduler_disposition") if adversarial else nullcontext()
+        with context:
+            capture = None
+            if capture_before_scheduler:
+                capture = self._capture_adversarial_or_current(
+                    self.store,
+                    _adversarial=adversarial,
+                    snapshot=snapshot,
+                    program_transport_store=self.program_transport_store,
+                    driver=driver,
                 )
-            else:
-                driver.raise_operation = None
-                driver.query_response = {
-                    "job_id": scheduler_job_id,
-                    "state": scheduler_state,
-                }
-            _query_program_scheduler(
-                self.store,
-                snapshot=snapshot,
-                program_transport_store=self.program_transport_store,
-                driver=driver,
-            )
-        driver.raise_operation = None
-        if attempt_state is not core.AttemptState.SUBMITTED:
-            self.store.advance_attempt(snapshot.attempt_id, attempt_state)
-        if capture is None:
-            capture = _capture_program_outputs(
-                self.store,
-                snapshot=snapshot,
-                program_transport_store=self.program_transport_store,
-                driver=driver,
-            )
+            for scheduler_state in scheduler_states:
+                if scheduler_state == "unknown":
+                    driver.raise_operation = (
+                        "QUERY_SCHEDULER",
+                        RuntimeError("synthetic ambiguous scheduler read"),
+                    )
+                else:
+                    driver.raise_operation = None
+                    driver.query_response = {
+                        "job_id": scheduler_job_id,
+                        "state": scheduler_state,
+                        **({"exit_status": 0} if scheduler_state == "terminal" else {}),
+                    }
+                _query_program_scheduler(
+                    self.store,
+                    snapshot=snapshot,
+                    program_transport_store=self.program_transport_store,
+                    driver=driver,
+                )
+            driver.raise_operation = None
+            if adversarial and attempt_state is not core.AttemptState.SUBMITTED:
+                self.store.advance_attempt(snapshot.attempt_id, attempt_state)
+            if capture is None:
+                capture = self._capture_adversarial_or_current(
+                    self.store,
+                    _adversarial=adversarial,
+                    snapshot=snapshot,
+                    program_transport_store=self.program_transport_store,
+                    driver=driver,
+                )
         return snapshot, capture
+
+    def _capture_adversarial_or_current(self, store=None, *, _adversarial, **kwargs):
+        store = self.store if store is None else store
+        if not _adversarial:
+            return _capture_program_outputs(store, **kwargs)
+        with self.assertRaisesRegex(TransportBoundaryError, "capture requires"):
+            _capture_program_outputs(store, **kwargs)
+        with patch.object(program_runtime, "_require_pre_capture_success"):
+            return _capture_program_outputs(store, **kwargs)
 
     def capture_with_preterminal_stat(
         self,
@@ -305,17 +326,14 @@ class XtbCrestSeedHandoffTests(LaneAFixture):
         snapshot = self.xtb_snapshot(self.xtb_spec())
         scheduler = snapshot.scheduler_artifacts[0]
         driver = _Driver(outputs={"xtb.out": b"normal xtb\n", "xtbopt.xyz": SEED})
-        _execute_program_once(
+        execution.execute_once(
             self.store,
             snapshot=snapshot,
-            program_transport_store=self.program_transport_store,
-            input_bytes={"input.xyz": SEED},
-            scheduler_artifact_bytes={
-                str(scheduler["portable_name"]): str(
-                    scheduler["content_utf8"]
-                ).encode("utf-8")
-            },
-            driver=driver,
+            current_profile=LaneAFixture.profile(self),
+            confirmed_execution_snapshot_id=snapshot.program_execution_snapshot_id,
+            prepared_input_bytes=SEED,
+            pbs_template_bytes=str(scheduler["content_utf8"]).encode("utf-8"),
+            port=program_runtime._ProgramExecutionPort(snapshot=snapshot, program_transport_store=self.program_transport_store, driver=driver),
         )
         base = program_runtime._snapshot_binding(
             snapshot, self.program_transport_store, driver
@@ -368,7 +386,7 @@ class XtbCrestSeedHandoffTests(LaneAFixture):
                 response=stat_response,
             )
             if index == 0:
-                driver.query_response = {"job_id": "123.server", "state": "terminal"}
+                driver.query_response = {"job_id": "123.server", "state": "terminal", "exit_status": 0}
                 _query_program_scheduler(
                     self.store,
                     snapshot=snapshot,

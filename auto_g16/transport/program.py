@@ -314,6 +314,10 @@ class _ProgramTransportStore:
         self._attest()
 
     def _attest(self) -> None:
+        with self._lock:
+            self._attest_locked()
+
+    def _attest_locked(self) -> None:
         if getattr(self, "_closed", True):
             raise TransportBoundaryError("program transport store is closed")
         if _store_file_identity(self._path) != self._file_identity:
@@ -433,6 +437,7 @@ class _ProgramTransportStore:
         program_execution_snapshot_id: str,
         resolved_server_profile_id: str,
         qualification: Mapping[str, object],
+        persist: bool = True,
     ) -> str:
         self._attest()
         closed = dict(_runtime_qualification(qualification))
@@ -468,9 +473,10 @@ class _ProgramTransportStore:
             _digest(closed),
             canonical_bytes(payload),
         )
-        self._insert_exact(
-            "program_runtime_attestation", columns, values, identity
-        )
+        if persist:
+            self._insert_exact(
+                "program_runtime_attestation", columns, values, identity
+            )
         return identity
 
     def record_effect(
@@ -596,11 +602,12 @@ class _ProgramTransportStore:
             "job_id": job_id,
         }
         identity = _identity("program-physical-effect", payload)
-        rows = self._connection.execute(
-            "SELECT payload FROM program_effect_physical_authority "
-            "WHERE physical_effect_authority_id=?",
-            (identity,),
-        ).fetchall()
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT payload FROM program_effect_physical_authority "
+                "WHERE physical_effect_authority_id=?",
+                (identity,),
+            ).fetchall()
         if len(rows) != 1 or rows[0][0] != canonical_bytes(payload):
             raise TransportBoundaryError(
                 "matching successor physical-effect authority is required"
@@ -952,9 +959,13 @@ def _submit_response(value: object) -> Mapping[str, object]:
 def _scheduler_response(
     value: object, expected_job_id: str
 ) -> Mapping[str, object]:
-    response = _exact_keys(value, {"job_id", "state"}, "scheduler response")
+    if not isinstance(value, Mapping) or set(value) not in ({"job_id", "state"}, {"job_id", "state", "exit_status"}):
+        raise _ProgramEffectUnknown("scheduler response has an invalid closed shape")
+    response = value
     if response["job_id"] != expected_job_id or response["state"] not in _SCHEDULER_STATES:
         raise _ProgramEffectUnknown("scheduler response differs from job authority")
+    if "exit_status" in response and (response["state"] != "terminal" or type(response["exit_status"]) is not int or not -(2**31) <= response["exit_status"] < 2**31):
+        raise _ProgramEffectUnknown("scheduler exit status is not exact terminal evidence")
     return response
 
 

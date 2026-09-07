@@ -13,6 +13,8 @@ from ._canonical import TransportBoundaryError, canonical_json_bytes, strict_can
 _BOOTSTRAP_PROTOCOL: Final = "auto-g16-v3-rtwin-bootstrap/2"
 _BOOTSTRAP_SOURCE_NAME: Final = "auto-g16-v3-rtwin-bootstrap-v2-py36.py"
 _FRAME_MAGIC: Final = b"AGV3"
+_PROGRAM_BOOTSTRAP_PROTOCOL: Final = "auto-g16-v31-rtwin-bootstrap/1"
+_PROGRAM_BOOTSTRAP_SOURCE_NAME: Final = "auto-g16-v31-rtwin-bootstrap-v1-py36.py"
 _TOKEN = re.compile(r"^[A-Za-z0-9_:.\\/ -]+$")
 
 _BOOTSTRAP_SOURCE: Final = r'''import base64,hashlib,json,os,re,stat,struct,subprocess,sys
@@ -622,6 +624,254 @@ def _build_rtwin_command(snapshot: object, authority: object) -> tuple[str, ...]
     mac=effect.mac_to_rtwin.target
     command=[roots["mac_ssh"].path,*_ssh_effect_options(effect.mac_to_rtwin.config,effect.mac_to_rtwin.known_hosts),"-p",str(mac.port),"-l",mac.user,"--",mac.alias,remote_command]
     return tuple(command)
+
+_PROGRAM_BOOTSTRAP_SOURCE: Final = r'''import base64,hashlib,json,os,re,selectors,stat,struct,subprocess,sys,time
+MAGIC=b"AGV3"; PROTOCOL="auto-g16-v31-rtwin-bootstrap/1"; ROOT="/home/user100/SDL"; CAP=134217728
+OPS={"OBSERVE_PROJECT","PROVISION_PROJECT","ALLOCATE_WORKSPACE","STAGE_EXACT_FILE","SUBMIT_QSUB_ONCE","QUERY_SCHEDULER","STAT_EXACT_FILE","FETCH_EXACT_FILE","RECONCILE_SUBMISSION"}
+ENV={"LANG":"C","LC_ALL":"C","PYTHONNOUSERSITE":"1","PYTHONUTF8":"1"}
+PORTABLE=re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+DF=os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW|getattr(os,"O_CLOEXEC",0)
+RF=os.O_RDONLY|os.O_NOFOLLOW|getattr(os,"O_CLOEXEC",0)
+def fail(reason): raise ValueError(reason)
+def canonical(v): return json.dumps(v,ensure_ascii=False,allow_nan=False,separators=(",",":"),sort_keys=True).encode("utf-8")+b"\n"
+def b64(v): return base64.b64encode(v).decode("ascii")
+def un64(v):
+    if type(v) is not str: fail("base64-type")
+    raw=base64.b64decode(v.encode("ascii"),validate=True)
+    if b64(raw)!=v: fail("base64-canonical")
+    return raw
+def closed(raw):
+    value=json.loads(raw.decode("utf-8"))
+    if canonical(value)!=raw: fail("noncanonical-json")
+    return value
+def keys(v,expected):
+    if type(v) is not dict or set(v)!=set(expected): fail("closed-fields")
+def respond(op,result):
+    raw=canonical({"operation":op,"protocol":PROTOCOL,"result":result,"status":"ok"})
+    sys.stdout.buffer.write(MAGIC+struct.pack(">Q",len(raw))+raw)
+def identity(s): return [s.st_dev,s.st_ino,s.st_size,s.st_mtime_ns,s.st_ctime_ns]
+def directory(path):
+    if type(path) is not str or not path.startswith("/") or path!=os.path.normpath(path): fail("directory-path")
+    parts=[] if path=="/" else path.split("/")[1:]
+    if any(not part or part in {".",".."} for part in parts): fail("directory-path")
+    fd=os.open("/",DF); chain=[[os.fstat(fd).st_dev,os.fstat(fd).st_ino]]
+    try:
+        for part in parts:
+            child=os.open(part,DF,dir_fd=fd); os.close(fd); fd=child
+            s=os.fstat(fd); chain.append([s.st_dev,s.st_ino])
+        return fd,b64(canonical(["v31-directory/1",path,chain]))
+    except BaseException: os.close(fd); raise
+def named_directory(path,expected):
+    fd,actual=directory(path)
+    if actual!=expected: os.close(fd); fail("directory-replaced")
+    return fd
+def parent(path):
+    if type(path) is not str or not path.startswith(ROOT+"/") or path!=os.path.normpath(path): fail("root-containment")
+    prefix,name=path.rsplit("/",1)
+    if not PORTABLE.fullmatch(name) or name in {".",".."}: fail("project-name")
+    fd,token=directory(prefix)
+    return fd,token,prefix,name
+def project_observe(path):
+    fd,token,prefix,name=parent(path)
+    try:
+        try: child=os.open(name,DF,dir_fd=fd)
+        except FileNotFoundError: result={"state":"ABSENT","parent_physical_identity":token,"project_physical_identity":None}
+        else:
+            try:
+                named,pid=directory(path)
+                try:
+                    if identity(os.fstat(named))[:2]!=identity(os.fstat(child))[:2]: fail("project-replaced")
+                finally: os.close(named)
+                result={"state":"EXISTING","parent_physical_identity":token,"project_physical_identity":pid}
+            finally: os.close(child)
+        check=named_directory(prefix,token); os.close(check)
+        return result
+    finally: os.close(fd)
+def read_file(fd,size,limit=CAP):
+    if type(size) is not int or size<0 or size>limit: fail("file-cap")
+    data=bytearray()
+    while len(data)<size:
+        chunk=os.read(fd,min(65536,size-len(data)))
+        if not chunk: fail("short-read")
+        data.extend(chunk)
+    if os.read(fd,1): fail("file-grew")
+    return bytes(data)
+def executable(item):
+    path=item["path"]; prefix,name=path.rsplit("/",1)
+    parentfd,parent_token=directory(prefix or "/"); fd=None
+    try:
+        fd=os.open(name,RF,dir_fd=parentfd)
+        before=os.fstat(fd)
+        if not stat.S_ISREG(before.st_mode) or not before.st_mode&0o111 or before.st_size!=item["size_bytes"]: fail("executable-drift")
+        digest=hashlib.sha256(); remaining=before.st_size
+        while remaining:
+            chunk=os.read(fd,min(65536,remaining))
+            if not chunk: fail("executable-short-read")
+            digest.update(chunk); remaining-=len(chunk)
+        after=os.stat(name,dir_fd=parentfd,follow_symlinks=False)
+        if os.read(fd,1) or identity(before)!=identity(os.fstat(fd)) or identity(before)!=identity(after) or digest.hexdigest()!=item["sha256"]: fail("executable-drift")
+        current=named_directory(prefix or "/",parent_token); os.close(current)
+    finally:
+        if fd is not None: os.close(fd)
+        os.close(parentfd)
+def trust(item): return {"path":item["path"],"size_bytes":item["expected_size_bytes"],"sha256":item["expected_sha256"]}
+def file_token(fd,workspace,name):
+    s=os.fstat(fd)
+    if not stat.S_ISREG(s.st_mode) or s.st_size>CAP: fail("file-type-or-cap")
+    return b64(canonical(["v31-file/1",workspace,name,identity(s)]))
+def attest_file(fd,workspace,name,expected=None,content_hash=None):
+    af=os.open(name,RF,dir_fd=fd)
+    try:
+        before=file_token(af,workspace,name)
+        if expected is not None and before!=expected: fail("file-replaced")
+        data=read_file(af,os.fstat(af).st_size)
+        named=os.open(name,RF,dir_fd=fd)
+        try:
+            if before!=file_token(af,workspace,name) or before!=file_token(named,workspace,name): fail("file-replaced")
+        finally: os.close(named)
+        if content_hash is not None and hashlib.sha256(data).hexdigest()!=content_hash: fail("file-bytes-drift")
+        return before,data
+    finally: os.close(af)
+def exclusive_write(fd,name,data):
+    af=os.open(name,os.O_RDWR|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600,dir_fd=fd)
+    try:
+        pos=0
+        while pos<len(data):
+            written=os.write(af,data[pos:])
+            if written<=0: fail("short-write")
+            pos+=written
+        os.fsync(af); os.lseek(af,0,os.SEEK_SET)
+        if read_file(af,len(data))!=data: fail("write-verification")
+    finally: os.close(af)
+    os.fsync(fd)
+def run_exact(root,args,fd,outcap):
+    executable(trust(root)); os.fchdir(fd)
+    proc=subprocess.Popen([root["path"]]+args,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=ENV,shell=False)
+    selector=selectors.DefaultSelector(); outputs={"out":bytearray(),"err":bytearray()}; deadline=time.monotonic()+30
+    try:
+        for key,stream in (("out",proc.stdout),("err",proc.stderr)):
+            os.set_blocking(stream.fileno(),False); selector.register(stream,selectors.EVENT_READ,key)
+        while selector.get_map():
+            remaining=deadline-time.monotonic()
+            if remaining<=0: fail("scheduler-timeout")
+            ready=selector.select(remaining)
+            if not ready: fail("scheduler-timeout")
+            for key,_ in ready:
+                limit=outcap if key.data=="out" else 65536
+                data=os.read(key.fileobj.fileno(),min(65536,limit+1-len(outputs[key.data])))
+                if not data: selector.unregister(key.fileobj); continue
+                outputs[key.data].extend(data)
+                if len(outputs[key.data])>limit: fail("scheduler-cap")
+        code=proc.wait(timeout=max(.001,deadline-time.monotonic())); executable(trust(root))
+        return code,bytes(outputs["out"]),bytes(outputs["err"])
+    finally:
+        selector.close()
+        if proc.poll() is None: proc.kill(); proc.wait()
+        proc.stdout.close(); proc.stderr.close()
+def main():
+    deployment=closed(un64(sys.argv[1])); roots=deployment["trust_roots"]
+    for key in ("server_python","server_qsub","server_qstat"): executable(trust(roots[key]))
+    if os.path.abspath(sys.executable)!=roots["server_python"]["path"]: fail("python-path")
+    head=sys.stdin.buffer.read(12)
+    if len(head)!=12 or head[:4]!=MAGIC: fail("frame")
+    size=struct.unpack(">Q",head[4:])[0]
+    if size>179306484: fail("frame-cap")
+    raw=sys.stdin.buffer.read(size)
+    if len(raw)!=size or sys.stdin.buffer.read(1): fail("frame-length")
+    request=closed(raw); keys(request,{"protocol","operation","binding","payload"})
+    op=request["operation"]; b=request["binding"]; p=request["payload"]
+    if request["protocol"]!=PROTOCOL or op not in OPS: fail("protocol")
+    keys(b,{"scope_identity","resolved_server_profile_id","project_directory","parent_physical_identity","project_physical_identity","attempt_id","program_execution_snapshot_id","effect_intent_id","remote_workspace","workspace_physical_token"})
+    path=b["project_directory"]
+    if op=="OBSERVE_PROJECT":
+        keys(p,set()); return respond(op,project_observe(path))
+    if op=="PROVISION_PROJECT":
+        keys(p,{"provision_intent_id"})
+        fd,actual,prefix,name=parent(path)
+        try:
+            if actual!=b["parent_physical_identity"]: fail("parent-replaced")
+            check=named_directory(prefix,actual); os.close(check)
+            os.mkdir(name,0o700,dir_fd=fd); os.fsync(fd)
+            result=project_observe(path)
+            if result["state"]!="EXISTING" or result["parent_physical_identity"]!=actual: fail("project-replaced")
+            return respond(op,result)
+        finally: os.close(fd)
+    keys(p,{"request_payload","executable","resources","staged"}); original=p["request_payload"]
+    executable(p["executable"])
+    prefix=path.rsplit("/",1)[0]; check=named_directory(prefix,b["parent_physical_identity"]); os.close(check)
+    projectfd=named_directory(path,b["project_physical_identity"])
+    fd=None
+    try:
+        attempt=b["attempt_id"]; workspace=b["remote_workspace"]
+        if not PORTABLE.fullmatch(attempt) or attempt in {".",".."} or workspace!=path+"/"+attempt: fail("workspace-path")
+        if op=="ALLOCATE_WORKSPACE":
+            keys(original,set()); check=named_directory(path,b["project_physical_identity"]); os.close(check)
+            os.mkdir(attempt,0o700,dir_fd=projectfd); os.fsync(projectfd)
+            fd,token=directory(workspace)
+            return respond(op,{"remote_workspace":workspace,"workspace_physical_token":token})
+        fd=named_directory(workspace,b["workspace_physical_token"])
+        if op=="STAGE_EXACT_FILE":
+            keys(original,{"artifact_kind","logical_role","portable_name","format","sha256","size_bytes","content_base64"})
+            name=original["portable_name"]
+            if not PORTABLE.fullmatch(name) or name in {".",".."}: fail("artifact-name")
+            if type(original["size_bytes"]) is not int or not 0<=original["size_bytes"]<=CAP or len(original["content_base64"])>4*((CAP+2)//3): fail("artifact-cap")
+            data=un64(original["content_base64"])
+            if len(data)!=original["size_bytes"] or hashlib.sha256(data).hexdigest()!=original["sha256"]: fail("artifact-bytes")
+            check=named_directory(workspace,b["workspace_physical_token"]); os.close(check)
+            exclusive_write(fd,name,data); token,_=attest_file(fd,b["workspace_physical_token"],name,content_hash=original["sha256"])
+            result={k:v for k,v in original.items() if k!="content_base64"}; result["artifact_physical_token"]=token
+            return respond(op,result)
+        if op=="SUBMIT_QSUB_ONCE":
+            keys(original,{"scheduler_portable_name","scheduler_artifact_authority_id","program_input_artifact_authority_ids"})
+            for item in p["staged"]:
+                token,data=attest_file(fd,b["workspace_physical_token"],item["portable_name"],item["artifact_physical_token"],item["sha256"])
+                if len(data)!=item["size_bytes"]: fail("staged-size")
+            r=p["resources"]; keys(r,{"cores","memory_mb","walltime_seconds","queue"})
+            if any(type(r[k]) is not int or r[k]<1 for k in ("cores","memory_mb","walltime_seconds")) or r["queue"]!="batch": fail("resources")
+            marker={"program_execution_snapshot_id":b["program_execution_snapshot_id"],"effect_intent_id":b["effect_intent_id"]}
+            check=named_directory(workspace,b["workspace_physical_token"]); os.close(check)
+            exclusive_write(fd,".auto-g16-v31-submit-intent",canonical(marker))
+            args=["-d",workspace,"-l","nodes=1:ppn="+str(r["cores"])+",mem="+str(r["memory_mb"])+"mb,walltime="+str(r["walltime_seconds"]),"-q","batch",original["scheduler_portable_name"]]
+            code,out,err=run_exact(roots["server_qsub"],args,fd,65536)
+            job=out.decode("ascii").rstrip("\n")
+            if code!=0 or err or not PORTABLE.fullmatch(job) or out!=job.encode("ascii")+b"\n": fail("ambiguous-qsub")
+            exclusive_write(fd,".auto-g16-v31-submitted",canonical(dict(marker,job_id=job)))
+            return respond(op,{"job_id":job})
+        if op=="RECONCILE_SUBMISSION":
+            keys(original,{"submit_receipt_id"})
+            try: _,data=attest_file(fd,b["workspace_physical_token"],".auto-g16-v31-submitted")
+            except FileNotFoundError: return respond(op,{"outcome":"UNKNOWN"})
+            result=closed(data); keys(result,{"program_execution_snapshot_id","effect_intent_id","job_id"})
+            if result["program_execution_snapshot_id"]!=b["program_execution_snapshot_id"] or result["effect_intent_id"]!=b["effect_intent_id"] or not PORTABLE.fullmatch(result["job_id"]): fail("reconciliation-binding")
+            return respond(op,{"outcome":"SUCCEEDED","job_id":result["job_id"]})
+        if op=="QUERY_SCHEDULER":
+            keys(original,{"job_id"})
+            if not PORTABLE.fullmatch(original["job_id"]): fail("job-id")
+            code,out,err=run_exact(roots["server_qstat"],["-f",original["job_id"]],fd,262144)
+            return respond(op,{"stdout_base64":b64(out),"stderr_base64":b64(err),"returncode":code,"eof_stdout":True,"eof_stderr":True,"completion_status":"completed"})
+        fields={"logical_role","portable_name","format"}
+        if op=="FETCH_EXACT_FILE": fields|={"expected_size_bytes","expected_file_physical_token","stat_receipt_id"}
+        keys(original,fields); name=original["portable_name"]
+        if not PORTABLE.fullmatch(name) or name in {".",".."}: fail("output-name")
+        try: af=os.open(name,RF,dir_fd=fd)
+        except FileNotFoundError:
+            if op!="STAT_EXACT_FILE": raise
+            return respond(op,{"portable_name":name,"presence":"absent"})
+        try: token=file_token(af,b["workspace_physical_token"],name); size=os.fstat(af).st_size
+        finally: os.close(af)
+        if op=="STAT_EXACT_FILE": return respond(op,{"portable_name":name,"presence":"present","size_bytes":size,"file_physical_token":token})
+        if size!=original["expected_size_bytes"]: fail("fetch-size")
+        token,data=attest_file(fd,b["workspace_physical_token"],name,original["expected_file_physical_token"])
+        return respond(op,{"portable_name":name,"content_base64":b64(data),"size_bytes":len(data),"sha256":hashlib.sha256(data).hexdigest(),"file_physical_token":token})
+    finally:
+        if fd is not None: os.close(fd)
+        os.close(projectfd)
+try: main()
+except BaseException:
+    sys.stderr.buffer.write(b"closed-successor-operation-failed\n"); raise SystemExit(2)
+'''
+_PROGRAM_BOOTSTRAP_SOURCE_BYTES: Final = _PROGRAM_BOOTSTRAP_SOURCE.encode("utf-8")
+
 
 def _build_mac_proxyjump_command(snapshot:object,authority:object)->tuple[str,...]:
     manifest=authority.manifest; roots=manifest.trust_roots; profile=snapshot.resolved_server_profile
