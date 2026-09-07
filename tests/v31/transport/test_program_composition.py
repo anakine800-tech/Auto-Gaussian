@@ -16,7 +16,6 @@ from auto_g16.execution import program_runtime
 from auto_g16.execution.program_runtime import (
     _assert_effect_intent_replay,
     _capture_program_outputs,
-    _execute_program_once,
     _job_authority,
     _load_receipts,
     _query_program_scheduler,
@@ -192,14 +191,30 @@ class ProgramCompositionTests(LaneAFixture):
         self.driver = _Driver()
 
     def execute(self, driver: _Driver | None = None):
-        return _execute_program_once(
+        from auto_g16.execution.program_runtime import _ProgramExecutionPort, _read_program_execution_result
+        selected_driver = self.driver if driver is None else driver
+        # The controller validates the entire source inventory before adapting
+        # the one declared input and scheduler to the common bytes parameters.
+        program_runtime._prepare_program_execution(self.store, snapshot=self.snapshot, program_transport_store=self.program_transport_store, input_bytes=self.input_bytes, scheduler_artifact_bytes=self.scheduler_bytes, driver=selected_driver)
+        result = execution.execute_once(
             self.store,
             snapshot=self.snapshot,
-            program_transport_store=self.program_transport_store,
-            input_bytes=self.input_bytes,
-            scheduler_artifact_bytes=self.scheduler_bytes,
-            driver=self.driver if driver is None else driver,
+            current_profile=self.profile(),
+            confirmed_execution_snapshot_id=self.snapshot.program_execution_snapshot_id,
+            prepared_input_bytes=self.input_bytes[str(self.snapshot.program_execution_spec.exact_inputs[0]["portable_name"])],
+            pbs_template_bytes=self.scheduler_bytes[str(self.snapshot.scheduler_artifacts[0]["portable_name"])],
+            port=_ProgramExecutionPort(snapshot=self.snapshot, program_transport_store=self.program_transport_store, driver=selected_driver),
         )
+        self.assertIs(type(result), execution.ExecutionAttemptResult)
+        self.assertEqual(result.receipts, ())
+        return _read_program_execution_result(self.store, snapshot=self.snapshot, program_transport_store=self.program_transport_store, driver=selected_driver, claim=result.claim)
+
+    def capture_outputs(self, store, **kwargs):
+        """Output-boundary tests start with production-owned terminal success."""
+        driver = kwargs["driver"]
+        driver.query_response = {"job_id": "123.server", "state": "terminal", "exit_status": 0}
+        _query_program_scheduler(store, **kwargs)
+        return _capture_program_outputs(store, **kwargs)
 
     def fresh_core_store(self, name: str) -> core.SQLiteRuntimeStore:
         store = core.SQLiteRuntimeStore(self.root / f"{name}.sqlite3")
@@ -285,7 +300,7 @@ class ProgramCompositionTests(LaneAFixture):
         program_store = self.fresh_program_store(f"{name}-physical")
         driver = _Driver()
         base = program_runtime._snapshot_binding(
-            self.snapshot, program_store, driver
+            self.snapshot, program_store, driver, persist=True
         )
         return store, program_store, driver, base
 
@@ -691,7 +706,7 @@ class ProgramCompositionTests(LaneAFixture):
         self.driver.outputs.pop("xtbopt.xyz")
         self.execute()
         with self.assertRaisesRegex(transport.TransportBoundaryError, "required"):
-            _capture_program_outputs(
+            self.capture_outputs(
                 self.store,
                 snapshot=self.snapshot,
                 program_transport_store=self.program_transport_store,
@@ -707,7 +722,7 @@ class ProgramCompositionTests(LaneAFixture):
         }
         self.driver.outputs = {"xtb.out": b"energy\n"}
         self.execute()
-        capture = _capture_program_outputs(
+        capture = self.capture_outputs(
             self.store,
             snapshot=self.snapshot,
             program_transport_store=self.program_transport_store,
@@ -720,7 +735,7 @@ class ProgramCompositionTests(LaneAFixture):
         self.execute()
         self.driver.stat_override = {"portable_name": "undeclared.xyz", "presence": "absent"}
         with self.assertRaises(transport.TransportBoundaryError):
-            _capture_program_outputs(
+            self.capture_outputs(
                 self.store,
                 snapshot=self.snapshot,
                 program_transport_store=self.program_transport_store,
@@ -730,7 +745,7 @@ class ProgramCompositionTests(LaneAFixture):
     def test_25_no_gaussian_filename_assumption(self) -> None:
         self.execute()
         self.driver.calls.clear()
-        _capture_program_outputs(
+        self.capture_outputs(
             self.store,
             snapshot=self.snapshot,
             program_transport_store=self.program_transport_store,
@@ -746,7 +761,7 @@ class ProgramCompositionTests(LaneAFixture):
 
     def test_26_xtb_outputs_follow_spec(self) -> None:
         self.execute()
-        capture = _capture_program_outputs(
+        capture = self.capture_outputs(
             self.store,
             snapshot=self.snapshot,
             program_transport_store=self.program_transport_store,
@@ -768,7 +783,7 @@ class ProgramCompositionTests(LaneAFixture):
             "crest_conformers.xyz": XYZ,
         }
         self.execute()
-        capture = _capture_program_outputs(
+        capture = self.capture_outputs(
             self.store,
             snapshot=self.snapshot,
             program_transport_store=self.program_transport_store,
@@ -791,7 +806,7 @@ class ProgramCompositionTests(LaneAFixture):
             "file_physical_token": "output-token-xtb.out",
         }
         with self.assertRaises(transport.TransportBoundaryError):
-            _capture_program_outputs(
+            self.capture_outputs(
                 self.store,
                 snapshot=self.snapshot,
                 program_transport_store=self.program_transport_store,
@@ -800,7 +815,7 @@ class ProgramCompositionTests(LaneAFixture):
 
     def test_29_capture_identity_is_deterministic_and_bytes_are_retained(self) -> None:
         self.execute()
-        capture = _capture_program_outputs(
+        capture = self.capture_outputs(
             self.store,
             snapshot=self.snapshot,
             program_transport_store=self.program_transport_store,
@@ -883,7 +898,7 @@ class ProgramCompositionTests(LaneAFixture):
 
     def test_33_transport_pure_preparation_makes_zero_driver_calls(self) -> None:
         binding = program_runtime._snapshot_binding(
-            self.snapshot, self.program_transport_store, self.driver
+            self.snapshot, self.program_transport_store, self.driver, persist=True
         )
         material = program_runtime._stage_material(
             self.snapshot,
@@ -907,7 +922,7 @@ class ProgramCompositionTests(LaneAFixture):
 
     def test_35_extra_transport_binding_field_rejects_purely(self) -> None:
         binding = program_runtime._snapshot_binding(
-            self.snapshot, self.program_transport_store, self.driver
+            self.snapshot, self.program_transport_store, self.driver, persist=True
         )
         material = program_runtime._stage_material(
             self.snapshot,
@@ -935,11 +950,13 @@ class ProgramCompositionTests(LaneAFixture):
         self.assertIs(result.claim, core.SubmissionIntentClaim.WINNER)
 
     def test_37_execution_not_transport_owns_core_claim_text(self) -> None:
-        execution_source = Path(program_runtime.__file__).read_text(encoding="utf-8")
+        execution_source = (Path(execution.__file__).parent / "runtime.py").read_text(encoding="utf-8")
+        successor_source = Path(program_runtime.__file__).read_text(encoding="utf-8")
         transport_source = (
             Path(transport.__file__).resolve().parent / "program.py"
         ).read_text(encoding="utf-8")
-        self.assertIn("record_submission_intent", execution_source)
+        self.assertEqual(execution_source.count("store.record_submission_intent("), 1)
+        self.assertNotIn(".record_submission_intent(", successor_source)
         self.assertNotIn("record_submission_intent", transport_source)
 
     def test_38_execution_not_transport_writes_observations(self) -> None:
@@ -1041,7 +1058,7 @@ class ProgramCompositionTests(LaneAFixture):
         with self.assertRaises(transport.TransportBoundaryError):
             program_runtime._transport._request("ARBITRARY_EFFECT", {}, {})
         binding = program_runtime._snapshot_binding(
-            self.snapshot, self.program_transport_store, self.driver
+            self.snapshot, self.program_transport_store, self.driver, persist=True
         )
         with self.assertRaises(transport.TransportBoundaryError):
             program_runtime._transport._request(
@@ -1189,7 +1206,7 @@ class ProgramCompositionTests(LaneAFixture):
             core.SubmissionOutcome.SUBMITTED,
         )
         base = program_runtime._snapshot_binding(
-            self.snapshot, self.program_transport_store, self.driver
+            self.snapshot, self.program_transport_store, self.driver, persist=True
         )
         workspace = {
             "workspace_authority_id": "forged-workspace",
@@ -1232,7 +1249,7 @@ class ProgramCompositionTests(LaneAFixture):
     def test_53_fake_reconciliation_without_physical_row_rejects(self) -> None:
         self.begin_unknown_submission()
         base = program_runtime._snapshot_binding(
-            self.snapshot, self.program_transport_store, self.driver
+            self.snapshot, self.program_transport_store, self.driver, persist=True
         )
         receipts = _load_receipts(
             self.store, self.snapshot, self.program_transport_store, base
@@ -1303,7 +1320,7 @@ class ProgramCompositionTests(LaneAFixture):
                     f"mutated-{offset}", 3, closed_mutation
                 )
                 base = program_runtime._snapshot_binding(
-                    self.snapshot, self.program_transport_store, self.driver
+                    self.snapshot, self.program_transport_store, self.driver, persist=True
                 )
                 with self.assertRaises(transport.TransportBoundaryError):
                     _load_receipts(
@@ -1346,7 +1363,7 @@ class ProgramCompositionTests(LaneAFixture):
                 driver=self.driver,
             )
         with self.assertRaises(transport.TransportBoundaryError):
-            _capture_program_outputs(
+            self.capture_outputs(
                 self.store,
                 snapshot=self.snapshot,
                 program_transport_store=other,
@@ -1389,7 +1406,7 @@ class ProgramCompositionTests(LaneAFixture):
             program_transport_store=self.program_transport_store,
             driver=self.driver,
         )
-        capture = _capture_program_outputs(
+        capture = self.capture_outputs(
             self.store,
             snapshot=self.snapshot,
             program_transport_store=self.program_transport_store,
@@ -1449,7 +1466,7 @@ class ProgramCompositionTests(LaneAFixture):
     def test_62_ambiguous_submit_physical_row_cannot_be_rewritten_successful(self) -> None:
         self.begin_unknown_submission()
         base = program_runtime._snapshot_binding(
-            self.snapshot, self.program_transport_store, self.driver
+            self.snapshot, self.program_transport_store, self.driver, persist=True
         )
         submit = next(
             item
@@ -1518,7 +1535,7 @@ class ProgramCompositionTests(LaneAFixture):
                         "foreign-snapshot-physical"
                     )
                     other_base = program_runtime._snapshot_binding(
-                        other_snapshot, other_program, driver
+                        other_snapshot, other_program, driver, persist=True
                     )
                     other_request = program_runtime._transport._request(
                         "ALLOCATE_WORKSPACE", other_base, {}
@@ -1652,7 +1669,7 @@ class ProgramCompositionTests(LaneAFixture):
             other_store, other_program, other_driver, other_base
         )
         base = program_runtime._snapshot_binding(
-            self.snapshot, self.program_transport_store, self.driver
+            self.snapshot, self.program_transport_store, self.driver, persist=True
         )
         request = program_runtime._transport._scheduler_request(
             base,
@@ -1810,7 +1827,7 @@ class ProgramCompositionTests(LaneAFixture):
         job = self.execute().job_authority
         assert job is not None
         base = program_runtime._snapshot_binding(
-            self.snapshot, self.program_transport_store, self.driver
+            self.snapshot, self.program_transport_store, self.driver, persist=True
         )
         declaration = self.snapshot.program_execution_spec.required_outputs[0]
         request = program_runtime._transport._fetch_request(
@@ -1907,7 +1924,7 @@ class ProgramCompositionTests(LaneAFixture):
     def test_73_reconcile_rejects_allocate_receipt_as_submit_source(self) -> None:
         self.begin_unknown_submission()
         base = program_runtime._snapshot_binding(
-            self.snapshot, self.program_transport_store, self.driver
+            self.snapshot, self.program_transport_store, self.driver, persist=True
         )
         allocate = _load_receipts(
             self.store, self.snapshot, self.program_transport_store, base
@@ -1933,7 +1950,7 @@ class ProgramCompositionTests(LaneAFixture):
     def test_74_reconcile_rejects_stage_receipt_as_submit_source(self) -> None:
         self.begin_unknown_submission()
         base = program_runtime._snapshot_binding(
-            self.snapshot, self.program_transport_store, self.driver
+            self.snapshot, self.program_transport_store, self.driver, persist=True
         )
         stage = next(
             item
@@ -1995,14 +2012,14 @@ class ProgramCompositionTests(LaneAFixture):
             program_transport_store=self.program_transport_store,
             driver=self.driver,
         )
-        _capture_program_outputs(
+        self.capture_outputs(
             self.store,
             snapshot=self.snapshot,
             program_transport_store=self.program_transport_store,
             driver=self.driver,
         )
         base = program_runtime._snapshot_binding(
-            self.snapshot, self.program_transport_store, self.driver
+            self.snapshot, self.program_transport_store, self.driver, persist=True
         )
         direct_operations = {
             item.data["operation"]
@@ -2155,7 +2172,7 @@ class ProgramCompositionTests(LaneAFixture):
             driver=self.driver,
         )
         base = program_runtime._snapshot_binding(
-            self.snapshot, self.program_transport_store, self.driver
+            self.snapshot, self.program_transport_store, self.driver, persist=True
         )
         receipts = _load_receipts(
             self.store,
@@ -2294,7 +2311,7 @@ class ProgramCompositionTests(LaneAFixture):
     def test_86_reconciled_receipt_with_wrong_observation_rejects(self) -> None:
         self.begin_unknown_submission()
         base = program_runtime._snapshot_binding(
-            self.snapshot, self.program_transport_store, self.driver
+            self.snapshot, self.program_transport_store, self.driver, persist=True
         )
         submit = next(
             item
@@ -2334,7 +2351,7 @@ class ProgramCompositionTests(LaneAFixture):
     def test_87_reconciled_receipt_with_wrong_resolution_rejects(self) -> None:
         self.begin_unknown_submission()
         base = program_runtime._snapshot_binding(
-            self.snapshot, self.program_transport_store, self.driver
+            self.snapshot, self.program_transport_store, self.driver, persist=True
         )
         submit = next(
             item

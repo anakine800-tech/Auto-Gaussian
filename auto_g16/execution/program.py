@@ -155,7 +155,7 @@ def _validate_invocation(value: Mapping[str, object], program_kind: str) -> Mapp
         require_text(executable["absolute_path"], "executable_identity.absolute_path"),
         "executable_identity.absolute_path",
     )
-    if executable_path != _SYNTHETIC_SERVER_EXECUTABLE_PATHS.get(program_kind):
+    if executable_path.startswith("/opt/auto-g16-fixtures/") and executable_path != _SYNTHETIC_SERVER_EXECUTABLE_PATHS.get(program_kind):
         raise ExecutionValueError(
             "executable path is not the exact qualified synthetic server identity"
         )
@@ -644,6 +644,7 @@ def _prepare_program_execution_spec(
     input_name: str,
     input_bytes: bytes,
     program_data: Mapping[str, object],
+    resolved_profile: ResolvedServerProfile | None = None,
 ) -> ProgramExecutionSpec:
     if program_kind not in _PROGRAM_KINDS:
         raise ExecutionValueError("unknown program kind")
@@ -658,7 +659,7 @@ def _prepare_program_execution_spec(
     data = validate_data(program_data)
     absolute_path = validate_posix_path(executable_path, "executable_path")
     expected_path = _SYNTHETIC_SERVER_EXECUTABLE_PATHS.get(program_kind)
-    if absolute_path != expected_path:
+    if absolute_path != expected_path and resolved_profile is None:
         raise ExecutionValueError(
             "executable path is not the exact qualified synthetic server identity"
         )
@@ -683,7 +684,7 @@ def _prepare_program_execution_spec(
         },
         "structure input declaration",
     )
-    return ProgramExecutionSpec._from_closed(
+    spec = ProgramExecutionSpec._from_closed(
         program_kind=program_kind,
         adapter_id=adapter_id,
         adapter_contract_version=version,
@@ -693,6 +694,10 @@ def _prepare_program_execution_spec(
         required_outputs=required,
         optional_outputs=optional,
     )
+    if resolved_profile is not None:
+        resolved_profile.assert_identity_closed()
+        _assert_executable_matches_resolved_profile(spec, resolved_profile)
+    return spec
 
 
 def _render_scheduler_artifact(
@@ -752,9 +757,7 @@ def _assert_executable_matches_resolved_profile(
     qualified_profile_path = validate_posix_path(
         profile_path, f"resolved_server_profile.platform_paths.{path_key}"
     )
-    if qualified_profile_path != _SYNTHETIC_SERVER_EXECUTABLE_PATHS.get(
-        spec.program_kind
-    ):
+    if qualified_profile_path.startswith("/opt/auto-g16-fixtures/") and qualified_profile_path != _SYNTHETIC_SERVER_EXECUTABLE_PATHS.get(spec.program_kind):
         raise ExecutionValueError(
             "resolved target/profile executable path is not the qualified synthetic "
             "server identity"
@@ -836,6 +839,52 @@ class ProgramExecutionSnapshot:
             {"program_execution_snapshot_id": self.program_execution_snapshot_id, "effect_intent_id": self.effect_intent_id, **{key: self._identity_payload[key] for key in self._identity_payload}},
             "ProgramExecutionSnapshot",
         )
+
+    def _approval_semantics(self) -> Mapping[str, object]:
+        """Expanded review evidence; the existing snapshot identity is unchanged."""
+        return freeze_mapping({
+            **dict(self.semantic_payload()),
+            "program_execution_spec": self.program_execution_spec.semantic_payload(),
+            "project_physical_binding": self.project_physical_binding.semantic_payload(),
+            "resolved_resource_request": self.resolved_resource_request.semantic_payload(),
+            "resolved_server_profile": self.resolved_server_profile.semantic_payload(),
+            "resolved_server_profile_identity": self.resolved_server_profile._identity_payload,
+            "workspace_binding": self.workspace_binding.semantic_payload(),
+            "workspace_descriptor_anchor": {
+                "approved_root": self.workspace_binding._local_approved_root,
+                "parent_parts": self.workspace_binding._local_parent_parts,
+                "component_identities": self.workspace_binding._local_component_identities,
+            },
+        }, "expanded ProgramExecutionSnapshot review evidence")
+
+    @staticmethod
+    def _approval_field_set() -> frozenset[str]:
+        return frozenset(_SNAPSHOT_PAYLOAD_FIELDS | {
+            "program_execution_snapshot_id", "effect_intent_id", "program_execution_spec",
+            "project_physical_binding", "resolved_resource_request", "resolved_server_profile",
+            "resolved_server_profile_identity", "workspace_binding", "workspace_descriptor_anchor",
+        })
+
+    @staticmethod
+    def _validate_approval_semantics(value: Mapping[str, object]) -> Mapping[str, object]:
+        """Purely reclose persisted review bytes, without returning effect authority."""
+        return _validate_program_review_semantics(value)
+
+    def _assert_current_core(self, store: SQLiteRuntimeStore) -> None:
+        self.assert_identity_closed()
+        attempt = store.load_attempt(self.attempt_id)
+        task = store.load_task(attempt.task_id)
+        workflow = store.load_workflow_run(task.workflow_run_id)
+        project = store.load_project(workflow.project_id)
+        plan = store.load_calculation_plan(self.calculation_plan_id)
+        resource = store.load_resource_spec(self.resolved_resource_request.resource_spec_id)
+        if (
+            plan.task_id != task.task_id or plan.revision != self.calculation_plan_revision
+            or resource.task_id != task.task_id
+            or self.project_physical_binding.project_id != project.project_id
+            or self.workspace_binding.project_id != project.project_id
+        ):
+            raise ExecutionValueError("ProgramExecutionSnapshot differs from current Core records")
 
     def assert_identity_closed(self) -> None:
         self.program_execution_spec.assert_identity_closed()
@@ -924,6 +973,118 @@ class ProgramExecutionSnapshot:
             raise ExecutionValueError("ProgramExecutionSnapshot identity is stale")
 
 
+def _validate_program_review_semantics(raw: Mapping[str, object]) -> Mapping[str, object]:
+    value = freeze_mapping(raw, "persisted successor review semantics")
+    _exact_keys(value, set(ProgramExecutionSnapshot._approval_field_set()), "successor review semantics")
+
+    def closed(name: str, keys: set[str]) -> Mapping[str, object]:
+        item = value[name]
+        if not isinstance(item, Mapping):
+            raise ExecutionValueError(f"{name} must be a closed mapping")
+        _exact_keys(item, keys, name)
+        return item
+
+    spec_data = closed("program_execution_spec", {
+        "program_execution_spec_id", "program_kind", "adapter_id", "adapter_contract_version",
+        "exact_inputs", "program_data", "invocation", "required_outputs", "optional_outputs",
+    })
+    spec = ProgramExecutionSpec._from_closed(**{key: item for key, item in spec_data.items() if key != "program_execution_spec_id"})
+    if spec.semantic_payload() != spec_data:
+        raise ExecutionValueError("persisted program spec identity is stale")
+    binding_data = closed("project_physical_binding", {
+        "project_physical_binding_id", "project_id", "provisioning_contract_version",
+        "transport_kind", "resolved_server_profile_id", "resolved_target_identity",
+        "provisioning_authority_id", "locations",
+    })
+    binding = object.__new__(ProjectPhysicalBinding)
+    for key, item in binding_data.items():
+        object.__setattr__(binding, key, item)
+    object.__setattr__(binding, "_identity_payload", freeze_mapping({key: item for key, item in binding_data.items() if key != "project_physical_binding_id"}, "persisted Project identity"))
+    binding.assert_identity_closed()
+    resource_data = closed("resolved_resource_request", {
+        "resolved_resource_request_id", "resource_spec_id", "cores", "memory_mb", "walltime_seconds", "queue",
+    })
+    resources = object.__new__(ResolvedResourceRequest)
+    for key, item in resource_data.items():
+        object.__setattr__(resources, key, item)
+    for key in ("cores", "memory_mb", "walltime_seconds"):
+        require_positive_integer(resource_data[key], key)
+    require_text(resource_data["resource_spec_id"], "resource_spec_id")
+    if resources.queue is not None:
+        validate_portable_name(resources.queue, "queue")
+    resources.assert_identity_closed()
+    profile_data = closed("resolved_server_profile", {
+        "resolved_server_profile_id", "server_profile_id", "profile_revision", "effective_config_sha256",
+        "transport_kind", "target_identity", "remote_user", "remote_root", "platform_paths", "runtime_identities",
+    })
+    profile_identity = closed("resolved_server_profile_identity", {
+        "server_profile_id", "profile_revision", "effective_config_sha256", "transport_kind",
+        "target_identity", "remote_user", "remote_root", "platform_paths", "runtime_identities", "ordered_config_content",
+    })
+    profile = ResolvedServerProfile._from_resolved(**dict(profile_data), identity_payload=profile_identity)
+    profile.assert_identity_closed()
+    target = profile.target_identity
+    _exact_keys(target, {"destination_host", "destination_port", "jump_topology", "host_key_policy", "batch_mode", "identities_only"}, "target identity")
+    if profile.transport_kind != "legacy_rtwin_pbs" or target["host_key_policy"] != "strict" or target["batch_mode"] is not True or target["identities_only"] is not True:
+        raise ExecutionValueError("persisted successor target is not the closed RTwin target")
+    require_positive_integer(profile.profile_revision, "profile_revision")
+    for name in ("destination_host",):
+        require_text(target[name], name)
+    require_positive_integer(target["destination_port"], "destination_port")
+    if not isinstance(target["jump_topology"], tuple):
+        raise ExecutionValueError("jump_topology must be an ordered tuple")
+    for hop in target["jump_topology"]:
+        _exact_keys(hop, {"host", "port", "user"}, "jump hop")
+        require_text(hop["host"], "hop host")
+        require_text(hop["user"], "hop user")
+        require_positive_integer(hop["port"], "hop port")
+    for identity in profile.runtime_identities.values():
+        _exact_keys(identity, {"sha256", "size_bytes"}, "runtime identity")
+        require_sha256(identity["sha256"], "runtime sha256")
+        _nonnegative_integer(identity["size_bytes"], "runtime size")
+    if not isinstance(profile_identity["ordered_config_content"], tuple) or not profile_identity["ordered_config_content"]:
+        raise ExecutionValueError("persisted config inventory is missing")
+    for identity in profile_identity["ordered_config_content"]:
+        _exact_keys(identity, {"logical_name", "sha256", "size_bytes"}, "config identity")
+        validate_portable_name(identity["logical_name"], "config logical name")
+        require_sha256(identity["sha256"], "config sha256")
+        _nonnegative_integer(identity["size_bytes"], "config size")
+    workspace_data = closed("workspace_binding", {
+        "workspace_binding_id", "project_id", "attempt_id", "local_attempt_dir", "rtwin_attempt_dir", "remote_attempt_dir", "local_descriptor_anchor_sha256",
+    })
+    anchor = closed("workspace_descriptor_anchor", {"approved_root", "parent_parts", "component_identities"})
+    if not isinstance(anchor["parent_parts"], tuple) or not isinstance(anchor["component_identities"], tuple) or not anchor["component_identities"]:
+        raise ExecutionValueError("persisted workspace anchor is malformed")
+    for part in anchor["parent_parts"]:
+        validate_portable_name(part, "workspace parent component")
+    for pair in anchor["component_identities"]:
+        if not isinstance(pair, tuple) or len(pair) != 2 or any(type(item) is not int or item < 0 for item in pair):
+            raise ExecutionValueError("workspace physical component is malformed")
+    workspace = object.__new__(WorkspaceBinding)
+    for key, item in workspace_data.items():
+        if key != "local_descriptor_anchor_sha256":
+            object.__setattr__(workspace, key, item)
+    for key, item in {
+        "_local_anchor_sha256": workspace_data["local_descriptor_anchor_sha256"],
+        "_local_approved_root": anchor["approved_root"], "_local_parent_parts": anchor["parent_parts"],
+        "_local_component_identities": anchor["component_identities"], "_local_parent_identity": anchor["component_identities"][-1],
+    }.items():
+        object.__setattr__(workspace, key, item)
+    workspace.assert_identity_closed()
+    require_text(value["attempt_id"], "attempt_id")
+    require_text(value["calculation_plan_id"], "calculation_plan_id")
+    require_positive_integer(value["calculation_plan_revision"], "calculation_plan_revision")
+    snapshot = ProgramExecutionSnapshot._from_verified(
+        payload=freeze_mapping({key: value[key] for key in _SNAPSHOT_PAYLOAD_FIELDS}, "persisted snapshot identity"),
+        effect_intent_id=value["effect_intent_id"], snapshot_id=value["program_execution_snapshot_id"],
+        spec=spec, binding=binding, resources=resources, profile=profile, workspace=workspace,
+    )
+    snapshot.assert_identity_closed()
+    if snapshot._approval_semantics() != value:
+        raise ExecutionValueError("expanded successor review semantics are stale")
+    return value
+
+
 class _ProgramExecutionSnapshotService:
     """Private snapshot factory that owns its Project provisioning authority."""
 
@@ -931,6 +1092,15 @@ class _ProgramExecutionSnapshotService:
 
     def __init__(self) -> None:
         raise TypeError("snapshot service requires an owned provisioning authority")
+
+    @classmethod
+    def _for_production(cls, *, project_provisioning: _ProjectProvisioningService, target: ResolvedServerProfile) -> _ProgramExecutionSnapshotService:
+        if type(project_provisioning) is not _ProjectProvisioningService:
+            raise ExecutionValueError("production snapshot factory requires durable RTwin Project authority")
+        project_provisioning._assert_production_authority(target)
+        value = object.__new__(cls)
+        value._project_provisioning = project_provisioning
+        return value
 
     @classmethod
     def _for_privileged_synthetic_tests(
@@ -962,6 +1132,10 @@ class _ProgramExecutionSnapshotService:
         resolved_server_profile: ResolvedServerProfile,
         workspace_binding: WorkspaceBinding,
     ) -> ProgramExecutionSnapshot:
+        fixture = str(program_execution_spec.invocation["executable_identity"]["absolute_path"]).startswith("/opt/auto-g16-fixtures/")
+        production = self._project_provisioning._journal is not None
+        if fixture == production:
+            raise ExecutionValueError("program executable and Project authority generations differ")
         return _prepare_program_execution_snapshot_owned(
             self._project_provisioning,
             store,

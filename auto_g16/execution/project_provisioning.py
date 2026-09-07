@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 import json
+import os
 from pathlib import Path
 import secrets
 import sqlite3
+import stat
 from threading import RLock
 from typing import Final
 
@@ -20,7 +23,7 @@ from ._identity import (
     semantic_id,
     semantic_sha256,
 )
-from ._paths import require_contained, validate_posix_path
+from ._paths import require_contained, require_local_workspace_anchor, validate_posix_path
 from .models import LEGACY_REMOTE_ROOT, ResolvedServerProfile
 
 
@@ -423,6 +426,22 @@ class _CurrentProjectProof:
         raise TypeError("current Project proofs are issued only by provisioning")
 
 
+class _ProjectAttestor(ABC):
+    """Private Project evidence interface; implementations own remote mechanics."""
+
+    @abstractmethod
+    def _assert_current_authority(self, target: ResolvedServerProfile) -> str:
+        """Purely reclose the exact target and return its stable authority identity."""
+
+    @abstractmethod
+    def _observe_current(self, target: ResolvedServerProfile, remote_project_dir: str) -> tuple[str, str, str | None]:
+        """Observe only ABSENT/EXISTING and exact parent/Project physical identities."""
+
+    @abstractmethod
+    def _provision_absent(self, target: ResolvedServerProfile, remote_project_dir: str, *, parent_identity: str, intent_id: str) -> tuple[str, str]:
+        """Consume one exact absent intent; return matching parent and new Project."""
+
+
 class _ProjectProvisioningService:
     """Private owning authority for Project classification and freshness."""
 
@@ -432,6 +451,8 @@ class _ProjectProvisioningService:
         "_service_token",
         "_active_proofs",
         "_lock",
+        "_journal",
+        "_runtime_authority_id",
     )
 
     def __init__(self) -> None:
@@ -457,20 +478,83 @@ class _ProjectProvisioningService:
         )
         value._active_proofs = {}
         value._lock = RLock()
+        value._journal = None
+        value._runtime_authority_id = None
         return value
 
+    @classmethod
+    def _from_project_attestor(
+        cls, *, attestor: _ProjectAttestor, target: ResolvedServerProfile,
+        journal: _ProductionProvisioningJournal,
+    ) -> _ProjectProvisioningService:
+        if not isinstance(attestor, _ProjectAttestor) or type(journal) is not _ProductionProvisioningJournal:
+            raise ExecutionValueError("production Project authority requires its durable journal")
+        runtime_identity = require_text(attestor._assert_current_authority(target), "Project runtime authority")
+        journal._attest()
+        value = object.__new__(cls)
+        value._attestor = attestor
+        value._runtime_authority_id = runtime_identity
+        value._journal = journal
+        value._service_token = secrets.token_bytes(32)
+        value._authority_id = semantic_id("project-provisioning-authority", {
+            "journal_identity": journal._identity,
+            "runtime_identity": runtime_identity,
+        })
+        value._active_proofs = {}
+        value._lock = RLock()
+        return value
+
+    def _assert_production_authority(self, target: ResolvedServerProfile) -> None:
+        if type(self._journal) is not _ProductionProvisioningJournal or not isinstance(self._attestor, _ProjectAttestor):
+            raise ExecutionValueError("production Project service requires its semantic seam and journal")
+        target.assert_identity_closed()
+        self._journal._attest()
+        current = require_text(self._attestor._assert_current_authority(target), "Project runtime authority")
+        if current != self._runtime_authority_id or self._authority_id != semantic_id("project-provisioning-authority", {"journal_identity": self._journal._identity, "runtime_identity": current}):
+            raise ExecutionValueError("Project semantic authority drifted")
+
+    def _observe_current(self, target: ResolvedServerProfile, path: str) -> tuple[str, str, str | None]:
+        if self._journal is not None:
+            self._assert_production_authority(target)
+        observed = self._attestor._observe_current(target, path)
+        if type(observed) is not tuple or len(observed) != 3:
+            raise ExecutionValueError("Project observation must contain exact semantic evidence")
+        state, parent, physical = observed
+        require_text(parent, "observed parent physical identity")
+        if state == "ABSENT" and physical is None:
+            return state, parent, physical
+        if state != "EXISTING":
+            raise ExecutionValueError("Project observation has invalid state/identity")
+        require_text(physical, "observed Project physical identity")
+        return state, parent, physical
+
     def classify_remote_project(
+        self, *, project: Project, target: ResolvedServerProfile,
+        remote_project_dir: str, stored_binding: ProjectPhysicalBinding | None,
+    ) -> tuple[str, ProjectPhysicalBinding | None]:
+        classification, replay, _parent, _physical = self._classify_with_observation(
+            project=project, target=target, remote_project_dir=remote_project_dir,
+            stored_binding=stored_binding,
+        )
+        return classification, replay
+
+    def _classify_with_observation(
         self,
         *,
         project: Project,
         target: ResolvedServerProfile,
         remote_project_dir: str,
         stored_binding: ProjectPhysicalBinding | None,
-    ) -> tuple[str, ProjectPhysicalBinding | None]:
+    ) -> tuple[str, ProjectPhysicalBinding | None, str, str | None]:
         if not isinstance(project, Project):
             raise ExecutionValueError("project must be a public Core Project")
         path = _validate_remote_target(target, remote_project_dir)
-        state, parent_identity, project_identity = self._attestor._observe_current(
+        if self._journal is not None:
+            durable = self._journal.load_binding(project.project_id)
+            if stored_binding is not None and stored_binding != durable:
+                raise ExecutionValueError("caller Project binding differs from durable authority")
+            stored_binding = durable
+        state, parent_identity, project_identity = self._observe_current(
             target, path
         )
         if state == "ABSENT":
@@ -478,11 +562,11 @@ class _ProjectProvisioningService:
                 raise ExecutionValueError(
                     "a Product-bound remote Project was replaced or removed"
                 )
-            return "ABSENT", None
+            return "ABSENT", None, parent_identity, project_identity
         if state != "EXISTING" or project_identity is None:
             raise ExecutionValueError("remote Project observation has an invalid state")
         if stored_binding is None:
-            return "UNBOUND_EXISTING", None
+            return "UNBOUND_EXISTING", None, parent_identity, project_identity
         self._assert_owned_binding(
             binding=stored_binding,
             project=project,
@@ -494,7 +578,7 @@ class _ProjectProvisioningService:
             or stored_binding.project_physical_identity != project_identity
         ):
             raise ExecutionValueError("remote Project physical identity drifted")
-        return "PRODUCT_BOUND_EXISTING", stored_binding
+        return "PRODUCT_BOUND_EXISTING", stored_binding, parent_identity, project_identity
 
     def provision_remote_project(
         self,
@@ -502,10 +586,10 @@ class _ProjectProvisioningService:
         project: Project,
         target: ResolvedServerProfile,
         remote_project_dir: str,
-        evidence_identity: str,
+        evidence_identity: str | None = None,
         stored_binding: ProjectPhysicalBinding | None = None,
     ) -> ProjectPhysicalBinding:
-        classification, replay = self.classify_remote_project(
+        classification, replay, first_parent_identity, _observed_physical = self._classify_with_observation(
             project=project,
             target=target,
             remote_project_dir=remote_project_dir,
@@ -521,10 +605,32 @@ class _ProjectProvisioningService:
             return replay
         if classification != "ABSENT":
             raise ExecutionValueError("Project classification is outside the closed set")
-        parent_identity, project_identity = self._attestor._provision_absent_for_test(
-            target, remote_project_dir
-        )
-        return ProjectPhysicalBinding._from_attested(
+        if self._journal is None:
+            parent_identity, project_identity = self._attestor._provision_absent_for_test(
+                target, remote_project_dir
+            )
+        else:
+            if evidence_identity is not None:
+                raise ExecutionValueError("production Project evidence is owned by provisioning")
+            state, parent_identity, observed_project = self._observe_current(target, remote_project_dir)
+            if state != "ABSENT" or observed_project is not None or parent_identity != first_parent_identity:
+                raise ExecutionValueError("Project state or parent identity changed before provisioning")
+            intent_id = self._journal._record_intent(
+                project_id=project.project_id, target=target, path=remote_project_dir,
+                parent_identity=parent_identity, authority_id=self._authority_id,
+            )
+            provisioned = self._attestor._provision_absent(
+                target, remote_project_dir, parent_identity=parent_identity,
+                intent_id=intent_id,
+            )
+            if type(provisioned) is not tuple or len(provisioned) != 2 or provisioned[0] != parent_identity:
+                raise ExecutionValueError("provisioned Project evidence changed its exact parent")
+            parent_identity, project_identity = provisioned
+            require_text(project_identity, "provisioned Project physical identity")
+            evidence_identity = semantic_id("project-provision-evidence", {
+                "intent_id": intent_id, "parent": parent_identity, "project": project_identity,
+            })
+        binding = ProjectPhysicalBinding._from_attested(
             project=project,
             target=target,
             remote_project_dir=remote_project_dir,
@@ -534,6 +640,9 @@ class _ProjectProvisioningService:
             evidence_identity=require_text(evidence_identity, "evidence_identity"),
             provisioning_authority_id=self._authority_id,
         )
+        if self._journal is not None:
+            self._journal.append_binding(binding)
+        return binding
 
     def _assert_owned_binding(
         self,
@@ -546,6 +655,8 @@ class _ProjectProvisioningService:
         if not isinstance(binding, ProjectPhysicalBinding):
             raise ExecutionValueError("binding must be a ProjectPhysicalBinding")
         binding.assert_identity_closed()
+        if self._journal is not None and self._journal.load_binding(project.project_id) != binding:
+            raise ExecutionValueError("Project binding has no exact durable authority")
         if (
             binding.project_id != project.project_id
             or binding.transport_kind != target.transport_kind
@@ -571,7 +682,7 @@ class _ProjectProvisioningService:
             target=target,
             remote_project_dir=binding.remote_project_dir,
         )
-        state, parent_identity, project_identity = self._attestor._observe_current(
+        state, parent_identity, project_identity = self._observe_current(
             target, binding.remote_project_dir
         )
         if state != "EXISTING" or project_identity is None:
@@ -779,6 +890,184 @@ class _ProvisioningJournal:
         except Exception:
             self._connection.execute("ROLLBACK")
             raise
+
+
+_PRODUCTION_DDL: Final = (*_DDL,
+    "CREATE TABLE provisioning_meta(singleton INTEGER PRIMARY KEY CHECK(singleton=1),identity_json TEXT NOT NULL)",
+    "CREATE TABLE provisioning_intents(intent_id TEXT PRIMARY KEY,project_id TEXT NOT NULL UNIQUE,target_id TEXT NOT NULL,project_path TEXT NOT NULL,payload_json TEXT NOT NULL,UNIQUE(target_id,project_path)) WITHOUT ROWID",
+    *(f"CREATE TRIGGER {table}_no_{verb} BEFORE {verb.upper()} ON {table} BEGIN SELECT RAISE(ABORT,'append-only'); END"
+      for table in ("provisioning_meta", "provisioning_intents") for verb in ("update", "delete")),
+)
+
+
+def _journal_paths(path: Path, approved_root: Path) -> tuple[str, str]:
+    absolute, root = os.path.abspath(path), os.path.abspath(approved_root)
+    require_local_workspace_anchor(absolute, root)
+    return absolute, root
+
+
+def _journal_file_identity(path: str) -> tuple[int, int]:
+    metadata = os.lstat(path)
+    if not stat.S_ISREG(metadata.st_mode):
+        raise ExecutionValueError("Project journal must be a regular no-follow file")
+    return metadata.st_dev, metadata.st_ino
+
+
+class _ProductionProvisioningJournal(_ProvisioningJournal):
+    """New private journal generation; ambiguous intents cannot be retried."""
+
+    def __init__(self) -> None:
+        raise TypeError("use create_new/open_existing with a reviewed local root")
+
+    @classmethod
+    def create_new(cls, path: Path, *, approved_root: Path) -> _ProductionProvisioningJournal:
+        return cls._open(path, approved_root=approved_root, create=True)
+
+    @classmethod
+    def open_existing(cls, path: Path, *, approved_root: Path) -> _ProductionProvisioningJournal:
+        return cls._open(path, approved_root=approved_root, create=False)
+
+    @classmethod
+    def _open(cls, path: Path, *, approved_root: Path, create: bool) -> _ProductionProvisioningJournal:
+        absolute, root = _journal_paths(path, approved_root)
+        if create:
+            fd = os.open(absolute, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+            os.close(fd)
+        identity = _journal_file_identity(absolute)
+        value = object.__new__(cls)
+        value._path = absolute
+        value._root = root
+        value._file_identity = identity
+        value._connection = sqlite3.connect(absolute, isolation_level=None)
+        value._connection.execute("PRAGMA foreign_keys=ON")
+        value._connection.execute("PRAGMA trusted_schema=OFF")
+        value._connection.execute("PRAGMA synchronous=FULL")
+        try:
+            if create:
+                value._connection.execute("BEGIN IMMEDIATE")
+                value._connection.execute(f"PRAGMA application_id={_APPLICATION_ID}")
+                value._connection.execute("PRAGMA user_version=2")
+                for statement in _PRODUCTION_DDL:
+                    value._connection.execute(statement)
+                payload = {"nonce": secrets.token_hex(32), "root": root, "path": absolute, "device": identity[0], "inode": identity[1]}
+                value._connection.execute("INSERT INTO provisioning_meta VALUES(1,?)", (_canonical_json(payload),))
+                value._connection.execute("COMMIT")
+            value._attest()
+            meta = value._connection.execute("SELECT identity_json FROM provisioning_meta WHERE singleton=1").fetchone()
+            value._identity = semantic_id("project-provisioning-journal", json.loads(meta[0]))
+            return value
+        except Exception:
+            value.close()
+            raise
+
+    def _attest(self) -> None:
+        if _journal_paths(self._path, self._root) != (self._path, self._root) or _journal_file_identity(self._path) != self._file_identity:
+            raise ExecutionValueError("production Project journal physical identity drifted")
+        connection = self._connection
+        if type(connection) is not sqlite3.Connection or connection.isolation_level is not None:
+            raise ExecutionValueError("production Project journal connection policy drifted")
+        if connection.execute("SELECT name FROM temp.sqlite_schema").fetchall():
+            raise ExecutionValueError("production Project journal contains TEMP schema objects")
+        databases = connection.execute("PRAGMA database_list").fetchall()
+        if databases != [(0, "main", self._path), (1, "temp", "")]:
+            raise ExecutionValueError("production Project journal connection database identity drifted")
+        if (
+            connection.execute("PRAGMA foreign_keys").fetchone()[0] != 1
+            or connection.execute("PRAGMA trusted_schema").fetchone()[0] != 0
+            or connection.execute("PRAGMA read_uncommitted").fetchone()[0] != 0
+            or connection.execute("PRAGMA main.synchronous").fetchone()[0] != 2
+            or connection.execute("PRAGMA main.journal_mode").fetchone()[0]
+            not in {"delete", "truncate", "persist", "wal"}
+        ):
+            raise ExecutionValueError("production Project journal durability policy drifted")
+        if self._connection.execute("PRAGMA application_id").fetchone()[0] != _APPLICATION_ID or self._connection.execute("PRAGMA user_version").fetchone()[0] != 2:
+            raise ExecutionValueError("production Project journal schema version drifted")
+        observed = dict(self._connection.execute("SELECT name,sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%'"))
+        expected = {statement.split()[2].split("(", 1)[0]: statement for statement in _PRODUCTION_DDL}
+        if observed != expected:
+            raise ExecutionValueError("production Project journal schema drifted")
+        rows = self._connection.execute("SELECT singleton,identity_json FROM provisioning_meta").fetchall()
+        if len(rows) != 1 or rows[0][0] != 1:
+            raise ExecutionValueError("production Project journal identity is missing")
+        raw = rows[0][1]
+        payload = json.loads(raw)
+        if not isinstance(payload, dict) or set(payload) != {"nonce", "root", "path", "device", "inode"} or _canonical_json(payload) != raw:
+            raise ExecutionValueError("production Project journal identity is malformed")
+        if (payload["root"], payload["path"], payload["device"], payload["inode"]) != (self._root, self._path, *self._file_identity) or not isinstance(payload["nonce"], str) or len(payload["nonce"]) != 64:
+            raise ExecutionValueError("production Project journal belongs to another location")
+        identity = semantic_id("project-provisioning-journal", payload)
+        if hasattr(self, "_identity") and self._identity != identity:
+            raise ExecutionValueError("production Project journal creation identity drifted")
+
+    def load_binding(self, project_id: str) -> ProjectPhysicalBinding | None:
+        self._attest()
+        binding = super().load_binding(project_id)
+        if binding is not None:
+            rows = self._connection.execute("SELECT payload_json FROM project_physical_bindings WHERE project_id=?", (project_id,)).fetchall()
+            if len(rows) != 1 or rows[0][0] != _canonical_json(binding.semantic_payload()):
+                raise ExecutionValueError("persisted production Project binding is noncanonical")
+            self._require_binding_intent(binding)
+        return binding
+
+    def _require_binding_intent(self, binding: ProjectPhysicalBinding) -> None:
+        rows = self._connection.execute("SELECT intent_id,project_id,target_id,project_path,payload_json FROM provisioning_intents WHERE project_id=?", (binding.project_id,)).fetchall()
+        if len(rows) != 1:
+            raise ExecutionValueError("Project binding lacks its one durable provisioning intent")
+        intent_id, project_id, target_id, project_path, raw = rows[0]
+        payload = json.loads(raw)
+        if not isinstance(payload, dict) or set(payload) != {"project_id", "target_id", "path", "parent_identity", "authority_id"} or _canonical_json(payload) != raw or semantic_id("project-provision-intent", payload) != intent_id:
+            raise ExecutionValueError("Project provisioning intent is malformed")
+        if payload != {"project_id": binding.project_id, "target_id": binding.resolved_server_profile_id, "path": binding.remote_project_dir, "parent_identity": binding.parent_physical_identity, "authority_id": binding.provisioning_authority_id}:
+            raise ExecutionValueError("Project binding differs from provisioning intent")
+        if (project_id, target_id, project_path) != (binding.project_id, binding.resolved_server_profile_id, binding.remote_project_dir):
+            raise ExecutionValueError("Project intent row columns differ from their authority payload")
+        expected = semantic_id("project-provision-evidence", {"intent_id": intent_id, "parent": binding.parent_physical_identity, "project": binding.project_physical_identity})
+        if binding.locations[0]["evidence_identity"] != expected:
+            raise ExecutionValueError("Project binding evidence differs from exact intent/result")
+
+    def append_binding(self, binding: ProjectPhysicalBinding) -> None:
+        self._attest()
+        self._require_binding_intent(binding)
+        super().append_binding(binding)
+
+    def _record_intent(self, *, project_id: str, target: ResolvedServerProfile, path: str, parent_identity: str, authority_id: str) -> str:
+        if self._connection.in_transaction:
+            raise ExecutionValueError("Project provision cannot use a pre-existing transaction")
+        self._attest()
+        payload = {"project_id": project_id, "target_id": target.resolved_server_profile_id, "path": path, "parent_identity": parent_identity, "authority_id": authority_id}
+        intent = semantic_id("project-provision-intent", payload)
+        values = (intent, project_id, target.resolved_server_profile_id, path, _canonical_json(payload))
+        query = "SELECT intent_id,project_id,target_id,project_path,payload_json FROM main.provisioning_intents WHERE intent_id=?"
+        # Intentionally no idempotent success: reopening an unfinished intent is STOP.
+        self._connection.execute("BEGIN IMMEDIATE")
+        try:
+            try:
+                inserted = self._connection.execute("INSERT INTO main.provisioning_intents VALUES(?,?,?,?,?)", values)
+            except sqlite3.IntegrityError as exc:
+                raise ExecutionValueError("Project provision intent already exists; no automatic retry or adoption") from exc
+            if inserted.rowcount != 1 or self._connection.execute(query, (intent,)).fetchall() != [values]:
+                raise ExecutionValueError("Project provision intent INSERT did not create the exact record")
+            self._attest()
+            self._connection.execute("COMMIT")
+        except Exception:
+            # Only this method's transaction is owned here; never consume a caller's.
+            if self._connection.in_transaction:
+                self._connection.execute("ROLLBACK")
+            raise
+        if self._connection.in_transaction:
+            raise ExecutionValueError("Project provision intent is not committed")
+        self._attest()
+        reader = sqlite3.connect(
+            f"{Path(self._path).as_uri()}?mode=ro&cache=private",
+            uri=True, isolation_level=None,
+        )
+        try:
+            if reader.execute(query, (intent,)).fetchall() != [values]:
+                raise ExecutionValueError("Project provision intent lacks exact committed readback")
+        finally:
+            reader.close()
+        self._attest()
+        return intent
 
 
 __all__ = ["ProjectPhysicalBinding"]

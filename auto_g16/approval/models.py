@@ -20,8 +20,10 @@ from auto_g16.core import (
 )
 from auto_g16.execution import (
     ExecutionSnapshot,
+    ProgramExecutionSnapshot,
     ExecutionValueError,
     prepare_execution_snapshot,
+    assert_execution_snapshot_identity,
 )
 
 APPROVAL_SCHEMA_VERSION: Final = 1
@@ -572,7 +574,7 @@ class ExactOperationalConfirmation:
     def for_snapshot(
         cls,
         runtime_store: SQLiteRuntimeStore,
-        snapshot: ExecutionSnapshot,
+        snapshot: ExecutionSnapshot | ProgramExecutionSnapshot,
         *,
         confirmer_id: str,
         confirmer_evidence: Mapping[str, object],
@@ -580,11 +582,11 @@ class ExactOperationalConfirmation:
     ) -> ExactOperationalConfirmation:
         _assert_execution_snapshot_closed(runtime_store, snapshot)
         return cls._from_values(
-            execution_snapshot_id=snapshot.execution_snapshot_id,
+            execution_snapshot_id=_snapshot_id(snapshot),
             attempt_id=snapshot.attempt_id,
             calculation_plan_id=snapshot.calculation_plan_id,
             calculation_plan_revision=snapshot.calculation_plan_revision,
-            execution_snapshot_semantics=snapshot.semantic_payload(),
+            execution_snapshot_semantics=_snapshot_semantics(snapshot),
             confirmer_id=confirmer_id,
             confirmer_evidence=confirmer_evidence,
             decision=decision,
@@ -608,15 +610,15 @@ class ExactOperationalConfirmation:
     def assert_current(
         self,
         runtime_store: SQLiteRuntimeStore,
-        snapshot: ExecutionSnapshot,
+        snapshot: ExecutionSnapshot | ProgramExecutionSnapshot,
     ) -> None:
         _assert_execution_snapshot_closed(runtime_store, snapshot)
         observed = {
-            "execution_snapshot_id": snapshot.execution_snapshot_id,
+            "execution_snapshot_id": _snapshot_id(snapshot),
             "attempt_id": snapshot.attempt_id,
             "calculation_plan_id": snapshot.calculation_plan_id,
             "calculation_plan_revision": snapshot.calculation_plan_revision,
-            "execution_snapshot_semantics": snapshot.semantic_payload(),
+            "execution_snapshot_semantics": _snapshot_semantics(snapshot),
         }
         for key, value in observed.items():
             if self.authority_payload()[key] != value:
@@ -658,14 +660,40 @@ class ApprovalRejectedError(ApprovalError):
     """The recorded human decision is not approved."""
 
 
+def _snapshot_id(snapshot: ExecutionSnapshot | ProgramExecutionSnapshot) -> str:
+    if type(snapshot) is ProgramExecutionSnapshot:
+        return snapshot.program_execution_snapshot_id
+    return snapshot.execution_snapshot_id
+
+
+def _snapshot_semantics(snapshot: ExecutionSnapshot | ProgramExecutionSnapshot) -> Mapping[str, object]:
+    if type(snapshot) is ProgramExecutionSnapshot:
+        return snapshot._approval_semantics()
+    return snapshot.semantic_payload()
+
+
+def _assert_snapshot_identity(snapshot: ExecutionSnapshot | ProgramExecutionSnapshot) -> None:
+    if type(snapshot) is ProgramExecutionSnapshot:
+        snapshot.assert_identity_closed()
+    else:
+        assert_execution_snapshot_identity(snapshot)
+
+
 def _assert_execution_snapshot_closed(
     runtime_store: SQLiteRuntimeStore,
-    snapshot: ExecutionSnapshot,
+    snapshot: ExecutionSnapshot | ProgramExecutionSnapshot,
 ) -> None:
     """Rebuild one snapshot through Execution's public closure boundary."""
 
     if not isinstance(runtime_store, SQLiteRuntimeStore):
         raise ApprovalValueError("runtime_store must be a public Core SQLiteRuntimeStore")
+    if type(snapshot) is ProgramExecutionSnapshot:
+        try:
+            snapshot._assert_current_core(runtime_store)
+            snapshot._validate_approval_semantics(snapshot._approval_semantics())
+        except (CoreValidationError, RuntimeStoreError, ExecutionValueError) as exc:
+            raise ApprovalConflictError("ProgramExecutionSnapshot is not closed over current Core and Execution records") from exc
+        return
     if not isinstance(snapshot, ExecutionSnapshot):
         raise ApprovalValueError("snapshot must be a public ExecutionSnapshot")
     try:
@@ -702,7 +730,7 @@ def validate_effect_authority(
     displayed_semantic_meaning: Mapping[str, object],
     scientific_approval: ScientificApproval,
     batch_submit_approval: BatchSubmitApproval,
-    execution_snapshot: ExecutionSnapshot,
+    execution_snapshot: ExecutionSnapshot | ProgramExecutionSnapshot,
     operational_confirmation: ExactOperationalConfirmation,
 ) -> None:
     """Purely validate one exact, current, unspliced pre-effect authority chain."""
@@ -717,7 +745,7 @@ def validate_effect_authority(
         raise ApprovalValueError("scientific_approval must be a ScientificApproval")
     if not isinstance(batch_submit_approval, BatchSubmitApproval):
         raise ApprovalValueError("batch_submit_approval must be a BatchSubmitApproval")
-    if not isinstance(execution_snapshot, ExecutionSnapshot):
+    if not isinstance(execution_snapshot, ExecutionSnapshot) and type(execution_snapshot) is not ProgramExecutionSnapshot:
         raise ApprovalValueError("execution_snapshot must be an ExecutionSnapshot")
     if not isinstance(operational_confirmation, ExactOperationalConfirmation):
         raise ApprovalValueError(

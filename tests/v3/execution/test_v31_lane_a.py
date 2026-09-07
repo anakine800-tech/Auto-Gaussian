@@ -111,7 +111,7 @@ class LaneAFixture(unittest.TestCase):
             )
         )
 
-    def resolved(
+    def profile(
         self,
         *,
         server_profile_id: str = "profile-v31",
@@ -119,9 +119,8 @@ class LaneAFixture(unittest.TestCase):
         target_host: str = "server.example",
         xtb_executable_path: str = XTB_EXECUTABLE_PATH,
         crest_executable_path: str = CREST_EXECUTABLE_PATH,
-    ) -> execution.ResolvedServerProfile:
-        return execution.resolve_server_profile(
-            execution.ServerProfile(
+    ) -> execution.ServerProfile:
+        return execution.ServerProfile(
                 server_profile_id=server_profile_id,
                 profile_revision=profile_revision,
                 transport_kind="legacy_rtwin_pbs",
@@ -143,8 +142,10 @@ class LaneAFixture(unittest.TestCase):
                     "xtb": XTB_EXECUTABLE_BYTES,
                     "crest": CREST_EXECUTABLE_BYTES,
                 },
-            )
         )
+
+    def resolved(self, **changes: object) -> execution.ResolvedServerProfile:
+        return execution.resolve_server_profile(LaneAFixture.profile(self, **changes))
 
     def resources(self) -> execution.ResolvedResourceRequest:
         return execution.ResolvedResourceRequest(
