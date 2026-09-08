@@ -253,7 +253,7 @@ focused_tests = ["tests/test_conformer_search.py"]
 
 [[component]]
 id = "v31-shared-contract"
-status = "contract-frozen-candidate"
+status = "integrated-live-not-authorized"
 required_sections = [
   "OWNER_DECISIONS.md#od-31-v31-shares-one-versioned-execution-and-ensemble-contract",
   "docs/v3/boundary-spec.md#v31-shared-contract-01-shared-execution-and-ensemble-contract",
