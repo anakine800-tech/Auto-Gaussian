@@ -1192,8 +1192,38 @@ Aggregation uses the treated per-conformer free energies exactly once.
 Conformational mixing already represented by the partition sum must not be
 added again as a separate entropy correction.
 
-This decision authorizes only the `V31-SHARED-CONTRACT-01` contract freeze,
-offline documentation validation, independent review, and a local PR-ready
-commit. It authorizes no product or schema implementation, Project
-provisioning, structure generation, xTB, CREST, Gaussian, transport, scheduler,
-deployment, retry, cleanup, push, PR creation, merge, or scientific acceptance.
+At the `V31-SHARED-CONTRACT-01` freeze, this decision authorized only the
+contract candidate, offline documentation validation, independent review, and
+a local PR-ready commit. At that historical stage it authorized no product or
+schema implementation, Project provisioning, structure generation, xTB,
+CREST, Gaussian, transport, scheduler, deployment, retry, cleanup, push, PR
+creation, merge, or scientific acceptance. That limitation remains immutable
+history; it is not the current product-integration status.
+
+The later reviewed successors supersede that historical implementation, push,
+PR, and merge prohibition only for their exact repository scope. PR #159
+closed and integrated the V31 Offline end-to-end acceptance predecessor, and
+PR #160 integrated the V31 successor product implementation and RTwin
+successor production bridge on
+`main@8b8ff0b43d2c1934d6c46c840d2f1cc0435d23a6`; the merge tree
+`afb8dc0c3f0d9116f6e33fb82a4f8210c2ec0a83` exactly equals the reviewed
+PR #160 head tree. The current repository disposition is therefore:
+
+- V31 Offline is `CLOSED / ACCEPTED / INTEGRATED`;
+- the V31 successor product implementation is `INTEGRATED ON MAIN`; and
+- the V31 RTwin successor production bridge is `INTEGRATED ON MAIN`.
+
+These repository facts grant no live authority. V31 live readiness remains
+`NOT YET AUTHORIZED` pending a production ServerProfile successor and
+manifest-v3 authority, current real xTB and CREST executable identities, a real
+`ProjectPhysicalBinding`, exact live Project/Task/Attempt authority, Scientific
+Approval, Batch Submit Approval, an exact live `ProgramExecutionSnapshot`,
+Operational Confirmation, and an explicit Live Owner Gate.
+
+Merged product code is not live authority. CI success is not production
+qualification; production qualification is not qsub authority; and qsub
+success is not scientific acceptance. The unchanged no-overwrite,
+qsub-at-most-once and consumed-Attempt rules remain authoritative. `UNKNOWN`
+permits reconciliation only and never automatic retry. The V30 production
+Transport topology is not redesigned without separately reviewed concrete
+drift.

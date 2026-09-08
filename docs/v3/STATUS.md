@@ -13,19 +13,35 @@
   fetch, execution, workspace, staging, qsub, Gaussian, qdel, cleanup,
   deployment, retry, and a new Attempt remain forbidden.
 
-- **V31 contract candidate:** `V31-SHARED-CONTRACT-01` freezes only the shared
-  v3.1 contract for Project first-use physical provisioning, the additive
-  versioned execution successor required for xTB/CREST, conformer and
-  thermodynamic ensemble handoffs, and deterministic
-  `ConformerEnsemble.ts_seed_members`. A V31 Workflow/Batch may intentionally
-  mix unchanged production-usable V30 Gaussian DFT SP/Opt/Freq/Opt+Freq
-  Attempts with successor-generation xTB/CREST Attempts; each Attempt binds
-  exactly one generation before effect authority. A future Gaussian successor
-  remains behind separate adapter implementation/validation and is not required
-  for V31 acceptance. Core Project/schema, Transport topology, parsers, and
-  vectors remain unchanged. Product/schema implementation, provisioning,
-  program execution, live work, push, PR creation, and merge remain later Owner
-  gates.
+- **V31 post-merge authority:** V31 Offline is
+  `CLOSED / ACCEPTED / INTEGRATED`. PR #159 integrated its exact end-to-end
+  acceptance as the strict predecessor of the live bridge. PR #160 integrated
+  the V31 successor product implementation and RTwin successor production
+  bridge on
+  `main@8b8ff0b43d2c1934d6c46c840d2f1cc0435d23a6`; merge tree
+  `afb8dc0c3f0d9116f6e33fb82a4f8210c2ec0a83` exactly equals the reviewed
+  head tree. The earlier `V31-SHARED-CONTRACT-01` contract-only and no-merge
+  wording is preserved as historical stage authority, not current product
+  status. V30 Gaussian execution remains production-usable and separate from
+  successor-generation xTB/CREST execution; no Attempt may bind both
+  generations, and a future Gaussian successor still requires its own adapter
+  implementation and validation gate.
+
+- **V31 live readiness:** `NOT YET AUTHORIZED`. Still missing are a production
+  ServerProfile successor and manifest-v3 authority; current real xTB and CREST
+  executable identities; a real `ProjectPhysicalBinding`; exact live
+  Project/Task/Attempt authority; Scientific Approval; Batch Submit Approval;
+  an exact live `ProgramExecutionSnapshot`; Operational Confirmation; and
+  an explicit Live Owner Gate. Merged product code is not live authority. CI
+  success is not production qualification, production qualification is not
+  qsub authority, and qsub success is not scientific acceptance. The existing
+  no-overwrite, qsub-at-most-once, consumed-Attempt, `REPLAY` zero-effect, and
+  `UNKNOWN` reconciliation-only/no-automatic-retry rules remain authoritative.
+  The V30 production Transport topology is unchanged absent separately reviewed
+  concrete drift. No SSH, RTwin/server read, deployment, Project provisioning,
+  workspace, staging, qstat/qsub, PBS, xTB, CREST, Gaussian, retry, cleanup,
+  cancellation, live Attempt, approval, confirmation, or scientific acceptance
+  is authorized by this status closeout.
 
 - **Current phase:** `V30-EXEC-02-COMPOSITION-CONTRACT-01`,
   `V30-TRANSPORT-BOOTSTRAP-CHAIN-03`,
