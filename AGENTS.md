@@ -101,6 +101,13 @@ the existing legacy/v2 implementation contract; they do not require a new
 - Stop on a malformed, ambiguous, stale, or edited packet or on identity drift.
   GATE, EXEC, REVIEW, or PASS alone does not authorize merge, live operation,
   deployment, scientific execution, release, SSH, RTwin, PBS, or Gaussian.
+- A terminal integration GATE records an independently verified disposition
+  under the handbook and grants no action authority. Once canonical, it makes
+  later CTRL, EXEC, and REVIEW packets for that task invalid; continuation
+  requires a new explicit Owner Gate establishing a new task.
+- GitHub Issue open/closed state is non-authoritative lifecycle metadata and
+  cannot change BUS authority. Close a Control Issue only after its terminal
+  GATE is canonical; worktree and branch cleanup remain explicit local actions.
 - Before feature edits, run the read-only `scripts/dev_preflight.py`; before PR
   or release handoff, run `scripts/audit_ci_contract.py`. Treat either nonzero
   result as a blocker, and never claim that static CI audit proves remote

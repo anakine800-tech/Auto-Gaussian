@@ -255,6 +255,43 @@ approved non-destructive Git flow and verify that its HEAD equals the intended
 merge commit. Do not fold Skill synchronization, deployment, a tag, release,
 or live smoke into merge authority.
 
+### BUS terminal integration disposition
+
+For a BUS-managed task, preserve the bootstrap `GATE` at epoch `0` as the
+opening gate. A terminal integration GATE uses the existing `GATE` kind, not a
+new packet kind. Emit it only **after** the integration disposition is known
+and independently verified, at the next monotonic epoch after the latest
+`REVIEW`, consuming that exact REVIEW. It records the completed disposition;
+it does not authorize the integration action in advance.
+
+The terminal disposition is exactly one of:
+
+- **`MERGED`:** record the PR number, reviewed HEAD SHA, merge SHA, resulting
+  main SHA, merge method, cleanup state, and residual blockers. Verify these
+  identities against the review and actual integration evidence before
+  emitting the terminal GATE.
+- **`ABANDONED`:** record the verified abandonment disposition, cleanup state,
+  and residual blockers. Do not fabricate merge evidence or represent an
+  abandoned task as merged.
+
+Cleanup state is **`COMPLETE`** or **`PENDING`**. `PENDING` must name the
+responsible owner and/or the blocker. Recording either state grants no cleanup
+permission: worktree removal and branch deletion remain explicit local actions
+under their existing authority, never effects implied by the terminal GATE.
+
+A terminal GATE grants zero mutation, merge, live, deployment, release, SSH,
+RTwin, PBS, Gaussian, qsub, or qdel authority. After it becomes canonical,
+later `CTRL`, `EXEC`, or `REVIEW` packets for the same task are invalid.
+Continuation requires a new explicit Owner Gate establishing a **new task**;
+it cannot resume the terminal task's packet chain.
+
+GitHub Issue open/closed state is non-authoritative UI lifecycle metadata.
+Closing or reopening the Issue cannot create, restore, revoke, or alter BUS
+or packet authority. Close the Control Issue only after the terminal GATE is
+canonical. Issue closure is not a substitute for that GATE, and reopening is
+not a continuation gate. These rules add no Relay behavior or packet
+serialization change; the Control Issue remains the canonical ledger.
+
 After integration, confirm both stable and feature worktrees are clean. Archive
 the Codex task, remove the linked worktree, and delete the local feature branch
 only after its result is reachable from the intended integration commit or its
