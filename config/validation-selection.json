@@ -384,6 +384,21 @@
       "fail_closed": false
     },
     {
+      "id": "v31-transport-tests",
+      "exact_paths": [],
+      "prefixes": [
+        "tests/v31/transport/"
+      ],
+      "lane": "affected",
+      "tests": [
+        "tests.v3.execution.test_v31_lane_a",
+        "tests.v31.transport.test_program_composition",
+        "tests.v31.transport.test_rtwin_successor_bridge"
+      ],
+      "required_safety": [],
+      "fail_closed": false
+    },
+    {
       "id": "ci-offline-workflow",
       "exact_paths": [
         ".github/workflows/offline-tests.yml"

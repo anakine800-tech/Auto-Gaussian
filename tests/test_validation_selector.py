@@ -154,6 +154,11 @@ V31_OFFLINE_E2E_TESTS = [
     "tests.v31.thermochemistry",
     "tests.v31.transport.test_program_composition",
 ]
+V31_TRANSPORT_TESTS = [
+    "tests.v3.execution.test_v31_lane_a",
+    "tests.v31.transport.test_program_composition",
+    "tests.v31.transport.test_rtwin_successor_bridge",
+]
 CI_OFFLINE_WORKFLOW_TESTS = [
     "tests.test_audit_ci_contract",
     "tests.test_audit_python_contract",
@@ -1356,6 +1361,11 @@ class ValidationSelectorTests(unittest.TestCase):
                 "tests/v31/thermochemistry/test_x.py",
                 "v31-thermochemistry",
                 THERMOCHEMISTRY_TESTS,
+            ),
+            (
+                "tests/v31/transport/test_x.py",
+                "v31-transport-tests",
+                V31_TRANSPORT_TESTS,
             ),
         )
         for path, route, selected_tests in existing_owners:
