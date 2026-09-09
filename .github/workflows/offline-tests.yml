@@ -226,7 +226,10 @@ jobs:
           python -m compileall -q scripts skills tests
           python scripts/static_quality.py
       - name: Test the GitHub source archive including pressure coverage
-        if: steps.validation-route.outputs.authoritative == 'true' && steps.validation-route.outputs.lane == 'legacy-release'
+        if: >
+          github.event_name == 'pull_request' &&
+          steps.validation-route.outputs.authoritative == 'true' &&
+          steps.validation-route.outputs.lane == 'legacy-release'
         env:
           SELECTION_FILE: ${{ steps.validation-route.outputs.selection }}
           VALIDATION_BASE: ${{ steps.validation-route.outputs.base }}

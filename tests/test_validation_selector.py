@@ -7,6 +7,7 @@ import copy
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -262,6 +263,24 @@ def workflow_route_scripts() -> list[str]:
     return scripts
 
 
+def workflow_full_enabled(event: str, metadata: dict[str, str]) -> bool:
+    """Evaluate the full step's closed conjunction using real route outputs."""
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+    step = workflow.split("      - name: Test the GitHub source archive including pressure coverage\n", 1)[1]
+    condition = step.split("        if:", 1)[1].split("        env:", 1)[0]
+    condition = " ".join(condition.strip().removeprefix(">").split())
+    values = {
+        "github.event_name": event,
+        "steps.validation-route.outputs.authoritative": metadata.get("authoritative", ""),
+        "steps.validation-route.outputs.lane": metadata.get("lane", ""),
+    }
+    terms = condition.split(" && ")
+    matches = [re.fullmatch(r"([\w.-]+) == '([^']+)'", term) for term in terms]
+    if not all(matches):
+        raise AssertionError("full condition must be a closed equality conjunction")
+    return all(values[match[1]] == match[2] for match in matches if match)
+
+
 def initialize_workflow_repository(root: Path) -> str:
     return initialize_repository(
         root,
@@ -379,13 +398,54 @@ class ValidationSelectorTests(unittest.TestCase):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         compatibility = workflow.split("  python-compatibility:\n", 1)[1].split("  source-archive-release:\n", 1)[0]
         archive = workflow.split("  source-archive-release:\n", 1)[1].split("  chemistry-dependencies:\n", 1)[0]
-        self.assertEqual(workflow.count("python scripts/run_tests.py --full"), 1)
+        self.assertEqual(workflow.count("--full"), 1)
         self.assertNotIn("--full", compatibility)
         self.assertIn("--compatibility", compatibility)
         self.assertNotIn("Run complete offline unit tests", workflow)
-        self.assertIn("if: steps.validation-route.outputs.authoritative == 'true' && steps.validation-route.outputs.lane == 'legacy-release'", archive)
+        self.assertIn(
+            "if: > github.event_name == 'pull_request' && "
+            "steps.validation-route.outputs.authoritative == 'true' && "
+            "steps.validation-route.outputs.lane == 'legacy-release'",
+            " ".join(archive.split()),
+        )
         self.assertIn("python scripts/run_tests.py --full", archive)
         self.assertNotIn("continue-on-error", workflow)
+
+    def test_complete_full_authority_is_pr_only(self) -> None:
+        for event in ("pull_request", "push", "workflow_dispatch", "release"):
+            for authority in ("true", "false", ""):
+                for lane in ("legacy-release", "affected", "v3-full", "focused", "blocked", ""):
+                    with self.subTest(event=event, authority=authority, lane=lane):
+                        self.assertEqual(
+                            workflow_full_enabled(event, {"authoritative": authority, "lane": lane}),
+                            event == "pull_request" and authority == "true" and lane == "legacy-release",
+                        )
+
+    def test_pr_legacy_full_is_not_repeated_for_integrated_main_tree(self) -> None:
+        script = workflow_route_scripts()[1]
+        with tempfile.TemporaryDirectory() as temporary, tempfile.TemporaryDirectory() as runner_temp:
+            root = Path(temporary)
+            base = initialize_workflow_repository(root)
+            head = commit_change(root, SELECTOR.MANIFEST_RELATIVE, MANIFEST.read_text() + "\n")
+            result, metadata = run_workflow_route(
+                script, root, Path(runner_temp), event_name="pull_request", base=base, head=head,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(metadata["lane"], "legacy-release")
+            self.assertEqual(metadata["authoritative"], "true")
+            self.assertTrue(workflow_full_enabled("pull_request", metadata))
+            # A merge can create a new commit while preserving the validated tree.
+            git(root, "commit", "--allow-empty", "-qm", "integrated candidate")
+            integrated = git(root, "rev-parse", "HEAD")
+            self.assertNotEqual(head, integrated)
+            self.assertEqual(git(root, "rev-parse", head + "^{tree}"), git(root, "rev-parse", integrated + "^{tree}"))
+            result, metadata = run_workflow_route(
+                script, root, Path(runner_temp), event_name="push", base=base, head=integrated,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(metadata["lane"], "legacy-release")
+            self.assertEqual(metadata["authoritative"], "true")
+            self.assertFalse(workflow_full_enabled("push", metadata))
 
     def test_ci_unmapped_modern_path_fails_fast_for_pr_and_push(self) -> None:
         script = workflow_route_scripts()[0]
@@ -401,6 +461,7 @@ class ValidationSelectorTests(unittest.TestCase):
                 self.assertEqual(decision["tests"], [])
                 self.assertEqual(decision["lane"], "blocked")
                 self.assertIn("UNMAPPED_MODERN_PATH", decision["reasons"][0])
+                self.assertFalse(workflow_full_enabled(event, metadata))
 
     def test_workflow_uses_identical_canonical_route_steps_without_yaml_path_routing(self) -> None:
         scripts = workflow_route_scripts()
@@ -412,7 +473,6 @@ class ValidationSelectorTests(unittest.TestCase):
         self.assertEqual(workflow.count("python scripts/select_validation.py"), 2)
         self.assertIn("if: steps.validation-route.outputs.authoritative == 'true'", workflow)
         self.assertNotIn("if: steps.validation-route.outputs.authoritative != 'true'", workflow)
-        self.assertNotIn("if: github.event_name == 'pull_request' &&", workflow)
         self.assertIn('--selection "${{ steps.validation-route.outputs.selection }}"', workflow)
 
     def test_main_push_route_matrix_executes_real_canonical_selection(self) -> None:
@@ -458,6 +518,7 @@ class ValidationSelectorTests(unittest.TestCase):
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(metadata["lane"], lane)
+                self.assertFalse(workflow_full_enabled("push", metadata))
                 self.assertEqual(metadata["authoritative"], "true")
                 self.assertEqual(metadata.get("base"), base)
                 self.assertEqual(metadata.get("head"), head)

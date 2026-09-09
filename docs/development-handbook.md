@@ -161,7 +161,10 @@ git diff --check
 
 Do not multiply equivalent evidence. All three Python matrix jobs run bounded selected compatibility evidence.
 For an authoritative `legacy-release` decision only, the Python 3.13
-`source-archive-release` job is the sole complete-full owner. The runner
+`source-archive-release` job is the sole complete-full owner on pull requests.
+Complete full attests the PR candidate; post-merge main pushes retain bounded
+compatibility, static archive verification, and chemistry checks but never
+repeat complete discovery. The runner
 requires explicit `--full` for complete discovery (including a legacy
 selection); `--compatibility --selection ... --base ... --head ...` selects
 the bounded compatibility inventory for a legacy candidate. Unsupported CI
