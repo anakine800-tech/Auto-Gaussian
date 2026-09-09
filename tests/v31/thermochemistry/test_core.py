@@ -27,7 +27,7 @@ from auto_g16.thermochemistry._gaussian_thermo_facts import (
 from auto_g16.thermochemistry._service import ThermochemistryError, _build_thermodynamic_ensemble
 from auto_g16.thermochemistry.models import ThermodynamicEnsemble, _payload_sha256
 from tests.v3.scientific_validation._fixtures import attributed_facts
-from tests.v31.conformer.test_core import ConformerCoreTests
+from tests.v31.conformer import test_core as core_fixtures
 
 
 ROOT = Path(__file__).parents[3]
@@ -94,7 +94,7 @@ def _fake_kernels():
 
 class ThermochemistryCoreTests(unittest.TestCase):
     def setUp(self) -> None:
-        fixture = ConformerCoreTests()
+        fixture = core_fixtures.ConformerCoreTests()
         self.fixture = fixture
         self.profile = fixture.profile()
         observations = [

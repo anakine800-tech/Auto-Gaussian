@@ -76,6 +76,7 @@ TRANSPORT_TESTS = [
     "tests.v3.execution",
     "tests.v3.observe",
     "tests.v3.transport",
+    "tests.v31.transport",
 ]
 APPROVAL_SAFETY = [
     "approval-owner-separation",
@@ -156,8 +157,7 @@ V31_OFFLINE_E2E_TESTS = [
 ]
 V31_TRANSPORT_TESTS = [
     "tests.v3.execution.test_v31_lane_a",
-    "tests.v31.transport.test_program_composition",
-    "tests.v31.transport.test_rtwin_successor_bridge",
+    "tests.v31.transport",
 ]
 CI_OFFLINE_WORKFLOW_TESTS = [
     "tests.test_audit_ci_contract",
@@ -297,6 +297,7 @@ def run_workflow_route(
     environment = os.environ.copy()
     environment.update(
         {
+            "PATH": str(Path(sys.executable).parent) + os.pathsep + environment.get("PATH", ""),
             "EVENT_NAME": event_name,
             "PR_BASE_SHA": base if event_name == "pull_request" else "",
             "PR_HEAD_SHA": head if event_name == "pull_request" else "",
@@ -334,6 +335,73 @@ class ValidationSelectorTests(unittest.TestCase):
     def select(self, *changes: dict[str, object]) -> dict[str, object]:
         return SELECTOR.select_changes(self.manifest, list(changes))
 
+    def test_all_git_tracked_modern_paths_have_exactly_one_reviewed_route(self) -> None:
+        if not (ROOT / ".git").exists():
+            self.skipTest("source archive has no Git index; covered by archive inventory check")
+        executable, _version = SELECTOR.resolve_git()
+        paths = SELECTOR.tracked_modern_paths(ROOT, executable)
+        self.assertTrue(paths)
+        SELECTOR.validate_modern_ownership(self.manifest, paths)
+        for path in paths:
+            with self.subTest(path=path):
+                self.assertIsNotNone(SELECTOR._route_for_path(self.manifest, path))
+
+    def test_archive_modern_inventory_has_reviewed_ownership(self) -> None:
+        paths = [
+            path.relative_to(ROOT).as_posix()
+            for prefix in SELECTOR.MODERN_PREFIXES
+            for path in (ROOT / prefix).rglob("*")
+            if path.is_file() and "__pycache__" not in path.parts
+        ]
+        self.assertTrue(paths)
+        SELECTOR.validate_modern_ownership(self.manifest, paths)
+
+    def test_unmapped_modern_paths_stop_even_with_self_protecting_changes(self) -> None:
+        for prefix in SELECTOR.MODERN_PREFIXES:
+            for status in ("A", "M", "D"):
+                for protected in ([], [change("M", "config/validation-selection.json")]):
+                    with self.subTest(prefix=prefix, status=status, protected=protected):
+                        with self.assertRaisesRegex(SELECTOR.SelectionError, "UNMAPPED_MODERN_PATH.*tests started = 0"):
+                            self.select(change(status, prefix + "new_domain/test_x.py"), *protected)
+        manifest = copy.deepcopy(self.manifest)
+        manifest["routes"].append(copy.deepcopy(manifest["routes"][0]))
+        with self.assertRaisesRegex(SELECTOR.SelectionError, "AMBIGUOUS_MODERN_PATH"):
+            SELECTOR.select_changes(manifest, [change("M", "auto_g16/core/models.py")])
+
+    def test_unmapped_tracked_modern_path_blocks_even_an_unchanged_range(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            base = initialize_repository(root, {"tests/v31/new_domain/test_x.py": "VALUE = 1\n"})
+            with self.assertRaisesRegex(SELECTOR.SelectionError, "UNMAPPED_MODERN_PATH"):
+                SELECTOR.compute_selection(root, base, base)
+
+    def test_ci_has_exactly_one_complete_full_owner(self) -> None:
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        compatibility = workflow.split("  python-compatibility:\n", 1)[1].split("  source-archive-release:\n", 1)[0]
+        archive = workflow.split("  source-archive-release:\n", 1)[1].split("  chemistry-dependencies:\n", 1)[0]
+        self.assertEqual(workflow.count("python scripts/run_tests.py --full"), 1)
+        self.assertNotIn("--full", compatibility)
+        self.assertIn("--compatibility", compatibility)
+        self.assertNotIn("Run complete offline unit tests", workflow)
+        self.assertIn("if: steps.validation-route.outputs.authoritative == 'true' && steps.validation-route.outputs.lane == 'legacy-release'", archive)
+        self.assertIn("python scripts/run_tests.py --full", archive)
+        self.assertNotIn("continue-on-error", workflow)
+
+    def test_ci_unmapped_modern_path_fails_fast_for_pr_and_push(self) -> None:
+        script = workflow_route_scripts()[0]
+        for event in ("pull_request", "push"):
+            with self.subTest(event=event), tempfile.TemporaryDirectory() as temporary, tempfile.TemporaryDirectory() as runner_temp:
+                root = Path(temporary)
+                base = initialize_workflow_repository(root)
+                head = commit_change(root, "tests/v31/new_domain/test_x.py", "raise AssertionError('must not start')\n")
+                result, metadata = run_workflow_route(script, root, Path(runner_temp), event_name=event, base=base, head=head)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(metadata, {"lane": "blocked", "authoritative": "false"})
+                decision = json.loads((Path(runner_temp) / "validation-selection.json").read_text())
+                self.assertEqual(decision["tests"], [])
+                self.assertEqual(decision["lane"], "blocked")
+                self.assertIn("UNMAPPED_MODERN_PATH", decision["reasons"][0])
+
     def test_workflow_uses_identical_canonical_route_steps_without_yaml_path_routing(self) -> None:
         scripts = workflow_route_scripts()
         self.assertEqual(scripts[0], scripts[1])
@@ -343,7 +411,7 @@ class ValidationSelectorTests(unittest.TestCase):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         self.assertEqual(workflow.count("python scripts/select_validation.py"), 2)
         self.assertIn("if: steps.validation-route.outputs.authoritative == 'true'", workflow)
-        self.assertIn("if: steps.validation-route.outputs.authoritative != 'true'", workflow)
+        self.assertNotIn("if: steps.validation-route.outputs.authoritative != 'true'", workflow)
         self.assertNotIn("if: github.event_name == 'pull_request' &&", workflow)
         self.assertIn('--selection "${{ steps.validation-route.outputs.selection }}"', workflow)
 
@@ -401,7 +469,7 @@ class ValidationSelectorTests(unittest.TestCase):
                 if not fail_closed:
                     self.assertTrue(selection["tests"])
 
-    def test_main_push_identity_and_history_ambiguity_fall_back_to_full(self) -> None:
+    def test_main_push_identity_and_history_ambiguity_fail_fast(self) -> None:
         script = workflow_route_scripts()[0]
         with tempfile.TemporaryDirectory() as temporary, tempfile.TemporaryDirectory() as runner_temp:
             root = Path(temporary)
@@ -431,8 +499,8 @@ class ValidationSelectorTests(unittest.TestCase):
                         event_name="push",
                         **arguments,
                     )
-                    self.assertEqual(result.returncode, 0, result.stderr)
-                    self.assertEqual(metadata, {"lane": "legacy-release", "authoritative": "false"})
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertEqual(metadata, {"lane": "blocked", "authoritative": "false"})
 
             git(root, "checkout", "-q", "--detach", base)
             other_base = commit_change(root, "README.md", "divergent base\n", "divergent")
@@ -446,8 +514,8 @@ class ValidationSelectorTests(unittest.TestCase):
                 head=head,
                 forced="false",
             )
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(metadata, {"lane": "legacy-release", "authoritative": "false"})
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(metadata, {"lane": "blocked", "authoritative": "false"})
 
             newer = commit_change(root, "README.md", "checkout mismatch\n", "newer")
             self.assertNotEqual(newer, head)
@@ -459,8 +527,8 @@ class ValidationSelectorTests(unittest.TestCase):
                 base=base,
                 head=head,
             )
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(metadata, {"lane": "legacy-release", "authoritative": "false"})
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(metadata, {"lane": "blocked", "authoritative": "false"})
 
     def test_pull_request_requires_authority_and_accepts_canonical_selection(self) -> None:
         script = workflow_route_scripts()[0]
@@ -491,7 +559,7 @@ class ValidationSelectorTests(unittest.TestCase):
                 head=head,
             )
             self.assertNotEqual(result.returncode, 0)
-            self.assertEqual(metadata, {"lane": "legacy-release", "authoritative": "false"})
+            self.assertEqual(metadata, {"lane": "blocked", "authoritative": "false"})
 
             newer = commit_change(root, "README.md", "checkout mismatch\n", "newer")
             self.assertNotEqual(newer, head)
@@ -504,7 +572,7 @@ class ValidationSelectorTests(unittest.TestCase):
                 head=head,
             )
             self.assertNotEqual(result.returncode, 0)
-            self.assertEqual(metadata, {"lane": "legacy-release", "authoritative": "false"})
+            self.assertEqual(metadata, {"lane": "blocked", "authoritative": "false"})
             git(root, "checkout", "-q", "--detach", head)
 
             selector_path = root / "scripts" / "select_validation.py"
@@ -524,7 +592,7 @@ class ValidationSelectorTests(unittest.TestCase):
                         head=head,
                     )
                     self.assertNotEqual(result.returncode, 0)
-                    self.assertEqual(metadata, {"lane": "legacy-release", "authoritative": "false"})
+                    self.assertEqual(metadata, {"lane": "blocked", "authoritative": "false"})
             selector_path.write_text(original, encoding="utf-8")
 
             fail_closed_base = git(root, "rev-parse", "HEAD")
@@ -549,7 +617,7 @@ class ValidationSelectorTests(unittest.TestCase):
             self.assertEqual(selection["tests"], CI_OFFLINE_WORKFLOW_TESTS)
             self.assertFalse(selection["fail_closed"])
 
-    def test_selection_or_artifact_closure_failure_falls_back_to_full(self) -> None:
+    def test_selection_or_artifact_closure_failure_fails_fast(self) -> None:
         script = workflow_route_scripts()[0]
         with tempfile.TemporaryDirectory() as temporary, tempfile.TemporaryDirectory() as runner_temp:
             root = Path(temporary)
@@ -571,11 +639,11 @@ class ValidationSelectorTests(unittest.TestCase):
                         base=base,
                         head=head,
                     )
-                    self.assertEqual(result.returncode, 0, result.stderr)
-                    self.assertEqual(metadata, {"lane": "legacy-release", "authoritative": "false"})
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertEqual(metadata, {"lane": "blocked", "authoritative": "false"})
             selector_path.write_text(original, encoding="utf-8")
 
-    def test_manual_and_release_like_events_retain_full_attestation(self) -> None:
+    def test_manual_and_release_like_events_require_explicit_authority(self) -> None:
         script = workflow_route_scripts()[0]
         with tempfile.TemporaryDirectory() as temporary, tempfile.TemporaryDirectory() as runner_temp:
             root = Path(temporary)
@@ -588,8 +656,8 @@ class ValidationSelectorTests(unittest.TestCase):
                         Path(runner_temp),
                         event_name=event_name,
                     )
-                    self.assertEqual(result.returncode, 0, result.stderr)
-                    self.assertEqual(metadata, {"lane": "legacy-release", "authoritative": "false"})
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertEqual(metadata, {"lane": "blocked", "authoritative": "false"})
 
     def test_representative_routes_cover_all_four_lanes(self) -> None:
         cases = (
@@ -1374,6 +1442,7 @@ class ValidationSelectorTests(unittest.TestCase):
         for path in (
             "tests/v31/transport/test_program_composition.py",
             "tests/v31/transport/test_rtwin_successor_bridge.py",
+            "tests/v31/transport/test_future_guard.py",
         ):
             with self.subTest(path=path):
                 decision = self.select(change("M", path))
@@ -1386,14 +1455,9 @@ class ValidationSelectorTests(unittest.TestCase):
             "tests/v31/unknown_future_surface/test_x.py",
             "tests/v31/integration_extra/test_x.py",
             "tests/v31/future/test_x.py",
-            "tests/v31/transport/test_future_guard.py",
         ):
-            with self.subTest(path=path):
-                decision = self.select(change("A", path))
-                self.assertEqual(decision["matched_routes"], [])
-                self.assertEqual(decision["lane"], "legacy-release")
-                self.assertEqual(decision["tests"], [])
-                self.assertTrue(decision["fail_closed"])
+            with self.subTest(path=path), self.assertRaisesRegex(SELECTOR.SelectionError, "UNMAPPED_MODERN_PATH"):
+                self.select(change("A", path))
 
     def test_v31_routes_never_weaken_unmapped_or_self_protection(self) -> None:
         owners = (
@@ -1993,12 +2057,8 @@ class ValidationSelectorTests(unittest.TestCase):
                     "parse_name_status",
                     return_value=[change(status, source, destination)],
                 ):
-                    decision = SELECTOR.compute_selection(root, base, head)
-
-            self.assertEqual(decision["lane"], "legacy-release")
-            self.assertTrue(decision["fail_closed"])
-            self.assertEqual(decision["tests"], [])
-            self.assertIn("ambiguous_copy_source", decision["reasons"][0])
+                    with self.assertRaisesRegex(SELECTOR.SelectionError, "ambiguous_copy_source"):
+                        SELECTOR.compute_selection(root, base, head)
 
     def test_unclosable_exact_candidate_enumeration_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -2013,12 +2073,8 @@ class ValidationSelectorTests(unittest.TestCase):
                 "_base_blob_paths",
                 side_effect=SELECTOR.SelectionError("synthetic incomplete tree"),
             ):
-                decision = SELECTOR.compute_selection(root, base, head)
-
-        self.assertEqual(decision["lane"], "legacy-release")
-        self.assertTrue(decision["fail_closed"])
-        self.assertEqual(decision["tests"], [])
-        self.assertIn("ambiguous_copy_source", decision["reasons"][0])
+                with self.assertRaisesRegex(SELECTOR.SelectionError, "ambiguous_copy_source"):
+                    SELECTOR.compute_selection(root, base, head)
 
     def test_unmapped_exact_source_candidate_uses_unknown_path_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -2103,13 +2159,13 @@ class ValidationSelectorTests(unittest.TestCase):
             )
         self.assertEqual(repository.exception.code, 2)
 
-    def test_cli_invalid_identity_emits_legacy_release_result(self) -> None:
+    def test_cli_invalid_identity_emits_blocked_result(self) -> None:
         output = StringIO()
         with redirect_stdout(output):
             returncode = SELECTOR.main(["--base", "short", "--head", "also-short"])
-        self.assertEqual(returncode, 0)
+        self.assertEqual(returncode, 2)
         result = json.loads(output.getvalue())
-        self.assertEqual(result["lane"], "legacy-release")
+        self.assertEqual(result["lane"], "blocked")
         self.assertTrue(result["fail_closed"])
         self.assertEqual(result["tests"], [])
         self.assertIsNone(result["base"])

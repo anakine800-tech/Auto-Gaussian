@@ -392,7 +392,7 @@ version; and then replaces itself with that interpreter. It never chooses
 `python3` from `PATH`:
 
 ```bash
-./scripts/python core scripts/run_tests.py
+./scripts/python core scripts/run_tests.py --full
 ./scripts/python chem -m pip install --requirement requirements/chemistry.txt
 ./scripts/python chem path/to/rdkit_script.py --help
 ```

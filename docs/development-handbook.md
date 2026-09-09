@@ -140,8 +140,9 @@ Focused and affected validation are the default development feedback. Full
 regression is integration/release attestation, not the routine loop for an
 ordinary v3 edit. Selector, control-plane, or safety-evidence changes may
 conservatively escalate to `legacy-release` full validation. Selection remains
-fail-closed: unknown, ambiguous, or unprovable inputs expand validation and
-never under-select evidence. Do not repeat full validation for the same frozen
+fail-closed: unknown modern ownership and invalid or non-authoritative
+selector inputs stop before tests. Reviewed conservative routes can require
+`legacy-release`, but an error never authorizes full discovery. Do not repeat full validation for the same frozen
 candidate. A running, silent, or slow runner is not failed and does not
 authorize a rerun.
 
@@ -153,14 +154,18 @@ Typical commands are:
 ./scripts/python core scripts/audit_ci_contract.py
 ./scripts/python core scripts/audit_python_contract.py
 ./scripts/python core scripts/run_tests.py tests.test_dev_preflight tests.test_audit_ci_contract
-./scripts/python core scripts/run_tests.py --top-slow 20 --slow-threshold 1.0
+./scripts/python core scripts/run_tests.py --full --top-slow 20 --slow-threshold 1.0
 bash -n scripts/check_rtwin_connection.sh scripts/probe_gaussian_server.sh templates/g16_job.pbs.template
 git diff --check
 ```
 
-Do not multiply equivalent evidence. Matrix compatibility runs exclude the
-large pressure case with a recorded modifier; the Python 3.13 source-archive
-release job owns the complete pressure replay. Once release metadata and the
+Do not multiply equivalent evidence. All three Python matrix jobs run bounded selected compatibility evidence.
+For an authoritative `legacy-release` decision only, the Python 3.13
+`source-archive-release` job is the sole complete-full owner. The runner
+requires explicit `--full` for complete discovery (including a legacy
+selection); `--compatibility --selection ... --base ... --head ...` selects
+the bounded compatibility inventory for a legacy candidate. Unsupported CI
+events or missing exact identities fail fast without running tests. Once release metadata and the
 candidate bytes are frozen, run the versioned checklist's **final complete
 release validation exactly once**. If bytes change afterward, that evidence is
 invalidated: review the delta and schedule one new final run for the new frozen

@@ -39,12 +39,12 @@ jobs:
           PUSH_FORCED: ${{ github.event.forced }}
         run: |
           set -uo pipefail
-          lane="legacy-release"
+          lane="blocked"
           authoritative="false"
           base_sha=""
           head_sha=""
           selection_file=""
-          failure_exit="0"
+          failure_exit="1"
           emit_route() {
             printf '%s\n' "lane=$lane" "authoritative=$authoritative" >> "$GITHUB_OUTPUT"
             if [[ "$authoritative" == "true" ]]; then
@@ -59,12 +59,12 @@ jobs:
               head_sha="$PR_HEAD_SHA"
               ;;
             push)
-              [[ "$PUSH_REF" == "refs/heads/main" ]] || exit 0
-              [[ "$PUSH_CREATED" == "false" && "$PUSH_DELETED" == "false" && "$PUSH_FORCED" == "false" ]] || exit 0
+              [[ "$PUSH_REF" == "refs/heads/main" ]] || exit 1
+              [[ "$PUSH_CREATED" == "false" && "$PUSH_DELETED" == "false" && "$PUSH_FORCED" == "false" ]] || exit 1
               base_sha="$PUSH_BASE_SHA"
               head_sha="$PUSH_HEAD_SHA"
               ;;
-            *) exit 0 ;;
+            *) exit 1 ;;
           esac
           [[ "$base_sha" =~ ^[0-9a-f]{40}$ && "$base_sha" != "0000000000000000000000000000000000000000" ]] || exit "$failure_exit"
           [[ "$head_sha" =~ ^[0-9a-f]{40}$ && "$head_sha" != "0000000000000000000000000000000000000000" ]] || exit "$failure_exit"
@@ -72,7 +72,7 @@ jobs:
           git cat-file -e "${head_sha}^{commit}" || exit "$failure_exit"
           test "$(git rev-parse HEAD)" = "$head_sha" || exit "$failure_exit"
           if [[ "$EVENT_NAME" == "push" ]]; then
-            git merge-base --is-ancestor "$base_sha" "$head_sha" || exit 0
+            git merge-base --is-ancestor "$base_sha" "$head_sha" || exit 1
           fi
           selection_file="$RUNNER_TEMP/validation-selection.json"
           python scripts/select_validation.py \
@@ -87,14 +87,8 @@ jobs:
           import select_validation as selector
 
           value = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-          try:
-              selector.validate_result(value)
-              authoritative = "true"
-          except selector.SelectionError:
-              selector.validate_result(value, require_authority=False)
-              if value["lane"] != "legacy-release" or not value["fail_closed"]:
-                  raise
-              authoritative = "false"
+          selector.validate_result(value)
+          authoritative = "true"
           print(value["lane"], authoritative)
           PY
           )" || exit "$failure_exit"
@@ -107,7 +101,7 @@ jobs:
             true|false) ;;
             *) exit "$failure_exit" ;;
           esac
-          [[ "$EVENT_NAME" != "pull_request" || "$authoritative" == "true" ]] || exit 1
+          [[ "$authoritative" == "true" ]] || exit 1
       - name: Compile Python sources
         run: python -m compileall -q scripts skills tests
       - name: Run progressive static quality checks
@@ -118,16 +112,12 @@ jobs:
           AUTO_G16_SKIP_PRESSURE_TESTS: "1"
         run: |
           python scripts/run_tests.py \
+            --compatibility \
             --selection "${{ steps.validation-route.outputs.selection }}" \
             --base "${{ steps.validation-route.outputs.base }}" \
             --head "${{ steps.validation-route.outputs.head }}" \
             --top-slow 15 \
             --slow-threshold 1.0
-      - name: Run complete offline unit tests
-        if: steps.validation-route.outputs.authoritative != 'true'
-        env:
-          AUTO_G16_SKIP_PRESSURE_TESTS: "1"
-        run: python scripts/run_tests.py --top-slow 15 --slow-threshold 1.0
       - name: Check shell syntax
         run: bash -n scripts/check_rtwin_connection.sh scripts/probe_gaussian_server.sh templates/g16_job.pbs.template
 
@@ -158,12 +148,12 @@ jobs:
           PUSH_FORCED: ${{ github.event.forced }}
         run: |
           set -uo pipefail
-          lane="legacy-release"
+          lane="blocked"
           authoritative="false"
           base_sha=""
           head_sha=""
           selection_file=""
-          failure_exit="0"
+          failure_exit="1"
           emit_route() {
             printf '%s\n' "lane=$lane" "authoritative=$authoritative" >> "$GITHUB_OUTPUT"
             if [[ "$authoritative" == "true" ]]; then
@@ -178,12 +168,12 @@ jobs:
               head_sha="$PR_HEAD_SHA"
               ;;
             push)
-              [[ "$PUSH_REF" == "refs/heads/main" ]] || exit 0
-              [[ "$PUSH_CREATED" == "false" && "$PUSH_DELETED" == "false" && "$PUSH_FORCED" == "false" ]] || exit 0
+              [[ "$PUSH_REF" == "refs/heads/main" ]] || exit 1
+              [[ "$PUSH_CREATED" == "false" && "$PUSH_DELETED" == "false" && "$PUSH_FORCED" == "false" ]] || exit 1
               base_sha="$PUSH_BASE_SHA"
               head_sha="$PUSH_HEAD_SHA"
               ;;
-            *) exit 0 ;;
+            *) exit 1 ;;
           esac
           [[ "$base_sha" =~ ^[0-9a-f]{40}$ && "$base_sha" != "0000000000000000000000000000000000000000" ]] || exit "$failure_exit"
           [[ "$head_sha" =~ ^[0-9a-f]{40}$ && "$head_sha" != "0000000000000000000000000000000000000000" ]] || exit "$failure_exit"
@@ -191,7 +181,7 @@ jobs:
           git cat-file -e "${head_sha}^{commit}" || exit "$failure_exit"
           test "$(git rev-parse HEAD)" = "$head_sha" || exit "$failure_exit"
           if [[ "$EVENT_NAME" == "push" ]]; then
-            git merge-base --is-ancestor "$base_sha" "$head_sha" || exit 0
+            git merge-base --is-ancestor "$base_sha" "$head_sha" || exit 1
           fi
           selection_file="$RUNNER_TEMP/validation-selection.json"
           python scripts/select_validation.py \
@@ -206,14 +196,8 @@ jobs:
           import select_validation as selector
 
           value = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-          try:
-              selector.validate_result(value)
-              authoritative = "true"
-          except selector.SelectionError:
-              selector.validate_result(value, require_authority=False)
-              if value["lane"] != "legacy-release" or not value["fail_closed"]:
-                  raise
-              authoritative = "false"
+          selector.validate_result(value)
+          authoritative = "true"
           print(value["lane"], authoritative)
           PY
           )" || exit "$failure_exit"
@@ -226,7 +210,7 @@ jobs:
             true|false) ;;
             *) exit "$failure_exit" ;;
           esac
-          [[ "$EVENT_NAME" != "pull_request" || "$authoritative" == "true" ]] || exit 1
+          [[ "$authoritative" == "true" ]] || exit 1
       - name: Audit required-check declarations
         run: python scripts/audit_ci_contract.py
       - name: Audit static Python version contract
@@ -242,15 +226,35 @@ jobs:
           python -m compileall -q scripts skills tests
           python scripts/static_quality.py
       - name: Test the GitHub source archive including pressure coverage
-        if: steps.validation-route.outputs.lane == 'legacy-release'
+        if: steps.validation-route.outputs.authoritative == 'true' && steps.validation-route.outputs.lane == 'legacy-release'
+        env:
+          SELECTION_FILE: ${{ steps.validation-route.outputs.selection }}
+          VALIDATION_BASE: ${{ steps.validation-route.outputs.base }}
+          VALIDATION_HEAD: ${{ steps.validation-route.outputs.head }}
         run: |
+          python - <<'PYTHON'
+          import os
+          import sys
+          from pathlib import Path
+
+          sys.path.insert(0, str(Path.cwd() / "scripts"))
+          from run_tests import resolve_authoritative_selection
+
+          lane, _tests = resolve_authoritative_selection(
+              Path(os.environ["SELECTION_FILE"]), repository=Path.cwd(),
+              base=os.environ["VALIDATION_BASE"], head=os.environ["VALIDATION_HEAD"],
+          )
+          if lane != "legacy-release":
+              raise SystemExit("complete full requires authoritative legacy-release")
+          PYTHON
+          printf 'COMPLETE_FULL_OWNER=source-archive-release head=%s tree=%s authoritative=true lane=legacy-release\n' "$(git rev-parse HEAD)" "$(git rev-parse HEAD^{tree})"
           cd "$RUNNER_TEMP/source-archive"
-          python scripts/run_tests.py --top-slow 20 --slow-threshold 1.0
+          python scripts/run_tests.py --full --top-slow 20 --slow-threshold 1.0
 
   chemistry-dependencies:
     name: chemistry-dependencies
     needs: source-archive-release
-    if: always()
+    if: needs.source-archive-release.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
