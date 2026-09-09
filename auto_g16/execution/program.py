@@ -794,7 +794,7 @@ def _render_scheduler_artifact(
     if resources.queue is not None:
         lines.append(f"#PBS -q {resources.queue}")
     lines.append(f"export OMP_NUM_THREADS={resources.cores}")
-    if spec.program_kind == "xtb":
+    if _uses_xtb_runtime_data_authority(spec):
         xtb_data_path = _assert_xtb_runtime_data_authority(profile)
         lines.append(f"export XTBPATH={shlex.quote(xtb_data_path)}")
     lines.append(f"exec {command} > {shlex.quote(program_log)} 2>&1")
@@ -861,8 +861,16 @@ def _assert_executable_matches_resolved_profile(
         raise ExecutionValueError(
             "bound executable differs from resolved profile executable authority"
         )
-    if spec.program_kind == "xtb":
+    if _uses_xtb_runtime_data_authority(spec):
         _assert_xtb_runtime_data_authority(profile)
+
+
+def _uses_xtb_runtime_data_authority(spec: ProgramExecutionSpec) -> bool:
+    return (
+        spec.program_kind,
+        spec.adapter_id,
+        spec.adapter_contract_version,
+    ) == ("xtb", "auto-g16-v31-xtb", 2)
 
 
 def _assert_xtb_runtime_data_authority(profile: ResolvedServerProfile) -> str:

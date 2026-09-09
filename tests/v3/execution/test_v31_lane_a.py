@@ -274,6 +274,34 @@ class LaneAFixture(unittest.TestCase):
             resolved_profile=self.resolved(),
         )
 
+    def xtb_v1_spec(self) -> execution.ProgramExecutionSpec:
+        adapter = _ADAPTER_REGISTRY[("xtb", "auto-g16-v31-xtb", 1)]
+        executable = {
+            "absolute_path": XTB_EXECUTABLE_PATH,
+            "size_bytes": len(XTB_EXECUTABLE_BYTES),
+            "sha256": sha256(XTB_EXECUTABLE_BYTES).hexdigest(),
+        }
+        data = self.xtb_data()
+        invocation, required, optional = adapter[3](executable, "input.xyz", data)
+        return execution.ProgramExecutionSpec._from_closed(
+            program_kind="xtb",
+            adapter_id="auto-g16-v31-xtb",
+            adapter_contract_version=1,
+            exact_inputs=(
+                {
+                    "logical_role": "structure",
+                    "portable_name": "input.xyz",
+                    "format": "xyz",
+                    "sha256": sha256(XYZ).hexdigest(),
+                    "size_bytes": len(XYZ),
+                },
+            ),
+            program_data=data,
+            invocation=invocation,
+            required_outputs=required,
+            optional_outputs=optional,
+        )
+
     def crest_spec(self, **changes: object) -> execution.ProgramExecutionSpec:
         return _prepare_program_execution_spec(
             program_kind="crest",
@@ -555,32 +583,7 @@ class ProgramSpecTests(LaneAFixture):
                 )
 
     def test_xtb_v1_is_replay_readable_but_not_constructed_initially(self) -> None:
-        adapter = _ADAPTER_REGISTRY[("xtb", "auto-g16-v31-xtb", 1)]
-        executable = {
-            "absolute_path": XTB_EXECUTABLE_PATH,
-            "size_bytes": len(XTB_EXECUTABLE_BYTES),
-            "sha256": sha256(XTB_EXECUTABLE_BYTES).hexdigest(),
-        }
-        data = self.xtb_data()
-        invocation, required, optional = adapter[3](executable, "input.xyz", data)
-        historical = execution.ProgramExecutionSpec._from_closed(
-            program_kind="xtb",
-            adapter_id="auto-g16-v31-xtb",
-            adapter_contract_version=1,
-            exact_inputs=(
-                {
-                    "logical_role": "structure",
-                    "portable_name": "input.xyz",
-                    "format": "xyz",
-                    "sha256": sha256(XYZ).hexdigest(),
-                    "size_bytes": len(XYZ),
-                },
-            ),
-            program_data=data,
-            invocation=invocation,
-            required_outputs=required,
-            optional_outputs=optional,
-        )
+        historical = self.xtb_v1_spec()
         historical.assert_identity_closed()
         self.assertEqual(historical.adapter_contract_version, 1)
         self.assertEqual(
@@ -1098,6 +1101,39 @@ class ProvisioningTests(LaneAFixture):
 
 
 class ProgramSnapshotTests(LaneAFixture):
+    def test_xtb_v1_snapshot_and_approval_replay_keep_historical_scheduler(self) -> None:
+        raw_profile = self.profile()
+        del raw_profile.platform_paths["xtb_data_path"]
+        del raw_profile.runtime_contents[XTB_RUNTIME_DATA_MANIFEST_NAME]
+        historical_profile = execution.resolve_server_profile(raw_profile)
+        _attestor, owner, snapshot_service = self.synthetic_authority(
+            target=historical_profile,
+            observed_state="ABSENT",
+            observed_parent_physical_identity="historical-parent",
+            observed_project_physical_identity=None,
+            provisioned_project_physical_identity="historical-project",
+        )
+        binding = owner.provision_remote_project(
+            project=self.store.load_project("project-1"),
+            target=historical_profile,
+            remote_project_dir=self.remote_project_dir,
+            evidence_identity="historical-v1-provisioning",
+        )
+        snapshot = self.successor_snapshot(
+            spec=self.xtb_v1_spec(),
+            binding=binding,
+            target=historical_profile,
+            snapshot_service=snapshot_service,
+        )
+        scheduler = snapshot.scheduler_artifacts[0]["content_utf8"]
+        self.assertIn("export OMP_NUM_THREADS=8\n", scheduler)
+        self.assertNotIn("XTBPATH", scheduler)
+        approval = snapshot._approval_semantics()
+        self.assertEqual(
+            execution.ProgramExecutionSnapshot._validate_approval_semantics(approval),
+            approval,
+        )
+
     def test_successor_snapshot_replay_is_exact_and_contains_no_v30_records(self) -> None:
         spec = self.xtb_spec()
         first = self.successor_snapshot(spec=spec)
