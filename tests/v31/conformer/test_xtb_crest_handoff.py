@@ -117,6 +117,7 @@ class XtbCrestSeedHandoffTests(LaneAFixture):
             input_name="input.xyz",
             input_bytes=SEED,
             program_data=data,
+            resolved_profile=self.resolved(),
         )
 
     def crest_spec(

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum
+import json
 import re
 from typing import Final
 
@@ -15,6 +16,7 @@ from ._identity import (
     bytes_identity,
     freeze_mapping,
     require_positive_integer,
+    require_sha256,
     require_text,
     semantic_id,
     semantic_sha256,
@@ -36,6 +38,22 @@ _PBS_NAME_DIRECTIVE: Final = re.compile(r"^#PBS -N [A-Za-z0-9][A-Za-z0-9._-]*$")
 _PBS_EXECUTION_COMMAND: Final = re.compile(r"^exec g16 [A-Za-z0-9][A-Za-z0-9._-]*$")
 _HOST_IDENTITY: Final = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.:-]*$")
 _JOB_ID: Final = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+_XTB_RUNTIME_DATA_MANIFEST_NAME: Final = "xtb-runtime-data-manifest-v1.json"
+_XTB_RUNTIME_DATA_MANIFEST_SCHEMA: Final = (
+    "auto-g16-v31-xtb-runtime-data-manifest/1"
+)
+_XTB_REQUIRED_RUNTIME_DATA_FILES: Final = frozenset(
+    {
+        ".param_gfnff.xtb",
+        "config_env.bash",
+        "config_env.csh",
+        "param_gfn0-xtb.txt",
+        "param_gfn1-si-xtb.txt",
+        "param_gfn1-xtb.txt",
+        "param_gfn2-xtb.txt",
+        "param_ipea-xtb.txt",
+    }
+)
 
 
 def _semantic_mapping(value: Mapping[str, object]) -> dict[str, object]:
@@ -50,6 +68,102 @@ def _reject_secret_content(name: str, content: bytes) -> None:
         stripped = line.strip()
         if stripped.startswith((b"password ", b"token ", b"secret ")):
             raise ExecutionValueError(f"{name} must not contain secret material")
+
+
+def _canonical_xtb_runtime_data_manifest(raw: bytes) -> bytes:
+    """Validate and canonicalize the one closed xTB runtime-data manifest."""
+
+    if raw.startswith(b"\xef\xbb\xbf"):
+        raise ExecutionValueError("xTB runtime-data manifest must be UTF-8 without BOM")
+
+    def pairs(items: list[tuple[str, object]]) -> dict[str, object]:
+        value: dict[str, object] = {}
+        for key, item in items:
+            if key in value:
+                raise ExecutionValueError(
+                    "xTB runtime-data manifest contains a duplicate key"
+                )
+            value[key] = item
+        return value
+
+    def nonfinite(value: str) -> object:
+        raise ExecutionValueError(
+            f"xTB runtime-data manifest contains non-finite {value}"
+        )
+
+    try:
+        decoded = json.loads(
+            raw.decode("utf-8"),
+            object_pairs_hook=pairs,
+            parse_constant=nonfinite,
+        )
+    except ExecutionValueError:
+        raise
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ExecutionValueError("xTB runtime-data manifest is not strict JSON") from exc
+    if not isinstance(decoded, Mapping) or set(decoded) != {"schema", "files"}:
+        raise ExecutionValueError(
+            "xTB runtime-data manifest must have the exact closed field set"
+        )
+    if decoded["schema"] != _XTB_RUNTIME_DATA_MANIFEST_SCHEMA:
+        raise ExecutionValueError("xTB runtime-data manifest schema is not supported")
+    files = decoded["files"]
+    if not isinstance(files, Mapping) or not files:
+        raise ExecutionValueError("xTB runtime-data manifest files must be a mapping")
+    closed_files: dict[str, object] = {}
+    for relative_path, identity in files.items():
+        require_text(relative_path, "xTB runtime-data relative path")
+        parts = relative_path.split("/")
+        if (
+            relative_path.startswith("/")
+            or relative_path.endswith("/")
+            or "\\" in relative_path
+            or any(part in {"", ".", ".."} for part in parts)
+            or any(
+                any(ord(character) < 32 or ord(character) == 127 for character in part)
+                for part in parts
+            )
+        ):
+            raise ExecutionValueError(
+                "xTB runtime-data manifest path must be canonical and relative"
+            )
+        if not isinstance(identity, Mapping) or set(identity) != {
+            "sha256",
+            "size_bytes",
+        }:
+            raise ExecutionValueError(
+                "xTB runtime-data manifest file identity is not closed"
+            )
+        closed_files[relative_path] = {
+            "sha256": require_sha256(
+                identity["sha256"],
+                f"xTB runtime-data manifest {relative_path} sha256",
+            ),
+            "size_bytes": require_positive_integer(
+                identity["size_bytes"],
+                f"xTB runtime-data manifest {relative_path} size_bytes",
+            ),
+        }
+    missing = _XTB_REQUIRED_RUNTIME_DATA_FILES.difference(closed_files)
+    if missing:
+        raise ExecutionValueError(
+            "xTB runtime-data manifest lacks the required runtime-data inventory"
+        )
+    try:
+        return json.dumps(
+            {
+                "schema": _XTB_RUNTIME_DATA_MANIFEST_SCHEMA,
+                "files": closed_files,
+            },
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8") + b"\n"
+    except (TypeError, ValueError, UnicodeEncodeError) as exc:
+        raise ExecutionValueError(
+            "xTB runtime-data manifest cannot be canonically encoded"
+        ) from exc
 
 
 def _validate_host(value: str, field_name: str) -> str:
@@ -437,7 +551,12 @@ def resolve_server_profile(profile: ServerProfile) -> ResolvedServerProfile:
         if not isinstance(content, bytes):
             raise ExecutionValueError("runtime content must be immutable bytes")
         _reject_secret_content(name, content)
-        runtime_identities[name] = bytes_identity(content)
+        identity_content = (
+            _canonical_xtb_runtime_data_manifest(content)
+            if name == _XTB_RUNTIME_DATA_MANIFEST_NAME
+            else content
+        )
+        runtime_identities[name] = bytes_identity(identity_content)
 
     effective_payload = freeze_mapping(
         {

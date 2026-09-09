@@ -152,7 +152,7 @@ def _close_capture_to_snapshot(
     _require(
         spec.program_kind == "xtb"
         and spec.adapter_id == "auto-g16-v31-xtb"
-        and spec.adapter_contract_version == 1
+        and spec.adapter_contract_version == 2
         and spec.program_data["task"] == "optimize",
         "source must be the exact xTB optimize successor",
     )

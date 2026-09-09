@@ -109,7 +109,7 @@ class ProductionBridgeTests(lane.LaneAFixture):
         manifest = json.loads(raw.runtime_contents["transport-deployment-manifest-v2.json"])
         manifest.update(schema="auto-g16-v3-transport-deployment-manifest/3", bootstrap_protocol=_bridge._PROGRAM_BOOTSTRAP_PROTOCOL)
         manifest["trust_roots"] = {key: value for key, value in manifest["trust_roots"].items() if key in {"mac_ssh", "server_remote_shell", "server_python", "server_qsub", "server_qstat"}}
-        self.current_profile = replace(raw, platform_paths={**raw.platform_paths, "xtb_executable_path": "/opt/xtb/6.7.1/bin/xtb", "crest_executable_path": "/opt/crest/3.0.2/bin/crest"}, runtime_contents={_driver._TABLE_NAME: _driver._OPERATION_TABLE_BYTES, _driver._RESOURCE_DESCRIPTOR_NAME: v30.TORQUE_RESOURCE_DESCRIPTOR_BYTES, "transport-deployment-manifest-v3.json": canonical_json_bytes(manifest), _bridge._PROGRAM_BOOTSTRAP_SOURCE_NAME: _bridge._PROGRAM_BOOTSTRAP_SOURCE_BYTES, "xtb": b"offline exact binary image A", "crest": b"offline exact binary image B"})
+        self.current_profile = replace(raw, platform_paths={**raw.platform_paths, "xtb_executable_path": "/opt/xtb/6.7.1/bin/xtb", "crest_executable_path": "/opt/crest/3.0.2/bin/crest", "xtb_data_path": "/opt/xtb/6.7.1/share/xtb"}, runtime_contents={_driver._TABLE_NAME: _driver._OPERATION_TABLE_BYTES, _driver._RESOURCE_DESCRIPTOR_NAME: v30.TORQUE_RESOURCE_DESCRIPTOR_BYTES, "transport-deployment-manifest-v3.json": canonical_json_bytes(manifest), _bridge._PROGRAM_BOOTSTRAP_SOURCE_NAME: _bridge._PROGRAM_BOOTSTRAP_SOURCE_BYTES, "xtb": b"offline exact binary image A", "crest": b"offline exact binary image B", lane.XTB_RUNTIME_DATA_MANIFEST_NAME: lane.xtb_runtime_data_manifest_bytes()})
         self.target = execution.resolve_server_profile(self.current_profile)
         root = self.root / "bridge"
         root.mkdir()
@@ -404,6 +404,25 @@ class ProductionBridgeTests(lane.LaneAFixture):
         self.prepare()
         self.current_profile.runtime_contents["xtb"] += b"changed"
         with patch.object(self.store, "record_submission_intent", wraps=self.store.record_submission_intent) as claim:
+            with self.assertRaises((execution.ExecutionValueError, TransportBoundaryError)):
+                self.execute()
+            claim.assert_not_called()
+        self.assertFalse(self.wire.calls)
+
+    def test_xtb_runtime_data_manifest_drift_rejects_before_claim_or_process(self):
+        self.prepare()
+        manifest = json.loads(
+            self.current_profile.runtime_contents[lane.XTB_RUNTIME_DATA_MANIFEST_NAME]
+        )
+        manifest["files"]["param_gfn2-xtb.txt"]["sha256"] = "0" * 64
+        self.current_profile.runtime_contents[
+            lane.XTB_RUNTIME_DATA_MANIFEST_NAME
+        ] = lane.xtb_runtime_data_manifest_bytes(manifest)
+        with patch.object(
+            self.store,
+            "record_submission_intent",
+            wraps=self.store.record_submission_intent,
+        ) as claim:
             with self.assertRaises((execution.ExecutionValueError, TransportBoundaryError)):
                 self.execute()
             claim.assert_not_called()

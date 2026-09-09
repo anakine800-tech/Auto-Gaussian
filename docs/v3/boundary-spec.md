@@ -5000,6 +5000,18 @@ binds that secondary artifact from the closed snapshot. The script cannot
 replace the argv/data meaning. This contract adds no AGV3 operation, SSH hop,
 PBS dialect, transport route, parser, or result grammar.
 
+The xTB adapter contract version 2 additionally requires the resolved target to
+own canonical `platform_paths["xtb_data_path"]` and canonical runtime content
+named `xtb-runtime-data-manifest-v1.json` with schema
+`auto-g16-v31-xtb-runtime-data-manifest/1`. The manifest is normalized before
+its existing runtime byte identity is derived, so JSON formatting and object-key
+order are non-semantic while any file path, size, or SHA-256 change invalidates
+the resolved profile. Its closed invocation environment contains exactly
+`OMP_NUM_THREADS` sourced from `ResolvedResourceRequest.cores` and `XTBPATH`
+sourced from the resolved profile path. The scheduler renderer emits that exact
+path; callers cannot provide, override, or derive it from PATH, HOME, shell
+profiles, or modules. The current CREST adapters remain unchanged.
+
 ### Independent SamplingProfile policy record
 
 `SamplingProfile` is an independent public ensemble-domain record with these
