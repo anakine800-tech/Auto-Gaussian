@@ -1567,6 +1567,14 @@ expansion.
 9. Primary invocation meaning is closed typed data and tokenized argv with
    non-shell process semantics. Caller shell-command strings, ambient PATH/env,
    undeclared files, and script-as-second-authority cases are rejected.
+   For xTB adapter contract version 2, this additionally requires one canonical
+   resolved-profile `xtb_data_path`, one canonical
+   `xtb-runtime-data-manifest-v1.json` runtime identity, and exactly the two
+   environment declarations `OMP_NUM_THREADS` from resolved resources and
+   `XTBPATH` from that resolved profile path. Equivalent JSON formatting or key
+   order has one identity; any manifested file path, size, or SHA-256 drift
+   changes it. Missing authority and caller-provided environment values reject,
+   and the current CREST adapters remain unchanged.
 10. A V31 Workflow or Batch may intentionally contain V30-generation Gaussian
     Attempts together with successor-generation xTB/CREST Attempts. For each
     individual Attempt, the exact generation is fixed before effect authority:

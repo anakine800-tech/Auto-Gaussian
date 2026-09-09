@@ -29,6 +29,7 @@ from .models import (
     ResolvedResourceRequest,
     ResolvedServerProfile,
     WorkspaceBinding,
+    _XTB_RUNTIME_DATA_MANIFEST_NAME,
 )
 from .project_provisioning import (
     ProjectPhysicalBinding,
@@ -141,7 +142,11 @@ def _validated_output(value: Mapping[str, object], index: int, group: str) -> Ma
     return freeze_mapping(dict(value), label)
 
 
-def _validate_invocation(value: Mapping[str, object], program_kind: str) -> Mapping[str, object]:
+def _validate_invocation(
+    value: Mapping[str, object],
+    program_kind: str,
+    adapter_contract_version: int,
+) -> Mapping[str, object]:
     _exact_keys(value, _INVOCATION_FIELDS, "invocation")
     executable = value["executable_identity"]
     if not isinstance(executable, Mapping):
@@ -174,13 +179,25 @@ def _validate_invocation(value: Mapping[str, object], program_kind: str) -> Mapp
     _exact_keys(stdin, {"mode", "logical_role"}, "invocation.stdin")
     if stdin["mode"] != "none" or stdin["logical_role"] is not None:
         raise ExecutionValueError("initial xTB/CREST adapters accept no stdin authority")
-    environment = value["environment"]
-    if environment != (
-        freeze_mapping(
-            {"name": "OMP_NUM_THREADS", "source": "resolved-resource-request.cores"},
-            "OMP_NUM_THREADS",
-        ),
-    ):
+    omp_environment = freeze_mapping(
+        {"name": "OMP_NUM_THREADS", "source": "resolved-resource-request.cores"},
+        "OMP_NUM_THREADS",
+    )
+    expected_environment = (omp_environment,)
+    if program_kind == "xtb" and adapter_contract_version == 2:
+        expected_environment = (
+            omp_environment,
+            freeze_mapping(
+                {
+                    "name": "XTBPATH",
+                    "source": (
+                        "resolved-server-profile.platform_paths.xtb_data_path"
+                    ),
+                },
+                "XTBPATH",
+            ),
+        )
+    if value["environment"] != expected_environment:
         raise ExecutionValueError("invocation environment is not the exact closed adapter input")
     return freeze_mapping(dict(value), "invocation")
 
@@ -348,7 +365,30 @@ def _render_xtb(
         required += (("optimized-geometry", "xtbopt.xyz", "xyz"),)
         optional = ()
     required_values, optional_values = _outputs(required=required, optional=optional)
-    return _invocation(executable, tuple(argv)), required_values, optional_values
+    return _invocation(
+        executable,
+        tuple(argv),
+        program_kind="xtb",
+        xtb_data_authority=True,
+    ), required_values, optional_values
+
+
+def _render_xtb_v1(
+    executable: Mapping[str, object],
+    input_name: str,
+    data: Mapping[str, object],
+) -> tuple[Mapping[str, object], tuple[Mapping[str, object], ...], tuple[Mapping[str, object], ...]]:
+    invocation, required, optional = _render_xtb(executable, input_name, data)
+    return (
+        _invocation(
+            executable,
+            tuple(invocation["argv"]),
+            program_kind="xtb",
+            xtb_data_authority=False,
+        ),
+        required,
+        optional,
+    )
 
 
 def _render_crest_v1(
@@ -382,7 +422,7 @@ def _render_crest_v1(
         ),
         optional=(("conformer-energies", "crest.energies", "text"),),
     )
-    return _invocation(executable, argv), required, optional
+    return _invocation(executable, argv, program_kind="crest"), required, optional
 
 
 def _render_crest_imtd_gc_v2(
@@ -457,7 +497,7 @@ def _render_crest_imtd_gc_v2(
         ),
         optional=(("conformer-energies", "crest.energies", "text"),),
     )
-    return _invocation(executable, argv), required, optional
+    return _invocation(executable, argv, program_kind="crest"), required, optional
 
 
 def _validate_crest_v2_option_tokens(
@@ -473,19 +513,39 @@ def _validate_crest_v2_option_tokens(
 
 
 def _invocation(
-    executable: Mapping[str, object], argv: tuple[str, ...]
+    executable: Mapping[str, object],
+    argv: tuple[str, ...],
+    *,
+    program_kind: str,
+    xtb_data_authority: bool = False,
 ) -> Mapping[str, object]:
+    environment: tuple[Mapping[str, object], ...] = (
+        freeze_mapping(
+            {
+                "name": "OMP_NUM_THREADS",
+                "source": "resolved-resource-request.cores",
+            },
+            "OMP_NUM_THREADS",
+        ),
+    )
+    if program_kind == "xtb" and xtb_data_authority:
+        environment += (
+            freeze_mapping(
+                {
+                    "name": "XTBPATH",
+                    "source": (
+                        "resolved-server-profile.platform_paths.xtb_data_path"
+                    ),
+                },
+                "XTBPATH",
+            ),
+        )
     return freeze_mapping(
         {
             "executable_identity": executable,
             "argv": argv,
             "stdin": {"mode": "none", "logical_role": None},
-            "environment": (
-                {
-                    "name": "OMP_NUM_THREADS",
-                    "source": "resolved-resource-request.cores",
-                },
-            ),
+            "environment": environment,
         },
         "closed program invocation",
     )
@@ -501,6 +561,12 @@ _ADAPTER_REGISTRY: Final[Mapping[tuple[str, str, int], _Adapter]] = {
     ("xtb", "auto-g16-v31-xtb", 1): (
         "auto-g16-v31-xtb",
         1,
+        _validate_xtb_data,
+        _render_xtb_v1,
+    ),
+    ("xtb", "auto-g16-v31-xtb", 2): (
+        "auto-g16-v31-xtb",
+        2,
         _validate_xtb_data,
         _render_xtb,
     ),
@@ -519,7 +585,7 @@ _ADAPTER_REGISTRY: Final[Mapping[tuple[str, str, int], _Adapter]] = {
 }
 _INITIAL_ADAPTER_KEYS: Final[Mapping[str, tuple[str, str, int] | None]] = {
     "gaussian": None,
-    "xtb": ("xtb", "auto-g16-v31-xtb", 1),
+    "xtb": ("xtb", "auto-g16-v31-xtb", 2),
     "crest": ("crest", "auto-g16-v31-crest", 2),
 }
 
@@ -573,7 +639,9 @@ class ProgramExecutionSpec:
         if inputs[0]["logical_role"] != "structure" or inputs[0]["format"] != "xyz":
             raise ExecutionValueError("initial adapters require one XYZ structure input")
         data = validate_data(program_data)
-        closed_invocation = _validate_invocation(invocation, program_kind)
+        closed_invocation = _validate_invocation(
+            invocation, program_kind, adapter_contract_version
+        )
         required = tuple(_validated_output(item, index, "required_outputs") for index, item in enumerate(required_outputs))
         optional = tuple(_validated_output(item, index, "optional_outputs") for index, item in enumerate(optional_outputs))
         if not required:
@@ -673,6 +741,10 @@ def _prepare_program_execution_spec(
         },
         "closed executable identity",
     )
+    if program_kind == "xtb" and resolved_profile is None:
+        raise ExecutionValueError(
+            "xTB ProgramExecutionSpec requires resolved XTBPATH authority"
+        )
     invocation, required, optional = renderer(executable, input_name, data)
     exact_input = freeze_mapping(
         {
@@ -703,6 +775,7 @@ def _prepare_program_execution_spec(
 def _render_scheduler_artifact(
     spec: ProgramExecutionSpec,
     resources: ResolvedResourceRequest,
+    profile: ResolvedServerProfile,
 ) -> tuple[Mapping[str, object], ...]:
     argv = tuple(spec.invocation["argv"])
     command = " ".join(shlex.quote(str(token)) for token in argv)
@@ -720,12 +793,11 @@ def _render_scheduler_artifact(
     ]
     if resources.queue is not None:
         lines.append(f"#PBS -q {resources.queue}")
-    lines.extend(
-        (
-            f"export OMP_NUM_THREADS={resources.cores}",
-            f"exec {command} > {shlex.quote(program_log)} 2>&1",
-        )
-    )
+    lines.append(f"export OMP_NUM_THREADS={resources.cores}")
+    if _uses_xtb_runtime_data_authority(spec):
+        xtb_data_path = _assert_xtb_runtime_data_authority(profile)
+        lines.append(f"export XTBPATH={shlex.quote(xtb_data_path)}")
+    lines.append(f"exec {command} > {shlex.quote(program_log)} 2>&1")
     content = ("\n".join(lines) + "\n").encode("utf-8")
     return (
         freeze_mapping(
@@ -789,6 +861,46 @@ def _assert_executable_matches_resolved_profile(
         raise ExecutionValueError(
             "bound executable differs from resolved profile executable authority"
         )
+    if _uses_xtb_runtime_data_authority(spec):
+        _assert_xtb_runtime_data_authority(profile)
+
+
+def _uses_xtb_runtime_data_authority(spec: ProgramExecutionSpec) -> bool:
+    return (
+        spec.program_kind,
+        spec.adapter_id,
+        spec.adapter_contract_version,
+    ) == ("xtb", "auto-g16-v31-xtb", 2)
+
+
+def _assert_xtb_runtime_data_authority(profile: ResolvedServerProfile) -> str:
+    data_path = profile.platform_paths.get("xtb_data_path")
+    if not isinstance(data_path, str):
+        raise ExecutionValueError(
+            "resolved target/profile lacks the exact XTBPATH authority"
+        )
+    qualified_data_path = validate_posix_path(
+        data_path, "resolved_server_profile.platform_paths.xtb_data_path"
+    )
+    manifest_identity = profile.runtime_identities.get(
+        _XTB_RUNTIME_DATA_MANIFEST_NAME
+    )
+    if not isinstance(manifest_identity, Mapping) or set(manifest_identity) != {
+        "sha256",
+        "size_bytes",
+    }:
+        raise ExecutionValueError(
+            "resolved target/profile lacks the exact xTB runtime-data identity"
+        )
+    require_sha256(
+        manifest_identity["sha256"],
+        "resolved_server_profile xTB runtime-data manifest sha256",
+    )
+    require_positive_integer(
+        manifest_identity["size_bytes"],
+        "resolved_server_profile xTB runtime-data manifest size_bytes",
+    )
+    return qualified_data_path
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, init=False)
@@ -929,7 +1041,9 @@ class ProgramExecutionSnapshot:
             "verified cwd binding",
         )
         scheduler = _render_scheduler_artifact(
-            self.program_execution_spec, self.resolved_resource_request
+            self.program_execution_spec,
+            self.resolved_resource_request,
+            self.resolved_server_profile,
         )
         if self.cwd_binding != cwd_binding or self.scheduler_artifacts != scheduler:
             raise ExecutionValueError(
@@ -1213,7 +1327,9 @@ def _prepare_program_execution_snapshot_owned(
             "workspace binding differs from the exact remote Project/Attempt authority"
         )
     scheduler = _render_scheduler_artifact(
-        program_execution_spec, resolved_resource_request
+        program_execution_spec,
+        resolved_resource_request,
+        resolved_server_profile,
     )
     spec_digest = semantic_sha256(program_execution_spec.semantic_payload())
     payload = freeze_mapping(

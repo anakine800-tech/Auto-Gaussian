@@ -24,6 +24,17 @@ SELECTOR_SPEC.loader.exec_module(SELECTOR)
 
 SelectionError = SELECTOR.SelectionError
 
+# Bounded cross-minor evidence when the source archive owns complete discovery.
+COMPATIBILITY_TESTS = [
+    "tests.v3.core.test_models",
+    "tests.v3.core.test_store",
+    "tests.test_runtime_config",
+    "tests.test_validation_selector",
+    "tests.test_test_runner",
+    "tests.test_audit_ci_contract",
+    "tests.test_audit_python_contract",
+]
+
 
 def _object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
@@ -114,6 +125,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--top-slow", type=int, default=15)
     parser.add_argument("--slow-threshold", type=float, default=1.0)
     parser.add_argument("--verbosity", type=int, choices=(0, 1, 2), default=2)
+    parser.add_argument("--full", action="store_true", help="explicit complete discovery attestation")
+    parser.add_argument("--compatibility", action="store_true", help="bounded selection; never full discovery")
     parser.add_argument("--selection", type=Path, help="closed selector result JSON")
     parser.add_argument("--base", help="full base SHA independently supplied to the runner")
     parser.add_argument("--head", help="full candidate SHA independently supplied to the runner")
@@ -122,6 +135,10 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--top-slow must be positive and --slow-threshold must be non-negative")
 
     names = args.names
+    if args.full and (names or args.compatibility or args.start_directory != "tests" or args.pattern != "test*.py"):
+        parser.error("--full cannot be combined with bounded test options")
+    if args.compatibility and args.selection is None:
+        parser.error("--compatibility requires --selection")
     if args.selection is not None:
         if names or args.start_directory != "tests" or args.pattern != "test*.py":
             parser.error("--selection cannot be combined with names, --start-directory, or --pattern")
@@ -136,11 +153,32 @@ def main(argv: list[str] | None = None) -> int:
             )
         except SelectionError as exc:
             parser.error(str(exc))
-        names = selected if lane != "legacy-release" else []
-        print(f"VALIDATION SELECTION lane={lane} tests={len(selected)}")
+        if lane == "legacy-release":
+            if args.compatibility:
+                names = list(COMPATIBILITY_TESTS)
+            elif args.full:
+                names = []
+            else:
+                parser.error("legacy-release requires explicit --full or bounded --compatibility; tests started = 0")
+        else:
+            if args.full:
+                parser.error("--full requires an authoritative legacy-release selection")
+            names = selected
+        print(f"VALIDATION SELECTION lane={lane} mode={'compatibility' if args.compatibility else 'full' if args.full else 'selected'} names={names}", flush=True)
     elif args.base is not None or args.head is not None:
         parser.error("--base and --head are valid only with --selection")
 
+    requested_start = Path(args.start_directory)
+    resolved_start = (requested_start if requested_start.is_absolute() else ROOT / requested_start).resolve()
+    bounded_directory = (
+        resolved_start != (ROOT / "tests").resolve()
+        and resolved_start != ROOT
+        and resolved_start not in ROOT.parents
+    )
+    if not names and not args.full and not bounded_directory and args.pattern == "test*.py":
+        parser.error("implicit full discovery is forbidden; specify names or --full; tests started = 0")
+    if "tests" in names:
+        parser.error("root test package requires --full; tests started = 0")
     suite = build_suite(names, args.start_directory, args.pattern)
     runner = unittest.TextTestRunner(verbosity=args.verbosity, resultclass=TimingResult)
     result = runner.run(suite)

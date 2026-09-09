@@ -21,12 +21,12 @@ from auto_g16.conformer.refinement_authority import (
 from auto_g16.conformer.service import create_sampling_profile
 from auto_g16.result import OutputArtifact, OutputEnvelope, ResultProvenanceService
 from tests.v31.conformer import test_refinement_authority as z0_fixtures
-from tests.v31.conformer.test_core import ConformerCoreTests
+from tests.v31.conformer import test_core as core_fixtures
 
 
 class RefinementTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.core_fixture = ConformerCoreTests()
+        self.core_fixture = core_fixtures.ConformerCoreTests()
         self.profile = self.core_fixture.profile()
         self.source_coordinates = {
             "member-a": (

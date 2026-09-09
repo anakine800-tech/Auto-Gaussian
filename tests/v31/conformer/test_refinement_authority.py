@@ -40,7 +40,7 @@ from auto_g16.conformer.refinement_authority import (
     validate_two_stage_minimum_authority,
 )
 from tests.v3.scientific_validation._fixtures import attributed_facts
-from tests.v31.conformer.test_core import ConformerCoreTests
+from tests.v31.conformer import test_core as core_fixtures
 
 
 ROOT = Path(__file__).parents[3]
@@ -56,7 +56,7 @@ def _canonical_sha256(payload):
 
 class RefinementAuthorityTests(unittest.TestCase):
     def setUp(self) -> None:
-        fixture = ConformerCoreTests()
+        fixture = core_fixtures.ConformerCoreTests()
         self.profile = fixture.profile()
         self.ensemble = fixture.ensemble(self.profile, [fixture.observation(self.profile, "member-a")])
         self.method = {
@@ -474,7 +474,7 @@ class RefinementAuthorityTests(unittest.TestCase):
             thermodynamic_eligibility_policy=self.profile.thermodynamic_eligibility_policy,
             ts_seed_projection_policy=self.profile.ts_seed_projection_policy,
         )
-        fixture = ConformerCoreTests()
+        fixture = core_fixtures.ConformerCoreTests()
         observation = fixture.observation(
             profile,
             f"member-{formula.lower()}",
@@ -601,7 +601,7 @@ class RefinementAuthorityTests(unittest.TestCase):
         with self.assertRaises(RefinementAuthorityError): self.validate(frequency_input_binding=forged)
 
     def test_10_same_element_cross_member_splice_rejects(self):
-        fixture = ConformerCoreTests()
+        fixture = core_fixtures.ConformerCoreTests()
         other = fixture.ensemble(self.profile, [fixture.observation(self.profile, "member-b")])
         with self.assertRaises(RefinementAuthorityError): self.validate(ensemble=other, member_id="member-b")
 

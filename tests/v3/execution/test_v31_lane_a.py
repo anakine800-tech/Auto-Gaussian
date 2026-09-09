@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import fields
 from hashlib import sha256
 import inspect
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -29,6 +30,43 @@ XTB_EXECUTABLE_BYTES = b"auto-g16 synthetic non-production xtb fixture\n"
 CREST_EXECUTABLE_BYTES = b"auto-g16 synthetic non-production crest fixture\n"
 XTB_EXECUTABLE_PATH = "/opt/auto-g16-fixtures/bin/xtb"
 CREST_EXECUTABLE_PATH = "/opt/auto-g16-fixtures/bin/crest"
+XTB_DATA_PATH = "/opt/auto-g16-fixtures/share/xtb"
+XTB_RUNTIME_DATA_MANIFEST_NAME = "xtb-runtime-data-manifest-v1.json"
+XTB_RUNTIME_DATA_FILES = (
+    ".param_gfnff.xtb",
+    "config_env.bash",
+    "config_env.csh",
+    "param_gfn0-xtb.txt",
+    "param_gfn1-si-xtb.txt",
+    "param_gfn1-xtb.txt",
+    "param_gfn2-xtb.txt",
+    "param_ipea-xtb.txt",
+)
+XTB_RUNTIME_DATA_MANIFEST = {
+    "schema": "auto-g16-v31-xtb-runtime-data-manifest/1",
+    "files": {
+        name: {"size_bytes": len(name), "sha256": sha256(name.encode()).hexdigest()}
+        for name in XTB_RUNTIME_DATA_FILES
+    },
+}
+
+
+def xtb_runtime_data_manifest_bytes(
+    value: object = XTB_RUNTIME_DATA_MANIFEST,
+    *,
+    canonical: bool = True,
+) -> bytes:
+    return (
+        json.dumps(
+            value,
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":") if canonical else None,
+            sort_keys=canonical,
+            indent=None if canonical else 2,
+        ).encode("utf-8")
+        + b"\n"
+    )
 GAUSSIAN_INPUT = b"#p hf/sto-3g\n\nfixture\n\n0 1\nH 0 0 0\n\n"
 PBS_TEMPLATE = b"#!/bin/bash\n#PBS -N synthetic\nexec g16 input.gjf\n"
 
@@ -119,6 +157,8 @@ class LaneAFixture(unittest.TestCase):
         target_host: str = "server.example",
         xtb_executable_path: str = XTB_EXECUTABLE_PATH,
         crest_executable_path: str = CREST_EXECUTABLE_PATH,
+        xtb_data_path: str = XTB_DATA_PATH,
+        xtb_runtime_data_manifest: bytes | None = None,
     ) -> execution.ServerProfile:
         return execution.ServerProfile(
                 server_profile_id=server_profile_id,
@@ -136,11 +176,17 @@ class LaneAFixture(unittest.TestCase):
                     "rtwin_root": r"C:\RTWIN",
                     "xtb_executable_path": xtb_executable_path,
                     "crest_executable_path": crest_executable_path,
+                    "xtb_data_path": xtb_data_path,
                 },
                 config_files=[("ssh_config", b"Host server.example\n")],
                 runtime_contents={
                     "xtb": XTB_EXECUTABLE_BYTES,
                     "crest": CREST_EXECUTABLE_BYTES,
+                    XTB_RUNTIME_DATA_MANIFEST_NAME: (
+                        xtb_runtime_data_manifest_bytes()
+                        if xtb_runtime_data_manifest is None
+                        else xtb_runtime_data_manifest
+                    ),
                 },
         )
 
@@ -225,6 +271,35 @@ class LaneAFixture(unittest.TestCase):
             input_name="input.xyz",
             input_bytes=XYZ,
             program_data=self.xtb_data(**changes),
+            resolved_profile=self.resolved(),
+        )
+
+    def xtb_v1_spec(self) -> execution.ProgramExecutionSpec:
+        adapter = _ADAPTER_REGISTRY[("xtb", "auto-g16-v31-xtb", 1)]
+        executable = {
+            "absolute_path": XTB_EXECUTABLE_PATH,
+            "size_bytes": len(XTB_EXECUTABLE_BYTES),
+            "sha256": sha256(XTB_EXECUTABLE_BYTES).hexdigest(),
+        }
+        data = self.xtb_data()
+        invocation, required, optional = adapter[3](executable, "input.xyz", data)
+        return execution.ProgramExecutionSpec._from_closed(
+            program_kind="xtb",
+            adapter_id="auto-g16-v31-xtb",
+            adapter_contract_version=1,
+            exact_inputs=(
+                {
+                    "logical_role": "structure",
+                    "portable_name": "input.xyz",
+                    "format": "xyz",
+                    "sha256": sha256(XYZ).hexdigest(),
+                    "size_bytes": len(XYZ),
+                },
+            ),
+            program_data=data,
+            invocation=invocation,
+            required_outputs=required,
+            optional_outputs=optional,
         )
 
     def crest_spec(self, **changes: object) -> execution.ProgramExecutionSpec:
@@ -408,6 +483,7 @@ class ProgramSpecTests(LaneAFixture):
                 "charge": 0,
                 "model": "gfn2",
             },
+            resolved_profile=self.resolved(),
         )
         changed = self.xtb_spec(charge=-1)
         self.assertEqual(first.semantic_payload(), replay.semantic_payload())
@@ -430,6 +506,162 @@ class ProgramSpecTests(LaneAFixture):
         )
         self.assertEqual(first.required_outputs[1]["portable_name"], "xtbopt.xyz")
         self.assertEqual(first.optional_outputs, ())
+        self.assertEqual(first.adapter_contract_version, 2)
+        self.assertEqual(
+            first.invocation["environment"],
+            (
+                {
+                    "name": "OMP_NUM_THREADS",
+                    "source": "resolved-resource-request.cores",
+                },
+                {
+                    "name": "XTBPATH",
+                    "source": (
+                        "resolved-server-profile.platform_paths.xtb_data_path"
+                    ),
+                },
+            ),
+        )
+
+    def test_xtb_requires_exact_profile_data_path_and_manifest_authority(self) -> None:
+        arguments = {
+            "program_kind": "xtb",
+            "executable_path": XTB_EXECUTABLE_PATH,
+            "executable_size_bytes": len(XTB_EXECUTABLE_BYTES),
+            "executable_sha256": sha256(XTB_EXECUTABLE_BYTES).hexdigest(),
+            "input_name": "input.xyz",
+            "input_bytes": XYZ,
+            "program_data": self.xtb_data(),
+        }
+        with self.assertRaisesRegex(
+            execution.ExecutionValueError, "requires resolved XTBPATH"
+        ):
+            _prepare_program_execution_spec(**arguments)
+
+        without_path = self.profile()
+        del without_path.platform_paths["xtb_data_path"]
+        without_manifest = self.profile()
+        del without_manifest.runtime_contents[XTB_RUNTIME_DATA_MANIFEST_NAME]
+        for raw, message in (
+            (without_path, "XTBPATH authority"),
+            (without_manifest, "runtime-data identity"),
+        ):
+            with self.subTest(message=message), self.assertRaisesRegex(
+                execution.ExecutionValueError, message
+            ):
+                _prepare_program_execution_spec(
+                    **arguments,
+                    resolved_profile=execution.resolve_server_profile(raw),
+                )
+
+    def test_xtb_environment_cannot_carry_caller_value_or_extra_name(self) -> None:
+        spec = self.xtb_spec()
+        for environment in (
+            (*spec.invocation["environment"], {"name": "PATH", "source": "caller"}),
+            (
+                spec.invocation["environment"][0],
+                {
+                    "name": "XTBPATH",
+                    "source": "caller",
+                    "value": "/tmp/xtb",
+                },
+            ),
+        ):
+            invocation = {**dict(spec.invocation), "environment": environment}
+            with self.subTest(environment=environment), self.assertRaisesRegex(
+                execution.ExecutionValueError, "exact closed adapter input"
+            ):
+                execution.ProgramExecutionSpec._from_closed(
+                    program_kind=spec.program_kind,
+                    adapter_id=spec.adapter_id,
+                    adapter_contract_version=spec.adapter_contract_version,
+                    exact_inputs=spec.exact_inputs,
+                    program_data=spec.program_data,
+                    invocation=invocation,
+                    required_outputs=spec.required_outputs,
+                    optional_outputs=spec.optional_outputs,
+                )
+
+    def test_xtb_v1_is_replay_readable_but_not_constructed_initially(self) -> None:
+        historical = self.xtb_v1_spec()
+        historical.assert_identity_closed()
+        self.assertEqual(historical.adapter_contract_version, 1)
+        self.assertEqual(
+            historical.invocation["environment"],
+            (
+                {
+                    "name": "OMP_NUM_THREADS",
+                    "source": "resolved-resource-request.cores",
+                },
+            ),
+        )
+        self.assertEqual(self.xtb_spec().adapter_contract_version, 2)
+
+    def test_xtb_runtime_data_manifest_has_canonical_semantic_identity(self) -> None:
+        canonical = self.resolved()
+        formatted = self.resolved(
+            xtb_runtime_data_manifest=xtb_runtime_data_manifest_bytes(
+                canonical=False
+            )
+        )
+        self.assertEqual(
+            canonical.runtime_identities[XTB_RUNTIME_DATA_MANIFEST_NAME],
+            formatted.runtime_identities[XTB_RUNTIME_DATA_MANIFEST_NAME],
+        )
+        self.assertEqual(
+            canonical.resolved_server_profile_id,
+            formatted.resolved_server_profile_id,
+        )
+
+        changed = json.loads(xtb_runtime_data_manifest_bytes())
+        changed["files"]["param_gfn2-xtb.txt"]["sha256"] = "0" * 64
+        drifted = self.resolved(
+            xtb_runtime_data_manifest=xtb_runtime_data_manifest_bytes(changed)
+        )
+        self.assertNotEqual(
+            canonical.runtime_identities[XTB_RUNTIME_DATA_MANIFEST_NAME],
+            drifted.runtime_identities[XTB_RUNTIME_DATA_MANIFEST_NAME],
+        )
+        self.assertNotEqual(
+            canonical.resolved_server_profile_id,
+            drifted.resolved_server_profile_id,
+        )
+
+    def test_xtb_runtime_data_manifest_schema_inventory_and_paths_are_closed(self) -> None:
+        cases = []
+        wrong_schema = json.loads(xtb_runtime_data_manifest_bytes())
+        wrong_schema["schema"] = "auto-g16-v31-xtb-runtime-data-manifest/2"
+        cases.append(wrong_schema)
+        missing_required = json.loads(xtb_runtime_data_manifest_bytes())
+        del missing_required["files"]["param_gfn2-xtb.txt"]
+        cases.append(missing_required)
+        absolute_path = json.loads(xtb_runtime_data_manifest_bytes())
+        absolute_path["files"]["/param-extra.txt"] = {
+            "sha256": "1" * 64,
+            "size_bytes": 1,
+        }
+        cases.append(absolute_path)
+        open_identity = json.loads(xtb_runtime_data_manifest_bytes())
+        open_identity["files"]["param_gfn2-xtb.txt"]["mode"] = 0o644
+        cases.append(open_identity)
+        for value in cases:
+            with self.subTest(value=value), self.assertRaises(
+                execution.ExecutionValueError
+            ):
+                self.resolved(
+                    xtb_runtime_data_manifest=xtb_runtime_data_manifest_bytes(value)
+                )
+
+    def test_crest_environment_remains_omp_only(self) -> None:
+        self.assertEqual(
+            self.crest_spec().invocation["environment"],
+            (
+                {
+                    "name": "OMP_NUM_THREADS",
+                    "source": "resolved-resource-request.cores",
+                },
+            ),
+        )
 
     def test_crest_v2_closed_imtd_gc_fixture_has_exact_semantic_tokens(self) -> None:
         spec = self.crest_spec()
@@ -869,6 +1101,39 @@ class ProvisioningTests(LaneAFixture):
 
 
 class ProgramSnapshotTests(LaneAFixture):
+    def test_xtb_v1_snapshot_and_approval_replay_keep_historical_scheduler(self) -> None:
+        raw_profile = self.profile()
+        del raw_profile.platform_paths["xtb_data_path"]
+        del raw_profile.runtime_contents[XTB_RUNTIME_DATA_MANIFEST_NAME]
+        historical_profile = execution.resolve_server_profile(raw_profile)
+        _attestor, owner, snapshot_service = self.synthetic_authority(
+            target=historical_profile,
+            observed_state="ABSENT",
+            observed_parent_physical_identity="historical-parent",
+            observed_project_physical_identity=None,
+            provisioned_project_physical_identity="historical-project",
+        )
+        binding = owner.provision_remote_project(
+            project=self.store.load_project("project-1"),
+            target=historical_profile,
+            remote_project_dir=self.remote_project_dir,
+            evidence_identity="historical-v1-provisioning",
+        )
+        snapshot = self.successor_snapshot(
+            spec=self.xtb_v1_spec(),
+            binding=binding,
+            target=historical_profile,
+            snapshot_service=snapshot_service,
+        )
+        scheduler = snapshot.scheduler_artifacts[0]["content_utf8"]
+        self.assertIn("export OMP_NUM_THREADS=8\n", scheduler)
+        self.assertNotIn("XTBPATH", scheduler)
+        approval = snapshot._approval_semantics()
+        self.assertEqual(
+            execution.ProgramExecutionSnapshot._validate_approval_semantics(approval),
+            approval,
+        )
+
     def test_successor_snapshot_replay_is_exact_and_contains_no_v30_records(self) -> None:
         spec = self.xtb_spec()
         first = self.successor_snapshot(spec=spec)
@@ -886,6 +1151,15 @@ class ProgramSnapshotTests(LaneAFixture):
         self.assertIn(
             f"exec {XTB_EXECUTABLE_PATH} input.xyz",
             scheduler["content_utf8"],
+        )
+        self.assertIn("export OMP_NUM_THREADS=8\n", scheduler["content_utf8"])
+        self.assertIn(
+            f"export XTBPATH={XTB_DATA_PATH}\n",
+            scheduler["content_utf8"],
+        )
+        self.assertLess(
+            scheduler["content_utf8"].index("export OMP_NUM_THREADS=8"),
+            scheduler["content_utf8"].index(f"export XTBPATH={XTB_DATA_PATH}"),
         )
         self.assertEqual(
             first.cwd_binding,
@@ -964,14 +1238,26 @@ class ProgramSnapshotTests(LaneAFixture):
         self.assertEqual(effects, ["successor"])
 
     def test_runtime_identity_mismatch_fails_before_snapshot_issuance(self) -> None:
-        mismatched = _prepare_program_execution_spec(
-            program_kind="xtb",
-            executable_path=XTB_EXECUTABLE_PATH,
-            executable_size_bytes=len(XTB_EXECUTABLE_BYTES),
-            executable_sha256="0" * 64,
-            input_name="input.xyz",
-            input_bytes=XYZ,
-            program_data=self.xtb_data(),
+        good = self.xtb_spec()
+        executable = {
+            **dict(good.invocation["executable_identity"]),
+            "sha256": "0" * 64,
+        }
+        adapter = _ADAPTER_REGISTRY[
+            (good.program_kind, good.adapter_id, good.adapter_contract_version)
+        ]
+        invocation, required, optional = adapter[3](
+            executable, "input.xyz", good.program_data
+        )
+        mismatched = execution.ProgramExecutionSpec._from_closed(
+            program_kind=good.program_kind,
+            adapter_id=good.adapter_id,
+            adapter_contract_version=good.adapter_contract_version,
+            exact_inputs=good.exact_inputs,
+            program_data=good.program_data,
+            invocation=invocation,
+            required_outputs=required,
+            optional_outputs=optional,
         )
         with self.assertRaisesRegex(execution.ExecutionValueError, "profile executable"):
             self.successor_snapshot(spec=mismatched)

@@ -60,9 +60,14 @@ architecture.
 ## OD-08: Runtime and change-aware CI
 
 The controller requires Python 3.11 or newer. Python 3.13 is the primary
-full-validation runtime. Python 3.11 and 3.12 run compatibility and affected
-tests by default instead of duplicating the complete full suite. CI is
-change-aware and expands only when the affected surface requires it.
+full-validation runtime. All three Python matrix entries run bounded selected
+compatibility tests. For an authoritative `legacy-release` candidate only,
+`source-archive-release` is the sole complete-full owner on pull requests.
+Complete full is a PR-candidate attestation. Post-merge main pushes never
+repeat complete discovery for the integrated candidate. CI is change-aware;
+unmapped modern paths and non-authoritative or failed selection stop before
+tests instead of authorizing full discovery. Local complete discovery requires
+explicit `scripts/run_tests.py --full`.
 
 ## OD-09: Conformer policy must be benchmarked again
 

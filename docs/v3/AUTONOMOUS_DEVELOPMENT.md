@@ -67,6 +67,34 @@ At most three independent workstreams may be active concurrently. Integration
 and merge remain serial. Historical closed contracts below remain authority
 for their owned surfaces.
 
+### V31-CHANGE-AWARE-VALIDATION-NO-ACCIDENTAL-FULL-01
+
+- **Owner opening gate:** Continue the xTB runtime-data authority branch from
+  `7a624e8db9f5adcf9436a5abc88145ddd68089bd`; do not publish that parent alone.
+- **Class/scope:** Feature development, L2 CI/compatibility review. Repair
+  selector/runner/CI, modern route ownership, discovery completeness and
+  duplicate collection, bounded adversarial tests, and operator documentation.
+  This successor replaces the older expand-on-error selector behavior below.
+- **Contract:** Every Git-tracked `auto_g16/`, `tests/v3/`, and `tests/v31/`
+  path has exactly one reviewed route. Unknown modern ownership emits
+  `UNMAPPED_MODERN_PATH`, fails fast, and starts zero tests, even alongside
+  selector self-protection changes. Existing V31 Transport prefixes have an
+  explicit affected owner. An invalid/non-authoritative selector cannot start
+  any CI test suite. Bare local `run_tests.py` refuses implicit full discovery.
+- **Full ownership:** The 3.11/3.12/3.13 matrix always runs bounded selected
+  evidence. Only authoritative `legacy-release` permits the source archive to
+  run complete discovery with pressure coverage; it is the one CI full owner.
+  Preserve the five required contexts. Unbound manual/release-like events
+  fail fast and cannot request full attestation implicitly.
+- **Freeze/validation:** Use focused, adversarial, affected and bounded v3
+  checks before one complete local full on the final frozen HEAD. Preserve
+  its command, HEAD/tree, terminal counts, duration and modifiers externally;
+  do not repeat full on unchanged HEAD/tree. Only after success, push/create
+  the combined PR, prove exactly one remote full owner, and hand off review.
+- **Non-goals:** No xTB installation, CREST installation, ServerProfile/live
+  qualification, remote chemistry, Skill deployment, or branch-protection
+  changes. Review and merge remain separate from production installation.
+
 ### V3-MAINT-TEST-01
 
 - **Outcome:** Specify and, only after its later Owner opening gate, build a

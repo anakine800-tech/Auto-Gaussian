@@ -61,6 +61,7 @@ RESULT_KEYS = {
     "git_executable",
     "git_version",
 }
+MODERN_PREFIXES = ("auto_g16/", "tests/v3/", "tests/v31/")
 FULL_SHA = re.compile(r"[0-9a-f]{40}")
 
 
@@ -583,6 +584,29 @@ def _route_for_path(manifest: dict[str, Any], path: str) -> dict[str, Any] | Non
     return matches[0] if matches else None
 
 
+def validate_modern_ownership(manifest: dict[str, Any], paths: list[str]) -> None:
+    """Unreviewed modern ownership is a stop, never permission for discovery."""
+    for path in sorted(set(paths)):
+        if not path.startswith(MODERN_PREFIXES):
+            continue
+        try:
+            route = _route_for_path(manifest, path)
+        except SelectionError as exc:
+            raise SelectionError(f"AMBIGUOUS_MODERN_PATH: {path}") from exc
+        if route is None:
+            raise SelectionError(f"UNMAPPED_MODERN_PATH: {path}; tests started = 0")
+
+
+def tracked_modern_paths(root: Path, git_executable: str) -> list[str]:
+    result = _git(git_executable, root, "ls-files", "-z", "--", *MODERN_PREFIXES)
+    if result.returncode != 0:
+        raise SelectionError("modern tracked-path inventory is unavailable")
+    try:
+        return [path for path in result.stdout.decode("utf-8", errors="strict").split("\0") if path]
+    except UnicodeError as exc:
+        raise SelectionError("modern tracked-path inventory is not UTF-8") from exc
+
+
 def _covered(evidence: str, selected: list[str]) -> bool:
     return any(evidence == item or evidence.startswith(item + ".") for item in selected)
 
@@ -630,6 +654,7 @@ def select_changes(
     head_tree: str | None = None,
 ) -> dict[str, Any]:
     paths = sorted({path for change in changes for path in change["paths"]})
+    validate_modern_ownership(manifest, paths)
     if not paths:
         return {
             "schema": RESULT_SCHEMA,
@@ -828,6 +853,10 @@ def validate_result(value: Any, *, require_authority: bool = True) -> dict[str, 
 
     lane = value["lane"]
     tests = _test_names(value["tests"], "selection result tests")
+    if lane == "blocked":
+        if require_authority or tests or not value["fail_closed"]:
+            raise SelectionError("blocked selection cannot authorize tests")
+        return value
     if lane not in LANES:
         raise SelectionError("selection result lane is unsupported")
     if lane == "legacy-release" and tests:
@@ -850,31 +879,14 @@ def compute_selection(repository: Path, base: str, head: str) -> dict[str, Any]:
     _verify_exact_checkout(root, head, git_executable)
     repository_identity = _repository_identity(root, git_executable)
     manifest, manifest_blob = _candidate_manifest(root, head, git_executable)
-    try:
-        changes, merge_base, head_tree = inspect_git_range(
-            root,
-            base,
-            head,
-            git_executable=git_executable,
-        )
-    except AmbiguousCopyError as exc:
-        result = fallback_result(
-            base=base,
-            head=head,
-            changes=exc.changes,
-            merge_base=exc.merge_base,
-            head_tree=exc.head_tree,
-            reason=str(exc),
-        )
-    else:
-        result = select_changes(
-            manifest,
-            changes,
-            base=base,
-            head=head,
-            merge_base=merge_base,
-            head_tree=head_tree,
-        )
+    validate_modern_ownership(manifest, tracked_modern_paths(root, git_executable))
+    changes, merge_base, head_tree = inspect_git_range(
+        root, base, head, git_executable=git_executable,
+    )
+    result = select_changes(
+        manifest, changes, base=base, head=head,
+        merge_base=merge_base, head_tree=head_tree,
+    )
     result.update(
         {
             "repository_root": str(root),
@@ -903,10 +915,11 @@ def main(argv: list[str] | None = None) -> int:
             changes=None,
             reason=str(exc),
         )
+        result["lane"] = "blocked"
         validate_result(result, require_authority=False)
     assert set(result) == RESULT_KEYS
     print(json.dumps(result, sort_keys=True, separators=(",", ":")))
-    return 0
+    return 2 if result["lane"] == "blocked" else 0
 
 
 if __name__ == "__main__":

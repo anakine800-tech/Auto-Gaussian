@@ -121,6 +121,19 @@
       "fail_closed": false
     },
     {
+      "id": "modern-test-packages",
+      "exact_paths": [
+        "tests/v3/__init__.py",
+        "tests/v3/core/__init__.py",
+        "tests/v31/__init__.py"
+      ],
+      "prefixes": [],
+      "lane": "v3-full",
+      "tests": [],
+      "required_safety": [],
+      "fail_closed": false
+    },
+    {
       "id": "v3-control-docs",
       "exact_paths": [
         "AGENTS.md",
@@ -221,7 +234,8 @@
         "tests.test_legacy_descriptor_mutation_capability",
         "tests.test_legacy_root_authority_contract",
         "tests.test_direct_qstat_acquisition",
-        "tests.test_resource_monitor_efficiency"
+        "tests.test_resource_monitor_efficiency",
+        "tests.v31.transport"
       ],
       "required_safety": [
         "approval-owner-separation",
@@ -379,6 +393,20 @@
         "tests.v31.integration",
         "tests.v31.thermochemistry",
         "tests.v31.transport.test_program_composition"
+      ],
+      "required_safety": [],
+      "fail_closed": false
+    },
+    {
+      "id": "v31-transport-tests",
+      "exact_paths": [],
+      "prefixes": [
+        "tests/v31/transport/"
+      ],
+      "lane": "affected",
+      "tests": [
+        "tests.v3.execution.test_v31_lane_a",
+        "tests.v31.transport"
       ],
       "required_safety": [],
       "fail_closed": false

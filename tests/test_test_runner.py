@@ -4,6 +4,9 @@
 from __future__ import annotations
 
 import copy
+from contextlib import redirect_stderr, redirect_stdout
+from io import StringIO
+from unittest import mock
 import importlib.util
 import json
 import subprocess
@@ -58,6 +61,85 @@ def write_selection(directory: Path, value: dict[str, object]) -> Path:
 
 
 class TimedTestRunnerTests(unittest.TestCase):
+    def test_implicit_full_and_full_option_conflicts_start_zero_tests(self) -> None:
+        for arguments in (
+            [], ["--verbosity", "1"], ["--start-directory", str(ROOT / "tests")],
+            ["--start-directory", "./tests"], ["--start-directory", "."],
+            ["tests"], ["--full", "tests.test_runtime_config"],
+            ["--full", "--compatibility"], ["--compatibility"],
+        ):
+            with self.subTest(arguments=arguments), mock.patch.object(TEST_RUNNER, "build_suite") as build:
+                with redirect_stderr(StringIO()), self.assertRaises(SystemExit) as stopped:
+                    TEST_RUNNER.main(arguments)
+                self.assertEqual(stopped.exception.code, 2)
+                build.assert_not_called()
+
+    def test_explicit_full_discovers_once(self) -> None:
+        with mock.patch.object(TEST_RUNNER, "build_suite", return_value=unittest.TestSuite()) as build:
+            with redirect_stderr(StringIO()), redirect_stdout(StringIO()):
+                self.assertEqual(TEST_RUNNER.main(["--full"]), 0)
+            build.assert_called_once_with([], "tests", "test*.py")
+
+    def test_legacy_selection_requires_full_or_uses_bounded_compatibility(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "repo"
+            root.mkdir()
+            base, head, canonical = candidate(root, "skills/synthetic.py")
+            selection = write_selection(Path(temporary), canonical)
+            args = ["--selection", str(selection), "--base", base, "--head", head]
+            with mock.patch.object(TEST_RUNNER, "ROOT", root):
+                with mock.patch.object(TEST_RUNNER, "build_suite") as build:
+                    with redirect_stderr(StringIO()), self.assertRaises(SystemExit):
+                        TEST_RUNNER.main(args)
+                    build.assert_not_called()
+                for option, expected in (("--compatibility", TEST_RUNNER.COMPATIBILITY_TESTS), ("--full", [])):
+                    with mock.patch.object(TEST_RUNNER, "build_suite", return_value=unittest.TestSuite()) as build:
+                        with redirect_stdout(StringIO()), redirect_stderr(StringIO()):
+                            self.assertEqual(TEST_RUNNER.main([*args, option]), 0)
+                        build.assert_called_once_with(expected, "tests", "test*.py")
+            self.assertTrue(TEST_RUNNER.COMPATIBILITY_TESTS)
+            self.assertNotIn("tests", TEST_RUNNER.COMPATIBILITY_TESTS)
+
+    def test_unmapped_modern_selection_is_rejected_before_discovery(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "repo"
+            root.mkdir()
+            base, head, canonical = candidate(root, "auto_g16/core/models.py")
+            selection = write_selection(Path(temporary), canonical)
+            unknown = root / "tests/v31/new_domain/test_x.py"
+            unknown.parent.mkdir(parents=True)
+            unknown.write_text("raise AssertionError('tests must not start')\n")
+            git(root, "add", "--", unknown.relative_to(root).as_posix())
+            git(root, "commit", "-qm", "unmapped modern candidate")
+            head = git(root, "rev-parse", "HEAD")
+            with mock.patch.object(TEST_RUNNER, "ROOT", root), mock.patch.object(TEST_RUNNER, "build_suite") as build:
+                for option in ([], ["--full"], ["--compatibility"]):
+                    output = StringIO()
+                    with redirect_stderr(output), self.assertRaises(SystemExit):
+                        TEST_RUNNER.main(["--selection", str(selection), "--base", base, "--head", head, *option])
+                    self.assertIn("UNMAPPED_MODERN_PATH", output.getvalue())
+                build.assert_not_called()
+
+    def test_complete_discovery_includes_v31_once_without_duplicate_ids(self) -> None:
+        def ids(suite):
+            for test in suite:
+                if isinstance(test, unittest.TestSuite):
+                    yield from ids(test)
+                else:
+                    yield test.id()
+        loader = unittest.TestLoader()
+        discovered = list(ids(loader.discover(str(ROOT / "tests"))))
+        self.assertFalse(loader.errors)
+        self.assertEqual(len(discovered), len(set(discovered)))
+        modern = [name.removeprefix("tests.") for name in discovered if name.removeprefix("tests.").startswith("v31.")]
+        self.assertEqual(len(modern), len(set(modern)))
+        normalized = {name.removeprefix("tests.") for name in discovered}
+        for package in ("conformer", "thermochemistry", "integration", "transport"):
+            selected = list(ids(loader.loadTestsFromName("tests.v31." + package)))
+            self.assertTrue(selected)
+            self.assertEqual(len(selected), len(set(selected)))
+            self.assertTrue({name.removeprefix("tests.") for name in selected}.issubset(normalized), package)
+
     def test_normal_focused_selection_is_recomputed_and_accepted(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "repo"
