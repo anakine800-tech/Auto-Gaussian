@@ -554,6 +554,46 @@ class ProgramSpecTests(LaneAFixture):
                     optional_outputs=spec.optional_outputs,
                 )
 
+    def test_xtb_v1_is_replay_readable_but_not_constructed_initially(self) -> None:
+        adapter = _ADAPTER_REGISTRY[("xtb", "auto-g16-v31-xtb", 1)]
+        executable = {
+            "absolute_path": XTB_EXECUTABLE_PATH,
+            "size_bytes": len(XTB_EXECUTABLE_BYTES),
+            "sha256": sha256(XTB_EXECUTABLE_BYTES).hexdigest(),
+        }
+        data = self.xtb_data()
+        invocation, required, optional = adapter[3](executable, "input.xyz", data)
+        historical = execution.ProgramExecutionSpec._from_closed(
+            program_kind="xtb",
+            adapter_id="auto-g16-v31-xtb",
+            adapter_contract_version=1,
+            exact_inputs=(
+                {
+                    "logical_role": "structure",
+                    "portable_name": "input.xyz",
+                    "format": "xyz",
+                    "sha256": sha256(XYZ).hexdigest(),
+                    "size_bytes": len(XYZ),
+                },
+            ),
+            program_data=data,
+            invocation=invocation,
+            required_outputs=required,
+            optional_outputs=optional,
+        )
+        historical.assert_identity_closed()
+        self.assertEqual(historical.adapter_contract_version, 1)
+        self.assertEqual(
+            historical.invocation["environment"],
+            (
+                {
+                    "name": "OMP_NUM_THREADS",
+                    "source": "resolved-resource-request.cores",
+                },
+            ),
+        )
+        self.assertEqual(self.xtb_spec().adapter_contract_version, 2)
+
     def test_xtb_runtime_data_manifest_has_canonical_semantic_identity(self) -> None:
         canonical = self.resolved()
         formatted = self.resolved(

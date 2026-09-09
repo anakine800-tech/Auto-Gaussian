@@ -385,10 +385,11 @@
     },
     {
       "id": "v31-transport-tests",
-      "exact_paths": [],
-      "prefixes": [
-        "tests/v31/transport/"
+      "exact_paths": [
+        "tests/v31/transport/test_program_composition.py",
+        "tests/v31/transport/test_rtwin_successor_bridge.py"
       ],
+      "prefixes": [],
       "lane": "affected",
       "tests": [
         "tests.v3.execution.test_v31_lane_a",

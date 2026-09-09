@@ -142,7 +142,11 @@ def _validated_output(value: Mapping[str, object], index: int, group: str) -> Ma
     return freeze_mapping(dict(value), label)
 
 
-def _validate_invocation(value: Mapping[str, object], program_kind: str) -> Mapping[str, object]:
+def _validate_invocation(
+    value: Mapping[str, object],
+    program_kind: str,
+    adapter_contract_version: int,
+) -> Mapping[str, object]:
     _exact_keys(value, _INVOCATION_FIELDS, "invocation")
     executable = value["executable_identity"]
     if not isinstance(executable, Mapping):
@@ -180,7 +184,7 @@ def _validate_invocation(value: Mapping[str, object], program_kind: str) -> Mapp
         "OMP_NUM_THREADS",
     )
     expected_environment = (omp_environment,)
-    if program_kind == "xtb":
+    if program_kind == "xtb" and adapter_contract_version == 2:
         expected_environment = (
             omp_environment,
             freeze_mapping(
@@ -362,8 +366,29 @@ def _render_xtb(
         optional = ()
     required_values, optional_values = _outputs(required=required, optional=optional)
     return _invocation(
-        executable, tuple(argv), program_kind="xtb"
+        executable,
+        tuple(argv),
+        program_kind="xtb",
+        xtb_data_authority=True,
     ), required_values, optional_values
+
+
+def _render_xtb_v1(
+    executable: Mapping[str, object],
+    input_name: str,
+    data: Mapping[str, object],
+) -> tuple[Mapping[str, object], tuple[Mapping[str, object], ...], tuple[Mapping[str, object], ...]]:
+    invocation, required, optional = _render_xtb(executable, input_name, data)
+    return (
+        _invocation(
+            executable,
+            tuple(invocation["argv"]),
+            program_kind="xtb",
+            xtb_data_authority=False,
+        ),
+        required,
+        optional,
+    )
 
 
 def _render_crest_v1(
@@ -488,7 +513,11 @@ def _validate_crest_v2_option_tokens(
 
 
 def _invocation(
-    executable: Mapping[str, object], argv: tuple[str, ...], *, program_kind: str
+    executable: Mapping[str, object],
+    argv: tuple[str, ...],
+    *,
+    program_kind: str,
+    xtb_data_authority: bool = False,
 ) -> Mapping[str, object]:
     environment: tuple[Mapping[str, object], ...] = (
         freeze_mapping(
@@ -499,7 +528,7 @@ def _invocation(
             "OMP_NUM_THREADS",
         ),
     )
-    if program_kind == "xtb":
+    if program_kind == "xtb" and xtb_data_authority:
         environment += (
             freeze_mapping(
                 {
@@ -529,6 +558,12 @@ _Adapter = tuple[
     Callable[[Mapping[str, object], str, Mapping[str, object]], tuple[Mapping[str, object], tuple[Mapping[str, object], ...], tuple[Mapping[str, object], ...]]],
 ]
 _ADAPTER_REGISTRY: Final[Mapping[tuple[str, str, int], _Adapter]] = {
+    ("xtb", "auto-g16-v31-xtb", 1): (
+        "auto-g16-v31-xtb",
+        1,
+        _validate_xtb_data,
+        _render_xtb_v1,
+    ),
     ("xtb", "auto-g16-v31-xtb", 2): (
         "auto-g16-v31-xtb",
         2,
@@ -604,7 +639,9 @@ class ProgramExecutionSpec:
         if inputs[0]["logical_role"] != "structure" or inputs[0]["format"] != "xyz":
             raise ExecutionValueError("initial adapters require one XYZ structure input")
         data = validate_data(program_data)
-        closed_invocation = _validate_invocation(invocation, program_kind)
+        closed_invocation = _validate_invocation(
+            invocation, program_kind, adapter_contract_version
+        )
         required = tuple(_validated_output(item, index, "required_outputs") for index, item in enumerate(required_outputs))
         optional = tuple(_validated_output(item, index, "optional_outputs") for index, item in enumerate(optional_outputs))
         if not required:

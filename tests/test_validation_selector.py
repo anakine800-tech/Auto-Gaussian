@@ -1362,11 +1362,6 @@ class ValidationSelectorTests(unittest.TestCase):
                 "v31-thermochemistry",
                 THERMOCHEMISTRY_TESTS,
             ),
-            (
-                "tests/v31/transport/test_x.py",
-                "v31-transport-tests",
-                V31_TRANSPORT_TESTS,
-            ),
         )
         for path, route, selected_tests in existing_owners:
             with self.subTest(path=path):
@@ -1377,9 +1372,21 @@ class ValidationSelectorTests(unittest.TestCase):
                 self.assertFalse(decision["fail_closed"])
 
         for path in (
+            "tests/v31/transport/test_program_composition.py",
+            "tests/v31/transport/test_rtwin_successor_bridge.py",
+        ):
+            with self.subTest(path=path):
+                decision = self.select(change("M", path))
+                self.assertEqual(decision["matched_routes"], ["v31-transport-tests"])
+                self.assertEqual(decision["lane"], "affected")
+                self.assertEqual(decision["tests"], V31_TRANSPORT_TESTS)
+                self.assertFalse(decision["fail_closed"])
+
+        for path in (
             "tests/v31/unknown_future_surface/test_x.py",
             "tests/v31/integration_extra/test_x.py",
             "tests/v31/future/test_x.py",
+            "tests/v31/transport/test_future_guard.py",
         ):
             with self.subTest(path=path):
                 decision = self.select(change("A", path))
