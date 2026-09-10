@@ -277,17 +277,35 @@ def _parse_scheduler(value: Mapping[str, object], job_id: str) -> Mapping[str, o
         text = out.decode("utf-8")
     except UnicodeError:
         return unknown
-    if not text.endswith("\n") or text.endswith("\n\n"):
+    if not text.endswith("\n"):
         return unknown
     lines = text[:-1].split("\n")
+    # Torque 6.1.0 display_single_job adds one LF after the final attribute.
+    # Remove only that optional record separator, never arbitrary whitespace.
+    if lines[-1] == "":
+        lines.pop()
+    if not lines:
+        return unknown
     if lines[0] != f"Job Id: {job_id}":
         return unknown
     fields: dict[str, str] = {}
+    previous_field: str | None = None
     for line in lines[1:]:
+        # prt_attr folds with LF + TAB (including a bare TAB at a wrap edge).
+        # Opaque continuation data must never supply scheduler authority.
+        if line.startswith("\t"):
+            if previous_field is None or previous_field.lower() in {"job_state", "exit_status"}:
+                return unknown
+            if re.fullmatch(r"\t[^\x00-\x1f\x7f]*", line) is None or re.match(
+                r"\t *(?:job_state|exit_status|Job Id)(?:[ =:]|$)", line, re.IGNORECASE,
+            ):
+                return unknown
+            continue
         match = re.fullmatch(r"    ([A-Za-z_][A-Za-z0-9_.-]*) = (.+)", line)
         if match is None or match[1] in fields:
             return unknown
         fields[match[1]] = match[2]
+        previous_field = match[1]
     state = {"Q": "queued", "W": "queued", "R": "running", "B": "running", "H": "held", "S": "held", "E": "exiting", "T": "exiting", "C": "terminal", "F": "terminal", "X": "terminal"}.get(fields.get("job_state"), "unknown")
     result: dict[str, object] = {"job_id": job_id, "state": state}
     if state == "terminal":

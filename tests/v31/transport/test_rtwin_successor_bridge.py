@@ -17,6 +17,7 @@ import sqlite3
 from threading import Barrier
 from types import SimpleNamespace
 from typing import get_type_hints
+from unittest import TestCase
 from unittest.mock import Mock, patch
 
 import auto_g16.approval as approval
@@ -97,6 +98,130 @@ class _Wire:
                     result = {"portable_name": name, "size_bytes": len(data), "sha256": sha256(data).hexdigest(), "content_base64": base64.b64encode(data).decode("ascii"), "file_physical_token": "output-" + name}
         response = _bridge._encode_frame({"protocol": _bridge._PROGRAM_BOOTSTRAP_PROTOCOL, "operation": op, "status": "ok", "result": result})
         return response, b"", 0, "completed", True, True
+
+
+class SchedulerTextParserTests(TestCase):
+    """Synthetic text only; upstream format evidence, not deployed binary proof.
+
+    Torque 6.1.0, commit 1d115c5454b46ac0b4a6eb800665c7012bce6639:
+    src/cmds/qstat.c prt_attr (369-440), display_full_job (1810-1857),
+    display_single_job (1871-1905). prt_attr uses LF + TAB for wrapping;
+    display_single_job appends one LF after the last attribute's LF.
+    """
+
+    header = b"Job Id: 123.server\n"
+    terminal = b"    job_state = C\n    exit_status = 0\n"
+
+    def response(self, out, *, code=0, err=b"", **changes):
+        return {
+            "stdout_base64": base64.b64encode(out).decode("ascii"),
+            "stderr_base64": base64.b64encode(err).decode("ascii"),
+            "returncode": code, "eof_stdout": True, "eof_stderr": True,
+            "completion_status": "completed", **changes,
+        }
+
+    def parse(self, out, **kwargs):
+        return bridge._parse_scheduler(self.response(out, **kwargs), "123.server")
+
+    def assert_unknown(self, out, **kwargs):
+        self.assertEqual(self.parse(out, **kwargs), {"job_id": "123.server", "state": "unknown"})
+
+    def test_record_separator_and_non_authoritative_folds(self):
+        # The 78-column first line reaches the default prt_attr wrap edge.
+        folds = (
+            b"",
+            b"    Variable_List = ONE=1,\n\tTWO=2,\n\tTHREE=3\n",
+            b"    Output_Path = " + b"a" * 60 + b"\n\trest\n",
+            b"    Output_Path = " + b"a" * 60 + b"\n\t\n",
+            b"    comment = harmless\n\tvalue contains job_state = R and exit_status = 7\n",
+        )
+        for fold in folds:
+            for ending in (b"", b"\n"):
+                for before in (True, False):
+                    with self.subTest(fold=fold, ending=ending, before=before):
+                        body = fold + self.terminal if before else self.terminal + fold
+                        self.assertEqual(self.parse(self.header + body + ending), {
+                            "job_id": "123.server", "state": "terminal", "exit_status": 0,
+                        })
+
+    def test_folded_records_preserve_all_state_and_exit_mappings(self):
+        fold = b"    Variable_List = ONE=1,\n\tTWO=2\n"
+        states = {"Q": "queued", "W": "queued", "R": "running", "B": "running", "H": "held", "S": "held", "E": "exiting", "T": "exiting", "Z": "unknown"}
+        for state, expected in states.items():
+            with self.subTest(state=state):
+                self.assertEqual(self.parse(self.header + fold + f"    job_state = {state}\n\n".encode()), {"job_id": "123.server", "state": expected})
+        for state in ("C", "F", "X"):
+            for code in (0, 7, -1, -(2**31), 2**31 - 1):
+                with self.subTest(state=state, code=code):
+                    out = self.header + fold + f"    job_state = {state}\n    exit_status = {code}\n\n".encode()
+                    self.assertEqual(self.parse(out), {"job_id": "123.server", "state": "terminal", "exit_status": code})
+
+    def test_orphan_authority_folds_and_continuation_injection_reject(self):
+        bodies = (
+            b"\tORPHAN=1\n" + self.terminal,
+            b"    job_state = C\n\tjunk\n    exit_status = 0\n",
+            self.terminal + b"\t\n",
+            self.terminal + b"\t7\n",
+        )
+        for body in bodies:
+            with self.subTest(body=body):
+                self.assert_unknown(self.header + body + b"\n")
+        for injected in (b"job_state = R", b"exit_status = 7", b"exit_status=0", b"    exit_status = 0", b"Exit_status = 0", b"Job Id: 123.server", b"Job Id: other.server", b"\tTWO=2", b"TWO=2\x0b"):
+            with self.subTest(injected=injected):
+                self.assert_unknown(self.header + self.terminal + b"    Variable_List = ONE=1,\n\t" + injected + b"\n\n")
+
+    def test_continuations_cannot_supply_missing_authority(self):
+        for body in (
+            b"    Variable_List = ONE=1,\n\tC\n    exit_status = 0\n",
+            b"    job_state = C\n    Variable_List = ONE=1,\n\t0\n",
+            b"    Job_state = C\n    exit_status = 0\n",
+            b"    job_state = C\n    Exit_status = 0\n",
+        ):
+            with self.subTest(body=body):
+                self.assert_unknown(self.header + body + b"\n")
+
+    def test_duplicate_fields_and_malformed_integers_remain_unknown(self):
+        fold = b"    Variable_List = ONE=1,\n\tTWO=2\n"
+        for duplicate in (b"    job_state = C\n", b"    exit_status = 0\n", b"    Variable_List = THREE=3\n"):
+            with self.subTest(duplicate=duplicate):
+                self.assert_unknown(self.header + self.terminal + fold + duplicate + b"\n")
+        for value in (b"", b"+0", b"-0", b"00", b"01", b" 0", b"0 ", b"1.0", b"garbage", b"12345678901"):
+            with self.subTest(value=value):
+                self.assert_unknown(self.header + fold + b"    job_state = C\n    exit_status = " + value + b"\n\n")
+
+    def test_record_framing_and_truncation_remain_strict(self):
+        valid = self.header + self.terminal
+        for out in (
+            b"", b"\n", b"\n\n", b"\n" + valid, valid[:-1], valid + b"\n\n",
+            self.header + b"\n" + self.terminal, valid + b" \n",
+            valid + b"trailer\n", valid + valid, valid + b"\n" + valid,
+            valid.replace(b"123.server", b"other.server"), valid.replace(b"\n", b"\r\n"),
+            valid + b"    comment = \xff\n", valid + b"    comment = \x00\n",
+            valid + b"    Variable_List = ONE=1,\n\tTWO=2",
+            valid + b"    Variable_List = ONE=1,\n        TWO=2\n",
+            valid + b"    Variable_List = \n\tTWO=2\n",
+        ):
+            with self.subTest(out=out):
+                self.assert_unknown(out)
+
+    def test_process_channel_caps_and_absent_grammar_are_unchanged(self):
+        valid = self.header + self.terminal + b"\n"
+        for kwargs in ({"code": 1}, {"code": 153}, {"err": b"warning\n"}, {"err": b"x" * 65537}):
+            with self.subTest(kwargs=list(kwargs)):
+                self.assert_unknown(valid, **kwargs)
+        prefix = self.header + self.terminal + b"    comment = "
+        at_cap = prefix + b"x" * (262144 - len(prefix) - 2) + b"\n\n"
+        self.assertEqual(self.parse(at_cap)["state"], "terminal")
+        self.assert_unknown(at_cap[:-2] + b"x\n\n")
+        for err in (b"qstat: Unknown Job Id 123.server\n", b"qstat: Unknown Job Id Error 123.server\n"):
+            self.assertEqual(self.parse(b"", code=153, err=err), {"job_id": "123.server", "state": "absent"})
+            self.assert_unknown(b"", code=0, err=err)
+            self.assert_unknown(b"\n", code=153, err=err)
+            self.assert_unknown(b"", code=153, err=err + b"\n")
+            self.assert_unknown(b"", code=153, err=err.replace(b"123.server", b"other.server"))
+        for changes in ({"eof_stdout": False}, {"eof_stderr": False}, {"completion_status": "timeout"}, {"completion_status": "transport-error"}):
+            with self.subTest(changes=changes), self.assertRaises(TransportBoundaryError):
+                self.parse(valid, **changes)
 
 
 class ProductionBridgeTests(lane.LaneAFixture):
@@ -545,10 +670,10 @@ class ProductionBridgeTests(lane.LaneAFixture):
     def test_running_then_exact_exit_zero_owns_success_and_capture(self):
         self.prepare()
         self.execute()
-        self.wire.scheduler = (0, b"Job Id: 123.server\n    job_state = R\n", b"")
+        self.wire.scheduler = (0, b"Job Id: 123.server\n    job_state = R\n    Variable_List = ONE=1,\n\tTWO=2\n\n", b"")
         self.query()
         self.assertIs(self.store.attempt_state("attempt-1"), core.AttemptState.RUNNING)
-        self.wire.scheduler = (0, b"Job Id: 123.server\n    job_state = C\n    exit_status = 0\n", b"")
+        self.wire.scheduler = (0, b"Job Id: 123.server\n    job_state = C\n    Variable_List = ONE=1,\n\tTWO=2\n    exit_status = 0\n\n", b"")
         self.query()
         self.assertIs(self.store.attempt_state("attempt-1"), core.AttemptState.SUCCEEDED)
         self.assertEqual(self.capture().artifacts[1].content, lane.XYZ)
@@ -556,7 +681,7 @@ class ProductionBridgeTests(lane.LaneAFixture):
     def test_terminal_nonzero_owns_failure_and_blocks_capture(self):
         self.prepare()
         self.execute()
-        self.wire.scheduler = (0, b"Job Id: 123.server\n    job_state = C\n    exit_status = 7\n", b"")
+        self.wire.scheduler = (0, b"Job Id: 123.server\n    job_state = C\n    Variable_List = ONE=1,\n\tTWO=2\n    exit_status = 7\n\n", b"")
         self.query()
         self.assertIs(self.store.attempt_state("attempt-1"), core.AttemptState.FAILED)
         with self.assertRaises(TransportBoundaryError):
@@ -599,6 +724,9 @@ class ProductionBridgeTests(lane.LaneAFixture):
             b"Job Id: 123.server\n    job_state = C\n    exit_status = garbage\n",
             b"Job Id: 123.server\n    job_state = C\n   exit_status = 0\n",
             b"Job Id: 123.server\n    job_state = C\n    Exit_status = 0\n",
+            b"Job Id: 123.server\n    job_state = C\n    exit_status = 0\n    Variable_List = ONE=1,\n\texit_status = 7\n\n",
+            b"Job Id: 123.server\n    job_state = C\n    exit_status = 0\n\t7\n\n",
+            b"Job Id: 123.server\n    job_state = C\n    exit_status = 0\n\nJob Id: other.server\n    job_state = R\n\n",
         )
         for out in cases:
             self.wire.scheduler = (0, out, b"")
