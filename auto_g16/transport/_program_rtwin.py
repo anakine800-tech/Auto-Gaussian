@@ -425,6 +425,7 @@ class _RTWinProgramEffectDriver:
         wire = {"protocol": _bridge._PROGRAM_BOOTSTRAP_PROTOCOL, "operation": operation, "binding": binding, "payload": {"request_payload": payload, "executable": {"path": executable["absolute_path"], "size_bytes": executable["size_bytes"], "sha256": executable["sha256"]}, "resources": {"cores": resources.cores, "memory_mb": resources.memory_mb, "walltime_seconds": resources.walltime_seconds, "queue": resources.queue}, "staged": staged}}
         result = _wire_call(snapshot, _ProgramRTWinInvocation(_driver._operation(operation), authority, self._profile, _closed_copy(wire), snapshot.program_execution_snapshot_id))
         if operation == "QUERY_SCHEDULER":
+            self._store._record_scheduler_raw(request=request, result=result)
             return _parse_scheduler(result, str(payload["job_id"]))
         if operation == "FETCH_EXACT_FILE":
             program._exact_keys(result, {"portable_name", "content_base64", "size_bytes", "sha256", "file_physical_token"}, "fetch wire result")

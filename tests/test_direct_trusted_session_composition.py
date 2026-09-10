@@ -27,6 +27,7 @@ from pathlib import Path
 from unittest import mock
 
 from tests import test_live_approval_effect_time_replay as LIVE_SUPPORT
+from tests._fixture_compile_cache import cache_fixture_preparation
 
 
 ROOT = Path(__file__).parents[1]
@@ -63,6 +64,7 @@ def _fork_assert(capability: object, queue: object) -> None:
 
 
 class PortableSessionFixture:
+    @cache_fixture_preparation
     def __init__(self, temporary: Path, *, qsub_executable: str = "/usr/bin/qsub") -> None:
         self.live = LIVE_SUPPORT.LiveApprovalEffectTimeReplayTests("runTest")
         self.live.setUp()

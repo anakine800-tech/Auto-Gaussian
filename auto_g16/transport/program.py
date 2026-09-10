@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from hashlib import sha256
 import os
 from pathlib import Path
@@ -20,7 +21,10 @@ from threading import RLock
 from typing import Protocol, runtime_checkable
 from uuid import UUID, uuid5
 
-from ._canonical import TransportBoundaryError, canonical_bytes
+from ._canonical import (
+    TransportBoundaryError, canonical_bytes, canonical_json_bytes,
+    strict_canonical_json,
+)
 _PROTOCOL = "auto-g16-v31-program-effect/1"
 _RECEIPT_TYPE = "v31-program-effect-receipt/1"
 _PROGRAM_STORE_SCHEMA = "auto-g16-v31-program-transport-store/1"
@@ -79,6 +83,61 @@ _PROGRAM_STORE_SCHEMA_IDENTITY = canonical_bytes(
     [*_PROGRAM_STORE_DDL, *[statement for _name, statement in _PROGRAM_STORE_TRIGGERS]]
 )
 _OPERATION_TABLE_SHA256 = sha256(canonical_bytes((_PROTOCOL, _OPERATIONS))).hexdigest()
+
+
+_SCHEDULER_RAW_SCHEMA = "auto-g16-v31-scheduler-raw-evidence/1"
+_SCHEDULER_RAW_PREFIX = "scheduler-raw-audit:"
+_PHYSICAL_EFFECT_COLUMNS = (
+    "physical_effect_authority_id", "program_transport_store_id",
+    "store_instance_id", "runtime_attestation_id", "attempt_id",
+    "program_execution_snapshot_id", "effect_intent_id", "operation",
+    "request_sha256", "effect_classification", "job_id", "submit_once_key",
+    "payload",
+)
+
+
+def _scheduler_raw_payload(
+    request: Mapping[str, object], result: Mapping[str, object], acquired_at: str,
+) -> dict[str, object]:
+    # Capture bytes before semantic scheduler parsing, without broadening caps.
+    from ._driver import _canonical_b64
+    _exact_keys(result, {
+        "stdout_base64", "stderr_base64", "returncode", "eof_stdout",
+        "eof_stderr", "completion_status",
+    }, "raw scheduler result")
+    for key, cap in (("stdout_base64", 262144), ("stderr_base64", 65536)):
+        encoded = result[key]
+        if type(encoded) is not str or len(encoded) > 4 * ((cap + 2) // 3):
+            raise TransportBoundaryError("raw scheduler encoded streams exceed caps")
+    out = _canonical_b64(result["stdout_base64"])
+    err = _canonical_b64(result["stderr_base64"])
+    if len(out) > 262144 or len(err) > 65536:
+        raise TransportBoundaryError("raw scheduler streams exceed caps")
+    if type(result["returncode"]) is not int or any(
+        type(result[key]) is not bool for key in ("eof_stdout", "eof_stderr")
+    ):
+        raise TransportBoundaryError("raw scheduler result types are invalid")
+    _text(result["completion_status"], "raw scheduler completion")
+    if type(acquired_at) is not str:
+        raise TransportBoundaryError("raw scheduler acquisition time is invalid")
+    try:
+        stamp = datetime.strptime(acquired_at, "%Y-%m-%dT%H:%M:%S.%fZ")
+    except ValueError as exc:
+        raise TransportBoundaryError("raw scheduler acquisition time is invalid") from exc
+    if stamp.strftime("%Y-%m-%dT%H:%M:%S.%fZ") != acquired_at:
+        raise TransportBoundaryError("raw scheduler acquisition time is not canonical")
+    payload = request["payload"]
+    assert isinstance(payload, Mapping)
+    return {
+        "schema": _SCHEDULER_RAW_SCHEMA, "purpose": "audit-only",
+        "acquired_at": acquired_at, "binding": dict(request["binding"]),
+        "request": _request("QUERY_SCHEDULER", dict(request["binding"]), dict(payload)),
+        "request_sha256": _digest(request),
+        "job_id": _job_id(payload["job_id"]), "raw_result": dict(result),
+        "stdout_sha256": sha256(out).hexdigest(),
+        "stderr_sha256": sha256(err).hexdigest(),
+        "raw_result_sha256": sha256(canonical_json_bytes(dict(result))).hexdigest(),
+    }
 
 
 class _ProgramConfirmedFailure(RuntimeError):
@@ -478,6 +537,108 @@ class _ProgramTransportStore:
                 "program_runtime_attestation", columns, values, identity
             )
         return identity
+
+    def _scheduler_raw_request(self, request: Mapping[str, object]) -> Mapping[str, object]:
+        self._attest()
+        if not isinstance(request, Mapping) or request.get("operation") != "QUERY_SCHEDULER":
+            raise TransportBoundaryError("raw audit requires an exact scheduler request")
+        binding = request.get("binding")
+        closed = _base_binding(binding)
+        _validate_program_effect_request(request, binding)
+        if (closed["program_transport_store_id"] != self.program_transport_store_id
+                or closed["store_instance_id"] != self.store_instance_id):
+            raise TransportBoundaryError("raw scheduler request names another physical store")
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT program_transport_store_id,store_instance_id,"
+                "program_execution_snapshot_id,resolved_server_profile_id,protocol,"
+                "operation_table_sha256 FROM program_runtime_attestation "
+                "WHERE runtime_attestation_id=?", (closed["runtime_attestation_id"],),
+            ).fetchall()
+        expected = tuple(closed[key] for key in (
+            "program_transport_store_id", "store_instance_id",
+            "program_execution_snapshot_id", "resolved_server_profile_id",
+        )) + (_PROTOCOL, _OPERATION_TABLE_SHA256)
+        if rows != [expected]:
+            raise TransportBoundaryError("raw scheduler runtime binding differs")
+        return closed
+
+    def _scheduler_raw_values(
+        self, payload: Mapping[str, object], binding: Mapping[str, object],
+    ) -> tuple[object, ...]:
+        raw = canonical_json_bytes(payload)
+        identity = _SCHEDULER_RAW_PREFIX + _identity("scheduler-raw-audit", raw)
+        return (
+            identity, self.program_transport_store_id, self.store_instance_id,
+            binding["runtime_attestation_id"], binding["attempt_id"],
+            binding["program_execution_snapshot_id"], binding["effect_intent_id"],
+            "QUERY_SCHEDULER", payload["request_sha256"], "UNKNOWN", None, None,
+            raw,
+        )
+
+    def _record_scheduler_raw(
+        self, *, request: Mapping[str, object], result: Mapping[str, object],
+    ) -> str:
+        """Persist audit-only acquired bytes before attempting normalization."""
+        binding = self._scheduler_raw_request(request)
+        acquired_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        payload = _scheduler_raw_payload(request, result, acquired_at)
+        values = self._scheduler_raw_values(payload, binding)
+        identity = str(values[0])
+        self._insert_exact(
+            "program_effect_physical_authority", _PHYSICAL_EFFECT_COLUMNS,
+            values, identity,
+        )
+        return identity
+
+    def _read_scheduler_raw(
+        self, identity: str, *, request: Mapping[str, object],
+    ) -> Mapping[str, object]:
+        """Reclose one raw acquisition against its expected exact request."""
+        binding = self._scheduler_raw_request(request)
+        if type(identity) is not str or not identity.startswith(_SCHEDULER_RAW_PREFIX):
+            raise TransportBoundaryError("raw scheduler identity is invalid")
+        with self._lock:
+            rows = self._connection.execute(
+                f"SELECT {','.join(_PHYSICAL_EFFECT_COLUMNS)} "
+                "FROM program_effect_physical_authority "
+                "WHERE physical_effect_authority_id=?", (identity,),
+            ).fetchall()
+        if len(rows) != 1:
+            raise TransportBoundaryError("raw scheduler audit is absent or ambiguous")
+        payload = strict_canonical_json(rows[0][-1], "raw scheduler audit")
+        _exact_keys(payload, {
+            "schema", "purpose", "acquired_at", "binding", "request",
+            "request_sha256", "job_id", "raw_result", "stdout_sha256",
+            "stderr_sha256", "raw_result_sha256",
+        }, "raw scheduler audit")
+        rebuilt = _scheduler_raw_payload(request, payload["raw_result"], payload["acquired_at"])
+        if payload != rebuilt or tuple(rows[0]) != self._scheduler_raw_values(rebuilt, binding):
+            raise TransportBoundaryError("raw scheduler audit hash or binding differs")
+        return payload
+
+    def _list_scheduler_raw_ids(self, *, request: Mapping[str, object]) -> tuple[str, ...]:
+        """Discover only this exact request's audit records and revalidate each."""
+        self._scheduler_raw_request(request)
+        # Enumerate only this physical store's prefixed audit rows. Do not trust
+        # denormalized request indexes to decide which records need validation.
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT physical_effect_authority_id,payload "
+                "FROM program_effect_physical_authority "
+                "WHERE physical_effect_authority_id LIKE ? "
+                "ORDER BY physical_effect_authority_id",
+                (_SCHEDULER_RAW_PREFIX + "%",),
+            ).fetchall()
+        identities = []
+        for identity, raw in rows:
+            payload = strict_canonical_json(raw, "raw scheduler discovery")
+            if not isinstance(payload, Mapping) or not isinstance(payload.get("request"), Mapping):
+                raise TransportBoundaryError("raw scheduler discovery request is malformed")
+            audit = self._read_scheduler_raw(identity, request=payload["request"])
+            if audit["request"] == request:
+                identities.append(identity)
+        return tuple(identities)
 
     def record_effect(
         self,

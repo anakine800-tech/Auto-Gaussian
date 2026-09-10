@@ -40,10 +40,24 @@ import direct_shared_fixed_ssh_channel as CHANNEL  # noqa: E402
 import direct_trusted_session_composition as SESSION  # noqa: E402
 
 
+# These exact tests inspect static owners or isolated channel primitives only.
+# They do not read the sealed W5/L1 fixture. All unknown/new methods retain the
+# complete fresh fixture by default; names and safety assertions stay unchanged.
+_FIXTURE_FREE_TEST_METHODS = frozenset({
+    "test_counterexample_critical_rebinds_break_currentness",
+    "test_server_owner_composes_under_fixed_clean_exec_without_effect",
+    "test_qstat_constants_and_os_primitives_are_currentness_bound",
+    "test_query_child_raw_numeric_handle_issuance_is_absent",
+    "test_controller_transport_reader_rejects_zero_oversize_truncated_extra_second_and_stderr",
+})
+
+
 class DirectQstatAcquisitionTests(unittest.TestCase):
     maxDiff = None
 
     def setUp(self) -> None:
+        if self._testMethodName in _FIXTURE_FREE_TEST_METHODS:
+            return
         self.temporary = tempfile.TemporaryDirectory(prefix="auto-g16-qstat-acquisition-")
         self.fixture = PortableSessionFixture(Path(self.temporary.name).resolve())
         capability = self.fixture.compose()
@@ -94,6 +108,8 @@ class DirectQstatAcquisitionTests(unittest.TestCase):
         self.received_at = "2026-08-06T01:02:05.000000Z"
 
     def tearDown(self) -> None:
+        if self._testMethodName in _FIXTURE_FREE_TEST_METHODS:
+            return
         self.fixture.close()
         self.temporary.cleanup()
 
@@ -229,12 +245,14 @@ class DirectQstatAcquisitionTests(unittest.TestCase):
             self.observation(stdout=b"\xff\n"),
             self.observation(stdout=b"", stderr=b"qstat failed\n", returncode=2, child_exit_code=2),
         )
-        for observation in cases:
+        for index, observation in enumerate(cases):
             with self.subTest(observation=observation):
                 # Every case needs a fresh completed W5/L1 fixture because the
                 # exact lineage and server owners are deliberately single-use.
-                self.tearDown()
-                self.setUp()
+                # The first case consumes the untouched unittest setUp fixture.
+                if index:
+                    self.tearDown()
+                    self.setUp()
                 result, driver, transport = self.acquire(observation)
                 inspection = Q1.build_final_scheduler_inspection_once(result).document()
                 self.assertEqual(inspection["scheduler"]["status"], "unknown")
