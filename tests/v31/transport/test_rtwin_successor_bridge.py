@@ -47,7 +47,7 @@ class _Wire:
         self.raise_after_mkdir = False
         self.replace_parent = False
         self.fail_operation = None
-        self.scheduler = (0, b"Job Id: 123.server\n    job_state = C\n    resources_used.cput = 00:00:01\n    Resource_List.nodes = 1:ppn=8\n    Exit_status = 0\n", b"")
+        self.scheduler = (0, b"Job Id: 123.server\n    job_state = C\n    resources_used.cput = 00:00:01\n    Resource_List.nodes = 1:ppn=8\n    exit_status = 0\n", b"")
         self.outputs = {"xtb.out": b"exact xtb output\n", "xtbopt.xyz": lane.XYZ}
 
     def run(self, scope, invocation):
@@ -548,7 +548,7 @@ class ProductionBridgeTests(lane.LaneAFixture):
         self.wire.scheduler = (0, b"Job Id: 123.server\n    job_state = R\n", b"")
         self.query()
         self.assertIs(self.store.attempt_state("attempt-1"), core.AttemptState.RUNNING)
-        self.wire.scheduler = (0, b"Job Id: 123.server\n    job_state = C\n    Exit_status = 0\n", b"")
+        self.wire.scheduler = (0, b"Job Id: 123.server\n    job_state = C\n    exit_status = 0\n", b"")
         self.query()
         self.assertIs(self.store.attempt_state("attempt-1"), core.AttemptState.SUCCEEDED)
         self.assertEqual(self.capture().artifacts[1].content, lane.XYZ)
@@ -556,19 +556,58 @@ class ProductionBridgeTests(lane.LaneAFixture):
     def test_terminal_nonzero_owns_failure_and_blocks_capture(self):
         self.prepare()
         self.execute()
-        self.wire.scheduler = (0, b"Job Id: 123.server\n    job_state = C\n    Exit_status = 7\n", b"")
+        self.wire.scheduler = (0, b"Job Id: 123.server\n    job_state = C\n    exit_status = 7\n", b"")
         self.query()
         self.assertIs(self.store.attempt_state("attempt-1"), core.AttemptState.FAILED)
         with self.assertRaises(TransportBoundaryError):
             self.capture()
 
+    def test_exact_torque_terminal_exit_status_propagates(self):
+        for state in ("C", "F", "X"):
+            for code in (0, 1, -1):
+                with self.subTest(state=state, code=code):
+                    out = f"Job Id: 123.server\n    job_state = {state}\n    exit_status = {code}\n".encode()
+                    result = bridge._parse_scheduler({
+                        "stdout_base64": base64.b64encode(out).decode(),
+                        "stderr_base64": "", "returncode": 0,
+                        "eof_stdout": True, "eof_stderr": True,
+                        "completion_status": "completed",
+                    }, "123.server")
+                    self.assertEqual(result, {"job_id": "123.server", "state": "terminal", "exit_status": code})
+
+    def test_scheduler_state_mapping_is_unchanged(self):
+        expected = {"Q": "queued", "W": "queued", "R": "running", "B": "running", "H": "held", "S": "held", "E": "exiting", "T": "exiting", "Z": "unknown"}
+        for state, disposition in expected.items():
+            with self.subTest(state=state):
+                out = f"Job Id: 123.server\n    job_state = {state}\n".encode()
+                result = bridge._parse_scheduler({
+                    "stdout_base64": base64.b64encode(out).decode(),
+                    "stderr_base64": "", "returncode": 0,
+                    "eof_stdout": True, "eof_stderr": True,
+                    "completion_status": "completed",
+                }, "123.server")
+                self.assertEqual(result, {"job_id": "123.server", "state": disposition})
+
     def test_other_job_duplicate_exit_or_invalid_exit_never_promotes(self):
         self.prepare()
         self.execute()
-        for out in (b"Job Id: other.server\n    job_state = C\n    Exit_status = 0\n", b"Job Id: 123.server\n    job_state = C\n    Exit_status = 0\n    Exit_status = 7\n", b"Job Id: 123.server\n    job_state = C\n    Exit_status = +0\n"):
+        cases = (
+            b"Job Id: other.server\n    job_state = C\n    exit_status = 0\n",
+            b"Job Id: 123.server\n    job_state = C\n    exit_status = 0\n    exit_status = 7\n",
+            b"Job Id: 123.server\n    job_state = C\n    exit_status = +0\n",
+            b"Job Id: 123.server\n    job_state = C\n",
+            b"Job Id: 123.server\n    job_state = C\n    exit_status = garbage\n",
+            b"Job Id: 123.server\n    job_state = C\n   exit_status = 0\n",
+            b"Job Id: 123.server\n    job_state = C\n    Exit_status = 0\n",
+        )
+        for out in cases:
             self.wire.scheduler = (0, out, b"")
             self.assertEqual(self.query()["state"], "unknown")
             self.assertIs(self.store.attempt_state("attempt-1"), core.AttemptState.SUBMITTED)
+            before = len(self.wire.calls)
+            with self.assertRaises(TransportBoundaryError):
+                self.capture()
+            self.assertEqual(len(self.wire.calls), before)
 
     def test_concrete_methods_require_one_use_execution_context(self):
         self.prepare()

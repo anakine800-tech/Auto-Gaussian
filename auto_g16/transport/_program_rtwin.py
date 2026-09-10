@@ -291,7 +291,7 @@ def _parse_scheduler(value: Mapping[str, object], job_id: str) -> Mapping[str, o
     state = {"Q": "queued", "W": "queued", "R": "running", "B": "running", "H": "held", "S": "held", "E": "exiting", "T": "exiting", "C": "terminal", "F": "terminal", "X": "terminal"}.get(fields.get("job_state"), "unknown")
     result: dict[str, object] = {"job_id": job_id, "state": state}
     if state == "terminal":
-        exit_status = fields.get("Exit_status")
+        exit_status = fields.get("exit_status")
         if exit_status is None or re.fullmatch(r"0|-?[1-9][0-9]{0,9}", exit_status) is None:
             return unknown
         result["exit_status"] = int(exit_status)
