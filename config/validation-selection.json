@@ -125,7 +125,8 @@
       "exact_paths": [
         "tests/v3/__init__.py",
         "tests/v3/core/__init__.py",
-        "tests/v31/__init__.py"
+        "tests/v31/__init__.py",
+        "tests/v31/tooling/__init__.py"
       ],
       "prefixes": [],
       "lane": "v3-full",
@@ -407,6 +408,37 @@
       "tests": [
         "tests.v3.execution.test_v31_lane_a",
         "tests.v31.transport"
+      ],
+      "required_safety": [],
+      "fail_closed": false
+    },
+    {
+      "id": "v31-level2-packet-tool",
+      "exact_paths": [
+        "scripts/prepare_v31_level2_packet.py",
+        "tests/v31/tooling/test_prepare_v31_level2_packet.py"
+      ],
+      "prefixes": [],
+      "lane": "affected",
+      "tests": [
+        "tests.v31.tooling.test_prepare_v31_level2_packet",
+        "tests.v3.execution.test_v31_lane_a.ProgramSpecTests",
+        "tests.v3.transport.test_driver.ManifestAndCommandTests"
+      ],
+      "required_safety": [],
+      "fail_closed": false
+    },
+    {
+      "id": "v31-local-program-inventory-tool",
+      "exact_paths": [
+        "scripts/qualify_v31_program.py",
+        "tests/v31/tooling/test_qualify_v31_program.py"
+      ],
+      "prefixes": [],
+      "lane": "affected",
+      "tests": [
+        "tests.v31.tooling.test_qualify_v31_program",
+        "tests.v3.execution.test_v31_lane_a.ProgramSpecTests"
       ],
       "required_safety": [],
       "fail_closed": false

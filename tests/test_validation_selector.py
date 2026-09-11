@@ -1541,6 +1541,110 @@ class ValidationSelectorTests(unittest.TestCase):
                     self.assertTrue(decision["fail_closed"])
                     self.assertEqual(decision["tests"], [])
 
+    def test_transport_union_removes_only_reviewed_execution_overlap(self) -> None:
+        product = change("M", "auto_g16/transport/_program_rtwin.py")
+        child = change("M", "tests/v31/transport/test_rtwin_successor_bridge.py")
+        forward = self.select(product, child)
+        reverse = self.select(child, product)
+        for field in ("lane", "tests", "matched_routes", "safety_evidence", "fail_closed"):
+            self.assertEqual(forward[field], reverse[field])
+        self.assertEqual(forward["lane"], "affected")
+        self.assertEqual(forward["tests"], TRANSPORT_TESTS)
+        self.assertEqual(forward["safety_evidence"], TRANSPORT_SAFETY)
+        self.assertEqual(self.select(child)["tests"], V31_TRANSPORT_TESTS)
+
+    def test_carrier_compaction_does_not_guess_custom_loader_containment(self) -> None:
+        parent = "tests.v3.execution"
+        child = "tests.v3.execution.test_v31_lane_a"
+        for names, expected in (
+            ([parent, child], [parent]),
+            ([child, parent, child], [parent]),
+            ([child], [child]),
+            ([child + ".ProgramSpecTests"], [child + ".ProgramSpecTests"]),
+            ([child, child + ".ProgramSpecTests"], [child]),
+            ([parent, child + ".ProgramSpecTests"], [parent]),
+            ([parent], [parent]),
+            ([parent, child + "_extra"], [parent, child + "_extra"]),
+            ([parent, parent + ".test_unreviewed"], [parent, parent + ".test_unreviewed"]),
+            (["custom.package", "custom.package.child"], ["custom.package", "custom.package.child"]),
+        ):
+            with self.subTest(names=names):
+                self.assertEqual(SELECTOR._distinct_test_carriers(names), expected)
+
+    def test_reviewed_execution_containment_preserves_real_unique_inventory(self) -> None:
+        loader = unittest.TestLoader()
+        for child, parent in SELECTOR._REVIEWED_TEST_CONTAINMENT.items():
+            child_ids = suite_ids(loader.loadTestsFromName(child))
+            parent_ids = suite_ids(loader.loadTestsFromName(parent))
+            self.assertTrue(child_ids)
+            self.assertTrue(set(child_ids).issubset(parent_ids))
+            self.assertEqual(len(parent_ids), len(set(parent_ids)))
+        old_names = sorted({*TRANSPORT_TESTS, *V31_TRANSPORT_TESTS})
+        new_names = self.select(
+            change("M", "auto_g16/transport/_program_rtwin.py"),
+            change("M", "tests/v31/transport/test_rtwin_successor_bridge.py"),
+        )["tests"]
+        before = suite_ids(loader.loadTestsFromNames(old_names))
+        after = suite_ids(loader.loadTestsFromNames(new_names))
+        self.assertFalse(loader.errors)
+        self.assertEqual(set(before), set(after))
+        self.assertEqual(len(after), len(set(after)))
+        self.assertLess(len(after), len(before))
+
+    def test_offline_preparation_tools_have_exact_bounded_owners(self) -> None:
+        cases = (
+            ("prepare_v31_level2_packet", "v31-level2-packet-tool", [
+                "tests.v31.tooling.test_prepare_v31_level2_packet",
+                "tests.v3.execution.test_v31_lane_a.ProgramSpecTests",
+                "tests.v3.transport.test_driver.ManifestAndCommandTests",
+            ]),
+            ("qualify_v31_program", "v31-local-program-inventory-tool", [
+                "tests.v31.tooling.test_qualify_v31_program",
+                "tests.v3.execution.test_v31_lane_a.ProgramSpecTests",
+            ]),
+        )
+        for stem, route, expected in cases:
+            for path in (f"scripts/{stem}.py", f"tests/v31/tooling/test_{stem}.py"):
+                with self.subTest(path=path):
+                    result = self.select(change("A", path))
+                    self.assertEqual(result["matched_routes"], [route])
+                    self.assertEqual(result["lane"], "affected")
+                    self.assertEqual(result["tests"], sorted(expected))
+                    self.assertFalse(result["fail_closed"])
+                    self.assertEqual(result["safety_evidence"], [])
+            for path in (f"scripts/{stem}_other.py", f"tests/test_{stem}_other.py"):
+                with self.subTest(unreviewed_path=path):
+                    self.assertEqual(self.select(change("A", path))["lane"], "legacy-release")
+            with self.assertRaisesRegex(SELECTOR.SelectionError, "UNMAPPED_MODERN_PATH"):
+                self.select(change("A", f"tests/v31/tooling/test_{stem}_other.py"))
+            expanded = self.select(change("A", f"scripts/{stem}.py"), change("M", "scripts/select_validation.py"))
+            self.assertEqual(expanded["lane"], "legacy-release")
+            self.assertTrue(expanded["fail_closed"])
+        initializer = self.select(change("A", "tests/v31/tooling/__init__.py"))
+        self.assertEqual(initializer["lane"], "v3-full")
+        self.assertEqual(initializer["matched_routes"], ["modern-test-packages"])
+
+    def test_tool_transport_unions_retain_every_real_existing_dependency_test_once(self) -> None:
+        loader = unittest.TestLoader()
+        transport = change("M", "auto_g16/transport/_program_rtwin.py")
+        for stem in ("prepare_v31_level2_packet", "qualify_v31_program"):
+            tool = change("A", f"scripts/{stem}.py")
+            tool_names = self.select(tool)["tests"]
+            original_names = sorted({*TRANSPORT_TESTS, *tool_names})
+            selected = self.select(transport, tool)
+            self.assertEqual(selected["safety_evidence"], TRANSPORT_SAFETY)
+            # New tool modules live in their independent lanes until integration.
+            # Reclose the real shared-dependency inventory here, then the aggregate
+            # candidate must run the tool modules themselves.
+            old_dependencies = [name for name in original_names if name != "tests.v31.tooling.test_" + stem]
+            new_dependencies = [name for name in selected["tests"] if name != "tests.v31.tooling.test_" + stem]
+            before = suite_ids(loader.loadTestsFromNames(old_dependencies))
+            after = suite_ids(loader.loadTestsFromNames(new_dependencies))
+            self.assertEqual(set(before), set(after))
+            self.assertEqual(len(after), len(set(after)))
+            self.assertIn("tests.v31.tooling.test_" + stem, selected["tests"])
+        self.assertFalse(loader.errors)
+
     def test_ci_offline_workflow_route_is_exact_and_fail_closed_elsewhere(self) -> None:
         decision = self.select(change("M", ".github/workflows/offline-tests.yml"))
         self.assertEqual(decision["matched_routes"], ["ci-offline-workflow"])

@@ -64,6 +64,16 @@ RESULT_KEYS = {
 MODERN_PREFIXES = ("auto_g16/", "tests/v3/", "tests/v31/")
 FULL_SHA = re.compile(r"[0-9a-f]{40}")
 
+# Reviewed load_tests containment, not a general dotted-name prefix rule.
+# The real loader inventory regression must keep proving every exact relation
+# when a package, module, or class changes. Unknown relations remain untouched.
+_REVIEWED_TEST_CONTAINMENT = {
+    "tests.v3.execution.test_v31_lane_a": "tests.v3.execution",
+    "tests.v3.execution.test_v31_lane_a.ProgramSpecTests": "tests.v3.execution.test_v31_lane_a",
+    "tests.v3.transport.test_driver": "tests.v3.transport",
+    "tests.v3.transport.test_driver.ManifestAndCommandTests": "tests.v3.transport.test_driver",
+}
+
 
 class SelectionError(ValueError):
     """Selector input or routing data is unavailable, invalid, or ambiguous."""
@@ -611,6 +621,20 @@ def _covered(evidence: str, selected: list[str]) -> bool:
     return any(evidence == item or evidence.startswith(item + ".") for item in selected)
 
 
+def _distinct_test_carriers(names: list[str]) -> list[str]:
+    selected = set(names)
+
+    def has_selected_parent(name: str) -> bool:
+        parent = _REVIEWED_TEST_CONTAINMENT.get(name)
+        while parent is not None:
+            if parent in selected:
+                return True
+            parent = _REVIEWED_TEST_CONTAINMENT.get(parent)
+        return False
+
+    return sorted(name for name in selected if not has_selected_parent(name))
+
+
 def fallback_result(
     *,
     base: str | None,
@@ -730,7 +754,9 @@ def select_changes(
     elif lane == "v3-full":
         tests = list(manifest["v3_full_tests"])
     else:
-        tests = sorted({test for route in selected_routes for test in route["tests"]})
+        tests = _distinct_test_carriers(
+            [test for route in selected_routes for test in route["tests"]]
+        )
 
     required_tags = sorted(
         {tag for route in selected_routes for tag in route["required_safety"]}

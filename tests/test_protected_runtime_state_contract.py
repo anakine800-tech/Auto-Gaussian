@@ -23,6 +23,7 @@ from pathlib import Path
 from unittest import mock
 
 from tests import qst3_package_integration_lineage as QST3_LINEAGE
+from tests._fixture_compile_cache import cache_fixture_preparation
 
 
 ROOT = Path(__file__).parents[1]
@@ -102,6 +103,7 @@ class RuntimeStateFixture:
     def materialize(self) -> object:
         return self.local.owner().materialize_once(self.local.evidence)
 
+    @cache_fixture_preparation
     def handoff(self) -> object:
         return (
             HANDOFF.ProtectedLegacyEffectHandoffOwner.production()

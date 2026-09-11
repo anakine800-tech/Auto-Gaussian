@@ -13,35 +13,62 @@
   fetch, execution, workspace, staging, qsub, Gaussian, qdel, cleanup,
   deployment, retry, and a new Attempt remain forbidden.
 
-- **V31 post-merge authority:** V31 Offline is
-  `CLOSED / ACCEPTED / INTEGRATED`. PR #159 integrated its exact end-to-end
-  acceptance as the strict predecessor of the live bridge. PR #160 integrated
-  the V31 successor product implementation and RTwin successor production
-  bridge on
-  `main@8b8ff0b43d2c1934d6c46c840d2f1cc0435d23a6`; merge tree
-  `afb8dc0c3f0d9116f6e33fb82a4f8210c2ec0a83` exactly equals the reviewed
-  head tree. The earlier `V31-SHARED-CONTRACT-01` contract-only and no-merge
-  wording is preserved as historical stage authority, not current product
-  status. V30 Gaussian execution remains production-usable and separate from
-  successor-generation xTB/CREST execution; no Attempt may bind both
-  generations, and a future Gaussian successor still requires its own adapter
-  implementation and validation gate.
+- **V31 PRODUCT CAPABILITY:** At the collection baseline
+  `main@a6525bf9bc7b86d84d45407d5978d9adab3a3fe9`, V31 Offline is
+  `CLOSED / ACCEPTED / INTEGRATED`: #159 integrated end-to-end acceptance and
+  #160 integrated the successor product and RTwin bridge. #162 subsequently
+  integrated xTB runtime-data/XTBPATH authority with historical v1 replay,
+  change-aware no-accidental-full routing, and PR-only complete-full CI
+  ownership. #166 integrated exact Torque lowercase `exit_status`
+  compatibility. #167 integrated bounded Torque text continuations and the
+  final blank separator after independent review and successful required CI;
+  its merge tree exactly matches the reviewed head tree. Ordinary
+  affected-suite runtime reduction remains a separate
+  optimization; no runtime target is asserted as achieved here. The
+  2026-09-11 night lanes for affected routing, scheduler raw durability,
+  [Level-2 review packets](level2-requalification-packet.md), and
+  [local program inventory](program-qualification-tooling.md) are local
+  candidates assembled in the collection after independent review, pending
+  final validation and Owner submission to main. Historical contract-only wording
+  records an earlier stage. V30 Gaussian and successor xTB/CREST generations
+  stay separate per Attempt; a Gaussian successor still needs its own gate.
 
-- **V31 live readiness:** `NOT YET AUTHORIZED`. Still missing are a production
-  ServerProfile successor and manifest-v3 authority; current real xTB and CREST
-  executable identities; a real `ProjectPhysicalBinding`; exact live
-  Project/Task/Attempt authority; Scientific Approval; Batch Submit Approval;
-  an exact live `ProgramExecutionSnapshot`; Operational Confirmation; and
-  an explicit Live Owner Gate. Merged product code is not live authority. CI
-  success is not production qualification, production qualification is not
-  qsub authority, and qsub success is not scientific acceptance. The existing
-  no-overwrite, qsub-at-most-once, consumed-Attempt, `REPLAY` zero-effect, and
-  `UNKNOWN` reconciliation-only/no-automatic-retry rules remain authoritative.
-  The V30 production Transport topology is unchanged absent separately reviewed
-  concrete drift. No SSH, RTwin/server read, deployment, Project provisioning,
-  workspace, staging, qstat/qsub, PBS, xTB, CREST, Gaussian, retry, cleanup,
-  cancellation, live Attempt, approval, confirmation, or scientific acceptance
-  is authorized by this status closeout.
+- **V31 PRODUCTION ENVIRONMENT:** `NOT VERIFIED BY THIS OFFLINE CLOSEOUT`.
+  This repository review does not establish the current production
+  ServerProfile successor/manifest-v3, actual xTB/CREST path-size-SHA/version
+  and runtime-data identities, or real Project physical binding. Their
+  current exact evidence must be reviewed separately; absence of verification
+  here is not a claim that programs have never been installed or a profile
+  does not exist. The local inventory candidate reads local bytes without
+  executing a program. Its version is either absent or an explicitly
+  unverified captured claim, and it grants no deployment or production
+  qualification. No server installation or profile freeze is performed here.
+
+- **V31 SCIENTIFIC QUALIFICATION:** `FRESH LEVEL-2 STILL REQUIRED`.
+  The historical Level-2 acquisition remains terminal-evidence-incomplete;
+  #166 does not retroactively repair or accept it. Its retained
+  `PRE_NORMALIZATION_SCHEDULER_RAW_EVIDENCE_NOT_DURABLE` P2 is addressed by
+  the separate [private raw-audit candidate](scheduler-raw-evidence.md),
+  which remains unmerged at this baseline. Durable raw bytes do not establish
+  terminal success or scientific acceptance. The offline Level-2 packet
+  candidate stops at `BLOCKED_ON_LIVE_PREREQUISITES`; real snapshot creation
+  requires freshly authorized current Project attestation and the existing
+  three human decisions. A fresh real qualification and explicit scientific
+  review remain separate from product/test integration.
+
+- **V31 LIVE AUTHORITY:** `NOT GRANTED BY THIS CLOSEOUT`.
+  Actual Project/Task/Attempt authority, Scientific Approval, a finite Batch
+  Submit Approval, an exact current `ProgramExecutionSnapshot`, Operational
+  Confirmation, and an explicit Live Owner Gate remain required for a real
+  run. The night development authorization permits bounded offline work,
+  review and local collection integration only; final main submission awaits
+  the Owner. It does not authorize SSH, RTwin/server reads, deployment,
+  provisioning, remote workspace/staging, qstat/qsub, program execution,
+  cancellation, cleanup, retry, or scientific acceptance. No-overwrite,
+  qsub-at-most-once, consumed-Attempt, `REPLAY` zero effect and `UNKNOWN`
+  reconciliation-only/no-automatic-retry remain authoritative. These local
+  candidate links must be checked together in the final collection; this
+  status edit alone is not a complete publication unit.
 
 - **Current phase:** `V30-EXEC-02-COMPOSITION-CONTRACT-01`,
   `V30-TRANSPORT-BOOTSTRAP-CHAIN-03`,

@@ -288,6 +288,226 @@ class ProductionBridgeTests(lane.LaneAFixture):
         confirmation = approval.ExactOperationalConfirmation.for_snapshot(self.store, self.snapshot, confirmer_id="offline-reviewer", confirmer_evidence={})
         return dict(runtime_store=self.store, attempt=self.store.load_attempt("attempt-1"), plan=plan, displayed_semantic_meaning={"program": "xtb"}, scientific_approval=science, batch_submit_approval=batch, execution_snapshot=self.snapshot, operational_confirmation=confirmation)
 
+    def _raw_scheduler_request(self):
+        return self.store.observations_for_attempt("attempt-1")[-1].data["request"]
+
+    def test_raw_scheduler_bytes_are_durable_before_parser_and_after_reopen(self):
+        self.prepare()
+        self.execute()
+        out, err = b"unparseable\xff\x00\r\n", b"diagnostic\xff\n"
+        self.wire.scheduler = (7, out, err)
+        parser = bridge._parse_scheduler
+        seen = []
+        def verify_before_parse(result, job_id):
+            rows = self.program_store._connection.execute(
+                "SELECT physical_effect_authority_id,payload FROM program_effect_physical_authority "
+                "WHERE physical_effect_authority_id LIKE 'scheduler-raw-audit:%'"
+            ).fetchall()
+            self.assertEqual(len(rows), 1)
+            audit = json.loads(rows[0][1])
+            seen.append(self.program_store._read_scheduler_raw(rows[0][0], request=audit["request"]))
+            return parser(result, job_id)
+        with patch.object(bridge, "_parse_scheduler", side_effect=verify_before_parse):
+            self.assertEqual(self.query()["state"], "unknown")
+        request = self._raw_scheduler_request()
+        ids = self.program_store._list_scheduler_raw_ids(request=request)
+        path, root = self.program_store._path, self.program_store._root
+        self.program_store.close()
+        reopened = program._ProgramTransportStore.open_existing(path, approved_root=root)
+        self.addCleanup(reopened.close)
+        self.assertEqual(reopened._list_scheduler_raw_ids(request=request), ids)
+        audit = reopened._read_scheduler_raw(ids[0], request=request)
+        self.assertEqual(audit, seen[0])
+        self.assertEqual(base64.b64decode(audit["raw_result"]["stdout_base64"]), out)
+        self.assertEqual(base64.b64decode(audit["raw_result"]["stderr_base64"]), err)
+        self.assertEqual(audit["raw_result"]["returncode"], 7)
+        self.assertEqual(audit["stdout_sha256"], sha256(out).hexdigest())
+        self.assertRegex(audit["acquired_at"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z$")
+        self.assertIs(self.store.attempt_state("attempt-1"), core.AttemptState.SUBMITTED)
+
+    def test_raw_scheduler_torque_folded_bytes_are_preserved_after_normalization(self):
+        self.prepare()
+        self.execute()
+        raw = (b"Job Id: 123.server\n"
+               b"    Variable_List = ONE=1,\n\tTWO=2\n"
+               b"    job_state = C\n    exit_status = 0\n\n")
+        self.wire.scheduler = (0, raw, b"")
+        self.query()
+        self.assertIs(self.store.attempt_state("attempt-1"), core.AttemptState.SUCCEEDED)
+        request = self._raw_scheduler_request()
+        identities = self.program_store._list_scheduler_raw_ids(request=request)
+        self.assertEqual(len(identities), 1)
+        audit = self.program_store._read_scheduler_raw(identities[0], request=request)
+        self.assertEqual(base64.b64decode(audit["raw_result"]["stdout_base64"]), raw)
+        self.assertEqual(audit["stdout_sha256"], sha256(raw).hexdigest())
+
+    def test_raw_scheduler_parser_exception_preserves_audit_without_authority(self):
+        self.prepare()
+        self.execute()
+        with patch.object(bridge, "_parse_scheduler", side_effect=ValueError("synthetic parse failure")):
+            self.assertEqual(self.query()["state"], "unknown")
+        request = self._raw_scheduler_request()
+        ids = self.program_store._list_scheduler_raw_ids(request=request)
+        self.assertEqual(len(ids), 1)
+        audit = self.program_store._read_scheduler_raw(ids[0], request=request)
+        with self.assertRaises(TransportBoundaryError):
+            self.program_store.require_matching_effect(
+                binding=request["binding"], request=request,
+                classification="UNKNOWN", response=audit,
+            )
+        with self.assertRaises(program._ProgramEffectUnknown):
+            program._scheduler_response(audit, "123.server")
+        self.assertIs(self.store.attempt_state("attempt-1"), core.AttemptState.SUBMITTED)
+        with self.assertRaises(TransportBoundaryError):
+            self.capture()
+
+    def test_raw_scheduler_write_failure_prevents_parser_and_state_promotion(self):
+        self.prepare()
+        self.execute()
+        with patch.object(self.program_store, "_record_scheduler_raw", side_effect=OSError("disk full")), patch.object(bridge, "_parse_scheduler") as parser:
+            self.assertEqual(self.query()["state"], "unknown")
+        parser.assert_not_called()
+        request = self._raw_scheduler_request()
+        self.assertEqual(self.program_store._list_scheduler_raw_ids(request=request), ())
+        self.assertIs(self.store.attempt_state("attempt-1"), core.AttemptState.SUBMITTED)
+
+    def test_raw_scheduler_distinct_acquisitions_and_exact_discovery(self):
+        self.prepare()
+        self.execute()
+        self.wire.scheduler = (0, b"Job Id: 123.server\n    job_state = Q\n", b"")
+        self.query()
+        request = self._raw_scheduler_request()
+        self.query()
+        ids = self.program_store._list_scheduler_raw_ids(request=request)
+        self.assertEqual(len(ids), 2)
+        first, second = [self.program_store._read_scheduler_raw(identity, request=request) for identity in ids]
+        self.assertEqual(first["raw_result"], second["raw_result"])
+        self.assertNotEqual(first["acquired_at"], second["acquired_at"])
+        other = json.loads(json.dumps(first["request"]))
+        other["payload"]["job_id"] = "other.server"
+        self.assertEqual(self.program_store._list_scheduler_raw_ids(request=other), ())
+        with self.assertRaises(TransportBoundaryError):
+            self.program_store._read_scheduler_raw(ids[0], request=other)
+        other["binding"]["attempt_id"] = "other-attempt"
+        with self.assertRaises(TransportBoundaryError):
+            self.program_store._read_scheduler_raw(ids[0], request=other)
+        other["binding"]["store_instance_id"] = "other-store"
+        with self.assertRaises(TransportBoundaryError):
+            self.program_store._list_scheduler_raw_ids(request=other)
+        # Same record replay is idempotent; timestamps are acquisition metadata.
+        values = self.program_store._scheduler_raw_values(first, request["binding"])
+        self.program_store._insert_exact("program_effect_physical_authority", program._PHYSICAL_EFFECT_COLUMNS, values, values[0])
+        self.assertEqual(self.program_store._list_scheduler_raw_ids(request=request), ids)
+
+    def test_raw_scheduler_rejects_all_index_and_payload_tampering(self):
+        self.prepare()
+        self.execute()
+        self.wire.scheduler = (0, b"unparseable\n", b"")
+        self.query()
+        request = self._raw_scheduler_request()
+        identity = self.program_store._list_scheduler_raw_ids(request=request)[0]
+        connection = self.program_store._connection
+        table = "program_effect_physical_authority"
+        original = connection.execute(f"SELECT {','.join(program._PHYSICAL_EFFECT_COLUMNS)} FROM {table} WHERE physical_effect_authority_id=?", (identity,)).fetchone()
+        trigger_name, trigger_sql = next((name, sql) for name, sql in program._PROGRAM_STORE_TRIGGERS if name == table + "_no_update")
+        def mutate(column, value, lookup):
+            connection.execute("DROP TRIGGER " + trigger_name)
+            connection.execute(f"UPDATE {table} SET {column}=? WHERE physical_effect_authority_id=?", (value, lookup))
+            connection.execute(trigger_sql)
+        for index, column in enumerate(program._PHYSICAL_EFFECT_COLUMNS):
+            with self.subTest(column=column):
+                value = b"broken" if column == "payload" else ("scheduler-raw-audit:forged" if index == 0 else "forged")
+                if column == "runtime_attestation_id":
+                    connection.execute("PRAGMA foreign_keys=OFF")
+                mutate(column, value, identity)
+                if column == "runtime_attestation_id":
+                    connection.execute("PRAGMA foreign_keys=ON")
+                try:
+                    with self.assertRaises(TransportBoundaryError):
+                        self.program_store._read_scheduler_raw(identity, request=request)
+                    with self.assertRaises(TransportBoundaryError):
+                        self.program_store._list_scheduler_raw_ids(request=request)
+                finally:
+                    mutate(column, original[index], value if index == 0 else identity)
+        raw = json.loads(original[-1])
+        for key in ("stdout_sha256", "stderr_sha256", "raw_result_sha256", "request_sha256", "acquired_at", "job_id", "purpose", "schema"):
+            with self.subTest(payload=key):
+                changed = dict(raw, **{key: "forged"})
+                mutate("payload", canonical_json_bytes(changed), identity)
+                try:
+                    with self.assertRaises(TransportBoundaryError):
+                        self.program_store._read_scheduler_raw(identity, request=request)
+                finally:
+                    mutate("payload", original[-1], identity)
+        changed = json.loads(original[-1])
+        changed["raw_result"]["stdout_base64"] = base64.b64encode(b"changed bytes").decode()
+        mutate("payload", canonical_json_bytes(changed), identity)
+        try:
+            with self.assertRaises(TransportBoundaryError):
+                self.program_store._read_scheduler_raw(identity, request=request)
+        finally:
+            mutate("payload", original[-1], identity)
+
+    def test_raw_scheduler_invalid_capture_shape_and_caps_fail_before_parser(self):
+        self.prepare()
+        self.execute()
+        valid = {"stdout_base64": "", "stderr_base64": "", "returncode": 0,
+                 "eof_stdout": True, "eof_stderr": True, "completion_status": "completed"}
+        cases = [dict(valid, extra=True), dict(valid, stdout_base64="not-base64"),
+                 dict(valid, stdout_base64="Zg"), dict(valid, returncode=True),
+                 dict(valid, eof_stdout=1), dict(valid, completion_status=""),
+                 dict(valid, stdout_base64=base64.b64encode(b"x" * 262145).decode()),
+                 dict(valid, stderr_base64=base64.b64encode(b"x" * 65537).decode())]
+        for raw in cases:
+            with self.subTest(raw_keys=tuple(raw)), patch.object(bridge, "_wire_call", return_value=raw), patch.object(bridge, "_parse_scheduler") as parser:
+                self.assertEqual(self.query()["state"], "unknown")
+                parser.assert_not_called()
+        request = self._raw_scheduler_request()
+        self.assertEqual(self.program_store._list_scheduler_raw_ids(request=request), ())
+
+    def test_raw_scheduler_eof_and_completion_rejections_are_preserved(self):
+        self.prepare()
+        self.execute()
+        valid = {"stdout_base64": "", "stderr_base64": "", "returncode": 0,
+                 "eof_stdout": True, "eof_stderr": True, "completion_status": "completed"}
+        for raw in (dict(valid, eof_stdout=False), dict(valid, eof_stderr=False), dict(valid, completion_status="incomplete"), dict(valid, completion_status="incomplété")):
+            with patch.object(bridge, "_wire_call", return_value=raw):
+                self.assertEqual(self.query()["state"], "unknown")
+        request = self._raw_scheduler_request()
+        ids = self.program_store._list_scheduler_raw_ids(request=request)
+        self.assertEqual(len(ids), 4)
+        self.assertIs(self.store.attempt_state("attempt-1"), core.AttemptState.SUBMITTED)
+
+    def test_raw_scheduler_old_store_reopens_before_first_acquisition(self):
+        self.prepare()
+        self.execute()
+        original_schema = self.program_store._connection.execute(
+            "SELECT name,sql FROM sqlite_master ORDER BY name"
+        ).fetchall()
+        path, root = self.program_store._path, self.program_store._root
+        self.program_store.close()
+        self.program_store = program._ProgramTransportStore.open_existing(path, approved_root=root)
+        self.addCleanup(self.program_store.close)
+        self.driver = bridge._RTWinProgramEffectDriver(
+            snapshot=self.snapshot, current_profile=self.current_profile,
+            program_transport_store=self.program_store,
+        )
+        self.assertEqual(self.query()["state"], "terminal")
+        request = self._raw_scheduler_request()
+        self.assertEqual(len(self.program_store._list_scheduler_raw_ids(request=request)), 1)
+        self.assertEqual(self.program_store._connection.execute(
+            "SELECT name,sql FROM sqlite_master ORDER BY name"
+        ).fetchall(), original_schema)
+        self.assertEqual(self.capture().artifacts[1].content, lane.XYZ)
+
+    def test_raw_scheduler_wire_failure_has_no_invented_raw_audit(self):
+        self.prepare()
+        self.execute()
+        self.wire.fail_operation = "QUERY_SCHEDULER"
+        self.assertEqual(self.query()["state"], "unknown")
+        request = self._raw_scheduler_request()
+        self.assertEqual(self.program_store._list_scheduler_raw_ids(request=request), ())
+
     def test_project_absent_observation_is_read_only(self):
         result = self.service.classify_remote_project(project=self.store.load_project("project-1"), target=self.target, remote_project_dir=self.remote_project_dir, stored_binding=None)
         self.assertEqual(result, ("ABSENT", None))
