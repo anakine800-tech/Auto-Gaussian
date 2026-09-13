@@ -120,13 +120,24 @@ the existing legacy/v2 implementation contract; they do not require a new
 
 ## Codex thread and worktree isolation
 
-- Treat one independently developed Codex task as one Codex worktree and one unique `codex/` feature branch.
+- Treat one independently developed task as one linked worktree and one unique
+  `codex/` feature branch. The default is a Codex app task; only a separately
+  qualified development Executor may use the conditional CLI route in
+  `docs/development-handbook.md`, with a real, persistent Executor task/run ID.
 - When the user asks in conversation to create a new isolated task, chat, thread, or work area, use the Codex thread-creation capability with a `worktree` environment. Do not switch the branch of the current shared checkout.
 - Create a fresh worktree task when the new work does not need the current conversation history. Fork the current task into a worktree when the user wants to preserve the completed conversation context.
 - Start from the project's default branch unless the user explicitly names an existing branch or asks to include the current working tree and its uncommitted changes. Never include uncommitted changes implicitly.
 - Keep the original repository checkout stable for inspection, integration, and release work. Do not manually reuse one feature branch across multiple active worktrees.
 - Recognize requests such as `新建隔离任务：<工作内容>` and `把当前对话分叉到独立 worktree` as explicit authorization to create the corresponding Codex task and worktree.
-- If the Codex thread/worktree capability is unavailable, report that limitation instead of changing the current checkout as a workaround.
+- If the Codex thread/worktree capability is unavailable for a conversational
+  request, report that limitation instead of changing the current checkout or
+  treating the conditional Executor route as a fallback.
+- The Executor route requires the latest canonical CTRL, unique physical
+  ownership, durable launch state, isolation of model commands and candidate
+  tests/hooks, and separately qualified required hooks, signing, and Git
+  configuration. This documentation grants no host qualification or production
+  activation; existing EXEC, terminal state, or UNKNOWN never permits an
+  automatic restart. All development, scientific, and live gates still apply.
 
 ## Git and secrets
 
