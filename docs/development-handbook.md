@@ -100,8 +100,11 @@ Before any development effect, the Executor must:
 
 Qualification must keep model commands and candidate tests/hooks isolated from
 the original Git metadata, stable and sibling worktrees, Publisher/Relay
-secrets and state, and network access. Writes remain limited to the exact
-authorized files. Finite Git/publication effects belong only to the qualified
+secrets and state, and network access. Repository writes remain limited to the
+exact authorized files. Candidate tests/hooks may use only separately approved,
+credential-free scratch that preserves the same isolation boundaries; scratch
+approval grants no additional repository-write or publication authority.
+Finite Git/publication effects belong only to the qualified
 Executor under CTRL; they do not give model commands or candidate code those
 capabilities. Required hooks must run unchanged and cannot be skipped or
 replaced by a claimed equivalent check. Hook isolation and the exact signing
