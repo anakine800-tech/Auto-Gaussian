@@ -13,7 +13,7 @@ the applicable versioned checklist such as
 Choose exactly one primary class and record it in the task and pull request:
 
 - **Feature development** changes behavior, contracts, schemas, commands, or
-  developer workflow. It uses one isolated Codex task, one linked worktree,
+  developer workflow. It uses one isolated task under section 2, one linked worktree,
   and one unique `codex/` branch.
 - **Maintenance patch** preserves intended behavior while fixing a defect,
   dependency, security, compatibility, documentation, or release-hygiene
@@ -35,12 +35,13 @@ owning Skill.
 
 The normal mapping is one-to-one:
 
-1. one independently reviewable change = one Codex task;
+1. one independently reviewable change = one Codex app task, or one qualified
+   Executor task/run under the conditional route below;
 2. that task = one linked Git worktree;
 3. that worktree = one unique short-lived `codex/<purpose>` branch;
 4. that branch = one PR and one review/integration decision.
 
-For BUS-managed development, bind **1 Control Issue + 1 Codex task + 1
+For BUS-managed development, bind **1 Control Issue + 1 task/run + 1
 worktree + 1 `codex/` branch + 0/1 PR + 1 integration disposition**. Subject
 to repository contracts and Owner authority, the latest valid CTRL is the
 Executor's mutation authority. EXEC is execution evidence, not authority for
@@ -59,6 +60,73 @@ Archive or close the Codex task only after its final state, commit, integration
 disposition, and residual blockers are recorded. Worktree removal and branch
 deletion are explicit local cleanup actions after integration or abandonment;
 neither authorizes remote branch deletion.
+
+### Conditional qualified Executor CLI route
+
+Conversational requests for a new isolated task continue to use the Codex app
+worktree route in `AGENTS.md`. An unavailable app capability is a reported
+limitation, not permission to fall back to CLI or switch the stable checkout.
+The route below is only for a separately qualified development Executor with
+explicit Owner-approved installation, configuration, and permissions
+qualification and a separately bounded pilot. This governance document neither
+qualifies a current host/dispatcher nor activates production. It specifies
+required outcomes, not the host dispatcher's internal implementation.
+
+Before any development effect, the Executor must:
+
+1. Verify repository name and numeric identity, read the complete canonical
+   Control Issue body and all comments, and independently read packet comment
+   IDs to compare exact bytes. Validate the latest canonical CTRL, including
+   task, lane, epoch, consumes chain, base, exact branch, allowed files and
+   finite actions against the higher-priority contracts and Owner Gate. Stop
+   on missing, malformed, edited, stale, ambiguous, or terminal authority.
+2. Pin actual remote `main` and the approved base; verify the stable checkout
+   is clean and at that base. Bind exactly one real Executor-owned task/run ID
+   to the Control Issue/CTRL, one uniquely owned physical linked worktree, one
+   unique `codex/` branch, and at most one PR. Persist this mapping; do not
+   invent a Codex app task ID. CLI creation is limited to the exact authorized
+   fresh worktree and branch, never a shared-checkout branch switch or reuse
+   of another task's worktree. Before candidate work starts, verify its branch,
+   HEAD/tree, clean state, physical containment, and no-follow identities.
+   Unknown identity, main/base drift, dirty or detached state, symlinks, and
+   existing ambiguous branch/worktree ownership fail closed. Do not reset,
+   rebase, relaunch, or repair these conditions automatically.
+3. Persist run/state and launch intent before starting a child. Reconcile the
+   canonical ledger and durable local evidence first: an existing EXEC or a
+   terminal GATE cannot cause an automatic task restart; UNKNOWN retains all
+   evidence and never authorizes retry. A new process or run ID cannot erase
+   these stop conditions. FIX still requires a new CTRL; a terminal task needs
+   a new explicit Owner Gate establishing a new task under section 9.
+
+Qualification must keep model commands and candidate tests/hooks isolated from
+the original Git metadata, stable and sibling worktrees, Publisher/Relay
+secrets and state, and network access. Repository writes remain limited to the
+exact authorized files. Candidate tests/hooks may use only separately approved,
+credential-free scratch that preserves the same isolation boundaries; scratch
+approval grants no additional repository-write or publication authority.
+Finite Git/publication effects belong only to the qualified
+Executor under CTRL; they do not give model commands or candidate code those
+capabilities. Required hooks must run unchanged and cannot be skipped or
+replaced by a claimed equivalent check. Hook isolation and the exact signing
+and Git configuration need separate qualification; incompatibility is a
+blocker, not authority to disable hooks, signing, or configuration protections.
+
+Use the existing preflight, staged sensitive/private scan, exact-base/head
+selector and owned validation, review, CI, integration, terminal disposition,
+and explicit cleanup rules in this handbook unchanged. Freeze the candidate
+before authoritative selection, retain proportional validation and full-run
+deduplication, and never turn a selector error into full discovery. The
+Executor may perform only finite CTRL-authorized development effects. It must
+independently verify exact commit/tree, remote ref, PR identity and canonical
+EXEC readback, then stop after EXEC. It cannot automatically produce REVIEW,
+FIX CTRL, merge, terminal GATE, or cleanup; those remain with their separately
+authorized owners.
+
+This route changes no Relay behavior, BUS packet kinds or serialization,
+database, runner implementation, CI architecture, validation selection,
+historical Control Issues, or scientific/runtime/deployment/live authority.
+Qualification and pilot evidence remain separate from this document's review
+and merge; neither substitutes for the other.
 
 ## 3. Development preflight
 
