@@ -1232,3 +1232,79 @@ qsub-at-most-once and consumed-Attempt rules remain authoritative. `UNKNOWN`
 permits reconciliation only and never automatic retry. The V30 production
 Transport topology is not redesigned without separately reviewed concrete
 drift.
+
+
+## OD-32: Candidate xTB completion from an exact predeclared receipt
+
+**CANDIDATE / OWNER L3 REVIEW PENDING.** This decision becomes effective only
+for the exact content-bound candidate accepted by the repository Owner after
+independent review. No historical Owner decision is retroactively amended.
+
+For new V31 successor xTB Attempts only, propose an explicit pre-execution
+`receipt-on-absence-v1` mode under xTB adapter version 3. Strict remains the
+default, with the exact historical v1/v2 serialization and behavior. Mode is
+closed spec data and therefore part of spec, snapshot, Scientific Approval,
+and Operational Confirmation binding; an existing Attempt cannot change mode.
+There is no fallback after a failure and no CREST or Gaussian mode change.
+
+This narrowly supersedes OD-31's prohibition on changing successor invocation/
+output semantics and the V31 boundary's unconditional missing-required-output
+failure rule: trusted nonzero program exit can establish execution failure
+without all success outputs. It also permits the private receipt read and
+completion reduction described in the new boundary section. OD-15 neutral
+scheduler observations, OD-17/18 trust and read authority, Core lifecycle,
+public record budget (exactly the same two execution records), and all live,
+scientific, no-overwrite and submission gates remain intact. This does not
+supersede the V30 Transport contract or add a Transport operation.
+
+Only exact-job scheduler absence allows receipt-based final reduction. Q/R/H/E,
+query unknown, and terminal observations are retained without a receipt-mode
+completion transition. Historical terminal evidence is compared when absence
+later permits reduction; a contradiction blocks completion. No synthetic
+scheduler terminal or exit_status is emitted. Authentic bound nonzero program
+exit supports FAILED; zero exit additionally needs immutable stable capture
+and the exact operation's output closure. Missing, invalid, conflicting or
+untrusted evidence gives completion UNKNOWN, not a new Core state transition.
+Scientific acceptance remains separate.
+
+The authoritative candidate details are in
+[the completion boundary](docs/v3/boundary-spec.md#v31-pbs-compat-file-completion-01-candidate-boundary)
+and [acceptance vectors](docs/v3/acceptance.md#v31-pbs-compat-file-completion-01-candidate-acceptance).
+The [Task Contract](docs/v3/AUTONOMOUS_DEVELOPMENT.md#v31-pbs-compat-file-completion-01)
+controls activation and allowed paths. Documentation or independent technical
+review alone does not substitute for repository Owner L3 review.
+
+### OD-32 C3 rendering-material supplement — candidate
+
+C2 was accepted by the Owner at commit
+`3ea04da8bc0a401920d721adac7649d5d7af88ab`. Implementation inspection then
+identified that the resolved profile retains only manifest digests, while
+C2 rendering requires their contents. The following supplement is a new
+candidate, not included in that acceptance. It changes no program mode,
+public record budget, production hard stop or operational authority.
+
+Propose one private, profile-verified rendering-material input, embedded as
+closed data inside the existing scheduler artifact bytes so immutable snapshot
+replay can independently reconstruct the interpreter and runtime-data list.
+Only the [C3 boundary supplement](docs/v3/boundary-spec.md#c3-rendering-material-supplement-candidate)
+supersedes C2's material derivation and prebinding schema after exact Owner
+acceptance. Dependent renderer implementation remains stopped until then.
+
+
+### OD-32 C4 native controller guard proposed
+
+**PROPOSED / OWNER ACCEPTANCE PENDING.** The authorized blocker investigation
+found native Darwin database-inode flock incompatible with the existing SQLite
+locking. C4 proposes locking the existing store parent directory and persisting
+its full physical directory chain in one new private ProgramTransportStore `/2`
+meta field. Fresh explicit creation only; no lock sidecar, old-store migration,
+SQLite locking relaxation, public/Core schema change or product edit is approved
+by this proposal. The [C4 boundary](docs/v3/boundary-spec.md#c4-native-controller-directory-guard-proposal)
+defines exact identity, ownership, lifecycle, compatibility and supersession.
+
+Only exact Owner acceptance after independent review may replace C2's lock
+object and enable the separately bounded offline implementation in the Task
+Contract. C2/C3 history, strict `/1` stores and all other completion semantics
+remain intact. Native primitive probes are feasibility evidence, not full FC13
+or product qualification. Production publisher-not-qualified remains a hard
+stop. No new operational, provisioning, scientific or publication authority.

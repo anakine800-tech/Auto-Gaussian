@@ -17,7 +17,10 @@ from pathlib import Path
 import re
 import secrets
 import sqlite3
-from threading import RLock
+import stat
+import weakref
+from threading import RLock, Lock, get_ident
+from contextlib import contextmanager, ExitStack
 from typing import Protocol, runtime_checkable
 from uuid import UUID, uuid5
 
@@ -82,6 +85,137 @@ _PROGRAM_STORE_TRIGGERS = tuple(
 _PROGRAM_STORE_SCHEMA_IDENTITY = canonical_bytes(
     [*_PROGRAM_STORE_DDL, *[statement for _name, statement in _PROGRAM_STORE_TRIGGERS]]
 )
+_COMPLETION_STORE_SCHEMA = "auto-g16-v31-program-transport-store/2"
+_COMPLETION_STORE_DDL = (
+    _PROGRAM_STORE_DDL[0][:-1] + ",completion_guard_binding BLOB NOT NULL)",
+    *_PROGRAM_STORE_DDL[1:],
+)
+_COMPLETION_STORE_SCHEMA_IDENTITY = canonical_bytes(
+    [*_COMPLETION_STORE_DDL, *[statement for _name, statement in _PROGRAM_STORE_TRIGGERS]]
+)
+
+# Directory descriptors, not SQLite descriptors, own the completion lock.
+# Keep registry entries alive: removing an entry can split same-process owners.
+_DIRECTORY_MUTEX = Lock()
+_DIRECTORY_LOCKS = {}
+_DIRECTORY_FDS = set()
+_STORE_HANDLES = weakref.WeakSet()
+_FORK_QUARANTINE = []
+_FORK_READY = False
+_FORK_CHILD_QUARANTINED = False
+
+
+class _DirectoryReleaseError(TransportBoundaryError):
+    """Descriptor ownership became uncertain; invalidate its store handle."""
+
+
+def _before_store_fork():
+    _DIRECTORY_MUTEX.acquire()
+
+
+def _parent_store_fork():
+    _DIRECTORY_MUTEX.release()
+
+
+def _after_store_fork():
+    global _DIRECTORY_MUTEX, _DIRECTORY_LOCKS, _DIRECTORY_FDS, _FORK_READY, _FORK_CHILD_QUARANTINED
+    _FORK_CHILD_QUARANTINED = True
+    _FORK_READY = False
+    for descriptor in _DIRECTORY_FDS:
+        try:
+            # LOCK_UN here would unlock the parent's shared open description.
+            os.close(descriptor)
+        except OSError:
+            _FORK_READY = False
+    _FORK_QUARANTINE.extend(_STORE_HANDLES)
+    _DIRECTORY_FDS = set()
+    _DIRECTORY_LOCKS = {}
+    _DIRECTORY_MUTEX.release()
+    _DIRECTORY_MUTEX = Lock()
+
+
+if hasattr(os, "register_at_fork"):
+    os.register_at_fork(
+        before=_before_store_fork,
+        after_in_parent=_parent_store_fork,
+        after_in_child=_after_store_fork,
+    )
+    _FORK_READY = True
+
+
+@contextmanager
+def _directory_walk(path, root):
+    """Retain the complete lexical no-follow chain; never touch a DB FD."""
+    descriptors = []
+    creator_pid = os.getpid()
+    try:
+        for value in (path, root):
+            if type(value) is not str or value != os.path.abspath(value) or "//" in value or (value != "/" and value.endswith("/")):
+                raise TransportBoundaryError("completion store path is not canonical")
+        if os.path.commonpath((path, root)) != root or path == root:
+            raise TransportBoundaryError("completion store escapes its approved root")
+        parent = os.path.dirname(path)
+        with _DIRECTORY_MUTEX:
+            for component in ("/", *Path(parent).parts[1:]):
+                descriptor = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                                     dir_fd=descriptors[-1] if descriptors else None)
+                descriptors.append(descriptor)
+                _DIRECTORY_FDS.add(descriptor)
+            identities = [[os.fstat(fd).st_dev, os.fstat(fd).st_ino] for fd in descriptors]
+        if any(type(dev) is not int or dev < 0 or type(ino) is not int or ino < 1 for dev, ino in identities):
+            raise TransportBoundaryError("completion directory identity is invalid")
+        binding = {"schema": "v31-completion-directory-guard/1", "lock_directory": parent,
+                   "component_identities": identities}
+        canonical_bytes(binding)
+        yield binding, descriptors[-1]
+    except (OSError, AttributeError) as exc:
+        raise TransportBoundaryError("completion directory is unavailable or unsafe") from exc
+    finally:
+        failure = None
+        with _DIRECTORY_MUTEX:
+            for descriptor in reversed(descriptors) if creator_pid == os.getpid() else ():
+                try:
+                    os.close(descriptor)
+                except OSError as exc:
+                    failure = exc
+                finally:
+                    _DIRECTORY_FDS.discard(descriptor)
+        if failure is not None:
+            raise _DirectoryReleaseError("completion directory close failed") from failure
+
+
+@contextmanager
+def _directory_guard(path, root):
+    if not _FORK_READY:
+        raise TransportBoundaryError("completion native fork/lock primitives unavailable")
+    import fcntl
+    with _directory_walk(path, root) as (binding, descriptor):
+        key = (os.getpid(), *binding["component_identities"][-1])
+        with _DIRECTORY_MUTEX:
+            lock = _DIRECTORY_LOCKS.setdefault(key, Lock())
+        if not lock.acquire(blocking=False):
+            raise TransportBoundaryError("completion owner is busy")
+        held = False
+        try:
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                held = True
+            except OSError as exc:
+                raise TransportBoundaryError("completion physical owner is busy or unsupported") from exc
+            with _directory_walk(path, root) as (current, _fd):
+                if binding != current:
+                    raise TransportBoundaryError("completion directory identity drifted")
+            yield binding, descriptor, lock
+        finally:
+            try:
+                if held and key[0] == os.getpid():
+                    try:
+                        fcntl.flock(descriptor, fcntl.LOCK_UN)
+                    except OSError as exc:
+                        raise _DirectoryReleaseError("completion directory unlock failed") from exc
+            finally:
+                if key[0] == os.getpid():
+                    lock.release()
 _OPERATION_TABLE_SHA256 = sha256(canonical_bytes((_PROTOCOL, _OPERATIONS))).hexdigest()
 
 
@@ -251,6 +385,11 @@ def _runtime_qualification(value: object) -> Mapping[str, object]:
     return qualification
 
 
+def _require_store_process():
+    if _FORK_CHILD_QUARANTINED:
+        raise TransportBoundaryError("fork child requires exec before opening any program store")
+
+
 class _ProgramTransportStore:
     """Private append-only physical authority for successor effects only."""
 
@@ -264,6 +403,7 @@ class _ProgramTransportStore:
         *,
         approved_root: str | os.PathLike[str],
     ) -> _ProgramTransportStore:
+        _require_store_process()
         absolute_path, absolute_root = _store_paths(path, approved_root)
         flags = (
             os.O_WRONLY
@@ -288,48 +428,207 @@ class _ProgramTransportStore:
             raise
 
     @classmethod
-    def open_existing(
-        cls,
-        path: str | os.PathLike[str],
-        *,
-        approved_root: str | os.PathLike[str],
-    ) -> _ProgramTransportStore:
-        absolute_path, absolute_root = _store_paths(path, approved_root)
-        value = cls._open(absolute_path, absolute_root)
+    def _create_completion_store(cls, path, *, approved_root):
+        _require_store_process()
+        # Unlike v1's historical normalizer, C4 requires already canonical paths.
+        raw_path, raw_root = os.fspath(path), os.fspath(approved_root)
+        value = None
         try:
-            value._attest()
-            return value
-        except Exception:
-            value.close()
+            with _directory_guard(raw_path, raw_root) as (binding, parent_fd, _lock):
+                descriptor = os.open(Path(raw_path).name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+                                     0o600, dir_fd=parent_fd)
+                os.close(descriptor)  # Before SQLite exists; never a lock descriptor.
+                value = cls._open(raw_path, raw_root, version=2)
+                value._guard_binding = binding
+                token = value._set_completion_owner(parent_fd)
+                try:
+                    value._check_completion_path()
+                    value._configure_connection()
+                    value._create_schema()
+                    value._require_completion_guard(token)
+                except BaseException:
+                    value._completion_owner = None
+                    value.close()
+                    raise
+                finally:
+                    value._completion_owner = None
+        except BaseException:
+            if value is not None:
+                value.close()
+            raise
+        return value
+
+    @classmethod
+    def open_existing(cls, path, *, approved_root):
+        _require_store_process()
+        absolute_path, absolute_root = _store_paths(path, approved_root)
+        # The same SQLite connection identifies format, never accepts authority.
+        # A v1 store does not inherit v2's directory-lock or full-chain policy.
+        value = None
+        try:
+            with ExitStack() as stack:
+                try:
+                    binding, _fd = stack.enter_context(_directory_walk(os.fspath(path), os.fspath(approved_root)))
+                except TransportBoundaryError:
+                    binding = None
+                value = cls._open(absolute_path, absolute_root, version=None)
+                try:
+                    if value._version == 1:
+                        value._attest()
+                    else:
+                        if binding is None:
+                            raise TransportBoundaryError("completion directory was not safely observed")
+                        value._guard_binding = binding
+                        with _directory_guard(absolute_path, absolute_root) as (current, parent_fd, _lock):
+                            if binding != current:
+                                raise TransportBoundaryError("completion directory changed across SQLite open")
+                            token = value._set_completion_owner(parent_fd)
+                            try:
+                                value._check_completion_path()
+                                value._configure_connection()
+                                value._require_completion_guard(token)
+                            finally:
+                                value._completion_owner = None
+                    return value
+                except BaseException:
+                    value.close()
+                    raise
+        except BaseException:
+            if value is not None:
+                value.close()
             raise
 
     @classmethod
-    def _open(cls, path: str, root: str) -> _ProgramTransportStore:
+    def _open(cls, path: str, root: str, *, version=1):
+        _require_store_process()
         identity = _store_file_identity(path)
         value = object.__new__(cls)
-        value._path = path
-        value._root = root
-        value._file_identity = identity
-        value._connection = sqlite3.connect(
-            path, isolation_level=None, check_same_thread=False
-        )
-        value._connection.execute("PRAGMA foreign_keys=ON")
-        value._connection.execute("PRAGMA trusted_schema=OFF")
-        value._connection.execute("PRAGMA synchronous=FULL")
+        value._path, value._root, value._file_identity = path, root, identity
+        value._creator_pid = os.getpid()
+        value._version = version
         value._lock = RLock()
+        value._completion_lock = Lock()
+        value._completion_owner = None
+        value._guard_binding = None
+        value._invalid = False
         value._closed = False
-        if _store_file_identity(path) != identity:
-            value._connection.close()
-            value._closed = True
-            raise TransportBoundaryError(
-                "program transport store changed across SQLite open"
-            )
-        return value
+        # Fork cannot miss a just-created connection in the quarantine registry.
+        with _DIRECTORY_MUTEX:
+            value._connection = sqlite3.connect(path, isolation_level=None, check_same_thread=False)
+            _STORE_HANDLES.add(value)
+        try:
+            if version is None:
+                application = value._connection.execute("PRAGMA application_id").fetchone()[0]
+                value._version = value._connection.execute("PRAGMA user_version").fetchone()[0]
+                if application != _PROGRAM_STORE_APPLICATION_ID or value._version not in (1, 2):
+                    raise TransportBoundaryError("program transport store schema drifted")
+            value._schema = _PROGRAM_STORE_SCHEMA if value._version == 1 else _COMPLETION_STORE_SCHEMA
+            if value._version == 1:
+                value._configure_connection()
+            if _store_file_identity(path) != identity:
+                raise TransportBoundaryError("program transport store changed across SQLite open")
+            return value
+        except BaseException:
+            value.close()
+            raise
+
+    def _configure_connection(self):
+        self._check_pid()
+        self._connection.execute("PRAGMA foreign_keys=ON")
+        self._connection.execute("PRAGMA trusted_schema=OFF")
+        self._connection.execute("PRAGMA synchronous=FULL")
+
+    def _check_pid(self):
+        if self._creator_pid != os.getpid():
+            raise TransportBoundaryError("inherited program store is unqualified; exec required")
+
+    def _set_completion_owner(self, descriptor):
+        self._check_pid()
+        with self._lock:
+            if self._closed or self._invalid:
+                raise TransportBoundaryError("completion store handle is invalid or closed")
+            token = object()
+            info = os.fstat(descriptor)
+            self._completion_owner = (token, os.getpid(), get_ident(), descriptor,
+                                      info.st_dev, info.st_ino,
+                                      getattr(self, "store_instance_id", None), self)
+            return token
+
+    def _check_completion_path(self):
+        self._check_pid()
+        if self._invalid or self._closed:
+            raise TransportBoundaryError("completion store handle is invalid or closed")
+        try:
+            with _directory_walk(self._path, self._root) as (current, parent_fd):
+                if current != self._guard_binding:
+                    raise TransportBoundaryError("completion persistent directory identity drifted")
+                info = os.stat(Path(self._path).name, dir_fd=parent_fd, follow_symlinks=False)
+                if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or (info.st_dev, info.st_ino) != self._file_identity:
+                    raise TransportBoundaryError("completion database identity or hardlink drifted")
+        except (TransportBoundaryError, OSError):
+            self._invalid = True
+            raise
+
+    @contextmanager
+    def _completion_guard(self):
+        self._check_pid()
+        if self._version != 2:
+            raise TransportBoundaryError("completion-store-not-qualified")
+        if self._closed or self._invalid:
+            raise TransportBoundaryError("completion store handle is invalid or closed")
+        try:
+            with _directory_guard(self._path, self._root) as (binding, descriptor, lock):
+                if binding != self._guard_binding:
+                    self._invalid = True
+                    raise TransportBoundaryError("completion persistent directory identity drifted")
+                self._completion_lock = lock
+                token = self._set_completion_owner(descriptor)
+                try:
+                    self._require_completion_guard(token)
+                    yield token
+                    self._require_completion_guard(token)
+                finally:
+                    self._completion_owner = None
+        except _DirectoryReleaseError:
+            self._invalid = True
+            raise
+
+    def _require_completion_guard(self, token):
+        self._check_pid()
+        owner = self._completion_owner
+        if (token is None or owner is None or token is not owner[0]
+                or owner[1:3] != (os.getpid(), get_ident()) or owner[7] is not self):
+            raise TransportBoundaryError("completion owner token is absent or foreign")
+        info = os.fstat(owner[3])
+        if (info.st_dev, info.st_ino) != owner[4:6] or (owner[6] is not None and owner[6] != self.store_instance_id):
+            raise TransportBoundaryError("completion owner identity drifted")
+        with self._lock:
+            self._attest_locked()
+
+    def _require_current_completion_owner(self):
+        self._check_pid()
+        owner = self._completion_owner
+        self._require_completion_guard(owner[0] if owner else None)
+
+    @contextmanager
+    def _store_access(self):
+        self._check_pid()
+        if self._version == 1:
+            yield
+        elif self._completion_owner is not None and self._completion_owner[1:3] == (os.getpid(), get_ident()):
+            self._require_current_completion_owner()
+            yield
+        else:
+            with self._completion_guard():
+                yield
 
     def _create_schema(self) -> None:
+        self._check_pid()
+        if self._version == 2:
+            self._check_completion_path()
         nonce = secrets.token_bytes(32)
         store_payload = {
-            "schema": _PROGRAM_STORE_SCHEMA,
+            "schema": self._schema,
             "approved_store_root": self._root,
             "approved_store_path": self._path,
         }
@@ -341,22 +640,24 @@ class _ProgramTransportStore:
             "store_device": self._file_identity[0],
             "store_inode": self._file_identity[1],
         }
+        if self._version == 2:
+            instance_payload["completion_guard_binding_sha256"] = _digest(self._guard_binding)
         instance_id = _identity("program-transport-store-instance", instance_payload)
         with self._lock:
             self._connection.execute(
                 f"PRAGMA application_id={_PROGRAM_STORE_APPLICATION_ID}"
             )
-            self._connection.execute(f"PRAGMA user_version={_PROGRAM_STORE_VERSION}")
+            self._connection.execute(f"PRAGMA user_version={self._version}")
             self._connection.execute("BEGIN IMMEDIATE")
             try:
-                for statement in _PROGRAM_STORE_DDL:
+                for statement in (_PROGRAM_STORE_DDL if self._version == 1 else _COMPLETION_STORE_DDL):
                     self._connection.execute(statement)
                 for _name, statement in _PROGRAM_STORE_TRIGGERS:
                     self._connection.execute(statement)
                 self._connection.execute(
-                    "INSERT INTO program_transport_meta VALUES(1,?,?,?,?,?,?,?,?)",
+                    "INSERT INTO program_transport_meta VALUES(1," + ",".join("?" for _ in range(8 if self._version == 1 else 9)) + ")",
                     (
-                        _PROGRAM_STORE_SCHEMA_IDENTITY,
+                        _PROGRAM_STORE_SCHEMA_IDENTITY if self._version == 1 else _COMPLETION_STORE_SCHEMA_IDENTITY,
                         store_id,
                         instance_id,
                         nonce,
@@ -364,19 +665,27 @@ class _ProgramTransportStore:
                         self._path,
                         self._file_identity[0],
                         self._file_identity[1],
-                    ),
+                    ) + (() if self._version == 1 else (canonical_bytes(self._guard_binding),)),
                 )
+                if self._version == 2:
+                    self._check_completion_path()
                 self._connection.execute("COMMIT")
             except Exception:
                 self._connection.execute("ROLLBACK")
                 raise
         self._attest()
+        if self._version == 2:
+            self._completion_owner = (*self._completion_owner[:6], instance_id, self)
 
     def _attest(self) -> None:
-        with self._lock:
-            self._attest_locked()
+        with self._store_access():
+            with self._lock:
+                self._attest_locked()
 
     def _attest_locked(self) -> None:
+        self._check_pid()
+        if self._version == 2:
+            self._check_completion_path()
         if getattr(self, "_closed", True):
             raise TransportBoundaryError("program transport store is closed")
         if _store_file_identity(self._path) != self._file_identity:
@@ -385,7 +694,7 @@ class _ProgramTransportStore:
             self._connection.execute("PRAGMA application_id").fetchone()[0]
             != _PROGRAM_STORE_APPLICATION_ID
             or self._connection.execute("PRAGMA user_version").fetchone()[0]
-            != _PROGRAM_STORE_VERSION
+            != self._version
             or self._connection.execute("PRAGMA foreign_keys").fetchone()[0] != 1
             or self._connection.execute("PRAGMA trusted_schema").fetchone()[0] != 0
             or self._connection.execute("PRAGMA synchronous").fetchone()[0] != 2
@@ -398,7 +707,7 @@ class _ProgramTransportStore:
             )
         }
         expected = {
-            **dict(zip(_PROGRAM_STORE_TABLES, _PROGRAM_STORE_DDL)),
+            **dict(zip(_PROGRAM_STORE_TABLES, _PROGRAM_STORE_DDL if self._version == 1 else _COMPLETION_STORE_DDL)),
             **dict(_PROGRAM_STORE_TRIGGERS),
         }
         if definitions != expected:
@@ -413,7 +722,7 @@ class _ProgramTransportStore:
         expected_store_id = _identity(
             "program-transport-store",
             {
-                "schema": _PROGRAM_STORE_SCHEMA,
+                "schema": self._schema,
                 "approved_store_root": self._root,
                 "approved_store_path": self._path,
             },
@@ -423,18 +732,20 @@ class _ProgramTransportStore:
             expected_instance_id = _identity(
                 "program-transport-store-instance",
                 {
-                    "schema": _PROGRAM_STORE_SCHEMA,
+                    "schema": self._schema,
                     "approved_store_root": self._root,
                     "approved_store_path": self._path,
                     "program_transport_store_id": expected_store_id,
                     "creation_nonce_sha256": sha256(nonce).hexdigest(),
                     "store_device": self._file_identity[0],
                     "store_inode": self._file_identity[1],
+                    **({"completion_guard_binding_sha256": _digest(self._guard_binding)} if self._version == 2 else {}),
                 },
             )
         if (
             row[0] != 1
-            or row[1] != _PROGRAM_STORE_SCHEMA_IDENTITY
+            or row[1] != (_PROGRAM_STORE_SCHEMA_IDENTITY if self._version == 1 else _COMPLETION_STORE_SCHEMA_IDENTITY)
+            or (self._version == 2 and row[9] != canonical_bytes(self._guard_binding))
             or row[2] != expected_store_id
             or row[3] != expected_instance_id
             or row[5] != self._root
@@ -446,7 +757,10 @@ class _ProgramTransportStore:
         self.store_instance_id = row[3]
 
     def close(self) -> None:
+        self._check_pid()
         with self._lock:
+            if self._completion_owner is not None:
+                raise TransportBoundaryError("cannot close a held completion owner")
             if not self._closed:
                 self._connection.close()
                 self._closed = True
@@ -458,7 +772,7 @@ class _ProgramTransportStore:
         values: tuple[object, ...],
         identity: str,
     ) -> None:
-        with self._lock:
+        with self._store_access(), self._lock:
             self._attest()
             marks = ",".join("?" for _ in values)
             self._connection.execute("BEGIN IMMEDIATE")
@@ -485,6 +799,8 @@ class _ProgramTransportStore:
                 ).fetchall()
                 if len(loaded) != 1 or tuple(loaded[0]) != values:
                     raise TransportBoundaryError(f"{table} append/replay failed")
+                if self._version == 2:
+                    self._check_completion_path()
                 self._connection.execute("COMMIT")
             except Exception:
                 self._connection.execute("ROLLBACK")
@@ -501,7 +817,7 @@ class _ProgramTransportStore:
         self._attest()
         closed = dict(_runtime_qualification(qualification))
         payload = {
-            "schema": _PROGRAM_STORE_SCHEMA,
+            "schema": self._schema,
             "program_transport_store_id": self.program_transport_store_id,
             "store_instance_id": self.store_instance_id,
             "program_execution_snapshot_id": _text(
@@ -667,7 +983,7 @@ class _ProgramTransportStore:
         if job_id is not None:
             _job_id(job_id)
         payload = {
-            "schema": _PROGRAM_STORE_SCHEMA,
+            "schema": self._schema,
             "program_transport_store_id": self.program_transport_store_id,
             "store_instance_id": self.store_instance_id,
             "runtime_attestation_id": closed_binding["runtime_attestation_id"],
@@ -746,7 +1062,7 @@ class _ProgramTransportStore:
             )
         _validate_program_effect_request(request, binding)
         payload = {
-            "schema": _PROGRAM_STORE_SCHEMA,
+            "schema": self._schema,
             "program_transport_store_id": self.program_transport_store_id,
             "store_instance_id": self.store_instance_id,
             "runtime_attestation_id": closed_binding["runtime_attestation_id"],

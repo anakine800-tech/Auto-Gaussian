@@ -1,5 +1,15 @@
 # Auto-G16 v3 Status
 
+- **V31 FILE COMPLETION CANDIDATE:**
+  `V31-PBS-COMPAT-FILE-COMPLETION-01` proposes OD-32 and an explicit new-xTB
+  receipt-on-absence mode. [Freeze dossier](pbs-file-completion-freeze.md)
+  binds exact candidate content and review evidence. Repository Owner L3
+  freeze is pending; product implementation has not started. Strict defaults,
+  historical UNKNOWN/NOT QUALIFIED and all scientific/live gates remain.
+  The proposed first implementation is synthetic/offline only; real receipt-
+  mode construction remains blocked on a separate publisher qualification
+  contract and Owner gate, without changing strict production behavior.
+
 - **Current closeout:** Attempt-04 produced one immutable complete Gaussian log
   through the already-qualified workdir path. The historical parser-1.0.0
   Result remains `UNPARSEABLE` evidence because grammar-1 rejects an ordinary
@@ -336,3 +346,30 @@
 - **Do not start after integration:** further roadmap work, deployment, live
   qualification, recovery Attempt, or V30-A calculation execution. Real
   SSH/RTwin deployment and all PBS/Gaussian operations remain unauthorized.
+
+## File-completion implementation checkpoint
+
+C2 received exact Owner acceptance after independent technical review. During
+phase-2 inspection, a missing manifest-content input was identified and
+independently confirmed as P1; the earlier C2 review had missed this seam.
+The C3 rendering-material supplement is a concrete candidate for that gap.
+Dependent rendering is stopped pending C3 review/Owner acceptance. Initial
+pure receipt grammar work is incomplete and grants no completion authority;
+no full implementation, production or scientific acceptance is claimed.
+
+
+### V31 file completion C4 proposal status
+
+**PROPOSED / OWNER ACCEPTANCE PENDING.** C2/C3 offline implementation remains
+checkpointed; native database-file guard positive/full FC13 is still blocked.
+The authorized A follow-up restores existing safety carriers to v3_full_tests,
+with self-protection unchanged. The B follow-up proposes an existing-directory
+lock plus fresh private store `/2` physical parent binding; product code has
+not changed. Native Mac directory-lock/default-SQLite probes show feasibility
+and the need to reject replacement-parent lock domains, not integrated C4 or
+FC13 PASS. Exact evidence and independent review are retained in the
+[freeze dossier](pbs-file-completion-freeze.md).
+
+C4 candidate acceptance, its later offline implementation, production publisher
+qualification, live execution and scientific acceptance remain separate gates.
+No publication, integration, new task, deployment or live authority is inferred.
