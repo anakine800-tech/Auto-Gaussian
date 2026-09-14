@@ -665,3 +665,178 @@ The final local commit, tree and clean preflight/selection evidence are reported
 in the handoff, avoiding a recursive evidence-only commit. Isolated branch and
 worktree are retained; no publication, deployment, live effect, cleanup or new
 user task was performed.
+
+## Offline acceptance closeout after the accepted C4 implementation
+
+The Owner accepted an additional offline closeout in this same task and
+worktree: fill missing test evidence, independently review the matrix, freeze
+one candidate, and run **one complete full** on that candidate. This supersedes
+only the earlier absence of full-run authority. It does not authorize product
+changes, deployment, remote execution, publication, PR creation or integration.
+The six accepted C4 contract files and both product files remain unchanged.
+
+Closeout starts at commit `b9649ae5a1cbdde5855828db63d3b6bbc43eaaee`, tree
+`fec9ad3bc0f317b8f0a089d3096d151516a810a1`. Only this dossier and
+`tests/v31/transport/test_program_completion.py` belong to the closeout delta.
+Product hashes remain `1855fd2b650924ecbf017a1ff612481b08f67a8311c62125b1c5dd2e1b0a3aff`
+(transport) and `c669ba71c48de26e4e9d31be45444de1b78a34ef8d9e1ab089c98ae2660ac783`
+(runtime). No old test or fixture method was changed: an AST comparison against
+the starting commit found **78 original methods unchanged**, with only the new
+`test_closeout_*` methods added. The three adjacent modules in the original
+253-test command are byte-identical. This is the basis for reusing E253; no
+separate repetition of those 253 was performed during closeout preparation.
+
+### Evidence interpretation and retention
+
+**E253** is the exact prior 253-test run above, with its commit/source hashes,
+command, 153.069 seconds and exit 0. It proves only its named assertions.
+**N01–N26** below are the additional test method inventory. Their individual
+preparation runs and corrections are retained outside the repository in
+`validation-runs/v31-file-completion-closeout-20260914T131304Z` under Codex's
+local evidence directory. `new-tests-01` through `new-tests-08` contain complete
+commands, start/end timestamps, duration, exit status and raw unittest output.
+Failed preparation runs are retained; they are not called passing runs.
+Final new-only checkpoint: **26 tests / 51.127 seconds / exit 0 / OK**, no
+skips, warnings or failures. UTC start `2026-09-14T13:37:03.407175+00:00`,
+wrapper end `2026-09-14T13:37:54.915326+00:00`; wall time 51.507808 seconds.
+The exact 26-name command and unchanged-source verification are in
+`new-tests-final-26.json` and `.log`. Test file SHA-256 is
+`97044d09ccf2d65d72c96ec4ec5757228ec9b13859a4d0aeff46f52a790fcbb0`.
+This checkpoint excludes all unchanged E253 methods; the subsequently
+explicitly authorized complete full will include the entire default inventory.
+
+Corrections addressed test assumptions: thread-local Core connections, the
+runtime-attestation API returning an ID, request payload nesting, the existing
+manifest grammar allowing additional pinned files, and the inert driver's
+constant file token not modeling mtime/ctime after an in-place write.
+
+Independent review prompted three further improvements: explicit reconstruction
+of B instead of calling the renderer's helper, recomputed valid Result IDs and
+separate fixtures for both corrupted/spliced-byte cases, and a child-local
+alarm plus parent pipe/reap cleanup in the native multithreaded fork test.
+That alarm bounds only the deliberately adversarial synthetic child. There is
+no complete-full timeout, process kill, automatic restart or retry policy.
+
+The complete-full candidate commit/tree, clean preflight, canonical selector,
+archive digest and member manifest, interpreter, coverage environment names,
+launch PID/run ID and terminal result will be retained in that external directory.
+The committed dossier is frozen before complete full; its result is an
+external supplement, avoiding a recursive evidence-only commit and second full.
+A matrix PASS below means the specified **offline subconditions** have direct
+assertions; it is not complete-full success, production qualification, remote
+CI, branch protection or scientific acceptance.
+
+### Additional test inventory
+
+All IDs below expand under
+`tests.v31.transport.test_program_completion`. `T` means `CompletionTests`;
+`N` means `NativeCompletionStoreTests`. The method names are stable references;
+line numbers are convenience pointers in the frozen candidate.
+
+| ID | Class and method | Line |
+| --- | --- | --- |
+| N01 | T.`test_closeout_receipt_nested_closed_grammar_and_limits` | 723 |
+| N02 | T.`test_closeout_receipt_inventory_order_scope_and_output_caps` | 775 |
+| N03 | T.`test_closeout_operation_output_shape_vectors` | 793 |
+| N04 | T.`test_closeout_material_dag_and_nested_manifest_mismatch` | 804 |
+| N05 | T.`test_closeout_scheduler_state_and_terminal_priority_table` | 842 |
+| N06 | T.`test_closeout_proof_epoch_prefix_bytes_and_order` | 858 |
+| N07 | T.`test_closeout_corrupt_and_spliced_durable_bytes_block_replay` | 892 |
+| N08 | T.`test_closeout_result_append_failure_keeps_attempt_unfinished` | 914 |
+| N09 | T.`test_closeout_result_readback_failure_and_same_id_conflict` | 922 |
+| N10 | T.`test_closeout_after_transition_crash_replay_is_idempotent` | 936 |
+| N11 | T.`test_closeout_overlapping_collections_have_one_winner` | 953 |
+| N12 | T.`test_closeout_wrapper_identity_infrastructure_and_link_faults` | 983 |
+| N13 | T.`test_closeout_expanded_review_and_old_version_mode_rejection` | 1068 |
+| N14 | T.`test_closeout_fresh_v2_cannot_import_existing_job_authority` | 1100 |
+| N15 | T.`test_closeout_assessment_append_failure_reopens_durable_bundle` | 1109 |
+| N16 | T.`test_closeout_assessment_readback_failure_prevents_transition` | 1126 |
+| N17 | T.`test_closeout_same_result_id_conflict_during_collection_never_advances` | 1139 |
+| N18 | T.`test_closeout_manifest_root_inventory_nested_duplicates_and_data_list` | 1150 |
+| N19 | T.`test_closeout_capture_drift_and_signal_scheduler_subconditions` | 1175 |
+| N20 | T.`test_closeout_same_assessment_id_conflict_never_advances` | 1221 |
+| N21 | N.`test_closeout_nested_owner_and_same_descriptor_relock` | 1559 |
+| N22 | N.`test_closeout_full_schema_and_independent_v2_identity` | 1575 |
+| N23 | N.`test_closeout_schema_meta_and_chain_corruption_fail_closed` | 1607 |
+| N24 | N.`test_closeout_root_escape_and_original_path_database_replacement` | 1634 |
+| N25 | N.`test_closeout_drift_between_connect_and_authority_closes_connection` | 1646 |
+| N26 | N.`test_closeout_fork_rejects_before_other_thread_owned_rlock` | 1662 |
+
+### Required 24-row acceptance matrix
+
+For reused evidence, `T.test_*` and `N.test_*` refer to the classes above;
+`P` is `test_program_composition.ProgramCompositionTests`, `B` is
+`test_rtwin_successor_bridge.ProductionBridgeTests`, and `L` is
+`tests.v3.execution.test_v31_lane_a`. All are within E253. A compound row remains
+PARTIAL if any listed required subcondition lacks direct evidence.
+
+| Vector | Status | Covered subconditions and exact evidence | Remaining condition or limit |
+| --- | --- | --- | --- |
+| FC01 strict compatibility | PARTIAL | xTB v1 replay/v2 construction, CREST v1 replay/v2 tokens: L.ProgramSpecTests.`test_xtb_v1_is_replay_readable_but_not_constructed_initially`, `test_crest_v1_ttconf_is_replay_readable_but_not_constructed_initially`, `test_crest_v2_closed_imtd_gc_fixture_has_exact_semantic_tokens`; old xTB snapshot replay: L.ProgramSnapshotTests.`test_xtb_v1_snapshot_and_approval_replay_keep_historical_scheduler`; default strict T.`test_default_strict_renderer_and_mode_are_unchanged`; all four old-version mode injections N13; V30 surface golden P.`test_30_public_and_v30_surfaces_are_unchanged`; strict terminal/capture B.`test_running_then_exact_exit_zero_owns_success_and_capture`. | NOT_ACQUIRED: independent pre-C2 full spec/snapshot byte-and-ID golden fixtures for every historical version. Current determinism is not that historical comparison. |
+| FC02 explicit fresh mode | PASS | N13 checks expanded spec including operation/inputs/outputs, resource/workspace/script semantics and separately closed mode/input/operation/resource/workspace changes against the old confirmation, with zero claim/driver calls. T.`test_fresh_attempt_only_and_bad_material_before_attestation` rejects consumed Attempt conversion. | Offline authority validation only; no confirmation grants production publishing. |
+| FC03 binding DAG / C3 material | PASS | N04 explicitly assembles B's closed fields, source hash/size and material hash; extracts exact wrapper/config from deterministic script and checks final artifact/snapshot identity. T.`test_all_receipt_authority_fields_checked_before_returncode` checks every receipt binding; T.`test_changed_receipt_binding_precedes_nonzero`; T.`test_rendered_source_and_material_reclose`, `test_snapshot_review_reopen_uses_only_embedded_material`; N18 covers root inventory, nested duplicates and changed data inventory. Missing/extra material, raw hash/size, wrong profile, noncanonical base64, relocated/duplicate data line, B/material mismatch reject. | Additional pinned runtime files are legal in the historical data grammar; changing the approved list is rejected by its profile identity. No guessed exact-list restriction was introduced. |
+| FC04 closed receipt schema | PASS | N01 missing/extra fields at all four nesting sites, nested duplicates, strict integer/bool/float/null boundaries, UTF-8/cap/date/termination/presence; N02 duplicate/partial/extra/reordered inventory, declared output cap, valid multi-input grammar but concrete adapter rejection; T.`test_receipt_grammar_rejects_duplicate_fields_and_bad_types`, `test_all_receipt_authority_fields_checked_before_returncode` includes unknown schema/version. | Synthetic multi-input vectors do not expand adapter input scope. |
+| FC05 publisher identity | PASS | N12 malformed marker, executable/input mismatch, input symlink, same-byte new-inode executable/input/marker/runtime replacement; Python replacement modeled at identity return. N04/N18 source/manifest identity. T.`test_wrapper_runtime_dotfiles_and_symlinks`, `test_wrapper_pinned_parent_chain_rejects_replacement`, `test_wrapper_inert_invocation_failure_and_publication_matrix`; production construction/evaluation hard stop T.`test_production_driver_is_unconditionally_blocked`. | Production Linux publisher is BLOCKED/not qualified. All launches/subreaper/wait are inert; Python replacement is a model, other listed replacement files are real temporary objects. Trusted publisher/physical-owner scope does not include arbitrary hostile filesystem writers. |
+| FC06 wrapper failure | PARTIAL | N12's 20 scenarios cover wait, log fsync/close/hash, pending byte corruption, existing lock/final/pending/log, pre-link and post-link crashes; original T.`test_wrapper_inert_invocation_failure_and_publication_matrix` covers launch/nonzero/signal/log drift; T.`test_wrapper_waits_adopted_descendants_and_uses_direct_status` covers deadline; T.`test_wrapper_prelink_failure_retains_pending_only`, `test_wrapper_source_compiles_and_no_replace_publication` cover retained pending and no overwrite. N12 asserts zero or exactly one inert launch and retains existing bytes. | NOT_ACQUIRED: real wrapper-process death/OS-managed writer shutdown and same-byte pending-file inode replacement. Source-model exceptions do not prove actual Linux process-death behavior. No automatic retry follows any failure. |
+| FC07 direct child status | PASS | T.`test_wrapper_waits_adopted_descendants_and_uses_direct_status` distinguishes direct child and descendant status; T.`test_wrapper_inert_invocation_failure_and_publication_matrix` asserts shell=False and exact environment; fixed wrapper/script contains no tee/pipeline/trap-derived rc authority. N12 infrastructure faults produce no fabricated receipt. | Actual Linux subreaper qualification remains separate and NOT_ACQUIRED. |
+| FC08 absence gate | PASS | T.`test_terminal_scheduler_cannot_complete_receipt_mode`, `test_running_receipt_cannot_complete`, `test_absence_without_receipt_is_unknown`, `test_fetch_timeout_is_not_absence_or_nonzero`, `test_final_query_unknown_is_not_absence`; N05 active queued/running/held/exiting, unknown, failed absence and terminal distinctions; B.`test_other_job_duplicate_exit_or_invalid_exit_never_promotes`, `test_raw_scheduler_wire_failure_has_no_invented_raw_audit`, `test_raw_scheduler_eof_and_completion_rejections_are_preserved`. | No time-based R/E recovery and no inference from unreadable/unknown scheduler evidence. |
+| FC09 successful receipt | PASS | T.`test_success_durable_bundle_and_zero_read_replay` binds both absence boundaries, Result re-read, assessment and transition; T.`test_single_point_optional_absence_succeeds`; N03 separate operation output closure; N08/N09/N15/N16 prove persistence failures cannot advance. | Execution completion only. |
+| FC10 failed program | PASS | T.`test_nonzero_with_absent_required_output_is_failed`, `test_direct_signal_with_absent_output_is_failed`, `test_zero_with_absent_required_output_is_failed`, `test_invalid_geometry_is_execution_failure`, `test_fetch_timeout_is_not_absence_or_nonzero`, `test_fetch_identity_mismatch_is_conflict_before_exit`; N03 unsafe log/geometry values and operation-specific absence; N19 signal agreement. | Untrustworthy acquisition stays UNKNOWN, not manufactured program failure. |
+| FC11 scheduler conflicts | PASS | N05 repeated agreeing/disagreeing terminal, missing exit, active after terminal, exact absence; N19 signal=15 vs terminal143/0, terminal after opening absence; T.`test_contradictory_terminal_exit_blocks_nonzero`, `test_final_terminal_contradiction_precedes_awaiting_absence`, `test_later_unknown_blocks_promotion_without_rollback`, `test_later_active_is_conflict_without_rollback`. | Append order owns authority; no fabricated scheduler terminal or exit field. |
+| FC12 immutable capture | PASS | T.`test_restat_identity_drift_overrides_exit`, `test_optional_absence_drift_is_conflict`, `test_fetch_identity_mismatch_is_conflict_before_exit`, `test_new_epoch_cannot_replace_accepted_capture`; N19 receipt re-STAT drift, required absence-to-presence and same-size cross-file write with modeled changed physical metadata; N06/N07 exact ID/reference/order and retained-byte provenance. | Constant-token malicious driver is not a qualified physical owner; raw output changes must be reflected in its physical token. |
+| FC13 replay/crash | PASS | E253 T.`test_assessment_transition_crash_reopens_without_reads`, `test_bundle_before_assessment_crash_replays`, missing-bundle/history/idempotency tests; N06 exact proof key set, IDs, referenced Result/assessment/capture/receipt, prefix and epoch hash, opening/closing order and inverse finished_at; N07 separate corrupted/spliced fixtures with valid recomputed IDs and byte hashes rejected by persisted provenance, zero-driver replay; N08–N11/N15–N17/N20 append/readback/transition failure, same-ID Result/assessment conflict, both-store reopen and one-winner collection; N21 lifecycle ownership. | Finite offline boundary injections; no live retry, submission, new Attempt, cross-store transaction or scientific acceptance claim. C4 fork-registration-window and historical-store gaps remain separately PARTIAL below. |
+| FC14 consumer isolation | PASS | T.`test_strict_consumer_and_historical_collection_reject`; strict consumers reject receipt-mode `/2`; B.`test_seven_operations_use_the_reviewed_rtwin_runner` proves strict authority; static `xtb_crest_handoff.py` calls the same strict helper, which rejects `/2` (static bridge evidence, not a claim that handoff tests ran in E253). | Unsupported consumer/scientific promotion remains closed. |
+| FC15 no migration | PARTIAL | T.`test_c4_old_receipt_store_and_strict_v2_reject_before_effects`, `test_strict_consumer_and_historical_collection_reject`, `test_fresh_attempt_only_and_bad_material_before_attestation`; N14 fresh store cannot import existing job authority; earlier UNKNOWN/history cannot be erased (E253 T null-result/history tests). | NOT_ACQUIRED: externally sourced historical `/1` receipt store with actual retained content for raw-read/replay/promotion compatibility. Empty old store and synthetic current authority do not substitute. |
+| C4-01 native positive | PASS | E253 T.`test_success_durable_bundle_and_zero_read_replay`, `test_guard_rejects_foreign_token_and_allows_native_sqlite`; N10/N15 reopen both default SQLite stores; no flock replacement or custom VFS on positive path. | Native Darwin/APFS evidence only, not another platform/mount. |
+| C4-02 contenders | PASS | E253 N.`test_native_cross_process_and_same_parent_ownership`, `test_native_threads_foreign_tokens_and_close_lifecycle`, `test_separate_parent_progress_and_strict_open_unchanged`; T.`test_guard_blocks_another_store_handle_without_effects`; N11 actual overlapping collections with independent Core connections: loser zero driver/Observation, winner one Result. | Process, thread, handle and same-parent database contention have direct assertions. |
+| C4-03 lifecycle | PASS | N08–N11/N15–N17/N20 append, readback, transition, reopen and conflict boundaries; N21 same-FD relock, missing/foreign/nested/stale tokens; E253 N abrupt owner exit/live child, unrelated FD/handle close, T unlock failure and N factory teardown/close race. | Child-local adversarial watchdog is not a full-run timeout. |
+| C4-04 fork | PARTIAL | E253 N.`test_fork_child_rejects_inherited_handles_before_locks`, `test_abrupt_owner_exit_with_living_fork_child_releases_lock`, `test_real_exec_restores_fork_child_store_open`; N26 other-thread-owned inherited RLock rejection with self-limited child and parent reap. | NOT_ACQUIRED: actual overlapping fork during FD/SQLite registry insertion window. Mutex coverage is independently source-reviewed, not a dynamic window test. |
+| C4-05 physical binding | PASS | E253 N parent/ancestor/symlink/hardlink/copy/alias vectors and same-inode relocation; N23 nonce/schema/store-ID/instance-ID/chain-order/length corruption, N24 explicit root escape and original-path DB replacement, N25 connection-window drift; T C4 mid-driver/Result/assessment/reconcile checkpoints preserve prior evidence and stop later effects. | Pre-body zero driver/epoch effects does not mean zero local SQLite effects. |
+| C4-06 schema/create | PARTIAL | E253 N.`test_no_create_retry_or_existing_target_overwrite`, `test_schema_binding_is_closed_and_append_only`; N22 inventory, exact meta columns/triggers, canonical DDL digest, independently rebuilt v2 store/instance/runtime IDs and private `/2` payload; N23 version/application/inventory/DDL/meta/chain drift. | Canonical DDL digest is checked against database definitions, not a separately preserved normative full-DDL golden. Marked PARTIAL rather than calling that assertion independent DDL reconstruction. |
+| C4-07 strict/history | PARTIAL | E253 strict `/1` P store/authority inventory and strict-v2 rejection; N13 old ProgramSpec injection rejection; N14 fresh `/2` cannot import previous Attempt/workspace/job authority; N22 `/2` identity reconstruction. | Same historical full bytes/IDs and nonempty `/1` receipt-store evidence gaps as FC01/FC15. |
+| C4-08 ordering | PASS | N06/N07 provenance/prefix under replay guard; N08/N09/N15/N16/N17/N20 conflicting append/re-read cannot advance; E253 T drift after Result/assessment and reconcile stops; P.`test_77_product_uses_zero_private_core_schema_access` and source review preserve no-private-Core-SQL boundary. | No atomic transaction across the two stores is asserted. |
+| C4-09 trusted namespace | PASS | N25 injects drift after default SQLite open before authority acceptance; connection is closed and artifact retained. E253 full-chain reattestation and mid-body stop tests. Contract retains pathname-SQLite lifetime restriction including journal topology. | No descriptor-bound SQLite or zero-local-effect TOCTOU claim. Production namespace qualification remains required. |
+
+### Environment and final validation boundary
+
+Current local qualification: core Python **3.13.13**, actual native macOS
+**26.6.2**, SQLite **3.53.1**, APFS temporary filesystem; chem Python **3.11.15**,
+RDKit **2026.03.3**, NumPy **2.4.6**, Pillow **12.3.0**. Core and chem profile
+checks and static Python/CI contract audits passed. Required RDKit smoke:
+`AUTO_G16_REQUIRE_RDKIT=1 ./scripts/python chem -m unittest tests.test_rdkit_smoke -v`
+completed **1 test / 0.061 seconds / exit 0**. No package was installed.
+
+**BLOCKED:** real Draft 2020-12 validation has no existing trusted overlay
+matching core Python 3.13 and the exact six locked distributions. Five locked
+validator distributions are absent from chem. The reviewed schema entrypoint
+was qualified read-only; the real schema inventory was not run and cannot be
+replaced by full-suite skips. **NOT_ACQUIRED:** the separately qualified
+GoodVibes wheel/entrypoint and Python 3.12 local compatibility evidence. No
+network installation or untrusted alternate environment was used.
+
+The whole-task selector must be recomputed from exact base
+`6b2ece4443951381f0206c93e55e581ca175dd5e` to the frozen closeout commit. A's
+previous manifest/selector-test changes retain the expected `legacy-release`,
+`fail_closed=true`, empty tests and exact self-protection reason
+`selector, manifest, runner, or selector-test bytes changed`. Manifest blob
+`40c01d9b8d00729a2bd8113942caba03348859bc` is unchanged. The runner must independently
+validate the serialized selection against both Git identities before launching
+the archived candidate's complete inventory, matching the source-archive CI
+ownership pattern. This is not fallback discovery after selector error.
+
+The one authorized complete-full command is the qualified core interpreter
+running `scripts/run_tests.py --full --top-slow 20 --slow-threshold 1.0` in the
+exact Git source archive. It includes all default root-discovered tests with no
+pressure/coverage skip modifier. Start and terminal JSON plus complete logs
+will be retained externally; this frozen document does **not** predeclare a
+PASS, total, duration, CI result or acceptance. Slow/silent progress alone never
+authorizes kill, restart or repetition. A failure requires diagnosis and a new
+decision, not an automatic second full.
+
+Closeout disposition before that run: additional offline coverage is reviewable;
+**complete acceptance is not asserted**. PARTIAL historical/fork/DDL/wrapper
+conditions and unavailable separate environment qualifications must remain
+visible in the handoff even if complete core discovery exits 0. Final PR-stage
+readiness must be assessed against actual terminal evidence and these residual
+conditions; no PR, merge, production activation or scientific promotion is
+performed by this closeout.

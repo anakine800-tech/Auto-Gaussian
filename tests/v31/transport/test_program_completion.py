@@ -720,6 +720,515 @@ class CompletionTests(lane.LaneAFixture):
         self.assertEqual(self.store.attempt_state("attempt-1"), core.AttemptState.UNKNOWN)
         self.assertEqual(self.store.observations_for_attempt("attempt-1")[-1].data["operation"], "RECONCILE_SUBMISSION")
 
+    def test_closeout_receipt_nested_closed_grammar_and_limits(self):
+        valid = self.publish()
+        clone = lambda value: json.loads(completion._receipt_json(value))
+        cases = []
+        for location in ((), ("termination",), ("inputs", 0), ("outputs", 0)):
+            target = valid
+            for key in location:
+                target = target[key]
+            for key in target:
+                altered = clone(valid); node = altered
+                for part in location:
+                    node = node[part]
+                del node[key]
+                cases.append((str(location) + " missing " + key, altered))
+            altered = clone(valid); node = altered
+            for part in location:
+                node = node[part]
+            node["unexpected"] = 1
+            cases.append((str(location) + " extra", altered))
+        for location, key, values in (
+            ((), "wrapper_source_size_bytes", (True, 1.5, 0, 67108865)),
+            (("inputs", 0), "size_bytes", (False, 1.5, 0, 67108865)),
+            (("outputs", 0), "size_bytes", (True, 1.5, -1, 67108865, None)),
+            (("termination",), "returncode", (True, 1.5, -1, 256, None)),
+            (("termination",), "signal", (1, True)),
+            ((), "finished_at", ("2026-02-30T01:02:03.000004Z", "2026-09-14T01:02:03Z", "2026-09-14T01:02:03.000004+00:00", 1)),
+            (("outputs", 0), "presence", (None, "unknown", True)),
+            (("outputs", 0), "sha256", (None, "x", "A" * 64)),
+            (("inputs", 0), "portable_name", ("../input.xyz", "v31-completion.json", "bad name")),
+        ):
+            for value in values:
+                altered = clone(valid); node = altered
+                for part in location:
+                    node = node[part]
+                node[key] = value
+                cases.append((str((location, key, value)), altered))
+        for termination in ({"kind":"signaled","returncode":0,"signal":15}, {"kind":"signaled","returncode":None,"signal":0}, {"kind":"signaled","returncode":None,"signal":65}, {"kind":"signaled","returncode":None,"signal":True}, {"kind":"unknown","returncode":0,"signal":None}):
+            cases.append((str(termination), {**valid, "termination":termination}))
+        altered=clone(valid); altered["outputs"][0]["presence"]="absent"
+        cases.append(("absent has content", altered))
+        for name, altered in cases:
+            with self.subTest(case=name), self.assertRaises(ValueError):
+                completion._decode_receipt(completion._receipt_json(altered))
+        raw = completion._receipt_json(valid)
+        for token in (b'"kind":', b'"logical_role":', b'"presence":'):
+            duplicate = raw.replace(token, token + b'"duplicate",' + token, 1)
+            with self.subTest(duplicate=token), self.assertRaises(ValueError):
+                completion._decode_receipt(duplicate)
+        for raw in (b"\xff", b"\x00", b"x" * 65537, b"", completion._receipt_json(valid).replace(b'"returncode":0', b'"returncode":0.0')):
+            with self.subTest(raw=raw[:30]), self.assertRaises(ValueError):
+                completion._decode_receipt(raw)
+
+    def test_closeout_receipt_inventory_order_scope_and_output_caps(self):
+        valid = self.publish()
+        clone = lambda: json.loads(completion._receipt_json(valid))
+        cases = []
+        for inventory in ("inputs", "outputs"):
+            for values in ([], [*valid[inventory], valid[inventory][0]], valid[inventory][:-1]):
+                altered=clone(); altered[inventory]=values; cases.append(altered)
+        altered=clone(); altered["outputs"].reverse(); cases.append(altered)
+        altered=clone(); altered["outputs"][0]["size_bytes"]=self.snapshot.program_execution_spec.required_outputs[0]["max_size_bytes"]+1; cases.append(altered)
+        # Grammar may express multiple unique inputs; the concrete adapter cannot.
+        extra={**valid["inputs"][0],"logical_role":"second-input","portable_name":"second.xyz"}
+        multi={**valid,"inputs":[*valid["inputs"],extra]}
+        self.assertEqual(len(completion._decode_receipt(completion._receipt_json(multi))["inputs"]),2)
+        cases.append(multi)
+        for altered in cases:
+            with self.subTest(inventory=altered), self.assertRaises(ValueError):
+                completion._bound_receipt(completion._receipt_json(altered), self.snapshot, "123.server", "workspace-token-v31")
+
+    def test_closeout_operation_output_shape_vectors(self):
+        for log in (b"", b"\xff", b"log\x00"):
+            self.assertEqual(completion._output_closure("optimize",lane.XYZ,{"xtb.out":log,"xtbopt.xyz":lane.XYZ}),"output-invalid")
+        for geometry in (b"0\ncomment\n", b"1\ncomment\nC nan 0 0\n", b"1\ncomment\nC inf 0 0\n", b"1\ncomment\nC 0 0 0 extra\n", b"1\ncomment\nUnknown 0 0 0\n", b"1\ncomment\nC 0 0 0\ntrailing\n", b"2\ncomment\nC 0 0 0\n", b"1\ncomment\nHe 0 0 0\n"):
+            with self.subTest(geometry=geometry):
+                self.assertEqual(completion._output_closure("optimize",lane.XYZ,{"xtb.out":b"log","xtbopt.xyz":geometry}),"output-invalid")
+        self.assertIsNone(completion._output_closure("single-point",lane.XYZ,{"xtb.out":b"log","xtbopt.xyz":None}))
+        self.assertEqual(completion._output_closure("optimize",lane.XYZ,{"xtb.out":b"log","xtbopt.xyz":None}),"output-incomplete")
+        with self.assertRaises(ValueError):
+            completion._output_closure("optimize",lane.XYZ,{"xtb.out":b"log","xtbopt.xyz":lane.XYZ,"extra":b"x"})
+
+    def test_closeout_material_dag_and_nested_manifest_mismatch(self):
+        import shlex
+        artifact=self.snapshot.scheduler_artifacts[0]
+        script=artifact["content_utf8"]
+        argv=shlex.split(script[script.index("exec "):])
+        self.assertEqual(argv[2:6],["-I","-S","-B","-c"])
+        self.assertEqual(argv[6],_WRAPPER_SOURCE)
+        config=json.loads(completion.base64.b64decode(argv[-1]))
+        fields={k:v for k,v in self.snapshot._identity_payload.items() if k!="scheduler_artifacts"}
+        expected={**fields, "binding_schema":"v31-completion-prebinding/2", "wrapper_source_sha256":sha256(_WRAPPER_SOURCE.encode()).hexdigest(), "wrapper_source_size_bytes":len(_WRAPPER_SOURCE.encode()), "rendering_material_sha256":runtime.semantic_sha256(self.snapshot._completion_material())}
+        self.assertEqual(config["prebinding"],json.loads(completion._receipt_json(expected)))
+        self.assertEqual(config["prebinding_sha256"],runtime.semantic_sha256(expected))
+        self.assertEqual(expected["rendering_material_sha256"],runtime.semantic_sha256(config["material"]))
+        self.assertEqual(artifact["sha256"],sha256(script.encode()).hexdigest())
+        self.snapshot.assert_identity_closed()
+        lines=script.splitlines(); relocated=[*lines[:2],lines[3],lines[2],*lines[4:]]
+        with self.assertRaises(ValueError):
+            completion._material_from_artifact(({"content_utf8":"\n".join(relocated)+"\n"},),self.resolved())
+        material=dict(self.snapshot._completion_material())
+        for key in material:
+            altered={k:v for k,v in material.items() if k!=key}
+            with self.subTest(missing=key),self.assertRaises(ValueError):completion._validate_material(altered,self.resolved())
+        with self.assertRaises(ValueError):completion._validate_material({**material,"extra":1},self.resolved())
+        for field,value in (("platform","windows"),("attestation_mode","unsupported"),("extra",1)):
+            deployment=manifest(); deployment["trust_roots"]["server_python"][field]=value
+            with self.subTest(field=field),self.assertRaises(ValueError):completion._deployment_projection(completion._receipt_json(deployment))
+        for field in ("path","platform","attestation_mode","expected_sha256","expected_size_bytes"):
+            deployment=manifest();del deployment["trust_roots"]["server_python"][field]
+            with self.subTest(missing=field),self.assertRaises(ValueError):completion._deployment_projection(completion._receipt_json(deployment))
+        for name in ("deployment_manifest_base64","xtb_runtime_data_manifest_base64"):
+            content=completion.base64.b64decode(material[name])
+            for changed in (content+b" ", bytes([content[0]^1])+content[1:]):
+                with self.subTest(name=name,changed=changed[:10]),self.assertRaises(ValueError):
+                    completion._validate_material({**material,name:completion.base64.b64encode(changed).decode()},self.resolved())
+        namespace={"__name__":"inert_binding"};exec(compile(_WRAPPER_SOURCE,"wrapper","exec"),namespace)
+        for changed in ({**config,"prebinding_sha256":"0"*64},{**config,"material":{**config["material"],"schema":"wrong"}}):
+            with patch("subprocess.Popen",side_effect=AssertionError("no launch")),self.assertRaises(ValueError):namespace["run"](changed)
+
+    def test_closeout_scheduler_state_and_terminal_priority_table(self):
+        def observation(state,code=None,index=0,outcome="SUCCEEDED"):
+            response={"state":state,"job_id":"123.server"}
+            if code is not None:response["exit_status"]=code
+            return core.Observation(observation_id="synthetic-query-"+str(index),attempt_id="attempt-1",observation_type=runtime._transport._RECEIPT_TYPE,data={"operation":"QUERY_SCHEDULER","outcome":outcome,"response":response})
+        for state in ("queued","running","held","exiting"):
+            self.assertEqual(runtime._scheduler_diagnostic((observation(state),)),"scheduler-active")
+        self.assertEqual(runtime._scheduler_diagnostic((observation("terminal",0),)),"awaiting-absence")
+        self.assertEqual(runtime._scheduler_diagnostic((observation("unknown"),)),"acquisition-unknown")
+        self.assertIsNone(runtime._scheduler_diagnostic((observation("absent"),)))
+        self.assertEqual(runtime._scheduler_diagnostic((observation("absent",outcome="UNKNOWN"),)),"acquisition-unknown")
+        for sequence in ((observation("terminal",0),observation("terminal",7,1)),(observation("terminal",0),observation("running",index=1)),(observation("terminal",index=0),observation("absent",index=1))):
+            self.assertEqual(runtime._scheduler_diagnostic(sequence),"evidence-conflict")
+        self.assertIsNone(runtime._scheduler_diagnostic((observation("terminal",0),observation("terminal",0,1),observation("absent",index=2)),0))
+        self.assertEqual(runtime._scheduler_diagnostic((observation("terminal",0),observation("absent",index=1)),7),"evidence-conflict")
+
+    def test_closeout_proof_epoch_prefix_bytes_and_order(self):
+        self.execute(); self.publish(finished_at="2099-12-31T23:59:59.000001Z"); assessment=self.collect()
+        proof=runtime._assert_program_receipt_success_authority(self.store,**self.kwargs())
+        keys={"schema","attempt_id","program_execution_snapshot_id","effect_intent_id","job_authority_id","completion_mode","epoch_id","evidence_result_id","capture_authority_id","receipt_sha256","observation_prefix_sha256","assessment_observation_id","initial_absence_observation_id","final_absence_observation_id","program_terminal_success_authority_id"}
+        self.assertEqual(set(proof),keys)
+        payload={k:v for k,v in proof.items() if k!="program_terminal_success_authority_id"}
+        self.assertEqual(proof["program_terminal_success_authority_id"],runtime.semantic_id("program-terminal-success-authority",payload))
+        observations=self.store.observations_for_attempt("attempt-1")
+        prefix=observations[:observations.index(assessment)]
+        raw_prefix=tuple({"observation_id":o.observation_id,"attempt_id":o.attempt_id,"observation_type":o.observation_type,"data":o.data} for o in prefix)
+        self.assertEqual(proof["observation_prefix_sha256"],runtime.semantic_sha256(raw_prefix))
+        epoch={k:proof[k] for k in ("attempt_id","program_execution_snapshot_id","effect_intent_id","job_authority_id","initial_absence_observation_id")}
+        self.assertEqual(proof["epoch_id"],runtime.semantic_id("program-completion-epoch",epoch))
+        self.assertLess([o.observation_id for o in prefix].index(proof["initial_absence_observation_id"]),[o.observation_id for o in prefix].index(proof["final_absence_observation_id"]))
+        _base,receipts,job,workspace=runtime._completion_context(self.store,self.snapshot,self.program_transport_store,self.driver)
+        record=self.store.results_for_attempt("attempt-1")[0]
+        self.assertEqual(proof["evidence_result_id"],record.result_id)
+        self.assertEqual(proof["assessment_observation_id"],assessment.observation_id)
+        self.assertEqual(proof["capture_authority_id"],assessment.data["capture_authority_id"])
+        self.assertEqual(proof["receipt_sha256"],record.data["captured_files"][0]["sha256"])
+        for field in ("attempt_id","program_execution_snapshot_id","effect_intent_id","job_authority_id","epoch_id","completion_mode"):
+            self.assertEqual(proof[field],assessment.data[field])
+        for field,value in (("epoch_id","foreign"),("attempt_id","foreign")):
+            altered=core.Result(result_id=record.result_id,attempt_id=record.attempt_id,result_type=record.result_type,data={**record.data,field:value})
+            with self.subTest(field=field),self.assertRaises(ValueError):runtime._validate_completion_bundle(altered,self.snapshot,job,workspace,receipts,prefix)
+        for field in ("stat_observation_id","fetch_observation_id","restat_observation_id"):
+            data=json.loads(completion._receipt_json(record.data));data["captured_files"][0][field]="foreign"
+            altered=core.Result(result_id=runtime.semantic_id("program-completion-evidence",data),attempt_id="attempt-1",result_type=record.result_type,data=data)
+            with self.subTest(field=field),self.assertRaises(ValueError):runtime._validate_completion_bundle(altered,self.snapshot,job,workspace,receipts,prefix)
+        with self.assertRaises(ValueError):runtime._verify_completion_assessments(tuple(reversed(observations)),self.snapshot,job)
+        later=self.publish(finished_at="2000-01-01T00:00:00.000001Z")
+        self.assertEqual(later["finished_at"],"2000-01-01T00:00:00.000001Z")
+        self.assertEqual(self.collect().data["diagnostic"],"evidence-conflict")
+
+    def test_closeout_corrupt_and_spliced_durable_bytes_block_replay(self):
+        for kind in ("bit-flip","cross-member"):
+            with self.subTest(kind=kind):
+                fixture=CompletionTests(methodName="test_success_durable_bundle_and_zero_read_replay");fixture.setUp()
+                try:
+                    fixture.execute();fixture.publish();fixture.collect()
+                    original=fixture.store.results_for_attempt("attempt-1")[0]
+                    observations=fixture.store.observations_for_attempt("attempt-1")
+                    _base,receipts,job,workspace=runtime._completion_context(fixture.store,fixture.snapshot,fixture.program_transport_store,fixture.driver)
+                    data=json.loads(completion._receipt_json(original.data));files=data["captured_files"]
+                    raw=completion.base64.b64decode(files[0]["content_base64"])
+                    changed=bytes([raw[0]^1])+raw[1:] if kind=="bit-flip" else completion.base64.b64decode(files[1]["content_base64"])
+                    files[0].update(content_base64=completion.base64.b64encode(changed).decode(),sha256=sha256(changed).hexdigest(),size_bytes=len(changed))
+                    forged=core.Result(result_id=runtime.semantic_id("program-completion-evidence",data),attempt_id=original.attempt_id,result_type=original.result_type,data=data)
+                    with self.assertRaises(ValueError):runtime._validate_completion_bundle(forged,fixture.snapshot,job,workspace,receipts,observations)
+                    calls=len(fixture.driver.calls)
+                    with patch.object(fixture.store,"results_for_attempt",return_value=(forged,)):
+                        self.assertEqual(runtime._replay_program_completion(fixture.store,**fixture.kwargs()).data["diagnostic"],"evidence-conflict")
+                        with self.assertRaises(ValueError):runtime._assert_program_receipt_success_authority(fixture.store,**fixture.kwargs())
+                    self.assertEqual(len(fixture.driver.calls),calls)
+                finally:fixture.doCleanups()
+
+    def test_closeout_result_append_failure_keeps_attempt_unfinished(self):
+        self.execute();self.publish()
+        with patch.object(self.store,"append_result",side_effect=RuntimeError("inert append failure")):
+            self.assertEqual(self.collect().data["verdict"],"UNKNOWN")
+        self.assertEqual(self.store.results_for_attempt("attempt-1"),())
+        self.assertEqual(self.store.attempt_state("attempt-1"),core.AttemptState.SUBMITTED)
+        self.assertEqual(sum(op=="SUBMIT_QSUB_ONCE" for op,_ in self.driver.calls),1)
+
+    def test_closeout_result_readback_failure_and_same_id_conflict(self):
+        self.execute();self.publish()
+        original=self.store.results_for_attempt
+        def unavailable(attempt):
+            values=original(attempt)
+            return () if values else values
+        with patch.object(self.store,"results_for_attempt",side_effect=unavailable):
+            self.assertEqual(self.collect().data["verdict"],"UNKNOWN")
+        self.assertEqual(self.store.attempt_state("attempt-1"),core.AttemptState.SUBMITTED)
+        record=original("attempt-1")[0]
+        with self.assertRaises(core.RuntimeStoreError):
+            self.store.append_result(core.Result(result_id=record.result_id,attempt_id=record.attempt_id,result_type=record.result_type,data={**record.data,"epoch_id":"conflict"}))
+        self.assertEqual(original("attempt-1"),(record,))
+
+    def test_closeout_after_transition_crash_replay_is_idempotent(self):
+        self.execute();self.publish()
+        advance=self.store.advance_attempt
+        def advance_then_crash(*args):
+            advance(*args)
+            raise RuntimeError("inert crash after transition")
+        with patch.object(self.store,"advance_attempt",side_effect=advance_then_crash):
+            with self.assertRaises(RuntimeError):self.collect()
+        before=self.store.observations_for_attempt("attempt-1");calls=len(self.driver.calls)
+        self.store.close();self.store=core.SQLiteRuntimeStore(self.database);self.addCleanup(self.store.close)
+        self.program_transport_store.close()
+        self.program_transport_store=transport._ProgramTransportStore.open_existing(self.program_transport_store._path,approved_root=self.program_transport_store._root);self.addCleanup(self.program_transport_store.close)
+        self.assertEqual(runtime._replay_program_completion(self.store,**self.kwargs()).data["verdict"],"SUCCEEDED")
+        self.assertEqual(self.store.observations_for_attempt("attempt-1"),before)
+        self.assertEqual(len(self.driver.calls),calls)
+        self.assertEqual(sum(op=="SUBMIT_QSUB_ONCE" for op,_ in self.driver.calls),1)
+
+    def test_closeout_overlapping_collections_have_one_winner(self):
+        self.execute();self.publish()
+        entered,release=threading.Event(),threading.Event()
+        original=self.driver.query_scheduler;results=[];errors=[]
+        def blocked(request):
+            entered.set()
+            if not release.wait(10):raise RuntimeError("inert rendezvous expired")
+            return original(request)
+        def winner():
+            local = core.SQLiteRuntimeStore(self.database)
+            try:
+                results.append(runtime._collect_program_completion(local, **self.kwargs(), input_bytes=self.input_bytes))
+            except BaseException as exc:
+                errors.append(exc)
+            finally:
+                local.close()
+        with patch.object(self.driver,"query_scheduler",side_effect=blocked):
+            thread=threading.Thread(target=winner);thread.start()
+            self.assertTrue(entered.wait(10), repr(errors))
+            before=self.store.observations_for_attempt("attempt-1");calls=len(self.driver.calls)
+            try:
+                with self.assertRaises(TransportBoundaryError):self.collect()
+                self.assertEqual(self.store.observations_for_attempt("attempt-1"),before)
+                self.assertEqual(len(self.driver.calls),calls)
+            finally:release.set();thread.join(10)
+        self.assertFalse(thread.is_alive());self.assertEqual(errors,[])
+        self.assertEqual([r.data["verdict"] for r in results],["SUCCEEDED"])
+        self.assertEqual(len(self.store.results_for_attempt("attempt-1")),1)
+
+
+    def test_closeout_wrapper_identity_infrastructure_and_link_faults(self):
+        """Inert Popen/wait/subreaper model; no real Linux qualification."""
+        from types import SimpleNamespace
+        scenarios = ("marker-malformed", "input-mismatch", "input-symlink", "executable-mismatch", "existing-lock", "existing-final", "existing-pending", "existing-log", "wait-error", "log-fsync", "log-close", "log-hash", "python-replaced", "executable-replaced", "input-replaced", "marker-replaced", "runtime-replaced", "pending-corruption", "before-link", "after-link")
+        for scenario in scenarios:
+            with self.subTest(scenario=scenario):
+                namespace={"__name__":"inert_closeout"};exec(compile(_WRAPPER_SOURCE,"wrapper","exec"),namespace)
+                workspace=self.root/("closeout-"+scenario);workspace.mkdir()
+                data=workspace/"data";data.mkdir()
+                for name in lane.XTB_RUNTIME_DATA_FILES:(data/name).write_bytes(name.encode())
+                executable=workspace/"inert-program";executable.write_bytes(b"never executed\n")
+                (workspace/"input.xyz").write_bytes(lane.XYZ)
+                marker=workspace/".auto-g16-v31-submit-intent";marker.write_bytes(completion._receipt_json({"program_execution_snapshot_id":"synthetic","effect_intent_id":"synthetic"}))
+                python_path=Path(sys.executable).resolve();python_raw=python_path.read_bytes()
+                spec=json.loads(completion._receipt_json(self.snapshot.program_execution_spec.semantic_payload()))
+                spec["invocation"]["executable_identity"]={"absolute_path":str(executable),"size_bytes":executable.stat().st_size,"sha256":sha256(executable.read_bytes()).hexdigest()};spec["invocation"]["argv"][0]=str(executable)
+                material=dict(self.snapshot._completion_material());deployment=manifest()
+                deployment["trust_roots"]["server_python"].update(path=str(python_path),expected_size_bytes=len(python_raw),expected_sha256=sha256(python_raw).hexdigest())
+                material["deployment_manifest_base64"]=completion.base64.b64encode(completion._receipt_json(deployment)).decode()
+                fields={k:v for k,v in self.snapshot._identity_payload.items() if k!="scheduler_artifacts"}
+                fields.update(cwd_binding={"location_kind":"server","path":str(workspace)},program_execution_spec_payload_sha256=runtime.semantic_sha256(spec))
+                binding=completion._prebinding(fields,material)
+                config=json.loads(completion._receipt_json({"prebinding":binding,"prebinding_sha256":runtime.semantic_sha256(binding),"spec":spec,"material":material,"xtb_data_path":str(data),"cores":8,"walltime_seconds":1}))
+                preexisting={"existing-lock":"v31-completion-launch.lock","existing-final":"v31-completion.json","existing-pending":"v31-completion.pending","existing-log":"xtb.out"}
+                if scenario in preexisting:(workspace/preexisting[scenario]).write_bytes(b"retained original\n")
+                if scenario=="marker-malformed":marker.write_bytes(b'{}\n')
+                if scenario=="input-mismatch":(workspace/"input.xyz").write_bytes(b"changed")
+                if scenario=="input-symlink":
+                    (workspace/"input.xyz").rename(workspace/"retained-input");(workspace/"input.xyz").symlink_to(workspace/"retained-input")
+                if scenario=="executable-mismatch":executable.write_bytes(b"wrong executable bytes")
+                state={"launches":0,"logfd":None,"close_failed":False,"hash_phase":False}
+                def launch(*args,**kwargs):
+                    state["launches"]+=1;state["logfd"]=kwargs["stdout"];os.write(kwargs["stdout"],b"inert log\n")
+                    target={"executable-replaced":executable,"input-replaced":workspace/"input.xyz","marker-replaced":marker,"runtime-replaced":data/lane.XTB_RUNTIME_DATA_FILES[0]}.get(scenario)
+                    if target is not None:
+                        raw=target.read_bytes();target.rename(target.with_name(target.name+".retained"));target.write_bytes(raw)
+                    return SimpleNamespace(pid=123,returncode=None)
+                real_close,real_fsync,real_link=os.close,os.fsync,os.link
+                real_identity,real_read,real_exclusive=namespace["file_identity"],namespace["read_name"],namespace["exclusive"]
+                def close(fd):
+                    if scenario=="log-close" and fd==state["logfd"] and not state["close_failed"]:
+                        state["close_failed"]=True;raise OSError("inert log close failure")
+                    return real_close(fd)
+                def fsync(fd):
+                    if scenario=="log-fsync" and fd==state["logfd"]:raise OSError("inert log fsync failure")
+                    return real_fsync(fd)
+                def wait(pid,deadline):
+                    if scenario=="wait-error":raise OSError("inert wait failure")
+                    return 0
+                def identity(path,*args):
+                    result=real_identity(path,*args)
+                    if scenario=="python-replaced" and state["launches"] and path==str(python_path):
+                        return ([*result[0][:1],result[0][1]+1,*result[0][2:]],result[1])
+                    return result
+                def read(parent,name,*args,**kwargs):
+                    result=real_read(parent,name,*args,**kwargs)
+                    if scenario=="log-hash" and name=="xtb.out":state["hash_phase"]=True
+                    return result
+                def hash_bytes(raw):
+                    if state["hash_phase"]:raise OSError("inert hash failure")
+                    return sha256(raw)
+                def exclusive(parent,name,raw):
+                    result=real_exclusive(parent,name,raw)
+                    if scenario=="pending-corruption" and name=="v31-completion.pending":
+                        with (workspace/name).open("ab") as stream:stream.write(b"corrupt")
+                    return result
+                def link(*args,**kwargs):
+                    if scenario=="before-link":raise OSError("inert pre-link crash")
+                    result=real_link(*args,**kwargs)
+                    if scenario=="after-link":raise OSError("inert post-link crash")
+                    return result
+                cwd=Path.cwd()
+                try:
+                    with patch.dict(os.environ,{"PBS_JOBID":"123.server"}),patch.object(sys,"executable",str(python_path)),patch.dict(namespace,{"subreaper":lambda:None,"wait_all":wait,"file_identity":identity,"read_name":read,"exclusive":exclusive,"hashlib":SimpleNamespace(sha256=hash_bytes)}),patch("subprocess.Popen",side_effect=launch),patch("os.close",side_effect=close),patch("os.fsync",side_effect=fsync),patch("os.link",side_effect=link):
+                        with self.assertRaises((OSError,ValueError)):namespace["run"](config)
+                    final=workspace/"v31-completion.json"
+                    if scenario=="after-link":
+                        self.assertEqual(completion._decode_receipt(final.read_bytes())["termination"]["returncode"],0)
+                        self.assertEqual(final.stat().st_ino,(workspace/"v31-completion.pending").stat().st_ino)
+                    elif scenario!="existing-final":self.assertFalse(final.exists())
+                    if scenario in preexisting:self.assertEqual((workspace/preexisting[scenario]).read_bytes(),b"retained original\n")
+                    early=scenario in preexisting or scenario in ("marker-malformed","input-mismatch","input-symlink","executable-mismatch")
+                    self.assertEqual(state["launches"],0 if early else 1)
+                finally:os.chdir(cwd)
+
+    def test_closeout_expanded_review_and_old_version_mode_rejection(self):
+        reviewed=self.snapshot._approval_semantics()
+        self.assertEqual(reviewed["program_execution_spec"]["program_data"]["completion_mode"],completion._MODE)
+        self.assertEqual(reviewed["program_execution_spec"],self.snapshot.program_execution_spec.semantic_payload())
+        self.assertEqual(reviewed["resolved_resource_request"],self.snapshot.resolved_resource_request.semantic_payload())
+        self.assertEqual(reviewed["workspace_binding"],self.snapshot.workspace_binding.semantic_payload())
+        self.assertEqual(reviewed["scheduler_artifacts"],self.snapshot.scheduler_artifacts)
+        old_data={"model":"gfn2","search_mode":"ttconf","preset":"normal","charge":0,"unpaired_electrons":0,"energy_window_millikcal_per_mol":6000,"rmsd_threshold_milliangstrom":500,"temperature_millikelvin":298150,"random_seed":17}
+        executable={"absolute_path":lane.CREST_EXECUTABLE_PATH,"size_bytes":len(lane.CREST_EXECUTABLE_BYTES),"sha256":sha256(lane.CREST_EXECUTABLE_BYTES).hexdigest()}
+        invocation,required,optional=adapter._ADAPTER_REGISTRY[("crest","auto-g16-v31-crest",1)][3](executable,"seed.xyz",old_data)
+        crest_v1=execution.ProgramExecutionSpec._from_closed(program_kind="crest",adapter_id="auto-g16-v31-crest",adapter_contract_version=1,exact_inputs=self.crest_spec().exact_inputs,program_data=old_data,invocation=invocation,required_outputs=required,optional_outputs=optional)
+        for spec in (self.xtb_v1_spec(),self.xtb_spec(),crest_v1,self.crest_spec()):
+            values=dict(spec.semantic_payload());values.pop("program_execution_spec_id")
+            values["program_data"]={**values["program_data"],"completion_mode":completion._MODE}
+            with self.subTest(kind=spec.program_kind,version=spec.adapter_contract_version),self.assertRaises(ValueError):
+                execution.ProgramExecutionSpec._from_closed(**values)
+        from auto_g16 import approval
+        confirmation=approval.ExactOperationalConfirmation.for_snapshot(self.store,self.snapshot,confirmer_id="offline-closeout",confirmer_evidence={})
+        different_input=adapter._prepare_program_execution_spec(program_kind="xtb",executable_path=lane.XTB_EXECUTABLE_PATH,executable_size_bytes=len(lane.XTB_EXECUTABLE_BYTES),executable_sha256=sha256(lane.XTB_EXECUTABLE_BYTES).hexdigest(),input_name="input.xyz",input_bytes=lane.XYZ.replace(b"0.74",b"0.75"),program_data=self.xtb_data(),resolved_profile=self.resolved(),completion_mode=completion._MODE)
+        different_resources=execution.ResolvedResourceRequest(resource_spec=self.store.load_resource_spec("resource-1"),cores=4,memory_mb=6144,walltime_seconds=1800,queue="simple")
+        parent=self.local_root/"different-local-parent";parent.mkdir()
+        different_workspace=execution.WorkspaceBinding(project=self.store.load_project("project-1"),attempt_id="attempt-1",local_approved_root=str(self.local_root),local_attempt_dir=str(parent/"attempt-1"),rtwin_approved_root=r"C:\RTWIN",rtwin_attempt_dir=r"C:\RTWIN\project-1\attempt-1",remote_approved_root=execution.LEGACY_REMOTE_ROOT,remote_attempt_dir="/home/user100/SDL/project-1/attempt-1")
+        changes=[self.successor_snapshot(),self.completion_snapshot(task="single-point")]
+        for spec,resources,workspace in ((different_input,self.resources(),self.workspace()),(self.completion_spec(),different_resources,self.workspace()),(self.completion_spec(),self.resources(),different_workspace)):
+            changes.append(self.snapshot_service.prepare(self.store,attempt_id="attempt-1",calculation_plan_id="plan-1",resource_spec_id="resource-1",program_execution_spec=spec,project_physical_binding=self.physical_binding(),resolved_resource_request=resources,resolved_server_profile=self.resolved(),workspace_binding=workspace,completion_rendering_material=completion._prepare_completion_rendering_material(self.profile(),self.resolved())))
+        self.assertEqual(len({snapshot.program_execution_snapshot_id for snapshot in changes}),5)
+        for changed in changes:
+            with self.subTest(snapshot=changed.program_execution_snapshot_id),patch.object(self.store,"record_submission_intent") as claim:
+                with self.assertRaises(approval.ApprovalError):confirmation.assert_current(self.store,changed)
+                claim.assert_not_called()
+        self.assertEqual(self.driver.calls,[])
+
+    def test_closeout_fresh_v2_cannot_import_existing_job_authority(self):
+        self.execute();self.publish();before=self.store.observations_for_attempt("attempt-1");calls=len(self.driver.calls)
+        fresh=transport._ProgramTransportStore._create_completion_store(self.root/"transport"/"fresh.sqlite3",approved_root=self.root/"transport");self.addCleanup(fresh.close)
+        with self.assertRaises(TransportBoundaryError):
+            runtime._collect_program_completion(self.store,snapshot=self.snapshot,program_transport_store=fresh,driver=self.driver,input_bytes=self.input_bytes)
+        self.assertEqual(self.store.observations_for_attempt("attempt-1"),before)
+        self.assertEqual(self.driver.calls[calls:],[])
+        self.assertEqual(self.store.results_for_attempt("attempt-1"),())
+
+    def test_closeout_assessment_append_failure_reopens_durable_bundle(self):
+        self.execute();self.publish();append=self.store.append_observation
+        def fail_assessment(observation):
+            if observation.observation_type==runtime._COMPLETION_ASSESSMENT:raise RuntimeError("inert assessment append failure")
+            return append(observation)
+        with patch.object(self.store,"append_observation",side_effect=fail_assessment):
+            with self.assertRaises(RuntimeError):self.collect()
+        self.assertEqual(self.store.attempt_state("attempt-1"),core.AttemptState.SUBMITTED)
+        self.assertEqual(len(self.store.results_for_attempt("attempt-1")),1)
+        self.store.close();self.store=core.SQLiteRuntimeStore(self.database);self.addCleanup(self.store.close)
+        path,root=self.program_transport_store._path,self.program_transport_store._root
+        self.program_transport_store.close();self.program_transport_store=transport._ProgramTransportStore.open_existing(path,approved_root=root);self.addCleanup(self.program_transport_store.close)
+        calls=len(self.driver.calls)
+        self.assertEqual(runtime._replay_program_completion(self.store,**self.kwargs()).data["verdict"],"SUCCEEDED")
+        self.assertEqual(len(self.driver.calls),calls)
+        self.assertEqual(sum(op=="SUBMIT_QSUB_ONCE" for op,_ in self.driver.calls),1)
+
+    def test_closeout_assessment_readback_failure_prevents_transition(self):
+        self.execute();self.publish();observations=self.store.observations_for_attempt
+        def missing_assessment(attempt):
+            return tuple(o for o in observations(attempt) if o.observation_type!=runtime._COMPLETION_ASSESSMENT)
+        with patch.object(self.store,"observations_for_attempt",side_effect=missing_assessment):
+            with self.assertRaises(TransportBoundaryError):self.collect()
+        self.assertEqual(self.store.attempt_state("attempt-1"),core.AttemptState.SUBMITTED)
+        self.assertEqual(len(self.store.results_for_attempt("attempt-1")),1)
+        self.assertEqual(sum(o.observation_type==runtime._COMPLETION_ASSESSMENT for o in observations("attempt-1")),1)
+        calls=len(self.driver.calls)
+        self.assertEqual(runtime._replay_program_completion(self.store,**self.kwargs()).data["verdict"],"SUCCEEDED")
+        self.assertEqual(len(self.driver.calls),calls)
+
+    def test_closeout_same_result_id_conflict_during_collection_never_advances(self):
+        self.execute();self.publish();append=self.store.append_result
+        def conflicting(record):
+            append(core.Result(result_id=record.result_id,attempt_id=record.attempt_id,result_type=record.result_type,data={**record.data,"epoch_id":"foreign"}))
+            return append(record)
+        with patch.object(self.store,"append_result",side_effect=conflicting):
+            self.assertEqual(self.collect().data["diagnostic"],"evidence-conflict")
+        self.assertEqual(self.store.attempt_state("attempt-1"),core.AttemptState.SUBMITTED)
+        self.assertEqual(self.store.results_for_attempt("attempt-1")[0].data["epoch_id"],"foreign")
+        self.assertEqual(sum(op=="SUBMIT_QSUB_ONCE" for op,_ in self.driver.calls),1)
+
+    def test_closeout_manifest_root_inventory_nested_duplicates_and_data_list(self):
+        original=manifest()
+        for name in original["trust_roots"]:
+            value=json.loads(completion._receipt_json(original));del value["trust_roots"][name]
+            with self.subTest(missing_root=name),self.assertRaises(ValueError):completion._deployment_projection(completion._receipt_json(value))
+        value=json.loads(completion._receipt_json(original));value["trust_roots"]["extra"]=value["trust_roots"]["server_python"]
+        with self.assertRaises(ValueError):completion._deployment_projection(completion._receipt_json(value))
+        raw=completion._receipt_json(original)
+        for token in (b'"trust_roots":',b'"server_python":',b'"platform":'):
+            with self.subTest(token=token),self.assertRaises(ValueError):completion._deployment_projection(raw.replace(token,token+b'null,'+token,1))
+        valid=json.loads(completion.base64.b64decode(self.snapshot._completion_material()["xtb_runtime_data_manifest_base64"]))
+        for scenario in ("missing","extra"):
+            value=json.loads(completion._receipt_json(valid));name=next(iter(value["files"]))
+            if scenario=="missing":del value["files"][name]
+            else:value["files"]["unexpected-parameters"]=value["files"][name]
+            raw=completion._receipt_json(value)
+            if scenario=="missing":
+                with self.assertRaises(ValueError):completion._canonical_xtb_runtime_data_manifest(raw)
+            else:
+                # The legacy data grammar permits additional pinned files; changing
+                # the reviewed inventory still must fail its profile identity.
+                self.assertIn("unexpected-parameters",json.loads(completion._canonical_xtb_runtime_data_manifest(raw))["files"])
+            material={**self.snapshot._completion_material(),"xtb_runtime_data_manifest_base64":completion.base64.b64encode(raw).decode()}
+            with self.subTest(scenario=scenario),self.assertRaises(ValueError):completion._validate_material(material,self.resolved())
+
+    def test_closeout_capture_drift_and_signal_scheduler_subconditions(self):
+        for scenario in ("receipt-restat","required-absence","same-size-cross-file","signal-agrees","signal-disagrees","terminal-after-opening"):
+            with self.subTest(scenario=scenario):
+                fixture=CompletionTests(methodName="test_success_durable_bundle_and_zero_read_replay")
+                fixture.setUp()
+                try:
+                    fixture.execute()
+                    if scenario=="required-absence":fixture.driver.outputs.pop("xtbopt.xyz")
+                    fixture.publish(signal=15 if scenario.startswith("signal-") else None)
+                    original_stat=fixture.driver.stat_exact_file;original_query=fixture.driver.query_scheduler
+                    counts={};queries=[]
+                    def stat(request):
+                        name=request["payload"]["portable_name"];counts[name]=counts.get(name,0)+1
+                        result=original_stat(request)
+                        # The stock driver uses a constant token. Model the metadata
+                        # change a qualified file owner observes after the write.
+                        if scenario=="same-size-cross-file" and name=="xtb.out" and counts[name]==2:
+                            return {**result,"file_physical_token":"same-inode-new-mtime-ctime"}
+                        if scenario=="receipt-restat" and name=="v31-completion.json" and counts[name]==2:return {**result,"file_physical_token":"replaced-receipt"}
+                        if scenario=="required-absence" and name=="xtbopt.xyz" and counts[name]==2:
+                            fixture.driver.outputs[name]=lane.XYZ;return original_stat(request)
+                        if scenario=="same-size-cross-file" and name=="xtbopt.xyz" and counts[name]==1:
+                            old=fixture.driver.outputs["xtb.out"];fixture.driver.outputs["xtb.out"]=bytes([old[0]^1])+old[1:]
+                        return result
+                    def query(request):
+                        queries.append(True)
+                        return original_query(request)
+                    fixture.driver.stat_exact_file=stat
+                    if scenario.startswith("signal-"):
+                        fixture.driver.query_response={"job_id":"123.server","state":"terminal","exit_status":143 if scenario=="signal-agrees" else 0}
+                        runtime._query_program_scheduler(fixture.store,**fixture.kwargs())
+                        fixture.driver.query_response={"job_id":"123.server","state":"absent"}
+                    if scenario=="terminal-after-opening":
+                        def query(request):
+                            queries.append(True)
+                            if len(queries)==2:fixture.driver.query_response={"job_id":"123.server","state":"terminal","exit_status":0}
+                            return original_query(request)
+                        fixture.driver.query_scheduler=query
+                    assessment=fixture.collect()
+                    expected="program-signaled" if scenario=="signal-agrees" else "awaiting-absence" if scenario=="terminal-after-opening" else "evidence-conflict"
+                    self.assertEqual(assessment.data["diagnostic"],expected)
+                    self.assertEqual(sum(op=="SUBMIT_QSUB_ONCE" for op,_ in fixture.driver.calls),1)
+                    self.assertEqual(fixture.store.load_attempt("attempt-1").ordinal,1)
+                    if scenario!="signal-agrees":self.assertEqual(fixture.store.attempt_state("attempt-1"),core.AttemptState.SUBMITTED)
+                finally:fixture.doCleanups()
+
+    def test_closeout_same_assessment_id_conflict_never_advances(self):
+        self.execute();self.publish();append=self.store.append_observation
+        def conflict(observation):
+            if observation.observation_type==runtime._COMPLETION_ASSESSMENT:
+                append(core.Observation(observation_id=observation.observation_id,attempt_id=observation.attempt_id,observation_type=observation.observation_type,data={**observation.data,"diagnostic":"foreign"}))
+            return append(observation)
+        with patch.object(self.store,"append_observation",side_effect=conflict):
+            with self.assertRaises(core.RuntimeStoreError):self.collect()
+        self.assertEqual(self.store.attempt_state("attempt-1"),core.AttemptState.SUBMITTED)
+        self.assertEqual(len(self.store.results_for_attempt("attempt-1")),1)
+        self.assertEqual(sum(op=="SUBMIT_QSUB_ONCE" for op,_ in self.driver.calls),1)
 
 class NativeCompletionStoreTests(unittest.TestCase):
     """Real OS ownership, unmodified SQLite; never a remote driver."""
@@ -1046,3 +1555,143 @@ except TransportBoundaryError:
                 self.fail("symlink ancestor entered")
         alias = str(saved / "parent" / "program.sqlite3")
         self.assertEqual(self.subprocess_open(alias, self.root), "rejected")
+
+    def test_closeout_nested_owner_and_same_descriptor_relock(self):
+        with self.owner._completion_guard() as token:
+            descriptor = self.owner._completion_owner[3]
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            self.assertEqual(self.subprocess_open(), "rejected")
+            for supplied in (None, object()):
+                with self.assertRaises(TransportBoundaryError):
+                    self.owner._require_completion_guard(supplied)
+            with self.assertRaises(TransportBoundaryError):
+                with self.owner._completion_guard():
+                    self.fail("nested admission")
+            self.owner._require_completion_guard(token)
+        self.assertEqual(self.subprocess_open(), "acquired")
+        with self.assertRaises(TransportBoundaryError):
+            self.owner._require_completion_guard(token)
+
+    def test_closeout_full_schema_and_independent_v2_identity(self):
+        from uuid import UUID, uuid5
+        definitions = dict(self.owner._connection.execute("SELECT name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'"))
+        tables = ("program_transport_meta", "program_runtime_attestation", "program_effect_physical_authority")
+        expected_names = {*tables, *(table + "_no_" + verb for table in tables for verb in ("update", "delete"))}
+        self.assertEqual(set(definitions), expected_names)
+        self.assertEqual([r[1] for r in self.owner._connection.execute("PRAGMA table_info(program_transport_meta)")], ["singleton", "schema_identity", "program_transport_store_id", "store_instance_id", "creation_nonce", "approved_store_root", "approved_store_path", "store_device", "store_inode", "completion_guard_binding"])
+        for table in tables:
+            for verb in ("update", "delete"):
+                self.assertEqual(definitions[table + "_no_" + verb], f"CREATE TRIGGER {table}_no_{verb} BEFORE {verb.upper()} ON {table} BEGIN SELECT RAISE(ABORT,'append-only'); END")
+        row = self.owner._connection.execute("SELECT * FROM program_transport_meta").fetchone()
+        ordered = [definitions[t] for t in tables] + [definitions[t + "_no_" + v] for t in tables for v in ("update", "delete")]
+        self.assertEqual(row[1], transport.canonical_bytes(ordered))
+        self.assertEqual(self.owner._connection.execute("PRAGMA application_id").fetchone()[0], 1093879637)
+        def identifier(domain, payload):
+            ns = uuid5(UUID("a51f091c-dfd0-59b6-bf26-86a505a5cb43"), "auto-g16-v31-program-effect/1/" + domain)
+            return str(uuid5(ns, transport.canonical_bytes(payload).decode("ascii")))
+        payload = {"schema":"auto-g16-v31-program-transport-store/2", "approved_store_root":str(self.root), "approved_store_path":str(self.path)}
+        store_id = identifier("program-transport-store", payload)
+        self.assertEqual(row[2], store_id)
+        expected = {**payload, "program_transport_store_id":store_id, "creation_nonce_sha256":sha256(row[4]).hexdigest(), "store_device":self.path.stat().st_dev, "store_inode":self.path.stat().st_ino, "completion_guard_binding_sha256":sha256(row[9]).hexdigest()}
+        self.assertEqual(row[3], identifier("program-transport-store-instance", expected))
+        binding = self.owner._guard_binding
+        self.assertEqual(set(binding), {"schema", "lock_directory", "component_identities"})
+        components = [Path("/"), *reversed(list(self.root.parents)[:-1]), self.root]
+        self.assertEqual(binding["component_identities"], [[p.stat().st_dev,p.stat().st_ino] for p in components])
+        qualification = self.owner.attest_runtime(program_execution_snapshot_id="synthetic-snapshot", resolved_server_profile_id="synthetic-profile", qualification=composition._Driver().runtime_qualification)
+        raw = self.owner._connection.execute("SELECT payload FROM program_runtime_attestation WHERE runtime_attestation_id=?", (qualification,)).fetchone()[0]
+        payload = {"schema":"auto-g16-v31-program-transport-store/2", "program_transport_store_id":store_id, "store_instance_id":row[3], "program_execution_snapshot_id":"synthetic-snapshot", "resolved_server_profile_id":"synthetic-profile", "protocol":"auto-g16-v31-program-effect/1", "operation_table_sha256":transport._OPERATION_TABLE_SHA256, "qualified_runtime":composition._Driver().runtime_qualification}
+        self.assertEqual(raw, transport.canonical_bytes(payload))
+        self.assertEqual(qualification, identifier("program-runtime-attestation", payload))
+
+    def test_closeout_schema_meta_and_chain_corruption_fail_closed(self):
+        cases = [("user_version", 3), ("application_id", 0), ("missing-table", None), ("changed-ddl", None), ("schema_identity", b"wrong"), ("creation_nonce", b"x"*32), ("program_transport_store_id", "foreign"), ("store_instance_id", "foreign"), ("chain-order", None), ("chain-length", None)]
+        for index, (field, value) in enumerate(cases):
+            with self.subTest(field=field):
+                directory=self.root/str(index);directory.mkdir();path=directory/"store.sqlite3"
+                owner=transport._ProgramTransportStore._create_completion_store(path,approved_root=directory)
+                binding=dict(owner._guard_binding);owner.close()
+                with sqlite3.connect(path) as database:
+                    if field in ("user_version","application_id"):
+                        database.execute("PRAGMA " + field + "=" + str(value))
+                    elif field == "missing-table":
+                        database.execute("DROP TABLE program_effect_physical_authority")
+                    elif field == "changed-ddl":
+                        database.execute("ALTER TABLE program_runtime_attestation ADD COLUMN unexpected TEXT")
+                    else:
+                        if field.startswith("chain-"):
+                            chain=binding["component_identities"]
+                            binding["component_identities"]=list(reversed(chain)) if field=="chain-order" else chain[:-1]
+                            field="completion_guard_binding";value=transport.canonical_bytes(binding)
+                        database.execute("DROP TRIGGER program_transport_meta_no_update")
+                        database.execute("UPDATE program_transport_meta SET " + field + "=?",(value,))
+                        database.execute(dict(transport._PROGRAM_STORE_TRIGGERS)["program_transport_meta_no_update"])
+                database.close()
+                with self.assertRaises(TransportBoundaryError):
+                    transport._ProgramTransportStore.open_existing(path,approved_root=directory)
+                self.assertTrue(path.exists())
+
+    def test_closeout_root_escape_and_original_path_database_replacement(self):
+        outside=self.root.parent/(self.root.name+"-outside.sqlite3")
+        with self.assertRaises(TransportBoundaryError):
+            transport._ProgramTransportStore._create_completion_store(outside,approved_root=self.root)
+        self.assertFalse(outside.exists())
+        raw=self.path.read_bytes();self.path.rename(self.root/"retained-original.sqlite3");self.path.write_bytes(raw)
+        with self.assertRaises(TransportBoundaryError):
+            with self.owner._completion_guard():
+                self.fail("replacement admitted")
+        self.assertEqual(self.subprocess_open(),"rejected")
+        self.assertEqual(self.path.read_bytes(),raw)
+
+    def test_closeout_drift_between_connect_and_authority_closes_connection(self):
+        parent=self.root/"parent";parent.mkdir();path=parent/"store.sqlite3"
+        owner=transport._ProgramTransportStore._create_completion_store(path,approved_root=self.root);owner.close()
+        original=transport._ProgramTransportStore._open;captured=[]
+        def drift(*args,**kwargs):
+            value=original(*args,**kwargs);captured.append(value)
+            retained=self.root/"retained-parent";parent.rename(retained);parent.mkdir();(retained/path.name).rename(path)
+            return value
+        with patch.object(transport._ProgramTransportStore,"_open",side_effect=drift):
+            with self.assertRaises(TransportBoundaryError):
+                transport._ProgramTransportStore.open_existing(path,approved_root=self.root)
+        self.assertEqual(len(captured),1);self.assertTrue(captured[0]._closed)
+        with self.assertRaises(sqlite3.ProgrammingError):captured[0]._connection.execute("SELECT 1")
+        self.assertTrue(path.exists())
+
+    @unittest.skipUnless(hasattr(os,"fork"),"native fork unavailable")
+    def test_closeout_fork_rejects_before_other_thread_owned_rlock(self):
+        entered,release=threading.Event(),threading.Event()
+        def holder():
+            with self.owner._lock:
+                entered.set();release.wait(10)
+        thread=threading.Thread(target=holder);thread.start()
+        self.assertTrue(entered.wait(10))
+        read_fd,write_fd=os.pipe()
+        pid=None
+        try:
+            import warnings
+            with warnings.catch_warnings(record=True) as observed:
+                warnings.simplefilter("always", DeprecationWarning)
+                pid=os.fork()
+            if pid==0:
+                try:
+                    import signal
+                    signal.alarm(3)  # Bound this synthetic child even under a lock regression.
+                    os.close(read_fd)
+                    try:self.owner._attest()
+                    except TransportBoundaryError:os.write(write_fd,b"rejected")
+                finally:os._exit(0)
+            os.close(write_fd);write_fd=None
+            if sys.version_info >= (3, 12):
+                self.assertTrue(any(isinstance(item.message, DeprecationWarning) for item in observed))
+            import select
+            self.assertTrue(select.select([read_fd],[],[],5)[0],"child blocked on inherited RLock")
+            self.assertEqual(os.read(read_fd,16),b"rejected")
+            status=os.waitpid(pid,0)[1];pid=None
+            self.assertEqual(status,0)
+        finally:
+            os.close(read_fd)
+            if write_fd is not None:os.close(write_fd)
+            if pid is not None:os.waitpid(pid,0)  # Child's own alarm bounds all failure paths.
+            release.set();thread.join(10)
+        self.assertFalse(thread.is_alive())
