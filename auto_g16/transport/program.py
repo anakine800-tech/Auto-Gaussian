@@ -17,7 +17,8 @@ from pathlib import Path
 import re
 import secrets
 import sqlite3
-from threading import RLock
+from threading import RLock, Lock, get_ident
+from contextlib import contextmanager
 from typing import Protocol, runtime_checkable
 from uuid import UUID, uuid5
 
@@ -317,6 +318,8 @@ class _ProgramTransportStore:
         value._connection.execute("PRAGMA trusted_schema=OFF")
         value._connection.execute("PRAGMA synchronous=FULL")
         value._lock = RLock()
+        value._completion_lock = Lock()
+        value._completion_owner = None
         value._closed = False
         if _store_file_identity(path) != identity:
             value._connection.close()
@@ -325,6 +328,48 @@ class _ProgramTransportStore:
                 "program transport store changed across SQLite open"
             )
         return value
+
+    @contextmanager
+    def _completion_guard(self):
+        """Serialize the receipt-mode owner on the existing attested inode."""
+        import fcntl
+        if not self._completion_lock.acquire(blocking=False):
+            raise TransportBoundaryError("completion owner is busy")
+        descriptor = None
+        acquired = False
+        try:
+            self._attest()
+            descriptor = os.open(self._path, os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0))
+            info = os.fstat(descriptor)
+            if (info.st_dev, info.st_ino) != self._file_identity:
+                raise TransportBoundaryError("completion store inode changed")
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                acquired = True
+            except OSError as exc:
+                raise TransportBoundaryError("completion physical owner is busy") from exc
+            self._attest()
+            token = object()
+            self._completion_owner = (token, get_ident())
+            yield token
+        except sqlite3.OperationalError as exc:
+            raise TransportBoundaryError("completion physical guard is incompatible with current SQLite locking") from exc
+        finally:
+            self._completion_owner = None
+            try:
+                if descriptor is not None:
+                    try:
+                        if acquired:
+                            fcntl.flock(descriptor, fcntl.LOCK_UN)
+                    finally:
+                        os.close(descriptor)
+            finally:
+                self._completion_lock.release()
+
+    def _require_completion_guard(self, token: object) -> None:
+        if self._completion_owner != (token, get_ident()) or token is None:
+            raise TransportBoundaryError("completion owner token is absent or foreign")
+        self._attest()
 
     def _create_schema(self) -> None:
         nonce = secrets.token_bytes(32)

@@ -179,3 +179,158 @@ C3 implementation vectors remain pending. This task owns the untracked WIP;
 no unrelated changes were present and no cleanup was performed.
 
 Retained WIP SHA-256: `aa235ef7d380ce774cba08f4163a3c8cab48dee7433527658d56250e32b67f5b`.
+
+## Owner C3 activation — 2026-09-14
+
+The Owner replied “确认” to the exact C3 material-derivation request after its
+independent technical PASS. This accepts the six C3 authority-file hashes at
+commit `6b613026d1eb715fa4b235f57044c652d81f37aa`, tree
+`47855dcad48a7b1a6efc27e0f5b0d2e444036080`. C3 now supersedes C2 only for the
+explicit private material/data-line/prebinding delta. Dependent offline
+implementation may continue within the unchanged allowed paths. Earlier C3
+pending/stopped statements are historical checkpoint evidence. Production,
+publication, deployment, live actions and scientific acceptance remain outside
+authority. No implementation acceptance is inferred from this approval.
+
+## Phase-2 offline implementation checkpoint — 2026-09-14
+
+C2/C3 activation is unchanged. The six authority-file hashes above were
+recomputed at 10:24 UTC and remain exact. This checkpoint implements only the
+allowed private xTB version-3 path: profile-closed rendering material and fixed
+wrapper, fresh-Attempt mode, dual-source file acquisition, durable raw-byte
+Result bundle, complete-prefix assessment/replay and separate private `/2`
+proof. Production driver construction and evaluation remain hard-disabled with
+`publisher-not-qualified`; strict `/1` consumers reject receipt mode.
+
+The wrapper retains the workspace ancestor descriptor chain, reattests it at
+write/launch/publication boundaries, accepts only profile-bound runtime data
+components (including the mandatory `.param_gfnff.xtb`), binds the program log
+to the actual stdout/stderr inode, and uses exclusive pending plus no-replace
+hard link. No real wrapper/program invocation or Linux publisher qualification
+has occurred. Full wrapper control-flow tests replace Popen, subreaper and
+wait with inert fixtures; source/mechanical tests are not kernel evidence.
+
+### Implementation review corrections
+
+Independent reviewer `contract_seam_audit` found four P1 and one P2 in the
+first wrapper/material WIP: mandatory runtime dotfile rejection; unretained
+workspace parent descriptors and late reattestation; missing actual log inode
+binding; material validation after provisioning attestation; and manifest text
+grammar weaker than the extracted baseline. Those findings were addressed in
+the candidate, with bounded regression vectors.
+
+The second WIP review found one P1 and two P2: a new capture or null-result
+UNKNOWN could hide earlier accepted file drift/missing bytes; private bundle
+sizes and assessment evidence references were incompletely closed; unlock or
+close exceptions could retain the in-process guard. The candidate validates
+all accepted bundles against both their original prefixes and all current
+later evidence, checks exact integer sizes and provenance IDs, and releases
+the in-process guard in an outer finally. Final independent review disposition
+is recorded separately below; these fixes are not self-issued review PASS.
+
+### Native controller guard blocker
+
+The required guard remains a retained no-follow descriptor and nonblocking
+exclusive flock on the existing ProgramTransportStore database inode. An
+isolated local macOS experiment observed `sqlite3.OperationalError: database
+is locked` for both default and unix-posix VFS when SQLite read/write followed
+the required flock; unix-excl failed to acquire flock. No repository database
+was used by that experiment. Product code does not switch VFS, create a lock
+sidecar, disable SQLite locking, add a qualification override or retry. It
+maps the incompatibility to a boundary rejection and releases owned resources.
+
+On Darwin only, completion model tests inject a test-local flock substitute;
+they exercise evidence logic and contention modeling, not native positive
+locking qualification. A separate test restores the real flock and verifies
+boundary rejection with zero driver calls and zero epoch writes. No compatible
+local Docker/Podman/Colima/Lima executable was available. No environment was
+installed and no remote host or CI was started. A user question about an
+existing compatible local environment remains separate from any authorization
+to connect or execute there.
+
+**Native guard plus SQLite positive/cross-process evidence: BLOCKED /
+NOT ACQUIRED. Complete FC13 and full phase-2 implementation acceptance are
+not closed.** A compatible authorized local environment could supply the
+missing evidence without changing the contract. Treating mock-only coverage
+as full acceptance or changing the locked object/locking design would require
+a new explicitly reviewed contract decision; neither is inferred here.
+
+### Frozen implementation content
+
+| Allowed file | SHA-256 |
+| --- | --- |
+| `auto_g16/execution/program.py` | `ec842f9e480a01c7d60bce8e4da2a6f1c12f0138fb59ba813f818c82ba6ae998` |
+| `auto_g16/execution/program_runtime.py` | `78c213c07dbde105a52bb7292d82d04f6515f8a8200d0e05e35a93db1b4a8dba` |
+| `auto_g16/execution/_program_completion.py` | `9bac5072e08a90781434b5d23564f1979d4d2fef3b09808f1119d8c385a22fe1` |
+| `auto_g16/execution/_program_completion_wrapper.py` | `00623071507c37dda0460105130b3fb182c5f856ac106e015a9e1ee812605e37` |
+| `auto_g16/transport/program.py` | `af369d5177c9ed4cefed17b50274038fa7528d9d77c5df588bec3508eb3ce986` |
+| `auto_g16/transport/_program_rtwin.py` | `a0ac8552bc8f2d427f40b91a02881fd6a9c1d556aa179a475a1ab1be3d4c10eb` |
+| `tests/v31/transport/test_program_completion.py` | `05678a46a7a0e8b9b4af086ecd53267e53f45f87894aaa807dcb90b41c3f2d05` |
+
+### Validation scope
+
+Preflight passed with only the owned dirty-candidate warning. Syntax, diff,
+CI declaration and Python contract audits passed. The progressive configured
+static check passed (23 existing selected files); separately applying the same
+four rules to all six changed product modules and the embedded wrapper found
+zero violations. Inert test code intentionally evaluates the fixed wrapper
+source and is not represented as passing the product no-eval/exec rule.
+
+Focused runs passed 46 new completion tests and 185 adjacent strict composition,
+RTwin bridge and Lane-A tests before the last three source/consumer vectors
+were added. A final bounded combined run of the 49 completion tests plus those
+185 adjacent tests is recorded below. It is not full repository validation,
+remote CI, native positive guard evidence or scientific acceptance. No shared
+checkout, historic job/evidence or Core/public schema was changed.
+
+### Final review correction: safe absence after open
+
+The first frozen implementation candidate above passed the bounded combined
+run: **234 tests, 86.223 seconds, OK** (49 completion and 185 adjacent tests).
+Independent frozen-source review nevertheless found one residual P1: output
+collection caught FileNotFoundError around the whole read, so ENOENT from a
+post-open named metadata recheck could be encoded as absence. The same branch
+could accept disappearance of the wrapper-created log after close. The review
+reproduced the post-open case using only an inert temporary file and injected
+metadata failure; no program was invoked. This candidate was REQUEST CHANGES,
+not a code or acceptance PASS.
+
+The final delta changes only the wrapper source and completion tests. A
+private AbsentFile exception now denotes exclusively the initial no-follow
+open's ENOENT. All failures after a successful open stop publication, and the
+already created log may never become an absent output. Negative vectors cover
+post-open named metadata ENOENT and log disappearance after close, including
+no receipt and at most one inert launch. The two hashes below supersede only
+the corresponding entries in the preceding implementation manifest:
+
+- `auto_g16/execution/_program_completion_wrapper.py`:
+  `664e6ea75ac2b9e1b7d880e198b5a41b195054f54d956548fa8e0ce5c2e6ba09`
+- `tests/v31/transport/test_program_completion.py`:
+  `764fd4ee081c2bbf4d3b98526efa265a16fb8d4da1d518ade63543a0d468ea83`
+
+All other product and authority-file hashes remain unchanged. The final delta
+is limited to receipt-mode wrapper semantics, so the 185 passing adjacent
+strict/bridge/Lane-A vectors are retained; the full completion module is rerun
+for the changed source. Independent delta review and the final run are
+recorded below. The native guard/SQLite blocker is unchanged.
+
+### Final bounded disposition
+
+- Final completion-module run: **50 tests / 48.025 seconds / OK** on the
+  final two hashes. Native Darwin positive locking was not substituted into
+  this claim; the real rejection test and test-local lock model remain explicit.
+- Final independent delta review by `contract_seam_audit`: residual P1 CLOSED;
+  no new P0/P1/P2 identified. The reviewer independently recomputed the final
+  wrapper/test hashes and confirmed the other five product hashes unchanged,
+  and ran the two affected inert tests successfully. Combined with the earlier
+  frozen-source review, no residual code finding is identified in the reviewed
+  scope. This is not a complete FC01–FC15 acceptance or Owner/production PASS.
+- Local staged inventory contains only the six allowed product files, one
+  allowed new test and this dossier. The sensitive/private-key/token/private
+  local-path scan has zero findings. No Core schema, public record inventory,
+  bootstrap protocol or historical strict serializer was edited.
+- **Disposition: OFFLINE IMPLEMENTATION CHECKPOINT; BLOCKED ON NATIVE GUARD
+  POSITIVE EVIDENCE / FULL FC13.** Retain the isolated branch/worktree. No
+  publication, integration, deployment, live execution, resubmission, cleanup
+  or scientific acceptance is authorized or performed. No lock redesign,
+  mock-based acceptance relaxation or C4 decision is inferred.

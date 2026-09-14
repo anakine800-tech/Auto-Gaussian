@@ -322,6 +322,8 @@ class _RTWinProgramEffectDriver:
     def __init__(self, *, snapshot: ProgramExecutionSnapshot, current_profile: ServerProfile, program_transport_store: program._ProgramTransportStore) -> None:
         if type(snapshot) is not ProgramExecutionSnapshot or type(program_transport_store) is not program._ProgramTransportStore:
             raise TransportBoundaryError("production successor dependencies are not exact")
+        if snapshot.program_execution_spec.adapter_contract_version == 3:
+            raise TransportBoundaryError("publisher-not-qualified")
         self._snapshot = snapshot
         self._profile = current_profile
         self._store = program_transport_store
@@ -331,6 +333,8 @@ class _RTWinProgramEffectDriver:
 
     def _authority(self) -> _driver._DeploymentAuthority:
         self._snapshot.assert_identity_closed()
+        if self._snapshot.program_execution_spec.adapter_contract_version == 3:
+            raise TransportBoundaryError("publisher-not-qualified")
         executable = self._snapshot.program_execution_spec.invocation["executable_identity"]
         if str(executable["absolute_path"]).startswith("/opt/auto-g16-fixtures/"):
             raise TransportBoundaryError("synthetic executables cannot qualify a production driver")

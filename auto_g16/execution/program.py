@@ -9,7 +9,7 @@ import re
 import shlex
 from typing import Callable, Final
 
-from auto_g16.core import CalculationPlan, ResourceSpec, SQLiteRuntimeStore
+from auto_g16.core import AttemptState, CalculationPlan, ResourceSpec, SQLiteRuntimeStore
 
 from ._identity import (
     ExecutionValueError,
@@ -184,7 +184,7 @@ def _validate_invocation(
         "OMP_NUM_THREADS",
     )
     expected_environment = (omp_environment,)
-    if program_kind == "xtb" and adapter_contract_version == 2:
+    if program_kind == "xtb" and adapter_contract_version in (2, 3):
         expected_environment = (
             omp_environment,
             freeze_mapping(
@@ -213,6 +213,14 @@ def _validate_xtb_data(value: Mapping[str, object]) -> Mapping[str, object]:
     if value["solvent"] is not None:
         validate_portable_name(require_text(value["solvent"], "xtb solvent"), "xtb solvent")
     return freeze_mapping(dict(value), "xtb program_data")
+
+
+def _validate_xtb_completion_data(value: Mapping[str, object]) -> Mapping[str, object]:
+    from ._program_completion import _MODE
+    if value.get("completion_mode") != _MODE:
+        raise ExecutionValueError("unknown completion mode")
+    _validate_xtb_data({key: item for key, item in value.items() if key != "completion_mode"})
+    return freeze_mapping(dict(value), "xtb completion program_data")
 
 
 def _validate_crest_v1_data(value: Mapping[str, object]) -> Mapping[str, object]:
@@ -558,6 +566,9 @@ _Adapter = tuple[
     Callable[[Mapping[str, object], str, Mapping[str, object]], tuple[Mapping[str, object], tuple[Mapping[str, object], ...], tuple[Mapping[str, object], ...]]],
 ]
 _ADAPTER_REGISTRY: Final[Mapping[tuple[str, str, int], _Adapter]] = {
+    ("xtb", "auto-g16-v31-xtb", 3): (
+        "auto-g16-v31-xtb", 3, _validate_xtb_completion_data, _render_xtb,
+    ),
     ("xtb", "auto-g16-v31-xtb", 1): (
         "auto-g16-v31-xtb",
         1,
@@ -639,6 +650,15 @@ class ProgramExecutionSpec:
         if inputs[0]["logical_role"] != "structure" or inputs[0]["format"] != "xyz":
             raise ExecutionValueError("initial adapters require one XYZ structure input")
         data = validate_data(program_data)
+        if program_kind == "xtb" and adapter_contract_version == 3:
+            from ._program_completion import _RESERVED_NAMES
+            names = [item["portable_name"] for item in (*inputs, *required_outputs, *optional_outputs)]
+            if len(set(names)) != len(names) or any(
+                name in _RESERVED_NAMES or name == "xtb.pbs"
+                or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", str(name)) is None
+                for name in names
+            ):
+                raise ExecutionValueError("completion file names collide or are unsafe")
         closed_invocation = _validate_invocation(
             invocation, program_kind, adapter_contract_version
         )
@@ -713,10 +733,17 @@ def _prepare_program_execution_spec(
     input_bytes: bytes,
     program_data: Mapping[str, object],
     resolved_profile: ResolvedServerProfile | None = None,
+    completion_mode: str | None = None,
 ) -> ProgramExecutionSpec:
     if program_kind not in _PROGRAM_KINDS:
         raise ExecutionValueError("unknown program kind")
     adapter_key = _INITIAL_ADAPTER_KEYS.get(program_kind)
+    if completion_mode is not None:
+        from ._program_completion import _MODE
+        if program_kind != "xtb" or completion_mode != _MODE or "completion_mode" in program_data:
+            raise ExecutionValueError("unknown or duplicate explicit completion mode")
+        adapter_key = ("xtb", "auto-g16-v31-xtb", 3)
+        program_data = {**program_data, "completion_mode": completion_mode}
     if adapter_key is None:
         raise ExecutionValueError("Gaussian successor is reserved but not implemented")
     adapter = _ADAPTER_REGISTRY[adapter_key]
@@ -776,7 +803,16 @@ def _render_scheduler_artifact(
     spec: ProgramExecutionSpec,
     resources: ResolvedResourceRequest,
     profile: ResolvedServerProfile,
+    *, prebinding_fields: Mapping[str, object] | None = None,
+    completion_rendering_material: Mapping[str, object] | None = None,
 ) -> tuple[Mapping[str, object], ...]:
+    if _uses_completion_receipt(spec):
+        from ._program_completion import _render_completion_scheduler
+        if prebinding_fields is None or completion_rendering_material is None:
+            raise ExecutionValueError("completion rendering material is required")
+        return _render_completion_scheduler(spec, resources, profile, prebinding_fields, completion_rendering_material)
+    if completion_rendering_material is not None:
+        raise ExecutionValueError("strict adapters reject completion rendering material")
     argv = tuple(spec.invocation["argv"])
     command = " ".join(shlex.quote(str(token)) for token in argv)
     program_log = next(
@@ -870,7 +906,11 @@ def _uses_xtb_runtime_data_authority(spec: ProgramExecutionSpec) -> bool:
         spec.program_kind,
         spec.adapter_id,
         spec.adapter_contract_version,
-    ) == ("xtb", "auto-g16-v31-xtb", 2)
+    ) in {("xtb", "auto-g16-v31-xtb", 2), ("xtb", "auto-g16-v31-xtb", 3)}
+
+
+def _uses_completion_receipt(spec: ProgramExecutionSpec) -> bool:
+    return (spec.program_kind, spec.adapter_id, spec.adapter_contract_version) == ("xtb", "auto-g16-v31-xtb", 3)
 
 
 def _assert_xtb_runtime_data_authority(profile: ResolvedServerProfile) -> str:
@@ -982,6 +1022,12 @@ class ProgramExecutionSnapshot:
         """Purely reclose persisted review bytes, without returning effect authority."""
         return _validate_program_review_semantics(value)
 
+    def _completion_material(self) -> Mapping[str, object] | None:
+        if not _uses_completion_receipt(self.program_execution_spec):
+            return None
+        from ._program_completion import _material_from_artifact
+        return _material_from_artifact(self.scheduler_artifacts, self.resolved_server_profile)
+
     def _assert_current_core(self, store: SQLiteRuntimeStore) -> None:
         self.assert_identity_closed()
         attempt = store.load_attempt(self.attempt_id)
@@ -1044,6 +1090,8 @@ class ProgramExecutionSnapshot:
             self.program_execution_spec,
             self.resolved_resource_request,
             self.resolved_server_profile,
+            prebinding_fields={key: value for key, value in self._identity_payload.items() if key != "scheduler_artifacts"},
+            completion_rendering_material=self._completion_material(),
         )
         if self.cwd_binding != cwd_binding or self.scheduler_artifacts != scheduler:
             raise ExecutionValueError(
@@ -1245,6 +1293,7 @@ class _ProgramExecutionSnapshotService:
         resolved_resource_request: ResolvedResourceRequest,
         resolved_server_profile: ResolvedServerProfile,
         workspace_binding: WorkspaceBinding,
+        completion_rendering_material: Mapping[str, object] | None = None,
     ) -> ProgramExecutionSnapshot:
         fixture = str(program_execution_spec.invocation["executable_identity"]["absolute_path"]).startswith("/opt/auto-g16-fixtures/")
         production = self._project_provisioning._journal is not None
@@ -1261,6 +1310,7 @@ class _ProgramExecutionSnapshotService:
             resolved_resource_request=resolved_resource_request,
             resolved_server_profile=resolved_server_profile,
             workspace_binding=workspace_binding,
+            completion_rendering_material=completion_rendering_material,
         )
 
 
@@ -1276,6 +1326,7 @@ def _prepare_program_execution_snapshot_owned(
     resolved_resource_request: ResolvedResourceRequest,
     resolved_server_profile: ResolvedServerProfile,
     workspace_binding: WorkspaceBinding,
+    completion_rendering_material: Mapping[str, object] | None = None,
 ) -> ProgramExecutionSnapshot:
     if not isinstance(store, SQLiteRuntimeStore):
         raise ExecutionValueError("successor preparation requires the exact Core store")
@@ -1310,6 +1361,13 @@ def _prepare_program_execution_snapshot_owned(
     _assert_executable_matches_resolved_profile(
         program_execution_spec, resolved_server_profile
     )
+    if _uses_completion_receipt(program_execution_spec):
+        from ._program_completion import _validate_material
+        _validate_material(completion_rendering_material, resolved_server_profile)
+        if store.attempt_state(attempt.attempt_id) is not AttemptState.PLANNED:
+            raise ExecutionValueError("completion preparation requires a fresh unconsumed Attempt")
+    elif completion_rendering_material is not None:
+        raise ExecutionValueError("strict adapters reject completion rendering material")
     current_proof = owned_project_provisioning._attest_current(
         project_physical_binding, resolved_server_profile
     )
@@ -1326,11 +1384,6 @@ def _prepare_program_execution_snapshot_owned(
         raise ExecutionValueError(
             "workspace binding differs from the exact remote Project/Attempt authority"
         )
-    scheduler = _render_scheduler_artifact(
-        program_execution_spec,
-        resolved_resource_request,
-        resolved_server_profile,
-    )
     spec_digest = semantic_sha256(program_execution_spec.semantic_payload())
     payload = freeze_mapping(
         {
@@ -1347,10 +1400,15 @@ def _prepare_program_execution_snapshot_owned(
                 "location_kind": "server",
                 "path": remote_attempt_dir,
             },
-            "scheduler_artifacts": scheduler,
         },
         "ProgramExecutionSnapshot identity payload",
     )
+    scheduler = _render_scheduler_artifact(
+        program_execution_spec, resolved_resource_request, resolved_server_profile,
+        prebinding_fields=payload,
+        completion_rendering_material=completion_rendering_material,
+    )
+    payload = freeze_mapping({**payload, "scheduler_artifacts": scheduler}, "ProgramExecutionSnapshot identity payload")
     effect_intent_id = semantic_id("program-effect-intent", payload)
     snapshot_payload = freeze_mapping(
         {"effect_intent_id": effect_intent_id, **{key: payload[key] for key in payload}},
