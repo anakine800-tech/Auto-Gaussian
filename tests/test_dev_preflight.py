@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -26,7 +28,36 @@ def run_git(root: Path, *args: str) -> None:
         raise AssertionError(result.stderr)
 
 
+def clean_cli_environment() -> dict[str, str]:
+    """Bind the parent-selected Git once; never retry another dependency."""
+    parent_path = os.environ.get("PATH")
+    selected = shutil.which("git", path=parent_path) if parent_path else None
+    if selected is None or not Path(selected).is_absolute():
+        raise AssertionError("CLI tests require an absolute parent-selected Git")
+    git = Path(selected).resolve(strict=True)
+    if git.name != "git" or not git.is_file() or not os.access(git, os.X_OK):
+        raise AssertionError("CLI tests require a valid physical Git executable")
+    # These real CLI tests need a clean environment with an explicit dependency,
+    # rather than env={}. Suppress ambient config without overriding local hooks.
+    environment = {
+        "PATH": str(git.parent),
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_GLOBAL": "/dev/null",
+    }
+    version = subprocess.run(
+        [str(git), "--version"], env=environment, check=False,
+        capture_output=True, text=True,
+    )
+    if version.returncode or not version.stdout.startswith("git version "):
+        raise AssertionError("Selected Git dependency failed its version check")
+    return environment
+
+
 class DevelopmentPreflightTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.cli_environment = clean_cli_environment()
+
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
@@ -96,7 +127,7 @@ class DevelopmentPreflightTests(unittest.TestCase):
             check=False,
             capture_output=True,
             text=True,
-            env={},
+            env=self.cli_environment,
         )
         self.assertEqual(result.returncode, 1, result.stderr)
         payload = json.loads(result.stdout)
@@ -149,12 +180,106 @@ class DevelopmentPreflightTests(unittest.TestCase):
             check=False,
             capture_output=True,
             text=True,
-            env={},
+            env=self.cli_environment,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         payload = json.loads(result.stdout)
         self.assertEqual(payload["schema"], PREFLIGHT.SCHEMA)
         self.assertIn(payload["status"], {"pass", "pass_with_warnings"})
+
+    def test_clean_cli_environment_excludes_ambient_state_and_keeps_local_hooks(self) -> None:
+        home = self.root / "synthetic-home"
+        home.mkdir()
+        config = home / ".gitconfig"
+        config.write_text('[sentinel]\n global = inherited\n', encoding="utf-8")
+        system_config = home / "system-config"
+        system_config.write_text('[sentinel]\n system = inherited\n', encoding="utf-8")
+        run_git(self.root, "config", "sentinel.local", "retained")
+        run_git(self.root, "config", "user.name", "Auto G16 Test")
+        run_git(self.root, "config", "user.email", "test@example.invalid")
+        hook = self.root / ".git" / "hooks" / "pre-commit"
+        hook.write_text(
+            f"#!{sys.executable}\nfrom pathlib import Path\n"
+            "Path('.git/local-hook-ran').write_text('retained')\n",
+            encoding="utf-8",
+        )
+        hook.chmod(0o755)
+        # Only synthetic ambient inputs enter this probe's parent. The nested
+        # process receives the same closed environment used by the real CLI.
+        ambient = {
+            "PATH": self.cli_environment["PATH"],
+            "HOME": str(home),
+            "XDG_CONFIG_HOME": str(home),
+            "GIT_CONFIG_GLOBAL": str(config),
+            "GIT_CONFIG_SYSTEM": str(system_config),
+            "GH_TOKEN": "synthetic-sensitive-sentinel",
+            "UNRELATED_SENTINEL": "synthetic-unrelated-sentinel",
+            "AUTO_G16_LIVE_SUBMIT": "synthetic-live-sentinel",
+            "AUTO_G16_SKIP_PRESSURE_TESTS": "synthetic-coverage-sentinel",
+        }
+        probe = """
+import json, os, runpy, subprocess, sys
+module = runpy.run_path(sys.argv[1])
+environment = module['clean_cli_environment']()
+def git(*args, env):
+    return subprocess.run(['git', '-C', sys.argv[2], *args], env=env,
+                          check=True, capture_output=True, text=True).stdout
+ambient = git('config', '--list', '--show-scope', env=os.environ)
+isolated = git('config', '--list', '--show-scope', env=environment)
+child = subprocess.run([sys.executable, '-c',
+                        'import json, os; print(json.dumps(dict(os.environ)))'],
+                       env=environment, check=True, capture_output=True, text=True)
+git('commit', '--allow-empty', '-m', 'local hook probe', env=environment)
+print(json.dumps({'ambient': ambient, 'isolated': isolated,
+                  'supplied_keys': sorted(environment),
+                  'child': json.loads(child.stdout)}))
+"""
+        result = subprocess.run(
+            [sys.executable, "-c", probe, str(Path(__file__).resolve()), str(self.root)],
+            env=ambient, check=False, capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertIn("global\tsentinel.global=inherited", payload["ambient"])
+        self.assertIn("system\tsentinel.system=inherited", payload["ambient"])
+        self.assertNotIn("global\t", payload["isolated"])
+        self.assertNotIn("system\t", payload["isolated"])
+        self.assertIn("local\tsentinel.local=retained", payload["isolated"])
+        self.assertEqual((self.root / ".git/local-hook-ran").read_text(), "retained")
+        self.assertEqual(payload["supplied_keys"], ["GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM", "PATH"])
+        self.assertEqual(payload["child"]["PATH"], self.cli_environment["PATH"])
+        self.assertEqual(payload["child"]["GIT_CONFIG_GLOBAL"], "/dev/null")
+        self.assertEqual(payload["child"]["GIT_CONFIG_NOSYSTEM"], "1")
+        # CPython may synthesize LC_CTYPE during startup; it is not an input key.
+        self.assertLessEqual(set(payload["child"]), set(payload["supplied_keys"]) | {"LC_CTYPE"})
+        for key in set(ambient) - {"PATH", "GIT_CONFIG_GLOBAL"}:
+            self.assertNotIn(key, payload["child"])
+        self.assertNotIn("synthetic-", json.dumps(payload["child"]))
+
+    def test_missing_or_invalid_git_dependency_fails_in_real_process(self) -> None:
+        empty = self.root / "empty-bin"
+        empty.mkdir()
+        invalid = self.root / "invalid-bin"
+        invalid.mkdir()
+        executable = invalid / "git"
+        executable.write_text("invalid executable format\n", encoding="utf-8")
+        executable.chmod(0o755)
+        probe = (
+            "import runpy, sys; "
+            "runpy.run_path(sys.argv[1])['clean_cli_environment'](); "
+            "print('DEPENDENCY_ACCEPTED')"
+        )
+        cases = ({}, {"PATH": str(empty)}, {"PATH": "empty-bin"},
+                 {"PATH": str(invalid) + os.pathsep + self.cli_environment["PATH"]})
+        for environment in cases:
+            with self.subTest(environment=environment):
+                result = subprocess.run(
+                    [sys.executable, "-c", probe, str(Path(__file__).resolve())],
+                    cwd=self.root, env=environment, check=False, capture_output=True, text=True,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn("DEPENDENCY_ACCEPTED", result.stdout)
+                self.assertIn("clean_cli_environment", result.stderr)
 
 
 if __name__ == "__main__":
