@@ -1616,7 +1616,7 @@ class CompletionTests(lane.LaneAFixture):
     def test_supplement_historical_source_four_version_golden_bytes_and_ids(self):
         from auto_g16.execution import models
         encoded = completion._receipt_json
-        raw=(Path(__file__).parents[2]/"fixtures"/"v31"/"historical-spec-snapshot-goldens.json").read_bytes()
+        raw=(Path(__file__).parent/"fixtures"/"historical-spec-snapshot-goldens.json").read_bytes()
         self.assertEqual(sha256(raw).hexdigest(),"d83e1f247223b8c49915859f1cadfa4cebe114dcfc6055e5aebd41ef73ff93ba")
         golden=json.loads(raw)
         self.assertEqual(golden["source_commit"],"6b2ece4443951381f0206c93e55e581ca175dd5e")

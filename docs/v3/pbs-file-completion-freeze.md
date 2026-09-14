@@ -913,7 +913,7 @@ The golden source is pre-C2 commit
 `ecfd6612aa7853a0563e51858ae54ba2717c1130`. Fixed synthetic local root and
 explicit synthetic descriptor tokens were selected before generation by old
 code; no private path was redacted and no identity recomputed afterward.
-`tests/fixtures/v31/historical-spec-snapshot-goldens.json` SHA-256:
+`tests/v31/transport/fixtures/historical-spec-snapshot-goldens.json` SHA-256:
 `d83e1f247223b8c49915859f1cadfa4cebe114dcfc6055e5aebd41ef73ff93ba`.
 Current code did not generate the old golden. The generator and source archive
 are retained outside Git with source/blob/hash manifests.
@@ -931,13 +931,16 @@ no database artifact or machine path is committed.
 ### Validation, review and unresolved responsibility
 
 Final source SHA-256
-`1d8a62d0f52f8906d3e2fcb1ab75f39d4a4fa97239f667f0cb2e5cd3a66e07fe`
-passed **10 tests / 6.227 seconds / exit 0 / no skips**: six new methods and
+`db7162143ebbf83e700026423c936a06f6651951865f4f30eadd4d0e2ac541fc`
+passed **10 tests / 5.856 seconds / exit 0 / no skips**: six new methods and
 four adjacent strict/writer-status/durable-replay/native-contention regressions.
-The original 104 class methods are AST-identical. The earlier 10-test draft
-pass is retained separately; only an extra EOF blank line was removed before
-this final exact-byte run. Final log SHA-256:
-`3b7f5c839e6ac93538e312fdca96cebc482c298f38f65dbe0ce5673f289d0e0c`.
+The original 104 class methods are AST-identical. Earlier 10-test passes
+are retained separately. An EOF blank line was removed, then the unchanged
+golden was relocated into the existing `v31-transport-tests` ownership prefix
+after the initial unowned fixture path triggered conservative selection. Only
+the new golden read path and documentation changed for that correction; the
+selector/manifest were not modified. Final exact-byte log SHA-256:
+`9daf39e26973ae9d9c0cd9c71ec80ce68e14331023be9d779901a787e5bc2b13`.
 
 The whole-task selector remains subject to its earlier self-protection
 `legacy-release` routing. New commit/tree selection is retained externally.
