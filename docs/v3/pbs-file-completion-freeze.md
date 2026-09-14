@@ -435,3 +435,99 @@ empty tests and reason `selector, manifest, runner, or selector-test bytes
 changed`. This is distinct from the old missing-safety-carrier error: the
 mixed-route fixture closes that defect, while A cannot bypass its own safety
 escalation. No automatic full run or integration acceptance is authorized.
+
+
+### A local checkpoint and C4 proposal evidence
+
+A was committed with normal passing pre-commit hooks as
+`6c6c982af4289f74180d5fbeb5c4cf90ce10778a`, tree
+`d0d9a3fc64867ae13bc7de330db63663c90af636`. Staged inventory was exactly the
+two authorized configuration/test files and this dossier; sensitive/private-
+key/token/private-path scan had zero findings. Six C4 proposal docs remained
+owned unstaged work, so this was not advertised as a clean whole-worktree
+handoff. No product file or completion test changed from checkpoint 5021756;
+all seven frozen product/test SHA-256 values were independently rechecked.
+
+#### C4 native feasibility probes
+
+Credential-free local retained temporary files only; no product implementation,
+real program, service, network, installation, VFS change or artifact deletion.
+Observed environment: Darwin/macOS 26.6.2, Python 3.13.13, SQLite 3.53.1,
+default sqlite3 connections on the native temporary volume. Filesystem type
+identification was NOT_ACQUIRED; no general APFS, network-mount or Linux
+qualification is claimed. Temporary artifact locations remain in local tool
+evidence, not versioned private machine paths.
+
+The directory probe's canonical recorded JSON file SHA-256 is
+`50a2833a90745837b57533153770650093cebafdb90ce3c4a65a326c4deba102`.
+All **14 expected observations** were true:
+
+- Default SQLite two-connection read/write succeeds while its existing parent
+  directory has real EX|NB flock; an independent process is busy, including a
+  process launched by another thread, and a same-process second FD is busy.
+- Closing an unrelated descriptor or a duplicate FD retains the original
+  lock; re-flock of the same FD succeeds, demonstrating why the private token
+  policy is necessary. Explicit release allows a new process to acquire.
+- A controlled inert holder exits through os._exit(77); it blocks contenders
+  before death and permits a new explicit acquisition afterward.
+- O_NOFOLLOW rejects a directory symlink, and a deliberately hardlinked inert
+  database exposes nlink=2 for the proposed rejection gate.
+- A retained locked directory is renamed, a replacement parent is created and
+  the same inert database inode moved into it. The replacement's raw flock
+  succeeds (an expected negative safety observation), but a directory-chain
+  anchor persisted in a generic inert SQLite table differs from the current
+  chain. This demonstrates the need for immutable parent binding; it is not a
+  test of an implemented ProgramTransportStore `/2`.
+
+A second native fork probe recorded **four expected observations**, report
+SHA-256 `ce0eb8acb67bea63c3f8d2a96e5b27451eb06a55851098493eb809de80c1157e`.
+A minimal registered child callback closes its inherited directory FD without
+LOCK_UN; the parent's lock remains busy. After controlled parent os._exit(77),
+the child is verified still alive and a new process acquires the directory
+lock. The inert child then exits on its explicit local pipe signal. This proves
+that narrow native descriptor behavior only, not the full proposed process
+registry, fork registration race closure, SQLite quarantine or product replay.
+The larger C4 vectors, native product positive and full FC13 remain OPEN.
+
+#### C4 concrete candidate and exact Owner decision boundary
+
+**PROPOSED / OWNER ACCEPTANCE PENDING.** The candidate chooses an existing
+parent-directory lock, fresh private store `/2` with one immutable physical
+chain field, exact `/1` compatibility, nonblocking shared ownership and bounded
+fork lifecycle. Stable trusted local namespace for the entire default-SQLite
+connection is an explicit qualification precondition; the proposal does not
+pretend SQLite has a descriptor-relative open. No sidecar lock file, public
+schema, old-store migration, production override or live authority is added.
+
+The exact six-file SHA-256 manifest is:
+
+- `OWNER_DECISIONS.md`: `727a6e75603e42aa6e663dfdf69305d915a4d267076591f68b66a04252c660fa`
+- `docs/v3/boundary-spec.md`: `ba0b86af0915a930a50867d180b8c5de9df248e309403b5a3a66b0023f86c143`
+- `docs/v3/acceptance.md`: `67cccb46151ff0e754423b5a61e1cff14c71b00c755a686b75390f32d6c71390`
+- `config/context-map.toml`: `fcad7749b6717f14e48022f26e1aca179bbdade9c75941834fa897ca947a60c2`
+- `docs/v3/AUTONOMOUS_DEVELOPMENT.md`: `18401fbcb20c8064118e3d785af1b509007bb8a5339ea48a9e18a25bbedb6352`
+- `docs/v3/STATUS.md`: `7a3e5f9dbdd08ebc454a21a4392140327d7d564ae86e388d95ad66f39ec3d9c2`
+
+Manifest fingerprint (SHA-256 of the ASCII JSON mapping above, keys sorted,
+compact separators `,` and `:`): `172369a9d673f884a2f1b5b9957bbd55eb692af178c0c7373a40fd22ff63033d`.
+The dossier is evidence outside that six-file manifest, avoiding self-reference.
+The eventual local commit freezes this manifest and the reviewed diff; commit
+identity is reported in the clean handoff without altering the frozen files.
+
+Independent read-only C4 review by contract_seam_audit closed its initial
+SQLite-path and fork-lifecycle concerns against the proposal's explicit
+qualification constraints, effect limits and FD/connection ownership rules.
+The private schema/record-version branches, strict/old-store compatibility,
+coarse directory lock and exact C2 supersession were reviewed. Final two-file
+delta review independently confirmed the corrected Owner heading anchor and
+C4-05 driver/epoch effect wording, rehashed the two updated files, and verified
+the other four hashes unchanged: no residual P0/P1/P2, proposal PASS. Technical PASS
+is proposal-only: the reviewer did not independently execute native probes,
+and it is not Owner acceptance or a product/FC13/production PASS.
+
+Owner acceptance of this exact candidate would authorize only the Task
+Contract's named offline C4 implementation paths and inert validation, with
+independent product review afterward. Current A/B authorization and generic
+confirmation cannot preaccept unwritten C4 content. All production, live,
+publication, migration and cleanup stops remain. Await the exact-candidate
+Owner decision after the clean local freeze; do not implement C4 in this phase.

@@ -846,3 +846,34 @@ permission is added. C3 remains an exact Owner review checkpoint; it is not
 an autonomous reinterpretation of accepted C2. Isolated pure receipt grammar
 work already started is retained as incomplete work, not an implementation
 PASS. Do not activate C3-dependent code before the new review closes.
+
+
+#### Authorized A/B follow-up and proposed C4 activation
+
+The Owner authorized this same task to repair only
+`config/validation-selection.json`, `tests/test_validation_selector.py` and
+necessary evidence docs (A); and to prepare/review the C4 proposal in the six
+phase-1 authority files and dossier, with credential-free local native probes
+(B). Selector/runner/workflows/required checks remain immutable. Necessary
+local checkpoint commits use normal hooks and staged scans; no automatic full
+run, push, PR, merge, deployment, live operation or cleanup is authorized.
+
+**C4: PROPOSED / OWNER ACCEPTANCE PENDING.** B does not accept an unwritten
+contract. After independent review, freeze exact six-file hashes and a local
+candidate commit for Owner decision. On explicit acceptance of those exact
+bytes, the proposed next phase is only the C4 offline implementation in
+`auto_g16/transport/program.py`, `auto_g16/execution/program_runtime.py`,
+`tests/v31/transport/test_program_completion.py`,
+`tests/v31/transport/test_program_composition.py`, plus phase-1 evidence docs.
+Reuse public Core calls and existing transport authority; no new module, public
+API/schema, factory default change, VFS override or product provisioning path.
+The only new persistent schema is the exact private `/2` store described by C4.
+Any additional necessary product path or unresolved design change stops for a
+bounded scope/contract decision. Prior C2/C3 product bytes stay frozen during B.
+
+Use focused C4 vectors on the native Mac with inert fixtures and default SQLite,
+adjacent strict compatibility and exact-base/head selection; obtain independent
+review of exact product bytes. No full acceptance claim from primitive probes,
+no old-store migration and no production qualification override. C4 acceptance
+would authorize this bounded offline implementation, not creation of real
+operational stores, live tests or acceptance of eventual implementation results.

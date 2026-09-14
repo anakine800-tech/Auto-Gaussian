@@ -1289,3 +1289,22 @@ replay can independently reconstruct the interpreter and runtime-data list.
 Only the [C3 boundary supplement](docs/v3/boundary-spec.md#c3-rendering-material-supplement-candidate)
 supersedes C2's material derivation and prebinding schema after exact Owner
 acceptance. Dependent renderer implementation remains stopped until then.
+
+
+### OD-32 C4 native controller guard proposed
+
+**PROPOSED / OWNER ACCEPTANCE PENDING.** The authorized blocker investigation
+found native Darwin database-inode flock incompatible with the existing SQLite
+locking. C4 proposes locking the existing store parent directory and persisting
+its full physical directory chain in one new private ProgramTransportStore `/2`
+meta field. Fresh explicit creation only; no lock sidecar, old-store migration,
+SQLite locking relaxation, public/Core schema change or product edit is approved
+by this proposal. The [C4 boundary](docs/v3/boundary-spec.md#c4-native-controller-directory-guard-proposal)
+defines exact identity, ownership, lifecycle, compatibility and supersession.
+
+Only exact Owner acceptance after independent review may replace C2's lock
+object and enable the separately bounded offline implementation in the Task
+Contract. C2/C3 history, strict `/1` stores and all other completion semantics
+remain intact. Native primitive probes are feasibility evidence, not full FC13
+or product qualification. Production publisher-not-qualified remains a hard
+stop. No new operational, provisioning, scientific or publication authority.

@@ -356,3 +356,20 @@ The C3 rendering-material supplement is a concrete candidate for that gap.
 Dependent rendering is stopped pending C3 review/Owner acceptance. Initial
 pure receipt grammar work is incomplete and grants no completion authority;
 no full implementation, production or scientific acceptance is claimed.
+
+
+### V31 file completion C4 proposal status
+
+**PROPOSED / OWNER ACCEPTANCE PENDING.** C2/C3 offline implementation remains
+checkpointed; native database-file guard positive/full FC13 is still blocked.
+The authorized A follow-up restores existing safety carriers to v3_full_tests,
+with self-protection unchanged. The B follow-up proposes an existing-directory
+lock plus fresh private store `/2` physical parent binding; product code has
+not changed. Native Mac directory-lock/default-SQLite probes show feasibility
+and the need to reject replacement-parent lock domains, not integrated C4 or
+FC13 PASS. Exact evidence and independent review are retained in the
+[freeze dossier](pbs-file-completion-freeze.md).
+
+C4 candidate acceptance, its later offline implementation, production publisher
+qualification, live execution and scientific acceptance remain separate gates.
+No publication, integration, new task, deployment or live authority is inferred.

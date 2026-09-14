@@ -2061,3 +2061,29 @@ never granting production publisher qualification. Independent technical
 review and exact Owner acceptance of the C3 content hashes precede dependent
 implementation. C2 acceptance remains recorded but cannot fill this missing
 input path by inference.
+
+
+### C4 native controller guard proposed vectors
+
+**PROPOSED / OWNER ACCEPTANCE PENDING.** Supplement FC01/FC05/FC13/FC15 only
+if the exact C4 candidate is accepted. The following product vectors are
+required evidence after implementation, not claims about the current probes:
+
+| Vector | Required native/default-SQLite evidence |
+| --- | --- |
+| C4-01 positive owner | On the actual Mac controller, fresh version-2 store and existing public Core store complete an inert receipt epoch, Result re-read, assessment, transition and zero-driver replay while the real directory flock is held; no fcntl monkeypatch, custom VFS or SQLite locking change. |
+| C4-02 contenders | Independent processes, threads, distinct handles and distinct databases in the same parent cannot enter concurrently; rejected contenders make zero driver calls/epoch writes. Separate parents can operate independently. |
+| C4-03 lifecycle | Exception at each append/re-read/transition boundary, abrupt owner exit, explicit reopen, unrelated FD/handle close, same-FD relock and stale/foreign/nested/cross-thread tokens; release is deterministic and no retry, overwrite or duplicate transition. |
+| C4-04 fork | Actual fork while held closes child guard duplicates without unlocking parent, rejects inherited stores before SQLite, fresh process after child exec contends, child remaining alive does not retain dead parent's lock; exec does not inherit it. |
+| C4-05 physical binding | Full ancestor and parent symlink/replacement, same-inode database moved into new parent, database replacement/copy/hardlink, alternate spelling, root escape, persisted-chain/nonce/schema/ID drift; pre-body rejection has zero driver calls/epoch writes (not zero local SQLite effects), mid-body drift stops later effects/promotion and retains prior evidence. |
+| C4-06 schema and create | Exact `/2` DDL, canonical closed binding and chain order/types, unique create-new reservation, crash/partial initialization, wrong version/inventory/hash; no resume, migration, new lock path or deletion. |
+| C4-07 strict/history | Exact historical `/1` IDs/bytes/strict behavior; version-1 receipt history never silently completes via C4; strict rejects `/2`; new-store receipt identity closes existing workspace/Attempt/job authority and cannot import old authority. |
+| C4-08 ordering | Every legal version-2 writer and receipt owner participates; replay/promotion rechecks current full prefix under same guard; conflicting Result/assessment or drift after append cannot advance Core, and no private Core SQL/cross-store transaction claim. |
+| C4-09 trusted namespace | Default pathname SQLite is not descriptor-bound; qualified connection lifetime excludes uncoordinated topology changes, including journal paths. Injected drift is detected at reattestation, no later effects/promotion occur, and any prior local SQLite effects are reported without claiming zero-local-effect TOCTOU protection. |
+
+Record OS, interpreter, SQLite build and actual temporary filesystem for native
+evidence. Each platform/mount claim needs its own observed support; Linux or a
+test-local model is not Mac acceptance. Inert OS/SQLite probes justify a design
+candidate only; all integrated vectors and full FC13 remain open until proved.
+The selector's self-protection after a manifest/test edit remains authoritative;
+focused tests and independent review grant no automatic full-suite execution.

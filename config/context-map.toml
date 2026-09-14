@@ -304,8 +304,12 @@ focused_tests = ["tests/test_audit_ci_contract.py", "tests/test_audit_python_con
 
 [[component]]
 id = "v31-pbs-file-completion"
-status = "c2-frozen-c3-material-candidate"
+status = "c2-c3-offline-checkpoint-c4-proposed-owner-acceptance-pending"
 required_sections = [
+  "OWNER_DECISIONS.md#od-32-c4-native-controller-guard-proposed",
+  "docs/v3/boundary-spec.md#c4-native-controller-directory-guard-proposal",
+  "docs/v3/acceptance.md#c4-native-controller-guard-proposed-vectors",
+  "docs/v3/AUTONOMOUS_DEVELOPMENT.md#authorized-ab-follow-up-and-proposed-c4-activation",
   "docs/v3/boundary-spec.md#c3-rendering-material-supplement-candidate",
   "docs/v3/acceptance.md#c3-rendering-material-candidate-vectors",
   "OWNER_DECISIONS.md#od-32-candidate-xtb-completion-from-an-exact-predeclared-receipt",
