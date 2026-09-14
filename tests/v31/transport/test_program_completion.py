@@ -4,6 +4,9 @@ from hashlib import sha256
 import json
 import os
 import sys
+import subprocess
+import threading
+import sqlite3
 import fcntl
 from pathlib import Path
 import tempfile
@@ -32,7 +35,7 @@ def manifest():
 
 
 class CompletionTests(lane.LaneAFixture):
-    """On Darwin only, model flock separately from incompatible native SQLite locks."""
+    """Native directory flock and default SQLite, including on Darwin."""
     def profile(self, **kwargs):
         profile = super().profile(**kwargs)
         return replace(profile, runtime_contents={**profile.runtime_contents, completion._DEPLOYMENT_NAME: completion._receipt_json(manifest())})
@@ -48,24 +51,9 @@ class CompletionTests(lane.LaneAFixture):
 
     def setUp(self):
         super().setUp()
-        self.lock_model = None
-        if sys.platform == "darwin":
-            held = set()
-            def model_flock(fd, operation):
-                info = os.fstat(fd)
-                key = (info.st_dev, info.st_ino)
-                if operation == fcntl.LOCK_UN:
-                    held.discard(key)
-                elif key in held:
-                    raise BlockingIOError("synthetic inode guard busy")
-                else:
-                    held.add(key)
-            self.lock_model = patch("fcntl.flock", side_effect=model_flock)
-            self.lock_model.start()
-            self.addCleanup(self.lock_model.stop)
         root = self.root / "transport"
         root.mkdir()
-        self.program_transport_store = transport._ProgramTransportStore.create_new(root / "program.sqlite3", approved_root=root)
+        self.program_transport_store = transport._ProgramTransportStore._create_completion_store(root / "program.sqlite3", approved_root=root)
         self.addCleanup(self.program_transport_store.close)
         self.snapshot = self.completion_snapshot()
         self.driver = composition._Driver()
@@ -361,17 +349,11 @@ class CompletionTests(lane.LaneAFixture):
         self.driver.query_scheduler = changed
         self.assertEqual(self.collect().data["diagnostic"], "acquisition-unknown")
 
-    def test_guard_rejects_foreign_token_and_native_darwin_locking(self):
+    def test_guard_rejects_foreign_token_and_allows_native_sqlite(self):
         with self.assertRaises(TransportBoundaryError):
             runtime._collect_program_completion(self.store, **self.kwargs(), input_bytes=self.input_bytes, _completion_token=object())
-        if sys.platform != "darwin":
-            return
-        self.lock_model.stop()
-        before = self.store.observations_for_attempt("attempt-1")
-        with self.assertRaisesRegex(TransportBoundaryError, "incompatible"):
-            self.collect()
-        self.assertEqual(self.driver.calls, [])
-        self.assertEqual(self.store.observations_for_attempt("attempt-1"), before)
+        self.execute(); self.publish()
+        self.assertEqual(self.collect().data["diagnostic"], "completed")
         self.assertIsNone(self.program_transport_store._completion_owner)
         self.assertFalse(self.program_transport_store._completion_lock.locked())
 
@@ -500,11 +482,15 @@ class CompletionTests(lane.LaneAFixture):
             if operation == fcntl.LOCK_UN:
                 raise OSError("synthetic unlock failure")
         with patch("fcntl.flock", side_effect=failure):
-            with self.assertRaisesRegex(OSError, "unlock failure"):
+            with self.assertRaisesRegex(TransportBoundaryError, "unlock failed"):
                 with self.program_transport_store._completion_guard():
                     pass
         self.assertFalse(self.program_transport_store._completion_lock.locked())
         self.assertIsNone(self.program_transport_store._completion_owner)
+        self.assertTrue(self.program_transport_store._invalid)
+        with self.assertRaises(TransportBoundaryError):
+            with self.program_transport_store._completion_guard():
+                self.fail("uncertain owner reused")
 
     def test_wrapper_inert_invocation_failure_and_publication_matrix(self):
         """Exercise full wrapper control flow with Popen/wait/subreaper replaced.
@@ -660,3 +646,403 @@ class CompletionTests(lane.LaneAFixture):
                 namespace["read_name"](fd, "not-created")
         finally:
             os.close(fd)
+
+    def test_c4_old_receipt_store_and_strict_v2_reject_before_effects(self):
+        legacy = transport._ProgramTransportStore.create_new(self.root / "old.sqlite3", approved_root=self.root)
+        self.addCleanup(legacy.close)
+        observations = self.store.observations_for_attempt("attempt-1")
+        with self.assertRaisesRegex(TransportBoundaryError, "completion-store-not-qualified"):
+            runtime._collect_program_completion(self.store, snapshot=self.snapshot, program_transport_store=legacy, driver=self.driver, input_bytes=self.input_bytes)
+        with self.assertRaisesRegex(TransportBoundaryError, "completion-store-not-qualified"):
+            runtime._snapshot_binding(self.snapshot, legacy, self.driver)
+        with self.assertRaisesRegex(TransportBoundaryError, "strict requires"):
+            runtime._snapshot_binding(self.successor_snapshot(), self.program_transport_store, self.driver)
+        self.assertEqual(self.store.observations_for_attempt("attempt-1"), observations)
+        self.assertEqual(self.driver.calls, [])
+
+    def test_c4_drift_during_driver_stops_before_receipt_or_assessment(self):
+        self.execute(); self.publish()
+        observations = self.store.observations_for_attempt("attempt-1")
+        original = self.driver.query_scheduler
+        def drift(request):
+            response = original(request)
+            os.link(self.program_transport_store._path, self.root / "unexpected-hardlink")
+            return response
+        self.driver.query_scheduler = drift
+        with self.assertRaises(TransportBoundaryError):
+            self.collect()
+        self.assertEqual(self.store.observations_for_attempt("attempt-1"), observations)
+        self.assertEqual(self.store.results_for_attempt("attempt-1"), ())
+        self.assertEqual(self.store.attempt_state("attempt-1"), core.AttemptState.SUBMITTED)
+
+    def test_c4_drift_after_bundle_keeps_bytes_without_assessment_or_transition(self):
+        self.execute(); self.publish()
+        original = self.store.append_result
+        def append_then_drift(record):
+            original(record)
+            os.link(self.program_transport_store._path, self.root / "unexpected-hardlink")
+        with patch.object(self.store, "append_result", side_effect=append_then_drift):
+            with self.assertRaises(TransportBoundaryError):
+                self.collect()
+        self.assertEqual(len(self.store.results_for_attempt("attempt-1")), 1)
+        self.assertFalse(any(o.observation_type == runtime._COMPLETION_ASSESSMENT for o in self.store.observations_for_attempt("attempt-1")))
+        self.assertEqual(self.store.attempt_state("attempt-1"), core.AttemptState.SUBMITTED)
+
+    def test_c4_drift_after_assessment_prevents_core_transition(self):
+        self.execute(); self.publish()
+        original = self.store.append_observation
+        def append_then_drift(record):
+            original(record)
+            if record.observation_type == runtime._COMPLETION_ASSESSMENT:
+                os.link(self.program_transport_store._path, self.root / "unexpected-hardlink")
+        with patch.object(self.store, "append_observation", side_effect=append_then_drift):
+            with self.assertRaises(TransportBoundaryError):
+                self.collect()
+        self.assertEqual(len(self.store.results_for_attempt("attempt-1")), 1)
+        self.assertTrue(any(o.observation_type == runtime._COMPLETION_ASSESSMENT for o in self.store.observations_for_attempt("attempt-1")))
+        self.assertEqual(self.store.attempt_state("attempt-1"), core.AttemptState.SUBMITTED)
+
+    def test_c4_reconcile_drift_cannot_advance_unknown(self):
+        self.driver.raise_operation = ("SUBMIT_QSUB_ONCE", transport._ProgramEffectUnknown("synthetic uncertain submission"))
+        self.execute()
+        self.assertEqual(self.store.attempt_state("attempt-1"), core.AttemptState.UNKNOWN)
+        self.driver.raise_operation = None
+        self.driver.reconcile_response = {"outcome": "SUCCEEDED", "job_id": "999.server"}
+        original = runtime._append_receipt
+        def append_then_drift(*args, **kwargs):
+            record = original(*args, **kwargs)
+            if kwargs["operation"] == "RECONCILE_SUBMISSION":
+                os.link(self.program_transport_store._path, self.root / "unexpected-hardlink")
+            return record
+        with patch.object(runtime, "_append_receipt", side_effect=append_then_drift):
+            with self.assertRaises(TransportBoundaryError):
+                runtime._reconcile_program_submission(self.store, **self.kwargs())
+        self.assertEqual(self.store.attempt_state("attempt-1"), core.AttemptState.UNKNOWN)
+        self.assertEqual(self.store.observations_for_attempt("attempt-1")[-1].data["operation"], "RECONCILE_SUBMISSION")
+
+
+class NativeCompletionStoreTests(unittest.TestCase):
+    """Real OS ownership, unmodified SQLite; never a remote driver."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name).resolve()
+        self.path = self.root / "program.sqlite3"
+        self.owner = transport._ProgramTransportStore._create_completion_store(self.path, approved_root=self.root)
+        self.addCleanup(self.owner.close)
+
+    def subprocess_open(self, path=None, root=None):
+        code = """
+import sys
+from auto_g16.transport.program import _ProgramTransportStore
+from auto_g16.transport._canonical import TransportBoundaryError
+try:
+    value = _ProgramTransportStore.open_existing(sys.argv[1], approved_root=sys.argv[2])
+    with value._completion_guard():
+        value._connection.execute('SELECT * FROM program_transport_meta').fetchall()
+    value.close()
+    print('acquired')
+except TransportBoundaryError:
+    print('rejected')
+"""
+        result = subprocess.run([sys.executable, "-c", code, str(path or self.path), str(root or self.root)], capture_output=True, text=True, timeout=20)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result.stdout.strip()
+
+    def test_native_cross_process_and_same_parent_ownership(self):
+        other = transport._ProgramTransportStore.open_existing(self.path, approved_root=self.root)
+        self.addCleanup(other.close)
+        sibling = transport._ProgramTransportStore._create_completion_store(self.root / "sibling.sqlite3", approved_root=self.root)
+        self.addCleanup(sibling.close)
+        with self.owner._completion_guard() as token:
+            self.assertEqual(self.subprocess_open(), "rejected")
+            for candidate in (other, sibling):
+                with self.assertRaises(TransportBoundaryError):
+                    with candidate._completion_guard():
+                        self.fail("contender entered")
+            with self.assertRaises(TransportBoundaryError):
+                other.attest_runtime(program_execution_snapshot_id="snapshot", resolved_server_profile_id="profile", qualification=composition._Driver().runtime_qualification)
+            self.owner._require_completion_guard(token)
+            self.assertFalse(os.get_inheritable(self.owner._completion_owner[3]))
+        self.assertEqual(self.subprocess_open(), "acquired")
+
+    def test_native_threads_foreign_tokens_and_close_lifecycle(self):
+        other = transport._ProgramTransportStore.open_existing(self.path, approved_root=self.root)
+        with self.owner._completion_guard() as token:
+            errors = []
+            def contender():
+                for operation in (lambda: self.owner._require_completion_guard(token), self.owner.close, lambda: self.owner.attest_runtime(program_execution_snapshot_id="s", resolved_server_profile_id="p", qualification=composition._Driver().runtime_qualification)):
+                    try:
+                        operation()
+                    except TransportBoundaryError:
+                        errors.append(True)
+            thread = threading.Thread(target=contender)
+            thread.start(); thread.join(10)
+            self.assertFalse(thread.is_alive())
+            self.assertEqual(errors, [True, True, True])
+            other.close()
+            fd = os.open(self.root, os.O_RDONLY | os.O_DIRECTORY)
+            os.close(fd)
+            self.assertEqual(self.subprocess_open(), "rejected")
+            with self.assertRaises(TransportBoundaryError):
+                self.owner.close()
+            with self.assertRaises(TransportBoundaryError):
+                other._require_completion_guard(token)
+        with self.assertRaises(TransportBoundaryError):
+            self.owner._require_completion_guard(token)
+        self.assertEqual(self.subprocess_open(), "acquired")
+
+    def test_separate_parent_progress_and_strict_open_unchanged(self):
+        strict_path = self.root / "strict.sqlite3"
+        strict = transport._ProgramTransportStore.create_new(strict_path, approved_root=self.root)
+        strict_id = strict.program_transport_store_id
+        strict.close()
+        separate_root = self.root / "separate"
+        separate_root.mkdir()
+        separate = transport._ProgramTransportStore._create_completion_store(separate_root / "program.sqlite3", approved_root=self.root)
+        self.addCleanup(separate.close)
+        with self.owner._completion_guard():
+            reopened = transport._ProgramTransportStore.open_existing(strict_path, approved_root=self.root)
+            self.assertEqual(reopened.program_transport_store_id, strict_id)
+            reopened.close()
+            with separate._completion_guard():
+                separate._attest()
+
+    def test_no_create_retry_or_existing_target_overwrite(self):
+        before = self.path.read_bytes()
+        with self.assertRaises((TransportBoundaryError, OSError)):
+            transport._ProgramTransportStore._create_completion_store(self.path, approved_root=self.root)
+        self.assertEqual(self.path.read_bytes(), before)
+        incomplete = self.root / "incomplete.sqlite3"
+        with patch.object(transport._ProgramTransportStore, "_create_schema", side_effect=RuntimeError("inert initialization crash")):
+            with self.assertRaisesRegex(RuntimeError, "initialization crash"):
+                transport._ProgramTransportStore._create_completion_store(incomplete, approved_root=self.root)
+        self.assertTrue(incomplete.is_file())
+        with self.assertRaises(TransportBoundaryError):
+            transport._ProgramTransportStore.open_existing(incomplete, approved_root=self.root)
+        with self.assertRaises((TransportBoundaryError, OSError)):
+            transport._ProgramTransportStore._create_completion_store(incomplete, approved_root=self.root)
+
+    def test_schema_binding_is_closed_and_append_only(self):
+        row = self.owner._connection.execute("SELECT * FROM program_transport_meta").fetchone()
+        self.assertEqual(len(row), 10)
+        self.assertEqual(row[-1], transport.canonical_bytes(self.owner._guard_binding))
+        self.assertEqual(self.owner._connection.execute("PRAGMA user_version").fetchone()[0], 2)
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.owner._connection.execute("UPDATE program_transport_meta SET completion_guard_binding=?", (b"wrong",))
+        for raw in (b"wrong", transport.canonical_bytes({**self.owner._guard_binding, "extra": 1}), transport.canonical_bytes({**self.owner._guard_binding, "component_identities": [[True, 1]]})):
+            directory = self.root / str(len(list(self.root.iterdir())))
+            directory.mkdir()
+            path = directory / "bad.sqlite3"
+            bad = transport._ProgramTransportStore._create_completion_store(path, approved_root=directory)
+            bad.close()
+            with sqlite3.connect(path) as database:
+                database.execute("DROP TRIGGER program_transport_meta_no_update")
+                database.execute("UPDATE program_transport_meta SET completion_guard_binding=?", (raw,))
+                database.execute(dict(transport._PROGRAM_STORE_TRIGGERS)["program_transport_meta_no_update"])
+            database.close()
+            with self.assertRaises(TransportBoundaryError):
+                transport._ProgramTransportStore.open_existing(path, approved_root=directory)
+
+    def test_hardlink_copy_and_lexical_alias_rejected(self):
+        alias = self.root / "alias.sqlite3"
+        os.link(self.path, alias)
+        with self.assertRaises(TransportBoundaryError):
+            with self.owner._completion_guard():
+                self.fail("hardlinked database accepted")
+        self.assertEqual(self.subprocess_open(alias), "rejected")
+        copied = self.root / "copy.sqlite3"
+        copied.write_bytes(self.path.read_bytes())
+        self.assertEqual(self.subprocess_open(copied), "rejected")
+        self.assertEqual(self.subprocess_open(str(self.root) + "/./program.sqlite3"), "rejected")
+
+    def test_persistent_parent_anchor_rejects_same_inode_relocation(self):
+        parent = self.root / "parent"
+        parent.mkdir()
+        path = parent / "program.sqlite3"
+        bound = transport._ProgramTransportStore._create_completion_store(path, approved_root=self.root)
+        self.addCleanup(bound.close)
+        with self.assertRaises(TransportBoundaryError), bound._completion_guard():
+            parent.rename(self.root / "retained-parent")
+            parent.mkdir()
+            (self.root / "retained-parent" / "program.sqlite3").rename(path)
+            self.assertEqual(self.subprocess_open(path, self.root), "rejected")
+            with self.assertRaises(TransportBoundaryError):
+                bound._require_current_completion_owner()
+            # Final guard attestation also rejects; preserve the invalidated owner.
+
+    @unittest.skipUnless(hasattr(os, "fork"), "native fork unavailable")
+    def test_fork_child_rejects_inherited_handles_before_locks(self):
+        read_fd, write_fd = os.pipe()
+        with self.owner._completion_guard():
+            with self.owner._lock:
+                pid = os.fork()
+                if pid == 0:
+                    try:
+                        os.close(read_fd)
+                        rejected = 0
+                        for operation in (
+                            self.owner.close, self.owner._attest, self.owner._require_current_completion_owner,
+                            lambda: transport._ProgramTransportStore.create_new(self.root / "child-v1.sqlite3", approved_root=self.root),
+                            lambda: transport._ProgramTransportStore._create_completion_store(self.root / "child-v2.sqlite3", approved_root=self.root),
+                            lambda: transport._ProgramTransportStore.open_existing(self.path, approved_root=self.root),
+                        ):
+                            try:
+                                operation()
+                            except TransportBoundaryError:
+                                rejected += 1
+                        os.write(write_fd, str(rejected).encode())
+                    finally:
+                        os._exit(0)
+                os.close(write_fd)
+                self.assertEqual(os.read(read_fd, 8), b"6")
+                os.close(read_fd)
+                self.assertEqual(os.waitpid(pid, 0)[1], 0)
+                self.assertFalse((self.root / "child-v1.sqlite3").exists())
+                self.assertFalse((self.root / "child-v2.sqlite3").exists())
+                self.assertEqual(self.subprocess_open(), "rejected")
+        self.assertEqual(self.subprocess_open(), "acquired")
+
+    @unittest.skipUnless(hasattr(os, "fork"), "native fork unavailable")
+    def test_abrupt_owner_exit_with_living_fork_child_releases_lock(self):
+        code = """
+import os,sys,json
+from auto_g16.transport.program import _ProgramTransportStore
+value = _ProgramTransportStore.open_existing(sys.argv[1], approved_root=sys.argv[2])
+with value._completion_guard():
+    r,w = os.pipe()
+    pid = os.fork()
+    if pid == 0:
+        os.close(r)
+        os.write(w,b'ready')
+        os.close(w)
+        os.read(int(sys.argv[3]),1)
+        os._exit(0)
+    os.close(w)
+    assert os.read(r,5)==b'ready'
+    os.close(r)
+    os.close(int(sys.argv[3]))
+    print(json.dumps({'child_pid':pid}),flush=True)
+    sys.stdin.read(1)
+    os._exit(77)
+"""
+        read_fd, write_fd = os.pipe()
+        holder = subprocess.Popen([sys.executable, "-c", code, str(self.path), str(self.root), str(read_fd)], pass_fds=(read_fd,), stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+        os.close(read_fd)
+        try:
+            child = json.loads(holder.stdout.readline())["child_pid"]
+            self.assertEqual(self.subprocess_open(), "rejected")
+            holder.stdin.write("x"); holder.stdin.flush()
+            self.assertEqual(holder.wait(timeout=10), 77)
+            os.kill(child, 0)
+            self.assertEqual(self.subprocess_open(), "acquired")
+        finally:
+            os.write(write_fd, b"x"); os.close(write_fd)
+            holder.stdin.close(); holder.stdout.close()
+
+
+    @unittest.skipUnless(hasattr(os, "fork"), "native fork unavailable")
+    def test_real_exec_restores_fork_child_store_open(self):
+        code = """
+import sys
+from auto_g16.transport.program import _ProgramTransportStore
+from auto_g16.transport._canonical import TransportBoundaryError
+try:
+    value=_ProgramTransportStore.open_existing(sys.argv[1],approved_root=sys.argv[2])
+    value.close()
+    print('acquired',flush=True)
+except TransportBoundaryError:
+    print('rejected',flush=True)
+"""
+        def fork_exec():
+            read_fd, write_fd = os.pipe()
+            pid = os.fork()
+            if pid == 0:
+                try:
+                    os.close(read_fd)
+                    os.dup2(write_fd, 1)
+                    os.close(write_fd)
+                    os.execv(sys.executable, [sys.executable, "-c", code, str(self.path), str(self.root)])
+                finally:
+                    os._exit(91)
+            os.close(write_fd)
+            result = os.read(read_fd, 100)
+            os.close(read_fd)
+            self.assertEqual(os.waitpid(pid, 0)[1], 0)
+            return result.strip()
+        with self.owner._completion_guard():
+            self.assertEqual(fork_exec(), b"rejected")
+        self.assertEqual(fork_exec(), b"acquired")
+
+    def test_close_admission_race_rechecks_after_lock(self):
+        original = self.owner._lock
+        entered, proceed = threading.Event(), threading.Event()
+        errors = []
+        class AdmissionLock:
+            def __enter__(inner):
+                if threading.current_thread().name == "inert-close-contender":
+                    entered.set()
+                    if not proceed.wait(10):
+                        raise AssertionError("test rendezvous timed out")
+                original.acquire()
+                return inner
+            def __exit__(inner, *args):
+                original.release()
+        def close_contender():
+            try:
+                self.owner.close()
+            except TransportBoundaryError:
+                errors.append(True)
+        with patch.object(self.owner, "_lock", AdmissionLock()):
+            thread = threading.Thread(target=close_contender, name="inert-close-contender")
+            thread.start()
+            self.assertTrue(entered.wait(10))
+            with self.owner._completion_guard():
+                proceed.set(); thread.join(10)
+                self.assertFalse(thread.is_alive())
+                self.assertEqual(errors, [True])
+                self.assertFalse(self.owner._closed)
+        self.owner._attest()
+
+    def test_factory_teardown_failure_closes_connection_and_keeps_artifact(self):
+        captured = []
+        original_open = transport._ProgramTransportStore._open
+        original_flock = fcntl.flock
+        def observe(*args, **kwargs):
+            value = original_open(*args, **kwargs)
+            captured.append(value)
+            return value
+        def fail_unlock(fd, operation):
+            original_flock(fd, operation)
+            if operation == fcntl.LOCK_UN:
+                raise OSError("inert release failure")
+        fresh = self.root / "retained.sqlite3"
+        with patch.object(transport._ProgramTransportStore, "_open", side_effect=observe), patch("fcntl.flock", side_effect=fail_unlock):
+            with self.assertRaises(TransportBoundaryError):
+                transport._ProgramTransportStore._create_completion_store(fresh, approved_root=self.root)
+        self.assertTrue(fresh.exists())
+        self.assertTrue(captured and all(value._closed for value in captured))
+        captured.clear()
+        with patch.object(transport._ProgramTransportStore, "_open", side_effect=observe), patch("fcntl.flock", side_effect=fail_unlock):
+            with self.assertRaises(TransportBoundaryError):
+                transport._ProgramTransportStore.open_existing(fresh, approved_root=self.root)
+        self.assertTrue(captured and all(value._closed for value in captured))
+
+    def test_ancestor_symlink_and_replacement_are_not_rebound(self):
+        ancestor = self.root / "ancestor"
+        parent = ancestor / "parent"
+        parent.mkdir(parents=True)
+        path = parent / "program.sqlite3"
+        value = transport._ProgramTransportStore._create_completion_store(path, approved_root=self.root)
+        self.addCleanup(value.close)
+        saved = self.root / "retained-ancestor"
+        ancestor.rename(saved)
+        ancestor.symlink_to(saved, target_is_directory=True)
+        with self.assertRaises(TransportBoundaryError):
+            transport._ProgramTransportStore.open_existing(path, approved_root=self.root)
+        with self.assertRaises(TransportBoundaryError):
+            with value._completion_guard():
+                self.fail("symlink ancestor entered")
+        alias = str(saved / "parent" / "program.sqlite3")
+        self.assertEqual(self.subprocess_open(alias, self.root), "rejected")

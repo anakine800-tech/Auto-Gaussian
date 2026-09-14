@@ -531,3 +531,137 @@ independent product review afterward. Current A/B authorization and generic
 confirmation cannot preaccept unwritten C4 content. All production, live,
 publication, migration and cleanup stops remain. Await the exact-candidate
 Owner decision after the clean local freeze; do not implement C4 in this phase.
+
+
+### C4 Owner acceptance and implementation activation — 2026-09-14
+
+The Owner explicitly replied “接受” to the exact C4 decision request bound to
+commit `7409a69b6085d230b1062d3eb1b2c9d17083edbd`, tree
+`c5bed0e05887ed2accbec6a261adcf1dde3092d9`, and manifest fingerprint
+`172369a9d673f884a2f1b5b9957bbd55eb692af178c0c7373a40fd22ff63033d`.
+All six hashes and clean preflight were reverified before product edits.
+This activates only the Task Contract's named offline C4 implementation and
+inert validation in the current isolated task. The proposal labels above are
+retained historical freeze evidence, not a still-pending decision. Production
+publisher qualification, live work, publication, integration, cleanup and
+scientific acceptance remain unauthorized. Implementation acceptance remains
+subject to native evidence and independent review of exact product bytes.
+
+
+### C4 offline implementation and independent review
+
+Only `auto_g16/transport/program.py`,
+`auto_g16/execution/program_runtime.py` and
+`tests/v31/transport/test_program_completion.py` changed as product/test files.
+The private factory creates `/2` exclusively; v1 default creation and strict
+identity/attestation remain independent. The persisted canonical full parent
+chain and database nlink/device/inode close the native directory guard. The
+process registry, held token, fork quarantine and guarded writer/Execution
+checkpoints cover receipt acquisition, persistence, replay and Core reduction.
+No product module, public/Core record, production driver or wrapper changed.
+
+For closed version dispatch, the existing SQLite-managed connection reads only
+application_id/user_version to identify format, without accepting authority.
+Retained pre-open directory evidence and post-open checks precede `/2` guarded
+meta/inventory/authority reads; no extra raw DB FD or alternate VFS is used.
+The independent implementation seam review rejected adding a directory-lock
+restriction to all v1 opens; a native regression proves a v1 store still opens
+while a sibling v2 owner holds their shared parent lock. The frozen trusted
+stable namespace and disclosed possible local SQLite open/recovery effects
+remain essential; this is not a descriptor-bound SQLite claim.
+
+The native test environment is Darwin/macOS **26.6.2**, core Python **3.13.13**,
+SQLite **3.53.1**, default sqlite3 configuration. A read-only df/mount check now
+identifies the actual temporary volume as **local APFS** on the system Data
+volume. This supersedes only the earlier filesystem NOT_ACQUIRED limitation
+for this current native run. Other platforms/mounts and other Python minors
+are not claimed qualified by these results. Core profile verification passed.
+
+The Darwin-only test-local flock replacement was removed. Existing completion
+vectors now use the actual directory lock and default SQLite. Added native
+vectors cover independent processes/handles/threads, coarse same-parent
+serialization and separate-parent progress, create conflicts/partial files,
+closed schema/binding and append-only behavior, hardlinks/copies/lexical aliases,
+parent/ancestor replacement, inherited-store rejection, exec restoration,
+close/admission race and teardown failure, and owner death with a still-living
+fork child. Additional inert Execution vectors preserve evidence while blocking
+later receipt, assessment, reconciliation or terminal-state writes after drift.
+
+Independent initial implementation review returned REQUEST CHANGES with two
+P1 findings, retained here as history:
+
+1. A fork child could create a fresh store without exec, bypassing inherited-
+   instance PID checks. The final global child quarantine rejects every store
+   creation/open entrance before file/SQLite effects; only exec starts a new
+   process generation. Native tests cover v1/v2 creation, reopen and real exec.
+2. Reconciliation could advance UNKNOWN after a just-persisted receipt exposed
+   database hardlink drift. Both reconciliation call sites now reattest before
+   Core calls; the native inert regression retains the receipt and UNKNOWN.
+
+Author self-review also closed non-owner close/admission atomicity, explicit
+store-object binding in the held token, and factory error handling around guard
+teardown. No cleanup or retry authority was added. A successful file reservation
+that fails initialization remains retained and cannot be silently reused.
+
+The revised independent code review by contract_seam_audit is **PASS**, with
+both P1s closed and no residual P0/P1/P2 in the reviewed scope. The reviewer
+independently executed six affected native/inert vectors: **6 tests / 1.994
+seconds / OK**. That evidence covers the reported repairs and native ownership
+cases; it is not a claim of production qualification or all FC01–FC15 acceptance.
+
+Exact final reviewed product/test SHA-256:
+
+- `auto_g16/transport/program.py`:
+  `1855fd2b650924ecbf017a1ff612481b08f67a8311c62125b1c5dd2e1b0a3aff`;
+- `auto_g16/execution/program_runtime.py`:
+  `c669ba71c48de26e4e9d31be45444de1b78a34ef8d9e1ab089c98ae2660ac783`;
+- `tests/v31/transport/test_program_completion.py`:
+  `7f7c695b80c923ff03a9863ea247530dc096f69044ac4d5a828d0a3a55a405b6`.
+
+Focused development feedback was 50 native completion tests / 92.242 seconds,
+9 native store tests / 2.739 seconds, four drift vectors / 6.543 seconds, and
+185 adjacent strict/composition/bridge/Lane-A tests / 44.449 seconds, all OK on
+their then-current sources. Those pre-final runs do not replace the final
+combined frozen-source run recorded below. Three ResourceWarnings in a later
+14-test development run came from test-only raw SQLite fixture connections;
+they were explicitly closed before the final source hash. No warning was
+suppressed in product code and no SQLite locking setting was changed.
+
+Static quality, whitespace/diff, CI declaration and Python contract audits
+passed. They attest local declarations only, not remote CI or protection.
+The six accepted authority files remain byte-identical to the C4 freeze;
+this appended dossier records acceptance and implementation evidence without
+rewriting the contract. No full discovery, live operation or deployment ran.
+
+
+### C4 final bounded checkpoint disposition
+
+Final command on the three exact reviewed hashes, core profile with no test
+coverage modifiers:
+
+```text
+./scripts/python core -m unittest tests.v31.transport.test_program_completion tests.v31.transport.test_program_composition tests.v31.transport.test_rtwin_successor_bridge tests.v3.execution.test_v31_lane_a -q
+```
+
+**253 tests / 153.069 seconds / exit 0 / OK**, no failures, skips or warnings.
+UTC start `2026-09-14T11:52:19.052310+00:00`; wrapper completion
+`2026-09-14T11:54:52.486128+00:00`. The inventory comprises 68 completion/native
+store tests and 185 adjacent strict/composition/bridge/Lane-A tests. It is a
+bounded affected run, not whole-repository discovery. Final source hashes were
+rechecked after the run and match independent review.
+
+Disposition: **C4 OFFLINE IMPLEMENTATION CHECKPOINT COMPLETE**. The old native
+Darwin database-flock/SQLite incompatibility is no longer the implemented C4
+lock path: actual native directory ownership, SQLite completion, persisted
+capture, reduction and replay have positive evidence. This does not claim
+formal complete FC01–FC15/FC13 acceptance, production publisher qualification,
+remote CI, branch protection, integration or scientific acceptance. Existing
+real receipt-mode publisher hard stops remain active; no user override exists.
+
+Whole-task exact-base selection still includes A's self-protecting manifest/
+selector-test edits and must conservatively return legacy-release/fail_closed,
+with empty tests and the self-protection reason. No automatic full run follows.
+The final local commit, tree and clean preflight/selection evidence are reported
+in the handoff, avoiding a recursive evidence-only commit. Isolated branch and
+worktree are retained; no publication, deployment, live effect, cleanup or new
+user task was performed.

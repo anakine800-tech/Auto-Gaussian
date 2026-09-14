@@ -46,6 +46,13 @@ def _completion_owned(function):
     return guarded
 
 
+def _completion_checkpoint(snapshot, program_transport_store):
+    if _uses_completion_receipt(snapshot.program_execution_spec):
+        if type(program_transport_store) is not _transport._ProgramTransportStore:
+            raise TransportBoundaryError("completion checkpoint requires its exact store")
+        program_transport_store._require_current_completion_owner()
+
+
 def _snapshot_binding(
     snapshot: ProgramExecutionSnapshot,
     program_transport_store: _transport._ProgramTransportStore,
@@ -59,6 +66,9 @@ def _snapshot_binding(
             "successor composition requires exact _ProgramTransportStore"
         )
     program_transport_store._attest()
+    receipt_mode = _uses_completion_receipt(snapshot.program_execution_spec)
+    if receipt_mode != (program_transport_store._version == 2):
+        raise TransportBoundaryError("completion-store-not-qualified" if receipt_mode else "strict requires a version-1 program store")
     if _uses_completion_receipt(snapshot.program_execution_spec):
         if snapshot.program_execution_spec.invocation["executable_identity"]["absolute_path"] != "/opt/auto-g16-fixtures/bin/xtb" or driver.runtime_qualification.get("bootstrap_protocol") != "synthetic-v31-program-effect/1":
             raise TransportBoundaryError("publisher-not-qualified")
@@ -111,6 +121,7 @@ def _invoke_program_driver(
 ) -> Mapping[str, object]:
     """Execution owns state and dual-source closure; Transport receives mechanics."""
     from auto_g16.transport._program_rtwin import _RTWinProgramEffectDriver
+    _completion_checkpoint(snapshot, program_transport_store)
     driver = getattr(driver_call, "__self__", None)
     if type(driver) is not _RTWinProgramEffectDriver:
         return _transport._call(driver_call, request, *args)
@@ -527,6 +538,7 @@ def _reconstruct_job_authority_from_receipts(
         )
     else:
         try:
+            _completion_checkpoint(snapshot, program_transport_store)
             replayed_state = store.reconcile_unknown(
                 snapshot.attempt_id,
                 receipt.observation_id,
@@ -767,6 +779,7 @@ def _append_receipt(
         observation_type=_transport._RECEIPT_TYPE,
         data=payload,
     )
+    _completion_checkpoint(snapshot, program_transport_store)
     store.append_observation(record)
     loaded = _load_receipts(
         store, snapshot, program_transport_store, current_binding
@@ -1435,6 +1448,7 @@ def _execute_claimed_program(
             job_id=job_id,
         )
         physical_recorded = False
+        _completion_checkpoint(snapshot, program_transport_store)
         store.record_submission_outcome(snapshot.attempt_id, snapshot.effect_intent_id, SubmissionOutcome.SUBMITTED)
         job = _job_authority(
             store, snapshot, program_transport_store, closed_driver
@@ -1475,6 +1489,7 @@ def _execute_claimed_program(
             current_binding=base, operation=current_operation,
             request=current_request, outcome="UNKNOWN", response=response,
         )
+        _completion_checkpoint(snapshot, program_transport_store)
         store.record_submission_outcome(snapshot.attempt_id, snapshot.effect_intent_id, SubmissionOutcome.UNKNOWN)
         return _ProgramExecutionResult(
             claim, "UNKNOWN", None,
@@ -1526,13 +1541,15 @@ def _query_program_scheduler(
         current_binding=base, operation="QUERY_SCHEDULER",
         request=request, outcome="SUCCEEDED", response=result,
     )
-    _apply_program_scheduler_disposition(store, snapshot, result)
+    _apply_program_scheduler_disposition(store, snapshot, result, program_transport_store)
     return dict(result)
 
 
-def _apply_program_scheduler_disposition(store: SQLiteRuntimeStore, snapshot: ProgramExecutionSnapshot, result: Mapping[str, object]) -> None:
+def _apply_program_scheduler_disposition(store: SQLiteRuntimeStore, snapshot: ProgramExecutionSnapshot, result: Mapping[str, object], program_transport_store=None) -> None:
+    _completion_checkpoint(snapshot, program_transport_store)
     if _uses_completion_receipt(snapshot.program_execution_spec):
         if result["state"] == "running" and store.attempt_state(snapshot.attempt_id) is AttemptState.SUBMITTED:
+            _completion_checkpoint(snapshot, program_transport_store)
             store.advance_attempt(snapshot.attempt_id, AttemptState.RUNNING)
         return
     disposition = None
@@ -1593,6 +1610,7 @@ def _reconcile_program_submission(
         current_binding=base, operation="RECONCILE_SUBMISSION",
         request=request, outcome=outcome, response=response, job_id=job_id,
     )
+    _completion_checkpoint(snapshot, program_transport_store)
     state = store.reconcile_unknown(
         snapshot.attempt_id, receipt.observation_id, resolution
     )
@@ -1976,21 +1994,24 @@ def _persist_completion_assessment(store, snapshot, program_transport_store, bas
         "receipt_sha256": receipt_sha256,
     }, "completion assessment")
     assessment = Observation(observation_id=semantic_id("program-completion-assessment", data), attempt_id=snapshot.attempt_id, observation_type=_COMPLETION_ASSESSMENT, data=data)
+    _completion_checkpoint(snapshot, program_transport_store)
     store.append_observation(assessment)
     current = store.observations_for_attempt(snapshot.attempt_id)
     if current != (*observations, assessment):
         raise TransportBoundaryError("completion prefix changed during persistence")
     _verify_completion_assessments(current, snapshot, job)
-    _advance_completion(store, snapshot, assessment)
+    _advance_completion(store, snapshot, assessment, program_transport_store)
     return assessment
 
 
-def _advance_completion(store, snapshot, assessment):
+def _advance_completion(store, snapshot, assessment, program_transport_store):
+    _completion_checkpoint(snapshot, program_transport_store)
     if assessment.data["verdict"] == "UNKNOWN":
         return
     expected = AttemptState[assessment.data["verdict"]]
     current = store.attempt_state(snapshot.attempt_id)
     if current in {AttemptState.SUBMITTED, AttemptState.RUNNING}:
+        _completion_checkpoint(snapshot, program_transport_store)
         store.advance_attempt(snapshot.attempt_id, expected)
     elif current is not expected:
         raise TransportBoundaryError("completion cannot replace an earlier terminal state")
@@ -2085,6 +2106,7 @@ def _collect_program_completion(store, *, snapshot, program_transport_store, dri
     record = Result(result_id=semantic_id("program-completion-evidence", data), attempt_id=snapshot.attempt_id, result_type=_COMPLETION_EVIDENCE, data=data)
     try:
         diagnostic, capture, receipt_digest, _opening, _closing = _validate_completion_bundle(record, snapshot, job, workspace, receipts, observations)
+        _completion_checkpoint(snapshot, program_transport_store)
         store.append_result(record)
         persisted = _completion_stored_record(store, snapshot, record.result_id)
         if persisted != record:
@@ -2127,7 +2149,7 @@ def _replay_program_completion(store, *, snapshot, program_transport_store, driv
         record = _completion_stored_record(store, snapshot, result_id)
         diagnostic, capture, receipt_digest, opening, closing = _validate_completion_bundle(record, snapshot, job, workspace, receipts, observations)
         if latest is not None and observations[-1] == latest and (diagnostic, capture.capture_authority_id, receipt_digest, record.data["epoch_id"]) == (latest.data["diagnostic"], latest.data["capture_authority_id"], latest.data["receipt_sha256"], latest.data["epoch_id"]):
-            _advance_completion(store, snapshot, latest)
+            _advance_completion(store, snapshot, latest, program_transport_store)
             return latest
     except Exception:
         return _persist_completion_assessment(store, snapshot, program_transport_store, base, job, "evidence-conflict")
@@ -2146,4 +2168,5 @@ def _assert_program_receipt_success_authority(store, *, snapshot, program_transp
         raise TransportBoundaryError("receipt completion was invalidated")
     keys = (*_COMPLETION_BINDING_KEYS, "completion_mode", "epoch_id", "evidence_result_id", "capture_authority_id", "receipt_sha256", "observation_prefix_sha256")
     payload = {"schema": "program-terminal-success-authority/2", **{key: assessment.data[key] for key in keys}, "assessment_observation_id": assessment.observation_id, "initial_absence_observation_id": opening, "final_absence_observation_id": closing}
+    _completion_checkpoint(snapshot, program_transport_store)
     return freeze_mapping({**payload, "program_terminal_success_authority_id": semantic_id("program-terminal-success-authority", payload)}, "receipt terminal success authority")
