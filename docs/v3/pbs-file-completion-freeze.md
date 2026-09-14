@@ -840,3 +840,127 @@ visible in the handoff even if complete core discovery exits 0. Final PR-stage
 readiness must be assessed against actual terminal evidence and these residual
 conditions; no PR, merge, production activation or scientific promotion is
 performed by this closeout.
+
+
+## Authorized historical/environment supplement (2026-09-15)
+
+This related offline test/documentation supplement starts from clean commit
+`03ea182a0037630083bdef955eb6e57b8db439c9`, tree
+`bfd909c34faffc8879441c233410f6c2918fc7c6`, in the existing isolated task.
+The Owner authorized exact locked Schema packages in one new test-only overlay,
+baseline Git omissions, historical-source synthetic fixtures and bounded local
+inert process probes. Product, Core, public schemas, dependency locks, CI,
+runner, selector and scientific authority contracts are unchanged. No new full,
+publication, integration, deployment or live/scientific action is authorized.
+
+### Baseline environment omissions
+
+The six wheels were acquired from the explicit trusted PyPI index with exact
+versions from `requirements/schema-validation.lock.txt`, then installed offline
+into a new private prefix using the existing trusted core Python 3.13.13.
+Wheel source, size/SHA-256, install report and commands are retained externally.
+No core/chem/global installation occurred; core still has none of these six
+distributions. Environment-local Python/pip never runs. The unchanged
+`scripts/run_schema_validation.py` retains its descriptor, owner/mode, ABI,
+RECORD, before/after package-byte and CI-inventory checks under trusted `-I -S`.
+
+The unchanged CI-owned 28-module inventory passed **144 tests / 899.901
+seconds / exit 0 / no skips**: all 123 originally skipped Schema methods plus
+21 imported ancillary methods that the canonical inventory also owns. No
+filter or runner change was used. Exact IDs are in `schema-inventory-map.json`;
+terminal log SHA-256:
+`7ec13fc8b7f8118320091dc2639abc43353a4ab7dd40bc6e25abb534fb6c4078`.
+
+The 17 Git-related old skip records expand to **41 actual tests**: 25 methods
+behind `LegacyEffectOwnerTests.setUpClass`, one historical stage differential,
+and 15 individually selected methods. The exact Git-bearing baseline passed
+**41 tests / 175.170 seconds / exit 0 / no skips**. The GoodVibes-named lineage
+corruption test is synthetic Git provenance, not installed GoodVibes scientific
+qualification. Exact old-to-new selectors/IDs are retained in
+`git-inventory.json`; terminal log SHA-256 is
+`172258b15109ae1cbc7d2c423ba9500204a6e47b860d168daf06c1840f908b71`.
+
+The earlier unique full remains bound only to `03ea182`: **2736 tests / 2891.839
+seconds / OK (skipped=142) / exit 0**. There is a reporting correction: those
+142 records consist of 139 skipped methods and three skipped classes; unittest
+excludes the latter from testsRun. Hence successful methods were **2597**, not
+2594. Original logs remain intact. No full was repeated, and that old full is
+not represented as execution on the new supplement commit.
+
+### Independent historical sources and new tests
+
+Six added methods reside in `tests.v31.transport.test_program_completion`.
+`T` below denotes `CompletionTests`, `N` denotes `NativeCompletionStoreTests`.
+All existing methods/fixtures in that module retain their original AST; the
+separate new JSON fixture has a fixed SHA-256 and declared synthetic identity.
+
+| Vector | New disposition | Added direct evidence | Remaining boundary |
+| --- | --- | --- | --- |
+| FC01 | PASS | T.`test_supplement_historical_source_four_version_golden_bytes_and_ids`: all four xTB/CREST v1/v2 full spec and expanded snapshot bytes, IDs, scheduler content and effect identity reopen exactly; fresh filesystem anchor acquisition is forbidden during replay. Retains prior strict-default/V30 evidence. | These are newly reconstructed historical-source synthetic records, not historical physical/run observations. |
+| FC06 | PARTIAL | T.`test_supplement_pending_same_bytes_new_inode_rejected` retains both old/new pending objects and rejects before link. T.`test_supplement_actual_inert_wrapper_process_death` kills/reaps the exact owned wrapper after modeled launch, before link, after link, and after an actual short-lived Python writer was reaped by fixed wait_all. Top-level retained file bytes/dev/inode and publication state remain unchanged after death. | Frozen acceptance explicitly requires surviving descendants. Actual Linux adopted/surviving descendant behavior and publisher qualification remain NOT_ACQUIRED; no-op subreaper and direct-child proof cannot close them. |
+| FC15 | PARTIAL | Pre-C4 source reconstructs a nonempty synthetic /1 store externally: 1 meta, 1 runtime and 11 physical rows. Current reader verifies 15 dual-source observations; collection, replay, receipt-proof and strict-proof entries reject with zero driver calls and both database files byte-identical. | No real pre-existing historical nonempty /1 store was found in the bounded task-associated evidence search. Synthetic reconstruction cannot replace that sample or authorize migration. |
+| C4-04 | PASS | N.`test_supplement_fork_during_descriptor_registration` and N.`test_supplement_fork_during_sqlite_registration`: real fork overlaps a real open FD/connection before registry insertion; real product mutex delays fork; child closes/quarantines, new child creation rejects and independent contender still loses the parent lock. Retains prior other-thread RLock/exec evidence. | Child watchdog is registered before product import, exact child is reaped, all custom hooks stay in short-lived helper interpreters. Native macOS evidence only. |
+| C4-06 | PASS | N.`test_supplement_full_ddl_matches_historical_contract` compares all three table definitions, all six triggers and persisted canonical schema identity to literals derived independently from old Git plus the accepted meta-only column addition. | Historical-source normative reconstruction; not a claim of prior runtime DDL observation. |
+| C4-07 | PARTIAL | FC01 supplies exact four-version old bytes/IDs; external old-source nonempty /1 raw-read and fail-closed checks narrow the gap while prior strict and /2 isolation checks remain. | Real historical nonempty /1 sample remains NOT_ACQUIRED as in FC15. |
+
+The required 24 rows therefore become **21 PASS / 3 PARTIAL** after the new
+focused validation; all other 18 row dispositions and limits above are retained.
+No gap was renamed out of scope to obtain a PASS.
+
+The golden source is pre-C2 commit
+`6b2ece4443951381f0206c93e55e581ca175dd5e`, program blob
+`c364d7a899c969d2c6e3522f89786d9a5c5fcd88`, fixture blob
+`ecfd6612aa7853a0563e51858ae54ba2717c1130`. Fixed synthetic local root and
+explicit synthetic descriptor tokens were selected before generation by old
+code; no private path was redacted and no identity recomputed afterward.
+`tests/fixtures/v31/historical-spec-snapshot-goldens.json` SHA-256:
+`d83e1f247223b8c49915859f1cadfa4cebe114dcfc6055e5aebd41ef73ff93ba`.
+Current code did not generate the old golden. The generator and source archive
+are retained outside Git with source/blob/hash manifests.
+
+The independent DDL uses old transport blob
+`3e49198f64e746b7e28a25189abc7a9230ce6cb4` plus accepted C4 boundary at
+`7409a69b6085d230b1062d3eb1b2c9d17083edbd`, lines 5686–5692. Its independently
+encoded v2 identity SHA-256 is
+`725c9fae3fc3027b9b5b81e95e48f96c32931ee4d601b85df552569e00417e80`.
+The synthetic nonempty /1 was generated by pre-C4
+`502175664ff86185434d8e4a1ba4df4975b52112` using its inert driver and explicitly
+modeled Darwin flock. Its exact original path/inode is retained externally;
+no database artifact or machine path is committed.
+
+### Validation, review and unresolved responsibility
+
+Final source SHA-256
+`1d8a62d0f52f8906d3e2fcb1ab75f39d4a4fa97239f667f0cb2e5cd3a66e07fe`
+passed **10 tests / 6.227 seconds / exit 0 / no skips**: six new methods and
+four adjacent strict/writer-status/durable-replay/native-contention regressions.
+The original 104 class methods are AST-identical. The earlier 10-test draft
+pass is retained separately; only an extra EOF blank line was removed before
+this final exact-byte run. Final log SHA-256:
+`3b7f5c839e6ac93538e312fdca96cebc482c298f38f65dbe0ce5673f289d0e0c`.
+
+The whole-task selector remains subject to its earlier self-protection
+`legacy-release` routing. New commit/tree selection is retained externally.
+A complete full on the supplement candidate remains NOT_RUN under this
+explicit bounded authorization; old full evidence does not fill that new
+candidate gap. This is limited offline review readiness, not unconditional
+integration or release acceptance.
+
+External evidence directory identifier:
+`v31-completion-supplement-20260914T155130Z` under the local validation-runs root.
+`history-generation-handoff.json` explicitly points to successful
+`history-v1-store-review-02.json/.log` and preserves the prior draft failure;
+the latter confused 15 observations with 11 deduplicated physical rows. All
+other fixture/probe draft failures are likewise retained and distinguished
+from final results. Independent history and fault reviewers cross-review the
+other author's evidence; final exact candidate hashes and disposition are
+retained with the external closeout report.
+
+The Owner must decide whether to authorize bounded acquisition of a real old
+receipt-store sample and Linux surviving-descendant evidence, or accept an
+explicit limited disposition while these rows stay PARTIAL. The environment
+owner separately owns pinned GoodVibes qualification and Python 3.12 evidence;
+no installation of either, new Linux VM/container, or cross-platform inference
+was authorized. The supplement prepares reviewable offline evidence for a
+possible PR request; it does not grant PR, merge, production or scientific
+acceptance authority.

@@ -8,6 +8,8 @@ import subprocess
 import threading
 import sqlite3
 import fcntl
+import select
+import signal
 from pathlib import Path
 import tempfile
 import unittest
@@ -33,6 +35,296 @@ def manifest():
         roots[name] = {"path": "/opt/auto-g16-fixtures/bin/" + name, "platform": platform, "attestation_mode": attestation, "deployment_identity": "synthetic-only", "expected_sha256": None if shell else sha256(content).hexdigest(), "expected_size_bytes": None if shell else len(content), "shell_grammar": "posix-sh-v1" if shell else None}
     return {"schema": "auto-g16-v3-transport-deployment-manifest/3", "deployment_id": "synthetic-completion", "bootstrap_protocol": "auto-g16-v31-rtwin-bootstrap/1", "trust_roots": roots}
 
+
+
+
+# Module-private constant, copied without product edits.
+_FORK_REGISTRATION_WINDOW_PROBE = r'''"""External inert draft: native fork/FD/SQLite registration-window assertions.
+
+Arguments: repository root, mode (fd or sqlite). No product lock substitutions.
+All atfork hooks and instrumentation die with this short-lived interpreter.
+"""
+import errno
+import json
+import os
+import signal
+import sys
+
+def child_watchdog():
+    signal.signal(signal.SIGALRM, signal.SIG_DFL)
+    signal.alarm(4)
+
+# Registered BEFORE importing transport: this after-child hook runs first,
+# including before a regressed product hook could block on an inherited mutex.
+os.register_at_fork(after_in_child=child_watchdog)
+signal.signal(signal.SIGALRM, signal.SIG_DFL)
+signal.alarm(20)
+sys.path.insert(0, sys.argv[1])
+from auto_g16.transport import program as transport
+from auto_g16.transport._canonical import TransportBoundaryError
+import fcntl
+from pathlib import Path
+import select
+import subprocess
+import tempfile
+import threading
+import warnings
+from unittest.mock import patch
+
+mode = sys.argv[2]
+assert mode in ('fd', 'sqlite')
+entered = threading.Event()
+release = threading.Event()
+witness = threading.Event()
+fork_returned = threading.Event()
+worker_finished = threading.Event()
+finish_worker = threading.Event()
+captured = {}
+errors = []
+result = {}
+creator_pid = os.getpid()
+
+def pause_window():
+    assert transport._DIRECTORY_MUTEX.locked()
+    entered.set()
+    if not release.wait(8):
+        raise AssertionError('test coordinator failed to release registration window')
+
+# Registered AFTER transport: before hooks run in reverse registration order.
+# Witness proves os.fork entered while the worker still owns the product mutex.
+def before_fork_witness():
+    if threading.current_thread().name == 'window-fork':
+        assert transport._DIRECTORY_MUTEX.locked()
+        witness.set()
+os.register_at_fork(before=before_fork_witness)
+
+with tempfile.TemporaryDirectory() as tmp:
+    root = Path(tmp).resolve()
+    path = root / 'owner.sqlite3'
+    owner = transport._ProgramTransportStore._create_completion_store(path, approved_root=root)
+    separate = root / 'separate'
+    separate.mkdir()
+    second_path = separate / 'second.sqlite3'
+    second = transport._ProgramTransportStore._create_completion_store(second_path, approved_root=root)
+    second.close()
+    read_fd, write_fd = os.pipe()
+    original_open = os.open
+    original_registry = transport._STORE_HANDLES
+
+    def instrumented_open(*args, **kwargs):
+        fd = original_open(*args, **kwargs)
+        if mode == 'fd' and threading.current_thread().name == 'window-worker' and 'fd' not in captured:
+            # FD is actually open, but _directory_walk has not appended/registered it.
+            captured['fd'] = fd
+            captured['identity'] = (os.fstat(fd).st_dev, os.fstat(fd).st_ino)
+            assert fd not in transport._DIRECTORY_FDS
+            pause_window()
+        return fd
+
+    class RegistryProbe:
+        def add(self, value):
+            if mode == 'sqlite' and threading.current_thread().name == 'window-worker' and 'store' not in captured:
+                # The real sqlite3.connect already returned and was assigned.
+                captured['store'] = value
+                assert value not in original_registry
+                assert value._connection.execute('SELECT 1').fetchone() == (1,)
+                pause_window()
+            return original_registry.add(value)
+        def __iter__(self):
+            return iter(original_registry)
+
+    def worker():
+        try:
+            if mode == 'fd':
+                with transport._directory_walk(str(second_path), str(root)):
+                    worker_finished.set()
+                    assert finish_worker.wait(8)
+            else:
+                value = transport._ProgramTransportStore.open_existing(second_path, approved_root=root)
+                try:
+                    worker_finished.set()
+                    assert finish_worker.wait(8)
+                finally:
+                    value.close()
+        except BaseException as exc:
+            errors.append(('worker', repr(exc)))
+
+    def fork_worker():
+        pid = None
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore', DeprecationWarning)
+                pid = os.fork()
+            if pid == 0:
+                try:
+                    os.close(read_fd)
+                    assert transport._FORK_CHILD_QUARANTINED
+                    assert not transport._DIRECTORY_FDS
+                    if mode == 'fd':
+                        try:
+                            os.fstat(captured['fd'])
+                        except OSError as exc:
+                            assert exc.errno == errno.EBADF
+                        else:
+                            raise AssertionError('newly registered descriptor survived child hook')
+                    else:
+                        assert any(value is captured['store'] for value in transport._FORK_QUARANTINE)
+                        # No inherited SQLite call or close is made in the child.
+                        for action in (captured['store']._attest, captured['store'].close):
+                            try:
+                                action()
+                            except TransportBoundaryError:
+                                pass
+                            else:
+                                raise AssertionError('inherited handle accepted')
+                    try:
+                        transport._ProgramTransportStore.create_new(root / 'forbidden.sqlite3', approved_root=root)
+                    except TransportBoundaryError:
+                        pass
+                    else:
+                        raise AssertionError('child create accepted before exec')
+                    os.write(write_fd, b'child-closed-and-quarantined')
+                except BaseException as exc:
+                    os.write(write_fd, ('ERROR:' + repr(exc)).encode()[:2048])
+                    os._exit(2)
+                os._exit(0)
+            fork_returned.set()
+            assert select.select([read_fd], [], [], 6)[0], 'child did not report'
+            result['payload'] = os.read(read_fd, 2048).decode()
+        except BaseException as exc:
+            errors.append(('fork', repr(exc)))
+        finally:
+            if pid:
+                result['status'] = os.waitpid(pid, 0)[1]
+
+    worker_thread = threading.Thread(target=worker, name='window-worker', daemon=True)
+    fork_thread = threading.Thread(target=fork_worker, name='window-fork', daemon=True)
+    try:
+        with owner._completion_guard() as token:
+            with patch.object(os, 'open', side_effect=instrumented_open), patch.object(transport, '_STORE_HANDLES', RegistryProbe()):
+                worker_thread.start()
+                assert entered.wait(5), 'registration boundary was not entered'
+                fork_thread.start()
+                assert witness.wait(5), 'real fork request did not reach before callback'
+                assert not fork_returned.wait(0.15), 'fork bypassed the held registration mutex'
+                release.set()
+                assert worker_finished.wait(5), 'worker did not finish registration'
+                fork_thread.join(7)
+                assert not fork_thread.is_alive(), 'fork worker failed to reap child'
+                assert not errors, errors
+                assert result == {'payload': 'child-closed-and-quarantined', 'status': 0}, result
+                assert not (root / 'forbidden.sqlite3').exists()
+                owner._require_completion_guard(token)
+                # A real independent interpreter must still lose: the child hook
+                # must close inherited descriptors WITHOUT issuing LOCK_UN.
+                probe = subprocess.run([sys.executable, '-c',
+                    'import os,fcntl,sys; fd=os.open(sys.argv[1],os.O_RDONLY|os.O_DIRECTORY)\n'
+                    'try: fcntl.flock(fd,fcntl.LOCK_EX|fcntl.LOCK_NB)\n'
+                    'except BlockingIOError: print("busy")\n'
+                    'else: print("ACQUIRED")\n', str(root)], capture_output=True, text=True, timeout=5)
+                assert probe.returncode == 0 and probe.stdout.strip() == 'busy', (probe.returncode, probe.stdout, probe.stderr)
+                finish_worker.set()
+                worker_thread.join(5)
+                assert not worker_thread.is_alive() and not errors, errors
+        print(json.dumps({'mode': mode, 'native_fork': True, 'registration_window_entered': True,
+                          'fork_blocked_until_registered': True, 'child_reaped': True,
+                          'parent_lock_preserved': True, 'result': result}, sort_keys=True))
+    finally:
+        release.set()
+        finish_worker.set()
+        if worker_thread.ident is not None: worker_thread.join(5)
+        if fork_thread.ident is not None: fork_thread.join(7)
+        os.close(read_fd)
+        os.close(write_fd)
+        owner.close()
+signal.alarm(0)
+'''
+
+
+
+_SUPPLEMENT_WRAPPER_CHILD = r'''
+import json,os,signal,subprocess,sys
+from types import SimpleNamespace
+from auto_g16.execution._program_completion_wrapper import _WRAPPER_SOURCE
+signal.signal(signal.SIGALRM,signal.SIG_DFL)
+signal.alarm(12)
+config=json.loads(open(sys.argv[1]).read())
+phase=sys.argv[2]
+namespace={'__name__':'inert_process_death'}
+exec(compile(_WRAPPER_SOURCE,'reviewed-wrapper','exec'),namespace)
+launches=[]
+writers=[]
+def checkpoint(value):
+    message={'phase':value,'launches':len(launches),'pid':os.getpid()}
+    if writers:
+        assert writers[0].returncode==0
+        try:os.waitpid(writers[0].pid,os.WNOHANG)
+        except ChildProcessError:pass
+        else:raise AssertionError('inert writer was not already reaped')
+        message.update(writer_reaped=True,writer_returncode=0)
+    print(json.dumps(message),flush=True)
+    os.read(0,1)
+    raise AssertionError('death checkpoint unexpectedly released')
+def launch(*args,**kwargs):
+    assert kwargs['shell'] is False
+    assert kwargs['executable'].startswith('/proc/self/fd/')
+    assert kwargs['env']=={'OMP_NUM_THREADS':'8','XTBPATH':config['xtb_data_path']}
+    launches.append(True)
+    assert len(launches)==1
+    if phase=='writer-reaped-before-link':
+        # Real direct child, real waitpid, known short-lived Python bytes only.
+        # This is NOT /proc execution of the reviewed scientific executable.
+        code='import os,signal;signal.signal(signal.SIGALRM,signal.SIG_DFL);signal.alarm(2);os.write(1,b"actual inert direct writer\\n")'
+        writer=subprocess.Popen([sys.executable,'-c',code],stdin=subprocess.DEVNULL,stdout=kwargs['stdout'],stderr=kwargs['stderr'],env=kwargs['env'],shell=False)
+        writers.append(writer)
+        return writer
+    os.write(kwargs['stdout'],b'inert never-executed scientific program\n')
+    return SimpleNamespace(pid=123,returncode=None)
+def wait(pid,deadline):
+    if writers:
+        assert pid==writers[0].pid
+        return original_wait(pid,deadline)
+    assert pid==123
+    if phase=='after-inert-launch':checkpoint(phase)
+    return 0
+original_link=os.link
+original_wait=namespace['wait_all']
+def link(*args,**kwargs):
+    if phase in ('before-link','writer-reaped-before-link'):checkpoint(phase)
+    result=original_link(*args,**kwargs)
+    if phase=='after-link':checkpoint(phase)
+    return result
+namespace['subreaper']=lambda:None
+namespace['wait_all']=wait
+namespace['subprocess']=SimpleNamespace(Popen=launch,DEVNULL=-3)
+os.link=link
+os.environ['PBS_JOBID']='123.server'
+namespace['run'](config)
+raise AssertionError('wrapper finished instead of reaching the death checkpoint')
+'''
+
+def _supplement_wrapper_config(self, workspace):
+    data = workspace / 'data'
+    data.mkdir()
+    for name in lane.XTB_RUNTIME_DATA_FILES:
+        (data / name).write_bytes(name.encode())
+    executable = workspace / 'inert-program'
+    executable.write_bytes(b'never executed\n')
+    (workspace / 'input.xyz').write_bytes(lane.XYZ)
+    (workspace / '.auto-g16-v31-submit-intent').write_bytes(completion._receipt_json({'program_execution_snapshot_id':'synthetic','effect_intent_id':'synthetic'}))
+    python_path = Path(sys.executable).resolve()
+    python_raw = python_path.read_bytes()
+    spec = json.loads(completion._receipt_json(self.snapshot.program_execution_spec.semantic_payload()))
+    spec['invocation']['executable_identity'] = {'absolute_path':str(executable),'size_bytes':executable.stat().st_size,'sha256':sha256(executable.read_bytes()).hexdigest()}
+    spec['invocation']['argv'][0] = str(executable)
+    material = dict(self.snapshot._completion_material())
+    deployment = manifest()
+    deployment['trust_roots']['server_python'].update(path=str(python_path),expected_size_bytes=len(python_raw),expected_sha256=sha256(python_raw).hexdigest())
+    material['deployment_manifest_base64'] = completion.base64.b64encode(completion._receipt_json(deployment)).decode()
+    fields = {k:v for k,v in self.snapshot._identity_payload.items() if k != 'scheduler_artifacts'}
+    fields.update(cwd_binding={'location_kind':'server','path':str(workspace)}, program_execution_spec_payload_sha256=runtime.semantic_sha256(spec))
+    binding = completion._prebinding(fields, material)
+    return {'prebinding':binding,'prebinding_sha256':runtime.semantic_sha256(binding),'spec':spec,'material':material,'xtb_data_path':str(data),'cores':8,'walltime_seconds':1}
 
 class CompletionTests(lane.LaneAFixture):
     """Native directory flock and default SQLite, including on Darwin."""
@@ -1230,6 +1522,121 @@ class CompletionTests(lane.LaneAFixture):
         self.assertEqual(len(self.store.results_for_attempt("attempt-1")),1)
         self.assertEqual(sum(op=="SUBMIT_QSUB_ONCE" for op,_ in self.driver.calls),1)
 
+
+
+    def test_supplement_pending_same_bytes_new_inode_rejected(self):
+        from auto_g16.execution._program_completion_wrapper import _WRAPPER_SOURCE
+        namespace = {'__name__': 'inert_pending_supplement'}
+        exec(compile(_WRAPPER_SOURCE, 'reviewed-wrapper', 'exec'), namespace)
+        workspace = self.root / 'pending-inode-window'
+        workspace.mkdir()
+        parent, token, chain = namespace['pin_directory'](str(workspace))
+        original_read = namespace['read_name']
+        reads = []
+        raw = b'{"synthetic":"pending identity only"}\n'
+        def read(parent_fd, name, *args, **kwargs):
+            value = original_read(parent_fd, name, *args, **kwargs)
+            if name == 'v31-completion.pending':
+                reads.append(value[1])
+                if len(reads) == 1:
+                    # Keep the old object and recreate the exact same bytes under
+                    # the pending name after the first trusted read, before re-read.
+                    os.rename(name, 'retained-original.pending', src_dir_fd=parent_fd, dst_dir_fd=parent_fd)
+                    namespace['exclusive'](parent_fd, name, value[0])
+                    self.assertNotEqual(value[1][:2], namespace['identity'](os.stat(name, dir_fd=parent_fd, follow_symlinks=False))[:2])
+            return value
+        try:
+            with patch.dict(namespace, {'read_name': read}), patch('os.link', wraps=os.link) as linked:
+                with self.assertRaisesRegex(ValueError, 'receipt-replaced'):
+                    namespace['publish'](parent, str(workspace), token, raw, chain)
+                self.assertEqual(linked.call_count, 0)
+            self.assertEqual(len(reads), 2)
+            self.assertEqual((workspace / 'v31-completion.pending').read_bytes(), raw)
+            self.assertEqual((workspace / 'retained-original.pending').read_bytes(), raw)
+            self.assertFalse((workspace / 'v31-completion.json').exists())
+        finally:
+            for fd in reversed(chain):
+                os.close(fd)
+
+    def test_supplement_actual_inert_wrapper_process_death(self):
+        """Real Darwin wrapper-process death; subreaper and scientific launch modeled."""
+        for phase in ('after-inert-launch', 'before-link', 'after-link', 'writer-reaped-before-link'):
+            with self.subTest(phase=phase):
+                workspace = self.root / ('actual-inert-death-' + phase)
+                workspace.mkdir()
+                config = _supplement_wrapper_config(self, workspace)
+                config_path = workspace / 'inert-config.json'
+                config_path.write_bytes(completion._receipt_json(config))
+                # Qualified current interpreter, exact known repository/module path.
+                # No inherited program-store handles survive the exec boundary.
+                child = subprocess.Popen([str(Path(sys.executable).resolve()), '-c', _SUPPLEMENT_WRAPPER_CHILD, str(config_path), phase],
+                                         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                         cwd=Path(__file__).resolve().parents[3])
+                try:
+                    self.assertTrue(select.select([child.stdout], [], [], 8)[0], 'child never reached the death checkpoint')
+                    message = json.loads(child.stdout.readline())
+                    expected = {'phase':phase,'launches':1,'pid':child.pid}
+                    if phase == 'writer-reaped-before-link':
+                        expected.update(writer_reaped=True,writer_returncode=0)
+                    self.assertEqual(message, expected)
+                    self.assertIsNone(child.poll())
+                    final, pending = workspace / 'v31-completion.json', workspace / 'v31-completion.pending'
+                    before = {p.name:(p.read_bytes(),p.stat().st_dev,p.stat().st_ino) for p in workspace.iterdir() if p.is_file()}
+                    self.assertIn('v31-completion-launch.lock', before)
+                    self.assertIn('xtb.out', before)
+                    if phase == 'after-inert-launch':
+                        self.assertFalse(pending.exists())
+                        self.assertFalse(final.exists())
+                    elif phase in ('before-link', 'writer-reaped-before-link'):
+                        self.assertTrue(pending.is_file())
+                        self.assertFalse(final.exists())
+                        completion._decode_receipt(pending.read_bytes())
+                    else:
+                        self.assertEqual(final.read_bytes(), pending.read_bytes())
+                        self.assertEqual((final.stat().st_dev, final.stat().st_ino), (pending.stat().st_dev, pending.stat().st_ino))
+                        completion._decode_receipt(final.read_bytes())
+                    # Only this directly owned child is signaled. Never a group,
+                    # process-name search, fake pid 123, scheduler or scientific job.
+                    child.send_signal(signal.SIGKILL)
+                    remaining, errors = child.communicate(timeout=5)
+                    self.assertEqual(child.returncode, -signal.SIGKILL)
+                    self.assertEqual(remaining, b'')
+                    self.assertEqual(errors, b'')
+                    after = {p.name:(p.read_bytes(),p.stat().st_dev,p.stat().st_ino) for p in workspace.iterdir() if p.is_file()}
+                    self.assertEqual(after, before)
+                    self.assertEqual(final.exists(), phase == 'after-link')
+                finally:
+                    if child.poll() is None:
+                        # Cleanup of this test-owned child on assertion failure only.
+                        child.kill()
+                    child.communicate(timeout=5)
+                    for pipe in (child.stdin, child.stdout, child.stderr):
+                        pipe.close()
+
+    def test_supplement_historical_source_four_version_golden_bytes_and_ids(self):
+        from auto_g16.execution import models
+        encoded = completion._receipt_json
+        raw=(Path(__file__).parents[2]/"fixtures"/"v31"/"historical-spec-snapshot-goldens.json").read_bytes()
+        self.assertEqual(sha256(raw).hexdigest(),"d83e1f247223b8c49915859f1cadfa4cebe114dcfc6055e5aebd41ef73ff93ba")
+        golden=json.loads(raw)
+        self.assertEqual(golden["source_commit"],"6b2ece4443951381f0206c93e55e581ca175dd5e")
+        self.assertEqual([r["name"] for r in golden["records"]],["xtb-v1","xtb-v2","crest-v1","crest-v2"])
+        for record in golden["records"]:
+            with self.subTest(version=record["name"]):
+                payload=dict(adapter.freeze_mapping(record["spec"],"historical synthetic spec"));payload.pop("program_execution_spec_id")
+                spec=execution.ProgramExecutionSpec._from_closed(**payload)
+                self.assertEqual(spec.program_execution_spec_id,record["spec_id"])
+                self.assertEqual(encoded(spec.semantic_payload()),encoded(record["spec"]))
+                self.assertEqual(sha256(encoded(spec.semantic_payload())).hexdigest(),record["spec_bytes_sha256"])
+                with patch.object(models,"require_local_workspace_anchor",side_effect=AssertionError("golden replay must not claim fresh filesystem authority")):
+                    replay=adapter._validate_program_review_semantics(record["expanded_snapshot"])
+                self.assertEqual(encoded(replay),encoded(record["expanded_snapshot"]))
+                self.assertEqual(sha256(encoded(replay)).hexdigest(),record["expanded_snapshot_bytes_sha256"])
+                self.assertEqual(replay["program_execution_snapshot_id"],record["snapshot_id"])
+                self.assertEqual(replay["effect_intent_id"],record["effect_intent_id"])
+                self.assertEqual(replay["program_execution_spec"]["program_execution_spec_id"],record["spec_id"])
+
+
 class NativeCompletionStoreTests(unittest.TestCase):
     """Real OS ownership, unmodified SQLite; never a remote driver."""
 
@@ -1695,3 +2102,56 @@ except TransportBoundaryError:
             if pid is not None:os.waitpid(pid,0)  # Child's own alarm bounds all failure paths.
             release.set();thread.join(10)
         self.assertFalse(thread.is_alive())
+
+
+    def _assert_supplement_fork_registration_window(self, mode):
+        repository = Path(__file__).resolve().parents[3]
+        result = subprocess.run(
+            [sys.executable, "-c", _FORK_REGISTRATION_WINDOW_PROBE, str(repository), mode],
+            cwd=repository, capture_output=True, text=True, timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(result.stderr, "")
+        report = json.loads(result.stdout)
+        self.assertEqual(report["mode"], mode)
+        for key in ("native_fork", "registration_window_entered", "fork_blocked_until_registered", "child_reaped", "parent_lock_preserved"):
+            self.assertIs(report[key], True)
+        self.assertEqual(report["result"], {"payload":"child-closed-and-quarantined", "status":0})
+
+    @unittest.skipUnless(hasattr(os, "fork"), "native fork unavailable")
+    def test_supplement_fork_during_descriptor_registration(self):
+        self._assert_supplement_fork_registration_window("fd")
+
+    @unittest.skipUnless(hasattr(os, "fork"), "native fork unavailable")
+    def test_supplement_fork_during_sqlite_registration(self):
+        self._assert_supplement_fork_registration_window("sqlite")
+
+    def test_supplement_full_ddl_matches_historical_contract(self):
+        # Independent literals: pre-C2 transport blob 3e49198f64e746b7e28a25189abc7a9230ce6cb4
+        # plus accepted boundary 7409a69:5686-5692 (meta-only appended column).
+        # Reconstructed historical-source golden, not a retained runtime database.
+        expected = [
+            'CREATE TABLE program_transport_meta(singleton INTEGER PRIMARY KEY CHECK(singleton=1),schema_identity BLOB NOT NULL,program_transport_store_id TEXT NOT NULL UNIQUE,store_instance_id TEXT NOT NULL UNIQUE,creation_nonce BLOB NOT NULL CHECK(length(creation_nonce)=32),approved_store_root TEXT NOT NULL,approved_store_path TEXT NOT NULL,store_device INTEGER NOT NULL,store_inode INTEGER NOT NULL,completion_guard_binding BLOB NOT NULL)',
+            'CREATE TABLE program_runtime_attestation(runtime_attestation_id TEXT PRIMARY KEY,program_transport_store_id TEXT NOT NULL,store_instance_id TEXT NOT NULL,program_execution_snapshot_id TEXT NOT NULL,resolved_server_profile_id TEXT NOT NULL,protocol TEXT NOT NULL,operation_table_sha256 TEXT NOT NULL,qualified_runtime_sha256 TEXT NOT NULL,payload BLOB NOT NULL)',
+            'CREATE TABLE program_effect_physical_authority(physical_effect_authority_id TEXT PRIMARY KEY,program_transport_store_id TEXT NOT NULL,store_instance_id TEXT NOT NULL,runtime_attestation_id TEXT NOT NULL REFERENCES program_runtime_attestation(runtime_attestation_id),attempt_id TEXT NOT NULL,program_execution_snapshot_id TEXT NOT NULL,effect_intent_id TEXT NOT NULL,operation TEXT NOT NULL,request_sha256 TEXT NOT NULL,effect_classification TEXT NOT NULL,job_id TEXT,submit_once_key TEXT UNIQUE,payload BLOB NOT NULL)',
+            "CREATE TRIGGER program_transport_meta_no_update BEFORE UPDATE ON program_transport_meta BEGIN SELECT RAISE(ABORT,'append-only'); END",
+            "CREATE TRIGGER program_transport_meta_no_delete BEFORE DELETE ON program_transport_meta BEGIN SELECT RAISE(ABORT,'append-only'); END",
+            "CREATE TRIGGER program_runtime_attestation_no_update BEFORE UPDATE ON program_runtime_attestation BEGIN SELECT RAISE(ABORT,'append-only'); END",
+            "CREATE TRIGGER program_runtime_attestation_no_delete BEFORE DELETE ON program_runtime_attestation BEGIN SELECT RAISE(ABORT,'append-only'); END",
+            "CREATE TRIGGER program_effect_physical_authority_no_update BEFORE UPDATE ON program_effect_physical_authority BEGIN SELECT RAISE(ABORT,'append-only'); END",
+            "CREATE TRIGGER program_effect_physical_authority_no_delete BEFORE DELETE ON program_effect_physical_authority BEGIN SELECT RAISE(ABORT,'append-only'); END",
+        ]
+        actual = list(self.owner._connection.execute(
+            "SELECT type,name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'"))
+        self.assertEqual(len(actual), 9)
+        self.assertEqual({row[2] for row in actual}, set(expected))
+        def string(value):
+            raw = value.encode("utf-8")
+            return b"s" + str(len(raw)).encode("ascii") + b":" + raw
+        encoded = b"a9:" + b"".join(string(value) for value in expected)
+        self.assertEqual(sha256(encoded).hexdigest(),
+                         "725c9fae3fc3027b9b5b81e95e48f96c32931ee4d601b85df552569e00417e80")
+        stored = self.owner._connection.execute(
+            "SELECT schema_identity FROM program_transport_meta WHERE singleton=1").fetchone()[0]
+        self.assertEqual(stored, encoded)
+        self.assertEqual(self.owner._connection.execute("PRAGMA user_version").fetchone()[0], 2)
