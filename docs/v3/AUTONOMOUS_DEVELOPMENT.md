@@ -834,3 +834,15 @@ Controller, open OpenSSH, or perform live work.
   fixture children; they grant no program/live authority.
 - **Disposition:** CANDIDATE; repository Owner exact-candidate freeze pending.
   Local worktree/branch retained; cleanup and archival are not authorized.
+
+#### C3 material-derivation checkpoint
+
+C2 Owner acceptance activates phase 2, but implementation discovery of the
+manifest-content gap stops the dependent renderer at a P1 contract boundary.
+C3 proposes only the private material input/data-line/prebinding delta defined
+in the boundary supplement, within the existing allowed paths. No public
+record, Transport operation, deployment, production qualification or live
+permission is added. C3 remains an exact Owner review checkpoint; it is not
+an autonomous reinterpretation of accepted C2. Isolated pure receipt grammar
+work already started is retained as incomplete work, not an implementation
+PASS. Do not activate C3-dependent code before the new review closes.

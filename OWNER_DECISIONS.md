@@ -1273,3 +1273,19 @@ and [acceptance vectors](docs/v3/acceptance.md#v31-pbs-compat-file-completion-01
 The [Task Contract](docs/v3/AUTONOMOUS_DEVELOPMENT.md#v31-pbs-compat-file-completion-01)
 controls activation and allowed paths. Documentation or independent technical
 review alone does not substitute for repository Owner L3 review.
+
+### OD-32 C3 rendering-material supplement — candidate
+
+C2 was accepted by the Owner at commit
+`3ea04da8bc0a401920d721adac7649d5d7af88ab`. Implementation inspection then
+identified that the resolved profile retains only manifest digests, while
+C2 rendering requires their contents. The following supplement is a new
+candidate, not included in that acceptance. It changes no program mode,
+public record budget, production hard stop or operational authority.
+
+Propose one private, profile-verified rendering-material input, embedded as
+closed data inside the existing scheduler artifact bytes so immutable snapshot
+replay can independently reconstruct the interpreter and runtime-data list.
+Only the [C3 boundary supplement](docs/v3/boundary-spec.md#c3-rendering-material-supplement-candidate)
+supersedes C2's material derivation and prebinding schema after exact Owner
+acceptance. Dependent renderer implementation remains stopped until then.

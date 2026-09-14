@@ -120,3 +120,62 @@ Handbook section 7 requires repository owner review for L3 scheduler/security
 work; that review has not yet occurred on these new bytes. This is the sole
 contract-freeze blocker after C2 technical PASS. No product implementation,
 remote publication/integration or original shared-checkout mutation occurred.
+
+## Owner C2 activation — 2026-09-14
+
+Following the exact C2 review request, the repository Owner replied “确认”.
+This accepts the six C2 hashes above at commit
+`3ea04da8bc0a401920d721adac7649d5d7af88ab`, tree
+`ca4ca0ce7407657a650a3905c18fd5fb79be7269`, including initial synthetic-only
+implementation and production publisher hard stop. C2 is now FROZEN FOR THE
+BOUNDED OFFLINE IMPLEMENTATION. Earlier PENDING/CANDIDATE statements record the
+pre-acceptance state; this explicit activation closes them without changing
+the six reviewed authority files. The Task Contract's phase-2 allowed paths
+are active in this same task/worktree. All operational/publication prohibitions
+remain. Implementation and FC01–FC15 validation are pending, not accepted by
+this contract approval.
+
+## C3 implementation-discovered P1 and candidate
+
+After C2 activation, read-only interface inspection established that
+ResolvedServerProfile drops manifest bytes (models.py:534–559), while the
+snapshot builder and identity replay have no separate source for their
+contents (program.py:1043, 1202–1258). Existing Transport driver state is later
+and cannot supply this input without a new dependency. The independent
+reviewer explicitly acknowledged this seam was missed in the earlier C2 PASS.
+C2 Owner acceptance is retained; dependent renderer is STOPPED, not repaired
+by assumption. The proposed C3 supplement supplies a closed profile-verified
+material input embedded as data in the existing scheduler bytes. Public record
+shapes and the production hard stop remain unchanged.
+
+Before the gap was confirmed, initial pure receipt serialization/structural
+output-check work began in `_program_completion.py`; it has no runtime callers,
+no completion-state/effect authority, and is incomplete. Syntax validation is
+not FC01–FC15 completion. It is retained separately from the contract manifest.
+
+C3 technical review: PASS by independent subagent `contract_seam_audit`.
+The reviewer recomputed all six hashes below, checked the diff against
+`3ea04da8bc0a401920d721adac7649d5d7af88ab`, and reported no P0/P1/P2 in C3.
+The missing-material P1 is closed in this candidate, pending Owner acceptance.
+C3 exact Owner acceptance: PENDING; dependent renderer remains paused.
+
+### C3 authority-file content manifest
+
+- `OWNER_DECISIONS.md`: `96eafc99792963f524770242d6057c2727b63b9a6bd479c9b0455729e0021585`
+- `docs/v3/boundary-spec.md`: `ccd97a66b320ef2a87e12b5b54b7e437bf167c7cb5eb205e2d7c033e959aea98`
+- `docs/v3/acceptance.md`: `26535be459b45911aea17a886948fbcfe1acb18ecd94b112b33238cebfcac271`
+- `config/context-map.toml`: `7c6ada260ff777118c690971278986f6c2966db294a004619069adad63b98572`
+- `docs/v3/AUTONOMOUS_DEVELOPMENT.md`: `6c309be1e58924ecfe38bf1ff44722f682e5a74f26b7aa9550a52ce48f1539e6`
+- `docs/v3/STATUS.md`: `2535821d2b34cc31d3adbb17bfe84d4f5a15dc19b055b5cf84936a8d17cb781d`
+
+### C3 checkpoint validation and retained WIP
+
+C3 TOML/routes/hash/diff checks and the CI declaration audit passed locally.
+The unconnected `_program_completion.py` is not included in this documentation
+commit or in the C3 review PASS. Its syntax and 16 standalone grammar/output
+checks passed at 2026-09-14T09:07:32Z (0.014 seconds), without any snapshot,
+publisher, capture, runtime completion or scientific claim. All FC01–FC15 and
+C3 implementation vectors remain pending. This task owns the untracked WIP;
+no unrelated changes were present and no cleanup was performed.
+
+Retained WIP SHA-256: `aa235ef7d380ce774cba08f4163a3c8cab48dee7433527658d56250e32b67f5b`.

@@ -5584,3 +5584,78 @@ stays private to Execution; public Result/Observation records carry evidence
 through existing APIs. No new service, transport hop/operation, public Result
 schema, parser framework or scientific rule is added. Deferred consumers fail
 closed on the unsupported completion authority version.
+
+### C3 rendering-material supplement candidate
+
+**CANDIDATE / OWNER REVIEW PENDING.** This closes a C2 input-availability gap:
+`ResolvedServerProfile` retains runtime digest/size, not manifest bytes. No
+existing digest can recover an interpreter path or an xTB file inventory.
+Only this derivation delta changes; all C2 safety, receipt schema, qualification
+hard stop, output closure, allowed paths and two-record budget remain intact.
+
+Only version 3's private snapshot builder accepts optional keyword
+`completion_rendering_material`; version 3 requires it, historical versions
+reject any non-null material. It is an immutable closed mapping, not a new
+public class or record. Exact fields are `schema` =
+`v31-completion-rendering-material/1`, `resolved_server_profile_id`,
+`deployment_manifest_base64`, `xtb_runtime_data_manifest_base64`.
+
+A pure private builder obtains only the two exact existing runtime_contents
+names `transport-deployment-manifest-v3.json` and
+`xtb-runtime-data-manifest-v1.json` from an existing non-secret ServerProfile.
+Resolve that current profile through the existing public resolver and require
+complete equality with the selected ResolvedServerProfile. Parse deployment
+bytes using the existing manifest-v3 canonical JSON grammar; normalize xTB
+manifest bytes with Execution's existing `_canonical_xtb_runtime_data_manifest`.
+Compare each resulting byte string's size/SHA-256 against the corresponding
+resolved runtime identity before constructing the material. No separate
+interpreter path argument, environment lookup, hash-to-path registry or
+Transport driver's later private profile supplies missing information.
+
+Use canonical padded RFC4648 base64 for the two verified byte strings; each
+decoded manifest is bounded to 1 MiB, and the complete material JSON to 3 MiB.
+Use the C2 canonical JSON rule, including exactly one final LF and recursive
+duplicate/unknown-key rejection. Missing, wrong version, noncanonical data,
+extra field, profile drift, hash/size mismatch or oversized content rejects
+snapshot preparation and replay before any effect.
+
+The single scheduler artifact keeps exactly its existing six fields
+`logical_role`, `portable_name`, `format`, `sha256`, `size_bytes`, `content_utf8`.
+Its content has fixed first lines `#!/bin/bash`,
+`# auto-g16-v31-scheduler/2`, and
+`# completion-material-base64: ` followed by canonical base64 of the complete
+canonical material JSON. There is exactly one such data line, at line 3. It is
+not executable text. No new field is added to either public execution record.
+
+C3 uses `binding_schema = v31-completion-prebinding/2` and adds exactly
+`rendering_material_sha256` to C2's B. This is Execution semantic_sha256 over
+the closed material mapping. Render the remaining script from the verified
+material, exact spec, resources/profile, cwd and fixed wrapper source. The
+final snapshot continues to bind the complete resulting scheduler bytes.
+
+Snapshot identity verification extracts only that fixed data line, checks all
+material bytes against the embedded resolved profile, derives interpreter and
+runtime-data entries again, recomputes B and the entire scheduler artifact,
+and requires exact byte equality. A data-line claim or script hash alone never
+supplies command authority. Reopening needs neither a mutable profile object
+nor process-local cache. The acyclic order is verified material/profile -> B
+-> script -> final snapshot -> pre-qsub marker -> receipt; neither the material
+nor B contains the final snapshot/effect ID or script hash.
+
+Execution's allowed private completion module EXTRACTS the manifest-v3 closed
+shape and trust-root validation semantics from the baseline Transport parser
+(`auto_g16/transport/_driver.py`, `_parse_deployment_manifest`, manifest-v3
+branch), without importing Transport or invoking its resolver/driver. Keep
+exact top-level keys, exact five trust-root names and closed per-root fields;
+derive `server_python` only from that validated manifest, including path,
+expected size/SHA, platform and attestation mode. This is a pure projection of
+already profile-bound bytes, never deployment or publisher qualification.
+Use the existing Execution xTB manifest validator for the ordered data list.
+No general parser, plugin, additional environment or public API is introduced.
+
+New completion tests explicitly construct synthetic profile and manifest
+content, put it into runtime_contents before resolving, and derive material
+through the same checks. Existing LaneAFixture and strict vectors are unchanged;
+no missing fixture identity is silently invented or called production-qualified.
+Real receipt-mode driver construction/evaluation still fails
+`publisher-not-qualified`, exactly as C2 requires.

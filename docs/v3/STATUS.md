@@ -346,3 +346,13 @@
 - **Do not start after integration:** further roadmap work, deployment, live
   qualification, recovery Attempt, or V30-A calculation execution. Real
   SSH/RTwin deployment and all PBS/Gaussian operations remain unauthorized.
+
+## File-completion implementation checkpoint
+
+C2 received exact Owner acceptance after independent technical review. During
+phase-2 inspection, a missing manifest-content input was identified and
+independently confirmed as P1; the earlier C2 review had missed this seam.
+The C3 rendering-material supplement is a concrete candidate for that gap.
+Dependent rendering is stopped pending C3 review/Owner acceptance. Initial
+pure receipt grammar work is incomplete and grants no completion authority;
+no full implementation, production or scientific acceptance is claimed.

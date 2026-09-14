@@ -2047,3 +2047,17 @@ base/head affected selection. Record the selector even if it conservatively
 routes control-plane changes to full; do not run full without the required
 separate integration attestation scope. Selector failure is a blocker, never
 permission to fall back to discovery. No full/CI/live PASS is inferred here.
+
+### C3 rendering-material candidate vectors
+
+C3 adds these cases to FC03/FC04/FC05, without claiming they have run:
+missing raw material; raw/canonical manifest hash or size mismatch; current
+profile drift; duplicate/extra fields; unknown schema/root inventory;
+server_python identity/platform/mode mismatch; xTB file-list mismatch;
+noncanonical base64; fixed script data line missing/duplicated/relocated or
+replaced; B/material hash mismatch; full immutable snapshot reopen with no
+mutable profile/cache; unchanged historical strict bytes; synthetic material
+never granting production publisher qualification. Independent technical
+review and exact Owner acceptance of the C3 content hashes precede dependent
+implementation. C2 acceptance remains recorded but cannot fill this missing
+input path by inference.
