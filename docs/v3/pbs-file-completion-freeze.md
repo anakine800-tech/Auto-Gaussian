@@ -334,3 +334,36 @@ recorded below. The native guard/SQLite blocker is unchanged.
   publication, integration, deployment, live execution, resubmission, cleanup
   or scientific acceptance is authorized or performed. No lock redesign,
   mock-based acceptance relaxation or C4 decision is inferred.
+
+### Local commit and validation-selection stop
+
+The code/evidence checkpoint was committed locally as
+`9c4946357483055552dd464d6debb6707430e3e6`, tree
+`11c0d88348582be79854bbd5c7c075132f494f4f`. Normal pre-commit hooks passed;
+no hook was disabled. The clean-tree preflight, CI declaration audit and
+Python contract audit then passed. No remote CI or protection claim follows.
+
+The exact-base validation selector was run with base
+`6b2ece4443951381f0206c93e55e581ca175dd5e` and that complete HEAD. It returned:
+
+- `schema`: `auto-g16-validation-selection-result/2`;
+- `manifest_blob`: `2d328bc6feae9c858b721406c48034a73cd99a60`;
+- `fail_closed`: **true**;
+- fallback `lane`: `legacy-release`; `tests`: empty;
+- reason: `selected tests do not carry required safety evidence: approval-owner-separation`.
+
+Read-only inspection identifies the interaction: v3 control documentation
+selects the v3-full lane, which replaces selected route tests with the
+manifest's v3_full_tests list. Execution/Transport routes still require
+approval-owner-separation evidence, but those carriers are absent from that
+list. Both selector and validation-selection manifest are unchanged from the
+approved base and outside this task's allowed mutation paths. Passing focused
+tests does not override the failed selection contract. No fallback full run,
+route weakening, extra-scope repair, remote CI or new user task was started.
+
+The final disposition therefore has **two independent blockers**: native
+controller guard positive/full FC13 evidence, and the validation-selection
+safety-carrier configuration. The isolated offline code checkpoint is retained;
+full implementation/integration acceptance is not claimed. Resolving the
+selector requires separately bounded authority for its owning configuration
+or implementation; this evidence-only note grants none.
