@@ -1910,6 +1910,100 @@ class ValidationSelectorTests(unittest.TestCase):
                 self.assertTrue(result["fail_closed"])
                 self.assertEqual(result["tests"], [])
 
+    def test_docs_and_execution_transport_close_all_safety_carriers(self) -> None:
+        docs = change("M", "docs/v3/pbs-file-completion-freeze.md")
+        execution = change("M", "auto_g16/execution/program_runtime.py")
+        transport = change("M", "auto_g16/transport/program.py")
+        for product in ((execution,), (transport,), (execution, transport)):
+            with self.subTest(product=product):
+                forward = self.select(docs, *product)
+                reverse = self.select(*reversed(product), docs)
+                for key in ("lane", "tests", "safety_evidence", "matched_routes", "fail_closed"):
+                    self.assertEqual(forward[key], reverse[key])
+                self.assertEqual(forward["lane"], "v3-full")
+                self.assertFalse(forward["fail_closed"])
+                self.assertEqual(forward["tests"], self.manifest["v3_full_tests"])
+                self.assertEqual(forward["safety_evidence"], EXEC_SAFETY)
+                for tag in forward["safety_evidence"]:
+                    for carrier in self.manifest["safety_evidence"][tag]:
+                        self.assertTrue(SELECTOR._covered(carrier, forward["tests"]), (tag, carrier))
+
+    def test_clean_fixture_head_mixed_route_and_self_protection_are_distinct(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            base = initialize_repository(root, {
+                "docs/v3/STATUS.md": "initial documentation\n",
+                "auto_g16/execution/program_runtime.py": "initial execution fixture\n",
+                "auto_g16/transport/program.py": "initial transport fixture\n",
+            })
+            head = commit_files(root, {
+                "docs/v3/STATUS.md": "updated documentation fixture\n",
+                "auto_g16/execution/program_runtime.py": "updated execution fixture\n",
+                "auto_g16/transport/program.py": "updated transport fixture\n",
+            })
+            decision = SELECTOR.compute_selection(root, base, head)
+            SELECTOR.validate_result(decision, require_authority=True)
+            self.assertEqual(decision["head"], head)
+            self.assertEqual(decision["head_tree"], git(root, "rev-parse", "HEAD^{tree}"))
+            self.assertEqual(decision["manifest_blob"], git(root, "rev-parse", "HEAD:config/validation-selection.json"))
+            self.assertEqual(decision["lane"], "v3-full")
+            self.assertFalse(decision["fail_closed"])
+            self.assertEqual(decision["safety_evidence"], EXEC_SAFETY)
+            # The same valid bytes in a real manifest-changing commit remain
+            # self-protected. This is not the missing-carrier fallback.
+            protected = commit_files(root, {
+                "config/validation-selection.json": json.dumps(json.loads(MANIFEST.read_text()), indent=4) + "\n",
+                "tests/test_validation_selector.py": "selector fixture change\n",
+            })
+            decision = SELECTOR.compute_selection(root, base, protected)
+            SELECTOR.validate_result(decision, require_authority=True)
+            self.assertEqual(decision["head"], protected)
+            self.assertEqual(decision["lane"], "legacy-release")
+            self.assertTrue(decision["fail_closed"])
+            self.assertEqual(decision["tests"], [])
+            self.assertEqual(decision["reasons"], ["selector, manifest, runner, or selector-test bytes changed"])
+
+    def test_v3_full_covers_every_declared_required_safety_tag(self) -> None:
+        required = {tag for route in self.manifest["routes"] for tag in route["required_safety"]}
+        self.assertEqual(required, set(self.manifest["safety_evidence"]))
+        for tag in sorted(required):
+            for carrier in self.manifest["safety_evidence"][tag]:
+                with self.subTest(tag=tag, carrier=carrier):
+                    self.assertTrue(SELECTOR._covered(carrier, self.manifest["v3_full_tests"]))
+
+    def test_v3_full_missing_each_new_carrier_still_fails_closed(self) -> None:
+        # All seven pre-existing carriers are needed; the first diagnostic is
+        # not used as a substitute for checking every declared safety family.
+        modules = (
+            "tests.test_execution_authorization", "tests.test_live_approval_effect_time_replay",
+            "tests.test_direct_one_hop_transport", "tests.test_legacy_descriptor_mutation_capability",
+            "tests.test_legacy_root_authority_contract", "tests.test_direct_qstat_acquisition",
+            "tests.test_resource_monitor_efficiency",
+        )
+        for missing in modules:
+            with self.subTest(missing=missing):
+                manifest = copy.deepcopy(self.manifest)
+                manifest["v3_full_tests"].remove(missing)
+                result = SELECTOR.select_changes(manifest, [
+                    change("M", "docs/v3/STATUS.md"),
+                    change("M", "auto_g16/execution/program_runtime.py"),
+                    change("M", "auto_g16/transport/program.py"),
+                ])
+                self.assertTrue(result["fail_closed"])
+                self.assertEqual(result["tests"], [])
+                self.assertTrue(any("selected tests do not carry required safety evidence" in reason for reason in result["reasons"]))
+
+    def test_mixed_routes_do_not_bypass_manifest_and_test_self_protection(self) -> None:
+        mixed = (change("M", "docs/v3/STATUS.md"), change("M", "auto_g16/transport/program.py"))
+        for path in ("config/validation-selection.json", "tests/test_validation_selector.py"):
+            with self.subTest(path=path):
+                result = self.select(*mixed, change("M", path))
+                self.assertEqual(result["lane"], "legacy-release")
+                self.assertTrue(result["fail_closed"])
+                self.assertEqual(result["tests"], [])
+                self.assertFalse(any("selected tests do not carry required safety evidence" in reason for reason in result["reasons"]))
+                self.assertEqual(result["reasons"], ["selector, manifest, runner, or selector-test bytes changed"])
+
     def test_core_store_selection_carries_every_required_safety_tag(self) -> None:
         result = self.select(change("M", "auto_g16/core/store.py"))
         self.assertEqual(result["lane"], "affected")

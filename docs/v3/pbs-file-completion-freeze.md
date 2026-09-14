@@ -367,3 +367,71 @@ safety-carrier configuration. The isolated offline code checkpoint is retained;
 full implementation/integration acceptance is not claimed. Resolving the
 selector requires separately bounded authority for its owning configuration
 or implementation; this evidence-only note grants none.
+
+## Authorized blocker follow-up A/B — 2026-09-14
+
+The Owner authorized continuation in this same isolated task from clean
+checkpoint `502175664ff86185434d8e4a1ba4df4975b52112`, tree
+`d156782a6210b3a49fee616f855d61602943d788`, through the parent task. Scope A
+adds only `config/validation-selection.json` and
+`tests/test_validation_selector.py` plus necessary evidence records to the
+allowed mutation paths, to restore existing safety carriers without changing
+the selector, runner, workflows, required checks or fail-closed semantics.
+Scope B authorizes local credential-free native probes, a C4 candidate in the
+six phase-1 authority documents and this dossier, and independent technical
+review. It does NOT accept a not-yet-written C4 design or authorize its product
+implementation. C2/C3 and all production/publication/live/cleanup prohibitions
+remain active. Necessary local checkpoint commits and normal hooks are allowed.
+No new task, BUS CTRL, historical Issue change or automatic full run follows.
+Clean preflight passed before this follow-up's edits.
+
+
+### A safety-carrier repair — bounded validation and review
+
+The manifest retains its original three v3_full_tests and adds only seven
+existing carriers: tests.test_execution_authorization,
+tests.test_live_approval_effect_time_replay,
+tests.test_direct_one_hop_transport,
+tests.test_legacy_descriptor_mutation_capability,
+tests.test_legacy_root_authority_contract,
+tests.test_direct_qstat_acquisition and
+tests.test_resource_monitor_efficiency. These close the complete declared
+safety-tag inventory without changing routes, selector, runner or required
+checks. Removing any added carrier still fails closed.
+
+Changed-byte SHA-256:
+
+- `config/validation-selection.json`:
+  `5a9d7ebd4f4d6823f1f82bcd6a3042ffe164a142f4ab9fc7589d0f7dcb1fa469`;
+- `tests/test_validation_selector.py`:
+  `5e4033283754983796858ba92af303e78cdfeac2690e4b87ba93b14c4130ff05`.
+
+Validation on these bytes, core Python 3.13.13, 2026-09-14 UTC, no coverage
+modifiers:
+
+- `./scripts/python core -m unittest tests.test_validation_selector -q`:
+  **86 tests / 43.519 seconds / exit 0 / OK**, no skipped tests. Two earlier
+  test-authoring failures expected a generic reason string; assertions were
+  corrected to the unchanged selector's exact self-protection reason before
+  this final run. Do not count the earlier failed run as evidence.
+- `./scripts/python core -m unittest` followed by the seven added carrier
+  module names above and `-q`: **150 tests / 436.567 seconds / exit 0 / OK**,
+  no skipped tests. Expected synthetic error output is negative-vector
+  evidence, not real live commands. This is a bounded carrier run, not full
+  discovery. Exact start timestamps were not separately retained; runner
+  totals/durations and tool completion evidence are retained.
+- Independent A review by contract_seam_audit: no P0/P1/P2. Reviewer recomputed
+  both hashes and independently ran all five added selector tests
+  (**5 / 1.397 seconds / OK**). The real clean-Git fixture binds base/head/tree
+  and manifest blob, proves ordinary mixed docs/Execution/Transport routes
+  carry all required safety tags, and separately preserves manifest/test
+  self-protection.
+- Static CI/Python declaration audits and diff check passed. No remote CI or
+  branch-protection claim follows. The native guard/full FC13 blocker remains.
+
+Actual A changes intentionally touch self-protecting manifest/test bytes.
+Exact-HEAD selection must therefore still fail closed to legacy-release with
+empty tests and reason `selector, manifest, runner, or selector-test bytes
+changed`. This is distinct from the old missing-safety-carrier error: the
+mixed-route fixture closes that defect, while A cannot bypass its own safety
+escalation. No automatic full run or integration acceptance is authorized.

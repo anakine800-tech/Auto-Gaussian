@@ -11,7 +11,14 @@
   "v3_full_tests": [
     "tests.v3.core.test_models",
     "tests.v3.core.test_store",
-    "tests.test_validation_selector"
+    "tests.test_validation_selector",
+    "tests.test_execution_authorization",
+    "tests.test_live_approval_effect_time_replay",
+    "tests.test_direct_one_hop_transport",
+    "tests.test_legacy_descriptor_mutation_capability",
+    "tests.test_legacy_root_authority_contract",
+    "tests.test_direct_qstat_acquisition",
+    "tests.test_resource_monitor_efficiency"
   ],
   "self_protecting_paths": [
     "config/validation-selection.json",
