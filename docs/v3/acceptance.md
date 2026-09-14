@@ -2003,3 +2003,47 @@ production or scientific qualification.
    claim missing sibling dependencies passed. Exact diff/tree evidence and
    independent findings-first review precede serial local integration; main
    submission remains pending the Owner's final decision.
+
+
+## V31-PBS-COMPAT-FILE-COMPLETION-01 candidate acceptance
+
+Candidate under OD-32; not implementation acceptance. This section supersedes
+only the old V31 contract-stage prohibition on the explicitly scoped new
+candidate and, after Owner L3 freeze, its named offline implementation. Existing
+V30 and strict vectors remain binding. Old V31 shared-contract full-run results
+are historical, not a requirement to rerun full while authoring this delta.
+
+Contract freeze requires mutually consistent OD-32, boundary, Task Contract,
+context routing and status; exact file SHA-256 manifest; independent findings-
+first review of those bytes; repository Owner L3 acceptance of the exact
+candidate and substantive decisions. Independent technical PASS is not Owner
+acceptance. No P0/P1 may remain. A changed candidate invalidates its old review.
+
+The subsequent implementation must demonstrate these offline vectors, with
+synthetic data and no real program, network, PBS, cleanup or deployment:
+
+| Vector | Required evidence |
+| --- | --- |
+| FC01 strict compatibility | Historical xTB v1/v2 and CREST spec/snapshot bytes/IDs, strict default, V30 APIs/receipt/scheduler/capture behavior unchanged; mode rejected on old records. |
+| FC02 explicit fresh mode | Version 3 exact mode and expanded review; changed mode/input/operation/resource/workspace makes approval stale; consumed/old Attempt never converts. |
+| FC03 binding DAG | Prebinding -> deterministic script -> final snapshot -> pre-qsub marker -> receipt, independent reconstruction; wrong attempt/job/snapshot/effect/spec/program/adapter/wrapper/input/profile/workspace all reject before rc. |
+| FC04 schema | Missing/extra/duplicate keys at every nesting; duplicate/reordered/partial/extra input/output members; wrong types, bool/int, float, cap, encoding, timestamps, unknown version and null/presence mismatch reject. Multiple-entry synthetic receipt validator vectors cannot expand adapter input scope. |
+| FC05 publisher | Exact marker/source/executable/input identity; nofollow parent/file, symlink, escape, replacement, same-byte new inode, marker drift, untrusted file with correct hash all reject; real production receipt-mode driver construction/evaluation stops publisher-not-qualified before any effect. |
+| FC06 wrapper failure | Launch failure, nonzero, signal, wrapper death, surviving descendants, wait error, log close/fsync/hash failure, partial/pending/no receipt, publication conflict/crash before/after the exact link point, existing lock/final file; at most one program launch and no overwrite/delete. |
+| FC07 no shell rc confusion | Direct child status differs from collector/tee/pipeline; source cannot use set-e/EXIT trap as rc authority; child rc never fabricated from infrastructure failure. |
+| FC08 absence gate | Exact absent is distinct from timeout, SSH/query failure, truncation, parse error, foreign job; Q/R/H/E and mapped aliases never promote; long R/E remains outside recovery. |
+| FC09 successful receipt | Both absent boundaries, trustworthy rc=0, immutable capture and separate single-point/optimize output closure; Core advances only after full persisted evidence. |
+| FC10 failed program | Trustworthy nonzero/signal with absent required success outputs is FAILED; unsafe/unhashable present output is UNKNOWN; rc=0 missing/invalid required outputs is explicit FAILED diagnostic. |
+| FC11 scheduler conflicts | terminal=0/nonzero vs receipt exit and signal mapping; repeated agreeing/disagreeing terminal, terminal before/after absence, active after terminal, unknown after earlier success; no manufactured terminal/exit_status. |
+| FC12 capture consistency | Replacement, same-size drift, modification between files, receipt drift, optional/required absence drift, later capture epoch, later conflicting evidence; exact STAT/FETCH ID binding and immutable retained bytes. |
+| FC13 replay/crash | Exact replay zero driver calls, assessment/transition crash reopening, durable byte bundle corruption/loss and zero-read reopening, nonblocking physical guard and concurrent collection conflicts, exact epoch/prefix/proof serialization, append order over finished_at, conflicting same-ID payload; no automatic submit/retry/new Attempt. |
+| FC14 consumer isolation | `/2` proof never sent as `/1`; unsupported xTB-to-CREST/scientific promotion fails closed; execution success alone never scientific acceptance. |
+| FC15 no migration | Historical UNKNOWN/NOT QUALIFIED evidence unchanged; no retroactive completion of jobs with no predeclared wrapper/receipt mode. |
+
+Validation uses syntax/TOML/link/diff and CI-contract audit for contract bytes.
+For implementation use focused program identity/composition/bridge and new
+completion tests, adjacent strict handoff and V30 transport tests, then exact
+base/head affected selection. Record the selector even if it conservatively
+routes control-plane changes to full; do not run full without the required
+separate integration attestation scope. Selector failure is a blocker, never
+permission to fall back to discovery. No full/CI/live PASS is inferred here.

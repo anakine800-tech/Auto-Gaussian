@@ -1,5 +1,15 @@
 # Auto-G16 v3 Status
 
+- **V31 FILE COMPLETION CANDIDATE:**
+  `V31-PBS-COMPAT-FILE-COMPLETION-01` proposes OD-32 and an explicit new-xTB
+  receipt-on-absence mode. [Freeze dossier](pbs-file-completion-freeze.md)
+  binds exact candidate content and review evidence. Repository Owner L3
+  freeze is pending; product implementation has not started. Strict defaults,
+  historical UNKNOWN/NOT QUALIFIED and all scientific/live gates remain.
+  The proposed first implementation is synthetic/offline only; real receipt-
+  mode construction remains blocked on a separate publisher qualification
+  contract and Owner gate, without changing strict production behavior.
+
 - **Current closeout:** Attempt-04 produced one immutable complete Gaussian log
   through the already-qualified workdir path. The historical parser-1.0.0
   Result remains `UNPARSEABLE` evidence because grammar-1 rejects an ordinary

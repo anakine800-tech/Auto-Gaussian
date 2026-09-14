@@ -300,3 +300,17 @@ status = "policy"
 required_sections = ["OWNER_DECISIONS.md#od-08-runtime-and-change-aware-ci"]
 code_paths = ["scripts/audit_ci_contract.py", "scripts/audit_python_contract.py"]
 focused_tests = ["tests/test_audit_ci_contract.py", "tests/test_audit_python_contract.py"]
+
+
+[[component]]
+id = "v31-pbs-file-completion"
+status = "contract-candidate-owner-l3-pending"
+required_sections = [
+  "OWNER_DECISIONS.md#od-32-candidate-xtb-completion-from-an-exact-predeclared-receipt",
+  "docs/v3/boundary-spec.md#v31-pbs-compat-file-completion-01-candidate-boundary",
+  "docs/v3/acceptance.md#v31-pbs-compat-file-completion-01-candidate-acceptance",
+  "docs/v3/AUTONOMOUS_DEVELOPMENT.md#v31-pbs-compat-file-completion-01",
+  "docs/v3/pbs-file-completion-freeze.md#auto-g16-v31-file-completion-freeze-dossier",
+]
+code_paths = []
+focused_tests = []

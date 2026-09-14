@@ -771,3 +771,66 @@ Controller, open OpenSSH, or perform live work.
 - **Handoff:** Local commit with exact base/head/tree/diff/test/review evidence
   and PR-ready scope. Do not push, create a PR, merge, deploy, provision, run a
   program, submit, retry, clean up, or accept science.
+
+
+### V31-PBS-COMPAT-FILE-COMPLETION-01
+
+- **Class / autonomy:** Feature development; v3; OWNER-GUIDED. Ordinary Codex
+  app isolated task, not a BUS Executor; no CTRL/Control Issue is created.
+- **Outcome:** Freeze OD-32 and the exact receipt-on-absence boundary for new
+  xTB successor Attempts, then perform the smallest offline implementation
+  only after actual independent review and repository Owner L3 freeze.
+- **Current authority:** User authorized this ordered contract-first work,
+  local documentation, necessary review and local freeze commit. This grants
+  no generic permission to choose an unresolved safety contract or to claim
+  that Owner reviewed the eventual content. No further user task is created.
+- **Phase 1 allowed paths:** `OWNER_DECISIONS.md`,
+  `docs/v3/boundary-spec.md`, `docs/v3/acceptance.md`,
+  `docs/v3/AUTONOMOUS_DEVELOPMENT.md`, `docs/v3/STATUS.md`,
+  `config/context-map.toml`, and
+  `docs/v3/pbs-file-completion-freeze.md` (content manifest, review and handoff).
+- **Phase 2 proposed paths (inactive until freeze):**
+  `auto_g16/execution/program.py`, `auto_g16/execution/program_runtime.py`,
+  new private `auto_g16/execution/_program_completion.py` and
+  `auto_g16/execution/_program_completion_wrapper.py`,
+  `auto_g16/transport/program.py`, `auto_g16/transport/_program_rtwin.py`,
+  `tests/v31/transport/test_program_composition.py`,
+  `tests/v31/transport/test_rtwin_successor_bridge.py`,
+  new `tests/v31/transport/test_program_completion.py`, and the phase-1 docs
+  for evidence only. Existing marker/bootstrap protocol and schemas do not
+  change. Any newly discovered required path is an explicit scope decision.
+  Real receipt-mode drivers/evaluation stay hard-disabled pending a separate
+  publisher qualification contract/gate; synthetic offline completion only is
+  acceptance scope for this implementation. Existing strict production is
+  unchanged. No user-selectable qualification override is added.
+- **Dependencies / reuse:** REWRITE only mode/rendering/receipt evaluator;
+  WRAP existing STAT/FETCH and raw acquisition; EXTRACT existing canonical
+  identity and no-follow/exclusive publication primitives; keep Core,
+  Approval, Result, Observe schemas and existing successor composition owners.
+  No legacy v2 owner/capability framework, new public record or extension bag.
+- **Compatibility / migration:** Default strict and historical serialized IDs
+  remain exact; new adapter version is opt-in on fresh Attempts. No migration
+  command, historic job read, historic result rewrite, CREST integration or
+  Gaussian generation change. Unsupported downstream consumers reject `/2`.
+- **Review / stop:** L3 scheduler/security boundary. Independent technical
+  review is required but does not replace repository Owner review. Freeze
+  exact six authority-file hashes plus a local candidate commit and preserve
+  review evidence in the dossier. P0/P1, mismatched hashes, Owner decision
+  missing, drift or an unclosed dependency stops before product edits. The
+  Owner decides the publisher trust model, absence/terminal conflict policy,
+  and execution-output/scientific boundary by accepting the exact candidate.
+- **Sequencing:** The implementation is the second checkpoint of this same
+  task/worktree, not a separately developed lane; no prior merge is required
+  by this task. If review instead requires independently isolated code work
+  or prior integration, hand off exact frozen material and that blocker, and
+  stop without creating a new user task or modifying shared main.
+- **Validation:** preflight before edits; contract static/link/TOML/diff and
+  CI audit; focused/affected implementation vectors FC01–FC15 after freeze.
+  No blind full, remote CI, pressure test or live test. Handoff distinguishes
+  static evidence, independent review, Owner freeze, implementation and live.
+- **Forbidden:** push, PR, merge, deployment, release, SSH, RTwin, PBS,
+  xTB/CREST/Gaussian execution, qsub/qdel, remote writes, cleanup or scientific
+  acceptance. Synthetic offline wrapper process tests may use only inert
+  fixture children; they grant no program/live authority.
+- **Disposition:** CANDIDATE; repository Owner exact-candidate freeze pending.
+  Local worktree/branch retained; cleanup and archival are not authorized.
