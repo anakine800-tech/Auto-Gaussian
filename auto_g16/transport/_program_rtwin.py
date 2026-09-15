@@ -66,6 +66,9 @@ def _prepare_program_invocation(
         raise TransportBoundaryError("successor deployment changed before subprocess")
     if not authority.resource_dialect.live_capable or type(authority.ssh_effect) is not _driver._MacProxyJumpEffectAuthority:
         raise TransportBoundaryError("successor requires the qualified RTwin ProxyJump deployment")
+    if type(scope) is ProgramExecutionSnapshot and scope.program_execution_spec.adapter_contract_version == 3:
+        fixed = _read_fixed_publisher_deployment(authority, scope)
+        fixed.close()
     request = _closed_copy(invocation.request)
     program._exact_keys(request, {"protocol", "operation", "binding", "payload"}, "successor wire request")
     if request.get("protocol") != _bridge._PROGRAM_BOOTSTRAP_PROTOCOL or request.get("operation") != invocation.operation.name:
@@ -139,6 +142,8 @@ def _assert_wire_scope(scope: object, scope_id: str, request: Mapping[str, objec
             raise TransportBoundaryError("successor wire scheduler differs from snapshot")
         if name in {"STAT_EXACT_FILE", "FETCH_EXACT_FILE"}:
             outputs = (*scope.program_execution_spec.required_outputs, *scope.program_execution_spec.optional_outputs)
+            if scope.program_execution_spec.adapter_contract_version == 3:
+                outputs = (*outputs, {"logical_role": "completion-receipt", "portable_name": "v31-completion.json", "format": "json", "max_size_bytes": 65536})
             matched = [item for item in outputs if all(original[key] == item[key] for key in ("logical_role", "portable_name", "format"))]
             if len(matched) != 1 or name == "FETCH_EXACT_FILE" and original["expected_size_bytes"] > matched[0]["max_size_bytes"]:
                 raise TransportBoundaryError("successor wire output exceeds exact declaration")
@@ -322,25 +327,35 @@ class _RTWinProgramEffectDriver:
     def __init__(self, *, snapshot: ProgramExecutionSnapshot, current_profile: ServerProfile, program_transport_store: program._ProgramTransportStore) -> None:
         if type(snapshot) is not ProgramExecutionSnapshot or type(program_transport_store) is not program._ProgramTransportStore:
             raise TransportBoundaryError("production successor dependencies are not exact")
-        if snapshot.program_execution_spec.adapter_contract_version == 3:
+        if snapshot.program_execution_spec.adapter_contract_version == 3 and not snapshot.scheduler_artifacts[0]["content_utf8"].startswith("#!/bin/bash\n# auto-g16-v31-scheduler/3\n"):
             raise TransportBoundaryError("publisher-not-qualified")
+        self._publisher = None
         self._snapshot = snapshot
         self._profile = current_profile
         self._store = program_transport_store
         self._lock = RLock()
         self._active: tuple[Mapping[str, object], tuple[Mapping[str, object], ...]] | None = None
-        self._authority()
+        try:
+            self._authority()
+        except BaseException:
+            self.close()
+            raise
 
     def _authority(self) -> _driver._DeploymentAuthority:
         self._snapshot.assert_identity_closed()
-        if self._snapshot.program_execution_spec.adapter_contract_version == 3:
-            raise TransportBoundaryError("publisher-not-qualified")
         executable = self._snapshot.program_execution_spec.invocation["executable_identity"]
         if str(executable["absolute_path"]).startswith("/opt/auto-g16-fixtures/"):
             raise TransportBoundaryError("synthetic executables cannot qualify a production driver")
         authority = _driver._resolve_closed_profile_authority(self._snapshot.resolved_server_profile, self._profile, self._snapshot.program_execution_snapshot_id, successor=True)
         if not authority.resource_dialect.live_capable or type(authority.ssh_effect) is not _driver._MacProxyJumpEffectAuthority:
             raise TransportBoundaryError("production successor requires qualified ProxyJump")
+        if self._snapshot.program_execution_spec.adapter_contract_version == 3:
+            if self._publisher is None:
+                self._publisher = _read_fixed_publisher_deployment(authority, self._snapshot)
+            else:
+                self._publisher.assert_current()
+                if (self._publisher.basis["resolved_server_profile_id"], self._publisher.basis["effective_config_sha256"]) != (authority.resolved_server_profile_id, authority.effective_config_sha256):
+                    raise _publisher_failure("current deployment differs")
         resources = self._snapshot.resolved_resource_request
         _driver._render_qsub_argv(
             _driver._ResourceEnactment(self._snapshot.program_execution_snapshot_id, resources.resolved_resource_request_id, resources.cores, resources.memory_mb, resources.walltime_seconds, resources.queue, authority.resource_dialect.dialect_id),
@@ -352,6 +367,11 @@ class _RTWinProgramEffectDriver:
         _directory_token(project.project_physical_identity, project.remote_project_dir)
         self._store._attest()
         return authority
+
+    def close(self):
+        if self._publisher is not None:
+            self._publisher.close()
+            self._publisher = None
 
     @property
     def runtime_qualification(self) -> Mapping[str, object]:
@@ -459,3 +479,216 @@ class _RTWinProgramEffectDriver:
 
 
 __all__: tuple[str, ...] = ()
+
+# No actual deployment locator has been acquired or installed. There is no
+# setter, environment lookup, CLI path, profile-path fallback, or file search.
+# Only a separately reviewed installation may fix this private source binding.
+@dataclass(frozen=True, slots=True)
+class _PublisherFileBinding:
+    path: str
+    parent_chain: tuple[tuple[int, int], ...]
+    file_identity: tuple[int, int]
+    sha256: str
+    size_bytes: int
+
+
+@dataclass(frozen=True, slots=True)
+class _FixedPublisherInstallation:
+    basis: _PublisherFileBinding
+    qualification: _PublisherFileBinding
+    evidence: tuple[_PublisherFileBinding, ...]
+    source_commit: str
+    source_tree: str
+
+
+_FIXED_PUBLISHER_INSTALLATION: _FixedPublisherInstallation | None = None
+_PUBLISHER_BASIS_KEYS = frozenset({
+    "schema", "source_commit", "source_tree", "resolved_server_profile_id",
+    "effective_config_sha256", "program_execution_snapshot_id",
+    "qualification_payload_sha256", "qualification_file_sha256", "qualification_size_bytes",
+    "qualification_path", "qualification_parent_chain", "qualification_file_identity",
+    "probe_evidence_manifest_sha256", "owner_q_acceptance_evidence_sha256",
+    "pilot_live_gate_evidence_sha256", "pilot_window",
+})
+
+
+def _publisher_failure(reason):
+    return TransportBoundaryError("publisher-not-qualified: " + reason)
+
+
+class _PinnedPublisherFile:
+    """Read-only descriptors retained across each effect boundary; no path reopening."""
+
+    def __init__(self, binding, cap):
+        import os
+        import stat
+        self.binding = binding
+        self.fds = []
+        self.raw = b""
+        try:
+            path = binding.path
+            if type(binding) is not _PublisherFileBinding or type(path) is not str or not path.startswith("/") or any(x in {"", ".", ".."} for x in path[1:].split("/")) or len(path.encode()) > 4096 or any(x in path for x in "\x00\r\n"):
+                raise _publisher_failure("invalid installed path")
+            if type(binding.size_bytes) is not int or not 1 <= binding.size_bytes <= cap or re.fullmatch("[0-9a-f]{64}", binding.sha256) is None:
+                raise _publisher_failure("invalid installed content identity")
+            parts = path[1:].split("/")
+            if len(binding.parent_chain) != len(parts) or not 1 <= len(parts) <= 128:
+                raise _publisher_failure("invalid installed parent inventory")
+            nodes = (*binding.parent_chain, binding.file_identity)
+            if any(type(n) is not tuple or len(n) != 2 or type(n[0]) is not int or not 0 <= n[0] <= 2**63-1 or type(n[1]) is not int or not 1 <= n[1] <= 2**63-1 for n in nodes):
+                raise _publisher_failure("invalid installed physical identity")
+            flags = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
+            self.fds.append(os.open("/", flags | os.O_DIRECTORY))
+            for part in parts[:-1]:
+                self.fds.append(os.open(part, flags | os.O_DIRECTORY, dir_fd=self.fds[-1]))
+            self.fds.append(os.open(parts[-1], flags | os.O_NONBLOCK, dir_fd=self.fds[-1]))
+            if not stat.S_ISREG(os.fstat(self.fds[-1]).st_mode):
+                raise _publisher_failure("installed object is not a regular file")
+            self._read_and_check()
+        except BaseException:
+            self.close()
+            raise
+
+    def _read_and_check(self):
+        import os
+        import stat
+        binding = self.binding
+        parts = binding.path[1:].split("/")
+        expected = (*binding.parent_chain, binding.file_identity)
+        self._check_names()
+        fd = self.fds[-1]
+        before = os.fstat(fd)
+        if before.st_size != binding.size_bytes:
+            raise _publisher_failure("installed size drift")
+        os.lseek(fd, 0, os.SEEK_SET)
+        chunks, remaining = [], binding.size_bytes
+        while remaining:
+            block = os.read(fd, min(remaining, 1048576))
+            if not block:
+                raise _publisher_failure("short installed read")
+            chunks.append(block)
+            remaining -= len(block)
+        raw = b"".join(chunks)
+        after = os.fstat(fd)
+        named = os.stat(parts[-1], dir_fd=self.fds[-2], follow_symlinks=False)
+        key = lambda s: (s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns, s.st_ctime_ns)
+        if os.read(fd, 1) or key(before) != key(after) or key(after) != key(named) or sha256(raw).hexdigest() != binding.sha256 or self.raw and raw != self.raw:
+            raise _publisher_failure("installed bytes/identity drift")
+        self._check_names()
+        self.raw = raw
+        return raw
+
+    def _check_names(self):
+        import os
+        import stat
+        parts = self.binding.path[1:].split("/")
+        expected = (*self.binding.parent_chain, self.binding.file_identity)
+        for i, (fd, node) in enumerate(zip(self.fds, expected)):
+            observed = os.fstat(fd)
+            named = os.stat("/", follow_symlinks=False) if i == 0 else os.stat(parts[i-1], dir_fd=self.fds[i-1], follow_symlinks=False)
+            if (observed.st_dev, observed.st_ino) != node or (named.st_dev, named.st_ino) != node or (not stat.S_ISDIR(named.st_mode) if i < len(self.fds)-1 else not stat.S_ISREG(named.st_mode)):
+                raise _publisher_failure("installed path/descriptor drift")
+
+    def close(self):
+        import os
+        while self.fds:
+            os.close(self.fds.pop())
+
+
+@dataclass(slots=True)
+class _PublisherDeploymentRead:
+    installation: _FixedPublisherInstallation
+    basis: Mapping[str, object]
+    qualification: Mapping[str, object]
+    evidence: Mapping[str, bytes]
+    pins: tuple[_PinnedPublisherFile, ...]
+
+    def assert_current(self):
+        if _FIXED_PUBLISHER_INSTALLATION is not self.installation:
+            raise _publisher_failure("fixed installation changed")
+        for pin in self.pins:
+            pin._read_and_check()
+        _publisher_window(self.basis["pilot_window"], self.qualification["payload"]["observation_window"])
+
+    def close(self):
+        for pin in reversed(self.pins):
+            pin.close()
+
+
+def _publisher_window(window, observation):
+    from datetime import datetime, timezone
+    program._exact_keys(window, {"started_at", "finished_at"}, "pilot window")
+    for stamp in window.values():
+        if type(stamp) is not str or re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z", stamp) is None:
+            raise _publisher_failure("invalid pilot timestamp")
+        datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%S.%fZ")
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+    if not observation["finished_at"] <= window["started_at"] <= now <= window["finished_at"]:
+        raise _publisher_failure("outside exact pilot window")
+
+
+def _read_fixed_publisher_deployment(authority, snapshot):
+    """Only mechanical identity comparisons; Approval/Core are Controller-owned."""
+    import base64
+    from ._canonical import strict_canonical_json
+    installation = _FIXED_PUBLISHER_INSTALLATION
+    if type(installation) is not _FixedPublisherInstallation:
+        raise _publisher_failure("fixed deployment locator NOT_ACQUIRED")
+    pins = []
+    try:
+        snapshot.assert_identity_closed()
+        if type(authority) is not _driver._DeploymentAuthority:
+            raise _publisher_failure("closed deployment authority required")
+        if not snapshot.scheduler_artifacts[0]["content_utf8"].startswith("#!/bin/bash\n# auto-g16-v31-scheduler/3\n"):
+            raise _publisher_failure("old receipt source cannot gain production qualification")
+        basis_pin = _PinnedPublisherFile(installation.basis, 65536); pins.append(basis_pin)
+        if installation.basis.path.rsplit("/", 1)[-1] != "v31-publisher-pilot-deployment.json":
+            raise _publisher_failure("fixed deployment basename differs")
+        basis = strict_canonical_json(basis_pin.raw, "publisher deployment basis")
+        program._exact_keys(basis, set(_PUBLISHER_BASIS_KEYS), "publisher deployment basis")
+        if basis["schema"] != "auto-g16-v31-publisher-pilot-deployment/1":
+            raise _publisher_failure("unknown deployment basis")
+        for key in ("source_commit", "source_tree"):
+            if type(basis[key]) is not str or re.fullmatch("[0-9a-f]{40}", basis[key]) is None or basis[key] != getattr(installation, key):
+                raise _publisher_failure("installed source identity differs")
+        if (basis["resolved_server_profile_id"], basis["effective_config_sha256"], basis["program_execution_snapshot_id"]) != (authority.resolved_server_profile_id, authority.effective_config_sha256, snapshot.program_execution_snapshot_id) or authority.execution_snapshot_id != snapshot.program_execution_snapshot_id:
+            raise _publisher_failure("installed snapshot/profile differs")
+        qpin = _PinnedPublisherFile(installation.qualification, 1024*1024); pins.append(qpin)
+        qbinding = installation.qualification
+        expected = {"qualification_path": qbinding.path, "qualification_parent_chain": [{"device": d, "inode": i} for d, i in qbinding.parent_chain], "qualification_file_identity": {"device": qbinding.file_identity[0], "inode": qbinding.file_identity[1]}, "qualification_file_sha256": qbinding.sha256, "qualification_size_bytes": qbinding.size_bytes}
+        if type(basis["qualification_size_bytes"]) is not int or any(canonical_json_bytes(basis[k]) != canonical_json_bytes(v) for k,v in expected.items()):
+            raise _publisher_failure("Q installation readback differs")
+        # Public snapshot identity closure above has already validated full Q grammar,
+        # profile projection, source and tuple. No private Execution import here.
+        line = snapshot.scheduler_artifacts[0]["content_utf8"].splitlines()[2]
+        material = strict_canonical_json(base64.b64decode(line.split(": ", 1)[1], validate=True), "publisher material")
+        if base64.b64decode(material["publisher_qualification_base64"], validate=True) != qpin.raw:
+            raise _publisher_failure("installed Q differs from snapshot")
+        q = strict_canonical_json(qpin.raw, "publisher Q")
+        p = q["payload"]
+        if basis["qualification_payload_sha256"] != q["payload_sha256"] or basis["probe_evidence_manifest_sha256"] != p["evidence_manifest_sha256"] or (p["implementation"]["commit"], p["implementation"]["tree"]) != (installation.source_commit, installation.source_tree):
+            raise _publisher_failure("Q source/payload/evidence mismatch")
+        evidence = {}
+        for binding in installation.evidence:
+            pin = _PinnedPublisherFile(binding, 16*1024*1024); pins.append(pin)
+            if binding.sha256 in evidence:
+                raise _publisher_failure("duplicate installed evidence identity")
+            evidence[binding.sha256] = pin.raw
+        digests = [p["execution_domain"]["scheduler_scope_evidence"], p["controller_probe"]["evidence"]]
+        for host in p["hosts"]:
+            digests.extend([host["identity_evidence"], *(loc["evidence"] for loc in host["locations"]), *(probe["evidence"] for probe in host["probes"])])
+        for digest in digests:
+            if digest["sha256"] not in evidence or len(evidence[digest["sha256"]]) != digest["size_bytes"]:
+                raise _publisher_failure("raw probe evidence missing or size differs")
+        for key in ("probe_evidence_manifest_sha256", "owner_q_acceptance_evidence_sha256", "pilot_live_gate_evidence_sha256"):
+            if type(basis[key]) is not str or re.fullmatch("[0-9a-f]{64}", basis[key]) is None or basis[key] not in evidence:
+                raise _publisher_failure("installed original evidence missing")
+        result = _PublisherDeploymentRead(installation, basis, q, MappingProxyType(evidence), tuple(pins))
+        result.assert_current()
+        return result
+    except BaseException as exc:
+        for pin in reversed(pins):
+            pin.close()
+        if isinstance(exc, (KeyboardInterrupt, SystemExit)):
+            raise
+        raise _publisher_failure("fixed deployment ingestion rejected") from exc

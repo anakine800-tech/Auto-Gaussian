@@ -296,10 +296,11 @@ def _deployment_projection(raw: bytes) -> Mapping[str, object]:
 
 def _validate_material(material: object, profile: ResolvedServerProfile) -> Mapping[str, object]:
     profile.assert_identity_closed()
-    value = _closed(material, _MATERIAL_FIELDS, "completion rendering material")
-    if value["schema"] != _MATERIAL_SCHEMA or value["resolved_server_profile_id"] != profile.resolved_server_profile_id:
+    header, binding_schema, source, cap = _completion_tuple(material)
+    value = material
+    if value["resolved_server_profile_id"] != profile.resolved_server_profile_id:
         raise _CompletionValueError("material profile/schema mismatch")
-    if len(_receipt_json(value)) > 3 * 1024 * 1024:
+    if len(_receipt_json(value)) > cap:
         raise _CompletionValueError("material cap")
     for key, name in (("deployment_manifest_base64", _DEPLOYMENT_NAME), ("xtb_runtime_data_manifest_base64", _DATA_NAME)):
         content = _unbase64(value[key], 1024 * 1024)
@@ -310,6 +311,12 @@ def _validate_material(material: object, profile: ResolvedServerProfile) -> Mapp
             _deployment_projection(content)
         elif _canonical_xtb_runtime_data_manifest(content) != content:
             raise _CompletionValueError("runtime data manifest is not canonical")
+    if value["schema"] == _PILOT_MATERIAL_SCHEMA:
+        raw = _unbase64(value["publisher_qualification_base64"], _Q_CAP)
+        if profile.runtime_identities.get(_Q_NAME) != {"sha256": sha256(raw).hexdigest(), "size_bytes": len(raw)}:
+            raise _CompletionValueError("qualification differs from profile runtime bytes")
+        q = _decode_publisher_qualification(raw)
+        _validate_publisher_profile(q, profile, _deployment_projection(_unbase64(value["deployment_manifest_base64"], _Q_CAP)))
     return freeze_mapping(value, "rendering material")
 
 
@@ -335,23 +342,28 @@ def _material_from_artifact(artifacts: tuple[Mapping[str, object], ...], profile
     if len(artifacts) != 1 or type(artifacts[0].get("content_utf8")) is not str:
         raise _CompletionValueError("one exact scheduler artifact required")
     lines = artifacts[0]["content_utf8"].splitlines()
-    if len(lines) < 3 or lines[:2] != ["#!/bin/bash", "# auto-g16-v31-scheduler/2"] or not lines[2].startswith(_DATA_LINE) or sum(line.startswith(_DATA_LINE) for line in lines) != 1:
+    if len(lines) < 3 or (lines[0] != "#!/bin/bash" or lines[1] not in {"# auto-g16-v31-scheduler/2", "# auto-g16-v31-scheduler/3"}) or not lines[2].startswith(_DATA_LINE) or sum(line.startswith(_DATA_LINE) for line in lines) != 1:
         raise _CompletionValueError("missing/relocated/duplicate rendering material")
-    raw = _unbase64(lines[2][len(_DATA_LINE):], 3 * 1024 * 1024)
-    return _validate_material(_canonical_json_object(raw, 3 * 1024 * 1024), profile)
+    cap = (3 if lines[1].endswith("/2") else 5) * 1024 * 1024
+    raw = _unbase64(lines[2][len(_DATA_LINE):], cap)
+    material = _validate_material(_canonical_json_object(raw, cap), profile)
+    if _completion_tuple(material)[0] != lines[1]:
+        raise _CompletionValueError("mixed scheduler/material tuple")
+    return material
 
 
 def _prebinding(fields: Mapping[str, object], material: Mapping[str, object]) -> Mapping[str, object]:
-    from ._program_completion_wrapper import _WRAPPER_SOURCE
+    header, binding_schema, wrapper, cap = _completion_tuple(material)
     expected = frozenset({"attempt_id", "calculation_plan_id", "calculation_plan_revision", "program_execution_spec_id", "program_execution_spec_payload_sha256", "project_physical_binding_id", "resolved_resource_request_id", "resolved_server_profile_id", "workspace_binding_id", "cwd_binding"})
     _closed(fields, expected, "snapshot prebinding fields")
-    source = _WRAPPER_SOURCE.encode("utf-8")
-    return freeze_mapping({**fields, "binding_schema": "v31-completion-prebinding/2", "wrapper_source_sha256": sha256(source).hexdigest(), "wrapper_source_size_bytes": len(source), "rendering_material_sha256": semantic_sha256(material)}, "completion prebinding")
+    source = wrapper.encode("utf-8")
+    return freeze_mapping({**fields, "binding_schema": binding_schema, "wrapper_source_sha256": sha256(source).hexdigest(), "wrapper_source_size_bytes": len(source), "rendering_material_sha256": semantic_sha256(material)}, "completion prebinding")
 
 
 def _render_completion_scheduler(spec, resources, profile, fields, material):
-    from ._program_completion_wrapper import _WRAPPER_SOURCE
     material = _validate_material(material, profile)
+    header, binding_schema, wrapper, cap = _completion_tuple(material)
+    _validate_publisher_invocation(material, spec, resources)
     binding = _prebinding(fields, material)
     deployment = _deployment_projection(_unbase64(material["deployment_manifest_base64"], 1024 * 1024))
     config = {
@@ -360,12 +372,19 @@ def _render_completion_scheduler(spec, resources, profile, fields, material):
         "xtb_data_path": profile.platform_paths["xtb_data_path"],
         "cores": resources.cores, "walltime_seconds": resources.walltime_seconds,
     }
-    lines = ["#!/bin/bash", "# auto-g16-v31-scheduler/2", _DATA_LINE + base64.b64encode(_receipt_json(material)).decode("ascii"),
+    lines = ["#!/bin/bash", header, _DATA_LINE + base64.b64encode(_receipt_json(material)).decode("ascii"),
         f"#PBS -l nodes=1:ppn={resources.cores}", f"#PBS -l mem={resources.memory_mb}mb", f"#PBS -l walltime={resources.walltime_seconds}"]
     if resources.queue is not None:
         lines.append(f"#PBS -q {resources.queue}")
-    arguments = (deployment["trust_roots"]["server_python"]["path"], "-I", "-S", "-B", "-c", _WRAPPER_SOURCE, base64.b64encode(_receipt_json(config)).decode("ascii"))
-    lines.append("exec " + " ".join(shlex.quote(str(x)) for x in arguments))
+    arguments = (deployment["trust_roots"]["server_python"]["path"], "-I", "-S", "-B", "-c", wrapper)
+    encoded_config = base64.b64encode(_receipt_json(config)).decode("ascii")
+    if material["schema"] == _PILOT_MATERIAL_SCHEMA:
+        if len(encoded_config) > 8 * 1024 * 1024 or len(wrapper.encode("utf-8")) > 65536:
+            raise _CompletionValueError("publisher fixed source/config launch cap")
+        lines.append("exec " + " ".join(shlex.quote(str(x)) for x in arguments) + " <<'AUTO_G16_PUBLISHER_CONFIG'")
+        lines.extend((encoded_config, "AUTO_G16_PUBLISHER_CONFIG"))
+    else:
+        lines.append("exec " + " ".join(shlex.quote(str(x)) for x in (*arguments, encoded_config)))
     content = ("\n".join(lines) + "\n").encode("utf-8")
     return (freeze_mapping({"logical_role": "scheduler-script", "portable_name": "xtb.pbs", "format": "pbs-shell-utf8", "sha256": sha256(content).hexdigest(), "size_bytes": len(content), "content_utf8": content.decode("utf-8")}, "completion scheduler"),)
 
@@ -407,3 +426,255 @@ def _bound_receipt(raw: bytes, snapshot, job_id: str, workspace_token: str) -> M
 
 
 __all__: tuple[str, ...] = ()
+
+# R4 qualification is private data. Neither this grammar nor a matching digest
+# establishes installation provenance, human acceptance, or live authority.
+_Q_NAME = "v31-publisher-qualification-v1.json"
+_Q_SCHEMA = "auto-g16-v31-publisher-qualification/1"
+_Q_CAP = 1024 * 1024
+_PILOT_MATERIAL_SCHEMA = "v31-completion-rendering-material/2"
+# Original accepted packet, independent of its derived repository link spelling.
+_PUBLISHER_CONTRACT_SHA256 = "12ccdebb10b4f1770910e7a0dafe7c74fee99332a4e1ffa7b2cf68c2b8c03c06"
+_Q_ROLES = ("workspace-root", "server-python", "xtb", "xtb-data-root")
+_PROFILE_BASIS_FIELDS = frozenset({"server_profile_id", "profile_revision", "transport_kind", "target_identity", "remote_user", "remote_root", "platform_paths", "ordered_config_content", "runtime_identities", "effective_config_sha256"})
+
+
+def _q_text(value, label, cap=256):
+    if type(value) is not str or not 1 <= len(value.encode("utf-8")) <= cap or value.strip() != value or any(c in value for c in "\x00\r\n") or value == "NOT_ACQUIRED":
+        raise _CompletionValueError(label + ": invalid text")
+    return value
+
+
+def _q_path(value):
+    _q_text(value, "qualification path", 4096)
+    if not value.startswith("/") or value != "/" and any(p in {"", ".", ".."} for p in value[1:].split("/")):
+        raise _CompletionValueError("qualification path is not canonical absolute POSIX")
+    return value
+
+
+def _q_digest(value):
+    item = _closed(value, frozenset({"sha256", "size_bytes"}), "digest")
+    require_sha256(item["sha256"], "digest")
+    _integer(item["size_bytes"], 1, 2**63 - 1, "digest size")
+    return item
+
+
+def _q_node(value):
+    item = _closed(value, frozenset({"device", "inode"}), "node")
+    _integer(item["device"], 0, 2**63 - 1, "device")
+    _integer(item["inode"], 1, 2**63 - 1, "inode")
+    return item
+
+
+def _q_chain(value, path):
+    count = 1 if path == "/" else len(path.split("/")) - 1
+    if not isinstance(value, (tuple, list)) or not 1 <= len(value) <= 128 or len(value) != count:
+        raise _CompletionValueError("parent chain must cover root through exact parent")
+    for entry in value:
+        _q_node(entry)
+
+
+def _q_window(value):
+    item = _closed(value, frozenset({"started_at", "finished_at"}), "window")
+    for stamp in item.values():
+        if type(stamp) is not str or re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z", stamp) is None:
+            raise _CompletionValueError("canonical UTC window required")
+        try:
+            datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%S.%fZ")
+        except ValueError as exc:
+            raise _CompletionValueError("invalid UTC calendar") from exc
+    if item["started_at"] > item["finished_at"]:
+        raise _CompletionValueError("reversed window")
+    return item
+
+
+def _q_contained_window(value, parent):
+    item = _q_window(value)
+    if item["started_at"] < parent["started_at"] or item["finished_at"] > parent["finished_at"]:
+        raise _CompletionValueError("probe window outside observation window")
+    return item
+
+
+def _q_sorted(value, validate, cap):
+    if not isinstance(value, (tuple, list)) or not 1 <= len(value) <= cap:
+        raise _CompletionValueError("bounded nonempty set required")
+    for item in value:
+        validate(item)
+    if list(value) != sorted(set(value), key=lambda s: s.encode("utf-8")):
+        raise _CompletionValueError("set must be sorted and unique")
+
+
+def _q_probe(value, case_id, window):
+    item = _closed(value, frozenset({"case_id", "outcome", "evidence", "observed_window"}), "probe")
+    if item["case_id"] != case_id or item["outcome"] != "PASS":
+        raise _CompletionValueError("mandatory probe is missing or not PASS")
+    _q_digest(item["evidence"])
+    _q_contained_window(item["observed_window"], window)
+
+
+def _q_mount(value):
+    item = _closed(value, frozenset({"mount_id", "device_major", "device_minor", "root", "mount_point", "filesystem_type", "source", "mount_options", "super_options"}), "mount")
+    _integer(item["mount_id"], 1, 2**63 - 1, "mount id")
+    for key in ("device_major", "device_minor"):
+        _integer(item[key], 0, 2**63 - 1, key)
+    for key in ("root", "mount_point"):
+        _q_path(item[key])
+    _q_text(item["filesystem_type"], "filesystem")
+    _q_text(item["source"], "mount source", 4096)
+    for key in ("mount_options", "super_options"):
+        _q_sorted(item[key], lambda x: _q_text(x, key), 64)
+    return item
+
+
+def _q_depth(value, depth=0):
+    if depth > 16:
+        raise _CompletionValueError("qualification nesting exceeds 16")
+    if isinstance(value, Mapping):
+        for item in value.values():
+            _q_depth(item, depth + 1)
+    elif isinstance(value, (tuple, list)):
+        for item in value:
+            _q_depth(item, depth + 1)
+    elif type(value) not in {str, int}:
+        raise _CompletionValueError("qualification has an unsupported scalar")
+
+
+def _decode_publisher_qualification(raw):
+    envelope = _closed(_canonical_json_object(raw, _Q_CAP), frozenset({"payload", "payload_sha256"}), "qualification envelope")
+    _q_depth(envelope)
+    payload = _closed(envelope["payload"], frozenset({"schema", "contract_sha256", "scope", "implementation", "profile_basis_sha256", "runtime", "execution_domain", "hosts", "observation_window", "evidence_manifest_sha256", "controller_probe"}), "qualification payload")
+    if payload["schema"] != _Q_SCHEMA or payload["contract_sha256"] != _PUBLISHER_CONTRACT_SHA256:
+        raise _CompletionValueError("qualification contract/schema mismatch")
+    for key in ("profile_basis_sha256", "evidence_manifest_sha256"):
+        require_sha256(payload[key], key)
+    scope = _closed(payload["scope"], frozenset({"backend", "program_kind", "adapter_id", "adapter_contract_version", "completion_mode", "operations"}), "qualification scope")
+    expected_scope = {"backend": "legacy_rtwin_pbs", "program_kind": "xtb", "adapter_id": "auto-g16-v31-xtb", "adapter_contract_version": 3, "completion_mode": _MODE, "operations": ["optimize", "single-point"]}
+    if dict(scope) != expected_scope or type(scope["adapter_contract_version"]) is not int:
+        raise _CompletionValueError("qualification scope mismatch")
+    impl = _closed(payload["implementation"], frozenset({"commit", "tree", "wrapper_source", "probe_source"}), "implementation")
+    for key in ("commit", "tree"):
+        if type(impl[key]) is not str or re.fullmatch(r"[0-9a-f]{40}", impl[key]) is None:
+            raise _CompletionValueError("invalid source Git identity")
+    from ._program_completion_wrapper import _PUBLISHER_WRAPPER_SOURCE, _PUBLISHER_PROBE_SOURCE
+    for key, source in (("wrapper_source", _PUBLISHER_WRAPPER_SOURCE), ("probe_source", _PUBLISHER_PROBE_SOURCE)):
+        if _q_digest(impl[key]) != {"sha256": sha256(source.encode()).hexdigest(), "size_bytes": len(source.encode())}:
+            raise _CompletionValueError("qualification source differs from built-in source")
+    runtime = _closed(payload["runtime"], frozenset({"deployment_manifest", "server_python", "xtb", "xtb_runtime_data_manifest"}), "qualification runtime")
+    for key in ("deployment_manifest", "xtb_runtime_data_manifest"):
+        _q_digest(runtime[key])
+    for key in ("server_python", "xtb"):
+        entry = _closed(runtime[key], frozenset({"path", "sha256", "size_bytes"}), key)
+        _q_path(entry["path"])
+        _q_digest({k: entry[k] for k in ("sha256", "size_bytes")})
+    domain = _closed(payload["execution_domain"], frozenset({"target_identity_sha256", "remote_user", "remote_root", "queue", "eligible_host_keys", "scheduler_scope_evidence"}), "execution domain")
+    require_sha256(domain["target_identity_sha256"], "target identity")
+    for key in ("remote_user", "queue"):
+        _q_text(domain[key], key)
+    _q_path(domain["remote_root"])
+    _q_digest(domain["scheduler_scope_evidence"])
+    _q_sorted(domain["eligible_host_keys"], lambda x: require_sha256(x, "host key"), 32)
+    window = _q_window(payload["observation_window"])
+    hosts = payload["hosts"]
+    if not isinstance(hosts, (list, tuple)) or not 1 <= len(hosts) <= 32:
+        raise _CompletionValueError("eligible host count")
+    keys = []
+    for host in hosts:
+        _closed(host, frozenset({"host_key", "machine_id_sha256", "boot_id", "kernel_release", "architecture", "namespaces", "locations", "observed_window", "identity_evidence", "probes"}), "host")
+        require_sha256(host["machine_id_sha256"], "machine id")
+        if host["host_key"] != semantic_sha256(freeze_mapping({"machine_id_sha256": host["machine_id_sha256"]}, "host key")):
+            raise _CompletionValueError("host key mismatch")
+        keys.append(host["host_key"])
+        if type(host["boot_id"]) is not str or re.fullmatch(r"[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}", host["boot_id"]) is None:
+            raise _CompletionValueError("boot id is not canonical UUID")
+        for key in ("kernel_release", "architecture"):
+            _q_text(host[key], key)
+        ns = _closed(host["namespaces"], frozenset({"mount", "pid"}), "namespaces")
+        for item in ns.values():
+            _q_node(item)
+        host_window = _q_contained_window(host["observed_window"], window)
+        _q_digest(host["identity_evidence"])
+        locations = host["locations"]
+        if not isinstance(locations, (list, tuple)) or len(locations) != 4:
+            raise _CompletionValueError("location inventory")
+        for role, loc in zip(_Q_ROLES, locations):
+            _closed(loc, frozenset({"role", "path", "parent_chain", "object", "mount", "evidence"}), "location")
+            if loc["role"] != role:
+                raise _CompletionValueError("location order/role mismatch")
+            path = _q_path(loc["path"])
+            _q_chain(loc["parent_chain"], path)
+            _q_node(loc["object"])
+            mount = _q_mount(loc["mount"])
+            point = mount["mount_point"]
+            if point != "/" and path != point and not path.startswith(point + "/"):
+                raise _CompletionValueError("mount does not cover location")
+            _q_digest(loc["evidence"])
+        expected_paths = (domain["remote_root"], runtime["server_python"]["path"], runtime["xtb"]["path"])
+        if tuple(loc["path"] for loc in locations[:3]) != expected_paths:
+            raise _CompletionValueError("host/runtime path mismatch")
+        probes = host["probes"]
+        if not isinstance(probes, (tuple, list)) or len(probes) != 7:
+            raise _CompletionValueError("mandatory host probes missing")
+        for index, probe in enumerate(probes, 1):
+            _q_probe(probe, f"P{index:02d}", host_window)
+    if keys != list(domain["eligible_host_keys"]):
+        raise _CompletionValueError("host inventory differs from eligible set")
+    _q_probe(payload["controller_probe"], "P08", window)
+    frozen = freeze_mapping(payload, "qualification payload")
+    if envelope["payload_sha256"] != semantic_sha256(frozen):
+        raise _CompletionValueError("qualification payload digest mismatch")
+    return freeze_mapping(envelope, "qualification")
+
+
+def _publisher_profile_basis(profile):
+    profile.assert_identity_closed()
+    original = _closed(profile._identity_payload, _PROFILE_BASIS_FIELDS, "profile identity payload")
+    projection = {key: value for key, value in original.items() if key != "effective_config_sha256"}
+    projection["runtime_identities"] = {key: value for key, value in original["runtime_identities"].items() if key != _Q_NAME}
+    return semantic_sha256(freeze_mapping(projection, "publisher profile basis"))
+
+
+def _validate_publisher_profile(q, profile, deployment):
+    p = q["payload"]
+    if p["profile_basis_sha256"] != _publisher_profile_basis(profile):
+        raise _CompletionValueError("qualification does not bind complete profile basis")
+    runtime, domain = p["runtime"], p["execution_domain"]
+    if runtime["deployment_manifest"] != profile.runtime_identities[_DEPLOYMENT_NAME] or runtime["xtb_runtime_data_manifest"] != profile.runtime_identities[_DATA_NAME]:
+        raise _CompletionValueError("qualification manifest identity mismatch")
+    py = deployment["trust_roots"]["server_python"]
+    if runtime["server_python"] != {"path": py["path"], "sha256": py["expected_sha256"], "size_bytes": py["expected_size_bytes"]}:
+        raise _CompletionValueError("qualification Python differs from manifest")
+    xtb = runtime["xtb"]
+    if xtb["path"] != profile.platform_paths["xtb_executable_path"] or {k: xtb[k] for k in ("sha256", "size_bytes")} != profile.runtime_identities.get("xtb"):
+        raise _CompletionValueError("qualification xTB differs from profile")
+    if (domain["target_identity_sha256"], domain["remote_user"], domain["remote_root"]) != (semantic_sha256(profile.target_identity), profile.remote_user, profile.remote_root):
+        raise _CompletionValueError("qualification target differs from profile")
+    if any(host["locations"][3]["path"] != profile.platform_paths["xtb_data_path"] for host in p["hosts"]):
+        raise _CompletionValueError("qualification runtime data root differs from profile")
+
+
+def _prepare_publisher_pilot_rendering_material(current_profile, resolved_profile):
+    old = _prepare_completion_rendering_material(current_profile, resolved_profile)
+    try:
+        raw = current_profile.runtime_contents[_Q_NAME]
+    except KeyError as exc:
+        raise _CompletionValueError("publisher qualification material missing") from exc
+    return _validate_material({**old, "schema": _PILOT_MATERIAL_SCHEMA, "publisher_qualification_base64": base64.b64encode(raw).decode("ascii")}, resolved_profile)
+
+
+def _completion_tuple(material):
+    from ._program_completion_wrapper import _WRAPPER_SOURCE, _PUBLISHER_WRAPPER_SOURCE
+    if not isinstance(material, Mapping):
+        raise _CompletionValueError("material required for tuple dispatch")
+    if material.get("schema") == _MATERIAL_SCHEMA and set(material) == _MATERIAL_FIELDS:
+        return "# auto-g16-v31-scheduler/2", "v31-completion-prebinding/2", _WRAPPER_SOURCE, 3 * _Q_CAP
+    if material.get("schema") == _PILOT_MATERIAL_SCHEMA and set(material) == _MATERIAL_FIELDS | {"publisher_qualification_base64"}:
+        return "# auto-g16-v31-scheduler/3", "v31-completion-prebinding/3", _PUBLISHER_WRAPPER_SOURCE, 5 * _Q_CAP
+    raise _CompletionValueError("unknown/mixed completion tuple")
+
+
+def _validate_publisher_invocation(material, spec, resources):
+    if material["schema"] == _PILOT_MATERIAL_SCHEMA:
+        q = _decode_publisher_qualification(_unbase64(material["publisher_qualification_base64"], _Q_CAP))["payload"]
+        executable = spec.invocation["executable_identity"]
+        if resources.queue != q["execution_domain"]["queue"] or q["runtime"]["xtb"] != {"path": executable["absolute_path"], "sha256": executable["sha256"], "size_bytes": executable["size_bytes"]}:
+            raise _CompletionValueError("pilot queue/invocation differs from qualification")
