@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """One reviewed hosted-VM run. This file is inert when imported locally."""
+from contextlib import ExitStack
 import os
 from pathlib import Path
 import pwd
@@ -12,6 +13,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from hosted_support import (ENV_KEYS, canonical, check, closed_json, derive_scope, digest,
     git, load_plan, nproc_budget, read, uid_threads, validate_ci, verify_candidate, verify_package)
+from provision_fixture_roots import DF, create_pair, entry, node as fd_node
 
 
 def write(path, raw):
@@ -39,6 +41,52 @@ def chain(path):
         node(current)
 
 
+def observe_parents(stack):
+    """Read both fixed parent/target states before evaluating any parent policy."""
+    evidence = dict(runner_uid=os.getuid(), runner_gid=os.getgid(), parents={}, targets={}, errors=[])
+    descriptors = {}
+    try:
+        root = os.open('/', DF)
+        stack.callback(os.close, root)
+        descriptors['/'] = root
+        info = fd_node(root)
+        evidence['parents']['/'] = dict(node=info, root_owned=info['uid'] == 0,
+            non_group_world_writable=not bool(info['mode'] & 0o022))
+    except OSError as exc:
+        evidence['errors'].append(dict(path='/', operation='open/fstat no-follow directory', error=repr(exc)))
+        return descriptors, evidence
+    for name, target in (('opt', 'auto-g16-fixtures'), ('home', 'user100')):
+        path = '/' + name
+        error_path, operation = path, 'lstat parent no-follow'
+        try:
+            named = entry(root, name)
+            evidence['parents'][path] = {'entry': named}
+            operation = 'open/fstat parent no-follow directory'
+            fd = os.open(name, DF, dir_fd=root)
+            stack.callback(os.close, fd)
+            descriptors[path] = fd
+            info = fd_node(fd)
+            evidence['parents'][path].update(node=info, root_owned=info['uid'] == 0,
+                non_group_world_writable=not bool(info['mode'] & 0o022),
+                named_identity_matches=(named.get('device'), named.get('inode')) == (info['device'], info['inode']))
+            error_path, operation = path + '/' + target, 'lstat target no-follow'
+            evidence['targets'][error_path] = entry(fd, target)
+        except OSError as exc:
+            evidence['errors'].append(dict(path=error_path, parent_path=path, operation=operation, error=repr(exc)))
+    return descriptors, evidence
+
+
+def validate_parents(evidence):
+    check(not evidence['errors'], 'parent observation failed: ' + repr(evidence['errors']))
+    for path in ('/', '/home'):
+        info = evidence['parents'][path]
+        check(info['root_owned'] and info['non_group_world_writable'], 'untrusted system parent: ' + path)
+    for path in ('/opt', '/home'):
+        check(evidence['parents'][path]['named_identity_matches'], 'parent named identity drift: ' + path)
+    for path, info in evidence['targets'].items():
+        check(info['state'] == 'ABSENT', 'existing run target: ' + path)
+
+
 def main():
     # Before any sudo, freeze package, both checkouts, owner record, environment,
     # tool observations, paths and per-UID thread budget. No product imports.
@@ -61,39 +109,53 @@ def main():
     check(git(harness, 'rev-parse', 'HEAD').decode().strip() == ci['GITHUB_SHA'], 'workflow/checkout HEAD drift')
     check(not git(harness, 'status', '--porcelain=v1', '--untracked-files=all'), 'harness checkout dirty')
     verify_candidate(candidate, binding)
-    for path in (Path(plan['evidence']), Path('/opt/auto-g16-fixtures'), Path('/home/user100')):
-        chain(path.parent)
-        check(not os.path.lexists(path), 'existing run target: ' + str(path))
-    for name in (Path('/opt'), Path('/home')):
-        info = node(name)
-        check(info['uid'] == 0 and not info['mode'] & 0o022, 'system parent ownership')
     raw_files = {}
     def record(name, raw):
         write(supervisor / name, raw)
         raw_files[name] = digest(raw)
-    python = Path(sys.executable).resolve(strict=True)
-    tools = {}
-    for name, entry in (('python', python), ('cc', Path('/usr/bin/cc')), ('timeout', Path('/usr/bin/timeout')),
-                        ('bash', Path('/bin/bash')), ('sudo', Path('/usr/bin/sudo'))):
-        physical = entry.resolve(strict=True)
-        tools[name] = {'path': str(physical), **digest(read(physical, 64 * 1024 * 1024))}
-    record('os-release.raw', read('/usr/lib/os-release'))
-    os_release = dict(line.split('=', 1) for line in read('/usr/lib/os-release').decode().splitlines() if '=' in line)
-    check(os_release['ID'].strip('"') == 'ubuntu' and os_release['VERSION_ID'].strip('"') == '24.04', 'Ubuntu 24.04 required')
-    record('machine-id.raw', read('/etc/machine-id', 4096))
-    record('boot-id.raw', read('/proc/sys/kernel/random/boot_id', 128))
-    record('mountinfo.raw', read(f'/proc/{os.getpid()}/mountinfo'))
-    namespaces = {}
-    for name in ('mnt', 'pid'):
-        ns = os.stat(f'/proc/{os.getpid()}/ns/{name}')
-        namespaces[name] = {'device': ns.st_dev, 'inode': ns.st_ino}
-    baseline = uid_threads(os.getuid())
-    nproc_budget(plan, baseline)
-    record('uid-baseline.json', canonical(baseline))
-    # Record observation/intent before the one bounded root operation.
-    intent = dict(ci=ci, plan_sha256=plan_sha, binding_sha256=binding_sha, owner_request_sha256=plan['owner_request_sha256'],
-        tools=tools, uname=list(os.uname()), namespaces=namespaces, uid=os.getuid(), raw_files=dict(raw_files), production_qualified=False)
-    record('platform-before-provision.json', canonical(intent))
+    with ExitStack() as parent_stack:
+        parents, parent_evidence = observe_parents(parent_stack)
+        record('parent-observation.json', canonical(parent_evidence))
+        validate_parents(parent_evidence)
+        chain(Path(plan['evidence']).parent)
+        check(not os.path.lexists(plan['evidence']), 'existing run target: ' + plan['evidence'])
+        python = Path(sys.executable).resolve(strict=True)
+        tools = {}
+        for name, tool_entry in (('python', python), ('cc', Path('/usr/bin/cc')), ('timeout', Path('/usr/bin/timeout')),
+                            ('bash', Path('/bin/bash')), ('sudo', Path('/usr/bin/sudo'))):
+            physical = tool_entry.resolve(strict=True)
+            tools[name] = {'path': str(physical), **digest(read(physical, 64 * 1024 * 1024))}
+        record('os-release.raw', read('/usr/lib/os-release'))
+        os_release = dict(line.split('=', 1) for line in read('/usr/lib/os-release').decode().splitlines() if '=' in line)
+        check(os_release['ID'].strip('"') == 'ubuntu' and os_release['VERSION_ID'].strip('"') == '24.04', 'Ubuntu 24.04 required')
+        record('machine-id.raw', read('/etc/machine-id', 4096))
+        record('boot-id.raw', read('/proc/sys/kernel/random/boot_id', 128))
+        record('mountinfo.raw', read(f'/proc/{os.getpid()}/mountinfo'))
+        namespaces = {}
+        for name in ('mnt', 'pid'):
+            ns = os.stat(f'/proc/{os.getpid()}/ns/{name}')
+            namespaces[name] = {'device': ns.st_dev, 'inode': ns.st_ino}
+        baseline = uid_threads(os.getuid())
+        nproc_budget(plan, baseline)
+        record('uid-baseline.json', canonical(baseline))
+        # Record observation/intent before the one bounded root operation.
+        intent = dict(ci=ci, plan_sha256=plan_sha, binding_sha256=binding_sha, owner_request_sha256=plan['owner_request_sha256'],
+            tools=tools, uname=list(os.uname()), namespaces=namespaces, uid=os.getuid(), raw_files=dict(raw_files), production_qualified=False)
+        record('platform-before-provision.json', canonical(intent))
+        opt_result = dict(status='FAIL', first_error=None, observations=[], cleanup_errors=[], privileged=False)
+        try:
+            # Retained parent descriptors and fresh directory FDs cover this whole
+            # ordinary-UID operation. Failure never escalates to sudo for /opt.
+            named = entry(parents['/'], 'opt')
+            expected = fd_node(parents['/opt'])
+            check((named.get('device'), named.get('inode')) == (expected['device'], expected['inode']), 'opt parent replaced')
+            create_pair(parents['/opt'], '/opt', 'auto-g16-fixtures', 'bin', os.getuid(), os.getgid(), opt_result['observations'])
+            opt_result['status'] = 'PASS'
+        except BaseException as exc:
+            opt_result['first_error'] = repr(exc)
+        finally:
+            record('runner-opt-provision.json', canonical(opt_result))
+        check(opt_result['status'] == 'PASS', 'ordinary runner opt creation failed; no sudo fallback')
     command = ['/usr/bin/sudo', '-n', '/usr/bin/python3', '-I', '-S', '-B', str(HERE / 'provision_fixture_roots.py')]
     record('provision-intent.json', canonical({'command': command, 'self_deadline_seconds': 10, 'wait_seconds': 15, 'retries': 0}))
     # The root helper has its own hard deadline. Exact sudo child only; timeout
@@ -118,7 +180,7 @@ def main():
         chain(target)
         info = node(target)
         check(info['uid'] == os.getuid() and info['gid'] == os.getgid() and info['mode'] == 0o700, 'new fixture root ownership')
-        recorded = [item['owned'] for item in provision['observations'] if item.get('path') == path and 'owned' in item]
+        recorded = [item['owned'] for item in (opt_result['observations'] + provision['observations']) if item.get('path') == path and 'owned' in item]
         check(recorded == [info], 'fixture root identity differs from retained provisioning descriptor')
         roots[path] = info
     platform = dict(status='OBSERVED', ci=ci, uid=os.getuid(), uid_baseline=baseline, tools=tools,

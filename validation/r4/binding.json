@@ -1767,8 +1767,8 @@
       "size_bytes": 3014
     },
     "hosted_launcher.py": {
-      "sha256": "184fc2406b91f078d29d6b07222a7076c87656e48de149cfe582627ce9cc5e9a",
-      "size_bytes": 8073
+      "sha256": "c2f99c2468614eee4dc089c1f347124e996c38ba73abb61e635eb7ef23083718",
+      "size_bytes": 11641
     },
     "hosted_support.py": {
       "sha256": "b99e40b76ca08479da4d0d9b698ba554cd830b2ccea7c483a3a843d4295d8f10",
@@ -1787,8 +1787,8 @@
       "size_bytes": 13740
     },
     "provision_fixture_roots.py": {
-      "sha256": "fadcf4958de1763c6e89bc71c0ea66650f718f5339a3c6517b68107ecbdb0cf3",
-      "size_bytes": 4531
+      "sha256": "7cd6c8ef72b927e47c731e4dc9c043e960ececf4c37512fd5117798eff90beff",
+      "size_bytes": 6115
     },
     "r4_actor.c": {
       "sha256": "3f9307ab0fef6e5c2bab9fb13e22dbf776dd6c5086086d57a8ac7c8f418de958",

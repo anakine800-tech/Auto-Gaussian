@@ -1,4 +1,6 @@
 """Offline rejection tests only: no product imports, sudo, C build or Linux run."""
+import ast
+from contextlib import ExitStack
 import copy
 import importlib.util
 import json
@@ -6,6 +8,7 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 HERE = Path(__file__).resolve().parent
 
@@ -19,6 +22,7 @@ def load(name):
 
 SUPPORT = load('hosted_support')
 PROVISION = load('provision_fixture_roots')
+LAUNCHER = load('hosted_launcher')
 
 
 class HostedScopeTests(unittest.TestCase):
@@ -82,51 +86,148 @@ class HostedScopeTests(unittest.TestCase):
 
 
 class ProvisionTests(unittest.TestCase):
-    def test_existing_or_symlinked_either_root_causes_zero_creation(self):
-        for index in (0, 1):
+    def test_existing_or_symlinked_root_causes_zero_creation(self):
+        for top, leaf in (('auto-g16-fixtures', 'bin'), ('user100', 'SDL')):
             for kind in ('file', 'directory', 'symlink'):
-                with self.subTest(index=index, kind=kind), tempfile.TemporaryDirectory() as tmp:
+                with self.subTest(top=top, kind=kind), tempfile.TemporaryDirectory() as tmp:
                     root = Path(tmp).resolve()
-                    parents = [root / 'opt', root / 'home']
-                    for path in parents:
-                        path.mkdir()
-                    target = parents[index] / ('auto-g16-fixtures', 'user100')[index]
+                    target = root / top
                     if kind == 'file':
                         target.write_text('retain')
                     elif kind == 'directory':
                         target.mkdir()
                     else:
                         target.symlink_to(root / 'absent')
-                    descriptors = [os.open(path, PROVISION.DF) for path in parents]
+                    fd = os.open(root, PROVISION.DF)
+                    observations = []
                     try:
-                        with self.assertRaises(FileExistsError):
-                            PROVISION.create_roots(*descriptors, os.getuid(), os.getgid(), [])
-                        self.assertEqual(list(parents[1-index].iterdir()), [])
-                        self.assertTrue(os.path.lexists(target))
+                        with self.assertRaisesRegex(ValueError, 'existing fixture root'):
+                            PROVISION.create_pair(fd, str(root), top, leaf, os.getuid(), os.getgid(), observations)
+                        self.assertEqual(list(root.iterdir()), [target])
+                        self.assertEqual(observations[0]['before']['state'], 'EXISTS')
                         if kind == 'file':
                             self.assertEqual(target.read_text(), 'retain')
                     finally:
-                        for fd in descriptors:
-                            os.close(fd)
+                        os.close(fd)
 
-    def test_new_roots_are_exact_and_recorded_by_descriptor(self):
+    def test_runner_creation_never_chowns_and_preserves_parent_mode(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
-            parents = [root / 'opt', root / 'home']
-            for path in parents:
-                path.mkdir()
-            descriptors = [os.open(path, PROVISION.DF) for path in parents]
+            root.chmod(0o777)
+            fd = os.open(root, PROVISION.DF)
             observations = []
             try:
-                PROVISION.create_roots(*descriptors, os.getuid(), os.getgid(), observations)
-                self.assertEqual(len([x for x in observations if 'owned' in x]), 4)
-                self.assertEqual(sorted(str(x.relative_to(root)) for x in root.rglob('*')), [
-                    'home', 'home/user100', 'home/user100/SDL', 'opt', 'opt/auto-g16-fixtures', 'opt/auto-g16-fixtures/bin'])
-                for path in (parents[0] / 'auto-g16-fixtures/bin', parents[1] / 'user100/SDL'):
-                    self.assertEqual(path.stat().st_mode & 0o777, 0o700)
+                with patch.object(PROVISION.os, 'fchown', side_effect=AssertionError('ordinary runner must not chown')):
+                    PROVISION.create_pair(fd, '/opt', 'auto-g16-fixtures', 'bin', os.getuid(), os.getgid(), observations)
+                self.assertEqual(len([x for x in observations if 'owned' in x]), 2)
+                self.assertEqual(root.stat().st_mode & 0o777, 0o777)
+                self.assertEqual((root / 'auto-g16-fixtures/bin').stat().st_mode & 0o777, 0o700)
             finally:
-                for fd in descriptors:
+                os.close(fd)
+
+    def test_actual_main_tool_loop_then_opt_creation_has_no_name_shadow(self):
+        # Execute only the two actual main blocks implicated in this regression.
+        # Private parent FDs and synthetic tool bytes; no Linux entry or sudo.
+        tree = ast.parse((HERE / 'hosted_launcher.py').read_text())
+        main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'main')
+        parent_block = next(n for n in main.body if isinstance(n, ast.With))
+        tool_loop = next(n for n in parent_block.body if isinstance(n, ast.For))
+        opt_start = next(i for i, n in enumerate(parent_block.body) if isinstance(n, ast.Assign)
+                         and isinstance(n.targets[0], ast.Name) and n.targets[0].id == 'opt_result')
+        section = ast.Module(body=[tool_loop, *parent_block.body[opt_start:]], type_ignores=[])
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            (root / 'opt').mkdir()
+            fds = {'/': os.open(root, PROVISION.DF), '/opt': os.open(root / 'opt', PROVISION.DF)}
+            records = []
+            class ToolPath:
+                def resolve(self, strict=True):
+                    return self
+                def __str__(self):
+                    return '/synthetic/tool'
+            scope = dict(vars(LAUNCHER), python=ToolPath(), Path=lambda path: ToolPath(), tools={},
+                parents=fds, record=lambda name, raw: records.append((name, raw)), read=lambda *args: b'synthetic tool')
+            try:
+                # A shared namespace models function-local binding across both
+                # actual blocks: restoring the old `entry` loop name fails here.
+                exec(compile(section, str(HERE / 'hosted_launcher.py'), 'exec'), scope, scope)
+                self.assertEqual(scope['opt_result']['status'], 'PASS')
+                self.assertEqual(set(scope['tools']), {'python', 'cc', 'timeout', 'bash', 'sudo'})
+                self.assertEqual(records[0][0], 'runner-opt-provision.json')
+                self.assertTrue((root / 'opt/auto-g16-fixtures/bin').is_dir())
+            finally:
+                for fd in reversed(list(fds.values())):
                     os.close(fd)
+
+    def test_runner_denied_creation_has_no_privileged_fallback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            fd = os.open(root, PROVISION.DF)
+            observations = []
+            try:
+                with patch.object(PROVISION.os, 'mkdir', side_effect=PermissionError('denied')) as mkdir, \
+                     patch.object(PROVISION.os, 'fchown', side_effect=AssertionError('no fallback')) as chown:
+                    with self.assertRaises(PermissionError):
+                        PROVISION.create_pair(fd, '/opt', 'auto-g16-fixtures', 'bin', os.getuid(), os.getgid(), observations)
+                    mkdir.assert_called_once()
+                    chown.assert_not_called()
+                self.assertEqual(list(root.iterdir()), [])
+                self.assertEqual(observations[0]['before'], {'state': 'ABSENT'})
+            finally:
+                os.close(fd)
+
+    def test_invalid_new_top_is_retained_without_leaf_creation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            fd = os.open(root, PROVISION.DF)
+            try:
+                with self.assertRaisesRegex(ValueError, 'runner top directory identity'):
+                    PROVISION.create_pair(fd, '/opt', 'auto-g16-fixtures', 'bin', os.getuid(), os.getgid() + 1, [])
+                self.assertTrue((root / 'auto-g16-fixtures').is_dir())
+                self.assertFalse((root / 'auto-g16-fixtures/bin').exists())
+            finally:
+                os.close(fd)
+
+    def observe_temporary_parents(self, root):
+        original_open = os.open
+        def local_open(path, *args, **kwargs):
+            return original_open(str(root) if path == '/' else path, *args, **kwargs)
+        with ExitStack() as stack, patch.object(LAUNCHER.os, 'open', side_effect=local_open):
+            _, observations = LAUNCHER.observe_parents(stack)
+        return observations
+
+    def test_open_failure_retains_exact_parent_and_target_observations(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            (root / 'home').mkdir()
+            (root / 'opt').symlink_to(root / 'home')
+            result = self.observe_temporary_parents(root)
+            self.assertEqual(result['errors'][0]['path'], '/opt')
+            self.assertIn('open/fstat', result['errors'][0]['operation'])
+            self.assertEqual(result['parents']['/opt']['entry']['state'], 'EXISTS')
+            self.assertEqual(result['targets']['/home/user100'], {'state': 'ABSENT'})
+            self.assertIn('node', result['parents']['/home'])
+            with self.assertRaisesRegex(ValueError, 'parent observation failed'):
+                LAUNCHER.validate_parents(result)
+
+    def test_both_absences_and_home_trust_gate_precede_creation(self):
+        # Values describe a private synthetic policy fixture, not a hosted VM.
+        good = dict(errors=[], parents={
+            '/': dict(root_owned=True, non_group_world_writable=True),
+            '/opt': dict(root_owned=True, non_group_world_writable=False, named_identity_matches=True),
+            '/home': dict(root_owned=True, non_group_world_writable=True, named_identity_matches=True)},
+            targets={'/opt/auto-g16-fixtures': {'state': 'ABSENT'}, '/home/user100': {'state': 'ABSENT'}})
+        LAUNCHER.validate_parents(good)
+        for path in good['targets']:
+            invalid = copy.deepcopy(good)
+            invalid['targets'][path]['state'] = 'EXISTS'
+            with self.assertRaisesRegex(ValueError, 'existing run target'):
+                LAUNCHER.validate_parents(invalid)
+        for predicate in ('root_owned', 'non_group_world_writable'):
+            invalid = copy.deepcopy(good)
+            invalid['parents']['/home'][predicate] = False
+            with self.assertRaisesRegex(ValueError, 'untrusted system parent: /home'):
+                LAUNCHER.validate_parents(invalid)
 
 
 if __name__ == '__main__':

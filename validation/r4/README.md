@@ -60,16 +60,50 @@ thread observations before deriving any runtime scope. The scope can be replayed
 from `run-plan.json`, the exact Owner attachment, binding and platform bytes.
 It does not invent a future observation or approval hash.
 
-One bounded `sudo` helper creates only initially absent `/opt/auto-g16-fixtures`,
-its `bin`, `/home/user100` and its `SDL`, after no-follow parent checks. It changes
-ownership/mode only through descriptors opened for those fresh directories.
-Existing files/directories/symlinks stop before creation. No account changes,
-installation, existing-path chown, deletion, network/scientific call or retry.
-The helper records exact inode identities and self-times out after 10 seconds;
-launcher wait is 15 seconds and ambiguous timeout stops with retained UNKNOWN.
-The ordinary runner exclusively creates the inert actor at the fixed product
-fixture executable path. The harness invokes unchanged rendered Scheduler/3
-source/config transport and the real bound product consumer.
+Before the first fixture mutation, the launcher saves actual no-follow FD
+observations for `/`, `/opt`, `/home`, the runner UID/GID and both top-level
+target absences. It records failed opens/reads with the affected path and first
+error, then evaluates the trusted `/` and `/home` boundaries and both absences.
+The parent descriptors remain open through the ordinary-runner creation step.
+
+The ordinary runner creates only absent `/opt/auto-g16-fixtures` and its `bin`
+through the fixed `/opt` descriptor. It checks the new top's runner UID/GID,
+0700 mode and named inode before creating the leaf, and records/compares both
+new directory identities. It does not change `/opt` permissions/ownership,
+chown any existing entry, or fall back to sudo after a failure. Writable `/opt`
+is not treated as a privileged trusted parent.
+
+One bounded `sudo` helper opens only the root-owned, non-group/world-writable
+`/` and `/home` chain. It records each parent before its rejection predicate,
+creates only absent `/home/user100` and `SDL`, and changes ownership only via
+new directory descriptors. The root entrypoint never opens `/opt`. No account
+changes, installation, existing-path chown, deletion, network/scientific call
+or retry. Both ordinary and privileged creation records are retained; the
+launcher checks all four final root identities against their original new FDs
+and includes both records in platform/scope binding. Partial failure retains
+its first error and every newly created directory without rollback.
+
+The root helper self-times out after 10 seconds; launcher wait is 15 seconds,
+and ambiguous timeout stops with retained UNKNOWN. The ordinary runner
+exclusively creates the inert actor at the fixed product fixture executable
+path. The harness invokes unchanged rendered Scheduler/3 source/config transport
+and the real bound product consumer.
+
+### First hosted failure and bounded correction
+
+The first run `34966004304` of `d6b6cc809f72f213fcf479de5c9955e8e8a82077`
+failed in the common `/opt`/`/home` ownership predicate before sudo or any case.
+Its generic exception did not identify the actual rejected path, UID or mode;
+those observations remain NOT_ACQUIRED. Original logs and candidate are retained.
+The corresponding official image-tag script configures writable `/opt`, which
+explains the incompatible preset but does not reconstruct that VM's observation:
+[runner-images ubuntu24/20260907.300 configure-system.sh](https://github.com/actions/runner-images/blob/ubuntu24/20260907.300/images/ubuntu/scripts/build/configure-system.sh).
+
+The parent explicitly authorized this local diagnostic/provisioning correction
+and independent incremental review. No GitHub rerun or automatic execution is
+permitted. A subsequent parent-controlled run must bind the reviewed new
+candidate and preserve the first failure. The ten cases, fixed product, run-plan,
+Owner attachment, workflow and all runtime budgets remain unchanged.
 
 Per case: 45 seconds; whole harness: 1500 seconds plus 15-second timeout cleanup;
 CI job: 26 minutes. Compile once: 30-second outer cap, 35-second wait. RLIMIT_NPROC
@@ -99,7 +133,11 @@ Only `tests.test_audit_ci_contract` and `validation.r4.test_hosted_support`, sta
 Python/shell parsing and the static CI audit are in this development pass. Tests
 cover rehashed trigger/job widening, required-check preservation, rerun/context
 rejection, finite thread budget, scope derivation, package identity, duplicate
-JSON and fresh-directory/no-follow rejection using private temporary directories.
+JSON and fresh-directory/no-follow rejection using private temporary directories. The
+incremental cases cover unprivileged writable-parent creation without chown,
+permission denial, rejected top identity before leaf creation, actual observation
+retention on an open failure, both initial absences and the retained home trust
+boundary.
 No C compilation, product test rerun, real Linux harness execution, publication
 or production qualification is implied. An independent review of the final
 HEAD/tree and hashes precedes parent-controlled publication.
