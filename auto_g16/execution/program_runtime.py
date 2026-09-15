@@ -53,6 +53,15 @@ def _completion_checkpoint(snapshot, program_transport_store):
         program_transport_store._require_current_completion_owner()
 
 
+def _publisher_completion_checkpoint(snapshot, driver):
+    if snapshot.program_execution_spec.invocation["executable_identity"]["absolute_path"] == "/opt/auto-g16-fixtures/bin/xtb":
+        return
+    from auto_g16.transport._program_rtwin import _RTWinProgramEffectDriver
+    if type(driver) is not _RTWinProgramEffectDriver or driver._snapshot != snapshot:
+        raise TransportBoundaryError("publisher-not-qualified")
+    driver._authority()
+
+
 def _snapshot_binding(
     snapshot: ProgramExecutionSnapshot,
     program_transport_store: _transport._ProgramTransportStore,
@@ -69,9 +78,14 @@ def _snapshot_binding(
     receipt_mode = _uses_completion_receipt(snapshot.program_execution_spec)
     if receipt_mode != (program_transport_store._version == 2):
         raise TransportBoundaryError("completion-store-not-qualified" if receipt_mode else "strict requires a version-1 program store")
-    if _uses_completion_receipt(snapshot.program_execution_spec):
-        if snapshot.program_execution_spec.invocation["executable_identity"]["absolute_path"] != "/opt/auto-g16-fixtures/bin/xtb" or driver.runtime_qualification.get("bootstrap_protocol") != "synthetic-v31-program-effect/1":
-            raise TransportBoundaryError("publisher-not-qualified")
+    if receipt_mode:
+        material = snapshot._completion_material()
+        synthetic = (snapshot.program_execution_spec.invocation["executable_identity"]["absolute_path"] == "/opt/auto-g16-fixtures/bin/xtb" and driver.runtime_qualification.get("bootstrap_protocol") == "synthetic-v31-program-effect/1")
+        if not synthetic:
+            from auto_g16.transport._program_rtwin import _RTWinProgramEffectDriver
+            if material["schema"] != _completion._PILOT_MATERIAL_SCHEMA or type(driver) is not _RTWinProgramEffectDriver:
+                raise TransportBoundaryError("publisher-not-qualified")
+            driver._authority()
     closed_driver = _transport._require_driver(driver)
     try:
         snapshot.assert_identity_closed()
@@ -1973,7 +1987,7 @@ def _verify_completion_assessments(observations, snapshot, job):
             raise TransportBoundaryError("terminal completion assessment lacks captured provenance")
 
 
-def _persist_completion_assessment(store, snapshot, program_transport_store, base, job, diagnostic, *, epoch_id=None, record=None, capture=None, receipt_sha256=None):
+def _persist_completion_assessment(store, snapshot, program_transport_store, base, job, diagnostic, *, driver=None, epoch_id=None, record=None, capture=None, receipt_sha256=None):
     observations = store.observations_for_attempt(snapshot.attempt_id)
     receipts = _load_receipts(store, snapshot, program_transport_store, base)
     _verify_completion_assessments(observations, snapshot, job)
@@ -1994,23 +2008,26 @@ def _persist_completion_assessment(store, snapshot, program_transport_store, bas
         "receipt_sha256": receipt_sha256,
     }, "completion assessment")
     assessment = Observation(observation_id=semantic_id("program-completion-assessment", data), attempt_id=snapshot.attempt_id, observation_type=_COMPLETION_ASSESSMENT, data=data)
+    _publisher_completion_checkpoint(snapshot, driver)
     _completion_checkpoint(snapshot, program_transport_store)
     store.append_observation(assessment)
     current = store.observations_for_attempt(snapshot.attempt_id)
     if current != (*observations, assessment):
         raise TransportBoundaryError("completion prefix changed during persistence")
     _verify_completion_assessments(current, snapshot, job)
-    _advance_completion(store, snapshot, assessment, program_transport_store)
+    _advance_completion(store, snapshot, assessment, program_transport_store, driver)
     return assessment
 
 
-def _advance_completion(store, snapshot, assessment, program_transport_store):
+def _advance_completion(store, snapshot, assessment, program_transport_store, driver=None):
+    _publisher_completion_checkpoint(snapshot, driver)
     _completion_checkpoint(snapshot, program_transport_store)
     if assessment.data["verdict"] == "UNKNOWN":
         return
     expected = AttemptState[assessment.data["verdict"]]
     current = store.attempt_state(snapshot.attempt_id)
     if current in {AttemptState.SUBMITTED, AttemptState.RUNNING}:
+        _publisher_completion_checkpoint(snapshot, driver)
         _completion_checkpoint(snapshot, program_transport_store)
         store.advance_attempt(snapshot.attempt_id, expected)
     elif current is not expected:
@@ -2055,12 +2072,12 @@ def _collect_program_completion(store, *, snapshot, program_transport_store, dri
         inputs = _completion_inputs(snapshot, receipts, input_bytes)
     except _completion._CompletionValueError:
         missing = not isinstance(input_bytes, Mapping) or any(item["portable_name"] not in input_bytes for item in snapshot.program_execution_spec.exact_inputs)
-        return _persist_completion_assessment(store, snapshot, program_transport_store, base, job, "acquisition-unknown" if missing else "evidence-conflict")
+        return _persist_completion_assessment(store, snapshot, program_transport_store, base, job, "acquisition-unknown" if missing else "evidence-conflict", driver=driver)
     _query_program_scheduler(store, snapshot=snapshot, program_transport_store=program_transport_store, driver=driver, _completion_token=_completion_token)
     observations = store.observations_for_attempt(snapshot.attempt_id)
     diagnostic = _scheduler_diagnostic(observations)
     if diagnostic:
-        return _persist_completion_assessment(store, snapshot, program_transport_store, base, job, diagnostic)
+        return _persist_completion_assessment(store, snapshot, program_transport_store, base, job, diagnostic, driver=driver)
     receipts = _load_receipts(store, snapshot, program_transport_store, base)
     opening = receipts[-1]
     epoch_id = _completion_epoch(snapshot, job, opening)
@@ -2073,7 +2090,7 @@ def _collect_program_completion(store, *, snapshot, program_transport_store, dri
             member.update(presence=stat.data["response"]["presence"], size_bytes=None, sha256=None, content_base64=None, stat_observation_id=stat.observation_id, fetch_observation_id=None, restat_observation_id=None)
             if member["presence"] == "absent":
                 if index == 0:
-                    return _persist_completion_assessment(store, snapshot, program_transport_store, base, job, "receipt-missing", epoch_id=epoch_id)
+                    return _persist_completion_assessment(store, snapshot, program_transport_store, base, job, "receipt-missing", driver=driver, epoch_id=epoch_id)
             else:
                 fetch, content = _completion_file_effect(store, snapshot, program_transport_store, driver, base, job, declaration, stat=stat)
                 member.update(size_bytes=len(content), sha256=sha256(content).hexdigest(), content_base64=_completion.base64.b64encode(content).decode("ascii"), fetch_observation_id=fetch.observation_id)
@@ -2081,15 +2098,15 @@ def _collect_program_completion(store, *, snapshot, program_transport_store, dri
                     try:
                         trusted_receipt = _completion._bound_receipt(content, snapshot, str(job["job_id"]), str(workspace["workspace_physical_token"]))
                     except _completion._CompletionValueError:
-                        return _persist_completion_assessment(store, snapshot, program_transport_store, base, job, "receipt-invalid", epoch_id=epoch_id)
+                        return _persist_completion_assessment(store, snapshot, program_transport_store, base, job, "receipt-invalid", driver=driver, epoch_id=epoch_id)
             files.append(member)
         for member, declaration in zip(files, declarations):
             restat, _ = _completion_file_effect(store, snapshot, program_transport_store, driver, base, job, declaration)
             member["restat_observation_id"] = restat.observation_id
     except _CompletionIdentityConflict:
-        return _persist_completion_assessment(store, snapshot, program_transport_store, base, job, "evidence-conflict", epoch_id=epoch_id)
+        return _persist_completion_assessment(store, snapshot, program_transport_store, base, job, "evidence-conflict", driver=driver, epoch_id=epoch_id)
     except Exception:
-        return _persist_completion_assessment(store, snapshot, program_transport_store, base, job, "acquisition-unknown", epoch_id=epoch_id)
+        return _persist_completion_assessment(store, snapshot, program_transport_store, base, job, "acquisition-unknown", driver=driver, epoch_id=epoch_id)
     _query_program_scheduler(store, snapshot=snapshot, program_transport_store=program_transport_store, driver=driver, _completion_token=_completion_token)
     observations = store.observations_for_attempt(snapshot.attempt_id)
     receipts = _load_receipts(store, snapshot, program_transport_store, base)
@@ -2101,11 +2118,12 @@ def _collect_program_completion(store, *, snapshot, program_transport_store, dri
     if any(by_id[item["stat_observation_id"]].data["response"] != by_id[item["restat_observation_id"]].data["response"] for item in files):
         diagnostic = "evidence-conflict"
     if diagnostic:
-        return _persist_completion_assessment(store, snapshot, program_transport_store, base, job, diagnostic, epoch_id=epoch_id)
+        return _persist_completion_assessment(store, snapshot, program_transport_store, base, job, diagnostic, driver=driver, epoch_id=epoch_id)
     data = freeze_mapping({"schema": _COMPLETION_EVIDENCE, **_completion_binding(snapshot, job), "epoch_id": epoch_id, "inputs": inputs, "captured_files": tuple(files)}, "completion evidence")
     record = Result(result_id=semantic_id("program-completion-evidence", data), attempt_id=snapshot.attempt_id, result_type=_COMPLETION_EVIDENCE, data=data)
     try:
         diagnostic, capture, receipt_digest, _opening, _closing = _validate_completion_bundle(record, snapshot, job, workspace, receipts, observations)
+        _publisher_completion_checkpoint(snapshot, driver)
         _completion_checkpoint(snapshot, program_transport_store)
         store.append_result(record)
         persisted = _completion_stored_record(store, snapshot, record.result_id)
@@ -2113,8 +2131,8 @@ def _collect_program_completion(store, *, snapshot, program_transport_store, dri
             raise TransportBoundaryError("stored completion bytes differ")
         diagnostic, capture, receipt_digest, _opening, _closing = _validate_completion_bundle(persisted, snapshot, job, workspace, receipts, observations)
     except Exception:
-        return _persist_completion_assessment(store, snapshot, program_transport_store, base, job, "evidence-conflict", epoch_id=epoch_id)
-    return _persist_completion_assessment(store, snapshot, program_transport_store, base, job, diagnostic, epoch_id=epoch_id, record=persisted, capture=capture, receipt_sha256=receipt_digest)
+        return _persist_completion_assessment(store, snapshot, program_transport_store, base, job, "evidence-conflict", driver=driver, epoch_id=epoch_id)
+    return _persist_completion_assessment(store, snapshot, program_transport_store, base, job, diagnostic, driver=driver, epoch_id=epoch_id, record=persisted, capture=capture, receipt_sha256=receipt_digest)
 
 
 @_completion_owned
@@ -2130,7 +2148,7 @@ def _replay_program_completion(store, *, snapshot, program_transport_store, driv
     except Exception:
         if latest is not None and observations[-1] == latest and latest.data["diagnostic"] == "evidence-conflict":
             return latest
-        return _persist_completion_assessment(store, snapshot, program_transport_store, base, job, "evidence-conflict")
+        return _persist_completion_assessment(store, snapshot, program_transport_store, base, job, "evidence-conflict", driver=driver)
     records = [item for item in store.results_for_attempt(snapshot.attempt_id) if item.result_type == _COMPLETION_EVIDENCE]
     result_id = latest.data["evidence_result_id"] if latest else (records[-1].result_id if records else None)
     # A crash can leave a newer byte bundle after an older UNKNOWN assessment.
@@ -2138,22 +2156,22 @@ def _replay_program_completion(store, *, snapshot, program_transport_store, driv
     positions = {item.observation_id: index for index, item in enumerate(observations)}
     unassessed = [record for record in records if record.result_id not in referenced and any(positions.get(member.get("restat_observation_id"), -1) > (positions[latest.observation_id] if latest else -1) for member in record.data.get("captured_files", ()) if isinstance(member, Mapping))]
     if len(unassessed) > 1:
-        return _persist_completion_assessment(store, snapshot, program_transport_store, base, job, "evidence-conflict")
+        return _persist_completion_assessment(store, snapshot, program_transport_store, base, job, "evidence-conflict", driver=driver)
     if unassessed:
         result_id = unassessed[0].result_id
     if result_id is None:
         if latest is not None and observations[-1] == latest:
             return latest
-        return _persist_completion_assessment(store, snapshot, program_transport_store, base, job, _scheduler_diagnostic(observations) or "acquisition-unknown")
+        return _persist_completion_assessment(store, snapshot, program_transport_store, base, job, _scheduler_diagnostic(observations) or "acquisition-unknown", driver=driver)
     try:
         record = _completion_stored_record(store, snapshot, result_id)
         diagnostic, capture, receipt_digest, opening, closing = _validate_completion_bundle(record, snapshot, job, workspace, receipts, observations)
         if latest is not None and observations[-1] == latest and (diagnostic, capture.capture_authority_id, receipt_digest, record.data["epoch_id"]) == (latest.data["diagnostic"], latest.data["capture_authority_id"], latest.data["receipt_sha256"], latest.data["epoch_id"]):
-            _advance_completion(store, snapshot, latest, program_transport_store)
+            _advance_completion(store, snapshot, latest, program_transport_store, driver)
             return latest
     except Exception:
-        return _persist_completion_assessment(store, snapshot, program_transport_store, base, job, "evidence-conflict")
-    return _persist_completion_assessment(store, snapshot, program_transport_store, base, job, diagnostic, epoch_id=record.data["epoch_id"], record=record, capture=capture, receipt_sha256=receipt_digest)
+        return _persist_completion_assessment(store, snapshot, program_transport_store, base, job, "evidence-conflict", driver=driver)
+    return _persist_completion_assessment(store, snapshot, program_transport_store, base, job, diagnostic, driver=driver, epoch_id=record.data["epoch_id"], record=record, capture=capture, receipt_sha256=receipt_digest)
 
 
 @_completion_owned
@@ -2168,5 +2186,6 @@ def _assert_program_receipt_success_authority(store, *, snapshot, program_transp
         raise TransportBoundaryError("receipt completion was invalidated")
     keys = (*_COMPLETION_BINDING_KEYS, "completion_mode", "epoch_id", "evidence_result_id", "capture_authority_id", "receipt_sha256", "observation_prefix_sha256")
     payload = {"schema": "program-terminal-success-authority/2", **{key: assessment.data[key] for key in keys}, "assessment_observation_id": assessment.observation_id, "initial_absence_observation_id": opening, "final_absence_observation_id": closing}
+    _publisher_completion_checkpoint(snapshot, driver)
     _completion_checkpoint(snapshot, program_transport_store)
     return freeze_mapping({**payload, "program_terminal_success_authority_id": semantic_id("program-terminal-success-authority", payload)}, "receipt terminal success authority")

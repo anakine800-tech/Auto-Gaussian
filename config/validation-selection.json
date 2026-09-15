@@ -407,7 +407,7 @@
     },
     {
       "id": "v31-transport-tests",
-      "exact_paths": [],
+      "exact_paths": ["scripts/run_v31_publisher_pilot.py"],
       "prefixes": [
         "tests/v31/transport/"
       ],

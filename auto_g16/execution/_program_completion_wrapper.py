@@ -234,3 +234,143 @@ if __name__=="__main__":
 '''
 
 __all__: tuple[str, ...] = ()
+
+# Independently selected source branch. Never change the historical source above.
+# This fixed observation code is shared with the inert qualification probe; the
+# probe reports facts only and cannot issue Q, approvals, or deployment authority.
+_PUBLISHER_HOST_SOURCE = r'''
+def system_bytes(path,cap):
+    prefix,name=path.rsplit("/",1)
+    parent,token,fds=pin_directory(prefix or "/")
+    fd=None
+    try:
+        fd=os.open(name,RF,dir_fd=parent);before=os.fstat(fd)
+        if not stat.S_ISREG(before.st_mode):fail("host-file-type")
+        blocks=[];size=0
+        while True:
+            block=os.read(fd,min(65536,cap+1-size))
+            if not block:break
+            blocks.append(block);size+=len(block)
+            if size>cap:fail("host-file-cap")
+        if identity(before)!=identity(os.fstat(fd)) or identity(before)!=identity(os.stat(name,dir_fd=parent,follow_symlinks=False)):fail("host-file-drift")
+        reattest_directory(prefix or "/",token,fds)
+        return b"".join(blocks)
+    finally:
+        if fd is not None:os.close(fd)
+        for item in reversed(fds):os.close(item)
+
+def host_node(s):return {"device":s.st_dev,"inode":s.st_ino}
+def mount_unescape(value):
+    if re.search(r"\\(?!040|011|012|134)",value):fail("mount-escape")
+    return re.sub(r"\\(040|011|012|134)",lambda m:chr(int(m[1],8)),value)
+def host_mounts():
+    rows=[]
+    for line in system_bytes("/proc/"+str(os.getpid())+"/mountinfo",4*1024*1024).decode("utf-8").splitlines():
+        fields=line.split(" ")
+        if fields.count("-")!=1:fail("mountinfo-shape")
+        split=fields.index("-")
+        if split<6 or len(fields)!=split+4:fail("mountinfo-shape")
+        device=fields[2].split(":")
+        if len(device)!=2 or any(re.fullmatch(r"0|[1-9][0-9]*",x) is None for x in [fields[0],*device]):fail("mountinfo-number")
+        rows.append({"mount_id":int(fields[0]),"device_major":int(device[0]),"device_minor":int(device[1]),"root":mount_unescape(fields[3]),"mount_point":mount_unescape(fields[4]),"filesystem_type":mount_unescape(fields[split+1]),"source":mount_unescape(fields[split+2]),"mount_options":sorted(set(fields[5].split(","))),"super_options":sorted(set(fields[split+3].split(",")))})
+    return rows
+
+def host_location(role,path,mounts):
+    parent_path=path.rsplit("/",1)[0] or "/"
+    parent,token,fds=pin_directory(parent_path);fd=None
+    try:
+        if path=="/":fd=os.open("/",DF)
+        else:fd=os.open(path.rsplit("/",1)[1],DF if role in {"workspace-root","xtb-data-root"} else RF,dir_fd=parent)
+        obj=os.fstat(fd)
+        if role not in {"workspace-root","xtb-data-root"} and not stat.S_ISREG(obj.st_mode):fail("host-runtime-type")
+        named=os.stat(path.rsplit("/",1)[1],dir_fd=parent,follow_symlinks=False) if path!="/" else os.stat("/",follow_symlinks=False)
+        if host_node(named)!=host_node(obj):fail("host-location-replaced")
+        reattest_directory(parent_path,token,fds)
+        matches=[m for m in mounts if m["mount_point"]=="/" or path==m["mount_point"] or path.startswith(m["mount_point"]+"/")]
+        if not matches:fail("host-mount-missing")
+        longest=max(len(m["mount_point"]) for m in matches)
+        matches=[m for m in matches if len(m["mount_point"])==longest]
+        if len(matches)!=1:fail("host-mount-ambiguous")
+        mount=matches[0]
+        if (os.major(obj.st_dev),os.minor(obj.st_dev))!=(mount["device_major"],mount["device_minor"]):fail("host-mount-device")
+        return {"role":role,"path":path,"parent_chain":[host_node(os.fstat(x)) for x in fds],"object":host_node(obj),"mount":mount}
+    finally:
+        if fd is not None:os.close(fd)
+        for item in reversed(fds):os.close(item)
+
+def observe_publisher_host(runtime,remote_root,data_root):
+    if sys.platform!="linux":fail("host-platform")
+    machine=hashlib.sha256(system_bytes("/etc/machine-id",4096)).hexdigest()
+    boot=system_bytes("/proc/sys/kernel/random/boot_id",128).decode("ascii")
+    if boot.endswith("\n"):boot=boot[:-1]
+    if re.fullmatch(r"[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}",boot) is None:fail("host-boot")
+    uname=os.uname();mounts=host_mounts()
+    # These two kernel procfs handles are the sole intentional symlink follows.
+    namespaces={"mount":host_node(os.stat("/proc/self/ns/mnt")),"pid":host_node(os.stat("/proc/self/ns/pid"))}
+    locations=[host_location(role,path,mounts) for role,path in zip(("workspace-root","server-python","xtb","xtb-data-root"),(remote_root,runtime["server_python"]["path"],runtime["xtb"]["path"],data_root))]
+    for key in ("server_python","xtb"):
+        entry=runtime[key];file_identity(entry["path"],entry["size_bytes"],entry["sha256"])
+    return {"host_key":semantic({"machine_id_sha256":machine}),"machine_id_sha256":machine,"boot_id":boot,"kernel_release":uname.release,"architecture":uname.machine,"namespaces":namespaces,"locations":locations}
+
+def publisher_host_guard(config):
+    material=config["material"];binding=config["prebinding"]
+    if material.get("schema")!="v31-completion-rendering-material/2" or binding.get("binding_schema")!="v31-completion-prebinding/3":fail("publisher-tuple")
+    raw=un64(material["publisher_qualification_base64"])
+    if len(raw)>1024*1024:fail("qualification-cap")
+    q=closed(raw)
+    if set(q)!={"payload","payload_sha256"} or semantic(q["payload"])!=q["payload_sha256"]:fail("qualification-digest")
+    payload=q["payload"]
+    if payload["schema"]!="auto-g16-v31-publisher-qualification/1":fail("qualification-schema")
+    source=payload["implementation"]["wrapper_source"]
+    if source!={"sha256":binding["wrapper_source_sha256"],"size_bytes":binding["wrapper_source_size_bytes"]}:fail("publisher-source")
+    hosts=payload["hosts"]
+    keys=[h["host_key"] for h in hosts]
+    if not 1<=len(hosts)<=32 or keys!=sorted(set(keys)) or keys!=payload["execution_domain"]["eligible_host_keys"]:fail("publisher-host-set")
+    actual=observe_publisher_host(payload["runtime"],payload["execution_domain"]["remote_root"],config["xtb_data_path"])
+    matches=[h for h in hosts if h["host_key"]==actual["host_key"]]
+    if len(matches)!=1:fail("publisher-host-unknown")
+    expected=matches[0]
+    for key in ("host_key","machine_id_sha256","boot_id","kernel_release","architecture","namespaces"):
+        if actual[key]!=expected[key]:fail("publisher-host-"+key)
+    if actual["locations"]!=[{k:v for k,v in loc.items() if k!="evidence"} for loc in expected["locations"]]:fail("publisher-host-locations")
+    return actual
+'''
+
+# Source composition is deterministic at import, from source-controlled literals.
+# The result is a separate complete script, not an artifact-selected extension.
+_PUBLISHER_WRAPPER_SOURCE = _WRAPPER_SOURCE.replace(
+    'def run(config):\n', _PUBLISHER_HOST_SOURCE + '\ndef run(config):\n', 1,
+).replace(
+    '    workspace=binding["cwd_binding"]["path"];',
+    '    launch_host=publisher_host_guard(config)\n    workspace=binding["cwd_binding"]["path"];', 1,
+).replace(
+    '        proc=subprocess.Popen(',
+    '        if publisher_host_guard(config)!=launch_host:fail("publisher-host-before-child")\n        proc=subprocess.Popen(', 1,
+).replace(
+    '        publish(parent,workspace,token,canonical(receipt),workspace_chain)',
+    '        if publisher_host_guard(config)!=launch_host:fail("publisher-host-before-publication")\n        publish(parent,workspace,token,canonical(receipt),workspace_chain)', 1,
+)
+_PUBLISHER_PROBE_SOURCE = _WRAPPER_SOURCE.split('def run(config):\n', 1)[0] + _PUBLISHER_HOST_SOURCE + r'''
+if __name__=="__main__":
+    request=closed(un64(sys.argv[1]))
+    if set(request)!={"runtime","remote_root","xtb_data_path"}:fail("probe-shape")
+    print(canonical(observe_publisher_host(request["runtime"],request["remote_root"],request["xtb_data_path"])).decode("utf-8"),end="")
+'''
+
+_PUBLISHER_WRAPPER_SOURCE = _PUBLISHER_WRAPPER_SOURCE.replace(
+    '    try:code=run(closed(un64(sys.argv[1])))',
+    '    try:\n        raw=sys.stdin.buffer.read(8*1024*1024+2)\n        if len(sys.argv)!=1 or not raw.endswith(b"\\n") or len(raw)>8*1024*1024+1:fail("publisher-stdin-cap")\n        code=run(closed(un64(raw[:-1].decode("ascii"))))', 1,
+)
+
+# The final actual-host check is adjacent to the atomic link, after pending
+# bytes have been fsynced/closed and re-read, not merely before pending creation.
+_PUBLISHER_WRAPPER_SOURCE = _PUBLISHER_WRAPPER_SOURCE.replace(
+    'def publish(parent,workspace,token,raw,chain=None):',
+    'def publish(parent,workspace,token,raw,chain=None,config=None,launch_host=None):', 1,
+).replace(
+    '        os.link("v31-completion.pending","v31-completion.json",',
+    '        if publisher_host_guard(config)!=launch_host:fail("publisher-host-before-publication")\n        os.link("v31-completion.pending","v31-completion.json",', 1,
+).replace(
+    '        if publisher_host_guard(config)!=launch_host:fail("publisher-host-before-publication")\n        publish(parent,workspace,token,canonical(receipt),workspace_chain)',
+    '        publish(parent,workspace,token,canonical(receipt),workspace_chain,config,launch_host)', 1,
+)

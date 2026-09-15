@@ -1362,8 +1362,9 @@ def _prepare_program_execution_snapshot_owned(
         program_execution_spec, resolved_server_profile
     )
     if _uses_completion_receipt(program_execution_spec):
-        from ._program_completion import _validate_material
-        _validate_material(completion_rendering_material, resolved_server_profile)
+        from ._program_completion import _validate_material, _validate_publisher_invocation
+        material = _validate_material(completion_rendering_material, resolved_server_profile)
+        _validate_publisher_invocation(material, program_execution_spec, resolved_resource_request)
         if store.attempt_state(attempt.attempt_id) is not AttemptState.PLANNED:
             raise ExecutionValueError("completion preparation requires a fresh unconsumed Attempt")
     elif completion_rendering_material is not None:
