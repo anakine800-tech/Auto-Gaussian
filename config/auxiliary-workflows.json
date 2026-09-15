@@ -1,0 +1,15 @@
+{
+  "schema": "auto-g16-fc06-auxiliary/1",
+  "workflow": {
+    "workflow_file": ".github/workflows/fc06-linux.yml",
+    "workflow_name": "FC06 bounded Linux evidence",
+    "job_id": "fc06",
+    "context": "FC06 bounded Linux evidence",
+    "branch": "codex/v31-fc06-linux-validation",
+    "paths": [
+      ".github/workflows/fc06-linux.yml",
+      "validation/fc06/**"
+    ],
+    "sha256": "d999c71d3a26bcc67f61f55e0cd0d0b886fae076dd10595e8efba324b21b77b6"
+  }
+}

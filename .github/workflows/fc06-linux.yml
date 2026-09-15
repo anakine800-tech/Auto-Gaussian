@@ -1,0 +1,53 @@
+name: FC06 bounded Linux evidence
+
+on:
+  push:
+    branches: [codex/v31-fc06-linux-validation]
+    paths:
+      - .github/workflows/fc06-linux.yml
+      - validation/fc06/**
+
+permissions:
+  contents: read
+
+jobs:
+  fc06:
+    name: FC06 bounded Linux evidence
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Read exact validation package
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.sha }}
+          path: validation-package
+          persist-credentials: false
+      - name: Read frozen product candidate
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: 3116d1f1919eff164ef3593171d0ed7f42c778b5
+          path: candidate
+          persist-credentials: false
+      - name: Run only the eight FC06 cases
+        env:
+          FC06_EVIDENCE: ${{ runner.temp }}/fc06-evidence
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          set -euo pipefail
+          mkdir "$RUNNER_TEMP/fc06-supervisor"
+          /usr/bin/python3 -I -S -B validation-package/validation/fc06/run_fc06.py \
+            --candidate "$GITHUB_WORKSPACE/candidate" \
+            --evidence "$FC06_EVIDENCE" \
+            > "$RUNNER_TEMP/fc06-supervisor/stdout.log" \
+            2> "$RUNNER_TEMP/fc06-supervisor/stderr.log"
+      - name: Retain all evidence on success or failure
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: fc06-${{ github.run_id }}-${{ github.run_attempt }}
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 90
+          path: |
+            ${{ runner.temp }}/fc06-evidence
+            ${{ runner.temp }}/fc06-supervisor
