@@ -164,6 +164,28 @@ class PublisherIdentityTests(_PilotFixture):
         self.assertEqual(sha256(w._WRAPPER_SOURCE.encode()).hexdigest(),"58167de5436ec2d5ae9ef89dde458f386cdc2860f4f00a41c81c0a390f782333")
         self.snapshot.assert_identity_closed()
         self.assertEqual(p._validate_program_review_semantics(self.snapshot._approval_semantics()),self.snapshot._approval_semantics())
+        # Core has no snapshot table: the existing Approval record persists the
+        # complete expanded snapshot. Reopen both databases and rebuild from that
+        # durable payload through the real validator, without mutable profile reads.
+        review_path=self.root/"snapshot-review.sqlite3"
+        review_store=approval.SQLiteApprovalStore(review_path)
+        confirmation=approval.ExactOperationalConfirmation.for_snapshot(self.store,self.snapshot,confirmer_id="inert-reopen",confirmer_evidence={"fixture":"synthetic only"})
+        review_store.store_operational_confirmation(confirmation)
+        review_store.close();self.store.close()
+        self.store=core.SQLiteRuntimeStore(self.database);self.addCleanup(self.store.close)
+        review_store=approval.SQLiteApprovalStore(review_path);self.addCleanup(review_store.close)
+        rebuilt=[];from_verified=p.ProgramExecutionSnapshot._from_verified
+        def reconstruct(**kwargs):
+            value=from_verified(**kwargs);rebuilt.append(value);return value
+        with patch.object(p.ProgramExecutionSnapshot,"_from_verified",side_effect=reconstruct),patch.object(c,"resolve_server_profile",side_effect=AssertionError("no mutable profile during reopen")):
+            loaded=review_store.load_operational_confirmation(confirmation.operational_confirmation_id)
+        self.assertTrue(rebuilt)
+        restored=rebuilt[-1]
+        restored.assert_identity_closed();restored._assert_current_core(self.store)
+        loaded.assert_current(self.store,restored)
+        self.assertEqual(restored._approval_semantics(),self.snapshot._approval_semantics())
+        self.assertEqual(restored.program_execution_snapshot_id,self.snapshot.program_execution_snapshot_id)
+        self.snapshot=restored
         expected = c._receipt_binding(self.snapshot,"123.server","workspace-token-v31")
         self.assertEqual(expected["wrapper_source_sha256"],sha256(w._PUBLISHER_WRAPPER_SOURCE.encode()).hexdigest())
         self.assertNotEqual(expected["wrapper_source_sha256"],c._receipt_binding(before,"123.server","workspace-token-v31")["wrapper_source_sha256"])
@@ -283,6 +305,30 @@ class PublisherInstallationTests(_PilotFixture):
             rtwin._RTWinProgramEffectDriver(snapshot=self.snapshot,current_profile=self.current_profile,program_transport_store=self.program_transport_store)
         self.assertEqual(closed,[True])
 
+    def test_pinned_probe_index_rejects_float_equivalent_digest_size(self):
+        # Create an internally bound installation whose canonical index uses a
+        # float equal to the Q's integer; its real bytes/hashes all match pins.
+        original=controller._probe_index
+        def malformed(payload):
+            index=copy.deepcopy(c._plain(original(payload)))
+            index["entries"][0]["evidence"]["size_bytes"]=float(index["entries"][0]["evidence"]["size_bytes"])
+            return index
+        original_json=c._receipt_json
+        def index_bytes(value):
+            if isinstance(value,dict) and value.get("schema")=="v31-publisher-probe-evidence-index/1":
+                return json.dumps(value,ensure_ascii=False,separators=(",",":"),sort_keys=True).encode()+b"\n"
+            return original_json(value)
+        fixture=_PilotFixture();self.addCleanup(fixture.doCleanups)
+        with patch.object(controller,"_probe_index",side_effect=malformed),patch.object(c,"_receipt_json",side_effect=index_bytes):
+            fixture.setUp()
+            installation,authority,run,confirmation=fixture.install_fixture()
+        with patch.object(rtwin,"_FIXED_PUBLISHER_INSTALLATION",installation):
+            read=rtwin._read_fixed_publisher_deployment(authority,fixture.snapshot)
+            try:
+                with self.assertRaisesRegex(TransportBoundaryError,"probe index"):
+                    controller._validate_pilot_qualification_evidence(run,read,confirmation)
+            finally:read.close()
+
 
 class PublisherControllerTests(_PilotFixture):
     def invoke(self,installation,authority,run):
@@ -343,6 +389,7 @@ class PublisherWrapperTests(_PilotFixture):
         actual={k:copy.deepcopy(host[k]) for k in ("host_key","machine_id_sha256","boot_id","kernel_release","architecture","namespaces","locations")}
         actual["locations"]=[{k:v for k,v in loc.items() if k!="evidence"} for loc in actual["locations"]]
         ns["observe_publisher_host"]=lambda *args:actual
+        ns["file_identity"]=lambda path,size,digest:(path,size,digest)
         self.assertEqual(ns["publisher_host_guard"](config),actual)
         for key in ("host_key","machine_id_sha256","boot_id","kernel_release","architecture","namespaces","locations"):
             changed=copy.deepcopy(actual);changed[key]="mismatch"
@@ -415,6 +462,41 @@ class PublisherWrapperTests(_PilotFixture):
         self.assertLess(max(len(x.encode()) for x in argv),65536)
         self.assertGreater(len(encoded),128*1024)
         self.assertNotIn(delimiter,encoded)
+
+    def test_new_source_rechecks_data_file_content_and_inode_before_child_and_link(self):
+        # Real descriptor/file operations with inert child and model host identity.
+        # Linux namespace/subreaper behavior remains the separate Linux evidence gap.
+        for phase in ("before-child","before-link"):
+            for change in ("content","same-bytes-inode"):
+                with self.subTest(phase=phase,change=change):
+                    workspace=self.root/(phase+"-"+change);workspace.mkdir()
+                    config=json.loads(c._receipt_json(old._supplement_wrapper_config(self,workspace)))
+                    ns=self.namespace();launches=[]
+                    expected=self.q["hosts"][0]
+                    observed={k:copy.deepcopy(expected[k]) for k in ("host_key","machine_id_sha256","boot_id","kernel_release","architecture","namespaces","locations")}
+                    observed["locations"]=[{k:v for k,v in loc.items() if k!="evidence"} for loc in observed["locations"]]
+                    ns["observe_publisher_host"]=lambda *args:copy.deepcopy(observed)
+                    target=Path(config["xtb_data_path"])/lane.XTB_RUNTIME_DATA_FILES[0]
+                    def drift():
+                        raw=target.read_bytes();target.rename(target.with_name("retained-data"))
+                        target.write_bytes(raw if change=="same-bytes-inode" else b"changed data bytes\n")
+                    exclusive=ns["exclusive"]
+                    def create(parent,name,raw):
+                        exclusive(parent,name,raw)
+                        if name=="v31-completion.pending" and phase=="before-link":drift()
+                    def launch(*args,**kwargs):
+                        launches.append(True);os.write(kwargs["stdout"],b"inert log\n")
+                        return SimpleNamespace(pid=123,returncode=None)
+                    ns.update(exclusive=create,subreaper=drift if phase=="before-child" else lambda:None,wait_all=lambda *args:0,subprocess=SimpleNamespace(Popen=launch,DEVNULL=-3))
+                    cwd=Path.cwd()
+                    try:
+                        with patch.object(sys,"executable",str(Path(sys.executable).resolve())),patch.dict(os.environ,{"PBS_JOBID":"123.server"}),self.assertRaises(ValueError):
+                            ns["run"](config)
+                    finally:os.chdir(cwd)
+                    self.assertEqual(len(launches),int(phase=="before-link"))
+                    self.assertFalse((workspace/"v31-completion.json").exists())
+                    self.assertEqual((workspace/"v31-completion.pending").exists(),phase=="before-link")
+                    self.assertTrue(target.with_name("retained-data").exists())
 
 
 class PublisherProductionBridgeTests(lane.LaneAFixture):

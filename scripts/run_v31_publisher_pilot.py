@@ -140,7 +140,7 @@ def _validate_pilot_qualification_evidence(run, deployment, confirmation):
             if type(entry["raw"].get("size_bytes")) is not int or entry["raw"] != expected_raw or entry["scope"] != scope:
                 raise rtwin._publisher_failure("reviewed original/scope mismatch")
         index_raw = deployment.evidence[basis["probe_evidence_manifest_sha256"]]
-        if len(index_raw) > 1024*1024 or strict_canonical_json(index_raw, "probe evidence index") != _probe_index(payload):
+        if len(index_raw) > 1024*1024 or canonical_json_bytes(strict_canonical_json(index_raw, "probe evidence index")) != canonical_json_bytes(_probe_index(payload)):
             raise rtwin._publisher_failure("probe index does not exactly cover qualification")
         pin._read_and_check()
     finally:

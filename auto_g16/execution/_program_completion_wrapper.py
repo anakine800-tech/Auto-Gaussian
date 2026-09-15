@@ -333,6 +333,13 @@ def publisher_host_guard(config):
     for key in ("host_key","machine_id_sha256","boot_id","kernel_release","architecture","namespaces"):
         if actual[key]!=expected[key]:fail("publisher-host-"+key)
     if actual["locations"]!=[{k:v for k,v in loc.items() if k!="evidence"} for loc in expected["locations"]]:fail("publisher-host-locations")
+    data_raw=un64(material["xtb_runtime_data_manifest_base64"])
+    if {"sha256":hashlib.sha256(data_raw).hexdigest(),"size_bytes":len(data_raw)}!=payload["runtime"]["xtb_runtime_data_manifest"]:fail("publisher-data-manifest")
+    data=closed(data_raw)
+    if set(data)!={"schema","files"} or data["schema"]!="auto-g16-v31-xtb-runtime-data-manifest/1":fail("publisher-data-schema")
+    # This observation is compared with launch_host at both child and link seams.
+    # A stable data-root inode alone cannot detect file replacement or content drift.
+    actual["runtime_data_files"]=[(name,file_identity(config["xtb_data_path"]+"/"+name,item["size_bytes"],item["sha256"])) for name,item in sorted(data["files"].items())]
     return actual
 '''
 
