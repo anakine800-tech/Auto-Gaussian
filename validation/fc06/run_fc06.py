@@ -361,6 +361,7 @@ def main():
                 # Adopted compiler children get a finite observation window.
                 # Never wait on inherited output pipes or launch a second compile.
                 reaped = []
+                build_result["other_reaps"] = reaped
                 until = time.monotonic() + 8
                 while time.monotonic() < until:
                     try:
