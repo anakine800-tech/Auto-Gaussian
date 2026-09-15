@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import importlib.util
 import json
 import subprocess
@@ -114,6 +115,118 @@ class CIContractAuditTests(unittest.TestCase):
 
     def write_contract(self, value: dict[str, object]) -> None:
         self.config.write_text(json.dumps(value), encoding="utf-8")
+
+    def auxiliary_fixture(self, text: str | None = None) -> tuple[Path, Path, dict[str, object]]:
+        workflow = self.workflow.parent / "r4-linux.yml"
+        workflow.write_text(text if text is not None else (ROOT / ".github/workflows/r4-linux.yml").read_text())
+        value = json.loads((ROOT / "config/auxiliary-workflows.json").read_text())
+        value["workflow"]["sha256"] = hashlib.sha256(workflow.read_bytes()).hexdigest()
+        config = self.config.parent / "auxiliary-workflows.json"
+        config.write_text(json.dumps(value))
+        return workflow, config, value
+
+    def test_auxiliary_preserves_required_and_historical_evidence(self) -> None:
+        required_bytes = self.config.read_bytes()
+        self.auxiliary_fixture()
+        value = AUDIT.load_contract(self.config)
+        before = copy.deepcopy(value)
+        report = AUDIT.audit(self.root, value)
+        self.assertEqual(report["status"], "pass")
+        self.assertEqual(value, before)
+        self.assertEqual(self.config.read_bytes(), required_bytes)
+        self.assertEqual(len(value["required_checks"]), 5)
+        self.assertEqual(report["summary"]["declared_contexts"], 6)
+        self.assertEqual(report["snapshot_difference"], {"missing_expected_contexts": [], "unexpected_contexts": []})
+        self.assertFalse(report["actual_ci_success_verified"])
+
+    def test_unregistered_extra_workflow_still_fails(self) -> None:
+        self.auxiliary_fixture()
+        (self.workflow.parent / "rogue.yml").write_text("name: Rogue\njobs:\n  rogue:\n    name: Rogue\n")
+        report = AUDIT.audit(self.root, contract())
+        self.assertEqual(report["status"], "fail")
+        self.assertTrue(any("missing from the required" in item for item in report["errors"]))
+
+    def test_missing_auxiliary_registration_preserves_old_rejection(self) -> None:
+        _, config, _ = self.auxiliary_fixture()
+        config.rename(config.with_suffix(".retained"))
+        self.assertEqual(AUDIT.audit(self.root, contract())["status"], "fail")
+
+    def test_auxiliary_never_fills_missing_required_workflow(self) -> None:
+        self.auxiliary_fixture()
+        self.workflow.rename(self.workflow.with_suffix(".retained"))
+        report = AUDIT.audit(self.root, contract())
+        self.assertEqual(report["status"], "fail")
+        self.assertEqual(sum("not declared" in e for e in report["errors"]), 5)
+
+    def test_auxiliary_does_not_relax_required_mapping_or_duplicates(self) -> None:
+        self.auxiliary_fixture()
+        for text in (WORKFLOW.replace("  chemistry-dependencies:", "  renamed:"),
+                     WORKFLOW + "  duplicate:\n    name: source-archive-release\n"):
+            with self.subTest(text=text):
+                self.workflow.write_text(text)
+                self.assertEqual(AUDIT.audit(self.root, contract())["status"], "fail")
+
+    def test_auxiliary_missing_symlink_and_hash_drift_fail(self) -> None:
+        workflow, config, _ = self.auxiliary_fixture()
+        original = workflow.read_bytes()
+        workflow.write_bytes(original + b"\n")
+        self.assertEqual(AUDIT.audit(self.root, contract())["status"], "fail")
+        retained = workflow.with_suffix(".retained")
+        workflow.rename(retained)
+        self.assertEqual(AUDIT.audit(self.root, contract())["status"], "fail")
+        workflow.symlink_to(retained)
+        self.assertEqual(AUDIT.audit(self.root, contract())["status"], "fail")
+        config.rename(config.with_suffix(".retained"))
+        config.symlink_to(config.with_suffix(".retained"))
+        self.assertEqual(AUDIT.audit(self.root, contract())["status"], "fail")
+
+    def test_auxiliary_closed_registration_rejects_invalid_and_mixed_fields(self) -> None:
+        _, config, original = self.auxiliary_fixture()
+        mutations = [
+            {**original, "enabled": True},
+            {**original, "workflow": [original["workflow"]]},
+            {**original, "schema": "auto-g16-r4-auxiliary/2"},
+        ]
+        for key, value in (("context", "source-archive-release"), ("branch", "main"),
+                           ("paths", ["**"]), ("workflow_file", "../escape.yml"),
+                           ("sha256", True), ("matrix", {})):
+            changed = copy.deepcopy(original)
+            changed["workflow"][key] = value
+            mutations.append(changed)
+        for value in mutations:
+            with self.subTest(value=value):
+                config.write_text(json.dumps(value))
+                self.assertEqual(AUDIT.audit(self.root, contract())["status"], "fail")
+        for raw in ('{"schema": 1, "schema": 2}', '{"value": NaN}', '{', '[]'):
+            config.write_text(raw)
+            self.assertEqual(AUDIT.audit(self.root, contract())["status"], "fail")
+
+    def test_rehashed_auxiliary_cannot_widen_trigger_or_job_scope(self) -> None:
+        original = (ROOT / ".github/workflows/r4-linux.yml").read_text()
+        mutations = [
+            original.replace("branches: [codex/v31-r4-linux-harness]", "branches: [main]"),
+            original.replace("  push:\n", "  pull_request:\n"),
+            original.replace("permissions:\n", "on: [pull_request]\n\npermissions:\n"),
+            original.replace("  contents: read", "  contents: write"),
+            original.replace("    timeout-minutes: 26", "    timeout-minutes: 60"),
+            original.replace("    runs-on: ubuntu-24.04", "    runs-on: self-hosted"),
+            original + "\non: [push]\n",
+            original + "\n  other:\n    name: other\n",
+            original + "\n    permissions: write-all\n",
+            original.replace("      - validation/r4/**", "      - '**'"),
+        ]
+        for text in mutations:
+            with self.subTest(text=text):
+                self.auxiliary_fixture(text)
+                self.assertEqual(AUDIT.audit(self.root, contract())["status"], "fail")
+
+    def test_auxiliary_cannot_be_registered_as_required(self) -> None:
+        self.auxiliary_fixture()
+        value = contract()
+        value["required_checks"][0]["context"] = "R4 bounded Linux evidence"
+        report = AUDIT.audit(self.root, value)
+        self.assertEqual(report["status"], "fail")
+        self.assertTrue(any("cannot replace" in e for e in report["errors"]))
 
     def test_simple_matrix_expands_to_exact_actual_check_names(self) -> None:
         value = AUDIT.load_contract(self.config)

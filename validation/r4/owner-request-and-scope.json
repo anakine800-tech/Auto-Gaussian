@@ -1,0 +1,51 @@
+{
+  "bounds": {
+    "case_timeout_seconds": 45,
+    "ci_timeout_minutes": 26,
+    "run_timeout_seconds": 1500,
+    "timeout_cleanup_seconds": 15
+  },
+  "case_names": [
+    "host_match",
+    "large_q",
+    "wrong_boot",
+    "wrong_mount_namespace",
+    "wrong_pid_namespace",
+    "wrong_mount",
+    "wrong_root",
+    "wrong_runtime",
+    "runtime_root_before_child",
+    "publication_data_root_drift"
+  ],
+  "excluded": [
+    "product changes",
+    "repeat product full tests",
+    "PR or merge",
+    "production deployment",
+    "scientific SSH or PBS access",
+    "real xTB/Gaussian/CREST",
+    "automatic retries",
+    "existing-file overwrite or deletion"
+  ],
+  "fixture_policy": "Validate no-follow and initial absence, create new directories only, change ownership/mode only on those newly created directories; existing or ambiguous entries stop. Execute inert actor as ordinary runner UID.",
+  "interpretation": "Continue the previously reviewed finite Linux evidence route. Implement and independently review exact hosted-Ubuntu harness configuration, then perform one directed CI execution. Parent controls necessary publication of the frozen product ref and reviewed validation ref; no automatic rerun. This record preserves the user request and bounded task interpretation, not a production qualification or identity attestation.",
+  "owner_message_exact": "补新版 Linux 定向执行",
+  "platform": "GitHub-hosted ubuntu-24.04 temporary VM",
+  "prepared_package_sha256": "c66c57b9e15e2168164b6bb6446407e6b9a680a85394dc231c5e03828afb21f7",
+  "product_branch": "codex/v31-publisher-r4-offline-integration",
+  "product_head": "8d49ef23e7c74c4333c551e81461e3f0921948ab",
+  "product_tree": "6141c8ef3764fa54d1b5705bc303b8c9f6abc0c9",
+  "repository": "anakine800-tech/Auto-Gaussian",
+  "repository_id": 1299397632,
+  "retention": "Preserve outputs and original failures; only finite exact owned PID/pidfd reaping; no fixture deletion.",
+  "source_thread_id": "01a09f0f-11ed-7d53-a902-a46f0bad8762",
+  "status": "REQUEST_RECORDED_IMPLEMENTATION_REVIEW_PENDING",
+  "task": "V31-R4-LINUX-DIRECTED-EXECUTION-01",
+  "temporary_fixture_directories": [
+    "/opt/auto-g16-fixtures",
+    "/opt/auto-g16-fixtures/bin",
+    "/home/user100",
+    "/home/user100/SDL"
+  ],
+  "validation_branch": "codex/v31-r4-linux-harness"
+}

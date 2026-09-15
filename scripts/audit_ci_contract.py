@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import itertools
 import json
 import re
@@ -341,10 +342,91 @@ def parse_run_commands(path: Path) -> dict[str, list[str]]:
     return result
 
 
+# This is a single reviewed R4 auxiliary lane, not a configurable gate bypass.
+R4_AUXILIARY = {
+    "workflow_file": ".github/workflows/r4-linux.yml",
+    "workflow_name": "R4 bounded Linux evidence",
+    "job_id": "r4",
+    "context": "R4 bounded Linux evidence",
+    "branch": "codex/v31-r4-linux-harness",
+    "paths": [".github/workflows/r4-linux.yml", "validation/r4/**"],
+}
+R4_PREFIX = """name: R4 bounded Linux evidence
+
+on:
+  push:
+    branches: [codex/v31-r4-linux-harness]
+    paths:
+      - .github/workflows/r4-linux.yml
+      - validation/r4/**
+
+permissions:
+  contents: read
+
+jobs:
+  r4:
+    name: R4 bounded Linux evidence
+    runs-on: ubuntu-24.04
+    timeout-minutes: 26
+    steps:
+"""
+
+
+def load_auxiliary(root: Path, contract: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Accept only a closed, hash-bound R4 lane; absent config preserves v1."""
+    config = root / "config/auxiliary-workflows.json"
+    if not config.exists() and not config.is_symlink():
+        return {}
+    if config.is_symlink() or config.parent.is_symlink() or not config.is_file():
+        raise ContractError("auxiliary config must be a regular non-symlink file")
+    raw = config.read_bytes()
+    if len(raw) > 65536:
+        raise ContractError("auxiliary config exceeds size bound")
+    try:
+        value = json.loads(raw.decode("utf-8"), object_pairs_hook=_object, parse_constant=_reject_constant)
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise ContractError("invalid auxiliary JSON") from exc
+    if not isinstance(value, dict) or set(value) != {"schema", "workflow"} or value["schema"] != "auto-g16-r4-auxiliary/1":
+        raise ContractError("auxiliary config must use the closed R4 schema")
+    item = value["workflow"]
+    if not isinstance(item, dict) or set(item) != set(R4_AUXILIARY) | {"sha256"}:
+        raise ContractError("auxiliary workflow must be one closed registration")
+    if {k: item[k] for k in R4_AUXILIARY} != R4_AUXILIARY:
+        raise ContractError("auxiliary identity/trigger registration is outside the exact R4 scope")
+    if not isinstance(item["sha256"], str) or not re.fullmatch(r"[0-9a-f]{64}", item["sha256"]):
+        raise ContractError("auxiliary workflow SHA256 is invalid")
+    if any(item["context"] == required["context"] or item["workflow_file"] == required["workflow_file"]
+           for required in contract["required_checks"]):
+        raise ContractError("auxiliary workflow cannot replace or share a required workflow/context")
+    path = root / item["workflow_file"]
+    if any(parent.is_symlink() for parent in (path, path.parent, path.parent.parent)) or not path.is_file():
+        raise ContractError("registered auxiliary workflow is missing or symlinked")
+    content = path.read_bytes()
+    if hashlib.sha256(content).hexdigest() != item["sha256"]:
+        raise ContractError("auxiliary workflow content hash drift")
+    text = content.decode("utf-8")
+    # Exact prefix forbids extra/duplicate triggers, permissions, jobs, matrices,
+    # workflow_call and PR/main widening even if a caller updates the file hash.
+    if not text.startswith(R4_PREFIX):
+        raise ContractError("auxiliary workflow header/trigger/job scope drift")
+    tail = text[len(R4_PREFIX):]
+    if not tail.strip() or any(line and not line.startswith("      ") for line in tail.splitlines()):
+        raise ContractError("auxiliary workflow contains out-of-scope top-level/job fields")
+    name, expanded = parse_workflow(path)
+    if name != item["workflow_name"] or expanded != {item["context"]: {(item["job_id"], ())}}:
+        raise ContractError("auxiliary workflow expansion does not match its exact registration")
+    return {item["context"]: item}
+
+
 def audit(root: Path, contract: dict[str, Any]) -> dict[str, Any]:
     errors: list[str] = []
     warnings: list[str] = []
     declared: dict[str, tuple[str, str, tuple[tuple[str, str], ...]]] = {}
+    auxiliary: dict[str, dict[str, Any]] = {}
+    try:
+        auxiliary = load_auxiliary(root, contract)
+    except (ContractError, OSError, UnicodeError) as exc:
+        errors.append(f"auxiliary workflow: {exc}")
     workflow_files = sorted((root / ".github" / "workflows").glob("*.y*ml"))
     if not workflow_files:
         errors.append("no GitHub Actions workflow exists; a green required-check contract cannot be inferred")
@@ -364,7 +446,7 @@ def audit(root: Path, contract: dict[str, Any]) -> dict[str, Any]:
     expected = {item["context"]: item for item in contract["required_checks"]}
     for context in sorted(expected.keys() - declared.keys()):
         errors.append(f"contract context is not declared by local workflows: {context}")
-    for context in sorted(declared.keys() - expected.keys()):
+    for context in sorted(declared.keys() - expected.keys() - auxiliary.keys()):
         errors.append(f"local workflow check is missing from the required contract: {context}")
     for context in sorted(expected.keys() & declared.keys()):
         item = expected[context]
@@ -373,6 +455,10 @@ def audit(root: Path, contract: dict[str, Any]) -> dict[str, Any]:
         job_id = packed_map.pop("__job_id__")
         if workflow_file != item["workflow_file"] or workflow_name != item["workflow_name"] or job_id != item["job_id"] or packed_map != item["matrix"]:
             errors.append(f"contract mapping does not exactly match local workflow expansion: {context}")
+    for context, item in auxiliary.items():
+        expected_auxiliary = (item["workflow_file"], item["workflow_name"], (("__job_id__", item["job_id"]),))
+        if declared.get(context) != expected_auxiliary:
+            errors.append(f"auxiliary workflow declaration is missing or mismatched: {context}")
     evidence_name = contract["source_evidence"]["workflow_name"]
     if any(item["workflow_name"] != evidence_name for item in contract["required_checks"]):
         errors.append("source evidence workflow_name does not match every required check")

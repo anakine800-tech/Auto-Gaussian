@@ -1,0 +1,61 @@
+name: R4 bounded Linux evidence
+
+on:
+  push:
+    branches: [codex/v31-r4-linux-harness]
+    paths:
+      - .github/workflows/r4-linux.yml
+      - validation/r4/**
+
+permissions:
+  contents: read
+
+jobs:
+  r4:
+    name: R4 bounded Linux evidence
+    runs-on: ubuntu-24.04
+    timeout-minutes: 26
+    steps:
+      - name: Checkout frozen validation commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: validation-package
+          persist-credentials: false
+      - name: Checkout frozen product candidate
+        uses: actions/checkout@v4
+        with:
+          ref: 8d49ef23e7c74c4333c551e81461e3f0921948ab
+          path: candidate
+          persist-credentials: false
+      - name: Execute one bounded inert run
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -C
+          umask 077
+          test "$RUNNER_TEMP" = /home/runner/work/_temp
+          mkdir /home/runner/work/_temp/r4-supervisor
+          /usr/bin/python3 -I -S -B validation-package/validation/r4/hosted_launcher.py > /home/runner/work/_temp/r4-supervisor/launcher.stdout 2> /home/runner/work/_temp/r4-supervisor/launcher.stderr
+      - name: Retain evidence and original failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r4-linux-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 7
+          path: |
+            /home/runner/work/_temp/r4-supervisor
+            /home/runner/work/_temp/r4-evidence
+            /opt/auto-g16-fixtures/bin/xtb
+            /home/user100/SDL/r4-inert-hosted-once-0
+            /home/user100/SDL/r4-inert-hosted-once-1
+            /home/user100/SDL/r4-inert-hosted-once-2
+            /home/user100/SDL/r4-inert-hosted-once-3
+            /home/user100/SDL/r4-inert-hosted-once-4
+            /home/user100/SDL/r4-inert-hosted-once-5
+            /home/user100/SDL/r4-inert-hosted-once-6
+            /home/user100/SDL/r4-inert-hosted-once-7
+            /home/user100/SDL/r4-inert-hosted-once-8
+            /home/user100/SDL/r4-inert-hosted-once-9

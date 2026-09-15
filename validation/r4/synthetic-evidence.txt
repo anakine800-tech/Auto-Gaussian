@@ -1,0 +1,1 @@
+R4 OFFLINE GRAMMAR FIXTURE ONLY. P01-P08 PASS fields in generated expected Q are synthetic inputs, not executed qualification results. No Owner approval, scheduler scope, installed deployment, production qualification, or scientific result is asserted. This file precedes all Q construction and never includes this run results.

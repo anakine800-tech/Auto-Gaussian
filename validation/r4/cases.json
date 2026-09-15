@@ -1,0 +1,170 @@
+[
+  {
+    "name": "host_match",
+    "scope": "P03/P06/P07",
+    "direct_rc": 0,
+    "descendant_rc": 0
+  },
+  {
+    "name": "large_q",
+    "scope": "P06/P07 heredoc",
+    "direct_rc": 0,
+    "descendant_rc": 0
+  },
+  {
+    "name": "wrong_boot",
+    "scope": "P07",
+    "direct_rc": 0,
+    "descendant_rc": 0
+  },
+  {
+    "name": "wrong_mount_namespace",
+    "scope": "P07",
+    "direct_rc": 0,
+    "descendant_rc": 0
+  },
+  {
+    "name": "wrong_pid_namespace",
+    "scope": "P07",
+    "direct_rc": 0,
+    "descendant_rc": 0
+  },
+  {
+    "name": "wrong_mount",
+    "scope": "P07",
+    "direct_rc": 0,
+    "descendant_rc": 0
+  },
+  {
+    "name": "wrong_root",
+    "scope": "P07",
+    "direct_rc": 0,
+    "descendant_rc": 0
+  },
+  {
+    "name": "wrong_runtime",
+    "scope": "P07",
+    "direct_rc": 0,
+    "descendant_rc": 0
+  },
+  {
+    "name": "runtime_root_before_child",
+    "scope": "P01/P06/P07",
+    "direct_rc": 0,
+    "descendant_rc": 0
+  },
+  {
+    "name": "publication_data_root_drift",
+    "scope": "P01/P06/P07",
+    "direct_rc": 0,
+    "descendant_rc": 0
+  },
+  {
+    "name": "publication_input_inode_drift",
+    "scope": "P01",
+    "direct_rc": 0,
+    "descendant_rc": 0
+  },
+  {
+    "name": "direct_zero_descendant_nonzero",
+    "scope": "P03/P04",
+    "direct_rc": 0,
+    "descendant_rc": 7
+  },
+  {
+    "name": "direct_nonzero_descendant_zero",
+    "scope": "P03/P04",
+    "direct_rc": 9,
+    "descendant_rc": 0
+  },
+  {
+    "name": "direct_signal",
+    "scope": "P03/P04",
+    "direct_rc": 0,
+    "descendant_rc": 0
+  },
+  {
+    "name": "descendant_timeout",
+    "scope": "P04",
+    "direct_rc": 0,
+    "descendant_rc": 0
+  },
+  {
+    "name": "wrapper_death",
+    "scope": "P04",
+    "direct_rc": 0,
+    "descendant_rc": 0
+  },
+  {
+    "name": "prctl_denied",
+    "scope": "P03/P04",
+    "direct_rc": 0,
+    "descendant_rc": 0
+  },
+  {
+    "name": "preexisting_lock",
+    "scope": "P02",
+    "direct_rc": 0,
+    "descendant_rc": 0
+  },
+  {
+    "name": "preexisting_log",
+    "scope": "P02",
+    "direct_rc": 0,
+    "descendant_rc": 0
+  },
+  {
+    "name": "preexisting_pending",
+    "scope": "P02",
+    "direct_rc": 0,
+    "descendant_rc": 0
+  },
+  {
+    "name": "preexisting_final",
+    "scope": "P02",
+    "direct_rc": 0,
+    "descendant_rc": 0
+  },
+  {
+    "name": "input_symlink",
+    "scope": "P01",
+    "direct_rc": 0,
+    "descendant_rc": 0
+  },
+  {
+    "name": "attempt_symlink",
+    "scope": "P01",
+    "direct_rc": 0,
+    "descendant_rc": 0
+  },
+  {
+    "name": "concurrent",
+    "scope": "P02",
+    "direct_rc": 0,
+    "descendant_rc": 0
+  },
+  {
+    "name": "publication_final_eexist",
+    "scope": "P05",
+    "direct_rc": 0,
+    "descendant_rc": 0
+  },
+  {
+    "name": "stdin_trailing",
+    "scope": "wire negative",
+    "direct_rc": 0,
+    "descendant_rc": 0
+  },
+  {
+    "name": "stdin_over_cap",
+    "scope": "wire negative",
+    "direct_rc": 0,
+    "descendant_rc": 0
+  },
+  {
+    "name": "extra_argv",
+    "scope": "wire negative",
+    "direct_rc": 0,
+    "descendant_rc": 0
+  }
+]

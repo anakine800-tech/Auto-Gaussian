@@ -1,0 +1,15 @@
+{
+  "schema": "auto-g16-r4-auxiliary/1",
+  "workflow": {
+    "branch": "codex/v31-r4-linux-harness",
+    "context": "R4 bounded Linux evidence",
+    "job_id": "r4",
+    "paths": [
+      ".github/workflows/r4-linux.yml",
+      "validation/r4/**"
+    ],
+    "sha256": "785ab0387bb2657d32e17a804bc7282db72c3c0c26685445053607de3a04b119",
+    "workflow_file": ".github/workflows/r4-linux.yml",
+    "workflow_name": "R4 bounded Linux evidence"
+  }
+}
