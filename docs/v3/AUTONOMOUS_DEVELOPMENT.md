@@ -916,3 +916,14 @@ BOUNDED-AUTONOMOUS within the [exact design freeze](crest-live-closure-freeze.md
 The Owner explicitly delegated technical/exact approval after independent
 review. Follow the frozen scope and three product approval gates. No automatic
 retry, qdel, cleanup, broader science, publication or merge is authorized.
+
+### V31-CREST-695-MARKERLESS-RECOVERY-01
+
+Bounded v3 feature/L3 offline implementation under the delegated freeze recorded
+in [the recovery contract](exact-observed-job-recovery-contract.md), based on
+`ceff406def65b575babb898d51683c47238c91fb` in an isolated worktree. Preserve the
+producer worktree and original stores. Scope is private recovery/restore,
+focused adversarial tests and authority references. Require independent review
+of the precise final candidate and proportional validation. Local commit is
+allowed; publishing, merge, actual installation, real-store mutation and all
+remote operations are reserved to the parent and their separate exact gates.

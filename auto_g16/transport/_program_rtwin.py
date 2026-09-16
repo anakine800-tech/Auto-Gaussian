@@ -76,7 +76,7 @@ def _prepare_program_invocation(
             fixed.close()
         else:
             owner, owned_invocation = collection
-            if type(owner) is not _RTWinProgramEffectDriver or not owner._collection_only or owner._snapshot is not scope or owned_invocation is not invocation or name not in _COLLECTION_OPERATIONS:
+            if type(owner) is not _RTWinProgramEffectDriver or not owner._collection_only or owner._snapshot is not scope or owned_invocation is not invocation or name not in owner._read_operations():
                 raise _publisher_failure("wire collection owner differs")
             if type(owner._publisher) is not _CollectionDeploymentRead:
                 raise _publisher_failure("wire collection installation missing")
@@ -89,6 +89,15 @@ def _prepare_program_invocation(
     source = _bridge._PROGRAM_BOOTSTRAP_SOURCE_BYTES
     if (sha256(source).hexdigest(), len(source)) != (authority.bootstrap_source_sha256, authority.bootstrap_source_size_bytes):
         raise TransportBoundaryError("successor bootstrap bytes drifted")
+    if name == "RECONCILE_SUBMISSION" and request["payload"]["request_payload"].get("schema") == "v31-exact-observed-job-reconciliation-request/1":
+        from . import _submission_recovery as recovery
+        collection = _COLLECTION_WIRE_OWNER.get()
+        if collection is None or not collection[0]._recovery_only:
+            raise _publisher_failure("exact reconciliation requires fixed recovery owner")
+        source = recovery.source_bytes()
+        reviewed = collection[0]._publisher.document["reconciliation"]["probe_source"]
+        if reviewed != {"sha256": sha256(source).hexdigest(), "size_bytes": len(source)}:
+            raise _publisher_failure("read-only recovery source differs")
     frame = _bridge._encode_frame(request)
     if len(frame) > invocation.operation.stdin_cap:
         raise TransportBoundaryError("successor request exceeds operation cap")
@@ -129,7 +138,23 @@ def _assert_wire_scope(scope: object, scope_id: str, request: Mapping[str, objec
         expected = _wire_binding(scope.resolved_server_profile, scope_id, project.remote_project_dir)
         workspace_token = None if name == "ALLOCATE_WORKSPACE" else _directory_token(binding.get("workspace_physical_token"), scope.workspace_binding.remote_attempt_dir)
         expected.update(parent_physical_identity=project.parent_physical_identity, project_physical_identity=project.project_physical_identity, attempt_id=scope.attempt_id, program_execution_snapshot_id=scope.program_execution_snapshot_id, effect_intent_id=scope.effect_intent_id, remote_workspace=scope.workspace_binding.remote_attempt_dir, workspace_physical_token=workspace_token)
-        program._exact_keys(payload, {"request_payload", "executable", "resources", "staged"}, "successor wire payload")
+        recovering = name == "RECONCILE_SUBMISSION" and payload.get("request_payload", {}).get("schema") == "v31-exact-observed-job-reconciliation-request/1"
+        program._exact_keys(payload, {"request_payload", "executable", "resources", "staged"} | ({"recovery_identity"} if recovering else set()), "successor wire payload")
+        if recovering:
+            owner = _COLLECTION_WIRE_OWNER.get()
+            if owner is None or not owner[0]._recovery_only:
+                raise _publisher_failure("recovery wire owner missing")
+            marker = canonical_json_bytes({"program_execution_snapshot_id": scope.program_execution_snapshot_id, "effect_intent_id": scope.effect_intent_id})
+            expected_identity = {"host": owner[0]._publisher.document["reconciliation"]["host"], "marker_sha256": sha256(marker).hexdigest(), "marker_size": len(marker)}
+            if payload["recovery_identity"] != expected_identity:
+                raise _publisher_failure("recovery wire identity differs")
+            document = owner[0]._publisher.document
+            exact_payload = {"schema": "v31-exact-observed-job-reconciliation-request/1",
+                             "submit_receipt_id": document["reconciliation"]["submit_receipt_id"],
+                             "observed_job_id": document["original"]["job_id"],
+                             "continuation_sha256": owner[0]._publisher.installation.continuation.sha256}
+            if payload["request_payload"] != exact_payload or document["reconciliation"]["prior_recovery_authority"] is not None:
+                raise _publisher_failure("recovery wire differs from first exact continuation")
         executable = scope.program_execution_spec.invocation["executable_identity"]
         resources = scope.resolved_resource_request
         if payload["executable"] != {"path": executable["absolute_path"], "size_bytes": executable["size_bytes"], "sha256": executable["sha256"]} or payload["resources"] != {"cores": resources.cores, "memory_mb": resources.memory_mb, "walltime_seconds": resources.walltime_seconds, "queue": resources.queue}:
@@ -339,6 +364,7 @@ class _RTWinProgramEffectDriver:
     def __init__(self, *, snapshot: ProgramExecutionSnapshot, current_profile: ServerProfile, program_transport_store: program._ProgramTransportStore) -> None:
         self._initialize(snapshot, current_profile, program_transport_store)
         self._collection_only = False
+        self._recovery_only = False
         self._open_authority()
 
     @classmethod
@@ -346,8 +372,25 @@ class _RTWinProgramEffectDriver:
         value = cls.__new__(cls)
         value._initialize(snapshot, current_profile, program_transport_store)
         value._collection_only = True
+        value._recovery_only = False
         value._open_authority()
         return value
+
+    @classmethod
+    def _for_fixed_recovery(cls, *, snapshot, current_profile, program_transport_store):
+        value = cls.__new__(cls)
+        value._initialize(snapshot, current_profile, program_transport_store)
+        value._collection_only = True
+        value._recovery_only = True
+        value._open_authority()
+        from . import _submission_recovery as recovery
+        if value._publisher.document["schema"] != recovery.SCHEMA:
+            value.close()
+            raise _publisher_failure("recovery installation missing")
+        return value
+
+    def _read_operations(self):
+        return (*_COLLECTION_OPERATIONS, "RECONCILE_SUBMISSION") if self._recovery_only else _COLLECTION_OPERATIONS
 
     def _initialize(self, snapshot, current_profile, program_transport_store):
         if type(snapshot) is not ProgramExecutionSnapshot or type(program_transport_store) is not program._ProgramTransportStore:
@@ -408,8 +451,10 @@ class _RTWinProgramEffectDriver:
 
     def _invoke_owned(self, request: Mapping[str, object], receipts: tuple[Mapping[str, object], ...], *args: object) -> Mapping[str, object]:
         """Execution has reclosed Core state and every dual-source predecessor."""
-        if self._collection_only and request.get("operation") not in _COLLECTION_OPERATIONS:
+        if self._collection_only and request.get("operation") not in self._read_operations():
             raise _publisher_failure("collection forbids mutation/reconciliation")
+        if self._recovery_only and request.get("operation") == "RECONCILE_SUBMISSION" and request.get("payload", {}).get("schema") != "v31-exact-observed-job-reconciliation-request/1":
+            raise _publisher_failure("fixed recovery forbids marker-only fallback")
         methods = dict(zip(program._OPERATIONS, (self.allocate_workspace, self.stage_exact_file, self.submit_qsub_once, self.query_scheduler, self.stat_exact_file, self.fetch_exact_file, self.reconcile_submission)))
         with self._lock:
             if self._active is not None:
@@ -421,7 +466,7 @@ class _RTWinProgramEffectDriver:
                 self._active = None
 
     def _invoke(self, operation: str, request: Mapping[str, object], content: bytes | None = None) -> Mapping[str, object]:
-        if self._collection_only and operation not in _COLLECTION_OPERATIONS:
+        if self._collection_only and operation not in self._read_operations():
             raise _publisher_failure("collection forbids mutation/reconciliation")
         if self._active is None or self._active[0] != request:
             raise TransportBoundaryError("production operation requires execution-owned predecessor closure")
@@ -479,6 +524,12 @@ class _RTWinProgramEffectDriver:
         resources = snapshot.resolved_resource_request
         executable = snapshot.program_execution_spec.invocation["executable_identity"]
         wire = {"protocol": _bridge._PROGRAM_BOOTSTRAP_PROTOCOL, "operation": operation, "binding": binding, "payload": {"request_payload": payload, "executable": {"path": executable["absolute_path"], "size_bytes": executable["size_bytes"], "sha256": executable["sha256"]}, "resources": {"cores": resources.cores, "memory_mb": resources.memory_mb, "walltime_seconds": resources.walltime_seconds, "queue": resources.queue}, "staged": staged}}
+        exact_recovery = operation == "RECONCILE_SUBMISSION" and payload.get("schema") == "v31-exact-observed-job-reconciliation-request/1"
+        if exact_recovery:
+            if not self._recovery_only:
+                raise _publisher_failure("exact recovery owner required")
+            marker = canonical_json_bytes({"program_execution_snapshot_id": snapshot.program_execution_snapshot_id, "effect_intent_id": snapshot.effect_intent_id})
+            wire["payload"]["recovery_identity"] = {"host": self._publisher.document["reconciliation"]["host"], "marker_sha256": sha256(marker).hexdigest(), "marker_size": len(marker)}
         invocation = _ProgramRTWinInvocation(_driver._operation(operation), authority, self._profile, _closed_copy(wire), snapshot.program_execution_snapshot_id)
         token = None
         try:
@@ -486,11 +537,20 @@ class _RTWinProgramEffectDriver:
                 if _COLLECTION_WIRE_OWNER.get() is not None:
                     raise _publisher_failure("nested collection wire owner")
                 token = _COLLECTION_WIRE_OWNER.set((self, invocation))
-            result = _wire_call(snapshot, invocation)
+            if operation == "RECONCILE_SUBMISSION" and request["payload"].get("schema") == "v31-exact-observed-job-reconciliation-request/1":
+                if not self._recovery_only:
+                    raise _publisher_failure("exact recovery owner required")
+                import base64
+                from ._recovery_process import _RecoveryProcessOwner
+                out, err, code, state, eofout, eoferr = _RecoveryProcessOwner()._run(snapshot, invocation)
+                result = {"stdout_base64": base64.b64encode(out).decode(), "stderr_base64": base64.b64encode(err).decode(),
+                          "returncode": code, "completion_status": state, "eof_stdout": eofout, "eof_stderr": eoferr}
+            else:
+                result = _wire_call(snapshot, invocation)
         finally:
             if token is not None:
                 _COLLECTION_WIRE_OWNER.reset(token)
-        if self._collection_only:
+        if self._collection_only and not exact_recovery:
             self._authority()
         if operation == "QUERY_SCHEDULER":
             self._store._record_scheduler_raw(request=request, result=result)
@@ -816,6 +876,11 @@ def _collection_source_files(installation, document):
         "auto_g16/execution/_program_completion.py", "auto_g16/execution/_program_completion_wrapper.py",
         "auto_g16/transport/_program_rtwin.py", "scripts/run_v31_publisher_pilot.py",
     )}
+    if document["schema"] == "auto-g16-v31-exact-job-recovery-continuation/1":
+        required.update(str(root / name) for name in (
+            "auto_g16/execution/_submission_recovery.py", "auto_g16/transport/_submission_recovery.py",
+            "auto_g16/transport/_recovery_process.py", "auto_g16/transport/program.py",
+        ))
     if not required <= paths or str(Path(__file__).absolute()) not in paths:
         raise _publisher_failure("collection owner code is not pinned")
     for name, module in tuple(sys.modules.items()):
@@ -826,8 +891,9 @@ def _collection_source_files(installation, document):
 
 
 def _validate_collection_document(document, original, installation, snapshot):
-    program._exact_keys(document, _COLLECTION_KEYS, "collection continuation")
-    if document["schema"] != _COLLECTION_SCHEMA:
+    recovering = document.get("schema") == "auto-g16-v31-exact-job-recovery-continuation/1"
+    program._exact_keys(document, _COLLECTION_KEYS | ({"reconciliation"} if recovering else set()), "collection continuation")
+    if document["schema"] not in {_COLLECTION_SCHEMA, "auto-g16-v31-exact-job-recovery-continuation/1"}:
         raise _publisher_failure("unknown collection schema")
     bound = program._exact_keys(document["original"], _COLLECTION_ORIGINAL_KEYS, "collection original")
     for key, value in bound.items():
@@ -854,6 +920,23 @@ def _validate_collection_document(document, original, installation, snapshot):
     names = ["v31-completion.json", *(v["portable_name"] for v in snapshot.program_execution_spec.required_outputs), *(v["portable_name"] for v in snapshot.program_execution_spec.optional_outputs)]
     scope = {"action": "collect-existing-job", "maximum_remote_epochs": 1,
              "operations": list(_COLLECTION_OPERATIONS), "files": names, "local_replay": True}
+    if recovering:
+        from . import _submission_recovery as recovery
+        scope.update(action="reconcile-exact-job-and-collect", maximum_reconciliation_epochs=1)
+        scope["operations"] = ["RECONCILE_SUBMISSION", *_COLLECTION_OPERATIONS]
+        rec = program._exact_keys(document["reconciliation"], {"submit_receipt_id", "job_owner", "server", "host", "probe_source", "prior_recovery_authority"}, "exact recovery scope")
+        if rec["prior_recovery_authority"] is not None:
+            _collection_digest(rec["prior_recovery_authority"])
+            from auto_g16.execution import _submission_recovery as native_recovery
+            native_recovery.document(snapshot)
+        for key in ("submit_receipt_id", "job_owner", "server"):
+            program._text(rec[key], key)
+        program._exact_keys(rec["host"], {"machine_id_sha256", "boot_id"}, "recovery host")
+        if re.fullmatch(r"[0-9a-f]{64}", rec["host"]["machine_id_sha256"]) is None or re.fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", rec["host"]["boot_id"]) is None:
+            raise _publisher_failure("invalid recovery host")
+        source = recovery.source_bytes()
+        if canonical_json_bytes(rec["probe_source"]) != canonical_json_bytes({"sha256": sha256(source).hexdigest(), "size_bytes": len(source)}):
+            raise _publisher_failure("recovery source not separately pinned")
     if canonical_json_bytes(document["scope"]) != canonical_json_bytes(scope):
         raise _publisher_failure("collection scope is not exact")
     stores = document["stores"]

@@ -294,6 +294,9 @@ def _load_receipts(
                 payload["request"], expected_request["binding"]
             )
             _reclose_receipt_response(snapshot, payload, expected_request)
+            if payload["operation"] == "RECONCILE_SUBMISSION" and payload["request"]["payload"].get("schema") == "v31-exact-observed-job-reconciliation-request/1":
+                from . import _submission_recovery as recovery
+                recovery.validate_proof(store, snapshot, tuple(prior_receipts), expected_request, payload["response"])
             job_id = _receipt_job_id(payload)
             program_transport_store.require_matching_effect(
                 binding=expected_request["binding"],
@@ -595,9 +598,11 @@ def _reconstruct_job_authority_from_receipts(
         ambiguous = _reconstruct_ambiguous_submit(
             store, snapshot, program_transport_store, base, prefix
         )
-        expected_request = _transport._reconciliation_request(
-            base, submit_receipt_id=ambiguous.observation_id
-        )
+        if receipt.data["request"]["payload"].get("schema") == "v31-exact-observed-job-reconciliation-request/1":
+            from . import _submission_recovery as recovery
+            expected_request = recovery.request(snapshot, base, ambiguous)
+        else:
+            expected_request = _transport._reconciliation_request(base, submit_receipt_id=ambiguous.observation_id)
     request = receipt.data["request"]
     if request != expected_request:
         raise TransportBoundaryError(
@@ -702,6 +707,9 @@ def _reconstruct_expected_request(
         ambiguous = _reconstruct_ambiguous_submit(
             store, snapshot, program_transport_store, base, prior_receipts
         )
+        if candidate_payload.get("schema") == "v31-exact-observed-job-reconciliation-request/1":
+            from . import _submission_recovery as recovery
+            return recovery.request(snapshot, base, ambiguous)
         return _transport._reconciliation_request(
             base, submit_receipt_id=ambiguous.observation_id
         )
@@ -1618,6 +1626,10 @@ def _reconcile_program_submission(
     driver: _transport._ProgramEffectDriver,
     _completion_token: object = None,
 ) -> Mapping[str, object]:
+    from auto_g16.transport._program_rtwin import _RTWinProgramEffectDriver
+    if type(driver) is _RTWinProgramEffectDriver and driver._recovery_only:
+        from . import _submission_recovery as recovery
+        return recovery.reconcile(store, snapshot, program_transport_store, driver)
     if store.attempt_state(snapshot.attempt_id) is not AttemptState.UNKNOWN:
         raise TransportBoundaryError("successor reconciliation requires UNKNOWN")
     closed_driver = _transport._require_driver(driver)
@@ -2233,7 +2245,11 @@ def _resume_program_collection(store, *, snapshot, program_transport_store, driv
     try:
         _completion_checkpoint(snapshot, program_transport_store)
         base, receipts, job, workspace = _completion_context(store, snapshot, program_transport_store, driver)
-        if job["establishing_operation"] != "SUBMIT_QSUB_ONCE" or job["job_id"] != continuation["original"]["job_id"]:
+        recovered = (continuation["schema"] == "auto-g16-v31-exact-job-recovery-continuation/1"
+                     and job["establishing_operation"] == "RECONCILE_SUBMISSION"
+                     and any(r.data["operation"] == "RECONCILE_SUBMISSION" and r.data["outcome"] == "SUCCEEDED"
+                             and r.data["response"].get("schema") == "v31-exact-observed-job-reconciliation-proof/1" for r in receipts))
+        if (job["establishing_operation"] != "SUBMIT_QSUB_ONCE" and not recovered) or job["job_id"] != continuation["original"]["job_id"]:
             raise TransportBoundaryError("collection requires the original successful submission")
         observations = store.observations_for_attempt(snapshot.attempt_id)
         _verify_completion_assessments(observations, snapshot, job)

@@ -93,6 +93,12 @@ class CrestCompletionTests(lane.LaneAFixture):
             runtime._assert_program_terminal_success_authority(self.store, **self.kwargs(), capture=capture)
 
     def test_native_crest_snapshot_restore_collect_and_zero_wire_replay(self):
+        self._native_crest_snapshot_restore_collect_and_zero_wire_replay(recover=False)
+
+    def test_native_crest_unknown_recovery_collect_and_zero_wire_replay(self):
+        self._native_crest_snapshot_restore_collect_and_zero_wire_replay(recover=True)
+
+    def _native_crest_snapshot_restore_collect_and_zero_wire_replay(self, *, recover):
         from contextlib import ExitStack
         from tests.v31.transport import test_publisher_collection_recovery as recovery
         from tests.v31.transport import test_rtwin_successor_bridge as bridge_tests
@@ -120,7 +126,10 @@ class CrestCompletionTests(lane.LaneAFixture):
             resource=core.ResourceSpec(resource_spec_id='crest-resource',task_id='crest-task',resources={'tier':'simple'});self.store.store_resource_spec(resource)
             self.store.create_attempt(core.Attempt(attempt_id='crest-attempt',task_id='crest-task',ordinal=1))
             folder=self.root/'native-project';folder.mkdir()
-            journal=_ProductionProvisioningJournal.create_new(folder/'project.sqlite3',approved_root=folder);self.addCleanup(journal.close)
+            journal=_ProductionProvisioningJournal.create_new(folder/'project.sqlite3',approved_root=self.root if recover else folder);self.addCleanup(journal.close)
+            if recover:
+                self.program_transport_store=transport._ProgramTransportStore._create_completion_store(folder/'program.sqlite3',approved_root=self.root)
+                self.addCleanup(self.program_transport_store.close)
             wire=bridge_tests._Wire();wire.outputs=dict(OUTPUTS);wire.project=bridge_tests.directory_token('/home/user100/SDL/crest-project')
             stack.enter_context(patch.object(_driver._SubprocessRTWinDriver,'_run',side_effect=wire.run))
             stack.enter_context(patch.object(_driver.subprocess,'Popen',side_effect=AssertionError('no live processes')))
@@ -149,7 +158,37 @@ class CrestCompletionTests(lane.LaneAFixture):
                     with self.assertRaises(execution.ExecutionValueError):controller._run_first_publisher_pilot()
                 claim.assert_not_called();self.assertEqual(wire.calls,[])
             stack.enter_context(patch.object(handoffs,'_FIXED_RECEIPT_SUBMISSION',fixed))
+            if recover:wire.fail_operation='SUBMIT_QSUB_ONCE'
             result=controller._run_first_publisher_pilot();self.assertIs(result.claim,core.SubmissionIntentClaim.WINNER)
+            if recover:
+                from tests.v31.transport import test_exact_job_recovery as exact
+                from auto_g16.transport._recovery_process import _RecoveryProcessOwner
+                from auto_g16.transport._canonical import canonical_json_bytes
+                self.assertEqual(self.store.attempt_state('crest-attempt'),core.AttemptState.UNKNOWN)
+                original_outcome=tuple(self.store._connection.execute("SELECT * FROM submission_outcomes WHERE attempt_id='crest-attempt'").fetchone())
+                wire.fail_operation=None
+                self.original=installation;self.original_run=run;self.journal=journal
+                self.resolved=lambda:target
+                self.recovery_root=self.root/'exact-recovery';self.recovery_root.mkdir()
+                self.write=recovery._RecoveryFixture.write.__get__(self)
+                self.run,self.installation,self.document=recovery._RecoveryFixture.install_recovery(self)
+                receipts=self.store.observations_for_attempt('crest-attempt')
+                def change(document):
+                    document['schema']=exact.proof.SCHEMA
+                    document['scope'].update(action='reconcile-exact-job-and-collect',maximum_reconciliation_epochs=1)
+                    document['scope']['operations']=['RECONCILE_SUBMISSION',*rtwin._COLLECTION_OPERATIONS]
+                    raw=exact.proof.source_bytes()
+                    document['reconciliation']={'submit_receipt_id':receipts[-1].observation_id,'job_owner':'user100@localhost','server':'server','host':exact.HOST,'probe_source':{'sha256':sha256(raw).hexdigest(),'size_bytes':len(raw)},'prior_recovery_authority':None}
+                self.installation=recovery._RecoveryFixture.changed_installation(self,change)
+                change(self.document)
+                expected=exact.proof.expected_evidence(self.snapshot,receipts,self.document)
+                def peer(scope,invocation):
+                    rtwin._prepare_program_invocation(scope,invocation)
+                    return exact.framed(exact.result(expected)),b'',0,'completed',True,True
+                stack.enter_context(patch.object(_RecoveryProcessOwner,'_run',side_effect=peer))
+                stack.enter_context(patch.object(rtwin,'_FIXED_COLLECTION_INSTALLATION',self.installation))
+                stack.enter_context(patch.object(controller,'_FIXED_COLLECTION_RUN',self.run))
+                self.assertEqual(controller._reconcile_fixed_publisher_submission()['outcome'],'SUCCEEDED')
             submitted=self.snapshot;calls=len(wire.calls)
             self.snapshot=factory.restore_for_collection(self.store,reviewed_semantics=submitted._approval_semantics())
             self.assertEqual(self.snapshot,submitted);self.assertEqual(calls,len(wire.calls))
@@ -157,8 +196,10 @@ class CrestCompletionTests(lane.LaneAFixture):
             receipt=dict(c._receipt_binding(self.snapshot,'123.server',bridge_tests.directory_token(self.snapshot.workspace_binding.remote_attempt_dir)))
             receipt.update(termination={'kind':'exited','returncode':0,'signal':None},finished_at='2026-09-15T00:10:00.000000Z',outputs=[{**{k:d[k] for k in ('logical_role','portable_name','format')},'presence':'present','size_bytes':len(wire.outputs[d['portable_name']]),'sha256':sha256(wire.outputs[d['portable_name']]).hexdigest()} for d in self.spec.required_outputs])
             wire.outputs['v31-completion.json']=c._receipt_json(receipt)
-            assessment=controller._collect_first_publisher_pilot();self.assertEqual(assessment.data['verdict'],'SUCCEEDED')
-            calls=len(wire.calls);self.assertEqual(controller._collect_first_publisher_pilot(),assessment);self.assertEqual(calls,len(wire.calls))
+            collect=controller._resume_fixed_publisher_collection if recover else controller._collect_first_publisher_pilot
+            assessment=collect();self.assertEqual(assessment.data['verdict'],'SUCCEEDED')
+            calls=len(wire.calls);self.assertEqual(collect(),assessment);self.assertEqual(calls,len(wire.calls))
+            if recover:self.assertEqual(tuple(self.store._connection.execute("SELECT * FROM submission_outcomes WHERE attempt_id='crest-attempt'").fetchone()),original_outcome)
 
     def test_nonzero_is_native_failed(self):
         self.execute();self.publish(code=7)

@@ -1342,3 +1342,12 @@ completion tuple and read-only xTB receipt-to-CREST seed consumer. It does not
 reinterpret OD-32's xTB-only scope, old adapters, publisher sources, approvals
 or stored records. Exact live qualification, installation and scientific,
 finite-batch and operational approval remain mandatory before the one run.
+
+### OD-33 exact observed-job recovery offline delta
+
+The coordinating task's delegated 2026-09-16 freeze accepts only the separately
+reviewed [exact observed-job recovery contract](docs/v3/exact-observed-job-recovery-contract.md)
+for bounded offline implementation. It narrowly extends UNKNOWN restoration
+and reconciliation provenance without rewriting original UNKNOWN history or
+reusing old Q as new-source qualification. Parent-owned read-only qualification,
+exact native application, collection and scientific acceptance remain separate.

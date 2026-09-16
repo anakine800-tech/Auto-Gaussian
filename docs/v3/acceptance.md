@@ -2118,3 +2118,12 @@ Apply the [frozen CREST criteria](crest-live-closure-contract.md) and its
 separates immutable compatibility, offline adversarial closure, current
 qualification, exact approval, one execution, native capture/replay and
 independent chemical integrity. Historical xTB evidence is not CREST evidence.
+
+### V31 exact observed-job recovery acceptance
+
+Apply RF01–RF10 in the externally hash-bound normative contract identified by
+[the recovery delta](exact-observed-job-recovery-contract.md). Offline evidence
+must exercise crash/no-second-read, concurrent owners, full native fresh-process
+restore/capture/replay, preserved UNKNOWN and wrong-job receipt rejection.
+A synthetic native-chain pass does not qualify the new remote seam or accept
+real outputs. Parent-owned qualification and exact application remain separate.

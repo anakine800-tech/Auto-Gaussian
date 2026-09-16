@@ -419,6 +419,15 @@ def _collection_original_approvals(run, stores, deployment):
 
 
 def _resume_fixed_publisher_collection():
+    return _resume_fixed_publisher_read(reconciliation=False)
+
+
+def _reconcile_fixed_publisher_submission():
+    """One separately installed exact-job read epoch; never submit/prepare."""
+    return _resume_fixed_publisher_read(reconciliation=True)
+
+
+def _resume_fixed_publisher_read(*, reconciliation):
     """One explicitly installed continuation. No CLI, default-submit or retry path."""
     from auto_g16.execution import program, program_runtime
     from auto_g16.execution.project_provisioning import _ProjectProvisioningService
@@ -438,11 +447,14 @@ def _resume_fixed_publisher_collection():
             resolved = execution.resolve_server_profile(run.current_profile)
             attestor = rtwin._RTWinProjectAttestor(current_profile=run.current_profile, target=resolved)
             service = _ProjectProvisioningService._from_project_attestor(attestor=attestor, target=resolved, journal=stores["project-journal"])
-            snapshot = program._ProgramExecutionSnapshotService._for_production(project_provisioning=service, target=resolved).restore_for_collection(
+            snapshot_service = program._ProgramExecutionSnapshotService._for_production(project_provisioning=service, target=resolved)
+            restore = snapshot_service.restore_for_reconciliation if reconciliation else snapshot_service.restore_for_collection
+            snapshot = restore(
                 stores["core"], reviewed_semantics=strict_canonical_json(assets["snapshot"].raw, "original expanded snapshot"))
             if resolved != snapshot.resolved_server_profile or assets["pbs"].raw != snapshot.scheduler_artifacts[0]["content_utf8"].encode():
                 raise rtwin._publisher_failure("restored profile/PBS differs")
-            driver = rtwin._RTWinProgramEffectDriver._for_fixed_collection(snapshot=snapshot, current_profile=run.current_profile, program_transport_store=stores["transport"])
+            factory = rtwin._RTWinProgramEffectDriver._for_fixed_recovery if reconciliation else rtwin._RTWinProgramEffectDriver._for_fixed_collection
+            driver = factory(snapshot=snapshot, current_profile=run.current_profile, program_transport_store=stores["transport"])
             stack.callback(driver.close)
             deployment = driver._publisher
             _validate_collection_review(deployment)
@@ -471,6 +483,16 @@ def _resume_fixed_publisher_collection():
                 if _collection_original_approvals(run, stores, deployment) != initial_approvals:
                     raise rtwin._publisher_failure("collection original approvals changed")
 
+            if reconciliation:
+                checkpoint()
+                # Completion checkpoints recheck stores/approvals and the full
+                # recovery source at wire/persistence boundaries.
+                token_value = program_runtime._COLLECTION_CHECKPOINT.set((snapshot, stores["transport"], checkpoint))
+                try:
+                    return program_runtime._reconcile_program_submission(stores["core"], snapshot=snapshot,
+                        program_transport_store=stores["transport"], driver=driver, _completion_token=token)
+                finally:
+                    program_runtime._COLLECTION_CHECKPOINT.reset(token_value)
             return program_runtime._resume_program_collection(
                 stores["core"], snapshot=snapshot, program_transport_store=stores["transport"], driver=driver,
                 input_bytes={snapshot.program_execution_spec.exact_inputs[0]["portable_name"]: assets["input"].raw},

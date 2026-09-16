@@ -1223,6 +1223,13 @@ def _validate_operation_payload(
         _job_id(payload["job_id"])
         return payload
     if operation == "RECONCILE_SUBMISSION":
+        if value.get("schema") == "v31-exact-observed-job-reconciliation-request/1":
+            payload = _exact_keys(value, {"schema", "submit_receipt_id", "observed_job_id", "continuation_sha256"}, "exact recovery payload")
+            _text(payload["submit_receipt_id"], "submit receipt ID")
+            _job_id(payload["observed_job_id"])
+            if type(payload["continuation_sha256"]) is not str or _SHA256.fullmatch(payload["continuation_sha256"]) is None:
+                raise TransportBoundaryError("invalid recovery continuation digest")
+            return payload
         payload = _exact_keys(
             value, {"submit_receipt_id"}, "reconciliation payload"
         )
@@ -1522,6 +1529,17 @@ def _scheduler_response(
 def _reconciliation_response(value: object) -> Mapping[str, object]:
     if not isinstance(value, Mapping):
         raise _ProgramEffectUnknown("reconciliation response is malformed")
+    if value.get("schema") == "v31-exact-observed-job-reconciliation-proof/1":
+        from . import _submission_recovery as recovery
+        recovery.closed(value, {"schema", "outcome", "job_id", "request", "expected", "raw_observation_id", "raw"})
+        if value["outcome"] not in {"SUCCEEDED", "UNKNOWN"}:
+            raise _ProgramEffectUnknown("exact recovery disposition")
+        if value["outcome"] == "SUCCEEDED":
+            if recovery.interpret(value["raw"], value["expected"]) != value["job_id"]:
+                raise _ProgramEffectUnknown("recovery job mismatch")
+        elif value["job_id"] is not None:
+            raise _ProgramEffectUnknown("unresolved recovery has a job")
+        return value
     if set(value) == {"outcome"}:
         if value["outcome"] not in {"FAILED", "UNKNOWN"}:
             raise _ProgramEffectUnknown("reconciliation response is malformed")

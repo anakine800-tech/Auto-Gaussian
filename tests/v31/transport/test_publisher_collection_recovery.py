@@ -105,7 +105,7 @@ class _RecoveryFixture(lane.LaneAFixture):
         databases += (controller._CollectionDatabaseBinding("project-journal", jb.path, jb.parent_chain, jb.file_identity),)
         snapshot_pin = self.write("snapshot.json", c._receipt_json(self.snapshot._approval_semantics()))
         run = controller._FixedCollectionRun(self.current_profile, databases, str(self.root), snapshot_pin,
-                self.write("input.xyz", lane.XYZ), self.write("xtb.pbs", self.scheduler_bytes["xtb.pbs"]),
+                self.write("input.xyz", lane.XYZ), self.write(self.snapshot.scheduler_artifacts[0]["portable_name"], self.scheduler_bytes[self.snapshot.scheduler_artifacts[0]["portable_name"]]),
                 self.original_run.reviewed_semantics, {"intent": "inert"})
         root = Path(controller.__file__).resolve().parents[1]
         code_paths = {Path(module.__file__).resolve() for name, module in tuple(sys.modules.items()) if (name == "auto_g16" or name.startswith("auto_g16.")) and getattr(module, "__file__", None)}

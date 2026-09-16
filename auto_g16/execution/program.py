@@ -1336,6 +1336,13 @@ class _ProgramExecutionSnapshotService:
         )
 
     def restore_for_collection(self, store: SQLiteRuntimeStore, *, reviewed_semantics: Mapping[str, object]) -> ProgramExecutionSnapshot:
+        return self._restore_existing(store, reviewed_semantics=reviewed_semantics, reconciliation=False)
+
+    def restore_for_reconciliation(self, store: SQLiteRuntimeStore, *, reviewed_semantics: Mapping[str, object]) -> ProgramExecutionSnapshot:
+        """Existing UNKNOWN only (or exact disposition replay); never prepare."""
+        return self._restore_existing(store, reviewed_semantics=reviewed_semantics, reconciliation=True)
+
+    def _restore_existing(self, store, *, reviewed_semantics, reconciliation):
         """Restore data for an existing submission; never attest/provision remotely.
 
         Controller owns original approvals and physical four-store binding. The
@@ -1356,11 +1363,26 @@ class _ProgramExecutionSnapshotService:
         if not _uses_completion_receipt(snapshot.program_execution_spec) or snapshot._completion_material()["schema"] != ("v31-completion-rendering-material/3" if snapshot.program_execution_spec.program_kind == "crest" else "v31-completion-rendering-material/2"):
             raise ExecutionValueError("restoration requires the original publisher tuple")
         state = store.attempt_state(snapshot.attempt_id)
-        if state not in {AttemptState.SUBMITTED, AttemptState.RUNNING, AttemptState.SUCCEEDED, AttemptState.FAILED}:
+        allowed = {AttemptState.SUBMITTED, AttemptState.RUNNING, AttemptState.SUCCEEDED, AttemptState.FAILED}
+        if reconciliation:
+            allowed.add(AttemptState.UNKNOWN)
+        if state not in allowed:
             raise ExecutionValueError("restoration requires an already submitted Attempt")
         receipts = [item for item in store.observations_for_attempt(snapshot.attempt_id) if item.observation_type == _PROGRAM_EFFECT_RECEIPT_TYPE]
-        if any(item.data.get("operation") == "RECONCILE_SUBMISSION" for item in receipts) or sum(item.data.get("operation") == "SUBMIT_QSUB_ONCE" and item.data.get("outcome") == "SUCCEEDED" for item in receipts) != 1:
+        reconciliations = [item for item in receipts if item.data.get("operation") == "RECONCILE_SUBMISSION"]
+        submits = [item for item in receipts if item.data.get("operation") == "SUBMIT_QSUB_ONCE"]
+        recovered = len(submits) == 1 and submits[0].data.get("outcome") == "UNKNOWN" and len(reconciliations) == 1 and reconciliations[0].data.get("response", {}).get("schema") == "v31-exact-observed-job-reconciliation-proof/1"
+        pending = reconciliation and state is AttemptState.UNKNOWN and len(submits) == 1 and submits[0].data.get("outcome") == "UNKNOWN" and not reconciliations
+        if not (recovered or pending) and (reconciliations or len(submits) != 1 or submits[0].data.get("outcome") != "SUCCEEDED"):
             raise ExecutionValueError("restoration requires one original successful submission")
+        if recovered or pending:
+            from . import _submission_recovery as recovery
+            recovery.document(snapshot)  # Separate installed authority is mandatory.
+            if recovered:
+                receipt = reconciliations[0]
+                recovery.validate_proof(store, snapshot, tuple(receipts[:receipts.index(receipt)]), receipt.data["request"], receipt.data["response"])
+                if not reconciliation and receipt.data["outcome"] != "SUCCEEDED":
+                    raise ExecutionValueError("unresolved recovery cannot collect")
         snapshot._assert_current_core(store)
         _assert_collection_local_workspace(snapshot)
         attempt = store.load_attempt(snapshot.attempt_id)
@@ -1378,8 +1400,14 @@ class _ProgramExecutionSnapshotService:
         # missing/conflicting intent/outcome raises, never takes a WINNER branch.
         if _replay_submission_intent(store, snapshot.attempt_id, snapshot.effect_intent_id) is not SubmissionIntentClaim.REPLAY:
             raise ExecutionValueError("restoration cannot claim an Attempt")
-        if store.record_submission_outcome(snapshot.attempt_id, snapshot.effect_intent_id, SubmissionOutcome.SUBMITTED) is not state:
+        # Reconciled branches replay UNKNOWN verbatim, never rewrite its history.
+        outcome = SubmissionOutcome.UNKNOWN if recovered or pending else SubmissionOutcome.SUBMITTED
+        if store.record_submission_outcome(snapshot.attempt_id, snapshot.effect_intent_id, outcome) is not state:
             raise ExecutionValueError("restoration changed submission state")
+        if recovered and not reconciliation:
+            from auto_g16.core import ReconciliationResolution
+            if store.reconcile_unknown(snapshot.attempt_id, reconciliations[0].observation_id, ReconciliationResolution.SUBMITTED) is not state:
+                raise ExecutionValueError("reconciliation replay changed state")
         return snapshot
 
 

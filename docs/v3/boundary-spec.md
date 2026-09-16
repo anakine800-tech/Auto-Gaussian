@@ -5881,3 +5881,12 @@ The [reviewed CREST design freeze](crest-live-closure-freeze.md) adds the exact
 CREST-only version tuple and read-only seed proof consumer. All historical
 strict and xTB completion contracts retain their bytes and semantics. No
 public Core, Approval, Result or Transport-operation change is authorized.
+
+### V31 exact observed-job recovery boundary
+
+The [delegated recovery delta](exact-observed-job-recovery-contract.md) adds only
+one fixed observed-job read/proof and narrow reconciled snapshot restoration.
+It supersedes the C2 exclusion only for that exact versioned proof. Native
+START precedes wire, raw precedes interpretation, original UNKNOWN remains,
+and a later collection continuation pins the first recovery authority without
+resetting its one-read consumption. No public DDL or producer semantics change.
