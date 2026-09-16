@@ -909,3 +909,10 @@ identity evidence. Actual deployment locator and host facts are NOT_ACQUIRED.
 - **Stop:** no new Attempt, claim/qsub, provisioning/staging, remote mutation,
   cleanup, automatic retry, original approval/window change, CREST, publication
   or merge. Scope/API gaps require a reviewed narrow delta.
+
+### V31-CREST-LIVE-CLOSURE-01
+
+BOUNDED-AUTONOMOUS within the [exact design freeze](crest-live-closure-freeze.md).
+The Owner explicitly delegated technical/exact approval after independent
+review. Follow the frozen scope and three product approval gates. No automatic
+retry, qdel, cleanup, broader science, publication or merge is authorized.

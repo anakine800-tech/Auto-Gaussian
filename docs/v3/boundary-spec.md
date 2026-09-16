@@ -5874,3 +5874,10 @@ effect receipt sequences remain receipt-only. Complete-bundle/terminal replay
 adds no start audit and invokes no wire from process start. No missing-bundle
 probe writes an UNKNOWN assessment. Existing collector, capture, guard and Core
 reducer own persistence and terminal advancement; no direct state repair.
+
+### V31 CREST completion successor boundary
+
+The [reviewed CREST design freeze](crest-live-closure-freeze.md) adds the exact
+CREST-only version tuple and read-only seed proof consumer. All historical
+strict and xTB completion contracts retain their bytes and semantics. No
+public Core, Approval, Result or Transport-operation change is authorized.

@@ -2110,3 +2110,11 @@ mutation tripwires, four-store drift, native guard contention and crash/replay.
 Old FC/C4/P01–P08 evidence keeps its original candidate binding. CR10 is separate
 same-job native collection and independent readback under a concrete reviewed
 installation; offline PASS grants no live or scientific acceptance.
+
+### V31 CREST completion successor acceptance
+
+Apply the [frozen CREST criteria](crest-live-closure-contract.md) and its
+[delegated design acceptance](crest-live-closure-freeze.md). Required evidence
+separates immutable compatibility, offline adversarial closure, current
+qualification, exact approval, one execution, native capture/replay and
+independent chemical integrity. Historical xTB evidence is not CREST evidence.

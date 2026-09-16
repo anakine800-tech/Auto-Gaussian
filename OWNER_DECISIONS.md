@@ -1332,3 +1332,13 @@ and window remain immutable. The new fixed window grants no submission effect.
 No new public record, Core state/schema, Transport operation or scientific
 approval is added. The original prepare PLANNED guard and submission path remain.
 Real same-job collection stays behind the exact reviewed operational packet.
+
+### OD-33 CREST completion and receipt seed handoff
+
+The Owner's 2026-09-16 delegation enables the independently reviewed
+[CREST successor freeze](docs/v3/crest-live-closure-freeze.md) under explicit
+delegated technical acceptance. This new task adds only the versioned CREST
+completion tuple and read-only xTB receipt-to-CREST seed consumer. It does not
+reinterpret OD-32's xTB-only scope, old adapters, publisher sources, approvals
+or stored records. Exact live qualification, installation and scientific,
+finite-batch and operational approval remain mandatory before the one run.

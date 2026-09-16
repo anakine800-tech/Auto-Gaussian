@@ -806,14 +806,13 @@ class _ProgramTransportStore:
                 self._connection.execute("ROLLBACK")
                 raise
 
-    def attest_runtime(
+    def _runtime_attestation_record(
         self,
         *,
         program_execution_snapshot_id: str,
         resolved_server_profile_id: str,
         qualification: Mapping[str, object],
-        persist: bool = True,
-    ) -> str:
+    ):
         self._attest()
         closed = dict(_runtime_qualification(qualification))
         payload = {
@@ -848,10 +847,33 @@ class _ProgramTransportStore:
             _digest(closed),
             canonical_bytes(payload),
         )
+        return identity, columns, values
+
+    def attest_runtime(
+        self, *, program_execution_snapshot_id: str,
+        resolved_server_profile_id: str, qualification: Mapping[str, object],
+        persist: bool = True,
+    ) -> str:
+        identity, columns, values = self._runtime_attestation_record(
+            program_execution_snapshot_id=program_execution_snapshot_id,
+            resolved_server_profile_id=resolved_server_profile_id, qualification=qualification)
         if persist:
-            self._insert_exact(
-                "program_runtime_attestation", columns, values, identity
-            )
+            self._insert_exact("program_runtime_attestation", columns, values, identity)
+        return identity
+
+    def _require_recorded_runtime(self, *, program_execution_snapshot_id, resolved_server_profile_id, qualification) -> str:
+        """Pure all-column reclosure of the persisted historical runtime row."""
+        identity, columns, values = self._runtime_attestation_record(
+            program_execution_snapshot_id=program_execution_snapshot_id,
+            resolved_server_profile_id=resolved_server_profile_id, qualification=qualification)
+        with self._store_access(), self._lock:
+            self._attest()
+            rows = self._connection.execute(
+                "SELECT " + ",".join(columns) + " FROM program_runtime_attestation WHERE runtime_attestation_id=?",
+                (identity,),
+            ).fetchall()
+            if len(rows) != 1 or tuple(rows[0]) != values:
+                raise TransportBoundaryError("historical runtime attestation differs or is missing")
         return identity
 
     def _scheduler_raw_request(self, request: Mapping[str, object]) -> Mapping[str, object]:

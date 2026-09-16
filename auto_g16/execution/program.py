@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+# Frozen observation vocabulary; pure snapshot restoration has no Transport
+# implementation dependency. Compatibility is checked at the integration seam.
+_PROGRAM_EFFECT_RECEIPT_TYPE = "v31-program-effect-receipt/1"
+
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from hashlib import sha256
@@ -184,7 +188,7 @@ def _validate_invocation(
         "OMP_NUM_THREADS",
     )
     expected_environment = (omp_environment,)
-    if program_kind == "xtb" and adapter_contract_version in (2, 3):
+    if (program_kind == "xtb" and adapter_contract_version in (2, 3)) or (program_kind == "crest" and adapter_contract_version == 3):
         expected_environment = (
             omp_environment,
             freeze_mapping(
@@ -536,7 +540,7 @@ def _invocation(
             "OMP_NUM_THREADS",
         ),
     )
-    if program_kind == "xtb" and xtb_data_authority:
+    if xtb_data_authority:
         environment += (
             freeze_mapping(
                 {
@@ -565,7 +569,12 @@ _Adapter = tuple[
     Callable[[Mapping[str, object]], Mapping[str, object]],
     Callable[[Mapping[str, object], str, Mapping[str, object]], tuple[Mapping[str, object], tuple[Mapping[str, object], ...], tuple[Mapping[str, object], ...]]],
 ]
+from . import _crest_completion
+
 _ADAPTER_REGISTRY: Final[Mapping[tuple[str, str, int], _Adapter]] = {
+    ("crest", "auto-g16-v31-crest", 3): (
+        "auto-g16-v31-crest", 3, _crest_completion._validate_data, _crest_completion._render,
+    ),
     ("xtb", "auto-g16-v31-xtb", 3): (
         "auto-g16-v31-xtb", 3, _validate_xtb_completion_data, _render_xtb,
     ),
@@ -650,11 +659,11 @@ class ProgramExecutionSpec:
         if inputs[0]["logical_role"] != "structure" or inputs[0]["format"] != "xyz":
             raise ExecutionValueError("initial adapters require one XYZ structure input")
         data = validate_data(program_data)
-        if program_kind == "xtb" and adapter_contract_version == 3:
+        if program_kind in {"xtb", "crest"} and adapter_contract_version == 3:
             from ._program_completion import _RESERVED_NAMES
             names = [item["portable_name"] for item in (*inputs, *required_outputs, *optional_outputs)]
             if len(set(names)) != len(names) or any(
-                name in _RESERVED_NAMES or name == "xtb.pbs"
+                name in _RESERVED_NAMES or name == f"{program_kind}.pbs"
                 or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", str(name)) is None
                 for name in names
             ):
@@ -740,9 +749,9 @@ def _prepare_program_execution_spec(
     adapter_key = _INITIAL_ADAPTER_KEYS.get(program_kind)
     if completion_mode is not None:
         from ._program_completion import _MODE
-        if program_kind != "xtb" or completion_mode != _MODE or "completion_mode" in program_data:
+        if program_kind not in {"xtb", "crest"} or completion_mode != _MODE or "completion_mode" in program_data:
             raise ExecutionValueError("unknown or duplicate explicit completion mode")
-        adapter_key = ("xtb", "auto-g16-v31-xtb", 3)
+        adapter_key = (program_kind, f"auto-g16-v31-{program_kind}", 3)
         program_data = {**program_data, "completion_mode": completion_mode}
     if adapter_key is None:
         raise ExecutionValueError("Gaussian successor is reserved but not implemented")
@@ -906,11 +915,11 @@ def _uses_xtb_runtime_data_authority(spec: ProgramExecutionSpec) -> bool:
         spec.program_kind,
         spec.adapter_id,
         spec.adapter_contract_version,
-    ) in {("xtb", "auto-g16-v31-xtb", 2), ("xtb", "auto-g16-v31-xtb", 3)}
+    ) in {("xtb", "auto-g16-v31-xtb", 2), ("xtb", "auto-g16-v31-xtb", 3), ("crest", "auto-g16-v31-crest", 3)}
 
 
 def _uses_completion_receipt(spec: ProgramExecutionSpec) -> bool:
-    return (spec.program_kind, spec.adapter_id, spec.adapter_contract_version) == ("xtb", "auto-g16-v31-xtb", 3)
+    return (spec.program_kind, spec.adapter_id, spec.adapter_contract_version) in {("xtb", "auto-g16-v31-xtb", 3), ("crest", "auto-g16-v31-crest", 3)}
 
 
 def _assert_xtb_runtime_data_authority(profile: ResolvedServerProfile) -> str:
@@ -1344,13 +1353,12 @@ class _ProgramExecutionSnapshotService:
         if type(service._journal) is not _ProductionProvisioningJournal:
             raise ExecutionValueError("restoration requires a production Project journal")
         service._assert_production_authority(snapshot.resolved_server_profile)
-        if not _uses_completion_receipt(snapshot.program_execution_spec) or snapshot._completion_material()["schema"] != "v31-completion-rendering-material/2":
+        if not _uses_completion_receipt(snapshot.program_execution_spec) or snapshot._completion_material()["schema"] != ("v31-completion-rendering-material/3" if snapshot.program_execution_spec.program_kind == "crest" else "v31-completion-rendering-material/2"):
             raise ExecutionValueError("restoration requires the original publisher tuple")
         state = store.attempt_state(snapshot.attempt_id)
         if state not in {AttemptState.SUBMITTED, AttemptState.RUNNING, AttemptState.SUCCEEDED, AttemptState.FAILED}:
             raise ExecutionValueError("restoration requires an already submitted Attempt")
-        from auto_g16.transport.program import _RECEIPT_TYPE
-        receipts = [item for item in store.observations_for_attempt(snapshot.attempt_id) if item.observation_type == _RECEIPT_TYPE]
+        receipts = [item for item in store.observations_for_attempt(snapshot.attempt_id) if item.observation_type == _PROGRAM_EFFECT_RECEIPT_TYPE]
         if any(item.data.get("operation") == "RECONCILE_SUBMISSION" for item in receipts) or sum(item.data.get("operation") == "SUBMIT_QSUB_ONCE" and item.data.get("outcome") == "SUCCEEDED" for item in receipts) != 1:
             raise ExecutionValueError("restoration requires one original successful submission")
         snapshot._assert_current_core(store)

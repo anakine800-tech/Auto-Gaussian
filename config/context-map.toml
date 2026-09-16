@@ -346,3 +346,10 @@ code_paths = [
   "scripts/run_v31_publisher_pilot.py",
 ]
 focused_tests = ["tests/v31/transport/test_publisher_collection_recovery.py"]
+
+[[component]]
+id = "v31-crest-completion"
+status = "delegated-design-frozen-offline-implementation"
+required_sections = ["OWNER_DECISIONS.md#od-33-crest-completion-and-receipt-seed-handoff", "docs/v3/crest-live-closure-freeze.md", "docs/v3/crest-live-closure-contract.md", "docs/v3/crest-readonly-source-addendum.md", "docs/v3/crest-fresh-project-addendum.md", "docs/v3/crest-loader-closure-addendum.md", "docs/v3/boundary-spec.md#v31-crest-completion-successor-boundary", "docs/v3/acceptance.md#v31-crest-completion-successor-acceptance", "docs/v3/AUTONOMOUS_DEVELOPMENT.md#v31-crest-live-closure-01"]
+code_paths = ["auto_g16/execution/", "auto_g16/transport/_program_rtwin.py", "auto_g16/transport/program.py", "auto_g16/conformer/service.py", "scripts/run_v31_publisher_pilot.py"]
+focused_tests = ["tests/v31/transport/test_crest_completion.py", "tests/v31/conformer/test_crest_receipt_handoff.py", "tests/v31/transport/test_receipt_source.py", "tests/v31/transport/test_crest_loader.py"]

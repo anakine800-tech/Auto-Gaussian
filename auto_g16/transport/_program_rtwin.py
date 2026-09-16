@@ -352,7 +352,7 @@ class _RTWinProgramEffectDriver:
     def _initialize(self, snapshot, current_profile, program_transport_store):
         if type(snapshot) is not ProgramExecutionSnapshot or type(program_transport_store) is not program._ProgramTransportStore:
             raise TransportBoundaryError("production successor dependencies are not exact")
-        if snapshot.program_execution_spec.adapter_contract_version == 3 and not snapshot.scheduler_artifacts[0]["content_utf8"].startswith("#!/bin/bash\n# auto-g16-v31-scheduler/3\n"):
+        if snapshot.program_execution_spec.adapter_contract_version == 3 and not snapshot.scheduler_artifacts[0]["content_utf8"].startswith("#!/bin/bash\n# auto-g16-v31-scheduler/" + ("4" if snapshot.program_execution_spec.program_kind == "crest" else "3") + "\n"):
             raise TransportBoundaryError("publisher-not-qualified")
         self._publisher = None
         self._snapshot = snapshot
@@ -696,14 +696,14 @@ def _read_publisher_deployment_identity(authority, snapshot):
         snapshot.assert_identity_closed()
         if type(authority) is not _driver._DeploymentAuthority:
             raise _publisher_failure("closed deployment authority required")
-        if not snapshot.scheduler_artifacts[0]["content_utf8"].startswith("#!/bin/bash\n# auto-g16-v31-scheduler/3\n"):
+        if not snapshot.scheduler_artifacts[0]["content_utf8"].startswith("#!/bin/bash\n# auto-g16-v31-scheduler/" + ("4" if snapshot.program_execution_spec.program_kind == "crest" else "3") + "\n"):
             raise _publisher_failure("old receipt source cannot gain production qualification")
         basis_pin = _PinnedPublisherFile(installation.basis, 65536); pins.append(basis_pin)
         if installation.basis.path.rsplit("/", 1)[-1] != "v31-publisher-pilot-deployment.json":
             raise _publisher_failure("fixed deployment basename differs")
         basis = strict_canonical_json(basis_pin.raw, "publisher deployment basis")
         program._exact_keys(basis, set(_PUBLISHER_BASIS_KEYS), "publisher deployment basis")
-        if basis["schema"] != "auto-g16-v31-publisher-pilot-deployment/1":
+        if basis["schema"] != ("auto-g16-v31-publisher-pilot-deployment/2" if snapshot.program_execution_spec.program_kind == "crest" else "auto-g16-v31-publisher-pilot-deployment/1"):
             raise _publisher_failure("unknown deployment basis")
         for key in ("source_commit", "source_tree"):
             if type(basis[key]) is not str or re.fullmatch("[0-9a-f]{40}", basis[key]) is None or basis[key] != getattr(installation, key):
@@ -740,6 +740,11 @@ def _read_publisher_deployment_identity(authority, snapshot):
         for key in ("probe_evidence_manifest_sha256", "owner_q_acceptance_evidence_sha256", "pilot_live_gate_evidence_sha256"):
             if type(basis[key]) is not str or re.fullmatch("[0-9a-f]{64}", basis[key]) is None or basis[key] not in evidence:
                 raise _publisher_failure("installed original evidence missing")
+        if p["schema"] == "auto-g16-v31-publisher-qualification/2":
+            closure = p["runtime"]["crest_loader_closure"]
+            for digest in (closure["evidence_manifest_sha256"], closure["loading_policy"]["dynamic_loading_review_sha256"]):
+                if digest not in evidence:
+                    raise _publisher_failure("installed CREST loader evidence missing")
         result = _PublisherDeploymentRead(installation, basis, q, MappingProxyType(evidence), tuple(pins))
         result.assert_identity()
         return result

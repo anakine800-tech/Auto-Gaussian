@@ -295,11 +295,13 @@ def _validate_geometry_policy(value: Mapping[str, object], species: Mapping[str,
 
 
 def _validate_crest_profile(value: Mapping[str, object]) -> None:
+    adapter = value.get("adapter")
+    completion = isinstance(adapter, Mapping) and type(adapter.get("contract_version")) is int and adapter["contract_version"] == 3
     route = _keys(
         value,
         {"provider", "mode", "engine", "adapter", "sampling_method",
          "runtype_selector", "seed_policy", "replica_policy", "budget",
-         "sampling_energy", "imtd_gc_controls"},
+         "sampling_energy", "imtd_gc_controls"} | ({"execution_policy"} if completion else set()),
         "crest_imtd_gc_profile",
     )
     _require(route["provider"] == "crest", "initial provider must be exactly crest")
@@ -323,9 +325,11 @@ def _validate_crest_profile(value: Mapping[str, object]) -> None:
     )
     _require(
         type(adapter["contract_version"]) is int
-        and adapter["contract_version"] == 2,
+        and adapter["contract_version"] == (3 if completion else 2),
         "initial CREST adapter contract_version must be exact integer two",
     )
+    if completion:
+        _require(route["execution_policy"] == {"atom_order_policy": "preserve-input-order", "calculator_policy": "internal-tblite", "completion_mode": "receipt-on-absence-v1"}, "CREST v3 execution policy must be exact")
     method = _keys(route["sampling_method"], {"semantic_identity", "profile_identity"}, "crest_imtd_gc_profile.sampling_method")
     _semantic_identity(method["semantic_identity"], "crest_imtd_gc_profile.sampling_method.semantic_identity")
     _semantic_identity(method["profile_identity"], "crest_imtd_gc_profile.sampling_method.profile_identity")
@@ -396,12 +400,15 @@ def _assert_crest_program_execution_alignment(
     _require(spec.program_kind == "crest", "execution program must be crest")
     _require(
         spec.adapter_id == "auto-g16-v31-crest"
-        and spec.adapter_contract_version == 2,
-        "execution must use the exact CREST iMTD-GC v2 adapter",
+        and spec.adapter_contract_version in (2, 3)
+        and spec.adapter_contract_version == profile.crest_imtd_gc_profile["adapter"]["contract_version"],
+        "execution must use the exact CREST iMTD-GC v2 adapter or reviewed v3 successor",
     )
     route = profile.crest_imtd_gc_profile
     controls = route["imtd_gc_controls"]
     data = spec.program_data
+    if spec.adapter_contract_version == 3:
+        _require(all(data.get(k) == v for k, v in route["execution_policy"].items()), "CREST v3 execution policy differs from profile")
     _require(
         controls["charge"] == profile.species_binding["formal_charge"],
         "SamplingProfile CREST charge mismatches its species binding",

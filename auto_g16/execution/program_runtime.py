@@ -36,6 +36,7 @@ _RECEIPT_FIELDS = {
 # Only the bounded Controller/Execution call holds this local checkpoint. It is
 # never passed to Transport and is not a persistent permission or claim token.
 _COLLECTION_CHECKPOINT = ContextVar("collection_checkpoint", default=None)
+_READONLY_RECEIPT_SOURCE = ContextVar("readonly_receipt_source", default=None)
 
 
 def _completion_owned(function):
@@ -65,7 +66,7 @@ def _completion_checkpoint(snapshot, program_transport_store):
 
 
 def _publisher_completion_checkpoint(snapshot, driver):
-    if snapshot.program_execution_spec.invocation["executable_identity"]["absolute_path"] == "/opt/auto-g16-fixtures/bin/xtb":
+    if snapshot.program_execution_spec.invocation["executable_identity"]["absolute_path"] in {"/opt/auto-g16-fixtures/bin/xtb", "/opt/auto-g16-fixtures/bin/crest"}:
         return
     from auto_g16.transport._program_rtwin import _RTWinProgramEffectDriver
     if type(driver) is not _RTWinProgramEffectDriver or driver._snapshot != snapshot:
@@ -91,10 +92,10 @@ def _snapshot_binding(
         raise TransportBoundaryError("completion-store-not-qualified" if receipt_mode else "strict requires a version-1 program store")
     if receipt_mode:
         material = snapshot._completion_material()
-        synthetic = (snapshot.program_execution_spec.invocation["executable_identity"]["absolute_path"] == "/opt/auto-g16-fixtures/bin/xtb" and driver.runtime_qualification.get("bootstrap_protocol") == "synthetic-v31-program-effect/1")
+        synthetic = (snapshot.program_execution_spec.invocation["executable_identity"]["absolute_path"] in {"/opt/auto-g16-fixtures/bin/xtb", "/opt/auto-g16-fixtures/bin/crest"} and driver.runtime_qualification.get("bootstrap_protocol") == "synthetic-v31-program-effect/1")
         if not synthetic:
             from auto_g16.transport._program_rtwin import _RTWinProgramEffectDriver
-            if material["schema"] != _completion._PILOT_MATERIAL_SCHEMA or type(driver) is not _RTWinProgramEffectDriver:
+            if material["schema"] not in {_completion._PILOT_MATERIAL_SCHEMA, _completion._crest._MATERIAL_SCHEMA} or type(driver) is not _RTWinProgramEffectDriver:
                 raise TransportBoundaryError("publisher-not-qualified")
             driver._authority()
     closed_driver = _transport._require_driver(driver)
@@ -120,6 +121,11 @@ def _snapshot_binding(
         qualification=closed_driver.runtime_qualification,
         persist=persist,
     )
+    return _program_store_binding(snapshot, program_transport_store, runtime_attestation_id)
+
+
+def _program_store_binding(snapshot, program_transport_store, runtime_attestation_id):
+    remote_workspace = snapshot.workspace_binding.remote_attempt_dir
     binding = {
         "program_transport_store_id": (
             program_transport_store.program_transport_store_id
@@ -472,6 +478,15 @@ def _assert_effect_intent_replay(
         raise TransportBoundaryError(
             "successor authority cannot claim a PLANNED effect intent"
         )
+    if _READONLY_RECEIPT_SOURCE.get() is store:
+        # Historical proof must not enter the public claim transaction, even
+        # its replay branch. Check only the existing unique native record.
+        rows = store._connection.execute(
+            "SELECT attempt_id,intent_id FROM submission_intents WHERE attempt_id=? OR intent_id=?",
+            (snapshot.attempt_id, snapshot.effect_intent_id)).fetchall()
+        if [tuple(row) for row in rows] != [(snapshot.attempt_id, snapshot.effect_intent_id)]:
+            raise TransportBoundaryError("historical source lacks the exact recorded intent")
+        return
     try:
         from .runtime import _replay_submission_intent
         claim = _replay_submission_intent(store, snapshot.attempt_id, snapshot.effect_intent_id)
@@ -1317,12 +1332,20 @@ def _prepare_program_port(
     inputs, schedulers = snapshot.program_execution_spec.exact_inputs, snapshot.scheduler_artifacts
     if len(inputs) != 1 or len(schedulers) != 1:
         raise TransportBoundaryError("the common entrypoint requires one exact input and scheduler")
-    return _prepare_program_execution(
+    prepared = _prepare_program_execution(
         store, snapshot=snapshot, program_transport_store=port.program_transport_store,
         input_bytes={str(inputs[0]["portable_name"]): prepared_input_bytes},
         scheduler_artifact_bytes={str(schedulers[0]["portable_name"]): pbs_template_bytes},
         driver=port.driver,
     )
+    spec = snapshot.program_execution_spec
+    if spec.program_kind == "crest" and spec.adapter_contract_version == 3:
+        synthetic = (spec.invocation["executable_identity"]["absolute_path"] == "/opt/auto-g16-fixtures/bin/crest"
+                     and port.driver.runtime_qualification.get("bootstrap_protocol") == "synthetic-v31-program-effect/1")
+        if not synthetic:
+            from ._crest_seed_handoff import _assert_fixed_receipt_submission
+            _assert_fixed_receipt_submission(store, snapshot, prepared_input_bytes)
+    return prepared
 
 
 @_completion_owned
@@ -1966,7 +1989,7 @@ def _validate_completion_bundle(record, snapshot, job, workspace, receipts, obse
     code = term["returncode"] if term["kind"] == "exited" else 128 + term["signal"]
     diagnostic = _scheduler_diagnostic(observations, code)
     if diagnostic is None:
-        diagnostic = "program-signaled" if term["kind"] == "signaled" else "program-nonzero" if code else _completion._output_closure(str(snapshot.program_execution_spec.program_data["task"]), next(iter(input_bytes.values())), content_map) or "completed"
+        diagnostic = "program-signaled" if term["kind"] == "signaled" else "program-nonzero" if code else (_completion._crest._output_closure(next(iter(input_bytes.values())), content_map) if snapshot.program_execution_spec.program_kind == "crest" else _completion._output_closure(str(snapshot.program_execution_spec.program_data["task"]), next(iter(input_bytes.values())), content_map)) or "completed"
     return diagnostic, capture, sha256(raw).hexdigest(), opening.observation_id, closing.observation_id
 
 
@@ -2297,3 +2320,45 @@ def _assert_program_receipt_success_authority(store, *, snapshot, program_transp
     _publisher_completion_checkpoint(snapshot, driver)
     _completion_checkpoint(snapshot, program_transport_store)
     return freeze_mapping({**payload, "program_terminal_success_authority_id": semantic_id("program-terminal-success-authority", payload)}, "receipt terminal success authority")
+
+
+@_completion_owned
+def _read_program_receipt_success_authority(store, *, snapshot, program_transport_store, driver=None, _completion_token=None):
+    """Historical evidence only, independent of any current live installation."""
+    from ._receipt_source import _source_qualification
+    if type(store) is not SQLiteRuntimeStore or type(program_transport_store) is not _transport._ProgramTransportStore:
+        raise TransportBoundaryError("read-only source requires exact native stores")
+    snapshot.assert_identity_closed()
+    _completion_checkpoint(snapshot, program_transport_store)
+    with _source_qualification(store, snapshot, program_transport_store, driver) as (source_store, qualification):
+        snapshot._assert_current_core(source_store)
+        runtime_id = program_transport_store._require_recorded_runtime(
+            program_execution_snapshot_id=snapshot.program_execution_snapshot_id,
+            resolved_server_profile_id=snapshot.resolved_server_profile.resolved_server_profile_id,
+            qualification=qualification)
+        base = _program_store_binding(snapshot, program_transport_store, runtime_id)
+        token = _READONLY_RECEIPT_SOURCE.set(source_store)
+        try:
+            receipts = _load_receipts(source_store, snapshot, program_transport_store, base)
+            job = _reconstruct_job_authority_from_receipts(source_store, snapshot, program_transport_store, base, receipts)
+            workspace = _reconstruct_workspace_authority(snapshot, program_transport_store, receipts)
+            return _read_receipt_success_bundle(source_store, snapshot, program_transport_store, receipts, job, workspace)
+        finally:
+            _READONLY_RECEIPT_SOURCE.reset(token)
+
+
+def _read_receipt_success_bundle(store, snapshot, program_transport_store, receipts, job, workspace):
+    observations = store.observations_for_attempt(snapshot.attempt_id)
+    _verify_completion_assessments(observations, snapshot, job)
+    _validate_completion_history(store, snapshot, job, workspace, receipts, observations)
+    assessment, result_id = _completion_replay_selection(store, snapshot, observations)
+    if assessment is None or result_id is None or assessment.data["verdict"] != "SUCCEEDED" or store.attempt_state(snapshot.attempt_id) is not AttemptState.SUCCEEDED:
+        raise TransportBoundaryError("read-only receipt proof requires persisted success")
+    record = _completion_stored_record(store, snapshot, result_id)
+    diagnostic, capture, digest, opening, closing = _validate_completion_bundle(record, snapshot, job, workspace, receipts, observations)
+    if diagnostic != "completed" or (diagnostic, capture.capture_authority_id, digest, record.data["epoch_id"]) != (assessment.data["diagnostic"], assessment.data["capture_authority_id"], assessment.data["receipt_sha256"], assessment.data["epoch_id"]):
+        raise TransportBoundaryError("read-only receipt proof was invalidated")
+    keys = (*_COMPLETION_BINDING_KEYS, "completion_mode", "epoch_id", "evidence_result_id", "capture_authority_id", "receipt_sha256", "observation_prefix_sha256")
+    payload = {"schema": "program-terminal-success-authority/2", **{key: assessment.data[key] for key in keys}, "assessment_observation_id": assessment.observation_id, "initial_absence_observation_id": opening, "final_absence_observation_id": closing}
+    _completion_checkpoint(snapshot, program_transport_store)
+    return freeze_mapping({**payload, "program_terminal_success_authority_id": semantic_id("program-terminal-success-authority", payload)}, "read-only receipt success"), capture
