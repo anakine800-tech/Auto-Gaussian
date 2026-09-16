@@ -105,8 +105,10 @@ class PublicInterfaceTests(unittest.TestCase):
             "enum",
             "json",
             "math",
+            "os",
             "pathlib",
             "sqlite3",
+            "stat",
             "typing",
         }
         for path in sorted((ROOT / "auto_g16" / "core").glob("*.py")):
