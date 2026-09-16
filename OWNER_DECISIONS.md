@@ -1320,3 +1320,15 @@ the private qualification/tuple/Controller implementation, not target qualificat
 or activation. Preserve the original synthetic v3 completion and strict behavior.
 Approval semantics stay in Controller; Transport reads only fixed deployment
 identity evidence. Actual deployment locator and host facts are NOT_ACQUIRED.
+
+
+### OD-32 same-Attempt collection recovery C2 accepted
+
+The coordinating task accepted the independently reviewed exact C2 design on
+2026-09-16 under delegated technical authority. The [frozen recovery contract](docs/v3/same-attempt-collection-recovery-contract.md) records its original design/review hashes.
+It permits bounded offline implementation of native restoration and collect-only
+continuation for an already successful submission; original snapshot/Q/approvals
+and window remain immutable. The new fixed window grants no submission effect.
+No new public record, Core state/schema, Transport operation or scientific
+approval is added. The original prepare PLANNED guard and submission path remain.
+Real same-job collection stays behind the exact reviewed operational packet.

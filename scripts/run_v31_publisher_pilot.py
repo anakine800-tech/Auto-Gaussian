@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from pathlib import Path
 import os
 import stat
+import sqlite3
+from contextlib import ExitStack
 
 from auto_g16 import approval, core, execution
 from auto_g16.execution.program import ProgramExecutionSnapshot
@@ -55,6 +57,53 @@ _PILOT_ATTACHMENT_KEYS = frozenset({
 })
 
 
+class _PinnedStorePath:
+    """Existing no-follow store walk retained across collection; contents may append."""
+
+    def __init__(self, binding):
+        self.binding, self.fds = binding, []
+        path = binding.path
+        if type(path) is not str or not path.startswith("/") or any(p in {"", ".", ".."} for p in path[1:].split("/")):
+            raise rtwin._publisher_failure("noncanonical store path")
+        parts = path[1:].split("/")
+        if len(binding.parent_chain) != len(parts) or not 1 <= len(parts) <= 128:
+            raise rtwin._publisher_failure("store parent inventory mismatch")
+        for node in (*binding.parent_chain, binding.file_identity):
+            if type(node) is not tuple or len(node) != 2 or any(type(v) is not int for v in node) or node[0] < 0 or node[1] < 1:
+                raise rtwin._publisher_failure("store physical identity invalid")
+        try:
+            flags = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
+            self.fds.append(os.open("/", flags | os.O_DIRECTORY))
+            for part in parts[:-1]:
+                self.fds.append(os.open(part, flags | os.O_DIRECTORY, dir_fd=self.fds[-1]))
+            self.fds.append(os.open(parts[-1], flags | os.O_NONBLOCK, dir_fd=self.fds[-1]))
+            self.assert_current()
+        except BaseException:
+            self.close()
+            raise
+
+    def assert_current(self):
+        # Reuse the publisher's full descriptor/name/type/ancestor comparison.
+        rtwin._PinnedPublisherFile._check_names(self)
+
+    def close(self):
+        while self.fds:
+            os.close(self.fds.pop())
+
+    def __enter__(self):
+        self.assert_current()
+        return self
+
+    def __exit__(self, *_args):
+        self.close()
+
+
+def _assert_connected_store(store, path):
+    databases = store._connection.execute("PRAGMA database_list").fetchall()
+    if [row[2] for row in databases if row[1] == "main"] != [path]:
+        raise rtwin._publisher_failure("connected database differs from installed binding")
+
+
 def _assert_store_bindings(run):
     """Controller binds existing live handles to the independently installed paths."""
     expected = (("core", core.SQLiteRuntimeStore), ("approval", approval.SQLiteApprovalStore), ("transport", transport._ProgramTransportStore))
@@ -64,31 +113,8 @@ def _assert_store_bindings(run):
     for binding, (role, kind) in zip(run.stores, expected):
         if type(binding) is not _PilotStoreBinding or binding.role != role or type(binding.store) is not kind:
             raise rtwin._publisher_failure("three-store role/type mismatch")
-        path = binding.path
-        if type(path) is not str or not path.startswith("/") or any(p in {"", ".", ".."} for p in path[1:].split("/")):
-            raise rtwin._publisher_failure("noncanonical store path")
-        parts = path[1:].split("/")
-        if len(binding.parent_chain) != len(parts) or not 1 <= len(parts) <= 128:
-            raise rtwin._publisher_failure("store parent inventory mismatch")
-        fds = []
-        try:
-            flags = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
-            fds.append(os.open("/", flags | os.O_DIRECTORY))
-            for part in parts[:-1]:
-                fds.append(os.open(part, flags | os.O_DIRECTORY, dir_fd=fds[-1]))
-            fds.append(os.open(parts[-1], flags | os.O_NONBLOCK, dir_fd=fds[-1]))
-            for i, (fd, node) in enumerate(zip(fds, (*binding.parent_chain, binding.file_identity))):
-                s = os.fstat(fd)
-                named = os.stat("/", follow_symlinks=False) if i == 0 else os.stat(parts[i-1], dir_fd=fds[i-1], follow_symlinks=False)
-                if type(node) is not tuple or len(node) != 2 or any(type(v) is not int for v in node) or (s.st_dev, s.st_ino) != node or (named.st_dev, named.st_ino) != node or (not stat.S_ISDIR(s.st_mode) if i < len(fds)-1 else not stat.S_ISREG(s.st_mode)):
-                    raise rtwin._publisher_failure("store physical identity drift")
-            databases = binding.store._connection.execute("PRAGMA database_list").fetchall()
-            main = [row[2] for row in databases if row[1] == "main"]
-            if main != [path]:
-                raise rtwin._publisher_failure("connected database differs from installed binding")
-        finally:
-            for fd in reversed(fds):
-                os.close(fd)
+        with _PinnedStorePath(binding):
+            _assert_connected_store(binding.store, binding.path)
         stores[role] = binding.store
     if len({b.path for b in run.stores}) != 3 or len({b.file_identity for b in run.stores}) != 3:
         raise rtwin._publisher_failure("three stores are not distinct")
@@ -116,6 +142,11 @@ def _validate_pilot_qualification_evidence(run, deployment, confirmation):
     basis and Confirmation. Raw prose/JSON never supplies an approval decision.
     """
     deployment.assert_current()
+    _validate_pilot_qualification_identity(run, deployment, confirmation)
+
+
+def _validate_pilot_qualification_identity(run, deployment, confirmation):
+    deployment.assert_identity()
     basis, payload = deployment.basis, deployment.qualification["payload"]
     attachment = confirmation.confirmer_evidence.get("publisher_pilot")
     if not isinstance(attachment, Mapping) or set(attachment) != _PILOT_ATTACHMENT_KEYS:
@@ -259,6 +290,182 @@ def _collect_first_publisher_pilot():
         finally:
             if type(port.driver) is rtwin._RTWinProgramEffectDriver:
                 port.driver.close()
+
+
+@dataclass(frozen=True, slots=True)
+class _CollectionDatabaseBinding:
+    role: str
+    path: str
+    parent_chain: tuple[tuple[int, int], ...]
+    file_identity: tuple[int, int]
+
+
+@dataclass(frozen=True, slots=True)
+class _FixedCollectionRun:
+    current_profile: execution.ServerProfile
+    databases: tuple[_CollectionDatabaseBinding, ...]
+    store_root: str
+    snapshot_semantics: rtwin._PublisherFileBinding
+    prepared_input: rtwin._PublisherFileBinding
+    pbs_script: rtwin._PublisherFileBinding
+    reviewed_pilot_semantics: rtwin._PublisherFileBinding
+    displayed_semantic_meaning: Mapping[str, object]
+
+
+_FIXED_COLLECTION_RUN: _FixedCollectionRun | None = None
+
+
+def _open_collection_stores(run, stack):
+    """Pin all existing paths before any create-capable SQLite constructor."""
+    from auto_g16.execution.project_provisioning import _ProductionProvisioningJournal
+    roles = ("core", "approval", "transport", "project-journal")
+    if type(run.databases) is not tuple or len(run.databases) != 4:
+        raise rtwin._publisher_failure("fixed four-store package missing")
+    pins = []
+    for binding, role, version in zip(run.databases, roles, (1, 1, 2, 2)):
+        if type(binding) is not _CollectionDatabaseBinding or binding.role != role:
+            raise rtwin._publisher_failure("fixed four-store roles differ")
+        pins.append(stack.enter_context(_PinnedStorePath(binding)))
+        # Read-only URI cannot manufacture an empty file before version checks.
+        connection = sqlite3.connect(Path(binding.path).as_uri() + "?mode=ro", uri=True)
+        try:
+            if connection.execute("PRAGMA user_version").fetchone()[0] != version:
+                raise rtwin._publisher_failure("existing collection schema differs")
+        finally:
+            connection.close()
+        pins[-1].assert_current()
+    if len({b.path for b in run.databases}) != 4 or len({b.file_identity for b in run.databases}) != 4:
+        raise rtwin._publisher_failure("fixed four stores are not distinct")
+    stores = {}
+    for binding in run.databases:
+        if binding.role == "core":
+            handle = core.SQLiteRuntimeStore(binding.path)
+        elif binding.role == "approval":
+            handle = approval.SQLiteApprovalStore(binding.path)
+        elif binding.role == "transport":
+            handle = transport._ProgramTransportStore.open_existing(binding.path, approved_root=run.store_root)
+        else:
+            handle = _ProductionProvisioningJournal.open_existing(Path(binding.path), approved_root=Path(run.store_root))
+        stack.callback(handle.close)
+        stores[binding.role] = handle
+        for pin in pins:
+            pin.assert_current()
+        _assert_connected_store(handle, binding.path)
+    return stores, pins
+
+
+def _collection_store_identity(run, stores, base):
+    values = []
+    for binding in run.databases:
+        value = {"role": binding.role, "path": binding.path,
+                 "parent_chain": [{"device": d, "inode": i} for d, i in binding.parent_chain],
+                 "file_identity": {"device": binding.file_identity[0], "inode": binding.file_identity[1]}}
+        if binding.role == "transport":
+            value.update({k: base[k] for k in ("program_transport_store_id", "store_instance_id", "runtime_attestation_id")})
+        elif binding.role == "project-journal":
+            value["journal_identity"] = stores["project-journal"]._identity
+        values.append(value)
+    return values
+
+
+def _validate_collection_review(deployment):
+    from auto_g16.execution._identity import semantic_sha256, freeze_mapping
+    binding = deployment.installation.reviewed_scope
+    pin = rtwin._PinnedPublisherFile(binding, 65536)
+    try:
+        scope = {k: v for k, v in deployment.document.items() if k != "review_evidence"}
+        scope_hash = semantic_sha256(freeze_mapping(scope, "collection review scope"))
+        expected = {"schema": "v31-collection-reviewed-scope/1"}
+        for role in ("owner_continuation", "source_compatibility"):
+            expected[role] = {"raw": deployment.document["review_evidence"][role], "scope_sha256": scope_hash}
+        observed = strict_canonical_json(pin.raw, "reviewed collection scope")
+        if canonical_json_bytes(observed) != canonical_json_bytes(expected):
+            raise rtwin._publisher_failure("collection decision/scope differs")
+        pin._read_and_check()
+    finally:
+        pin.close()
+
+
+def _collection_original_approvals(run, stores, deployment):
+    original = deployment.document["original"]
+    snapshot = deployment.snapshot
+    scientific = stores["approval"].load_scientific_approval(original["scientific_approval_id"])
+    batch = stores["approval"].load_batch_submit_approval(original["batch_submit_approval_id"])
+    confirmation = stores["approval"].load_current_operational_confirmation(original["operational_confirmation_id"], snapshot)
+    confirmation.assert_current(stores["core"], snapshot)
+    plan = stores["core"].load_calculation_plan(snapshot.calculation_plan_id)
+    attempt = stores["core"].load_attempt(snapshot.attempt_id)
+    scientific.assert_current(plan, displayed_semantic_meaning=run.displayed_semantic_meaning)
+    expected = approval.BatchApprovalMember(attempt_id=attempt.attempt_id, task_id=attempt.task_id,
+                                            calculation_plan_id=plan.calculation_plan_id,
+                                            calculation_plan_revision=plan.revision,
+                                            scientific_approval_id=scientific.scientific_approval_id)
+    if batch.decision is not approval.ApprovalDecision.APPROVED or batch.member_for(attempt.attempt_id) != expected:
+        raise rtwin._publisher_failure("collection original Batch scope differs")
+    # Identity-only validation of the original scope never extends its window.
+    from types import SimpleNamespace
+    _validate_pilot_qualification_identity(SimpleNamespace(snapshot=snapshot, reviewed_semantics=run.reviewed_pilot_semantics), deployment.original, confirmation)
+    return scientific, batch, confirmation
+
+
+def _resume_fixed_publisher_collection():
+    """One explicitly installed continuation. No CLI, default-submit or retry path."""
+    from auto_g16.execution import program, program_runtime
+    from auto_g16.execution.project_provisioning import _ProjectProvisioningService
+    run = _FIXED_COLLECTION_RUN
+    if type(run) is not _FixedCollectionRun:
+        raise rtwin._publisher_failure("fixed collection run NOT_ACQUIRED")
+    with ExitStack() as stack:
+        assets = {}
+        for role, binding, cap in (("snapshot", run.snapshot_semantics, 8*1024*1024),
+                                   ("input", run.prepared_input, 16*1024*1024),
+                                   ("pbs", run.pbs_script, 8*1024*1024)):
+            pin = rtwin._PinnedPublisherFile(binding, cap)
+            stack.callback(pin.close)
+            assets[role] = pin
+        stores, pins = _open_collection_stores(run, stack)
+        with stores["transport"]._completion_guard() as token:
+            resolved = execution.resolve_server_profile(run.current_profile)
+            attestor = rtwin._RTWinProjectAttestor(current_profile=run.current_profile, target=resolved)
+            service = _ProjectProvisioningService._from_project_attestor(attestor=attestor, target=resolved, journal=stores["project-journal"])
+            snapshot = program._ProgramExecutionSnapshotService._for_production(project_provisioning=service, target=resolved).restore_for_collection(
+                stores["core"], reviewed_semantics=strict_canonical_json(assets["snapshot"].raw, "original expanded snapshot"))
+            if resolved != snapshot.resolved_server_profile or assets["pbs"].raw != snapshot.scheduler_artifacts[0]["content_utf8"].encode():
+                raise rtwin._publisher_failure("restored profile/PBS differs")
+            driver = rtwin._RTWinProgramEffectDriver._for_fixed_collection(snapshot=snapshot, current_profile=run.current_profile, program_transport_store=stores["transport"])
+            stack.callback(driver.close)
+            deployment = driver._publisher
+            _validate_collection_review(deployment)
+            initial_approvals = _collection_original_approvals(run, stores, deployment)
+            if canonical_json_bytes(rtwin._plain(initial_approvals[2].execution_snapshot_semantics)) != assets["snapshot"].raw:
+                raise rtwin._publisher_failure("persisted original review differs from installed snapshot")
+            base = program_runtime._snapshot_binding(snapshot, stores["transport"], driver)
+            if canonical_json_bytes(_collection_store_identity(run, stores, base)) != canonical_json_bytes(deployment.document["stores"]):
+                raise rtwin._publisher_failure("collection original store identities differ")
+
+            def checkpoint():
+                if _FIXED_COLLECTION_RUN is not run:
+                    raise rtwin._publisher_failure("fixed collection run changed")
+                for pin in pins:
+                    pin.assert_current()
+                for pin in assets.values():
+                    pin._read_and_check()
+                for binding in run.databases:
+                    _assert_connected_store(stores[binding.role], binding.path)
+                stores["transport"]._attest()
+                program._assert_collection_local_workspace(snapshot)
+                if stores["project-journal"].load_binding(snapshot.project_physical_binding.project_id) != snapshot.project_physical_binding:
+                    raise rtwin._publisher_failure("collection Project journal changed")
+                driver._authority()
+                _validate_collection_review(deployment)
+                if _collection_original_approvals(run, stores, deployment) != initial_approvals:
+                    raise rtwin._publisher_failure("collection original approvals changed")
+
+            return program_runtime._resume_program_collection(
+                stores["core"], snapshot=snapshot, program_transport_store=stores["transport"], driver=driver,
+                input_bytes={snapshot.program_execution_spec.exact_inputs[0]["portable_name"]: assets["input"].raw},
+                continuation=deployment.document, continuation_sha256=deployment.installation.continuation.sha256,
+                checkpoint=checkpoint, _completion_token=token)
 
 
 if __name__ == "__main__":

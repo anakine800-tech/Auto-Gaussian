@@ -2099,3 +2099,14 @@ the private qualification/tuple/Controller implementation, not target qualificat
 or activation. Preserve the original synthetic v3 completion and strict behavior.
 Approval semantics stay in Controller; Transport reads only fixed deployment
 identity evidence. Actual deployment locator and host facts are NOT_ACQUIRED.
+
+
+### V31 same-Attempt collection recovery acceptance
+
+The [frozen C2 CR01–CR10 matrix](same-attempt-collection-recovery-contract.md#8-incremental-acceptance-and-validation) owns new recovery acceptance.
+CR01–CR09 require proportional offline evidence, including actual process exit,
+exact submitted restoration, new-window/old-Q separation, full wire preparation,
+mutation tripwires, four-store drift, native guard contention and crash/replay.
+Old FC/C4/P01–P08 evidence keeps its original candidate binding. CR10 is separate
+same-job native collection and independent readback under a concrete reviewed
+installation; offline PASS grants no live or scientific acceptance.

@@ -889,3 +889,23 @@ the private qualification/tuple/Controller implementation, not target qualificat
 or activation. Preserve the original synthetic v3 completion and strict behavior.
 Approval semantics stay in Controller; Transport reads only fixed deployment
 identity evidence. Actual deployment locator and host facts are NOT_ACQUIRED.
+
+
+### V31-SAME-ATTEMPT-COLLECT-RECOVERY-01
+
+- **Class/base:** v3 feature, bounded autonomy after C2 freeze, L3 boundary;
+  exact R4 base `8d49ef23e7c74c4333c551e81461e3f0921948ab`, tree
+  `6141c8ef3764fa54d1b5705bc303b8c9f6abc0c9`.
+- **Authority:** coordinating task's 2026-09-16 delegated technical acceptance
+  of C2 design SHA256 `e1201350faecea03bee20e4ab2a3a92bd8d5bdea4385655f31507338b110b70b`;
+  independent exact PASS recorded in the [frozen contract](same-attempt-collection-recovery-contract.md).
+- **Scope:** only that contract's four private product modules, named transport
+  tests and authority references; no additional lane, public record or schema.
+- **Validation:** CR01–CR09 plus necessary affected checks, independent review
+  and exact candidate selection. Conservative legacy-release routing is reported
+  without an automatic full run or bypass. Prior checks are not reassigned.
+- **Operational boundary:** parent coordinates concrete new local installation
+  and same-job CR10; implementation author makes no real DB or remote changes.
+- **Stop:** no new Attempt, claim/qsub, provisioning/staging, remote mutation,
+  cleanup, automatic retry, original approval/window change, CREST, publication
+  or merge. Scope/API gaps require a reviewed narrow delta.
