@@ -8,13 +8,16 @@ from hashlib import sha256
 import re
 from threading import RLock
 from types import MappingProxyType
+from contextvars import ContextVar
 
 from auto_g16.execution.models import ResolvedServerProfile, ServerProfile
 from auto_g16.execution.program import ProgramExecutionSnapshot
 from auto_g16.execution.project_provisioning import _ProjectAttestor
 
 from . import _bridge, _driver, program
-from ._canonical import TransportBoundaryError, canonical_json_bytes
+from ._canonical import TransportBoundaryError, canonical_json_bytes, strict_canonical_json
+
+_COLLECTION_WIRE_OWNER = ContextVar("collection_wire_owner", default=None)
 
 
 def _plain(value: object) -> object:
@@ -67,8 +70,17 @@ def _prepare_program_invocation(
     if not authority.resource_dialect.live_capable or type(authority.ssh_effect) is not _driver._MacProxyJumpEffectAuthority:
         raise TransportBoundaryError("successor requires the qualified RTwin ProxyJump deployment")
     if type(scope) is ProgramExecutionSnapshot and scope.program_execution_spec.adapter_contract_version == 3:
-        fixed = _read_fixed_publisher_deployment(authority, scope)
-        fixed.close()
+        collection = _COLLECTION_WIRE_OWNER.get()
+        if collection is None:
+            fixed = _read_fixed_publisher_deployment(authority, scope)
+            fixed.close()
+        else:
+            owner, owned_invocation = collection
+            if type(owner) is not _RTWinProgramEffectDriver or not owner._collection_only or owner._snapshot is not scope or owned_invocation is not invocation or name not in _COLLECTION_OPERATIONS:
+                raise _publisher_failure("wire collection owner differs")
+            if type(owner._publisher) is not _CollectionDeploymentRead:
+                raise _publisher_failure("wire collection installation missing")
+            owner._publisher.assert_current()
     request = _closed_copy(invocation.request)
     program._exact_keys(request, {"protocol", "operation", "binding", "payload"}, "successor wire request")
     if request.get("protocol") != _bridge._PROGRAM_BOOTSTRAP_PROTOCOL or request.get("operation") != invocation.operation.name:
@@ -325,6 +337,19 @@ class _RTWinProgramEffectDriver:
     """Seven successor operations, with ephemeral execution-owned context."""
 
     def __init__(self, *, snapshot: ProgramExecutionSnapshot, current_profile: ServerProfile, program_transport_store: program._ProgramTransportStore) -> None:
+        self._initialize(snapshot, current_profile, program_transport_store)
+        self._collection_only = False
+        self._open_authority()
+
+    @classmethod
+    def _for_fixed_collection(cls, *, snapshot, current_profile, program_transport_store):
+        value = cls.__new__(cls)
+        value._initialize(snapshot, current_profile, program_transport_store)
+        value._collection_only = True
+        value._open_authority()
+        return value
+
+    def _initialize(self, snapshot, current_profile, program_transport_store):
         if type(snapshot) is not ProgramExecutionSnapshot or type(program_transport_store) is not program._ProgramTransportStore:
             raise TransportBoundaryError("production successor dependencies are not exact")
         if snapshot.program_execution_spec.adapter_contract_version == 3 and not snapshot.scheduler_artifacts[0]["content_utf8"].startswith("#!/bin/bash\n# auto-g16-v31-scheduler/3\n"):
@@ -335,6 +360,8 @@ class _RTWinProgramEffectDriver:
         self._store = program_transport_store
         self._lock = RLock()
         self._active: tuple[Mapping[str, object], tuple[Mapping[str, object], ...]] | None = None
+
+    def _open_authority(self):
         try:
             self._authority()
         except BaseException:
@@ -351,7 +378,8 @@ class _RTWinProgramEffectDriver:
             raise TransportBoundaryError("production successor requires qualified ProxyJump")
         if self._snapshot.program_execution_spec.adapter_contract_version == 3:
             if self._publisher is None:
-                self._publisher = _read_fixed_publisher_deployment(authority, self._snapshot)
+                reader = _read_fixed_collection_deployment if self._collection_only else _read_fixed_publisher_deployment
+                self._publisher = reader(authority, self._snapshot)
             else:
                 self._publisher.assert_current()
                 if (self._publisher.basis["resolved_server_profile_id"], self._publisher.basis["effective_config_sha256"]) != (authority.resolved_server_profile_id, authority.effective_config_sha256):
@@ -380,6 +408,8 @@ class _RTWinProgramEffectDriver:
 
     def _invoke_owned(self, request: Mapping[str, object], receipts: tuple[Mapping[str, object], ...], *args: object) -> Mapping[str, object]:
         """Execution has reclosed Core state and every dual-source predecessor."""
+        if self._collection_only and request.get("operation") not in _COLLECTION_OPERATIONS:
+            raise _publisher_failure("collection forbids mutation/reconciliation")
         methods = dict(zip(program._OPERATIONS, (self.allocate_workspace, self.stage_exact_file, self.submit_qsub_once, self.query_scheduler, self.stat_exact_file, self.fetch_exact_file, self.reconcile_submission)))
         with self._lock:
             if self._active is not None:
@@ -391,6 +421,8 @@ class _RTWinProgramEffectDriver:
                 self._active = None
 
     def _invoke(self, operation: str, request: Mapping[str, object], content: bytes | None = None) -> Mapping[str, object]:
+        if self._collection_only and operation not in _COLLECTION_OPERATIONS:
+            raise _publisher_failure("collection forbids mutation/reconciliation")
         if self._active is None or self._active[0] != request:
             raise TransportBoundaryError("production operation requires execution-owned predecessor closure")
         _bound, receipts = self._active
@@ -447,7 +479,19 @@ class _RTWinProgramEffectDriver:
         resources = snapshot.resolved_resource_request
         executable = snapshot.program_execution_spec.invocation["executable_identity"]
         wire = {"protocol": _bridge._PROGRAM_BOOTSTRAP_PROTOCOL, "operation": operation, "binding": binding, "payload": {"request_payload": payload, "executable": {"path": executable["absolute_path"], "size_bytes": executable["size_bytes"], "sha256": executable["sha256"]}, "resources": {"cores": resources.cores, "memory_mb": resources.memory_mb, "walltime_seconds": resources.walltime_seconds, "queue": resources.queue}, "staged": staged}}
-        result = _wire_call(snapshot, _ProgramRTWinInvocation(_driver._operation(operation), authority, self._profile, _closed_copy(wire), snapshot.program_execution_snapshot_id))
+        invocation = _ProgramRTWinInvocation(_driver._operation(operation), authority, self._profile, _closed_copy(wire), snapshot.program_execution_snapshot_id)
+        token = None
+        try:
+            if self._collection_only:
+                if _COLLECTION_WIRE_OWNER.get() is not None:
+                    raise _publisher_failure("nested collection wire owner")
+                token = _COLLECTION_WIRE_OWNER.set((self, invocation))
+            result = _wire_call(snapshot, invocation)
+        finally:
+            if token is not None:
+                _COLLECTION_WIRE_OWNER.reset(token)
+        if self._collection_only:
+            self._authority()
         if operation == "QUERY_SCHEDULER":
             self._store._record_scheduler_raw(request=request, result=result)
             return _parse_scheduler(result, str(payload["job_id"]))
@@ -603,11 +647,14 @@ class _PublisherDeploymentRead:
     evidence: Mapping[str, bytes]
     pins: tuple[_PinnedPublisherFile, ...]
 
-    def assert_current(self):
+    def assert_identity(self):
         if _FIXED_PUBLISHER_INSTALLATION is not self.installation:
             raise _publisher_failure("fixed installation changed")
         for pin in self.pins:
             pin._read_and_check()
+
+    def assert_current(self):
+        self.assert_identity()
         _publisher_window(self.basis["pilot_window"], self.qualification["payload"]["observation_window"])
 
     def close(self):
@@ -628,6 +675,16 @@ def _publisher_window(window, observation):
 
 
 def _read_fixed_publisher_deployment(authority, snapshot):
+    result = _read_publisher_deployment_identity(authority, snapshot)
+    try:
+        result.assert_current()
+        return result
+    except BaseException:
+        result.close()
+        raise
+
+
+def _read_publisher_deployment_identity(authority, snapshot):
     """Only mechanical identity comparisons; Approval/Core are Controller-owned."""
     import base64
     from ._canonical import strict_canonical_json
@@ -684,7 +741,7 @@ def _read_fixed_publisher_deployment(authority, snapshot):
             if type(basis[key]) is not str or re.fullmatch("[0-9a-f]{64}", basis[key]) is None or basis[key] not in evidence:
                 raise _publisher_failure("installed original evidence missing")
         result = _PublisherDeploymentRead(installation, basis, q, MappingProxyType(evidence), tuple(pins))
-        result.assert_current()
+        result.assert_identity()
         return result
     except BaseException as exc:
         for pin in reversed(pins):
@@ -692,3 +749,188 @@ def _read_fixed_publisher_deployment(authority, snapshot):
         if isinstance(exc, (KeyboardInterrupt, SystemExit)):
             raise
         raise _publisher_failure("fixed deployment ingestion rejected") from exc
+
+
+_COLLECTION_OPERATIONS = ("QUERY_SCHEDULER", "STAT_EXACT_FILE", "FETCH_EXACT_FILE")
+_COLLECTION_SCHEMA = "auto-g16-v31-collection-continuation/1"
+_COLLECTION_KEYS = {"schema", "original", "stores", "collector_source", "original_source", "window", "scope", "review_evidence"}
+_COLLECTION_ORIGINAL_KEYS = {
+    "attempt_id", "snapshot_id", "effect_intent_id", "job_id", "project_physical_binding_id",
+    "resolved_server_profile_id", "original_basis_sha256", "snapshot_semantics_sha256",
+    "scientific_approval_id", "batch_submit_approval_id", "operational_confirmation_id",
+}
+
+
+@dataclass(frozen=True, slots=True)
+class _FixedCollectionInstallation:
+    continuation: _PublisherFileBinding
+    reviewed_scope: _PublisherFileBinding
+    evidence: tuple[_PublisherFileBinding, ...]
+    code_root: str
+    code_files: tuple[_PublisherFileBinding, ...]
+    source_commit: str
+    source_tree: str
+
+
+_FIXED_COLLECTION_INSTALLATION: _FixedCollectionInstallation | None = None
+
+
+def _collection_nodes(value):
+    program._exact_keys(value, {"device", "inode"}, "collection physical node")
+    for name in ("device", "inode"):
+        if type(value[name]) is not int or value[name] < (1 if name == "inode" else 0):
+            raise _publisher_failure("invalid collection physical node")
+
+
+def _collection_digest(value):
+    program._exact_keys(value, {"sha256", "size_bytes"}, "collection digest")
+    if type(value["sha256"]) is not str or re.fullmatch("[0-9a-f]{64}", value["sha256"]) is None or type(value["size_bytes"]) is not int or not 0 < value["size_bytes"] <= 16*1024*1024:
+        raise _publisher_failure("invalid collection digest")
+
+
+def _collection_source_files(installation, document):
+    """Pin actual project imports; metadata paths never select executable code."""
+    import sys
+    from pathlib import Path
+    source = document["collector_source"]
+    program._exact_keys(source, {"commit", "tree", "files"}, "collector source")
+    if (source["commit"], source["tree"]) != (installation.source_commit, installation.source_tree) or any(type(source[k]) is not str or re.fullmatch("[0-9a-f]{40}", source[k]) is None for k in ("commit", "tree")):
+        raise _publisher_failure("collector source differs from installation")
+    if type(source["files"]) is not list or not 1 <= len(source["files"]) <= 256:
+        raise _publisher_failure("collector source inventory missing")
+    root = Path(installation.code_root)
+    expected = []
+    for binding in installation.code_files:
+        relative = str(Path(binding.path).relative_to(root))
+        expected.append({"path": relative, "sha256": binding.sha256, "size_bytes": binding.size_bytes})
+    if canonical_json_bytes(source["files"]) != canonical_json_bytes(sorted(expected, key=lambda v: v["path"])) or len({v["path"] for v in expected}) != len(expected):
+        raise _publisher_failure("collector installed inventory differs")
+    paths = {b.path for b in installation.code_files}
+    required = {str(root / name) for name in (
+        "auto_g16/execution/program.py", "auto_g16/execution/program_runtime.py",
+        "auto_g16/execution/_program_completion.py", "auto_g16/execution/_program_completion_wrapper.py",
+        "auto_g16/transport/_program_rtwin.py", "scripts/run_v31_publisher_pilot.py",
+    )}
+    if not required <= paths or str(Path(__file__).absolute()) not in paths:
+        raise _publisher_failure("collection owner code is not pinned")
+    for name, module in tuple(sys.modules.items()):
+        if name == "auto_g16" or name.startswith("auto_g16.") or name == "scripts.run_v31_publisher_pilot":
+            path = getattr(module, "__file__", None)
+            if path is None or str(Path(path).absolute()) not in paths:
+                raise _publisher_failure("unreviewed collection import")
+
+
+def _validate_collection_document(document, original, installation, snapshot):
+    program._exact_keys(document, _COLLECTION_KEYS, "collection continuation")
+    if document["schema"] != _COLLECTION_SCHEMA:
+        raise _publisher_failure("unknown collection schema")
+    bound = program._exact_keys(document["original"], _COLLECTION_ORIGINAL_KEYS, "collection original")
+    for key, value in bound.items():
+        program._text(value, key)
+    for key in ("original_basis_sha256", "snapshot_semantics_sha256"):
+        if re.fullmatch("[0-9a-f]{64}", bound[key]) is None:
+            raise _publisher_failure("invalid original digest")
+    from hashlib import sha256 as hash_bytes
+    expected = {"attempt_id": snapshot.attempt_id, "snapshot_id": snapshot.program_execution_snapshot_id,
+                "effect_intent_id": snapshot.effect_intent_id, "project_physical_binding_id": snapshot.project_physical_binding_id,
+                "resolved_server_profile_id": snapshot.resolved_server_profile.resolved_server_profile_id,
+                "original_basis_sha256": original.installation.basis.sha256,
+                "snapshot_semantics_sha256": hash_bytes(canonical_json_bytes(_plain(snapshot._approval_semantics()))).hexdigest()}
+    if any(bound[k] != v for k, v in expected.items()):
+        raise _publisher_failure("collection original snapshot differs")
+    program._job_id(bound["job_id"])
+    old_source = {"commit": original.installation.source_commit, "tree": original.installation.source_tree,
+                  "wrapper_source": original.qualification["payload"]["implementation"]["wrapper_source"],
+                  "qualification_file_sha256": original.installation.qualification.sha256,
+                  "qualification_payload_sha256": original.qualification["payload_sha256"]}
+    if canonical_json_bytes(document["original_source"]) != canonical_json_bytes(old_source):
+        raise _publisher_failure("original Q does not qualify new collector code")
+    # Metadata is a fixed declaration, not a caller-selected subset.
+    names = ["v31-completion.json", *(v["portable_name"] for v in snapshot.program_execution_spec.required_outputs), *(v["portable_name"] for v in snapshot.program_execution_spec.optional_outputs)]
+    scope = {"action": "collect-existing-job", "maximum_remote_epochs": 1,
+             "operations": list(_COLLECTION_OPERATIONS), "files": names, "local_replay": True}
+    if canonical_json_bytes(document["scope"]) != canonical_json_bytes(scope):
+        raise _publisher_failure("collection scope is not exact")
+    stores = document["stores"]
+    if type(stores) is not list or len(stores) != 4:
+        raise _publisher_failure("collection requires four original stores")
+    for item, role in zip(stores, ("core", "approval", "transport", "project-journal")):
+        fields = {"role", "path", "parent_chain", "file_identity"}
+        if role == "transport":
+            fields |= {"program_transport_store_id", "store_instance_id", "runtime_attestation_id"}
+        if role == "project-journal":
+            fields.add("journal_identity")
+        program._exact_keys(item, fields, "collection store")
+        if item["role"] != role or type(item["path"]) is not str or not item["path"].startswith("/") or any(p in {"", ".", ".."} for p in item["path"][1:].split("/")):
+            raise _publisher_failure("collection store path/role differs")
+        if type(item["parent_chain"]) is not list or len(item["parent_chain"]) != len(item["path"][1:].split("/")):
+            raise _publisher_failure("collection store chain differs")
+        for node in [*item["parent_chain"], item["file_identity"]]:
+            _collection_nodes(node)
+        for key in fields - {"role", "path", "parent_chain", "file_identity"}:
+            program._text(item[key], key)
+    if len({v["path"] for v in stores}) != 4 or len({(v["file_identity"]["device"], v["file_identity"]["inode"]) for v in stores}) != 4:
+        raise _publisher_failure("collection stores are not distinct")
+    review = program._exact_keys(document["review_evidence"], {"owner_continuation", "source_compatibility"}, "collection review")
+    for value in review.values():
+        _collection_digest(value)
+    _collection_source_files(installation, document)
+    _publisher_window(document["window"], original.qualification["payload"]["observation_window"])
+
+
+@dataclass(slots=True)
+class _CollectionDeploymentRead:
+    original: _PublisherDeploymentRead
+    installation: _FixedCollectionInstallation
+    document: Mapping[str, object]
+    snapshot: ProgramExecutionSnapshot
+    pins: tuple[_PinnedPublisherFile, ...]
+
+    @property
+    def basis(self):
+        return self.original.basis
+
+    def assert_current(self):
+        if _FIXED_COLLECTION_INSTALLATION is not self.installation:
+            raise _publisher_failure("fixed collection installation changed")
+        self.original.assert_identity()
+        for pin in self.pins:
+            pin._read_and_check()
+        _validate_collection_document(self.document, self.original, self.installation, self.snapshot)
+
+    def close(self):
+        for pin in reversed(self.pins):
+            pin.close()
+        self.original.close()
+
+
+def _read_fixed_collection_deployment(authority, snapshot):
+    """Old qualification identity plus new finite read scope, both independently fixed."""
+    installation = _FIXED_COLLECTION_INSTALLATION
+    if type(installation) is not _FixedCollectionInstallation:
+        raise _publisher_failure("collection installation NOT_ACQUIRED")
+    original = _read_publisher_deployment_identity(authority, snapshot)
+    pins = []
+    try:
+        continuation = _PinnedPublisherFile(installation.continuation, 1024*1024); pins.append(continuation)
+        document = strict_canonical_json(continuation.raw, "collection continuation")
+        pins.append(_PinnedPublisherFile(installation.reviewed_scope, 65536))
+        evidence = {}
+        for binding in installation.evidence:
+            pin = _PinnedPublisherFile(binding, 16*1024*1024); pins.append(pin)
+            if binding.sha256 in evidence:
+                raise _publisher_failure("duplicate collection evidence")
+            evidence[binding.sha256] = {"sha256": binding.sha256, "size_bytes": len(pin.raw)}
+        _validate_collection_document(document, original, installation, snapshot)
+        if any(evidence.get(v["sha256"]) != v for v in document["review_evidence"].values()):
+            raise _publisher_failure("collection review originals missing")
+        for binding in installation.code_files:
+            pins.append(_PinnedPublisherFile(binding, 4*1024*1024))
+        result = _CollectionDeploymentRead(original, installation, document, snapshot, tuple(pins))
+        result.assert_current()
+        return result
+    except BaseException:
+        for pin in reversed(pins):
+            pin.close()
+        original.close()
+        raise

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from hashlib import sha256
 from types import MappingProxyType
 from functools import wraps
+from contextvars import ContextVar
 
 from auto_g16.core import (
     AttemptState,
@@ -32,6 +33,10 @@ _RECEIPT_FIELDS = {
     "request", "outcome", "response",
 }
 
+# Only the bounded Controller/Execution call holds this local checkpoint. It is
+# never passed to Transport and is not a persistent permission or claim token.
+_COLLECTION_CHECKPOINT = ContextVar("collection_checkpoint", default=None)
+
 
 def _completion_owned(function):
     @wraps(function)
@@ -51,6 +56,12 @@ def _completion_checkpoint(snapshot, program_transport_store):
         if type(program_transport_store) is not _transport._ProgramTransportStore:
             raise TransportBoundaryError("completion checkpoint requires its exact store")
         program_transport_store._require_current_completion_owner()
+        recovery = _COLLECTION_CHECKPOINT.get()
+        if recovery is not None:
+            owner_snapshot, owner_store, check = recovery
+            if owner_snapshot != snapshot or owner_store is not program_transport_store:
+                raise TransportBoundaryError("collection checkpoint scope differs")
+            check()
 
 
 def _publisher_completion_checkpoint(snapshot, driver):
@@ -1534,6 +1545,7 @@ def _query_program_scheduler(
         )
     except Exception:
         response = {"reason": "ambiguous-scheduler-read"}
+        _completion_checkpoint(snapshot, program_transport_store)
         program_transport_store.record_effect(
             binding=request["binding"], request=request,
             classification="UNKNOWN", response=response,
@@ -1546,6 +1558,7 @@ def _query_program_scheduler(
         return {"job_id": job["job_id"], "state": "unknown"}
 
 
+    _completion_checkpoint(snapshot, program_transport_store)
     program_transport_store.record_effect(
         binding=request["binding"], request=request,
         classification="SUCCEEDED", response=result,
@@ -1849,6 +1862,7 @@ def _completion_file_effect(store, snapshot, program_transport_store, driver, ba
             raise _CompletionIdentityConflict("fetched identity contradicts its predecessor")
         _response, content, digest, size = _transport._fetch_response(acquired, name=name, token=token, announced_size=size, max_size_bytes=declaration["max_size_bytes"])
         response = {"portable_name": name, "sha256": digest, "size_bytes": size, "file_physical_token": token}
+    _completion_checkpoint(snapshot, program_transport_store)
     program_transport_store.record_effect(binding=request["binding"], request=request, classification="SUCCEEDED", response=response)
     observation = _append_receipt(store, snapshot, program_transport_store=program_transport_store, current_binding=base, operation=request["operation"], request=request, outcome="SUCCEEDED", response=response)
     return observation, content
@@ -2135,6 +2149,106 @@ def _collect_program_completion(store, *, snapshot, program_transport_store, dri
     return _persist_completion_assessment(store, snapshot, program_transport_store, base, job, diagnostic, driver=driver, epoch_id=epoch_id, record=persisted, capture=capture, receipt_sha256=receipt_digest)
 
 
+def _completion_replay_selection(store, snapshot, observations):
+    """Shared non-mutating selection; never probe via write-capable replay."""
+    assessments = [item for item in observations if item.observation_type == _COMPLETION_ASSESSMENT]
+    latest = assessments[-1] if assessments else None
+    records = [item for item in store.results_for_attempt(snapshot.attempt_id) if item.result_type == _COMPLETION_EVIDENCE]
+    result_id = latest.data["evidence_result_id"] if latest else (records[-1].result_id if records else None)
+    referenced = {item.data["evidence_result_id"] for item in assessments}
+    positions = {item.observation_id: index for index, item in enumerate(observations)}
+    unassessed = [record for record in records if record.result_id not in referenced and any(positions.get(member.get("restat_observation_id"), -1) > (positions[latest.observation_id] if latest else -1) for member in record.data.get("captured_files", ()) if isinstance(member, Mapping))]
+    if len(unassessed) > 1:
+        raise TransportBoundaryError("multiple unassessed completion bundles")
+    return latest, unassessed[0].result_id if unassessed else result_id
+
+
+_COLLECTION_START = "auto-g16-v31-collection-start/1"
+_COLLECTION_START_KEYS = {"schema", "continuation_sha256", "attempt_id", "program_execution_snapshot_id", "effect_intent_id", "job_id", "collector_source_sha256", "observation_prefix_sha256"}
+
+
+def _validate_collection_audits(observations, snapshot, job, continuation_sha256, collector_source_sha256):
+    seen = set()
+    for index, record in enumerate(observations):
+        if record.observation_type != _COLLECTION_START:
+            continue
+        data = _transport._exact_keys(record.data, _COLLECTION_START_KEYS, "collection audit")
+        for field in ("continuation_sha256", "collector_source_sha256", "observation_prefix_sha256"):
+            _completion.require_sha256(data[field], field)
+        expected = {"schema": _COLLECTION_START, "attempt_id": snapshot.attempt_id,
+                    "program_execution_snapshot_id": snapshot.program_execution_snapshot_id,
+                    "effect_intent_id": snapshot.effect_intent_id, "job_id": job["job_id"],
+                    "observation_prefix_sha256": _observation_prefix(observations[:index])}
+        if record.attempt_id != snapshot.attempt_id or any(data[k] != v for k, v in expected.items()) or record.observation_id != semantic_id("program-collection-continuation-start", data) or data["continuation_sha256"] in seen:
+            raise TransportBoundaryError("collection audit/history is conflicting")
+        if data["continuation_sha256"] == continuation_sha256 and data["collector_source_sha256"] != collector_source_sha256:
+            raise TransportBoundaryError("collection audit source differs")
+        seen.add(data["continuation_sha256"])
+    return continuation_sha256 in seen
+
+
+def _resume_program_collection(store, *, snapshot, program_transport_store, driver, input_bytes,
+                               continuation, continuation_sha256, checkpoint, _completion_token):
+    """Bounded Controller composition, reusing the original collector and reducer."""
+    program_transport_store._require_completion_guard(_completion_token)
+    if _COLLECTION_CHECKPOINT.get() is not None:
+        raise TransportBoundaryError("nested collection recovery is forbidden")
+    history = {}
+    def checked_checkpoint():
+        checkpoint()
+        if history:
+            current = store.observations_for_attempt(snapshot.attempt_id)
+            previous = history["observations"]
+            if current[:len(previous)] != previous:
+                raise TransportBoundaryError("collection observation prefix changed")
+            audits = tuple(record for record in current if record.observation_type == _COLLECTION_START)
+            if audits != history["audits"]:
+                raise TransportBoundaryError("collection audit history changed")
+            _validate_collection_audits(current, snapshot, history["job"], continuation_sha256, history["source"])
+            history["observations"] = current
+    scope = _COLLECTION_CHECKPOINT.set((snapshot, program_transport_store, checked_checkpoint))
+    try:
+        _completion_checkpoint(snapshot, program_transport_store)
+        base, receipts, job, workspace = _completion_context(store, snapshot, program_transport_store, driver)
+        if job["establishing_operation"] != "SUBMIT_QSUB_ONCE" or job["job_id"] != continuation["original"]["job_id"]:
+            raise TransportBoundaryError("collection requires the original successful submission")
+        observations = store.observations_for_attempt(snapshot.attempt_id)
+        _verify_completion_assessments(observations, snapshot, job)
+        source_digest = semantic_sha256(freeze_mapping(continuation["collector_source"], "collector source"))
+        consumed = _validate_collection_audits(observations, snapshot, job, continuation_sha256, source_digest)
+        history.update(observations=observations, audits=tuple(record for record in observations if record.observation_type == _COLLECTION_START), job=job, source=source_digest)
+        _validate_completion_history(store, snapshot, job, workspace, receipts, observations)
+        _latest, result_id = _completion_replay_selection(store, snapshot, observations)
+        if result_id is not None:
+            record = _completion_stored_record(store, snapshot, result_id)
+            diagnostic, _capture, _digest, _opening, _closing = _validate_completion_bundle(record, snapshot, job, workspace, receipts, observations)
+            if diagnostic == "evidence-conflict":
+                raise TransportBoundaryError("collection bundle is contradictory")
+            return _replay_program_completion(store, snapshot=snapshot, program_transport_store=program_transport_store, driver=driver, _completion_token=_completion_token)
+        if store.attempt_state(snapshot.attempt_id) not in {AttemptState.SUBMITTED, AttemptState.RUNNING}:
+            raise TransportBoundaryError("terminal collection replay lacks a native bundle")
+        if consumed:
+            raise TransportBoundaryError("collection epoch already consumed; local bundle incomplete")
+        _completion_inputs(snapshot, receipts, input_bytes)
+        data = freeze_mapping({"schema": _COLLECTION_START, "continuation_sha256": continuation_sha256,
+                               "attempt_id": snapshot.attempt_id, "program_execution_snapshot_id": snapshot.program_execution_snapshot_id,
+                               "effect_intent_id": snapshot.effect_intent_id, "job_id": job["job_id"],
+                               "collector_source_sha256": source_digest, "observation_prefix_sha256": _observation_prefix(observations)}, "collection start")
+        audit = Observation(observation_id=semantic_id("program-collection-continuation-start", data),
+                            attempt_id=snapshot.attempt_id, observation_type=_COLLECTION_START, data=data)
+        _completion_checkpoint(snapshot, program_transport_store)
+        store.append_observation(audit)
+        current = store.observations_for_attempt(snapshot.attempt_id)
+        if current != (*observations, audit):
+            raise TransportBoundaryError("collection audit prefix changed")
+        _validate_collection_audits(current, snapshot, job, continuation_sha256, source_digest)
+        history.update(observations=current, audits=(*history["audits"], audit))
+        return _collect_program_completion(store, snapshot=snapshot, program_transport_store=program_transport_store,
+                                           driver=driver, input_bytes=input_bytes, _completion_token=_completion_token)
+    finally:
+        _COLLECTION_CHECKPOINT.reset(scope)
+
+
 @_completion_owned
 def _replay_program_completion(store, *, snapshot, program_transport_store, driver, _completion_token=None):
     """Reclose local persisted bytes only; never recollect or call a driver."""
@@ -2149,16 +2263,10 @@ def _replay_program_completion(store, *, snapshot, program_transport_store, driv
         if latest is not None and observations[-1] == latest and latest.data["diagnostic"] == "evidence-conflict":
             return latest
         return _persist_completion_assessment(store, snapshot, program_transport_store, base, job, "evidence-conflict", driver=driver)
-    records = [item for item in store.results_for_attempt(snapshot.attempt_id) if item.result_type == _COMPLETION_EVIDENCE]
-    result_id = latest.data["evidence_result_id"] if latest else (records[-1].result_id if records else None)
-    # A crash can leave a newer byte bundle after an older UNKNOWN assessment.
-    referenced = {item.data["evidence_result_id"] for item in assessments}
-    positions = {item.observation_id: index for index, item in enumerate(observations)}
-    unassessed = [record for record in records if record.result_id not in referenced and any(positions.get(member.get("restat_observation_id"), -1) > (positions[latest.observation_id] if latest else -1) for member in record.data.get("captured_files", ()) if isinstance(member, Mapping))]
-    if len(unassessed) > 1:
+    try:
+        latest, result_id = _completion_replay_selection(store, snapshot, observations)
+    except TransportBoundaryError:
         return _persist_completion_assessment(store, snapshot, program_transport_store, base, job, "evidence-conflict", driver=driver)
-    if unassessed:
-        result_id = unassessed[0].result_id
     if result_id is None:
         if latest is not None and observations[-1] == latest:
             return latest

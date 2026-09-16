@@ -373,3 +373,17 @@ FC13 PASS. Exact evidence and independent review are retained in the
 C4 candidate acceptance, its later offline implementation, production publisher
 qualification, live execution and scientific acceptance remain separate gates.
 No publication, integration, new task, deployment or live authority is inferred.
+
+
+## Same-Attempt collection recovery C2
+
+C2 design accepted on 2026-09-16; the [bounded isolated candidate](same-attempt-collection-recovery-contract.md)
+implements original four-store restoration, separate collect-only continuation,
+one durable epoch audit and original native collection/replay. Incremental
+coverage includes cross-process recovery, expired original window, scope and
+physical-identity refusal, real lock competition, historical-prefix tampering,
+and seven actual process-exit boundaries. Final independent delta review and
+CR10 native completion remain pending. External
+same-job operational smoke and original Core completion remain separate facts.
+Original R4/FC/C4/target evidence is reused only for its exact original source.
+CREST and PR/integration decisions remain subsequent gates.

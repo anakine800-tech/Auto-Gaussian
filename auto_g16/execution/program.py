@@ -1136,6 +1136,11 @@ class ProgramExecutionSnapshot:
 
 
 def _validate_program_review_semantics(raw: Mapping[str, object]) -> Mapping[str, object]:
+    """Pure validation stays mapping-only; it conveys no restoration authority."""
+    return _decode_program_review_semantics(raw)._approval_semantics()
+
+
+def _decode_program_review_semantics(raw: Mapping[str, object]) -> ProgramExecutionSnapshot:
     value = freeze_mapping(raw, "persisted successor review semantics")
     _exact_keys(value, set(ProgramExecutionSnapshot._approval_field_set()), "successor review semantics")
 
@@ -1244,7 +1249,15 @@ def _validate_program_review_semantics(raw: Mapping[str, object]) -> Mapping[str
     snapshot.assert_identity_closed()
     if snapshot._approval_semantics() != value:
         raise ExecutionValueError("expanded successor review semantics are stale")
-    return value
+    return snapshot
+
+
+def _assert_collection_local_workspace(snapshot):
+    from ._paths import require_local_workspace_anchor
+    workspace = snapshot.workspace_binding
+    current = require_local_workspace_anchor(workspace.local_attempt_dir, workspace._local_approved_root)
+    if current != (workspace._local_approved_root, workspace._local_parent_parts, workspace._local_component_identities):
+        raise ExecutionValueError("restored local workspace anchor changed")
 
 
 class _ProgramExecutionSnapshotService:
@@ -1312,6 +1325,54 @@ class _ProgramExecutionSnapshotService:
             workspace_binding=workspace_binding,
             completion_rendering_material=completion_rendering_material,
         )
+
+    def restore_for_collection(self, store: SQLiteRuntimeStore, *, reviewed_semantics: Mapping[str, object]) -> ProgramExecutionSnapshot:
+        """Restore data for an existing submission; never attest/provision remotely.
+
+        Controller owns original approvals and physical four-store binding. The
+        runtime must additionally close dual-source receipts under its guard
+        before this snapshot can be used by the collect-only composition.
+        """
+        from auto_g16.core import SubmissionOutcome
+        from .project_provisioning import _ProductionProvisioningJournal
+        from .runtime import _replay_submission_intent
+        from auto_g16.core import SubmissionIntentClaim
+        if type(store) is not SQLiteRuntimeStore:
+            raise ExecutionValueError("restoration requires the original Core store")
+        snapshot = _decode_program_review_semantics(reviewed_semantics)
+        service = self._project_provisioning
+        if type(service._journal) is not _ProductionProvisioningJournal:
+            raise ExecutionValueError("restoration requires a production Project journal")
+        service._assert_production_authority(snapshot.resolved_server_profile)
+        if not _uses_completion_receipt(snapshot.program_execution_spec) or snapshot._completion_material()["schema"] != "v31-completion-rendering-material/2":
+            raise ExecutionValueError("restoration requires the original publisher tuple")
+        state = store.attempt_state(snapshot.attempt_id)
+        if state not in {AttemptState.SUBMITTED, AttemptState.RUNNING, AttemptState.SUCCEEDED, AttemptState.FAILED}:
+            raise ExecutionValueError("restoration requires an already submitted Attempt")
+        from auto_g16.transport.program import _RECEIPT_TYPE
+        receipts = [item for item in store.observations_for_attempt(snapshot.attempt_id) if item.observation_type == _RECEIPT_TYPE]
+        if any(item.data.get("operation") == "RECONCILE_SUBMISSION" for item in receipts) or sum(item.data.get("operation") == "SUBMIT_QSUB_ONCE" and item.data.get("outcome") == "SUCCEEDED" for item in receipts) != 1:
+            raise ExecutionValueError("restoration requires one original successful submission")
+        snapshot._assert_current_core(store)
+        _assert_collection_local_workspace(snapshot)
+        attempt = store.load_attempt(snapshot.attempt_id)
+        project = store.load_project(store.load_workflow_run(store.load_task(attempt.task_id).workflow_run_id).project_id)
+        service._assert_owned_binding(binding=snapshot.project_physical_binding, project=project,
+                                      target=snapshot.resolved_server_profile,
+                                      remote_project_dir=snapshot.project_physical_binding.remote_project_dir)
+        resources = snapshot.resolved_resource_request
+        rebuilt = ResolvedResourceRequest(resource_spec=store.load_resource_spec(resources.resource_spec_id),
+                                          cores=resources.cores, memory_mb=resources.memory_mb,
+                                          walltime_seconds=resources.walltime_seconds, queue=resources.queue)
+        if rebuilt != resources:
+            raise ExecutionValueError("restored resources differ from Core")
+        # In these states the existing Core APIs can only replay exact records;
+        # missing/conflicting intent/outcome raises, never takes a WINNER branch.
+        if _replay_submission_intent(store, snapshot.attempt_id, snapshot.effect_intent_id) is not SubmissionIntentClaim.REPLAY:
+            raise ExecutionValueError("restoration cannot claim an Attempt")
+        if store.record_submission_outcome(snapshot.attempt_id, snapshot.effect_intent_id, SubmissionOutcome.SUBMITTED) is not state:
+            raise ExecutionValueError("restoration changed submission state")
+        return snapshot
 
 
 def _prepare_program_execution_snapshot_owned(

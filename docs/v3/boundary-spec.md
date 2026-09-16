@@ -5856,3 +5856,21 @@ the private qualification/tuple/Controller implementation, not target qualificat
 or activation. Preserve the original synthetic v3 completion and strict behavior.
 Approval semantics stay in Controller; Transport reads only fixed deployment
 identity evidence. Actual deployment locator and host facts are NOT_ACQUIRED.
+
+
+### V31 same-Attempt collection recovery boundary
+
+The [accepted C2 delta](same-attempt-collection-recovery-contract.md) adds an
+Execution-owned submitted snapshot restore and a fixed finite collection path.
+Only confirmed SUBMITTED/RUNNING or native terminal replay is admitted; ambiguous
+and reconciled submissions are excluded. Original four-store provenance and
+original approvals reclose before collection. Old Q qualifies only original
+publication source; new collector bytes/imports and continuation are separately
+fixed and reviewed. The original window is never extended.
+
+A durable private Observation consumes one remote read epoch before the first
+wire operation. It remains in the unchanged full observation-prefix algorithm;
+effect receipt sequences remain receipt-only. Complete-bundle/terminal replay
+adds no start audit and invokes no wire from process start. No missing-bundle
+probe writes an UNKNOWN assessment. Existing collector, capture, guard and Core
+reducer own persistence and terminal advancement; no direct state repair.
