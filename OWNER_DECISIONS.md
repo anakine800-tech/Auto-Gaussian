@@ -1308,3 +1308,15 @@ Contract. C2/C3 history, strict `/1` stores and all other completion semantics
 remain intact. Native primitive probes are feasibility evidence, not full FC13
 or product qualification. Production publisher-not-qualified remains a hard
 stop. No new operational, provisioning, scientific or publication authority.
+
+
+### OD-32 R4 publisher offline implementation accepted
+
+Owner accepted the exact reviewed R4 package on 2026-09-15 for bounded offline
+product implementation. The [frozen Task Contract and provenance](docs/v3/publisher-r4/README.md)
+close scope, R4 > R3 > R2 precedence, validation and remaining gates. Earlier
+publisher hard stops remain for unqualified production; this acceptance permits
+the private qualification/tuple/Controller implementation, not target qualification
+or activation. Preserve the original synthetic v3 completion and strict behavior.
+Approval semantics stay in Controller; Transport reads only fixed deployment
+identity evidence. Actual deployment locator and host facts are NOT_ACQUIRED.

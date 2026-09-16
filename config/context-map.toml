@@ -320,3 +320,10 @@ required_sections = [
 ]
 code_paths = []
 focused_tests = []
+
+[[component]]
+id = "v31-publisher-r4-offline"
+status = "owner-accepted-offline-implementation-production-unavailable"
+required_sections = ["docs/v3/publisher-r4/README.md#frozen-authority", "docs/v3/AUTONOMOUS_DEVELOPMENT.md#v31-publisher-r4-offline-implementation-01"]
+code_paths = ["auto_g16/execution/_program_completion.py", "auto_g16/execution/_program_completion_wrapper.py", "auto_g16/execution/program.py", "auto_g16/execution/program_runtime.py", "auto_g16/transport/_program_rtwin.py", "scripts/run_v31_publisher_pilot.py"]
+focused_tests = ["tests/v31/transport/"]

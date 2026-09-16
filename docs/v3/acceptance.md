@@ -2087,3 +2087,15 @@ test-local model is not Mac acceptance. Inert OS/SQLite probes justify a design
 candidate only; all integrated vectors and full FC13 remain open until proved.
 The selector's self-protection after a manifest/test edit remains authoritative;
 focused tests and independent review grant no automatic full-suite execution.
+
+
+### V31 publisher R4 offline acceptance
+
+Owner accepted the exact reviewed R4 package on 2026-09-15 for bounded offline
+product implementation. The [frozen Task Contract and provenance](publisher-r4/README.md)
+close scope, R4 > R3 > R2 precedence, validation and remaining gates. Earlier
+publisher hard stops remain for unqualified production; this acceptance permits
+the private qualification/tuple/Controller implementation, not target qualification
+or activation. Preserve the original synthetic v3 completion and strict behavior.
+Approval semantics stay in Controller; Transport reads only fixed deployment
+identity evidence. Actual deployment locator and host facts are NOT_ACQUIRED.
