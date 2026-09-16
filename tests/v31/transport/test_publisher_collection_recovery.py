@@ -10,6 +10,7 @@ import os
 import sys
 import unittest
 import subprocess
+import sqlite3
 import tempfile
 import threading
 import base64
@@ -234,10 +235,11 @@ def _process_entry(mode, path):
                 stack.enter_context(patch.object(_driver._SubprocessRTWinDriver, "_run", side_effect=wire_exit))
         try:
             result = controller._resume_fixed_publisher_collection()
-            result = {"assessment": result.observation_id, "verdict": result.data["verdict"]}
+            result = {"assessment": result.observation_id, "verdict": result.data["verdict"],
+                      "capture_authority_id": result.data["capture_authority_id"], "evidence_result_id": result.data["evidence_result_id"]}
         except (TransportBoundaryError, execution.ExecutionValueError) as exc:
             result = {"rejected": str(exc)}
-        connection = __import__("sqlite3").connect(Path(state["run"].databases[0].path).as_uri() + "?mode=ro", uri=True)
+        connection = sqlite3.connect(Path(state["run"].databases[0].path).as_uri() + "?mode=ro", uri=True)
         try:
             persisted = {"results": connection.execute("SELECT result_id,data FROM results ORDER BY sequence").fetchall(),
                          "observation_count": connection.execute("SELECT count(*) FROM observations").fetchone()[0],
@@ -245,6 +247,14 @@ def _process_entry(mode, path):
                          "state": connection.execute("SELECT state FROM attempts").fetchone()[0]}
         finally:
             connection.close()
+        persisted["four_store_counts"] = {}
+        for binding in state["run"].databases:
+            connection = sqlite3.connect(Path(binding.path).as_uri() + "?mode=ro", uri=True)
+            try:
+                names = [row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")]
+                persisted["four_store_counts"][binding.role] = {name: connection.execute('SELECT count(*) FROM "' + name.replace('"', '""') + '"').fetchone()[0] for name in names}
+            finally:
+                connection.close()
         print(json.dumps({**result, "persisted": persisted, "wire_calls": len(wire.calls)}), flush=True)
 
 
@@ -467,6 +477,10 @@ class CollectionProcessRecoveryTests(unittest.TestCase):
             self.assertEqual(collected["wire_calls"], 11)
             self.assertEqual(len(collected["persisted"]["results"]), 1)
             self.assertEqual(collected["persisted"]["audit_count"], 1)
+            self.assertEqual(collected["persisted"]["state"], "SUCCEEDED")
+            self.assertEqual(collected["evidence_result_id"], collected["persisted"]["results"][0][0])
+            self.assertTrue(collected["capture_authority_id"])
+            self.assertEqual(set(collected["persisted"]["four_store_counts"]), {"core", "approval", "transport", "project-journal"})
             replayed = json.loads(_child("resume", state).stdout)
             self.assertEqual(replayed, {**collected, "wire_calls": 0})
 
@@ -480,8 +494,13 @@ class CollectionProcessRecoveryTests(unittest.TestCase):
                 self.assertEqual(result["wire_calls"], 11 if phase == "before-audit" else 0)
                 if phase in {"audit", "wire", "before-result"}:
                     self.assertIn("already consumed", result["rejected"])
+                    self.assertEqual(result["persisted"]["state"], "SUBMITTED")
+                    self.assertEqual(result["persisted"]["results"], [])
+                    self.assertEqual(result["persisted"]["audit_count"], 1)
+                    self.assertEqual(json.loads(_child("resume", state).stdout), result)
                 else:
                     self.assertEqual(result["verdict"], "SUCCEEDED")
+                    self.assertEqual(result["persisted"]["state"], "SUCCEEDED")
                     self.assertEqual(json.loads(_child("resume", state).stdout), {**result, "wire_calls": 0})
 
 
