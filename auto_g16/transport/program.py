@@ -390,6 +390,32 @@ def _require_store_process():
         raise TransportBoundaryError("fork child requires exec before opening any program store")
 
 
+def _readonly_source_state(path, root):
+    with _directory_walk(path, root) as (binding, parent_fd):
+        name = Path(path).name
+        for suffix in ("-journal", "-wal", "-shm"):
+            try:
+                os.stat(name + suffix, dir_fd=parent_fd, follow_symlinks=False)
+            except FileNotFoundError:
+                continue
+            raise TransportBoundaryError("read-only source has a SQLite sidecar")
+        descriptor = os.open(name, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW | os.O_CLOEXEC,
+                             dir_fd=parent_fd)
+        try:
+            info = os.fstat(descriptor)
+            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                raise TransportBoundaryError("read-only source must be a single regular file")
+            header = os.read(descriptor, 100)
+            if len(header) != 100 or header[:16] != b"SQLite format 3\x00" or header[18:20] != b"\x01\x01":
+                raise TransportBoundaryError("read-only source requires rollback journal format")
+            named = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+            if (named.st_dev, named.st_ino) != (info.st_dev, info.st_ino):
+                raise TransportBoundaryError("read-only source path changed")
+            return binding, info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns, header
+        finally:
+            os.close(descriptor)
+
+
 class _ProgramTransportStore:
     """Private append-only physical authority for successor effects only."""
 
@@ -460,6 +486,14 @@ class _ProgramTransportStore:
 
     @classmethod
     def open_existing(cls, path, *, approved_root):
+        return cls._open_existing(path, approved_root=approved_root)
+
+    @classmethod
+    def _open_readonly_existing(cls, path, *, approved_root):
+        return cls._open_existing(path, approved_root=approved_root, readonly=True)
+
+    @classmethod
+    def _open_existing(cls, path, *, approved_root, readonly=False):
         _require_store_process()
         absolute_path, absolute_root = _store_paths(path, approved_root)
         # The same SQLite connection identifies format, never accepts authority.
@@ -470,8 +504,11 @@ class _ProgramTransportStore:
                 try:
                     binding, _fd = stack.enter_context(_directory_walk(os.fspath(path), os.fspath(approved_root)))
                 except TransportBoundaryError:
+                    if readonly:
+                        raise
                     binding = None
-                value = cls._open(absolute_path, absolute_root, version=None)
+                before = _readonly_source_state(absolute_path, absolute_root) if readonly else None
+                value = cls._open(absolute_path, absolute_root, version=None, readonly=readonly)
                 try:
                     if value._version == 1:
                         value._attest()
@@ -489,17 +526,25 @@ class _ProgramTransportStore:
                                 value._require_completion_guard(token)
                             finally:
                                 value._completion_owner = None
+                    if readonly and _readonly_source_state(absolute_path, absolute_root) != before:
+                        raise TransportBoundaryError("read-only source changed across SQLite open")
                     return value
                 except BaseException:
                     value.close()
                     raise
-        except BaseException:
+        except BaseException as error:
             if value is not None:
                 value.close()
+            if readonly and 'before' in locals() and before is not None:
+                try:
+                    if _readonly_source_state(absolute_path, absolute_root) != before:
+                        raise TransportBoundaryError("read-only source changed on failed open")
+                except BaseException as recheck:
+                    error.add_note(f"source recheck failed: {recheck!r}")
             raise
 
     @classmethod
-    def _open(cls, path: str, root: str, *, version=1):
+    def _open(cls, path: str, root: str, *, version=1, readonly=False):
         _require_store_process()
         identity = _store_file_identity(path)
         value = object.__new__(cls)
@@ -514,9 +559,15 @@ class _ProgramTransportStore:
         value._closed = False
         # Fork cannot miss a just-created connection in the quarantine registry.
         with _DIRECTORY_MUTEX:
-            value._connection = sqlite3.connect(path, isolation_level=None, check_same_thread=False)
+            if readonly:
+                value._connection = sqlite3.connect(Path(path).as_uri() + "?mode=ro&cache=private",
+                                                   uri=True, isolation_level=None, check_same_thread=False)
+            else:
+                value._connection = sqlite3.connect(path, isolation_level=None, check_same_thread=False)
             _STORE_HANDLES.add(value)
         try:
+            if readonly:
+                value._connection.execute("PRAGMA query_only=ON")
             if version is None:
                 application = value._connection.execute("PRAGMA application_id").fetchone()[0]
                 value._version = value._connection.execute("PRAGMA user_version").fetchone()[0]

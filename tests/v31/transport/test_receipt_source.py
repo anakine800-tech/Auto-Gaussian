@@ -43,6 +43,19 @@ class ReceiptSourceTests(recovery._RecoveryFixture):
         self.assertEqual(proof['capture_authority_id'], capture.capture_authority_id)
         self.assertEqual(proof['schema'], 'program-terminal-success-authority/2')
 
+    def test_native_readonly_openers_reclose_original_success(self):
+        self.store.close()
+        self.program_transport_store.close()
+        before = tuple(Path(b.path).read_bytes() for b in (self.fixed.core, self.fixed.transport))
+        self.store = core.SQLiteRuntimeStore._open_readonly_existing(self.fixed.core.path)
+        self.addCleanup(self.store.close)
+        self.program_transport_store = transport._ProgramTransportStore._open_readonly_existing(
+            self.fixed.transport.path, approved_root=self.root)
+        self.addCleanup(self.program_transport_store.close)
+        proof, capture = self.read()
+        self.assertEqual(proof['capture_authority_id'], capture.capture_authority_id)
+        self.assertEqual(before, tuple(Path(b.path).read_bytes() for b in (self.fixed.core, self.fixed.transport)))
+
     def test_missing_or_drifted_source_rejects(self):
         for fixed in (replace(self.fixed, snapshot_id='other'), replace(self.fixed, bootstrap_source_sha256='0'*64),
                       replace(self.fixed, core=replace(self.fixed.core, sha256='0'*64))):

@@ -44,3 +44,25 @@ Before the new CREST claim, the fixed run validator must recheck the source,
 handoff ID and private CalculationPlan intent. Missing or changed authority
 must cause zero claim/qsub. Synthetic fixtures retain their explicitly
 nonproduction identity path and cannot qualify a real binary or installation.
+
+## Accepted native read-only open delta
+
+On 2026-09-16 the parent delegate explicitly accepted the narrowly identified
+hot-journal gap: a default read-write native constructor can perform SQLite
+recovery before the historical proof's sidecar check. Source installation must
+therefore use private existing-only native Core/Transport read-only factories.
+Those owning factories keep the exact native classes and original paths, reject
+sidecars and non-rollback headers before SQLite opens, and use `mode=ro` with
+`cache=private` and query-only connections. Missing files are never created.
+Existing public constructors, writer paths, DDL, authority rows, and schema
+versions remain unchanged. Callers must not monkeypatch connections or fabricate
+native stores. Original source pins and native schema/physical identity checks
+remain mandatory; every installer exit rechecks source bytes and destination
+identities while retaining both primary and recheck failures.
+
+This accepted scope delta adds only the private reader factory in
+`auto_g16/core/store.py` and the corresponding private Transport factory plus
+focused source-opening tests. It does not approve an installation or live action.
+A new candidate is required; unchanged exact publisher, probe and loader source
+bytes preserve their own existing evidence lineage rather than pretending the
+old observation was produced by the new commit.

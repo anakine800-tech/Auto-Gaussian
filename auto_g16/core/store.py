@@ -6,8 +6,10 @@ from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from enum import Enum
 import json
+import os
 from pathlib import Path
 import sqlite3
+import stat
 from typing import cast
 
 from .models import (
@@ -291,19 +293,87 @@ def _expected_schema_identity() -> tuple[object, ...]:
         reference.close()
 
 
+def _readonly_database_state(path: str) -> tuple[object, ...]:
+    """Check the original lexical path before any SQLite access."""
+    if (not os.path.isabs(path) or path != os.path.abspath(path)
+            or "//" in path or path.endswith("/")):
+        raise RuntimeStoreSchemaError("read-only source path must be canonical")
+    descriptors: list[int] = []
+    parts = Path(path).parts
+    try:
+        for part in parts[:-1]:
+            descriptors.append(os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                                       dir_fd=descriptors[-1] if descriptors else None))
+        for suffix in ("-journal", "-wal", "-shm"):
+            try:
+                os.stat(parts[-1] + suffix, dir_fd=descriptors[-1], follow_symlinks=False)
+            except FileNotFoundError:
+                continue
+            raise RuntimeStoreSchemaError("read-only source has a SQLite sidecar")
+        descriptors.append(os.open(parts[-1], os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW | os.O_CLOEXEC,
+                                   dir_fd=descriptors[-1]))
+        info = os.fstat(descriptors[-1])
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            raise RuntimeStoreSchemaError("read-only source must be a single regular file")
+        header = os.read(descriptors[-1], 100)
+        if len(header) != 100 or header[:16] != b"SQLite format 3\x00" or header[18:20] != b"\x01\x01":
+            raise RuntimeStoreSchemaError("read-only source requires rollback journal format")
+        identities = tuple((os.fstat(fd).st_dev, os.fstat(fd).st_ino) for fd in descriptors)
+        for index, part in enumerate(parts):
+            named = os.stat(part, dir_fd=descriptors[index-1] if index else None, follow_symlinks=False)
+            if identities[index] != (named.st_dev, named.st_ino):
+                raise RuntimeStoreSchemaError("read-only source path changed")
+        return identities, info.st_size, info.st_mtime_ns, info.st_ctime_ns, header
+    except OSError as error:
+        raise RuntimeStoreSchemaError("read-only source unavailable or unsafe") from error
+    finally:
+        for descriptor in reversed(descriptors):
+            os.close(descriptor)
+
+
 class SQLiteRuntimeStore:
     """Versioned local runtime store with explicit, fail-closed transactions."""
 
     def __init__(self, database: str | Path = ":memory:") -> None:
+        self._connect(database)
+
+    @classmethod
+    def _open_readonly_existing(cls, database: str | Path) -> SQLiteRuntimeStore:
+        """Open historical authority without creating files or recovering journals."""
+        path = os.fspath(database)
+        before = _readonly_database_state(path)
+        value = object.__new__(cls)
+        try:
+            value._connect(Path(path).as_uri() + "?mode=ro&cache=private", readonly=True)
+            if _readonly_database_state(path) != before:
+                raise RuntimeStoreSchemaError("read-only source changed across SQLite open")
+            return value
+        except BaseException as error:
+            if hasattr(value, "_closed"):
+                value.close()
+            try:
+                if _readonly_database_state(path) != before:
+                    raise RuntimeStoreSchemaError("read-only source changed on failed open")
+            except BaseException as recheck:
+                error.add_note(f"source recheck failed: {recheck!r}")
+            raise
+
+    def _connect(self, database: str | Path, *, readonly: bool = False) -> None:
         self._closed = False
         try:
-            self._connection = sqlite3.connect(str(database), isolation_level=None)
+            if readonly:
+                self._connection = sqlite3.connect(str(database), isolation_level=None, uri=True)
+                self._connection.execute("PRAGMA query_only=ON")
+                if self._connection.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION:
+                    raise RuntimeStoreSchemaError("read-only source requires existing native schema")
+            else:
+                self._connection = sqlite3.connect(str(database), isolation_level=None)
             self._connection.row_factory = sqlite3.Row
             self._connection.execute("PRAGMA foreign_keys = ON")
             if self._connection.execute("PRAGMA foreign_keys").fetchone()[0] != 1:
                 raise RuntimeStoreSchemaError("SQLite foreign keys could not be enabled")
             self._initialize_schema()
-        except Exception:
+        except BaseException:
             connection = getattr(self, "_connection", None)
             if connection is not None:
                 connection.close()

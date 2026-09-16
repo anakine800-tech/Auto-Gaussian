@@ -53,3 +53,14 @@ acquisition packet. It does not qualify the target, rewrite either failed probe,
 or approve Project provisioning, an Attempt, submission or science. Final Q2
 binds the observed closure, retained raw evidence and loading review, plus the
 new exact wrapper/probe source hashes. Q1 remains unchanged.
+
+## Accepted historical database opening delta
+
+The parent delegate accepted the native existing-only read-only opening delta on
+2026-09-16. The expanded [source addendum](crest-readonly-source-addendum.md)
+SHA256 `503338ecdee4c2858a3416c6b661a40b5ed9a33e8e038d25630627220a641aa1` supersedes its earlier hash above only for
+this additional pre-connection protection. The original proof contract remains
+unchanged. Core and Transport use private native factories; public writes, DDL
+and publisher/loader source bytes retain their existing semantics. The focused
+hot-journal, zero-write and failure-exit checks and independent review bind the
+new candidate, without relabelling old target observations as new runs.
