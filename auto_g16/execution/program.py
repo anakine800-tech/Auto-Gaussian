@@ -814,12 +814,13 @@ def _render_scheduler_artifact(
     profile: ResolvedServerProfile,
     *, prebinding_fields: Mapping[str, object] | None = None,
     completion_rendering_material: Mapping[str, object] | None = None,
+    project_physical_binding: ProjectPhysicalBinding | None = None,
 ) -> tuple[Mapping[str, object], ...]:
     if _uses_completion_receipt(spec):
         from ._program_completion import _render_completion_scheduler
         if prebinding_fields is None or completion_rendering_material is None:
             raise ExecutionValueError("completion rendering material is required")
-        return _render_completion_scheduler(spec, resources, profile, prebinding_fields, completion_rendering_material)
+        return _render_completion_scheduler(spec, resources, profile, prebinding_fields, completion_rendering_material, project_binding=project_physical_binding)
     if completion_rendering_material is not None:
         raise ExecutionValueError("strict adapters reject completion rendering material")
     argv = tuple(spec.invocation["argv"])
@@ -1101,6 +1102,7 @@ class ProgramExecutionSnapshot:
             self.resolved_server_profile,
             prebinding_fields={key: value for key, value in self._identity_payload.items() if key != "scheduler_artifacts"},
             completion_rendering_material=self._completion_material(),
+            project_physical_binding=self.project_physical_binding,
         )
         if self.cwd_binding != cwd_binding or self.scheduler_artifacts != scheduler:
             raise ExecutionValueError(
@@ -1360,7 +1362,7 @@ class _ProgramExecutionSnapshotService:
         if type(service._journal) is not _ProductionProvisioningJournal:
             raise ExecutionValueError("restoration requires a production Project journal")
         service._assert_production_authority(snapshot.resolved_server_profile)
-        if not _uses_completion_receipt(snapshot.program_execution_spec) or snapshot._completion_material()["schema"] != ("v31-completion-rendering-material/3" if snapshot.program_execution_spec.program_kind == "crest" else "v31-completion-rendering-material/2"):
+        if not _uses_completion_receipt(snapshot.program_execution_spec) or snapshot._completion_material()["schema"] not in ({"v31-completion-rendering-material/3", "v31-completion-rendering-material/4"} if snapshot.program_execution_spec.program_kind == "crest" else {"v31-completion-rendering-material/2"}):
             raise ExecutionValueError("restoration requires the original publisher tuple")
         state = store.attempt_state(snapshot.attempt_id)
         allowed = {AttemptState.SUBMITTED, AttemptState.RUNNING, AttemptState.SUCCEEDED, AttemptState.FAILED}
@@ -1505,6 +1507,7 @@ def _prepare_program_execution_snapshot_owned(
         program_execution_spec, resolved_resource_request, resolved_server_profile,
         prebinding_fields=payload,
         completion_rendering_material=completion_rendering_material,
+        project_physical_binding=project_physical_binding,
     )
     payload = freeze_mapping({**payload, "scheduler_artifacts": scheduler}, "ProgramExecutionSnapshot identity payload")
     effect_intent_id = semantic_id("program-effect-intent", payload)

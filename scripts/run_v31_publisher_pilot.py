@@ -129,12 +129,15 @@ def _probe_index(payload):
         entries.append({"role": "host-identity", "host_key": host["host_key"], "evidence": host["identity_evidence"]})
         entries.extend({"role": "location", "host_key": host["host_key"], "location_role": loc["role"], "evidence": loc["evidence"]} for loc in host["locations"])
         entries.extend({"role": "host-probe", "host_key": host["host_key"], "case_id": probe["case_id"], "evidence": probe["evidence"]} for probe in host["probes"])
-    crest = payload["schema"] == "auto-g16-v31-publisher-qualification/2"
+    startup = payload["schema"] == "auto-g16-v31-publisher-qualification/3"
+    crest = startup or payload["schema"] == "auto-g16-v31-publisher-qualification/2"
+    if startup:
+        entries.append({"role": "delivery-probe", "case_id": "P09", "evidence": payload["delivery_probe"]["evidence"]})
     if crest:
         closure = payload["runtime"]["crest_loader_closure"]
         entries.extend(({"role": "crest-loader-manifest", "sha256": closure["evidence_manifest_sha256"]},
                         {"role": "crest-loading-review", "sha256": closure["loading_policy"]["dynamic_loading_review_sha256"]}))
-    return {"schema": "v31-publisher-probe-evidence-index/2" if crest else "v31-publisher-probe-evidence-index/1", "entries": entries}
+    return {"schema": "v31-publisher-probe-evidence-index/3" if startup else "v31-publisher-probe-evidence-index/2" if crest else "v31-publisher-probe-evidence-index/1", "entries": entries}
 
 
 def _validate_pilot_qualification_evidence(run, deployment, confirmation):
@@ -232,6 +235,9 @@ def _fixed_pilot_context():
         from auto_g16.conformer import service as conformer_service
         actual.update(str(Path(module.__file__).resolve()) for module in
                       (_crest_completion, _crest_loader, _crest_seed_handoff, _receipt_source, xtb_crest_handoff, conformer_service, transport))
+    if len(snapshot.scheduler_artifacts) == 2:
+        from auto_g16.execution import _crest_startup
+        actual.add(str(Path(_crest_startup.__file__).resolve()))
     if {b.path for b in run.code_files} != actual or len(run.code_files) != len(actual):
         raise rtwin._publisher_failure("installed code inventory differs")
     code_pins = []

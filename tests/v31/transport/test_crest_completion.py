@@ -54,6 +54,8 @@ def qualify_crest_profile(profile,queue='simple'):
 
 
 class CrestCompletionTests(lane.LaneAFixture):
+    qualify_profile = staticmethod(qualify_crest_profile)
+    qualification_name = crest._Q_NAME
     profile = crest_profile
     def resolved(self, **kwargs):
         return execution.resolve_server_profile(self.profile(**kwargs))
@@ -112,7 +114,7 @@ class CrestCompletionTests(lane.LaneAFixture):
         fixed_source=source_module._FixedReceiptSource(source.snapshot.program_execution_snapshot_id,pilot.file_binding(Path(source.database)),pilot.file_binding(Path(source.program_transport_store._path)),sha256(_bridge._PROGRAM_BOOTSTRAP_SOURCE_BYTES).hexdigest(),len(_bridge._PROGRAM_BOOTSTRAP_SOURCE_BYTES))
         raw=source.current_profile
         profile=replace(raw,platform_paths={**raw.platform_paths,'crest_executable_path':'/opt/crest/3.0.2/bin/crest'},runtime_contents={**{k:v for k,v in raw.runtime_contents.items() if k!=c._Q_NAME},'crest':lane.CREST_EXECUTABLE_BYTES})
-        profile=qualify_crest_profile(profile,queue='batch');target=execution.resolve_server_profile(profile)
+        profile=self.qualify_profile(profile,queue='batch');target=execution.resolve_server_profile(profile)
         sampling=seed_tests.profile3()
         self.spec=p._prepare_program_execution_spec(program_kind='crest',executable_path=profile.platform_paths['crest_executable_path'],executable_size_bytes=len(lane.CREST_EXECUTABLE_BYTES),executable_sha256=sha256(lane.CREST_EXECUTABLE_BYTES).hexdigest(),input_name='seed.xyz',input_bytes=lane.XYZ,program_data=self.crest_data(**crest._POLICY,sampling_configuration_identity=_payload_sha256(sampling.crest_imtd_gc_profile)),resolved_profile=target,completion_mode=c._MODE)
         context=dict(core_store=source.store,xtb_program_execution_snapshot=source.snapshot,xtb_program_transport_store=source.program_transport_store,xtb_validation_driver=None,crest_program_execution_spec=self.spec,crest_exact_input_bytes=lane.XYZ,sampling_profile=sampling)
@@ -140,7 +142,7 @@ class CrestCompletionTests(lane.LaneAFixture):
             local=self.local_root/'crest-project';local.mkdir()
             workspace=execution.WorkspaceBinding(project=project,attempt_id='crest-attempt',local_approved_root=str(self.local_root),local_attempt_dir=str(local/'crest-attempt'),remote_approved_root=execution.LEGACY_REMOTE_ROOT,remote_attempt_dir='/home/user100/SDL/crest-project/crest-attempt',rtwin_approved_root=r'C:\RTWIN',rtwin_attempt_dir=r'C:\RTWIN\crest-project\crest-attempt')
             self.snapshot=factory.prepare(self.store,attempt_id='crest-attempt',calculation_plan_id='crest-plan',resource_spec_id='crest-resource',program_execution_spec=self.spec,project_physical_binding=binding,resolved_resource_request=resources,resolved_server_profile=target,workspace_binding=workspace,completion_rendering_material=c._prepare_publisher_pilot_rendering_material(profile,target))
-            self.current_profile=profile;self.q=json.loads(profile.runtime_contents[crest._Q_NAME])['payload']
+            self.current_profile=profile;self.q=json.loads(profile.runtime_contents[self.qualification_name])['payload']
             self.scheduler_bytes={'crest.pbs':self.snapshot.scheduler_artifacts[0]['content_utf8'].encode()}
             installation,_,run,_=pilot._PilotFixture.install_fixture(self)
             fixed=handoffs._FixedReceiptSubmission(handoff,self.snapshot.program_execution_snapshot_id,binding.semantic_payload(),plan.calculation_plan_id,runtime.semantic_sha256(plan.intent),context)

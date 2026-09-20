@@ -1189,11 +1189,13 @@ def _validate_operation_payload(
         _portable(payload["portable_name"], "stage portable_name")
         for key in ("artifact_kind", "logical_role", "format"):
             _text(payload[key], f"stage {key}")
-        if payload["artifact_kind"] not in {"program-input", "scheduler-script"}:
+        if payload["artifact_kind"] not in {"program-input", "scheduler-script", "startup-payload"}:
             raise TransportBoundaryError("stage artifact kind is outside the closed set")
         if not isinstance(payload["sha256"], str) or _SHA256.fullmatch(payload["sha256"]) is None:
             raise TransportBoundaryError("stage sha256 is invalid")
         _positive(payload["size_bytes"], "stage size_bytes")
+        if payload["artifact_kind"] == "startup-payload" and ((payload["logical_role"], payload["portable_name"], payload["format"]) != ("startup-payload", "crest-startup.json", "json") or payload["size_bytes"] > 8*1024*1024):
+            raise TransportBoundaryError("startup payload declaration differs")
         return payload
     if operation == "SUBMIT_QSUB_ONCE":
         payload = _exact_keys(
@@ -1201,7 +1203,7 @@ def _validate_operation_payload(
             {
                 "scheduler_portable_name", "scheduler_artifact_authority_id",
                 "program_input_artifact_authority_ids",
-            },
+            } | ({"startup_payload_artifact_authority_ids"} if isinstance(value, Mapping) and "startup_payload_artifact_authority_ids" in value else set()),
             "submit payload",
         )
         _portable(payload["scheduler_portable_name"], "scheduler portable_name")
@@ -1217,6 +1219,13 @@ def _validate_operation_payload(
             raise TransportBoundaryError("program input authorities are invalid")
         for item in input_ids:
             _text(item, "program input artifact authority ID")
+        if "startup_payload_artifact_authority_ids" in payload:
+            ids = payload["startup_payload_artifact_authority_ids"]
+            if type(ids) is not tuple or len(ids) != 1:
+                raise TransportBoundaryError("startup payload requires exactly one authority")
+            _text(ids[0], "startup payload authority")
+            if ids[0] in (*input_ids, payload["scheduler_artifact_authority_id"]):
+                raise TransportBoundaryError("startup payload authority overlaps")
         return payload
     if operation == "QUERY_SCHEDULER":
         payload = _exact_keys(value, {"job_id"}, "scheduler query payload")
@@ -1326,6 +1335,7 @@ def _prepare_program_effect_requests(
         raise TransportBoundaryError("successor stage material must be non-empty tuple")
     closed_material: list[tuple[Mapping[str, object], bytes]] = []
     scheduler_names: list[str] = []
+    startup_names: list[str] = []
     seen_names: set[str] = set()
     for index, item in enumerate(material):
         if not isinstance(item, tuple) or len(item) != 2:
@@ -1347,10 +1357,12 @@ def _prepare_program_effect_requests(
         seen_names.add(name)
         if payload["artifact_kind"] == "scheduler-script":
             scheduler_names.append(name)
+        elif payload["artifact_kind"] == "startup-payload":
+            startup_names.append(name)
         elif payload["artifact_kind"] != "program-input":
             raise TransportBoundaryError("successor artifact kind is outside the closed set")
         closed_material.append((dict(payload), content))
-    if len(scheduler_names) != 1:
+    if len(scheduler_names) != 1 or len(startup_names) > 1:
         raise TransportBoundaryError("successor requires exactly one scheduler script")
     allocate = _request("ALLOCATE_WORKSPACE", closed_binding, {})
     placeholder_workspace = {
@@ -1366,6 +1378,7 @@ def _prepare_program_effect_requests(
             "scheduler_portable_name": scheduler_names[0],
             "scheduler_artifact_authority_id": "pre-effect-placeholder",
             "program_input_artifact_authority_ids": ("pre-effect-placeholder",),
+            **({"startup_payload_artifact_authority_ids": ("pre-effect-payload",)} if startup_names else {}),
         },
     )
     return _PreparedProgramEffects(
@@ -1426,6 +1439,7 @@ def _submit_request(
     scheduler_portable_name: str,
     scheduler_artifact_authority_id: str,
     program_input_artifact_authority_ids: tuple[str, ...],
+    startup_payload_artifact_authority_ids: tuple[str, ...] = (),
 ) -> Mapping[str, object]:
     return _request(
         "SUBMIT_QSUB_ONCE", {**binding, **workspace},
@@ -1433,6 +1447,7 @@ def _submit_request(
             "scheduler_portable_name": scheduler_portable_name,
             "scheduler_artifact_authority_id": scheduler_artifact_authority_id,
             "program_input_artifact_authority_ids": program_input_artifact_authority_ids,
+            **({"startup_payload_artifact_authority_ids": startup_payload_artifact_authority_ids} if startup_payload_artifact_authority_ids else {}),
         },
     )
 

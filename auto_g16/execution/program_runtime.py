@@ -95,7 +95,7 @@ def _snapshot_binding(
         synthetic = (snapshot.program_execution_spec.invocation["executable_identity"]["absolute_path"] in {"/opt/auto-g16-fixtures/bin/xtb", "/opt/auto-g16-fixtures/bin/crest"} and driver.runtime_qualification.get("bootstrap_protocol") == "synthetic-v31-program-effect/1")
         if not synthetic:
             from auto_g16.transport._program_rtwin import _RTWinProgramEffectDriver
-            if material["schema"] not in {_completion._PILOT_MATERIAL_SCHEMA, _completion._crest._MATERIAL_SCHEMA} or type(driver) is not _RTWinProgramEffectDriver:
+            if material["schema"] not in {_completion._PILOT_MATERIAL_SCHEMA, _completion._crest._MATERIAL_SCHEMA, _completion._startup._MATERIAL_SCHEMA} or type(driver) is not _RTWinProgramEffectDriver:
                 raise TransportBoundaryError("publisher-not-qualified")
             driver._authority()
     closed_driver = _transport._require_driver(driver)
@@ -207,7 +207,7 @@ def _stage_material(
         if type(content) is not bytes or content != expected or len(content) != declaration["size_bytes"] or sha256(content).hexdigest() != declaration["sha256"]:
             raise TransportBoundaryError("scheduler bytes differ from exact snapshot artifact")
         material.append(({
-            "artifact_kind": "scheduler-script",
+            "artifact_kind": declaration["logical_role"],
             "logical_role": declaration["logical_role"],
             "portable_name": name,
             "format": declaration["format"],
@@ -341,7 +341,7 @@ def _declared_stage_payload(
         for item in snapshot.program_execution_spec.exact_inputs
     ) + tuple(
         {
-            "artifact_kind": "scheduler-script",
+            "artifact_kind": item["logical_role"],
             "logical_role": item["logical_role"],
             "portable_name": item["portable_name"],
             "format": item["format"],
@@ -458,7 +458,13 @@ def _reconstruct_submit_request(
             )
         )
     )
-    if len(matched_schedulers) != 1 or len(authorities) != len(expected_inputs) + 1:
+    payload_ids = []
+    for declaration in snapshot.scheduler_artifacts[1:]:
+        matches = [item for item in authorities if item["artifact_kind"] == "startup-payload" and all(item[key] == declaration[key] for key in ("logical_role", "portable_name", "format", "sha256", "size_bytes"))]
+        if len(matches) != 1:
+            raise TransportBoundaryError("submit requires exact startup payload authority")
+        payload_ids.append(str(matches[0]["artifact_authority_id"]))
+    if len(matched_schedulers) != 1 or len(authorities) != len(expected_inputs) + 1 + len(payload_ids):
         raise TransportBoundaryError(
             "submit staged predecessor authority set is not exact"
         )
@@ -470,6 +476,7 @@ def _reconstruct_submit_request(
             matched_schedulers[0]["artifact_authority_id"]
         ),
         program_input_artifact_authority_ids=tuple(expected_inputs),
+        startup_payload_artifact_authority_ids=tuple(payload_ids),
     )
 
 
@@ -1338,12 +1345,12 @@ def _prepare_program_port(
         raise TransportBoundaryError("successor input and scheduler must be exact bytes")
     snapshot.assert_identity_closed()
     inputs, schedulers = snapshot.program_execution_spec.exact_inputs, snapshot.scheduler_artifacts
-    if len(inputs) != 1 or len(schedulers) != 1:
+    if len(inputs) != 1 or len(schedulers) not in {1, 2}:
         raise TransportBoundaryError("the common entrypoint requires one exact input and scheduler")
     prepared = _prepare_program_execution(
         store, snapshot=snapshot, program_transport_store=port.program_transport_store,
         input_bytes={str(inputs[0]["portable_name"]): prepared_input_bytes},
-        scheduler_artifact_bytes={str(schedulers[0]["portable_name"]): pbs_template_bytes},
+        scheduler_artifact_bytes={str(schedulers[0]["portable_name"]): pbs_template_bytes, **{str(item["portable_name"]): item["content_utf8"].encode("utf-8") for item in schedulers[1:]}},
         driver=port.driver,
     )
     spec = snapshot.program_execution_spec
@@ -1475,7 +1482,8 @@ def _execute_claimed_program(
             )
         schedulers = tuple(item for item in authorities if item["artifact_kind"] == "scheduler-script")
         program_inputs = tuple(item for item in authorities if item["artifact_kind"] == "program-input")
-        if len(schedulers) != 1 or len(program_inputs) != len(snapshot.program_execution_spec.exact_inputs):
+        payloads = tuple(item for item in authorities if item["artifact_kind"] == "startup-payload")
+        if len(schedulers) != 1 or len(program_inputs) != len(snapshot.program_execution_spec.exact_inputs) or len(payloads) != len(snapshot.scheduler_artifacts) - 1:
             raise TransportBoundaryError("successor staged authority is incomplete")
         current_operation = "SUBMIT_QSUB_ONCE"
         current_request = _transport._submit_request(
@@ -1487,6 +1495,7 @@ def _execute_claimed_program(
             program_input_artifact_authority_ids=tuple(
                 str(item["artifact_authority_id"]) for item in program_inputs
             ),
+            startup_payload_artifact_authority_ids=tuple(str(item["artifact_authority_id"]) for item in payloads),
         )
         submit_map = _transport._submit_response(
             _invoke_program_driver(store, snapshot, program_transport_store, closed_driver.submit_qsub_once, current_request)

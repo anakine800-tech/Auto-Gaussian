@@ -34,8 +34,9 @@ def _source_qualification(store, snapshot, transport_store, driver):
         raise TransportBoundaryError("fixed historical source locator NOT_ACQUIRED")
     if snapshot.program_execution_spec.program_kind != "xtb" or snapshot._completion_material()["schema"] != c._PILOT_MATERIAL_SCHEMA:
         raise TransportBoundaryError("historical source requires the exact original xTB tuple")
-    from auto_g16.transport._bridge import _PROGRAM_BOOTSTRAP_SOURCE_BYTES
-    if (sha256(_PROGRAM_BOOTSTRAP_SOURCE_BYTES).hexdigest(), len(_PROGRAM_BOOTSTRAP_SOURCE_BYTES)) != (fixed.bootstrap_source_sha256, fixed.bootstrap_source_size_bytes):
+    from auto_g16.transport._bridge import _PROGRAM_BOOTSTRAP_SOURCE_BYTES, _PRE_STARTUP_PROGRAM_BOOTSTRAP_SOURCE_BYTES
+    known = {(sha256(raw).hexdigest(), len(raw)) for raw in (_PRE_STARTUP_PROGRAM_BOOTSTRAP_SOURCE_BYTES, _PROGRAM_BOOTSTRAP_SOURCE_BYTES)}
+    if (fixed.bootstrap_source_sha256, fixed.bootstrap_source_size_bytes) not in known:
         raise TransportBoundaryError("historical bootstrap source changed")
     pins = []
     view = None

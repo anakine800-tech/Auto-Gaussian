@@ -81,7 +81,7 @@ class _Wire:
                 result = {key: value for key, value in p.items() if key != "content_base64"}
                 result["artifact_physical_token"] = "staged-" + p["portable_name"]
             elif op == "SUBMIT_QSUB_ONCE":
-                assert len(request["payload"]["staged"]) == 2
+                assert len(request["payload"]["staged"]) == 2 + int("startup_payload_artifact_authority_ids" in p)
                 assert request["payload"]["resources"]["queue"] == "batch"
                 result = {"job_id": "123.server"}
             elif op == "RECONCILE_SUBMISSION":

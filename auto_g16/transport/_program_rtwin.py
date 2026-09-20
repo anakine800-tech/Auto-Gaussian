@@ -163,9 +163,11 @@ def _assert_wire_scope(scope: object, scope_id: str, request: Mapping[str, objec
         content = original.pop("content_base64", None) if name == "STAGE_EXACT_FILE" else None
         if name == "SUBMIT_QSUB_ONCE" and isinstance(original.get("program_input_artifact_authority_ids"), list):
             original["program_input_artifact_authority_ids"] = tuple(original["program_input_artifact_authority_ids"])
+        if name == "SUBMIT_QSUB_ONCE" and isinstance(original.get("startup_payload_artifact_authority_ids"), list):
+            original["startup_payload_artifact_authority_ids"] = tuple(original["startup_payload_artifact_authority_ids"])
         program._validate_operation_payload(name, original)
         stages = [
-            {"artifact_kind": kind, **{key: item[key] for key in ("logical_role", "portable_name", "format", "sha256", "size_bytes")}}
+            {"artifact_kind": item["logical_role"] if kind == "scheduler-script" else kind, **{key: item[key] for key in ("logical_role", "portable_name", "format", "sha256", "size_bytes")}}
             for kind, declarations in (("program-input", scope.program_execution_spec.exact_inputs), ("scheduler-script", scope.scheduler_artifacts))
             for item in declarations
         ]
@@ -175,6 +177,8 @@ def _assert_wire_scope(scope: object, scope_id: str, request: Mapping[str, objec
             data = _driver._canonical_b64(content)
             if len(data) != original["size_bytes"] or sha256(data).hexdigest() != original["sha256"]:
                 raise TransportBoundaryError("successor wire stage bytes differ from declaration")
+        if name == "SUBMIT_QSUB_ONCE" and (("startup_payload_artifact_authority_ids" in original) != (len(scope.scheduler_artifacts) == 2)):
+            raise TransportBoundaryError("successor submit startup authority tuple differs")
         if name == "SUBMIT_QSUB_ONCE" and original["scheduler_portable_name"] != scope.scheduler_artifacts[0]["portable_name"]:
             raise TransportBoundaryError("successor wire scheduler differs from snapshot")
         if name in {"STAT_EXACT_FILE", "FETCH_EXACT_FILE"}:
@@ -395,7 +399,7 @@ class _RTWinProgramEffectDriver:
     def _initialize(self, snapshot, current_profile, program_transport_store):
         if type(snapshot) is not ProgramExecutionSnapshot or type(program_transport_store) is not program._ProgramTransportStore:
             raise TransportBoundaryError("production successor dependencies are not exact")
-        if snapshot.program_execution_spec.adapter_contract_version == 3 and not snapshot.scheduler_artifacts[0]["content_utf8"].startswith("#!/bin/bash\n# auto-g16-v31-scheduler/" + ("4" if snapshot.program_execution_spec.program_kind == "crest" else "3") + "\n"):
+        if snapshot.program_execution_spec.adapter_contract_version == 3 and not any(snapshot.scheduler_artifacts[0]["content_utf8"].startswith("#!/bin/bash\n# auto-g16-v31-scheduler/" + version + "\n") for version in (("4", "5") if snapshot.program_execution_spec.program_kind == "crest" else ("3",))):
             raise TransportBoundaryError("publisher-not-qualified")
         self._publisher = None
         self._snapshot = snapshot
@@ -756,14 +760,15 @@ def _read_publisher_deployment_identity(authority, snapshot):
         snapshot.assert_identity_closed()
         if type(authority) is not _driver._DeploymentAuthority:
             raise _publisher_failure("closed deployment authority required")
-        if not snapshot.scheduler_artifacts[0]["content_utf8"].startswith("#!/bin/bash\n# auto-g16-v31-scheduler/" + ("4" if snapshot.program_execution_spec.program_kind == "crest" else "3") + "\n"):
+        if not any(snapshot.scheduler_artifacts[0]["content_utf8"].startswith("#!/bin/bash\n# auto-g16-v31-scheduler/" + version + "\n") for version in (("4", "5") if snapshot.program_execution_spec.program_kind == "crest" else ("3",))):
             raise _publisher_failure("old receipt source cannot gain production qualification")
         basis_pin = _PinnedPublisherFile(installation.basis, 65536); pins.append(basis_pin)
         if installation.basis.path.rsplit("/", 1)[-1] != "v31-publisher-pilot-deployment.json":
             raise _publisher_failure("fixed deployment basename differs")
         basis = strict_canonical_json(basis_pin.raw, "publisher deployment basis")
         program._exact_keys(basis, set(_PUBLISHER_BASIS_KEYS), "publisher deployment basis")
-        if basis["schema"] != ("auto-g16-v31-publisher-pilot-deployment/2" if snapshot.program_execution_spec.program_kind == "crest" else "auto-g16-v31-publisher-pilot-deployment/1"):
+        startup = len(snapshot.scheduler_artifacts) == 2
+        if basis["schema"] != ("auto-g16-v31-publisher-pilot-deployment/3" if startup else "auto-g16-v31-publisher-pilot-deployment/2" if snapshot.program_execution_spec.program_kind == "crest" else "auto-g16-v31-publisher-pilot-deployment/1"):
             raise _publisher_failure("unknown deployment basis")
         for key in ("source_commit", "source_tree"):
             if type(basis[key]) is not str or re.fullmatch("[0-9a-f]{40}", basis[key]) is None or basis[key] != getattr(installation, key):
@@ -777,8 +782,11 @@ def _read_publisher_deployment_identity(authority, snapshot):
             raise _publisher_failure("Q installation readback differs")
         # Public snapshot identity closure above has already validated full Q grammar,
         # profile projection, source and tuple. No private Execution import here.
-        line = snapshot.scheduler_artifacts[0]["content_utf8"].splitlines()[2]
-        material = strict_canonical_json(base64.b64decode(line.split(": ", 1)[1], validate=True), "publisher material")
+        if startup:
+            material = strict_canonical_json(snapshot.scheduler_artifacts[1]["content_utf8"].encode(), "startup payload")["config"]["material"]
+        else:
+            line = snapshot.scheduler_artifacts[0]["content_utf8"].splitlines()[2]
+            material = strict_canonical_json(base64.b64decode(line.split(": ", 1)[1], validate=True), "publisher material")
         if base64.b64decode(material["publisher_qualification_base64"], validate=True) != qpin.raw:
             raise _publisher_failure("installed Q differs from snapshot")
         q = strict_canonical_json(qpin.raw, "publisher Q")
@@ -792,6 +800,8 @@ def _read_publisher_deployment_identity(authority, snapshot):
                 raise _publisher_failure("duplicate installed evidence identity")
             evidence[binding.sha256] = pin.raw
         digests = [p["execution_domain"]["scheduler_scope_evidence"], p["controller_probe"]["evidence"]]
+        if startup:
+            digests.append(p["delivery_probe"]["evidence"])
         for host in p["hosts"]:
             digests.extend([host["identity_evidence"], *(loc["evidence"] for loc in host["locations"]), *(probe["evidence"] for probe in host["probes"])])
         for digest in digests:
@@ -800,7 +810,7 @@ def _read_publisher_deployment_identity(authority, snapshot):
         for key in ("probe_evidence_manifest_sha256", "owner_q_acceptance_evidence_sha256", "pilot_live_gate_evidence_sha256"):
             if type(basis[key]) is not str or re.fullmatch("[0-9a-f]{64}", basis[key]) is None or basis[key] not in evidence:
                 raise _publisher_failure("installed original evidence missing")
-        if p["schema"] == "auto-g16-v31-publisher-qualification/2":
+        if p["schema"] in {"auto-g16-v31-publisher-qualification/2", "auto-g16-v31-publisher-qualification/3"}:
             closure = p["runtime"]["crest_loader_closure"]
             for digest in (closure["evidence_manifest_sha256"], closure["loading_policy"]["dynamic_loading_review_sha256"]):
                 if digest not in evidence:

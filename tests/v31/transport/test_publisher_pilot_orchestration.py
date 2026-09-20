@@ -116,8 +116,9 @@ class _PilotFixture(lane.LaneAFixture):
 
     def install_fixture(self):
         is_crest = self.snapshot.program_execution_spec.program_kind == "crest"
-        from auto_g16.execution import _crest_completion as crest
-        qname = crest._Q_NAME if is_crest else c._Q_NAME
+        from auto_g16.execution import _crest_completion as crest, _crest_startup as startup
+        is_startup = len(self.snapshot.scheduler_artifacts) == 2
+        qname = startup._Q_NAME if is_startup else crest._Q_NAME if is_crest else c._Q_NAME
         target = self.snapshot.resolved_server_profile
         root = self.root / "installation"; root.mkdir()
         def write(name, raw):
@@ -131,13 +132,16 @@ class _PilotFixture(lane.LaneAFixture):
                 evidence[sha256(raw).hexdigest()] = raw
             index = c._receipt_json(controller._probe_index(self.q))
             evidence[sha256(index).hexdigest()] = index
+        if is_startup:
+            from tests.v31.transport.test_crest_startup_payload import DELIVERY_EVIDENCE
+            evidence[sha256(DELIVERY_EVIDENCE).hexdigest()] = DELIVERY_EVIDENCE
         qpin = write(qname, self.current_profile.runtime_contents[qname])
         owner_raw = b"SYNTHETIC FIXTURE: reviewed exact Q accepted only inside inert test.\n"
         live_raw = b"SYNTHETIC FIXTURE: bounded single Attempt only inside inert test.\n"
         evidence[sha256(owner_raw).hexdigest()] = owner_raw
         evidence[sha256(live_raw).hexdigest()] = live_raw
         pins = tuple(write(f"evidence-{i}.txt", raw) for i,raw in enumerate(evidence.values()))
-        basis = {"schema": "auto-g16-v31-publisher-pilot-deployment/2" if is_crest else "auto-g16-v31-publisher-pilot-deployment/1", "source_commit": "a"*40, "source_tree": "b"*40, "resolved_server_profile_id": target.resolved_server_profile_id, "effective_config_sha256": target.effective_config_sha256, "program_execution_snapshot_id": self.snapshot.program_execution_snapshot_id,
+        basis = {"schema": "auto-g16-v31-publisher-pilot-deployment/3" if is_startup else "auto-g16-v31-publisher-pilot-deployment/2" if is_crest else "auto-g16-v31-publisher-pilot-deployment/1", "source_commit": "a"*40, "source_tree": "b"*40, "resolved_server_profile_id": target.resolved_server_profile_id, "effective_config_sha256": target.effective_config_sha256, "program_execution_snapshot_id": self.snapshot.program_execution_snapshot_id,
             "qualification_payload_sha256": json.loads(self.current_profile.runtime_contents[qname])["payload_sha256"], "qualification_file_sha256": qpin.sha256, "qualification_size_bytes": qpin.size_bytes, "qualification_path": qpin.path, "qualification_parent_chain": [{"device":d,"inode":i} for d,i in qpin.parent_chain], "qualification_file_identity": {"device":qpin.file_identity[0],"inode":qpin.file_identity[1]},
             "probe_evidence_manifest_sha256": self.q["evidence_manifest_sha256"], "owner_q_acceptance_evidence_sha256": sha256(owner_raw).hexdigest(), "pilot_live_gate_evidence_sha256": sha256(live_raw).hexdigest(), "pilot_window": PILOT}
         bpin = write("v31-publisher-pilot-deployment.json", c._receipt_json(basis))
@@ -164,6 +168,8 @@ class _PilotFixture(lane.LaneAFixture):
             from auto_g16.execution import _crest_loader, _crest_seed_handoff, _receipt_source, xtb_crest_handoff
             from auto_g16.conformer import service as conformer_service
             modules += (crest,_crest_loader,_crest_seed_handoff,_receipt_source,xtb_crest_handoff,conformer_service,transport)
+        if is_startup:
+            modules += (startup,)
         run = controller._FixedPilotRun(self.snapshot,self.current_profile,tuple(stores),scientific.scientific_approval_id,batch.batch_submit_approval_id,confirmation.operational_confirmation_id,{"intent":"inert"},lane.XYZ,self.scheduler_bytes["crest.pbs" if is_crest else "xtb.pbs"],spin,tuple(file_binding(Path(m.__file__).resolve()) for m in modules))
         return installation,authority,run,confirmation
 

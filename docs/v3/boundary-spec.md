@@ -5890,3 +5890,14 @@ It supersedes the C2 exclusion only for that exact versioned proof. Native
 START precedes wire, raw precedes interpretation, original UNKNOWN remains,
 and a later collection continuation pins the first recovery authority without
 resetting its one-read consumption. No public DDL or producer semantics change.
+
+### V31 CREST short-entry delivery boundary
+
+The narrowly authorized additive delivery tuple is frozen in
+[crest-short-payload-contract.md](crest-short-payload-contract.md), SP01–SP07.
+It retains CREST adapter 3 and completion receipt 2; scheduler 5 declares a short
+PBS script plus one exact startup JSON payload. Q3, deployment 3, the fixed
+same-process loader and native stage/submit/replay closure own both artifacts.
+Old tuples remain distinct. Historical xTB proof compatibility is limited to
+[the exact retained bridge generation](crest-short-payload-historical-source.md).
+Neither inert delivery nor candidate validation grants scientific success.

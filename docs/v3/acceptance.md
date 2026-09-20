@@ -2127,3 +2127,14 @@ must exercise crash/no-second-read, concurrent owners, full native fresh-process
 restore/capture/replay, preserved UNKNOWN and wrong-job receipt rejection.
 A synthetic native-chain pass does not qualify the new remote seam or accept
 real outputs. Parent-owned qualification and exact application remain separate.
+
+### V31 CREST short-entry delivery acceptance
+
+Apply SP01–SP07 in [the frozen contract](crest-short-payload-contract.md).
+`tests/v31/transport/test_crest_startup_payload.py` owns the incremental tuple,
+loader refusal, same-process exit, native dual-stage/submit, installation P09,
+collection/replay and retained historical-source evidence. Adjacent existing
+owners cover unchanged completion, approval and bridge boundaries. Retain exact
+candidate/run identities and independent review; target production-loader P09
+and a fresh precisely approved real CREST Attempt remain separate live evidence.
+No old UNKNOWN Attempt or 703 inert success is promoted by these tests.
