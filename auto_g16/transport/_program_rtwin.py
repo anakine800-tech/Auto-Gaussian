@@ -6,7 +6,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from hashlib import sha256
 import re
-from threading import RLock
+import sys
+from threading import Event, RLock, Thread
+import time
 from types import MappingProxyType
 from contextvars import ContextVar
 
@@ -18,6 +20,68 @@ from . import _bridge, _driver, program
 from ._canonical import TransportBoundaryError, canonical_json_bytes, strict_canonical_json
 
 _COLLECTION_WIRE_OWNER = ContextVar("collection_wire_owner", default=None)
+
+
+def _emit_collection_transfer_progress(event: Mapping[str, object]) -> None:
+    line = canonical_json_bytes(dict(event)).decode("utf-8")
+    sys.stderr.write(f"AUTO_G16_TRANSFER_PROGRESS {line}\n")
+    sys.stderr.flush()
+
+
+class _CollectionTransferProgress:
+    """Best-effort diagnostics that never run on the transport I/O thread."""
+
+    def __init__(
+        self, operation: str, *, interval_seconds: float = 10.0,
+        emit: object = _emit_collection_transfer_progress,
+    ) -> None:
+        if operation != "FETCH_EXACT_FILE" or not callable(emit):
+            raise TransportBoundaryError("collection progress configuration is invalid")
+        self._operation = operation
+        self._interval = interval_seconds
+        self._emit = emit
+        self._started = time.monotonic()
+        self._finished = Event()
+        self._final: Mapping[str, object] | None = None
+        Thread(target=self._run, name="auto-g16-collection-progress", daemon=True).start()
+
+    def _event(self, phase: str, **fields: object) -> Mapping[str, object]:
+        return {
+            "schema": "auto-g16-v31-transfer-progress/1",
+            "operation": self._operation,
+            "phase": phase,
+            "elapsed_milliseconds": max(0, int((time.monotonic() - self._started) * 1000)),
+            **fields,
+        }
+
+    def _send(self, event: Mapping[str, object]) -> None:
+        try:
+            self._emit(event)
+        except Exception:
+            # Diagnostics are not an effect owner and cannot alter transport.
+            pass
+
+    def _run(self) -> None:
+        self._send(self._event("started"))
+        while not self._finished.wait(self._interval):
+            self._send(self._event("waiting"))
+        final = self._final
+        if final is not None:
+            self._send(self._event("finished", **dict(final)))
+
+    def finish(
+        self, *, status: str, returncode: int | None,
+        stdout_bytes: int, stderr_bytes: int, eof_stdout: bool, eof_stderr: bool,
+    ) -> None:
+        self._final = MappingProxyType({
+            "status": status,
+            "returncode": returncode,
+            "stdout_bytes": stdout_bytes,
+            "stderr_bytes": stderr_bytes,
+            "eof_stdout": eof_stdout,
+            "eof_stderr": eof_stderr,
+        })
+        self._finished.set()
 
 
 def _plain(value: object) -> object:
@@ -213,7 +277,15 @@ def _project_operation(name: str) -> _driver._Operation:
 
 
 def _wire_call(scope: object, invocation: _ProgramRTWinInvocation) -> Mapping[str, object]:
-    stdout, stderr, code, state, eofout, eoferr = _driver._SubprocessRTWinDriver()._run(scope, invocation)
+    progress = _CollectionTransferProgress(invocation.operation.name) if _COLLECTION_WIRE_OWNER.get() is not None and invocation.operation.name == "FETCH_EXACT_FILE" else None
+    try:
+        stdout, stderr, code, state, eofout, eoferr = _driver._SubprocessRTWinDriver()._run(scope, invocation)
+    except BaseException:
+        if progress is not None:
+            progress.finish(status="interrupted", returncode=None, stdout_bytes=0, stderr_bytes=0, eof_stdout=False, eof_stderr=False)
+        raise
+    if progress is not None:
+        progress.finish(status=state, returncode=code, stdout_bytes=len(stdout), stderr_bytes=len(stderr), eof_stdout=eofout, eof_stderr=eoferr)
     if state != "completed" or code != 0 or stderr or not eofout or not eoferr:
         raise program._ProgramEffectUnknown("RTwin successor completion is ambiguous")
     response = _bridge._decode_frame(stdout, cap=invocation.operation.stdout_cap, field="successor response")

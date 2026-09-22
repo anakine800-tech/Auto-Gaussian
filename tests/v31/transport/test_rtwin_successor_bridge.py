@@ -14,7 +14,8 @@ import inspect
 import json
 from pathlib import Path
 import sqlite3
-from threading import Barrier
+from threading import Barrier, Event
+import time
 from types import SimpleNamespace
 from typing import get_type_hints
 from unittest import TestCase
@@ -225,6 +226,61 @@ class SchedulerTextParserTests(TestCase):
 
 
 class ProductionBridgeTests(lane.LaneAFixture):
+    def test_collection_fetch_progress_runs_off_transport_thread(self):
+        entered = Event(); release = Event()
+        def blocked_writer(_event):
+            entered.set(); release.wait(1)
+        progress = bridge._CollectionTransferProgress(
+            "FETCH_EXACT_FILE", interval_seconds=.01, emit=blocked_writer,
+        )
+        self.assertTrue(entered.wait(.5))
+        started = time.monotonic()
+        progress.finish(
+            status="completed", returncode=0, stdout_bytes=25,
+            stderr_bytes=0, eof_stdout=True, eof_stderr=True,
+        )
+        self.assertLess(time.monotonic() - started, .05)
+        release.set()
+
+    def test_collection_owner_emits_progress_only_for_fetch(self):
+        runner = Mock()
+        runner._run.return_value = (b"frame", b"", 0, "completed", True, True)
+        progress = Mock()
+        response = lambda name: {
+            "protocol": _bridge._PROGRAM_BOOTSTRAP_PROTOCOL,
+            "operation": name,
+            "result": {},
+            "status": "ok",
+        }
+        fetch = SimpleNamespace(operation=SimpleNamespace(name="FETCH_EXACT_FILE", stdout_cap=65536))
+        with patch.object(bridge, "_CollectionTransferProgress", return_value=progress) as factory, patch.object(
+            bridge._driver, "_SubprocessRTWinDriver", return_value=runner,
+        ), patch.object(bridge._bridge, "_decode_frame", return_value=response("FETCH_EXACT_FILE")):
+            token = bridge._COLLECTION_WIRE_OWNER.set(object())
+            try:
+                self.assertEqual(bridge._wire_call(object(), fetch), {})
+            finally:
+                bridge._COLLECTION_WIRE_OWNER.reset(token)
+        factory.assert_called_once_with("FETCH_EXACT_FILE")
+        progress.finish.assert_called_once_with(
+            status="completed", returncode=0, stdout_bytes=5,
+            stderr_bytes=0, eof_stdout=True, eof_stderr=True,
+        )
+
+        for owner, operation in ((None, "FETCH_EXACT_FILE"), (object(), "QUERY_SCHEDULER")):
+            with self.subTest(owner=owner is not None, operation=operation), patch.object(
+                bridge, "_CollectionTransferProgress",
+            ) as factory, patch.object(
+                bridge._driver, "_SubprocessRTWinDriver", return_value=runner,
+            ), patch.object(bridge._bridge, "_decode_frame", return_value=response(operation)):
+                invocation = SimpleNamespace(operation=SimpleNamespace(name=operation, stdout_cap=65536))
+                token = bridge._COLLECTION_WIRE_OWNER.set(owner)
+                try:
+                    self.assertEqual(bridge._wire_call(object(), invocation), {})
+                finally:
+                    bridge._COLLECTION_WIRE_OWNER.reset(token)
+                factory.assert_not_called()
+
     def setUp(self) -> None:
         super().setUp()
         fixture = v30.TransportFixture()
