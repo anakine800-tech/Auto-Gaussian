@@ -6,7 +6,6 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from hashlib import sha256
 import re
-import sys
 from threading import RLock
 from types import MappingProxyType
 from contextvars import ContextVar
@@ -19,12 +18,6 @@ from . import _bridge, _driver, program
 from ._canonical import TransportBoundaryError, canonical_json_bytes, strict_canonical_json
 
 _COLLECTION_WIRE_OWNER = ContextVar("collection_wire_owner", default=None)
-
-
-def _emit_collection_transfer_progress(event: Mapping[str, object]) -> None:
-    line = canonical_json_bytes(dict(event)).decode("utf-8")
-    sys.stderr.write(f"AUTO_G16_TRANSFER_PROGRESS {line}\n")
-    sys.stderr.flush()
 
 
 def _plain(value: object) -> object:
@@ -220,8 +213,7 @@ def _project_operation(name: str) -> _driver._Operation:
 
 
 def _wire_call(scope: object, invocation: _ProgramRTWinInvocation) -> Mapping[str, object]:
-    progress = _emit_collection_transfer_progress if _COLLECTION_WIRE_OWNER.get() is not None and invocation.operation.name == "FETCH_EXACT_FILE" else None
-    stdout, stderr, code, state, eofout, eoferr = _driver._SubprocessRTWinDriver(progress_observer=progress)._run(scope, invocation)
+    stdout, stderr, code, state, eofout, eoferr = _driver._SubprocessRTWinDriver()._run(scope, invocation)
     if state != "completed" or code != 0 or stderr or not eofout or not eoferr:
         raise program._ProgramEffectUnknown("RTwin successor completion is ambiguous")
     response = _bridge._decode_frame(stdout, cap=invocation.operation.stdout_cap, field="successor response")

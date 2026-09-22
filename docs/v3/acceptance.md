@@ -2111,6 +2111,12 @@ Old FC/C4/P01–P08 evidence keeps its original candidate binding. CR10 is separ
 same-job native collection and independent readback under a concrete reviewed
 installation; offline PASS grants no live or scientific acceptance.
 
+For a long same-job output fetch, TP01–TP06 additionally require an
+off-transport-thread progress reporter, collection-owned FETCH-only selection,
+no sensitive/path/content fields, and unchanged driver tuples when reporting
+blocks or fails. These checks supplement CR10 and cannot replace complete file
+identity, hash, restat, receipt, capture or replay evidence.
+
 ### V31 CREST completion successor acceptance
 
 Apply the [frozen CREST criteria](crest-live-closure-contract.md) and its

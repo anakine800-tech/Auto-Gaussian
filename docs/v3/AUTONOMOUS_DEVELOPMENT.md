@@ -909,6 +909,10 @@ identity evidence. Actual deployment locator and host facts are NOT_ACQUIRED.
 - **Stop:** no new Attempt, claim/qsub, provisioning/staging, remote mutation,
   cleanup, automatic retry, original approval/window change, CREST, publication
   or merge. Scope/API gaps require a reviewed narrow delta.
+- **TP01–TP06 delta:** the Owner's 2026-09-22 instruction permits only an
+  asynchronous local progress reporter in the existing `_program_rtwin.py`
+  collection-owned FETCH path and its named affected test. It may not run in
+  the transport I/O/deadline thread or change any driver/wire/result meaning.
 
 ### V31-CREST-LIVE-CLOSURE-01
 

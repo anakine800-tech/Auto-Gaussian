@@ -345,7 +345,7 @@ code_paths = [
   "auto_g16/transport/_program_rtwin.py",
   "scripts/run_v31_publisher_pilot.py",
 ]
-focused_tests = ["tests/v31/transport/test_publisher_collection_recovery.py"]
+focused_tests = ["tests/v31/transport/test_publisher_collection_recovery.py", "tests/v31/transport/test_rtwin_successor_bridge.py"]
 
 [[component]]
 id = "v31-crest-completion"

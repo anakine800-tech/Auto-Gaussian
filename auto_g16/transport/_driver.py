@@ -14,7 +14,7 @@ import stat
 import subprocess
 import time
 from types import MappingProxyType
-from typing import Callable, Final, Mapping, Protocol
+from typing import Final, Mapping, Protocol
 
 from auto_g16.execution import ExecutionSnapshot, ServerProfile, assert_execution_snapshot_identity, resolve_server_profile
 
@@ -514,43 +514,6 @@ def _validate_result(operation:str,result:Mapping[str,object])->None:
 
 class _SubprocessRTWinDriver:
     """Live-capable exact bridge; construction and offline tests make no call."""
-    def __init__(
-        self, *, progress_observer: Callable[[Mapping[str, object]], None] | None = None,
-        progress_interval_seconds: float = 10.0,
-    ) -> None:
-        if progress_observer is not None and not callable(progress_observer):
-            raise TypeError("progress observer must be callable")
-        if not isinstance(progress_interval_seconds, (int, float)) or isinstance(progress_interval_seconds, bool) or progress_interval_seconds <= 0:
-            raise ValueError("progress interval must be positive")
-        self._progress_observer = progress_observer
-        self._progress_interval_seconds = float(progress_interval_seconds)
-
-    def _observe_progress(
-        self, *, operation: _Operation, phase: str, status: str | None,
-        started: float, request_bytes: int, stdout_bytes: int, stderr_bytes: int,
-    ) -> None:
-        if self._progress_observer is None:
-            return
-        event: dict[str, object] = {
-            "schema": "auto-g16-v31-transfer-progress/1",
-            "operation": operation.name,
-            "phase": phase,
-            "elapsed_milliseconds": max(0, int((time.monotonic() - started) * 1000)),
-            "request_bytes": request_bytes,
-            "stdout_bytes": stdout_bytes,
-            "stderr_bytes": stderr_bytes,
-            "stdout_cap": operation.stdout_cap,
-            "stderr_cap": operation.stderr_cap,
-        }
-        if status is not None:
-            event["status"] = status
-        try:
-            self._progress_observer(MappingProxyType(event))
-        except Exception:
-            # Progress is diagnostic evidence only. A broken observer must not
-            # change the transport result or create a second effect path.
-            pass
-
     @staticmethod
     def _kill(process:subprocess.Popen[bytes])->None:
         try: os.killpg(process.pid,signal.SIGKILL)
@@ -559,40 +522,23 @@ class _SubprocessRTWinDriver:
             except OSError: pass
 
     def _communicate_bounded(self,process:subprocess.Popen[bytes],request:bytes,operation:_Operation)->tuple[bytes,bytes,int|None,str,bool,bool]:
-        started = time.monotonic()
         if process.stdin is None or process.stdout is None or process.stderr is None:
-            self._kill(process); process.wait()
-            self._observe_progress(operation=operation, phase="finished", status="transport-error", started=started, request_bytes=0, stdout_bytes=0, stderr_bytes=0)
-            return b"",b"",None,"transport-error",False,False
+            self._kill(process); process.wait(); return b"",b"",None,"transport-error",False,False
         streams={"stdin":process.stdin,"stdout":process.stdout,"stderr":process.stderr}
         selector=selectors.DefaultSelector(); output={"stdout":bytearray(),"stderr":bytearray()}; offset=0
-        def finish(status:str, returncode:int|None=None, eof:bool=False)->tuple[bytes,bytes,int|None,str,bool,bool]:
-            self._observe_progress(operation=operation, phase="finished", status=status, started=started, request_bytes=offset, stdout_bytes=len(output["stdout"]), stderr_bytes=len(output["stderr"]))
-            if status != "completed":
-                return b"",b"",returncode,status,False,False
-            return bytes(output["stdout"]),bytes(output["stderr"]),returncode,status,eof,eof
         try:
             for stream in streams.values(): os.set_blocking(stream.fileno(),False)
             selector.register(process.stdin,selectors.EVENT_WRITE,"stdin")
             selector.register(process.stdout,selectors.EVENT_READ,"stdout")
             selector.register(process.stderr,selectors.EVENT_READ,"stderr")
             deadline=time.monotonic()+operation.timeout_seconds
-            next_progress=started+self._progress_interval_seconds
-            self._observe_progress(operation=operation, phase="started", status=None, started=started, request_bytes=offset, stdout_bytes=0, stderr_bytes=0)
             while selector.get_map():
                 remaining=deadline-time.monotonic()
                 if remaining<=0:
-                    self._kill(process); process.wait(); return finish("timeout")
-                wait_for=remaining if self._progress_observer is None else min(remaining,max(0.0,next_progress-time.monotonic()))
-                events=selector.select(wait_for)
-                now=time.monotonic()
-                if self._progress_observer is not None and now>=next_progress:
-                    self._observe_progress(operation=operation, phase="running", status=None, started=started, request_bytes=offset, stdout_bytes=len(output["stdout"]), stderr_bytes=len(output["stderr"]))
-                    next_progress=now+self._progress_interval_seconds
+                    self._kill(process); process.wait(); return b"",b"",None,"timeout",False,False
+                events=selector.select(remaining)
                 if not events:
-                    if deadline-time.monotonic()<=0:
-                        self._kill(process); process.wait(); return finish("timeout")
-                    continue
+                    self._kill(process); process.wait(); return b"",b"",None,"timeout",False,False
                 for key,_mask in events:
                     name=key.data; stream=key.fileobj
                     if name=="stdin":
@@ -608,14 +554,14 @@ class _SubprocessRTWinDriver:
                         selector.unregister(stream); stream.close(); continue
                     output[name].extend(chunk)
                     if len(output[name])>cap:
-                        self._kill(process); process.wait(); return finish("transport-error")
+                        self._kill(process); process.wait(); return b"",b"",None,"transport-error",False,False
             remaining=max(0.0,deadline-time.monotonic())
             try: returncode=process.wait(timeout=remaining)
             except subprocess.TimeoutExpired:
-                self._kill(process); process.wait(); return finish("timeout")
-            return finish("completed",returncode,True)
+                self._kill(process); process.wait(); return b"",b"",None,"timeout",False,False
+            return bytes(output["stdout"]),bytes(output["stderr"]),returncode,"completed",True,True
         except (OSError,ValueError):
-            self._kill(process); process.wait(); return finish("transport-error")
+            self._kill(process); process.wait(); return b"",b"",None,"transport-error",False,False
         finally:
             selector.close()
             for stream in streams.values():

@@ -5875,6 +5875,13 @@ adds no start audit and invokes no wire from process start. No missing-bundle
 probe writes an UNKNOWN assessment. Existing collector, capture, guard and Core
 reducer own persistence and terminal advancement; no direct state repair.
 
+TP01–TP06 add a local asynchronous heartbeat around only the collection-owned
+exact-file fetch. It reports elapsed waiting and final bounded channel facts
+without entering the transport I/O/deadline thread. Reporter delay or failure
+cannot alter the driver result. The heartbeat is not a receipt, Result, capture
+or completion authority; all original wire, identity, timeout and UNKNOWN
+semantics remain.
+
 ### V31 CREST completion successor boundary
 
 The [reviewed CREST design freeze](crest-live-closure-freeze.md) adds the exact

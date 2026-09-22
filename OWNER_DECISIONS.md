@@ -1333,6 +1333,12 @@ No new public record, Core state/schema, Transport operation or scientific
 approval is added. The original prepare PLANNED guard and submission path remain.
 Real same-job collection stays behind the exact reviewed operational packet.
 
+The Owner's 2026-09-22 same-Attempt continuation adds the reviewed TP01–TP06
+delta in that contract. It permits asynchronous local progress diagnostics only
+for collection-owned exact-file fetches. The reporter is outside the transport
+deadline path and grants no completion, retry, submission or scientific
+authority. The original job, Attempt, snapshot, stores and CR10 gate remain.
+
 ### OD-33 CREST completion and receipt seed handoff
 
 The Owner's 2026-09-16 delegation enables the independently reviewed

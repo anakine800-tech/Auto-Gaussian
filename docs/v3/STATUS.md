@@ -387,3 +387,9 @@ CR10 native completion remain pending. External
 same-job operational smoke and original Core completion remain separate facts.
 Original R4/FC/C4/target evidence is reused only for its exact original source.
 CREST and PR/integration decisions remain subsequent gates.
+
+The 2026-09-22 TP01–TP06 delta freezes asynchronous progress evidence for a
+long collection-owned exact-file fetch. It does not change the scheduler,
+transport timeout, completion authority or same-Attempt CR10 boundary. Its
+candidate and live collection evidence are tracked separately from the prior
+C2 result.
