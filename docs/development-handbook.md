@@ -8,6 +8,13 @@ repository rules win. Engineering internals remain in
 the applicable versioned checklist such as
 [`release-2.5.2-checklist.md`](release-2.5.2-checklist.md).
 
+For v3 documentation, use the [current/history map](v3/INDEX.md#current-rules-and-historical-records)
+to distinguish current general rules, frozen technical contracts and historical
+launch/status records. [STATUS](v3/STATUS.md) binds a dated integration cutoff;
+its historical archive is not a current work queue or renewed permission.
+This reading route does not change the operation order or any validation,
+review, integration, live-smoke or authority requirement below.
+
 ## 1. Classify the task before changing files
 
 Choose exactly one primary class and record it in the task and pull request:
