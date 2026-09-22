@@ -5,6 +5,8 @@ import base64
 from hashlib import sha256
 import json
 import os
+import subprocess
+import sys
 import unittest
 from unittest.mock import patch
 
@@ -518,6 +520,61 @@ class DriverBoundaryTests(TransportFixture):
         process.close()
         self.assertEqual(result[3], "transport-error")
         self.assertTrue(process.killed)
+
+    def test_fetch_progress_reports_waiting_and_received_bytes_without_changing_result(self) -> None:
+        process = subprocess.Popen(
+            [sys.executable, "-c", "import sys,time; sys.stdin.buffer.read(); time.sleep(.06); sys.stdout.buffer.write(b'exact')"],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+        events = []
+        operation = replace(_operation("FETCH_EXACT_FILE"), timeout_seconds=2)
+        result = _SubprocessRTWinDriver(
+            progress_observer=lambda event: events.append(dict(event)),
+            progress_interval_seconds=.01,
+        )._communicate_bounded(process, b"request", operation)
+        self.assertEqual(result, (b"exact", b"", 0, "completed", True, True))
+        self.assertEqual(events[0]["phase"], "started")
+        self.assertTrue(any(event["phase"] == "running" and event["stdout_bytes"] == 0 for event in events))
+        self.assertEqual(events[-1]["phase"], "finished")
+        self.assertEqual(events[-1]["status"], "completed")
+        self.assertEqual(events[-1]["stdout_bytes"], 5)
+
+    def test_broken_progress_observer_cannot_change_transport_result(self) -> None:
+        process = subprocess.Popen(
+            [sys.executable, "-c", "import sys; sys.stdin.buffer.read(); sys.stdout.buffer.write(b'ok')"],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+        def broken(_event):
+            raise RuntimeError("observer failure")
+        result = _SubprocessRTWinDriver(
+            progress_observer=broken, progress_interval_seconds=.01,
+        )._communicate_bounded(process, b"request", replace(_operation("FETCH_EXACT_FILE"), timeout_seconds=2))
+        self.assertEqual(result, (b"ok", b"", 0, "completed", True, True))
+
+    def test_progress_does_not_expose_partial_bytes_after_transport_cap_failure(self) -> None:
+        class Process:
+            def __init__(self) -> None:
+                stdin_read, stdin_write = os.pipe()
+                stdout_read, stdout_write = os.pipe()
+                stderr_read, stderr_write = os.pipe()
+                self._stdin_read = stdin_read
+                self.stdin = os.fdopen(stdin_write, "wb", buffering=0)
+                self.stdout = os.fdopen(stdout_read, "rb", buffering=0)
+                self.stderr = os.fdopen(stderr_read, "rb", buffering=0)
+                os.write(stdout_write, b"partial")
+                os.close(stdout_write); os.close(stderr_write)
+                self.pid = 999_999_999
+                self.returncode = 0
+            def wait(self, timeout=None): return self.returncode
+            def kill(self): pass
+            def close(self): os.close(self._stdin_read)
+        process = Process(); events = []
+        result = _SubprocessRTWinDriver(progress_observer=lambda event: events.append(dict(event)))._communicate_bounded(
+            process, b"request", replace(_operation("FETCH_EXACT_FILE"), stdout_cap=2),
+        )
+        process.close()
+        self.assertEqual(result, (b"", b"", None, "transport-error", False, False))
+        self.assertEqual(events[-1]["stdout_bytes"], 3)
 
     def test_unknown_operation_is_closed(self) -> None:
         with self.assertRaises(transport.TransportBoundaryError):
