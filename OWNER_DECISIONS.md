@@ -1339,6 +1339,13 @@ for collection-owned exact-file fetches. The reporter is outside the transport
 deadline path and grants no completion, retry, submission or scientific
 authority. The original job, Attempt, snapshot, stores and CR10 gate remain.
 
+The same continuation also accepts IR01–IR08 after the retained `706.master`
+history demonstrated a present-file STAT without its paired FETCH. A fresh
+reviewed collect-only continuation may finish exactly that persisted FETCH,
+discard its bytes, and then open one clean complete collection epoch. Historical
+observations remain append-only; every further remote attempt still requires a
+new finite continuation and grants no submission or scientific authority.
+
 ### OD-33 CREST completion and receipt seed handoff
 
 The Owner's 2026-09-16 delegation enables the independently reviewed

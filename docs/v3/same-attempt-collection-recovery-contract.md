@@ -431,3 +431,31 @@ documents listed in section 7. `_driver.py`, operation schemas, timeout values,
 wire frames, receipts, stores and public records remain byte and meaning
 unchanged. CR10 still requires a fresh exact collector-source binding,
 independent review and one collect-only operational packet for the original job.
+
+## 12. IR01–IR08 interrupted-prefix recovery delta
+
+The 2026-09-22 native collection exposed a narrower crash boundary than C2
+closed: an exact present-file `STAT_EXACT_FILE` receipt can persist before its
+paired `FETCH_EXACT_FILE` returns. Later collection processes must not discard
+that predecessor and start a fresh file sequence. The Owner directed continued
+same-Attempt collection with progress evidence or resumable transfer, without a
+new calculation, submission or Attempt. The following exact delta closes only
+that interrupted prefix.
+
+| ID | Frozen requirement |
+| --- | --- |
+| IR01 | Before opening a new scheduler-absence epoch, a new reviewed continuation detects at most one latest successful present-file STAT whose observation ID has no successful FETCH consumer. Zero or one is accepted; multiple, malformed, absent-file, foreign-job or conflicting candidates fail closed. |
+| IR02 | The repair issues only the exact FETCH request already derivable from that persisted STAT, through the existing collection-owned driver and its TP01–TP06 progress reporter. It does not STAT again, choose a file, change a token/size, or create synthetic bytes. |
+| IR03 | The completed repair persists the ordinary physical effect and Core FETCH receipt. Its returned bytes are discarded; the abandoned epoch remains non-authoritative and cannot become a completion bundle. |
+| IR04 | After the repair, the existing collector opens one new exact scheduler-absence epoch and performs the complete declared receipt/output capture from the beginning. The new bundle may use only evidence after that new opening and retains existing STAT/FETCH/restat/final-absence validation. |
+| IR05 | Each remote repair/capture attempt requires a fresh, exact, unconsumed continuation and one finite window. A consumed continuation, timeout, interruption or ambiguous fetch grants no automatic retry; a later remote attempt requires another reviewed continuation. |
+| IR06 | Recovery never deletes, replaces or edits the abandoned observations. Collection audits and UNKNOWN assessments remain append-only history. No qsub, new Attempt, qdel, cleanup, remote write or scientific execution is added. |
+| IR07 | Focused tests cover a process stopping after present STAT, exact restart FETCH selection, duplicate/conflicting/unowned prefixes, failure before the repair receipt, a clean new epoch after repair, and zero-wire replay after a complete bundle. Existing TP and CR evidence is reused where bytes and behavior are unchanged. |
+| IR08 | The live `706.master` application requires a new exact source/tree and continuation binding, independent review, retained regular-file progress log, and one collect-only operational window. It does not change the status or identity of any earlier run. |
+
+This delta adds only private interrupted-prefix selection and repair in
+`auto_g16/execution/program_runtime.py`, focused coverage in
+`tests/v31/transport/test_publisher_collection_recovery.py`, and the authority
+references named in section 7. It does not change the public schemas, Transport
+operation set, wire framing, timeout, receipt shapes, output declarations or
+completion reducer.

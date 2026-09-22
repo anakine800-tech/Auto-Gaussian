@@ -5882,6 +5882,13 @@ cannot alter the driver result. The heartbeat is not a receipt, Result, capture
 or completion authority; all original wire, identity, timeout and UNKNOWN
 semantics remain.
 
+IR01–IR08 admit one private recovery step before a new collection epoch: finish
+the exact FETCH already named by the sole latest unmatched successful present
+STAT. The repair uses the persisted token and size, retains normal physical/Core
+receipts, discards returned bytes and cannot promote the abandoned epoch. A new
+full epoch starts only after repair. Ambiguous or multiple prefixes fail closed;
+each remote application still consumes a fresh reviewed continuation.
+
 ### V31 CREST completion successor boundary
 
 The [reviewed CREST design freeze](crest-live-closure-freeze.md) adds the exact

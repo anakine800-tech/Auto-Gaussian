@@ -393,3 +393,10 @@ long collection-owned exact-file fetch. It does not change the scheduler,
 transport timeout, completion authority or same-Attempt CR10 boundary. Its
 candidate and live collection evidence are tracked separately from the prior
 C2 result.
+
+The same retained run exposed one interrupted native prefix: `crest.out` has an
+exact present STAT receipt but no paired FETCH receipt. IR01–IR08 now freeze the
+minimal recovery: a fresh continuation finishes that exact FETCH under the
+progress path, discards the abandoned bytes, then starts one clean full epoch.
+Implementation, focused validation, independent review and an exact new live
+packet remain required; `706.master` and Core stay unchanged meanwhile.

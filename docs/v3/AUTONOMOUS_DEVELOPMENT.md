@@ -913,6 +913,12 @@ identity evidence. Actual deployment locator and host facts are NOT_ACQUIRED.
   asynchronous local progress reporter in the existing `_program_rtwin.py`
   collection-owned FETCH path and its named affected test. It may not run in
   the transport I/O/deadline thread or change any driver/wire/result meaning.
+- **IR01–IR08 delta:** the same instruction permits private recovery of the
+  sole latest unmatched successful present-file STAT through its exact existing
+  FETCH request before one clean collection epoch. Work is limited to
+  `program_runtime.py`, the named recovery test and authority references. Every
+  remote application requires a fresh reviewed continuation; no automatic retry,
+  state repair, deletion, submission or new Attempt is permitted.
 
 ### V31-CREST-LIVE-CLOSURE-01
 

@@ -2117,6 +2117,14 @@ no sensitive/path/content fields, and unchanged driver tuples when reporting
 blocks or fails. These checks supplement CR10 and cannot replace complete file
 identity, hash, restat, receipt, capture or replay evidence.
 
+IR01–IR08 additionally require focused interrupted-prefix evidence: exactly one
+unmatched successful present STAT can drive only its already determined FETCH;
+zero needs no repair, while multiple, absent, malformed, conflicting or unowned
+prefixes reject before wire. A successful repair is retained as an ordinary
+receipt but its bytes are not completion evidence. The following new epoch must
+still perform the complete original declaration sequence and reach the existing
+bundle, final-absence, replay and Core-transition gates.
+
 ### V31 CREST completion successor acceptance
 
 Apply the [frozen CREST criteria](crest-live-closure-contract.md) and its
