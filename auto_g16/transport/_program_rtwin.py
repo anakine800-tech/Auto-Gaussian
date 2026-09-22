@@ -5,8 +5,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from hashlib import sha256
+import os
 import re
-import sys
+import stat
 from threading import Event, RLock, Thread
 import time
 from types import MappingProxyType
@@ -23,9 +24,13 @@ _COLLECTION_WIRE_OWNER = ContextVar("collection_wire_owner", default=None)
 
 
 def _emit_collection_transfer_progress(event: Mapping[str, object]) -> None:
-    line = canonical_json_bytes(dict(event)).decode("utf-8")
-    sys.stderr.write(f"AUTO_G16_TRANSFER_PROGRESS {line}\n")
-    sys.stderr.flush()
+    # A collection launcher redirects fd 2 to a retained regular evidence
+    # file. Pipes, terminals and other sinks are deliberately ignored so
+    # progress can never create backpressure or hold interpreter shutdown.
+    if not stat.S_ISREG(os.fstat(2).st_mode):
+        return
+    line = b"AUTO_G16_TRANSFER_PROGRESS " + canonical_json_bytes(dict(event)) + b"\n"
+    os.write(2, line)
 
 
 class _CollectionTransferProgress:
@@ -277,7 +282,14 @@ def _project_operation(name: str) -> _driver._Operation:
 
 
 def _wire_call(scope: object, invocation: _ProgramRTWinInvocation) -> Mapping[str, object]:
-    progress = _CollectionTransferProgress(invocation.operation.name) if _COLLECTION_WIRE_OWNER.get() is not None and invocation.operation.name == "FETCH_EXACT_FILE" else None
+    progress = None
+    if _COLLECTION_WIRE_OWNER.get() is not None and invocation.operation.name == "FETCH_EXACT_FILE":
+        try:
+            progress = _CollectionTransferProgress(invocation.operation.name)
+        except Exception:
+            # Reporter construction is fail-open because it is diagnostic and
+            # must not change the pre-existing exact transport effect.
+            progress = None
     try:
         stdout, stderr, code, state, eofout, eoferr = _driver._SubprocessRTWinDriver()._run(scope, invocation)
     except BaseException:

@@ -14,7 +14,9 @@ import inspect
 import json
 from pathlib import Path
 import sqlite3
+import subprocess
 from threading import Barrier, Event
+import sys
 import time
 from types import SimpleNamespace
 from typing import get_type_hints
@@ -225,6 +227,21 @@ class SchedulerTextParserTests(TestCase):
                 self.parse(valid, **changes)
 
 
+class TransferProgressProcessTests(TestCase):
+    def test_progress_with_undrained_stderr_pipe_does_not_hold_process_exit(self):
+        source = (
+            "from auto_g16.transport._program_rtwin import _CollectionTransferProgress;"
+            "p=_CollectionTransferProgress('FETCH_EXACT_FILE',interval_seconds=.001);"
+            "p.finish(status='completed',returncode=0,stdout_bytes=1,stderr_bytes=0,eof_stdout=True,eof_stderr=True)"
+        )
+        completed = subprocess.run(
+            [sys.executable, "-c", source], stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, timeout=2, check=False,
+        )
+        self.assertEqual(completed.returncode, 0)
+        self.assertEqual(completed.stderr, b"")
+
+
 class ProductionBridgeTests(lane.LaneAFixture):
     def test_collection_fetch_progress_runs_off_transport_thread(self):
         entered = Event(); release = Event()
@@ -280,6 +297,27 @@ class ProductionBridgeTests(lane.LaneAFixture):
                 finally:
                     bridge._COLLECTION_WIRE_OWNER.reset(token)
                 factory.assert_not_called()
+
+    def test_progress_start_failure_cannot_prevent_collection_fetch(self):
+        runner = Mock()
+        runner._run.return_value = (b"frame", b"", 0, "completed", True, True)
+        scope = object()
+        invocation = SimpleNamespace(operation=SimpleNamespace(name="FETCH_EXACT_FILE", stdout_cap=65536))
+        response = {
+            "protocol": _bridge._PROGRAM_BOOTSTRAP_PROTOCOL,
+            "operation": "FETCH_EXACT_FILE",
+            "result": {},
+            "status": "ok",
+        }
+        with patch.object(bridge.Thread, "start", side_effect=RuntimeError("thread unavailable")), patch.object(
+            bridge._driver, "_SubprocessRTWinDriver", return_value=runner,
+        ), patch.object(bridge._bridge, "_decode_frame", return_value=response):
+            token = bridge._COLLECTION_WIRE_OWNER.set(object())
+            try:
+                self.assertEqual(bridge._wire_call(scope, invocation), {})
+            finally:
+                bridge._COLLECTION_WIRE_OWNER.reset(token)
+        runner._run.assert_called_once_with(scope, invocation)
 
     def setUp(self) -> None:
         super().setUp()
