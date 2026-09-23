@@ -1912,7 +1912,9 @@ def _completion_file_effect(store, snapshot, program_transport_store, driver, ba
     return observation, content
 
 
-def _interrupted_present_stat(snapshot, observations, receipts):
+def _interrupted_present_stat(
+    snapshot, observations, receipts, expected_job_authority_id=None
+):
     """Select the sole collection-owned present STAT without a FETCH consumer."""
     positions = {item.observation_id: index for index, item in enumerate(observations)}
     starts = [
@@ -1949,7 +1951,19 @@ def _interrupted_present_stat(snapshot, observations, receipts):
         request = item.data.get("request")
         payload = request.get("payload") if isinstance(request, Mapping) else None
         response = item.data.get("response")
-        if not isinstance(payload, Mapping) or not isinstance(response, Mapping):
+        binding = request.get("binding") if isinstance(request, Mapping) else None
+        if (
+            not isinstance(payload, Mapping)
+            or not isinstance(response, Mapping)
+            or (
+                expected_job_authority_id is not None
+                and (
+                    not isinstance(binding, Mapping)
+                    or binding.get("job_authority_id")
+                    != expected_job_authority_id
+                )
+            )
+        ):
             malformed = True
             continue
         try:
@@ -1963,6 +1977,7 @@ def _interrupted_present_stat(snapshot, observations, receipts):
             malformed = True
             continue
         if size is None or closed["presence"] != "present":
+            malformed = True
             continue
         candidates.append(item)
     if malformed or len(candidates) > 1:
@@ -1978,7 +1993,12 @@ def _repair_interrupted_completion_prefix(
     """Finish one exact abandoned STAT/FETCH pair before a clean new epoch."""
     observations = store.observations_for_attempt(snapshot.attempt_id)
     receipts = _load_receipts(store, snapshot, program_transport_store, base)
-    stat = _interrupted_present_stat(snapshot, observations, receipts)
+    stat = _interrupted_present_stat(
+        snapshot,
+        observations,
+        receipts,
+        expected_job_authority_id=str(job["job_authority_id"]),
+    )
     if stat is None:
         return
     request = stat.data["request"]
