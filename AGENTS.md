@@ -20,9 +20,6 @@ These rules apply to the entire repository.
   deletion, reviewed root containment and no-follow handling, at most one
   submission per Attempt, `UNKNOWN` without automatic retry, explicit live
   authority, and secrets isolation.
-- For v3 work, preserve reviewed safety semantics but do not infer that the
-  legacy v2/v2.7 receipt, owner, capability, or hash-lineage implementation is
-  required unless a frozen v3 contract explicitly adopts it.
 
 ## Source of truth
 

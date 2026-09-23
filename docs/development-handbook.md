@@ -15,6 +15,26 @@ its historical archive is not a current work queue or renewed permission.
 This reading route does not change the operation order or any validation,
 review, integration, live-smoke or authority requirement below.
 
+### Rule ownership and references
+
+Use the owning section below when a rule is needed. Other development pages
+link to it instead of maintaining another general rule. This reading map does
+not change authority precedence, replace a versioned contract, or remove a
+stricter frozen task requirement. Brief reminders remain at effectful gates.
+
+| General rule | Canonical entry |
+| --- | --- |
+| Version authority and legacy/v3 reuse | [AGENTS version routing](../AGENTS.md#version-and-authority-routing) |
+| Server containment, effects and retained data | [AGENTS server safety](../AGENTS.md#server-safety-boundary) |
+| Scientific input, method and result approval | [AGENTS scientific gates](../AGENTS.md#scientific-approval-gates) |
+| Skill source and deployment copies | [AGENTS source of truth](../AGENTS.md#source-of-truth) |
+| Development steps and retained permission | [Development authorization](#development-authorization) |
+| Offline repair budget | [Autonomy repair budget](v3/AUTONOMOUS_DEVELOPMENT.md#ordinary-offline-repair-budget) |
+| Concurrency, monitoring and compact handoff | [Autonomy execution rules](v3/AUTONOMOUS_DEVELOPMENT.md#execution-and-monitoring-rules) |
+| Validation selection, evidence reuse and full-run ownership | [Validation ladder](#6-validation-ladder-and-deduplication) |
+| Live evidence required for integration | [Live evidence and merge scope](#live-evidence-and-merge-scope) |
+| Review severity and blockers | [Review duties](#7-review-levels-duties-and-blockers) |
+
 ## 1. Classify the task before changing files
 
 Choose exactly one primary class and record it in the task and pull request:
@@ -174,12 +194,22 @@ and merge; neither substitutes for the other.
 
 ## 3. Development preflight
 
-Before editing, read `AGENTS.md` completely. From the repository root run:
+Before editing, read `AGENTS.md` completely and run one preflight from the
+repository root:
 
 ```bash
 ./scripts/python core scripts/dev_preflight.py
-./scripts/python core scripts/dev_preflight.py --json
-./scripts/python core scripts/dev_preflight.py --require-clean
+```
+
+Choose the default readable output or add `--json` for a machine-readable
+record; these are alternative output formats for the same inspection, not
+two checks to run in sequence.
+
+At a clean-tree handoff, run with `--require-clean` (optionally also
+`--json`). This is the later handoff gate, not a third startup invocation:
+
+```bash
+./scripts/python core scripts/dev_preflight.py --require-clean --json
 ```
 
 The script locates the Git root when `--repo` names any subdirectory inside the
@@ -191,8 +221,8 @@ development files, risky private/runtime path classes, known test modifiers,
 and live/deploy/submit-like environment-variable names without reading their
 values. Exit `0` means no blocker (warnings may remain), `1` means a policy
 blocker, and `2` means the repository could not be inspected safely.
-Use `--require-clean` for a clean-tree handoff gate; it promotes any staged,
-unstaged, or untracked entry from the normal ownership warning to a blocker.
+The handoff flag promotes any staged, unstaged, or untracked entry from the
+normal ownership warning to a blocker.
 
 Record the starting commit and clean/dirty classification. A dirty tree is not
 automatically discarded: identify ownership, refuse unrelated changes, and
@@ -400,8 +430,10 @@ to the local workflow/job/matrix declarations. Run:
 
 ```bash
 ./scripts/python core scripts/audit_ci_contract.py
-./scripts/python core scripts/audit_ci_contract.py --json
 ```
+
+Add `--json` instead when recording machine-readable output; it does not
+require a second audit.
 
 Exit `0` proves only that the supported local YAML declarations expand exactly
 to the contract; warnings may report a historical remote snapshot mismatch.
@@ -412,12 +444,9 @@ protection, permissions, required contexts, or actual CI success.
 Before merge, independently verify current GitHub settings and successful
 checks. The expected stable contexts are `python-compatibility (3.11)`,
 `python-compatibility (3.12)`, `python-compatibility (3.13)`,
-`source-archive-release`, and `chemistry-dependencies`. The date-bound
-2026-07-21 read-only snapshot in the contract records those five contexts as
-aligned at that time. It remains historical evidence: the static audit cannot
-prove current branch protection or CI success, which must be independently
-verified before merge. CI permission failure is a blocker/limitation to report,
-never a reason to claim green status.
+`source-archive-release`, and `chemistry-dependencies`. The contract's
+2026-07-21 remote snapshot is historical evidence only. CI permission failure
+is a blocker/limitation to report, never a reason to claim green status.
 
 Change-aware routing may vary the evidence executed inside these jobs, but it
 must not rename or remove the required contexts.
