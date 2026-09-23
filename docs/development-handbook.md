@@ -68,6 +68,43 @@ disposition, and residual blockers are recorded. Worktree removal and branch
 deletion are explicit local cleanup actions after integration or abandonment;
 neither authorizes remote branch deletion.
 
+### Development authorization
+
+At task intake, record the repository, task, base, worktree/branch, allowed
+files and behavior, validation/review requirements, and which development
+steps the Owner has authorized: implementation, offline validation, local
+commit, push, PR creation/update, and merge. Use a short task/handoff record
+grounded in the actual instruction; no new packet, schema or special approval
+phrase is required. Recording an action does not authorize it. Ordinary
+read-only repository inspection needed for the authorized task remains part
+of that task, not a separate approval step.
+
+One instruction may authorize several named steps. Once each step's existing
+prerequisites pass, continue within that authorization without asking for it
+again. For example, authorization to implement, validate, commit, push and
+open a PR covers that sequence; it does not include merge. A local-only
+instruction stops before push. Publication or merge must be explicitly
+authorized, either at intake or later; a successful check or self-review does
+not supply missing permission. Do not discard already-granted permission at
+a turn boundary or handoff: retain its exact task, scope and conditions.
+
+Stop at missing, revoked, expired or ambiguous authority, identity drift,
+scope/dependency expansion, or a required contract/security/live-boundary
+change not already authorized by the applicable gate. Bind the proposed delta
+and request only the missing decision; do not restart the entire approval
+sequence. An implementation fix within the approved contract is not a new
+contract decision. Changed candidate bytes still invalidate affected review
+and test evidence under sections 6–9, even when development permission remains
+valid. A new task does not inherit the previous task's action permissions.
+
+BUS-managed work still requires the latest canonical CTRL and its finite
+actions; FIX requires a new CTRL and terminal tasks cannot resume. No standing
+development instruction replaces scientific approvals, exact operational
+confirmation, installation/qualification or live permissions. The integrator
+must still verify the exact reviewed candidate and current required checks
+before an authorized merge. Existing independent reviews and Owner gates are
+not replaced by an author's authorization record.
+
 ### Conditional qualified Executor CLI route
 
 Conversational requests for a new isolated task continue to use the Codex app
@@ -191,6 +228,35 @@ move the new task to a clean isolated worktree if ownership is unclear.
 - A live smoke is not a test-suite side effect. It requires separate exact
   approval for target, input/hash, resources, side effects, success/stop
   criteria, retained evidence, and cleanup policy.
+
+### Live evidence and merge scope
+
+Classify the actual changed behavior before review; a documentation suffix,
+test label or offline test run does not establish that the change is low risk.
+Record the applicable row and evidence gap in the task/PR. Keep the review
+levels in section 7 and any stricter frozen contract or exact Owner Gate.
+
+| Changed surface | Required evidence before merge |
+| --- | --- |
+| Documentation or offline tooling that preserves runtime, authority and scientific semantics | Selected offline checks and the applicable review. No live smoke is required solely for merge. |
+| Development-governance documents, public contracts, schemas or scientific interpretation rules | Their contract/security/scientific review and applicable offline evidence. Documentation is not an automatic L1 exemption; any native behavior dependency also follows the next row. Scientific policy changes retain their own Owner gates. |
+| Production-reachable behavior whose safety depends on native execution, SSH/transport, scheduler resource/cwd enactment, submission/collection, filesystem identity/locking or process lifetime | Explicitly approved evidence on the applicable target for the changed safety claim, plus offline validation and independent domain review. Mocks or a pass on a different host do not close that gap. Use target qualification and/or a live smoke as the governing contract requires. |
+
+A deliberately non-activated offline slice may integrate with a named live
+gap only when its reviewed contract and explicit integration gate permit
+staged integration and prove the production path remains fail-closed. The
+record must name the disabled path, missing target evidence, responsible owner
+and later activation gate. A feature flag, TODO, claimed lack of users, or
+this paragraph alone is not that permission. A stricter existing pre-merge
+live requirement is not silently deferred. If the classification or evidence
+applicability is uncertain, stop for the domain Owner instead of guessing.
+
+Reuse prior target evidence only when its exact source/target binding and
+coverage of the changed claim are demonstrated and accepted by the applicable
+review; do not run new chemistry merely to refresh unchanged evidence.
+Completing a required smoke supplies evidence, not permission for deployment,
+another run, retry, cleanup or scientific acceptance. Every real effect keeps
+the exact approval and stop conditions in section 4 and the owning Skill.
 
 ## 5. Implement the smallest coherent slice
 

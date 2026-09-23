@@ -10,22 +10,31 @@ contract, or authorize implementation, integration, live work, or deployment.
 
 | Class | Autonomous breakdown | Modification boundary | Validation, review, and handoff | Stop and request Owner |
 | --- | --- | --- | --- | --- |
-| `OWNER-GUIDED` | Break the named task into analysis, implementation, and validation checkpoints only; do not create another lane. | Change only owner-approved paths and behavior inside the frozen Task Contract. | Use focused/affected feedback, author findings-first review, then the named Owner or independent gate; hand off each boundary decision. | Before choosing or changing a public contract, schema, invariant, security/live boundary, dependency, or scope; also on any general stop below. |
+| `OWNER-GUIDED` | Break the named task into analysis, implementation, and validation checkpoints only; do not create another lane. | Change only owner-approved paths and behavior inside the frozen Task Contract. | Use focused/affected feedback, author findings-first review, then the named Owner or independent gate; hand off each boundary decision. | When a public contract, schema, invariant, security/live boundary, dependency or scope decision is missing or would differ from the approved Task Contract; also on any general stop below. |
 | `BOUNDED-AUTONOMOUS` | Split independently testable work inside the frozen outcome and scope, subject to the global workstream limit. | Make the smallest coherent changes expressly allowed by the Task Contract; no adjacent cleanup or new framework. | Use focused/affected feedback and author findings-first review; freeze one candidate for independent review and Integration Owner handoff. | When the contract no longer determines a safe choice, a boundary would change, the scope would expand, or any general stop applies. |
 | `MAINTENANCE` | Diagnose and apply a minimal behavior-preserving repair within the named maintenance boundary. | Documentation, compatibility, dependency, security, or release hygiene only where intended behavior is already explicit. | Reproduce where applicable, validate the changed and affected surface, self-review, and hand off residual risk. | If intended behavior is unclear, product behavior would change, or a security/live semantic would be weakened or redefined. |
 
-No class grants push, PR, merge, deployment, SSH, RTwin, PBS, Gaussian, live
-smoke, retry, cancellation, cleanup, or scientific-acceptance authority.
+An autonomy class alone grants no push, PR, merge or operational authority.
+The Owner may authorize several development steps once for the same bounded
+task under [Development authorization](../development-handbook.md#development-authorization).
+Continue those steps after their prerequisites pass without repeated permission
+requests. Deployment, SSH, RTwin, PBS, Gaussian, live smoke, retry, cancellation,
+cleanup and scientific acceptance retain their separate exact gates.
 
 ## Execution and Monitoring Rules
 
 - Stop and request Owner when a required contract is missing or conflicts with
   another contract; do not guess the missing API, schema, field, invariant,
   dependency, test, or acceptance rule.
-- Stop before changing a public API, schema, invariant, security boundary, live
-  boundary, required check, workflow contract, or branch protection.
-- Stop when scope or dependencies must expand, or after two failed repair
-  attempts of the same class. Preserve the evidence and report the blocker.
+- Stop before an unapproved change to a public API, schema, invariant, security
+  or live boundary, required check, workflow contract, or branch protection.
+  An explicitly approved change still follows its named contract freeze,
+  independent review and implementation gates; do not ask for the same
+  decision again or infer that a planning gate authorizes implementation.
+- Stop when scope or dependencies must expand. For an ordinary offline repair,
+  use the [bounded diagnostic budget](#ordinary-offline-repair-budget) instead
+  of the former general two-failure threshold. Preserve stricter task-specific
+  stops and all scientific, live, BUS and uncertainty boundaries.
 - Maximum parallelism is three workstreams. The Integration Owner alone merges
   or integrates them, serially. Planning does not create a fourth workstream.
 - GitHub timestamps ending in `Z` are UTC; convert them to the Owner's local
@@ -39,6 +48,35 @@ smoke, retry, cancellation, cleanup, or scientific-acceptance authority.
   full suite is not the default feedback loop for an ordinary v3 PR.
 - Every handoff is compact and contains: `task`, `base`, `head`, `scope`,
   `autonomy`, `status`, `findings`, `validation`, `blocker`, and `next gate`.
+
+### Ordinary offline repair budget
+
+For new ordinary offline repairs whose intended behavior is already defined
+by the approved task contract, record a default budget of **four repair cycles
+or 30 minutes of active diagnosis/editing, whichever is reached first**.
+A cycle states one hypothesis,
+makes its bounded repair and runs the relevant check; record the evidence and
+remaining budget. Stop further diagnosis/editing at the active-time limit and
+do not start another cycle after the recorded count is exhausted if the
+problem remains unresolved. An Owner may explicitly set a different finite
+budget at intake or approve an extension after reviewing the evidence.
+
+Waiting for an already-running test, CI, or Owner reply does not consume active
+diagnosis time. This is not a test timeout: let a running check finish under
+its existing policy, and reuse its result. Successful repair proceeds to the
+required validation/review; required checks are not skipped to fit the budget.
+Do not repeat a failed approach without new evidence or a changed hypothesis.
+Missing authority, contract conflict, identity drift or scope expansion stops
+immediately, even with budget remaining.
+
+Count across the task's related failures, turns and handoffs; record consumed
+cycles/time rather than resetting them for a new error label or process.
+Exhaustion requires an Owner decision before further repair. This replaces
+only the general two-failure rule for these new tasks: explicit two-failure
+stops in frozen Task Contracts remain until separately superseded. It grants
+no automatic BUS restart/FIX, remote-operation retry, additional submission
+or scientific-method change. Real `UNKNOWN` remains reconciliation-only with
+no automatic retry; no diagnostic budget can reopen a consumed Attempt.
 
 ## Frozen Post-Core Task Contracts
 
