@@ -124,14 +124,13 @@ def record_comparison(self, observed, tolerance, msg=None):
 
 GoodVibesDifferentialQualification.assertLessEqual = record_comparison
 try:
-    run_suite("tests.v31.thermochemistry.test_goodvibes_qualification")
+    run_suite("tests.v31.thermochemistry")
 finally:
     GoodVibesDifferentialQualification.assertLessEqual = original_assert
 maximum = max(errors) if errors else None
 print(json.dumps({"differential_comparisons": len(errors), "max_absolute_error": maximum}), flush=True)
 if len(errors) != 14 or maximum > 1e-12:
     raise SystemExit("qualification requires 14 comparisons with max absolute error <= 1e-12")
-run_suite("tests.v31.thermochemistry")
 if Path("tests/v31/integration/test_v31_offline_end_to_end.py").is_file():
     run_suite("tests.v31.integration")
 else:
@@ -590,6 +589,8 @@ def audit(root: Path) -> dict[str, Any]:
         "Draft 2020-12 test module inventory",
     )
     expected_chemistry_commands = [
+        'python scripts/check_documentation.py --base "$VALIDATION_BASE" --head "$VALIDATION_HEAD" >> "$GITHUB_OUTPUT"',
+        "python scripts/audit_python_contract.py",
         "python -m pip install --requirement requirements/chemistry.txt",
         (
             "python -m pip install --requirement "
@@ -661,7 +662,8 @@ def audit(root: Path) -> dict[str, Any]:
     _compare(
         errors,
         audit_invocations,
-        [("source-archive-release", "python scripts/audit_python_contract.py")],
+        [("source-archive-release", "python scripts/audit_python_contract.py"),
+         ("chemistry-dependencies", "python scripts/audit_python_contract.py")],
         "CI Python contract audit invocation",
     )
 

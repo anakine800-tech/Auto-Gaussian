@@ -320,6 +320,41 @@ start time, exit code, test total/skip/failure counts, wall time, and coverage
 modifiers. Historical README, task, or PR totals are context, never current
 evidence.
 
+### Reviewed documentation validation
+
+The exact low-risk list is `README.md`, `docs/v3/INDEX.md` and
+`docs/documentation-guide.md`: introduction, navigation and archive explanation.
+They run release-hygiene and documentation-link/CI-boundary tests. No directory,
+Markdown suffix, historical label or completed status grants an exemption.
+All other currently owned v3 documents keep `v3-full`; new unowned documents
+remain conservative until their ownership is reviewed. Publisher R4 README,
+post-Core history and archived status are deliberately outside the list because
+they carry frozen contracts, safety limits or retained policy/evidence.
+
+Review the actual meaning of every documentation diff. New or changed normative
+permissions, scientific rules, frozen contracts or validation controls belong in
+their protected authority source, with at least the applicable L2/L3 review and
+Owner gate. A whitelisted page may link to that change but cannot become its
+normative source. Path/link tests cannot prove semantic safety. Adding a low-risk
+path or changing its checker requires validation-control review and conservative
+selector self-protection, not an ordinary documentation approval.
+
+Mixed changes retain the highest selected lane and existing safety evidence.
+The five required CI jobs remain. Only a nonempty, modification-only diff wholly
+within the exact low-risk list, independently recomputed from clean exact Git
+identities, avoids optional chemistry installation and runtime chemistry/schema
+checks. The chemistry job still validates document links and audits dependency
+and Python declarations. Add/delete/rename/copy, control/code/mixed and unknown
+paths retain existing chemistry duties; invalid selection fails before tests.
+The three Python versions retain selected compatibility evidence, and the source
+archive retains its audits and static verification. This changes no full-run
+ownership or post-merge deduplication rule.
+
+GoodVibes differential qualification runs once inside the complete thermochemistry
+suite, retaining the exact wheel binding, zero-skip requirement, 14 comparisons
+and error threshold. Collection proves containment; runtime qualification is
+still required on the applicable chemistry environment.
+
 ## 7. Review levels, duties, and blockers
 
 Select the highest applicable review level:

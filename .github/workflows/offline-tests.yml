@@ -126,6 +126,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       validation-lane: ${{ steps.validation-route.outputs.lane }}
+      validation-base: ${{ steps.validation-route.outputs.base }}
+      validation-head: ${{ steps.validation-route.outputs.head }}
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
         with:
@@ -273,15 +275,29 @@ jobs:
             requirements/chemistry.lock.txt
             requirements/schema-validation.txt
             requirements/schema-validation.lock.txt
+      - name: Verify exact documentation scope
+        id: documentation-scope
+        env:
+          VALIDATION_BASE: ${{ needs.source-archive-release.outputs.validation-base }}
+          VALIDATION_HEAD: ${{ needs.source-archive-release.outputs.validation-head }}
+        run: |
+          python scripts/check_documentation.py --base "$VALIDATION_BASE" --head "$VALIDATION_HEAD" >> "$GITHUB_OUTPUT"
+      - name: Audit chemistry dependency declarations
+        run: python scripts/audit_python_contract.py
       - name: Install optional chemistry dependencies
+        if: steps.documentation-scope.outputs.chemistry-required != 'false'
         run: python -m pip install --requirement requirements/chemistry.txt
       - name: Install test-only Draft 2020-12 validator
+        if: steps.documentation-scope.outputs.chemistry-required != 'false'
         run: python -m pip install --requirement requirements/schema-validation.txt
       - name: Import and report optional chemistry dependencies
+        if: steps.documentation-scope.outputs.chemistry-required != 'false'
         run: python -c "import numpy, PIL, rdkit; print(f'numpy={numpy.__version__}'); print(f'Pillow={PIL.__version__}'); print(f'rdkit={rdkit.__version__}')"
       - name: Report exact Schema validator dependencies
+        if: steps.documentation-scope.outputs.chemistry-required != 'false'
         run: python -c "import importlib.metadata as m; names=('jsonschema','attrs','jsonschema-specifications','referencing','rpds-py','typing-extensions'); print('; '.join(name + '=' + m.version(name) for name in names))"
       - name: Run real RDKit structure, conformer, and depiction smoke
+        if: steps.documentation-scope.outputs.chemistry-required != 'false'
         env:
           AUTO_G16_REQUIRE_RDKIT: "1"
         run: python -m unittest tests.test_rdkit_smoke -v
@@ -291,6 +307,7 @@ jobs:
         run: python -m unittest tests.test_direct_durable_submission_journal_schema_draft202012 tests.test_direct_effect_time_replay_ingress_schema_draft202012 tests.test_direct_existing_job_lineage_schema_draft202012 tests.test_direct_local_fetch_materializer_schema_draft202012 tests.test_direct_minimum_production_closure_schema_draft202012 tests.test_direct_one_hop_transport_schema_draft202012 tests.test_direct_qstat_acquisition_schema_draft202012 tests.test_direct_read_only_evidence_schema_draft202012 tests.test_direct_root_fixed_mutation_schema_draft202012 tests.test_direct_root_mutation_boundary_schema_draft202012 tests.test_direct_root_owner_schema_draft202012 tests.test_direct_shared_fixed_ssh_channel_schema_draft202012 tests.test_direct_trusted_session_schema_draft202012 tests.test_execution_batch_reservation_capability_schema_draft202012 tests.test_legacy_root_authority_schema_draft202012 tests.test_live_approval_effect_time_replay_schema_draft202012 tests.test_local_state_binding_schema_draft202012 tests.test_protected_invocation_schema_draft202012 tests.test_protected_job_runtime_coordinator_schema_draft202012 tests.test_protected_legacy_effect_handoff_schema_draft202012 tests.test_protected_lifecycle_schema_draft202012 tests.test_protected_local_materialization_schema_draft202012 tests.test_protected_owner_consumer_schema_draft202012 tests.test_protected_production_factory_consumer_schema_draft202012 tests.test_protected_production_ingress_schema_draft202012 tests.test_protected_runtime_state_schema_draft202012 tests.test_protected_submit_schema_draft202012 tests.test_resource_effect_time_replay_schema_draft202012 -v
         if: needs.source-archive-release.result != 'success' || needs.source-archive-release.outputs.validation-lane == 'v3-full' || needs.source-archive-release.outputs.validation-lane == 'legacy-release'
       - name: Provision exact GoodVibes qualification artifact
+        if: steps.documentation-scope.outputs.chemistry-required != 'false'
         run: |
           set -euo pipefail
           qualification_dir="$(mktemp -d "$RUNNER_TEMP/goodvibes-430.XXXXXX")"
@@ -321,6 +338,7 @@ jobs:
             "AUTO_G16_GOODVIBES_430_QUALIFICATION_ROOT=$AUTO_G16_GOODVIBES_430_QUALIFICATION_ROOT" \
             "AUTO_G16_GOODVIBES_430_QUALIFICATION_WHEEL=$AUTO_G16_GOODVIBES_430_QUALIFICATION_WHEEL" >> "$GITHUB_ENV"
       - name: Run unskipped GoodVibes and thermochemistry qualification
+        if: steps.documentation-scope.outputs.chemistry-required != 'false'
         run: |
           python - <<'PY'
           from hashlib import sha256
@@ -374,14 +392,13 @@ jobs:
 
           GoodVibesDifferentialQualification.assertLessEqual = record_comparison
           try:
-              run_suite("tests.v31.thermochemistry.test_goodvibes_qualification")
+              run_suite("tests.v31.thermochemistry")
           finally:
               GoodVibesDifferentialQualification.assertLessEqual = original_assert
           maximum = max(errors) if errors else None
           print(json.dumps({"differential_comparisons": len(errors), "max_absolute_error": maximum}), flush=True)
           if len(errors) != 14 or maximum > 1e-12:
               raise SystemExit("qualification requires 14 comparisons with max absolute error <= 1e-12")
-          run_suite("tests.v31.thermochemistry")
           if Path("tests/v31/integration/test_v31_offline_end_to_end.py").is_file():
               run_suite("tests.v31.integration")
           else:
