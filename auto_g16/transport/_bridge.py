@@ -870,6 +870,12 @@ try: main()
 except BaseException:
     sys.stderr.buffer.write(b"closed-successor-operation-failed\n"); raise SystemExit(2)
 '''
+_PRE_STARTUP_PROGRAM_BOOTSTRAP_SOURCE_BYTES: Final = _PROGRAM_BOOTSTRAP_SOURCE.encode("utf-8")
+_PROGRAM_BOOTSTRAP_SOURCE = _PROGRAM_BOOTSTRAP_SOURCE.replace(
+    'keys(original,{"scheduler_portable_name","scheduler_artifact_authority_id","program_input_artifact_authority_ids"})',
+    'keys(original,{"scheduler_portable_name","scheduler_artifact_authority_id","program_input_artifact_authority_ids"}|({"startup_payload_artifact_authority_ids"} if "startup_payload_artifact_authority_ids" in original else set()))',
+    1,
+)
 _PROGRAM_BOOTSTRAP_SOURCE_BYTES: Final = _PROGRAM_BOOTSTRAP_SOURCE.encode("utf-8")
 
 

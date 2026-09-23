@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+# Frozen observation vocabulary; pure snapshot restoration has no Transport
+# implementation dependency. Compatibility is checked at the integration seam.
+_PROGRAM_EFFECT_RECEIPT_TYPE = "v31-program-effect-receipt/1"
+
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from hashlib import sha256
@@ -184,7 +188,7 @@ def _validate_invocation(
         "OMP_NUM_THREADS",
     )
     expected_environment = (omp_environment,)
-    if program_kind == "xtb" and adapter_contract_version in (2, 3):
+    if (program_kind == "xtb" and adapter_contract_version in (2, 3)) or (program_kind == "crest" and adapter_contract_version == 3):
         expected_environment = (
             omp_environment,
             freeze_mapping(
@@ -536,7 +540,7 @@ def _invocation(
             "OMP_NUM_THREADS",
         ),
     )
-    if program_kind == "xtb" and xtb_data_authority:
+    if xtb_data_authority:
         environment += (
             freeze_mapping(
                 {
@@ -565,7 +569,12 @@ _Adapter = tuple[
     Callable[[Mapping[str, object]], Mapping[str, object]],
     Callable[[Mapping[str, object], str, Mapping[str, object]], tuple[Mapping[str, object], tuple[Mapping[str, object], ...], tuple[Mapping[str, object], ...]]],
 ]
+from . import _crest_completion
+
 _ADAPTER_REGISTRY: Final[Mapping[tuple[str, str, int], _Adapter]] = {
+    ("crest", "auto-g16-v31-crest", 3): (
+        "auto-g16-v31-crest", 3, _crest_completion._validate_data, _crest_completion._render,
+    ),
     ("xtb", "auto-g16-v31-xtb", 3): (
         "auto-g16-v31-xtb", 3, _validate_xtb_completion_data, _render_xtb,
     ),
@@ -650,11 +659,11 @@ class ProgramExecutionSpec:
         if inputs[0]["logical_role"] != "structure" or inputs[0]["format"] != "xyz":
             raise ExecutionValueError("initial adapters require one XYZ structure input")
         data = validate_data(program_data)
-        if program_kind == "xtb" and adapter_contract_version == 3:
+        if program_kind in {"xtb", "crest"} and adapter_contract_version == 3:
             from ._program_completion import _RESERVED_NAMES
             names = [item["portable_name"] for item in (*inputs, *required_outputs, *optional_outputs)]
             if len(set(names)) != len(names) or any(
-                name in _RESERVED_NAMES or name == "xtb.pbs"
+                name in _RESERVED_NAMES or name == f"{program_kind}.pbs"
                 or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", str(name)) is None
                 for name in names
             ):
@@ -740,9 +749,9 @@ def _prepare_program_execution_spec(
     adapter_key = _INITIAL_ADAPTER_KEYS.get(program_kind)
     if completion_mode is not None:
         from ._program_completion import _MODE
-        if program_kind != "xtb" or completion_mode != _MODE or "completion_mode" in program_data:
+        if program_kind not in {"xtb", "crest"} or completion_mode != _MODE or "completion_mode" in program_data:
             raise ExecutionValueError("unknown or duplicate explicit completion mode")
-        adapter_key = ("xtb", "auto-g16-v31-xtb", 3)
+        adapter_key = (program_kind, f"auto-g16-v31-{program_kind}", 3)
         program_data = {**program_data, "completion_mode": completion_mode}
     if adapter_key is None:
         raise ExecutionValueError("Gaussian successor is reserved but not implemented")
@@ -805,12 +814,13 @@ def _render_scheduler_artifact(
     profile: ResolvedServerProfile,
     *, prebinding_fields: Mapping[str, object] | None = None,
     completion_rendering_material: Mapping[str, object] | None = None,
+    project_physical_binding: ProjectPhysicalBinding | None = None,
 ) -> tuple[Mapping[str, object], ...]:
     if _uses_completion_receipt(spec):
         from ._program_completion import _render_completion_scheduler
         if prebinding_fields is None or completion_rendering_material is None:
             raise ExecutionValueError("completion rendering material is required")
-        return _render_completion_scheduler(spec, resources, profile, prebinding_fields, completion_rendering_material)
+        return _render_completion_scheduler(spec, resources, profile, prebinding_fields, completion_rendering_material, project_binding=project_physical_binding)
     if completion_rendering_material is not None:
         raise ExecutionValueError("strict adapters reject completion rendering material")
     argv = tuple(spec.invocation["argv"])
@@ -906,11 +916,11 @@ def _uses_xtb_runtime_data_authority(spec: ProgramExecutionSpec) -> bool:
         spec.program_kind,
         spec.adapter_id,
         spec.adapter_contract_version,
-    ) in {("xtb", "auto-g16-v31-xtb", 2), ("xtb", "auto-g16-v31-xtb", 3)}
+    ) in {("xtb", "auto-g16-v31-xtb", 2), ("xtb", "auto-g16-v31-xtb", 3), ("crest", "auto-g16-v31-crest", 3)}
 
 
 def _uses_completion_receipt(spec: ProgramExecutionSpec) -> bool:
-    return (spec.program_kind, spec.adapter_id, spec.adapter_contract_version) == ("xtb", "auto-g16-v31-xtb", 3)
+    return (spec.program_kind, spec.adapter_id, spec.adapter_contract_version) in {("xtb", "auto-g16-v31-xtb", 3), ("crest", "auto-g16-v31-crest", 3)}
 
 
 def _assert_xtb_runtime_data_authority(profile: ResolvedServerProfile) -> str:
@@ -1092,6 +1102,7 @@ class ProgramExecutionSnapshot:
             self.resolved_server_profile,
             prebinding_fields={key: value for key, value in self._identity_payload.items() if key != "scheduler_artifacts"},
             completion_rendering_material=self._completion_material(),
+            project_physical_binding=self.project_physical_binding,
         )
         if self.cwd_binding != cwd_binding or self.scheduler_artifacts != scheduler:
             raise ExecutionValueError(
@@ -1327,6 +1338,13 @@ class _ProgramExecutionSnapshotService:
         )
 
     def restore_for_collection(self, store: SQLiteRuntimeStore, *, reviewed_semantics: Mapping[str, object]) -> ProgramExecutionSnapshot:
+        return self._restore_existing(store, reviewed_semantics=reviewed_semantics, reconciliation=False)
+
+    def restore_for_reconciliation(self, store: SQLiteRuntimeStore, *, reviewed_semantics: Mapping[str, object]) -> ProgramExecutionSnapshot:
+        """Existing UNKNOWN only (or exact disposition replay); never prepare."""
+        return self._restore_existing(store, reviewed_semantics=reviewed_semantics, reconciliation=True)
+
+    def _restore_existing(self, store, *, reviewed_semantics, reconciliation):
         """Restore data for an existing submission; never attest/provision remotely.
 
         Controller owns original approvals and physical four-store binding. The
@@ -1344,15 +1362,29 @@ class _ProgramExecutionSnapshotService:
         if type(service._journal) is not _ProductionProvisioningJournal:
             raise ExecutionValueError("restoration requires a production Project journal")
         service._assert_production_authority(snapshot.resolved_server_profile)
-        if not _uses_completion_receipt(snapshot.program_execution_spec) or snapshot._completion_material()["schema"] != "v31-completion-rendering-material/2":
+        if not _uses_completion_receipt(snapshot.program_execution_spec) or snapshot._completion_material()["schema"] not in ({"v31-completion-rendering-material/3", "v31-completion-rendering-material/4"} if snapshot.program_execution_spec.program_kind == "crest" else {"v31-completion-rendering-material/2"}):
             raise ExecutionValueError("restoration requires the original publisher tuple")
         state = store.attempt_state(snapshot.attempt_id)
-        if state not in {AttemptState.SUBMITTED, AttemptState.RUNNING, AttemptState.SUCCEEDED, AttemptState.FAILED}:
+        allowed = {AttemptState.SUBMITTED, AttemptState.RUNNING, AttemptState.SUCCEEDED, AttemptState.FAILED}
+        if reconciliation:
+            allowed.add(AttemptState.UNKNOWN)
+        if state not in allowed:
             raise ExecutionValueError("restoration requires an already submitted Attempt")
-        from auto_g16.transport.program import _RECEIPT_TYPE
-        receipts = [item for item in store.observations_for_attempt(snapshot.attempt_id) if item.observation_type == _RECEIPT_TYPE]
-        if any(item.data.get("operation") == "RECONCILE_SUBMISSION" for item in receipts) or sum(item.data.get("operation") == "SUBMIT_QSUB_ONCE" and item.data.get("outcome") == "SUCCEEDED" for item in receipts) != 1:
+        receipts = [item for item in store.observations_for_attempt(snapshot.attempt_id) if item.observation_type == _PROGRAM_EFFECT_RECEIPT_TYPE]
+        reconciliations = [item for item in receipts if item.data.get("operation") == "RECONCILE_SUBMISSION"]
+        submits = [item for item in receipts if item.data.get("operation") == "SUBMIT_QSUB_ONCE"]
+        recovered = len(submits) == 1 and submits[0].data.get("outcome") == "UNKNOWN" and len(reconciliations) == 1 and reconciliations[0].data.get("response", {}).get("schema") == "v31-exact-observed-job-reconciliation-proof/1"
+        pending = reconciliation and state is AttemptState.UNKNOWN and len(submits) == 1 and submits[0].data.get("outcome") == "UNKNOWN" and not reconciliations
+        if not (recovered or pending) and (reconciliations or len(submits) != 1 or submits[0].data.get("outcome") != "SUCCEEDED"):
             raise ExecutionValueError("restoration requires one original successful submission")
+        if recovered or pending:
+            from . import _submission_recovery as recovery
+            recovery.document(snapshot)  # Separate installed authority is mandatory.
+            if recovered:
+                receipt = reconciliations[0]
+                recovery.validate_proof(store, snapshot, tuple(receipts[:receipts.index(receipt)]), receipt.data["request"], receipt.data["response"])
+                if not reconciliation and receipt.data["outcome"] != "SUCCEEDED":
+                    raise ExecutionValueError("unresolved recovery cannot collect")
         snapshot._assert_current_core(store)
         _assert_collection_local_workspace(snapshot)
         attempt = store.load_attempt(snapshot.attempt_id)
@@ -1370,8 +1402,14 @@ class _ProgramExecutionSnapshotService:
         # missing/conflicting intent/outcome raises, never takes a WINNER branch.
         if _replay_submission_intent(store, snapshot.attempt_id, snapshot.effect_intent_id) is not SubmissionIntentClaim.REPLAY:
             raise ExecutionValueError("restoration cannot claim an Attempt")
-        if store.record_submission_outcome(snapshot.attempt_id, snapshot.effect_intent_id, SubmissionOutcome.SUBMITTED) is not state:
+        # Reconciled branches replay UNKNOWN verbatim, never rewrite its history.
+        outcome = SubmissionOutcome.UNKNOWN if recovered or pending else SubmissionOutcome.SUBMITTED
+        if store.record_submission_outcome(snapshot.attempt_id, snapshot.effect_intent_id, outcome) is not state:
             raise ExecutionValueError("restoration changed submission state")
+        if recovered and not reconciliation:
+            from auto_g16.core import ReconciliationResolution
+            if store.reconcile_unknown(snapshot.attempt_id, reconciliations[0].observation_id, ReconciliationResolution.SUBMITTED) is not state:
+                raise ExecutionValueError("reconciliation replay changed state")
         return snapshot
 
 
@@ -1469,6 +1507,7 @@ def _prepare_program_execution_snapshot_owned(
         program_execution_spec, resolved_resource_request, resolved_server_profile,
         prebinding_fields=payload,
         completion_rendering_material=completion_rendering_material,
+        project_physical_binding=project_physical_binding,
     )
     payload = freeze_mapping({**payload, "scheduler_artifacts": scheduler}, "ProgramExecutionSnapshot identity payload")
     effect_intent_id = semantic_id("program-effect-intent", payload)

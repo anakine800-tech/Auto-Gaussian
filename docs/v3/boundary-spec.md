@@ -5874,3 +5874,44 @@ effect receipt sequences remain receipt-only. Complete-bundle/terminal replay
 adds no start audit and invokes no wire from process start. No missing-bundle
 probe writes an UNKNOWN assessment. Existing collector, capture, guard and Core
 reducer own persistence and terminal advancement; no direct state repair.
+
+TP01–TP06 add a local asynchronous heartbeat around only the collection-owned
+exact-file fetch. It reports elapsed waiting and final bounded channel facts
+without entering the transport I/O/deadline thread. Reporter delay or failure
+cannot alter the driver result. The heartbeat is not a receipt, Result, capture
+or completion authority; all original wire, identity, timeout and UNKNOWN
+semantics remain.
+
+IR01–IR08 admit one private recovery step before a new collection epoch: finish
+the exact FETCH already named by the sole latest unmatched successful present
+STAT. The repair uses the persisted token and size, retains normal physical/Core
+receipts, discards returned bytes and cannot promote the abandoned epoch. A new
+full epoch starts only after repair. Ambiguous or multiple prefixes fail closed;
+each remote application still consumes a fresh reviewed continuation.
+
+### V31 CREST completion successor boundary
+
+The [reviewed CREST design freeze](crest-live-closure-freeze.md) adds the exact
+CREST-only version tuple and read-only seed proof consumer. All historical
+strict and xTB completion contracts retain their bytes and semantics. No
+public Core, Approval, Result or Transport-operation change is authorized.
+
+### V31 exact observed-job recovery boundary
+
+The [delegated recovery delta](exact-observed-job-recovery-contract.md) adds only
+one fixed observed-job read/proof and narrow reconciled snapshot restoration.
+It supersedes the C2 exclusion only for that exact versioned proof. Native
+START precedes wire, raw precedes interpretation, original UNKNOWN remains,
+and a later collection continuation pins the first recovery authority without
+resetting its one-read consumption. No public DDL or producer semantics change.
+
+### V31 CREST short-entry delivery boundary
+
+The narrowly authorized additive delivery tuple is frozen in
+[crest-short-payload-contract.md](crest-short-payload-contract.md), SP01–SP07.
+It retains CREST adapter 3 and completion receipt 2; scheduler 5 declares a short
+PBS script plus one exact startup JSON payload. Q3, deployment 3, the fixed
+same-process loader and native stage/submit/replay closure own both artifacts.
+Old tuples remain distinct. Historical xTB proof compatibility is limited to
+[the exact retained bridge generation](crest-short-payload-historical-source.md).
+Neither inert delivery nor candidate validation grants scientific success.

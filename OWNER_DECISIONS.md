@@ -1332,3 +1332,35 @@ and window remain immutable. The new fixed window grants no submission effect.
 No new public record, Core state/schema, Transport operation or scientific
 approval is added. The original prepare PLANNED guard and submission path remain.
 Real same-job collection stays behind the exact reviewed operational packet.
+
+The Owner's 2026-09-22 same-Attempt continuation adds the reviewed TP01–TP06
+delta in that contract. It permits asynchronous local progress diagnostics only
+for collection-owned exact-file fetches. The reporter is outside the transport
+deadline path and grants no completion, retry, submission or scientific
+authority. The original job, Attempt, snapshot, stores and CR10 gate remain.
+
+The same continuation also accepts IR01–IR08 after the retained `706.master`
+history demonstrated a present-file STAT without its paired FETCH. A fresh
+reviewed collect-only continuation may finish exactly that persisted FETCH,
+discard its bytes, and then open one clean complete collection epoch. Historical
+observations remain append-only; every further remote attempt still requires a
+new finite continuation and grants no submission or scientific authority.
+
+### OD-33 CREST completion and receipt seed handoff
+
+The Owner's 2026-09-16 delegation enables the independently reviewed
+[CREST successor freeze](docs/v3/crest-live-closure-freeze.md) under explicit
+delegated technical acceptance. This new task adds only the versioned CREST
+completion tuple and read-only xTB receipt-to-CREST seed consumer. It does not
+reinterpret OD-32's xTB-only scope, old adapters, publisher sources, approvals
+or stored records. Exact live qualification, installation and scientific,
+finite-batch and operational approval remain mandatory before the one run.
+
+### OD-33 exact observed-job recovery offline delta
+
+The coordinating task's delegated 2026-09-16 freeze accepts only the separately
+reviewed [exact observed-job recovery contract](docs/v3/exact-observed-job-recovery-contract.md)
+for bounded offline implementation. It narrowly extends UNKNOWN restoration
+and reconciliation provenance without rewriting original UNKNOWN history or
+reusing old Q as new-source qualification. Parent-owned read-only qualification,
+exact native application, collection and scientific acceptance remain separate.

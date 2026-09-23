@@ -2110,3 +2110,45 @@ mutation tripwires, four-store drift, native guard contention and crash/replay.
 Old FC/C4/P01–P08 evidence keeps its original candidate binding. CR10 is separate
 same-job native collection and independent readback under a concrete reviewed
 installation; offline PASS grants no live or scientific acceptance.
+
+For a long same-job output fetch, TP01–TP06 additionally require an
+off-transport-thread progress reporter, collection-owned FETCH-only selection,
+no sensitive/path/content fields, and unchanged driver tuples when reporting
+blocks or fails. These checks supplement CR10 and cannot replace complete file
+identity, hash, restat, receipt, capture or replay evidence.
+
+IR01–IR08 additionally require focused interrupted-prefix evidence: exactly one
+unmatched successful present STAT can drive only its already determined FETCH;
+zero needs no repair, while multiple, absent, malformed, conflicting or unowned
+prefixes reject before wire. A successful repair is retained as an ordinary
+receipt but its bytes are not completion evidence. The following new epoch must
+still perform the complete original declaration sequence and reach the existing
+bundle, final-absence, replay and Core-transition gates.
+
+### V31 CREST completion successor acceptance
+
+Apply the [frozen CREST criteria](crest-live-closure-contract.md) and its
+[delegated design acceptance](crest-live-closure-freeze.md). Required evidence
+separates immutable compatibility, offline adversarial closure, current
+qualification, exact approval, one execution, native capture/replay and
+independent chemical integrity. Historical xTB evidence is not CREST evidence.
+
+### V31 exact observed-job recovery acceptance
+
+Apply RF01–RF10 in the externally hash-bound normative contract identified by
+[the recovery delta](exact-observed-job-recovery-contract.md). Offline evidence
+must exercise crash/no-second-read, concurrent owners, full native fresh-process
+restore/capture/replay, preserved UNKNOWN and wrong-job receipt rejection.
+A synthetic native-chain pass does not qualify the new remote seam or accept
+real outputs. Parent-owned qualification and exact application remain separate.
+
+### V31 CREST short-entry delivery acceptance
+
+Apply SP01–SP07 in [the frozen contract](crest-short-payload-contract.md).
+`tests/v31/transport/test_crest_startup_payload.py` owns the incremental tuple,
+loader refusal, same-process exit, native dual-stage/submit, installation P09,
+collection/replay and retained historical-source evidence. Adjacent existing
+owners cover unchanged completion, approval and bridge boundaries. Retain exact
+candidate/run identities and independent review; target production-loader P09
+and a fresh precisely approved real CREST Attempt remain separate live evidence.
+No old UNKNOWN Attempt or 703 inert success is promoted by these tests.

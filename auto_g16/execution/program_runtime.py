@@ -36,6 +36,7 @@ _RECEIPT_FIELDS = {
 # Only the bounded Controller/Execution call holds this local checkpoint. It is
 # never passed to Transport and is not a persistent permission or claim token.
 _COLLECTION_CHECKPOINT = ContextVar("collection_checkpoint", default=None)
+_READONLY_RECEIPT_SOURCE = ContextVar("readonly_receipt_source", default=None)
 
 
 def _completion_owned(function):
@@ -65,7 +66,7 @@ def _completion_checkpoint(snapshot, program_transport_store):
 
 
 def _publisher_completion_checkpoint(snapshot, driver):
-    if snapshot.program_execution_spec.invocation["executable_identity"]["absolute_path"] == "/opt/auto-g16-fixtures/bin/xtb":
+    if snapshot.program_execution_spec.invocation["executable_identity"]["absolute_path"] in {"/opt/auto-g16-fixtures/bin/xtb", "/opt/auto-g16-fixtures/bin/crest"}:
         return
     from auto_g16.transport._program_rtwin import _RTWinProgramEffectDriver
     if type(driver) is not _RTWinProgramEffectDriver or driver._snapshot != snapshot:
@@ -91,10 +92,10 @@ def _snapshot_binding(
         raise TransportBoundaryError("completion-store-not-qualified" if receipt_mode else "strict requires a version-1 program store")
     if receipt_mode:
         material = snapshot._completion_material()
-        synthetic = (snapshot.program_execution_spec.invocation["executable_identity"]["absolute_path"] == "/opt/auto-g16-fixtures/bin/xtb" and driver.runtime_qualification.get("bootstrap_protocol") == "synthetic-v31-program-effect/1")
+        synthetic = (snapshot.program_execution_spec.invocation["executable_identity"]["absolute_path"] in {"/opt/auto-g16-fixtures/bin/xtb", "/opt/auto-g16-fixtures/bin/crest"} and driver.runtime_qualification.get("bootstrap_protocol") == "synthetic-v31-program-effect/1")
         if not synthetic:
             from auto_g16.transport._program_rtwin import _RTWinProgramEffectDriver
-            if material["schema"] != _completion._PILOT_MATERIAL_SCHEMA or type(driver) is not _RTWinProgramEffectDriver:
+            if material["schema"] not in {_completion._PILOT_MATERIAL_SCHEMA, _completion._crest._MATERIAL_SCHEMA, _completion._startup._MATERIAL_SCHEMA} or type(driver) is not _RTWinProgramEffectDriver:
                 raise TransportBoundaryError("publisher-not-qualified")
             driver._authority()
     closed_driver = _transport._require_driver(driver)
@@ -120,6 +121,11 @@ def _snapshot_binding(
         qualification=closed_driver.runtime_qualification,
         persist=persist,
     )
+    return _program_store_binding(snapshot, program_transport_store, runtime_attestation_id)
+
+
+def _program_store_binding(snapshot, program_transport_store, runtime_attestation_id):
+    remote_workspace = snapshot.workspace_binding.remote_attempt_dir
     binding = {
         "program_transport_store_id": (
             program_transport_store.program_transport_store_id
@@ -201,7 +207,7 @@ def _stage_material(
         if type(content) is not bytes or content != expected or len(content) != declaration["size_bytes"] or sha256(content).hexdigest() != declaration["sha256"]:
             raise TransportBoundaryError("scheduler bytes differ from exact snapshot artifact")
         material.append(({
-            "artifact_kind": "scheduler-script",
+            "artifact_kind": declaration["logical_role"],
             "logical_role": declaration["logical_role"],
             "portable_name": name,
             "format": declaration["format"],
@@ -288,6 +294,9 @@ def _load_receipts(
                 payload["request"], expected_request["binding"]
             )
             _reclose_receipt_response(snapshot, payload, expected_request)
+            if payload["operation"] == "RECONCILE_SUBMISSION" and payload["request"]["payload"].get("schema") == "v31-exact-observed-job-reconciliation-request/1":
+                from . import _submission_recovery as recovery
+                recovery.validate_proof(store, snapshot, tuple(prior_receipts), expected_request, payload["response"])
             job_id = _receipt_job_id(payload)
             program_transport_store.require_matching_effect(
                 binding=expected_request["binding"],
@@ -332,7 +341,7 @@ def _declared_stage_payload(
         for item in snapshot.program_execution_spec.exact_inputs
     ) + tuple(
         {
-            "artifact_kind": "scheduler-script",
+            "artifact_kind": item["logical_role"],
             "logical_role": item["logical_role"],
             "portable_name": item["portable_name"],
             "format": item["format"],
@@ -449,7 +458,13 @@ def _reconstruct_submit_request(
             )
         )
     )
-    if len(matched_schedulers) != 1 or len(authorities) != len(expected_inputs) + 1:
+    payload_ids = []
+    for declaration in snapshot.scheduler_artifacts[1:]:
+        matches = [item for item in authorities if item["artifact_kind"] == "startup-payload" and all(item[key] == declaration[key] for key in ("logical_role", "portable_name", "format", "sha256", "size_bytes"))]
+        if len(matches) != 1:
+            raise TransportBoundaryError("submit requires exact startup payload authority")
+        payload_ids.append(str(matches[0]["artifact_authority_id"]))
+    if len(matched_schedulers) != 1 or len(authorities) != len(expected_inputs) + 1 + len(payload_ids):
         raise TransportBoundaryError(
             "submit staged predecessor authority set is not exact"
         )
@@ -461,6 +476,7 @@ def _reconstruct_submit_request(
             matched_schedulers[0]["artifact_authority_id"]
         ),
         program_input_artifact_authority_ids=tuple(expected_inputs),
+        startup_payload_artifact_authority_ids=tuple(payload_ids),
     )
 
 
@@ -472,6 +488,15 @@ def _assert_effect_intent_replay(
         raise TransportBoundaryError(
             "successor authority cannot claim a PLANNED effect intent"
         )
+    if _READONLY_RECEIPT_SOURCE.get() is store:
+        # Historical proof must not enter the public claim transaction, even
+        # its replay branch. Check only the existing unique native record.
+        rows = store._connection.execute(
+            "SELECT attempt_id,intent_id FROM submission_intents WHERE attempt_id=? OR intent_id=?",
+            (snapshot.attempt_id, snapshot.effect_intent_id)).fetchall()
+        if [tuple(row) for row in rows] != [(snapshot.attempt_id, snapshot.effect_intent_id)]:
+            raise TransportBoundaryError("historical source lacks the exact recorded intent")
+        return
     try:
         from .runtime import _replay_submission_intent
         claim = _replay_submission_intent(store, snapshot.attempt_id, snapshot.effect_intent_id)
@@ -580,9 +605,11 @@ def _reconstruct_job_authority_from_receipts(
         ambiguous = _reconstruct_ambiguous_submit(
             store, snapshot, program_transport_store, base, prefix
         )
-        expected_request = _transport._reconciliation_request(
-            base, submit_receipt_id=ambiguous.observation_id
-        )
+        if receipt.data["request"]["payload"].get("schema") == "v31-exact-observed-job-reconciliation-request/1":
+            from . import _submission_recovery as recovery
+            expected_request = recovery.request(snapshot, base, ambiguous)
+        else:
+            expected_request = _transport._reconciliation_request(base, submit_receipt_id=ambiguous.observation_id)
     request = receipt.data["request"]
     if request != expected_request:
         raise TransportBoundaryError(
@@ -687,6 +714,9 @@ def _reconstruct_expected_request(
         ambiguous = _reconstruct_ambiguous_submit(
             store, snapshot, program_transport_store, base, prior_receipts
         )
+        if candidate_payload.get("schema") == "v31-exact-observed-job-reconciliation-request/1":
+            from . import _submission_recovery as recovery
+            return recovery.request(snapshot, base, ambiguous)
         return _transport._reconciliation_request(
             base, submit_receipt_id=ambiguous.observation_id
         )
@@ -1315,14 +1345,22 @@ def _prepare_program_port(
         raise TransportBoundaryError("successor input and scheduler must be exact bytes")
     snapshot.assert_identity_closed()
     inputs, schedulers = snapshot.program_execution_spec.exact_inputs, snapshot.scheduler_artifacts
-    if len(inputs) != 1 or len(schedulers) != 1:
+    if len(inputs) != 1 or len(schedulers) not in {1, 2}:
         raise TransportBoundaryError("the common entrypoint requires one exact input and scheduler")
-    return _prepare_program_execution(
+    prepared = _prepare_program_execution(
         store, snapshot=snapshot, program_transport_store=port.program_transport_store,
         input_bytes={str(inputs[0]["portable_name"]): prepared_input_bytes},
-        scheduler_artifact_bytes={str(schedulers[0]["portable_name"]): pbs_template_bytes},
+        scheduler_artifact_bytes={str(schedulers[0]["portable_name"]): pbs_template_bytes, **{str(item["portable_name"]): item["content_utf8"].encode("utf-8") for item in schedulers[1:]}},
         driver=port.driver,
     )
+    spec = snapshot.program_execution_spec
+    if spec.program_kind == "crest" and spec.adapter_contract_version == 3:
+        synthetic = (spec.invocation["executable_identity"]["absolute_path"] == "/opt/auto-g16-fixtures/bin/crest"
+                     and port.driver.runtime_qualification.get("bootstrap_protocol") == "synthetic-v31-program-effect/1")
+        if not synthetic:
+            from ._crest_seed_handoff import _assert_fixed_receipt_submission
+            _assert_fixed_receipt_submission(store, snapshot, prepared_input_bytes)
+    return prepared
 
 
 @_completion_owned
@@ -1444,7 +1482,8 @@ def _execute_claimed_program(
             )
         schedulers = tuple(item for item in authorities if item["artifact_kind"] == "scheduler-script")
         program_inputs = tuple(item for item in authorities if item["artifact_kind"] == "program-input")
-        if len(schedulers) != 1 or len(program_inputs) != len(snapshot.program_execution_spec.exact_inputs):
+        payloads = tuple(item for item in authorities if item["artifact_kind"] == "startup-payload")
+        if len(schedulers) != 1 or len(program_inputs) != len(snapshot.program_execution_spec.exact_inputs) or len(payloads) != len(snapshot.scheduler_artifacts) - 1:
             raise TransportBoundaryError("successor staged authority is incomplete")
         current_operation = "SUBMIT_QSUB_ONCE"
         current_request = _transport._submit_request(
@@ -1456,6 +1495,7 @@ def _execute_claimed_program(
             program_input_artifact_authority_ids=tuple(
                 str(item["artifact_authority_id"]) for item in program_inputs
             ),
+            startup_payload_artifact_authority_ids=tuple(str(item["artifact_authority_id"]) for item in payloads),
         )
         submit_map = _transport._submit_response(
             _invoke_program_driver(store, snapshot, program_transport_store, closed_driver.submit_qsub_once, current_request)
@@ -1595,6 +1635,10 @@ def _reconcile_program_submission(
     driver: _transport._ProgramEffectDriver,
     _completion_token: object = None,
 ) -> Mapping[str, object]:
+    from auto_g16.transport._program_rtwin import _RTWinProgramEffectDriver
+    if type(driver) is _RTWinProgramEffectDriver and driver._recovery_only:
+        from . import _submission_recovery as recovery
+        return recovery.reconcile(store, snapshot, program_transport_store, driver)
     if store.attempt_state(snapshot.attempt_id) is not AttemptState.UNKNOWN:
         raise TransportBoundaryError("successor reconciliation requires UNKNOWN")
     closed_driver = _transport._require_driver(driver)
@@ -1868,6 +1912,112 @@ def _completion_file_effect(store, snapshot, program_transport_store, driver, ba
     return observation, content
 
 
+def _interrupted_present_stat(
+    snapshot, observations, receipts, expected_job_authority_id=None
+):
+    """Select the sole collection-owned present STAT without a FETCH consumer."""
+    positions = {item.observation_id: index for index, item in enumerate(observations)}
+    starts = [
+        positions[item.observation_id]
+        for item in observations
+        if item.observation_type == _COLLECTION_START
+    ]
+    if not starts:
+        return None
+    first_start = min(starts)
+    consumed = set()
+    malformed = False
+    for item in receipts:
+        if item.data["operation"] != "FETCH_EXACT_FILE":
+            continue
+        request = item.data.get("request")
+        payload = request.get("payload") if isinstance(request, Mapping) else None
+        stat_id = payload.get("stat_receipt_id") if isinstance(payload, Mapping) else None
+        if type(stat_id) is not str or not stat_id:
+            malformed = True
+        elif item.data["outcome"] == "SUCCEEDED":
+            consumed.add(stat_id)
+        else:
+            malformed = True
+    candidates = []
+    for item in receipts:
+        if (
+            item.data["operation"] != "STAT_EXACT_FILE"
+            or item.data["outcome"] != "SUCCEEDED"
+            or positions.get(item.observation_id, -1) <= first_start
+            or item.observation_id in consumed
+        ):
+            continue
+        request = item.data.get("request")
+        payload = request.get("payload") if isinstance(request, Mapping) else None
+        response = item.data.get("response")
+        binding = request.get("binding") if isinstance(request, Mapping) else None
+        if (
+            not isinstance(payload, Mapping)
+            or not isinstance(response, Mapping)
+            or (
+                expected_job_authority_id is not None
+                and (
+                    not isinstance(binding, Mapping)
+                    or binding.get("job_authority_id")
+                    != expected_job_authority_id
+                )
+            )
+        ):
+            malformed = True
+            continue
+        try:
+            declaration = _declared_output(snapshot, payload)
+            closed, size = _transport._stat_response(
+                response,
+                name=str(declaration["portable_name"]),
+                max_size_bytes=int(declaration["max_size_bytes"]),
+            )
+        except Exception:
+            malformed = True
+            continue
+        if size is None or closed["presence"] != "present":
+            malformed = True
+            continue
+        candidates.append(item)
+    if malformed or len(candidates) > 1:
+        raise TransportBoundaryError(
+            "interrupted collection prefix is malformed or ambiguous"
+        )
+    return candidates[0] if candidates else None
+
+
+def _repair_interrupted_completion_prefix(
+    store, snapshot, program_transport_store, driver, base, job
+):
+    """Finish one exact abandoned STAT/FETCH pair before a clean new epoch."""
+    observations = store.observations_for_attempt(snapshot.attempt_id)
+    receipts = _load_receipts(store, snapshot, program_transport_store, base)
+    stat = _interrupted_present_stat(
+        snapshot,
+        observations,
+        receipts,
+        expected_job_authority_id=str(job["job_authority_id"]),
+    )
+    if stat is None:
+        return
+    request = stat.data["request"]
+    assert isinstance(request, Mapping)
+    declaration = _declared_output(snapshot, request["payload"])
+    _receipt, content = _completion_file_effect(
+        store,
+        snapshot,
+        program_transport_store,
+        driver,
+        base,
+        job,
+        declaration,
+        stat=stat,
+    )
+    if type(content) is not bytes:
+        raise TransportBoundaryError("interrupted collection repair returned no bytes")
+
+
 def _validate_completion_bundle(record, snapshot, job, workspace, receipts, observations):
     data = _completion._closed(record.data, frozenset({"schema", *_COMPLETION_BINDING_KEYS, "epoch_id", "inputs", "captured_files"}), "completion bundle")
     if record.result_type != _COMPLETION_EVIDENCE or record.attempt_id != snapshot.attempt_id or data["schema"] != _COMPLETION_EVIDENCE or record.result_id != semantic_id("program-completion-evidence", data) or any(data[key] != value for key, value in _completion_binding(snapshot, job).items()):
@@ -1966,7 +2116,7 @@ def _validate_completion_bundle(record, snapshot, job, workspace, receipts, obse
     code = term["returncode"] if term["kind"] == "exited" else 128 + term["signal"]
     diagnostic = _scheduler_diagnostic(observations, code)
     if diagnostic is None:
-        diagnostic = "program-signaled" if term["kind"] == "signaled" else "program-nonzero" if code else _completion._output_closure(str(snapshot.program_execution_spec.program_data["task"]), next(iter(input_bytes.values())), content_map) or "completed"
+        diagnostic = "program-signaled" if term["kind"] == "signaled" else "program-nonzero" if code else (_completion._crest._output_closure(next(iter(input_bytes.values())), content_map) if snapshot.program_execution_spec.program_kind == "crest" else _completion._output_closure(str(snapshot.program_execution_spec.program_data["task"]), next(iter(input_bytes.values())), content_map)) or "completed"
     return diagnostic, capture, sha256(raw).hexdigest(), opening.observation_id, closing.observation_id
 
 
@@ -2210,7 +2360,11 @@ def _resume_program_collection(store, *, snapshot, program_transport_store, driv
     try:
         _completion_checkpoint(snapshot, program_transport_store)
         base, receipts, job, workspace = _completion_context(store, snapshot, program_transport_store, driver)
-        if job["establishing_operation"] != "SUBMIT_QSUB_ONCE" or job["job_id"] != continuation["original"]["job_id"]:
+        recovered = (continuation["schema"] == "auto-g16-v31-exact-job-recovery-continuation/1"
+                     and job["establishing_operation"] == "RECONCILE_SUBMISSION"
+                     and any(r.data["operation"] == "RECONCILE_SUBMISSION" and r.data["outcome"] == "SUCCEEDED"
+                             and r.data["response"].get("schema") == "v31-exact-observed-job-reconciliation-proof/1" for r in receipts))
+        if (job["establishing_operation"] != "SUBMIT_QSUB_ONCE" and not recovered) or job["job_id"] != continuation["original"]["job_id"]:
             raise TransportBoundaryError("collection requires the original successful submission")
         observations = store.observations_for_attempt(snapshot.attempt_id)
         _verify_completion_assessments(observations, snapshot, job)
@@ -2243,6 +2397,9 @@ def _resume_program_collection(store, *, snapshot, program_transport_store, driv
             raise TransportBoundaryError("collection audit prefix changed")
         _validate_collection_audits(current, snapshot, job, continuation_sha256, source_digest)
         history.update(observations=current, audits=(*history["audits"], audit))
+        _repair_interrupted_completion_prefix(
+            store, snapshot, program_transport_store, driver, base, job
+        )
         return _collect_program_completion(store, snapshot=snapshot, program_transport_store=program_transport_store,
                                            driver=driver, input_bytes=input_bytes, _completion_token=_completion_token)
     finally:
@@ -2297,3 +2454,45 @@ def _assert_program_receipt_success_authority(store, *, snapshot, program_transp
     _publisher_completion_checkpoint(snapshot, driver)
     _completion_checkpoint(snapshot, program_transport_store)
     return freeze_mapping({**payload, "program_terminal_success_authority_id": semantic_id("program-terminal-success-authority", payload)}, "receipt terminal success authority")
+
+
+@_completion_owned
+def _read_program_receipt_success_authority(store, *, snapshot, program_transport_store, driver=None, _completion_token=None):
+    """Historical evidence only, independent of any current live installation."""
+    from ._receipt_source import _source_qualification
+    if type(store) is not SQLiteRuntimeStore or type(program_transport_store) is not _transport._ProgramTransportStore:
+        raise TransportBoundaryError("read-only source requires exact native stores")
+    snapshot.assert_identity_closed()
+    _completion_checkpoint(snapshot, program_transport_store)
+    with _source_qualification(store, snapshot, program_transport_store, driver) as (source_store, qualification):
+        snapshot._assert_current_core(source_store)
+        runtime_id = program_transport_store._require_recorded_runtime(
+            program_execution_snapshot_id=snapshot.program_execution_snapshot_id,
+            resolved_server_profile_id=snapshot.resolved_server_profile.resolved_server_profile_id,
+            qualification=qualification)
+        base = _program_store_binding(snapshot, program_transport_store, runtime_id)
+        token = _READONLY_RECEIPT_SOURCE.set(source_store)
+        try:
+            receipts = _load_receipts(source_store, snapshot, program_transport_store, base)
+            job = _reconstruct_job_authority_from_receipts(source_store, snapshot, program_transport_store, base, receipts)
+            workspace = _reconstruct_workspace_authority(snapshot, program_transport_store, receipts)
+            return _read_receipt_success_bundle(source_store, snapshot, program_transport_store, receipts, job, workspace)
+        finally:
+            _READONLY_RECEIPT_SOURCE.reset(token)
+
+
+def _read_receipt_success_bundle(store, snapshot, program_transport_store, receipts, job, workspace):
+    observations = store.observations_for_attempt(snapshot.attempt_id)
+    _verify_completion_assessments(observations, snapshot, job)
+    _validate_completion_history(store, snapshot, job, workspace, receipts, observations)
+    assessment, result_id = _completion_replay_selection(store, snapshot, observations)
+    if assessment is None or result_id is None or assessment.data["verdict"] != "SUCCEEDED" or store.attempt_state(snapshot.attempt_id) is not AttemptState.SUCCEEDED:
+        raise TransportBoundaryError("read-only receipt proof requires persisted success")
+    record = _completion_stored_record(store, snapshot, result_id)
+    diagnostic, capture, digest, opening, closing = _validate_completion_bundle(record, snapshot, job, workspace, receipts, observations)
+    if diagnostic != "completed" or (diagnostic, capture.capture_authority_id, digest, record.data["epoch_id"]) != (assessment.data["diagnostic"], assessment.data["capture_authority_id"], assessment.data["receipt_sha256"], assessment.data["epoch_id"]):
+        raise TransportBoundaryError("read-only receipt proof was invalidated")
+    keys = (*_COMPLETION_BINDING_KEYS, "completion_mode", "epoch_id", "evidence_result_id", "capture_authority_id", "receipt_sha256", "observation_prefix_sha256")
+    payload = {"schema": "program-terminal-success-authority/2", **{key: assessment.data[key] for key in keys}, "assessment_observation_id": assessment.observation_id, "initial_absence_observation_id": opening, "final_absence_observation_id": closing}
+    _completion_checkpoint(snapshot, program_transport_store)
+    return freeze_mapping({**payload, "program_terminal_success_authority_id": semantic_id("program-terminal-success-authority", payload)}, "read-only receipt success"), capture

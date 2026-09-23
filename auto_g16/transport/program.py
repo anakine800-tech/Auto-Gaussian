@@ -390,6 +390,32 @@ def _require_store_process():
         raise TransportBoundaryError("fork child requires exec before opening any program store")
 
 
+def _readonly_source_state(path, root):
+    with _directory_walk(path, root) as (binding, parent_fd):
+        name = Path(path).name
+        for suffix in ("-journal", "-wal", "-shm"):
+            try:
+                os.stat(name + suffix, dir_fd=parent_fd, follow_symlinks=False)
+            except FileNotFoundError:
+                continue
+            raise TransportBoundaryError("read-only source has a SQLite sidecar")
+        descriptor = os.open(name, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW | os.O_CLOEXEC,
+                             dir_fd=parent_fd)
+        try:
+            info = os.fstat(descriptor)
+            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                raise TransportBoundaryError("read-only source must be a single regular file")
+            header = os.read(descriptor, 100)
+            if len(header) != 100 or header[:16] != b"SQLite format 3\x00" or header[18:20] != b"\x01\x01":
+                raise TransportBoundaryError("read-only source requires rollback journal format")
+            named = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+            if (named.st_dev, named.st_ino) != (info.st_dev, info.st_ino):
+                raise TransportBoundaryError("read-only source path changed")
+            return binding, info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns, header
+        finally:
+            os.close(descriptor)
+
+
 class _ProgramTransportStore:
     """Private append-only physical authority for successor effects only."""
 
@@ -460,6 +486,14 @@ class _ProgramTransportStore:
 
     @classmethod
     def open_existing(cls, path, *, approved_root):
+        return cls._open_existing(path, approved_root=approved_root)
+
+    @classmethod
+    def _open_readonly_existing(cls, path, *, approved_root):
+        return cls._open_existing(path, approved_root=approved_root, readonly=True)
+
+    @classmethod
+    def _open_existing(cls, path, *, approved_root, readonly=False):
         _require_store_process()
         absolute_path, absolute_root = _store_paths(path, approved_root)
         # The same SQLite connection identifies format, never accepts authority.
@@ -470,8 +504,11 @@ class _ProgramTransportStore:
                 try:
                     binding, _fd = stack.enter_context(_directory_walk(os.fspath(path), os.fspath(approved_root)))
                 except TransportBoundaryError:
+                    if readonly:
+                        raise
                     binding = None
-                value = cls._open(absolute_path, absolute_root, version=None)
+                before = _readonly_source_state(absolute_path, absolute_root) if readonly else None
+                value = cls._open(absolute_path, absolute_root, version=None, readonly=readonly)
                 try:
                     if value._version == 1:
                         value._attest()
@@ -489,17 +526,25 @@ class _ProgramTransportStore:
                                 value._require_completion_guard(token)
                             finally:
                                 value._completion_owner = None
+                    if readonly and _readonly_source_state(absolute_path, absolute_root) != before:
+                        raise TransportBoundaryError("read-only source changed across SQLite open")
                     return value
                 except BaseException:
                     value.close()
                     raise
-        except BaseException:
+        except BaseException as error:
             if value is not None:
                 value.close()
+            if readonly and 'before' in locals() and before is not None:
+                try:
+                    if _readonly_source_state(absolute_path, absolute_root) != before:
+                        raise TransportBoundaryError("read-only source changed on failed open")
+                except BaseException as recheck:
+                    error.add_note(f"source recheck failed: {recheck!r}")
             raise
 
     @classmethod
-    def _open(cls, path: str, root: str, *, version=1):
+    def _open(cls, path: str, root: str, *, version=1, readonly=False):
         _require_store_process()
         identity = _store_file_identity(path)
         value = object.__new__(cls)
@@ -514,9 +559,15 @@ class _ProgramTransportStore:
         value._closed = False
         # Fork cannot miss a just-created connection in the quarantine registry.
         with _DIRECTORY_MUTEX:
-            value._connection = sqlite3.connect(path, isolation_level=None, check_same_thread=False)
+            if readonly:
+                value._connection = sqlite3.connect(Path(path).as_uri() + "?mode=ro&cache=private",
+                                                   uri=True, isolation_level=None, check_same_thread=False)
+            else:
+                value._connection = sqlite3.connect(path, isolation_level=None, check_same_thread=False)
             _STORE_HANDLES.add(value)
         try:
+            if readonly:
+                value._connection.execute("PRAGMA query_only=ON")
             if version is None:
                 application = value._connection.execute("PRAGMA application_id").fetchone()[0]
                 value._version = value._connection.execute("PRAGMA user_version").fetchone()[0]
@@ -806,14 +857,13 @@ class _ProgramTransportStore:
                 self._connection.execute("ROLLBACK")
                 raise
 
-    def attest_runtime(
+    def _runtime_attestation_record(
         self,
         *,
         program_execution_snapshot_id: str,
         resolved_server_profile_id: str,
         qualification: Mapping[str, object],
-        persist: bool = True,
-    ) -> str:
+    ):
         self._attest()
         closed = dict(_runtime_qualification(qualification))
         payload = {
@@ -848,10 +898,33 @@ class _ProgramTransportStore:
             _digest(closed),
             canonical_bytes(payload),
         )
+        return identity, columns, values
+
+    def attest_runtime(
+        self, *, program_execution_snapshot_id: str,
+        resolved_server_profile_id: str, qualification: Mapping[str, object],
+        persist: bool = True,
+    ) -> str:
+        identity, columns, values = self._runtime_attestation_record(
+            program_execution_snapshot_id=program_execution_snapshot_id,
+            resolved_server_profile_id=resolved_server_profile_id, qualification=qualification)
         if persist:
-            self._insert_exact(
-                "program_runtime_attestation", columns, values, identity
-            )
+            self._insert_exact("program_runtime_attestation", columns, values, identity)
+        return identity
+
+    def _require_recorded_runtime(self, *, program_execution_snapshot_id, resolved_server_profile_id, qualification) -> str:
+        """Pure all-column reclosure of the persisted historical runtime row."""
+        identity, columns, values = self._runtime_attestation_record(
+            program_execution_snapshot_id=program_execution_snapshot_id,
+            resolved_server_profile_id=resolved_server_profile_id, qualification=qualification)
+        with self._store_access(), self._lock:
+            self._attest()
+            rows = self._connection.execute(
+                "SELECT " + ",".join(columns) + " FROM program_runtime_attestation WHERE runtime_attestation_id=?",
+                (identity,),
+            ).fetchall()
+            if len(rows) != 1 or tuple(rows[0]) != values:
+                raise TransportBoundaryError("historical runtime attestation differs or is missing")
         return identity
 
     def _scheduler_raw_request(self, request: Mapping[str, object]) -> Mapping[str, object]:
@@ -1116,11 +1189,13 @@ def _validate_operation_payload(
         _portable(payload["portable_name"], "stage portable_name")
         for key in ("artifact_kind", "logical_role", "format"):
             _text(payload[key], f"stage {key}")
-        if payload["artifact_kind"] not in {"program-input", "scheduler-script"}:
+        if payload["artifact_kind"] not in {"program-input", "scheduler-script", "startup-payload"}:
             raise TransportBoundaryError("stage artifact kind is outside the closed set")
         if not isinstance(payload["sha256"], str) or _SHA256.fullmatch(payload["sha256"]) is None:
             raise TransportBoundaryError("stage sha256 is invalid")
         _positive(payload["size_bytes"], "stage size_bytes")
+        if payload["artifact_kind"] == "startup-payload" and ((payload["logical_role"], payload["portable_name"], payload["format"]) != ("startup-payload", "crest-startup.json", "json") or payload["size_bytes"] > 8*1024*1024):
+            raise TransportBoundaryError("startup payload declaration differs")
         return payload
     if operation == "SUBMIT_QSUB_ONCE":
         payload = _exact_keys(
@@ -1128,7 +1203,7 @@ def _validate_operation_payload(
             {
                 "scheduler_portable_name", "scheduler_artifact_authority_id",
                 "program_input_artifact_authority_ids",
-            },
+            } | ({"startup_payload_artifact_authority_ids"} if isinstance(value, Mapping) and "startup_payload_artifact_authority_ids" in value else set()),
             "submit payload",
         )
         _portable(payload["scheduler_portable_name"], "scheduler portable_name")
@@ -1144,12 +1219,26 @@ def _validate_operation_payload(
             raise TransportBoundaryError("program input authorities are invalid")
         for item in input_ids:
             _text(item, "program input artifact authority ID")
+        if "startup_payload_artifact_authority_ids" in payload:
+            ids = payload["startup_payload_artifact_authority_ids"]
+            if type(ids) is not tuple or len(ids) != 1:
+                raise TransportBoundaryError("startup payload requires exactly one authority")
+            _text(ids[0], "startup payload authority")
+            if ids[0] in (*input_ids, payload["scheduler_artifact_authority_id"]):
+                raise TransportBoundaryError("startup payload authority overlaps")
         return payload
     if operation == "QUERY_SCHEDULER":
         payload = _exact_keys(value, {"job_id"}, "scheduler query payload")
         _job_id(payload["job_id"])
         return payload
     if operation == "RECONCILE_SUBMISSION":
+        if value.get("schema") == "v31-exact-observed-job-reconciliation-request/1":
+            payload = _exact_keys(value, {"schema", "submit_receipt_id", "observed_job_id", "continuation_sha256"}, "exact recovery payload")
+            _text(payload["submit_receipt_id"], "submit receipt ID")
+            _job_id(payload["observed_job_id"])
+            if type(payload["continuation_sha256"]) is not str or _SHA256.fullmatch(payload["continuation_sha256"]) is None:
+                raise TransportBoundaryError("invalid recovery continuation digest")
+            return payload
         payload = _exact_keys(
             value, {"submit_receipt_id"}, "reconciliation payload"
         )
@@ -1246,6 +1335,7 @@ def _prepare_program_effect_requests(
         raise TransportBoundaryError("successor stage material must be non-empty tuple")
     closed_material: list[tuple[Mapping[str, object], bytes]] = []
     scheduler_names: list[str] = []
+    startup_names: list[str] = []
     seen_names: set[str] = set()
     for index, item in enumerate(material):
         if not isinstance(item, tuple) or len(item) != 2:
@@ -1267,10 +1357,12 @@ def _prepare_program_effect_requests(
         seen_names.add(name)
         if payload["artifact_kind"] == "scheduler-script":
             scheduler_names.append(name)
+        elif payload["artifact_kind"] == "startup-payload":
+            startup_names.append(name)
         elif payload["artifact_kind"] != "program-input":
             raise TransportBoundaryError("successor artifact kind is outside the closed set")
         closed_material.append((dict(payload), content))
-    if len(scheduler_names) != 1:
+    if len(scheduler_names) != 1 or len(startup_names) > 1:
         raise TransportBoundaryError("successor requires exactly one scheduler script")
     allocate = _request("ALLOCATE_WORKSPACE", closed_binding, {})
     placeholder_workspace = {
@@ -1286,6 +1378,7 @@ def _prepare_program_effect_requests(
             "scheduler_portable_name": scheduler_names[0],
             "scheduler_artifact_authority_id": "pre-effect-placeholder",
             "program_input_artifact_authority_ids": ("pre-effect-placeholder",),
+            **({"startup_payload_artifact_authority_ids": ("pre-effect-payload",)} if startup_names else {}),
         },
     )
     return _PreparedProgramEffects(
@@ -1346,6 +1439,7 @@ def _submit_request(
     scheduler_portable_name: str,
     scheduler_artifact_authority_id: str,
     program_input_artifact_authority_ids: tuple[str, ...],
+    startup_payload_artifact_authority_ids: tuple[str, ...] = (),
 ) -> Mapping[str, object]:
     return _request(
         "SUBMIT_QSUB_ONCE", {**binding, **workspace},
@@ -1353,6 +1447,7 @@ def _submit_request(
             "scheduler_portable_name": scheduler_portable_name,
             "scheduler_artifact_authority_id": scheduler_artifact_authority_id,
             "program_input_artifact_authority_ids": program_input_artifact_authority_ids,
+            **({"startup_payload_artifact_authority_ids": startup_payload_artifact_authority_ids} if startup_payload_artifact_authority_ids else {}),
         },
     )
 
@@ -1449,6 +1544,17 @@ def _scheduler_response(
 def _reconciliation_response(value: object) -> Mapping[str, object]:
     if not isinstance(value, Mapping):
         raise _ProgramEffectUnknown("reconciliation response is malformed")
+    if value.get("schema") == "v31-exact-observed-job-reconciliation-proof/1":
+        from . import _submission_recovery as recovery
+        recovery.closed(value, {"schema", "outcome", "job_id", "request", "expected", "raw_observation_id", "raw"})
+        if value["outcome"] not in {"SUCCEEDED", "UNKNOWN"}:
+            raise _ProgramEffectUnknown("exact recovery disposition")
+        if value["outcome"] == "SUCCEEDED":
+            if recovery.interpret(value["raw"], value["expected"]) != value["job_id"]:
+                raise _ProgramEffectUnknown("recovery job mismatch")
+        elif value["job_id"] is not None:
+            raise _ProgramEffectUnknown("unresolved recovery has a job")
+        return value
     if set(value) == {"outcome"}:
         if value["outcome"] not in {"FAILED", "UNKNOWN"}:
             raise _ProgramEffectUnknown("reconciliation response is malformed")

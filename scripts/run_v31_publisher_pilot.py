@@ -129,7 +129,15 @@ def _probe_index(payload):
         entries.append({"role": "host-identity", "host_key": host["host_key"], "evidence": host["identity_evidence"]})
         entries.extend({"role": "location", "host_key": host["host_key"], "location_role": loc["role"], "evidence": loc["evidence"]} for loc in host["locations"])
         entries.extend({"role": "host-probe", "host_key": host["host_key"], "case_id": probe["case_id"], "evidence": probe["evidence"]} for probe in host["probes"])
-    return {"schema": "v31-publisher-probe-evidence-index/1", "entries": entries}
+    startup = payload["schema"] == "auto-g16-v31-publisher-qualification/3"
+    crest = startup or payload["schema"] == "auto-g16-v31-publisher-qualification/2"
+    if startup:
+        entries.append({"role": "delivery-probe", "case_id": "P09", "evidence": payload["delivery_probe"]["evidence"]})
+    if crest:
+        closure = payload["runtime"]["crest_loader_closure"]
+        entries.extend(({"role": "crest-loader-manifest", "sha256": closure["evidence_manifest_sha256"]},
+                        {"role": "crest-loading-review", "sha256": closure["loading_policy"]["dynamic_loading_review_sha256"]}))
+    return {"schema": "v31-publisher-probe-evidence-index/3" if startup else "v31-publisher-probe-evidence-index/2" if crest else "v31-publisher-probe-evidence-index/1", "entries": entries}
 
 
 def _validate_pilot_qualification_evidence(run, deployment, confirmation):
@@ -222,6 +230,14 @@ def _fixed_pilot_context():
     # Actual source paths, not caller-named replacement files, are pinned.
     from auto_g16.execution import _program_completion, _program_completion_wrapper, program, program_runtime
     actual = {str(Path(module.__file__).resolve()) for module in (_program_completion, _program_completion_wrapper, program, program_runtime, rtwin)} | {str(Path(__file__).resolve())}
+    if snapshot.program_execution_spec.program_kind == "crest" and snapshot.program_execution_spec.adapter_contract_version == 3:
+        from auto_g16.execution import _crest_completion, _crest_loader, _crest_seed_handoff, _receipt_source, xtb_crest_handoff
+        from auto_g16.conformer import service as conformer_service
+        actual.update(str(Path(module.__file__).resolve()) for module in
+                      (_crest_completion, _crest_loader, _crest_seed_handoff, _receipt_source, xtb_crest_handoff, conformer_service, transport))
+    if len(snapshot.scheduler_artifacts) == 2:
+        from auto_g16.execution import _crest_startup
+        actual.add(str(Path(_crest_startup.__file__).resolve()))
     if {b.path for b in run.code_files} != actual or len(run.code_files) != len(actual):
         raise rtwin._publisher_failure("installed code inventory differs")
     code_pins = []
@@ -409,6 +425,15 @@ def _collection_original_approvals(run, stores, deployment):
 
 
 def _resume_fixed_publisher_collection():
+    return _resume_fixed_publisher_read(reconciliation=False)
+
+
+def _reconcile_fixed_publisher_submission():
+    """One separately installed exact-job read epoch; never submit/prepare."""
+    return _resume_fixed_publisher_read(reconciliation=True)
+
+
+def _resume_fixed_publisher_read(*, reconciliation):
     """One explicitly installed continuation. No CLI, default-submit or retry path."""
     from auto_g16.execution import program, program_runtime
     from auto_g16.execution.project_provisioning import _ProjectProvisioningService
@@ -428,11 +453,14 @@ def _resume_fixed_publisher_collection():
             resolved = execution.resolve_server_profile(run.current_profile)
             attestor = rtwin._RTWinProjectAttestor(current_profile=run.current_profile, target=resolved)
             service = _ProjectProvisioningService._from_project_attestor(attestor=attestor, target=resolved, journal=stores["project-journal"])
-            snapshot = program._ProgramExecutionSnapshotService._for_production(project_provisioning=service, target=resolved).restore_for_collection(
+            snapshot_service = program._ProgramExecutionSnapshotService._for_production(project_provisioning=service, target=resolved)
+            restore = snapshot_service.restore_for_reconciliation if reconciliation else snapshot_service.restore_for_collection
+            snapshot = restore(
                 stores["core"], reviewed_semantics=strict_canonical_json(assets["snapshot"].raw, "original expanded snapshot"))
             if resolved != snapshot.resolved_server_profile or assets["pbs"].raw != snapshot.scheduler_artifacts[0]["content_utf8"].encode():
                 raise rtwin._publisher_failure("restored profile/PBS differs")
-            driver = rtwin._RTWinProgramEffectDriver._for_fixed_collection(snapshot=snapshot, current_profile=run.current_profile, program_transport_store=stores["transport"])
+            factory = rtwin._RTWinProgramEffectDriver._for_fixed_recovery if reconciliation else rtwin._RTWinProgramEffectDriver._for_fixed_collection
+            driver = factory(snapshot=snapshot, current_profile=run.current_profile, program_transport_store=stores["transport"])
             stack.callback(driver.close)
             deployment = driver._publisher
             _validate_collection_review(deployment)
@@ -461,6 +489,16 @@ def _resume_fixed_publisher_collection():
                 if _collection_original_approvals(run, stores, deployment) != initial_approvals:
                     raise rtwin._publisher_failure("collection original approvals changed")
 
+            if reconciliation:
+                checkpoint()
+                # Completion checkpoints recheck stores/approvals and the full
+                # recovery source at wire/persistence boundaries.
+                token_value = program_runtime._COLLECTION_CHECKPOINT.set((snapshot, stores["transport"], checkpoint))
+                try:
+                    return program_runtime._reconcile_program_submission(stores["core"], snapshot=snapshot,
+                        program_transport_store=stores["transport"], driver=driver, _completion_token=token)
+                finally:
+                    program_runtime._COLLECTION_CHECKPOINT.reset(token_value)
             return program_runtime._resume_program_collection(
                 stores["core"], snapshot=snapshot, program_transport_store=stores["transport"], driver=driver,
                 input_bytes={snapshot.program_execution_spec.exact_inputs[0]["portable_name"]: assets["input"].raw},

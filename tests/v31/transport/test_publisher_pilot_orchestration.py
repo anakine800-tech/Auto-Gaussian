@@ -115,34 +115,48 @@ class _PilotFixture(lane.LaneAFixture):
     collect = old.CompletionTests.collect
 
     def install_fixture(self):
+        is_crest = self.snapshot.program_execution_spec.program_kind == "crest"
+        from auto_g16.execution import _crest_completion as crest, _crest_startup as startup
+        is_startup = len(self.snapshot.scheduler_artifacts) == 2
+        qname = startup._Q_NAME if is_startup else crest._Q_NAME if is_crest else c._Q_NAME
+        target = self.snapshot.resolved_server_profile
         root = self.root / "installation"; root.mkdir()
         def write(name, raw):
             path = root / name
             with path.open("xb") as out: out.write(raw)
             return file_binding(path)
-        _, evidence = qualification_fixture(replace(self.current_profile, runtime_contents={k:v for k,v in self.current_profile.runtime_contents.items() if k != c._Q_NAME}), queue=self.snapshot.resolved_resource_request.queue)
-        qpin = write(c._Q_NAME, self.current_profile.runtime_contents[c._Q_NAME])
+        _, evidence = qualification_fixture(replace(self.current_profile, runtime_contents={k:v for k,v in self.current_profile.runtime_contents.items() if k != qname}), queue=self.snapshot.resolved_resource_request.queue)
+        if is_crest:
+            from tests.v31.transport.test_crest_loader import LOADER_REVIEW, LOADER_EVIDENCE
+            for raw in (LOADER_REVIEW, LOADER_EVIDENCE):
+                evidence[sha256(raw).hexdigest()] = raw
+            index = c._receipt_json(controller._probe_index(self.q))
+            evidence[sha256(index).hexdigest()] = index
+        if is_startup:
+            from tests.v31.transport.test_crest_startup_payload import DELIVERY_EVIDENCE
+            evidence[sha256(DELIVERY_EVIDENCE).hexdigest()] = DELIVERY_EVIDENCE
+        qpin = write(qname, self.current_profile.runtime_contents[qname])
         owner_raw = b"SYNTHETIC FIXTURE: reviewed exact Q accepted only inside inert test.\n"
         live_raw = b"SYNTHETIC FIXTURE: bounded single Attempt only inside inert test.\n"
         evidence[sha256(owner_raw).hexdigest()] = owner_raw
         evidence[sha256(live_raw).hexdigest()] = live_raw
         pins = tuple(write(f"evidence-{i}.txt", raw) for i,raw in enumerate(evidence.values()))
-        basis = {"schema": "auto-g16-v31-publisher-pilot-deployment/1", "source_commit": "a"*40, "source_tree": "b"*40, "resolved_server_profile_id": self.resolved().resolved_server_profile_id, "effective_config_sha256": self.resolved().effective_config_sha256, "program_execution_snapshot_id": self.snapshot.program_execution_snapshot_id,
-            "qualification_payload_sha256": json.loads(self.current_profile.runtime_contents[c._Q_NAME])["payload_sha256"], "qualification_file_sha256": qpin.sha256, "qualification_size_bytes": qpin.size_bytes, "qualification_path": qpin.path, "qualification_parent_chain": [{"device":d,"inode":i} for d,i in qpin.parent_chain], "qualification_file_identity": {"device":qpin.file_identity[0],"inode":qpin.file_identity[1]},
+        basis = {"schema": "auto-g16-v31-publisher-pilot-deployment/3" if is_startup else "auto-g16-v31-publisher-pilot-deployment/2" if is_crest else "auto-g16-v31-publisher-pilot-deployment/1", "source_commit": "a"*40, "source_tree": "b"*40, "resolved_server_profile_id": target.resolved_server_profile_id, "effective_config_sha256": target.effective_config_sha256, "program_execution_snapshot_id": self.snapshot.program_execution_snapshot_id,
+            "qualification_payload_sha256": json.loads(self.current_profile.runtime_contents[qname])["payload_sha256"], "qualification_file_sha256": qpin.sha256, "qualification_size_bytes": qpin.size_bytes, "qualification_path": qpin.path, "qualification_parent_chain": [{"device":d,"inode":i} for d,i in qpin.parent_chain], "qualification_file_identity": {"device":qpin.file_identity[0],"inode":qpin.file_identity[1]},
             "probe_evidence_manifest_sha256": self.q["evidence_manifest_sha256"], "owner_q_acceptance_evidence_sha256": sha256(owner_raw).hexdigest(), "pilot_live_gate_evidence_sha256": sha256(live_raw).hexdigest(), "pilot_window": PILOT}
         bpin = write("v31-publisher-pilot-deployment.json", c._receipt_json(basis))
         installation = rtwin._FixedPublisherInstallation(bpin,qpin,pins,"a"*40,"b"*40)
         authority = rtwin._driver._DeploymentAuthority(None,None,None,self.resolved().resolved_server_profile_id,self.resolved().effective_config_sha256,self.snapshot.program_execution_snapshot_id,"c"*64,1,None,None)
         apath = self.root / "approval.sqlite3"
         astore = approval.SQLiteApprovalStore(apath); self.addCleanup(astore.close)
-        scientific = approval.ScientificApproval.for_plan(self.store,self.store.load_calculation_plan("plan-1"),displayed_semantic_meaning={"intent":"inert"},reviewer_id="synthetic",reviewer_evidence={"fixture":"inert"})
-        batch = approval.BatchSubmitApproval.for_existing_attempts(self.store,[("attempt-1",scientific)],reviewer_id="synthetic",reviewer_evidence={"fixture":"inert"})
+        scientific = approval.ScientificApproval.for_plan(self.store,self.store.load_calculation_plan(self.snapshot.calculation_plan_id),displayed_semantic_meaning={"intent":"inert"},reviewer_id="synthetic",reviewer_evidence={"fixture":"inert"})
+        batch = approval.BatchSubmitApproval.for_existing_attempts(self.store,[(self.snapshot.attempt_id,scientific)],reviewer_id="synthetic",reviewer_evidence={"fixture":"inert"})
         attachment = {key: basis[key] for key in controller._PILOT_ATTACHMENT_KEYS if key != "deployment_readback_evidence_sha256"}
         attachment["deployment_readback_evidence_sha256"] = bpin.sha256
         confirmation = approval.ExactOperationalConfirmation.for_snapshot(self.store,self.snapshot,confirmer_id="synthetic",confirmer_evidence={"publisher_pilot":attachment})
         astore.store_scientific_approval(scientific); astore.store_batch_submit_approval(batch); astore.store_operational_confirmation(confirmation)
         qscope = {key:basis[key] for key in ("qualification_payload_sha256","qualification_file_sha256")}
-        live = {**qscope, **{key:basis[key] for key in ("resolved_server_profile_id","program_execution_snapshot_id","pilot_window")}, "attempt_id":"attempt-1"}
+        live = {**qscope, **{key:basis[key] for key in ("resolved_server_profile_id","program_execution_snapshot_id","pilot_window")}, "attempt_id":self.snapshot.attempt_id}
         semantic = {"schema":"v31-publisher-reviewed-scope/1", "owner_exact_q":{"raw":digest(owner_raw),"scope":qscope}, "live_gate":{"raw":digest(live_raw),"scope":live}}
         spin = write("reviewed-scope.json",c._receipt_json(semantic))
         stores = []
@@ -150,7 +164,13 @@ class _PilotFixture(lane.LaneAFixture):
             pin = file_binding(path)
             stores.append(controller._PilotStoreBinding(role,store,pin.path,pin.parent_chain,pin.file_identity))
         modules = (c,w,p,runtime,rtwin,controller)
-        run = controller._FixedPilotRun(self.snapshot,self.current_profile,tuple(stores),scientific.scientific_approval_id,batch.batch_submit_approval_id,confirmation.operational_confirmation_id,{"intent":"inert"},lane.XYZ,self.scheduler_bytes["xtb.pbs"],spin,tuple(file_binding(Path(m.__file__).resolve()) for m in modules))
+        if is_crest:
+            from auto_g16.execution import _crest_loader, _crest_seed_handoff, _receipt_source, xtb_crest_handoff
+            from auto_g16.conformer import service as conformer_service
+            modules += (crest,_crest_loader,_crest_seed_handoff,_receipt_source,xtb_crest_handoff,conformer_service,transport)
+        if is_startup:
+            modules += (startup,)
+        run = controller._FixedPilotRun(self.snapshot,self.current_profile,tuple(stores),scientific.scientific_approval_id,batch.batch_submit_approval_id,confirmation.operational_confirmation_id,{"intent":"inert"},lane.XYZ,self.scheduler_bytes["crest.pbs" if is_crest else "xtb.pbs"],spin,tuple(file_binding(Path(m.__file__).resolve()) for m in modules))
         return installation,authority,run,confirmation
 
 

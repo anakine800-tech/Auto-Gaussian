@@ -920,3 +920,31 @@ below remain source-bound; they do not open another collection epoch or Attempt.
 - **Stop:** no new Attempt, claim/qsub, provisioning/staging, remote mutation,
   cleanup, automatic retry, original approval/window change, CREST, publication
   or merge. Scope/API gaps require a reviewed narrow delta.
+- **TP01–TP06 delta:** the Owner's 2026-09-22 instruction permits only an
+  asynchronous local progress reporter in the existing `_program_rtwin.py`
+  collection-owned FETCH path and its named affected test. It may not run in
+  the transport I/O/deadline thread or change any driver/wire/result meaning.
+- **IR01–IR08 delta:** the same instruction permits private recovery of the
+  sole latest unmatched successful present-file STAT through its exact existing
+  FETCH request before one clean collection epoch. Work is limited to
+  `program_runtime.py`, the named recovery test and authority references. Every
+  remote application requires a fresh reviewed continuation; no automatic retry,
+  state repair, deletion, submission or new Attempt is permitted.
+
+### V31-CREST-LIVE-CLOSURE-01
+
+BOUNDED-AUTONOMOUS within the [exact design freeze](crest-live-closure-freeze.md).
+The Owner explicitly delegated technical/exact approval after independent
+review. Follow the frozen scope and three product approval gates. No automatic
+retry, qdel, cleanup, broader science, publication or merge is authorized.
+
+### V31-CREST-695-MARKERLESS-RECOVERY-01
+
+Bounded v3 feature/L3 offline implementation under the delegated freeze recorded
+in [the recovery contract](exact-observed-job-recovery-contract.md), based on
+`ceff406def65b575babb898d51683c47238c91fb` in an isolated worktree. Preserve the
+producer worktree and original stores. Scope is private recovery/restore,
+focused adversarial tests and authority references. Require independent review
+of the precise final candidate and proportional validation. Local commit is
+allowed; publishing, merge, actual installation, real-store mutation and all
+remote operations are reserved to the parent and their separate exact gates.

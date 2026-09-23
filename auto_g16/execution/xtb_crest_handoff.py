@@ -145,6 +145,7 @@ def _capture_identity_payload(
 def _close_capture_to_snapshot(
     snapshot: ProgramExecutionSnapshot,
     capture: _transport._ProgramOutputCapture,
+    *, _source_adapter_version: int = 2,
 ) -> _transport._ProgramOutputArtifact:
     _require(type(snapshot) is ProgramExecutionSnapshot, "xTB snapshot must be exact")
     snapshot.assert_identity_closed()
@@ -152,7 +153,7 @@ def _close_capture_to_snapshot(
     _require(
         spec.program_kind == "xtb"
         and spec.adapter_id == "auto-g16-v31-xtb"
-        and spec.adapter_contract_version == 2
+        and spec.adapter_contract_version == _source_adapter_version
         and spec.program_data["task"] == "optimize",
         "source must be the exact xTB optimize successor",
     )
