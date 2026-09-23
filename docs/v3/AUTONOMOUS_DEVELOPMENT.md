@@ -1,6 +1,7 @@
 # Auto-G16 v3 Autonomous Development
 
-This is the short, executable autonomy contract for post-Core work. It does
+This page separates current general autonomy rules from frozen Task Contracts
+and links historical planning/launch records. It does
 not replace [`AGENTS.md`](../../AGENTS.md) or the
 [`development handbook`](../development-handbook.md), change a public
 contract, or authorize implementation, integration, live work, or deployment.
@@ -41,102 +42,42 @@ smoke, retry, cancellation, cleanup, or scientific-acceptance authority.
 
 ## Frozen Post-Core Task Contracts
 
-The current post-foundation execution/composition sequence is:
+Read the sections below as frozen, surface-specific contracts, not a current
+execution queue. Closing a task does not retire its technical invariants,
+compatibility requirements, validation obligations or review thresholds.
+Opening gates, exact historical bases, temporary scope and then-current next
+steps record their original tasks; they do not authorize a new task or resume
+a completed one. Use [STATUS](STATUS.md) for verified integration evidence and
+the current explicit Owner Gate for any new action.
 
-1. `V30-EXEC-02-COMPOSITION-CONTRACT-01` — integrated
-2. `V30-VAL-TRANSPORT-01` — integrated
-3. freeze/integrate `V30-TRANSPORT-BOOTSTRAP-CHAIN-03`
-4. successor V30-EXEC-02 Transport implementation
-5. `V30-A-SYNTHETIC-COMPOSITION-01` test-only integration after Transport main
-6. `V30-A-READINESS-01` repeat audit before any live gate
-
-The control structure remains serial at integration:
-
-```text
-Integration Owner
-└── V30-EXEC-02-COMPOSITION-CONTRACT-01
-    -> V30-VAL-TRANSPORT-01
-    -> V30-TRANSPORT-BOOTSTRAP-CHAIN-03
-    -> V30-EXEC-02 implementation
-    -> V30-A-SYNTHETIC-COMPOSITION-01
-    -> V30-A-READINESS-01
-Live remains NO-GO
-```
-
-At most three independent workstreams may be active concurrently. Integration
-and merge remain serial. Historical closed contracts below remain authority
-for their owned surfaces.
+| Material | Role and entry |
+| --- | --- |
+| General autonomy, stop, monitoring and handoff rules | [Autonomy Contract](#autonomy-contract) and [Execution and Monitoring Rules](#execution-and-monitoring-rules), with the [handbook](../development-handbook.md) operation order. |
+| Frozen technical Task Contracts | The named sections below and their higher-priority Owner/boundary/acceptance sources; existing anchors are retained. |
+| Former “current” post-foundation sequence | [Unchanged planning snapshot](post-core-history.md#post-foundation-sequence-snapshot); no longer the current work queue. |
+| Night instruction with a 2026-09-11 deadline | [Original scope, window and invariants](post-core-history.md#v31-night-offline-closeout-20260911); later integration is recorded in STATUS. |
+| Superseded selector error clause | [V3-MAINT-TEST-01 entry](#v3-maint-test-01) explicitly routes to its reviewed successor; unaffected requirements remain. |
+| C2/C3/C4 proposal and recovery checkpoints | Their original contract text remains below; [current integration evidence](STATUS.md#verified-integration-evidence) separates those checkpoints from later #173–#175 integration. |
 
 ### V31-NIGHT-OFFLINE-CLOSEOUT-20260911
 
-- **Owner scope:** The explicit 2026-09-11 night instruction authorizes bounded
-  offline development, self-review, independent review, and serial integration
-  into one local collection worktree until 10:00 Asia/Shanghai. The final
-  collection waits for the Owner before submission to main. This records the
-  authorized development work; it grants no deployment or live authority.
-- **Base and status:** Start the collection lanes from exact
-  `065d016830240962c0aeb22873d3c82aa2f016d3`. At this baseline #162 and #166
-  are integrated; the lanes below are night candidates, not merged-main
-  results. The separately authorized Torque text-folding task has its own
-  gate and disposition; do not infer its completion from this contract.
-- **Class and concurrency:** `BOUNDED-AUTONOMOUS`; at most three active
-  workstreams, one unique isolated worktree/branch per implementation, with
-  the coordinator performing integration serially. This contract does not
-  require BUS publication or manufacture CTRL/approval records.
-- **Finite backlog:** A, `V31-SCHEDULER-RAW-EVIDENCE-DURABILITY-01`, adds the
-  smallest private audit persistence before scheduler normalization; B,
-  `V31-AFFECTED-RUNTIME-REDUCTION-01`, reduces redundant affected carriers
-  while preserving safety evidence and fail-closed routing; C,
-  `V31-LEVEL2-REQUALIFICATION-HARNESS-01`, prepares an offline candidate review
-  packet; D, `V31-PRODUCTION-PROGRAM-QUALIFICATION-TOOLING-01`, inventories
-  existing local program/runtime-data bytes; E,
-  `V31-STATUS-AUTHORITY-CLOSEOUT-02`, separates product, production, science
-  and live authority; F, `V31-STALE-ARTIFACT-PR-AUDIT-01`, only classifies
-  historical PR/artifact disposition and recommends closure without closing.
-- **Implementation boundary:** A stays in the private successor Transport
-  store/driver audit seam and directly required tests; B stays in validation
-  ownership/routing and directly required tests without deleting safety
-  coverage; C and D stay in their named scripts, focused tests and short
-  operator documents. E changes only the minimum V31 status, contract,
-  acceptance and context references. F is read-only. No public API/schema,
-  scientific policy, parser meaning, required CI context, production profile,
-  transport topology or trust root is changed by these lanes.
-- **A invariant:** Reuse the existing local append-only immutable machinery;
-  retain exact acquired scheduler bytes and complete request/job binding
-  before normalization. Audit evidence is neither normalized receipt nor
-  terminal/scientific authority. Persist failure stops normalization, and
-  `UNKNOWN` never grants retry. See the
-  [private audit contract](scheduler-raw-evidence.md).
-- **C invariant:** All approval decisions are null candidates. Real
-  `ProgramExecutionSnapshot` remains deferred until authorized current Project
-  attestation; do not call an effectful snapshot factory, use synthetic
-  privilege, or invoke a default-APPROVED factory. The packet remains
-  `BLOCKED_ON_LIVE_PREREQUISITES`, with zero current effect budget. See the
-  [offline packet contract](level2-requalification-packet.md).
-- **D invariant:** Inventory only supplied local no-follow binary/runtime-data
-  bytes. Do not launch even a version probe. A missing version is unverified;
-  matching captured output remains an unverified claim, never a qualification
-  receipt. CREST claims require exactly 3.0.2. See the
-  [local inventory contract](program-qualification-tooling.md).
-- **Validation and handoff:** Use focused and bounded adjacent offline checks,
-  proportional static/link checks, exact file/tree evidence and independent
-  findings-first review. The Owner prefers avoiding full/full-CI reruns and
-  prioritizing bounded checks for this night work. This preference does not
-  waive an existing required gate: if such a gate requires full evidence,
-  report the remaining validation gap rather than weakening or bypassing it.
-  Do not convert a selector error into full discovery. Recheck
-  cross-lane links, route ownership and final collection compatibility after
-  assembly. Do not report sibling-only files or unrun checks as a standalone
-  publishable PASS. Freeze candidates before integration; leave final main
-  submission pending the Owner.
-- **Stop:** Missing/conflicting authority, identity/scope drift, unbounded
-  redesign, unresolved P0/P1, or any need for live facts outside the supplied
-  evidence. No SSH/server reads, installation/upload, remote mkdir, qsub/qdel,
-  xTB/CREST/Gaussian execution, real approvals, scientific acceptance,
-  automatic retry, deletion or cleanup. Preserve historical incomplete
-  scientific evidence and the need for fresh real Level-2 qualification.
+Historical launch record: the exact 2026-09-11 instruction, base, deadline and
+finite backlog are preserved in [post-Core history](post-core-history.md#v31-night-offline-closeout-20260911).
+This anchor remains the compatibility entry used by boundary, acceptance and
+context routing. The retained A/C/D invariants and scope/validation/safety
+limits still describe the delivered private surfaces; they are not repealed
+by relocation. The launch window does not recur. The collection was later
+integrated through [PR #168](STATUS.md#verified-integration-evidence), under
+separate integration authority. Neither record grants new live authority.
 
 ### V31-CHANGE-AWARE-VALIDATION-NO-ACCIDENTAL-FULL-01
+
+The selector error-stop contract below is the reviewed successor to the old
+expand-on-error clause in [V3-MAINT-TEST-01](#v3-maint-test-01), consistent with
+[OD-08](../../OWNER_DECISIONS.md#od-08-runtime-and-change-aware-ci) and
+[handbook section 6](../development-handbook.md#6-validation-ladder-and-deduplication).
+Its branch-opening and publication steps are historical task instructions,
+not a new authorization. This annotation changes no selector semantics.
 
 - **Owner opening gate:** Continue the xTB runtime-data authority branch from
   `7a624e8db9f5adcf9436a5abc88145ddd68089bd`; do not publish that parent alone.
@@ -166,6 +107,14 @@ for their owned surfaces.
 
 ### V3-MAINT-TEST-01
 
+**Partial supersession:** only the historical selector expand-on-error clause
+quoted below is replaced by
+[V31-CHANGE-AWARE-VALIDATION-NO-ACCIDENTAL-FULL-01](#v31-change-aware-validation-no-accidental-full-01).
+Unknown modern ownership and invalid/non-authoritative selector inputs stop
+before tests; an error is not permission for full discovery. Reviewed
+conservative routes retain their existing required validation. All unaffected
+scope, safety, review and stop requirements below remain binding.
+
 - **Outcome:** Specify and, only after its later Owner opening gate, build a
   change-aware v3 validation loop that shortens normal feedback without losing
   required safety evidence or required-check compatibility.
@@ -182,9 +131,12 @@ for their owned surfaces.
 - **Autonomy:** `BOUNDED-AUTONOMOUS`; high priority. The frozen scope permits
   inventory and proposals. Mutation begins only when the lane is separately
   opened, and boundary changes still stop for Owner.
-- **Stop rules:** Fail closed on an unmapped, ambiguous, invalid, or unavailable
-  selector input by expanding to the applicable offline full/owner-review gate,
-  never by skipping evidence. Stop for unknown test ownership, check-name drift,
+- **Historical selector clause (superseded; do not execute):**
+
+  > Fail closed on an unmapped, ambiguous, invalid, or unavailable
+  > selector input by expanding to the applicable offline full/owner-review gate,
+  > never by skipping evidence.
+- **Retained stop rules:** Stop for unknown test ownership, check-name drift,
   a proposed safety downgrade, scope expansion, or two same-class repair
   failures.
 - **Acceptance/validation:** The inventory must identify exact tests before any
@@ -775,6 +727,12 @@ Controller, open OpenSSH, or perform live work.
 
 ### V31-PBS-COMPAT-FILE-COMPLETION-01
 
+The phase and candidate labels below are retained checkpoints, not the current
+implementation status. [PR #173 integration](STATUS.md#file-completion-implementation-checkpoint)
+and the [freeze dossier](pbs-file-completion-freeze.md) record the later
+C2/C3/C4 implementation and evidence cutoffs. No contract or acceptance vector
+is retired, and the historical opening instruction is not renewed.
+
 - **Class / autonomy:** Feature development; v3; OWNER-GUIDED. Ordinary Codex
   app isolated task, not a BUS Executor; no CTRL/Control Issue is created.
 - **Outcome:** Freeze OD-32 and the exact receipt-on-absence boundary for new
@@ -837,6 +795,9 @@ Controller, open OpenSSH, or perform live work.
 
 #### C3 material-derivation checkpoint
 
+Historical checkpoint; see the [later implementation disposition](STATUS.md#file-completion-implementation-checkpoint).
+The material-derivation requirement remains part of the accepted contract.
+
 C2 Owner acceptance activates phase 2, but implementation discovery of the
 manifest-content gap stops the dependent renderer at a P1 contract boundary.
 C3 proposes only the private material input/data-line/prebinding delta defined
@@ -849,6 +810,10 @@ PASS. Do not activate C3-dependent code before the new review closes.
 
 
 #### Authorized A/B follow-up and proposed C4 activation
+
+Historical A/B opening and C4 proposal checkpoint; see the
+[later C4 disposition](STATUS.md#v31-file-completion-c4-proposal-status).
+The original conditional gate below is retained, not reopened.
 
 The Owner authorized this same task to repair only
 `config/validation-selection.json`, `tests/test_validation_selector.py` and
@@ -881,6 +846,10 @@ operational stores, live tests or acceptance of eventual implementation results.
 
 ### V31-PUBLISHER-R4-OFFLINE-IMPLEMENTATION-01
 
+[PR #174](STATUS.md#verified-integration-evidence) subsequently integrated the
+offline implementation. The accepted R4 precedence and qualification boundaries
+below remain binding; that integration grants no new installation or live scope.
+
 Owner accepted the exact reviewed R4 package on 2026-09-15 for bounded offline
 product implementation. The [frozen Task Contract and provenance](publisher-r4/README.md)
 close scope, R4 > R3 > R2 precedence, validation and remaining gates. Earlier
@@ -892,6 +861,10 @@ identity evidence. Actual deployment locator and host facts are NOT_ACQUIRED.
 
 
 ### V31-SAME-ATTEMPT-COLLECT-RECOVERY-01
+
+[PR #175](STATUS.md#same-attempt-collection-recovery-c2) subsequently integrated
+the implementation. The original C2 base, validation and operational boundaries
+below remain source-bound; they do not open another collection epoch or Attempt.
 
 - **Class/base:** v3 feature, bounded autonomy after C2 freeze, L3 boundary;
   exact R4 base `8d49ef23e7c74c4333c551e81461e3f0921948ab`, tree
