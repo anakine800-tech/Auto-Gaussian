@@ -20,11 +20,11 @@ id = "core-architecture"
 status = "complete"
 required_sections = [
   "OWNER_DECISIONS.md#od-01-clean-core-and-compatibility",
-  "docs/v3/boundary-spec.md#dependency-direction",
-  "docs/v3/boundary-spec.md#core-objects",
-  "docs/v3/boundary-spec.md#v30-core-01-runtime-contract",
-  "docs/v3/boundary-spec.md#context-boundaries",
-  "docs/v3/acceptance.md#v30-core-01-clean-runtime-core",
+  "docs/v3/contracts/boundary/foundation.md#dependency-direction",
+  "docs/v3/contracts/boundary/foundation.md#core-objects",
+  "docs/v3/contracts/boundary/foundation.md#v30-core-01-runtime-contract",
+  "docs/v3/contracts/boundary/foundation.md#context-boundaries",
+  "docs/v3/contracts/acceptance/core.md#v30-core-01-clean-runtime-core",
   "docs/v3/non-goals.md#auto-g16-v3-non-goals",
 ]
 code_paths = [
@@ -57,9 +57,9 @@ required_sections = [
   "OWNER_DECISIONS.md#od-05-single-submission-and-uncertainty",
   "OWNER_DECISIONS.md#od-06-transport-targets",
   "OWNER_DECISIONS.md#od-07-safety-semantics-and-governance-implementation",
-  "docs/v3/boundary-spec.md#v30-exec-01-frozen-execution-contract",
-  "docs/v3/acceptance.md#v30-exec-01-frozen-offline-execution-boundary",
-  "docs/v3/AUTONOMOUS_DEVELOPMENT.md#v30-exec-01",
+  "docs/v3/contracts/boundary/execution.md#v30-exec-01-frozen-execution-contract",
+  "docs/v3/contracts/acceptance/execution.md#v30-exec-01-frozen-offline-execution-boundary",
+  "docs/v3/contracts/tasks/execution.md#v30-exec-01",
 ]
 code_paths = [
   "auto_g16/execution/",
@@ -77,12 +77,12 @@ id = "v30-result"
 status = "contract-frozen"
 required_sections = [
   "OWNER_DECISIONS.md#od-30-one-external-gaussian-invocation-may-contain-attributed-internal-steps",
-  "docs/v3/boundary-spec.md#v30-result-01-frozen-result-provenance-contract",
-  "docs/v3/boundary-spec.md#composite-internal-step-gaussian-job-successor",
-  "docs/v3/acceptance.md#v30-result-01-frozen-result-provenance-boundary",
-  "docs/v3/acceptance.md#v30-a-gaussian-optfreq-composite-job-result-successor",
-  "docs/v3/AUTONOMOUS_DEVELOPMENT.md#v30-result-01",
-  "docs/v3/AUTONOMOUS_DEVELOPMENT.md#v30-a-gaussian-optfreq-composite-job-result-contract-parser-repair-01",
+  "docs/v3/contracts/boundary/result.md#v30-result-01-frozen-result-provenance-contract",
+  "docs/v3/contracts/boundary/result.md#composite-internal-step-gaussian-job-successor",
+  "docs/v3/contracts/acceptance/result.md#v30-result-01-frozen-result-provenance-boundary",
+  "docs/v3/contracts/acceptance/result.md#v30-a-gaussian-optfreq-composite-job-result-successor",
+  "docs/v3/contracts/tasks/result.md#v30-result-01",
+  "docs/v3/contracts/tasks/result.md#v30-a-gaussian-optfreq-composite-job-result-contract-parser-repair-01",
 ]
 code_paths = [
   "auto_g16/result/",
@@ -101,13 +101,13 @@ status = "contract-frozen"
 required_sections = [
   "OWNER_DECISIONS.md#od-13-minimum-validation-consumes-attributed-result-facts-only",
   "OWNER_DECISIONS.md#od-30-one-external-gaussian-invocation-may-contain-attributed-internal-steps",
-  "docs/v3/boundary-spec.md#v30-min-validate-contract-01-minimum-scientific-validation-contract",
-  "docs/v3/boundary-spec.md#composite-internal-step-gaussian-job-successor",
-  "docs/v3/acceptance.md#v30-min-validate-contract-01-minimum-scientific-validation",
-  "docs/v3/acceptance.md#v30-a-gaussian-optfreq-composite-job-result-successor",
-  "docs/v3/AUTONOMOUS_DEVELOPMENT.md#v30-min-validate-contract-01",
-  "docs/v3/boundary-spec.md#additive-gaussian-job-attribution-contract",
-  "docs/v3/acceptance.md#v30-result-section-attribution-additive-gaussian-job-facts",
+  "docs/v3/contracts/boundary/scientific-validation.md#v30-min-validate-contract-01-minimum-scientific-validation-contract",
+  "docs/v3/contracts/boundary/result.md#composite-internal-step-gaussian-job-successor",
+  "docs/v3/contracts/acceptance/scientific-validation.md#v30-min-validate-contract-01-minimum-scientific-validation",
+  "docs/v3/contracts/acceptance/result.md#v30-a-gaussian-optfreq-composite-job-result-successor",
+  "docs/v3/contracts/tasks/scientific-validation.md#v30-min-validate-contract-01",
+  "docs/v3/contracts/boundary/result-attribution.md#additive-gaussian-job-attribution-contract",
+  "docs/v3/contracts/acceptance/result.md#v30-result-section-attribution-additive-gaussian-job-facts",
 ]
 code_paths = [
   "auto_g16/scientific_validation/",
@@ -123,9 +123,9 @@ id = "v30-workflow"
 status = "contract-frozen"
 required_sections = [
   "OWNER_DECISIONS.md#od-11-minimal-workflow-is-deterministic-orchestration-not-effect-authority",
-  "docs/v3/boundary-spec.md#v30-wf-contract-01-frozen-minimal-workflow-contract",
-  "docs/v3/acceptance.md#v30-wf-contract-01-minimal-deterministic-workflow",
-  "docs/v3/AUTONOMOUS_DEVELOPMENT.md#v30-wf-contract-01",
+  "docs/v3/contracts/boundary/workflow.md#v30-wf-contract-01-frozen-minimal-workflow-contract",
+  "docs/v3/contracts/acceptance/workflow.md#v30-wf-contract-01-minimal-deterministic-workflow",
+  "docs/v3/contracts/tasks/workflow.md#v30-wf-contract-01",
   "docs/v3/reuse-adjudication.md#v30-wf-contract-01-narrow-reuse-adjudication",
 ]
 code_paths = [
@@ -142,8 +142,8 @@ id = "v30-observe"
 status = "contract-frozen"
 required_sections = [
   "OWNER_DECISIONS.md#od-15-minimal-observe-is-read-only-exact-attempt-evidence-projection",
-  "docs/v3/boundary-spec.md#v30-obs-min-contract-01-frozen-minimal-observe-contract",
-  "docs/v3/acceptance.md#v30-obs-min-contract-01-minimal-read-only-observe",
+  "docs/v3/contracts/boundary/observe.md#v30-obs-min-contract-01-frozen-minimal-observe-contract",
+  "docs/v3/contracts/acceptance/observe.md#v30-obs-min-contract-01-minimal-read-only-observe",
   "docs/v3/STATUS.md#auto-g16-v3-status",
 ]
 code_paths = [
@@ -162,8 +162,8 @@ id = "v30-review"
 status = "contract-frozen"
 required_sections = [
   "OWNER_DECISIONS.md#od-16-reviewbundle-is-a-deterministic-projection-not-authority",
-  "docs/v3/boundary-spec.md#v30-review-min-contract-01-minimum-reviewbundle-contract",
-  "docs/v3/acceptance.md#v30-review-min-contract-01-minimum-deterministic-reviewbundle",
+  "docs/v3/contracts/boundary/review.md#v30-review-min-contract-01-minimum-reviewbundle-contract",
+  "docs/v3/contracts/acceptance/review.md#v30-review-min-contract-01-minimum-deterministic-reviewbundle",
   "docs/v3/STATUS.md#auto-g16-v3-status",
 ]
 code_paths = [
@@ -187,7 +187,7 @@ required_sections = [
   "OWNER_DECISIONS.md#od-04-project-reuse-and-the-no-overwrite-boundary",
   "OWNER_DECISIONS.md#od-05-single-submission-and-uncertainty",
   "OWNER_DECISIONS.md#od-07-safety-semantics-and-governance-implementation",
-  "docs/v3/boundary-spec.md#context-boundaries",
+  "docs/v3/contracts/boundary/foundation.md#context-boundaries",
 ]
 code_paths = ["skills/auto-g16-rtwin-pbs/scripts/execution_batch.py"]
 focused_tests = ["tests/test_execution_batch.py", "tests/test_idempotent_execution.py"]
@@ -203,24 +203,24 @@ required_sections = [
   "OWNER_DECISIONS.md#od-28-v30-a-production-transport-uses-mac-openssh-proxyjump",
   "OWNER_DECISIONS.md#od-29-scheduled-job-cwd-is-enacted-from-the-bound-attempt-workspace",
   "docs/v3/reuse-adjudication.md#auto-g16-v3-reuse-adjudication",
-  "docs/v3/boundary-spec.md#v30-exec-02-composition-contract-01-rtwin-first-composition-contract",
-  "docs/v3/boundary-spec.md#snapshot-derived-pbs-resource-enactment",
-  "docs/v3/boundary-spec.md#exact-torque-610-production-dialect",
-  "docs/v3/boundary-spec.md#scheduled-job-working-directory-enactment",
-  "docs/v3/boundary-spec.md#v30-a-option1-mac-proxyjump-product-integration-01-boundary",
-  "docs/v3/boundary-spec.md#v31-private-offline-closeout-boundary",
-  "docs/v3/acceptance.md#v30-exec-02-composition-contract-01-rtwin-first-v30-a-composition",
-  "docs/v3/acceptance.md#v30-exec-resource-enactment-contract-01",
-  "docs/v3/acceptance.md#v30-pbs-torque-dialect-01-exact-production-torque-renderer",
-  "docs/v3/acceptance.md#v30-exec-pbs-workdir-enactment-contract-01",
-  "docs/v3/acceptance.md#v30-a-option1-mac-proxyjump-product-integration-01-acceptance",
-  "docs/v3/acceptance.md#v31-private-offline-closeout-acceptance",
-  "docs/v3/AUTONOMOUS_DEVELOPMENT.md#v30-exec-02",
-  "docs/v3/AUTONOMOUS_DEVELOPMENT.md#v30-exec-resource-enactment-contract-01",
-  "docs/v3/AUTONOMOUS_DEVELOPMENT.md#v30-pbs-torque-dialect-01",
-  "docs/v3/AUTONOMOUS_DEVELOPMENT.md#v30-exec-pbs-workdir-enactment-contract-01",
-  "docs/v3/AUTONOMOUS_DEVELOPMENT.md#v30-a-option1-mac-proxyjump-product-integration-01",
-  "docs/v3/AUTONOMOUS_DEVELOPMENT.md#v31-night-offline-closeout-20260911",
+  "docs/v3/contracts/boundary/transport-composition.md#v30-exec-02-composition-contract-01-rtwin-first-composition-contract",
+  "docs/v3/contracts/boundary/transport-resources.md#snapshot-derived-pbs-resource-enactment",
+  "docs/v3/contracts/boundary/transport-resources.md#exact-torque-610-production-dialect",
+  "docs/v3/contracts/boundary/transport-resources.md#scheduled-job-working-directory-enactment",
+  "docs/v3/contracts/boundary/transport-proxyjump.md#v30-a-option1-mac-proxyjump-product-integration-01-boundary",
+  "docs/v3/contracts/boundary/v31-offline.md#v31-private-offline-closeout-boundary",
+  "docs/v3/contracts/acceptance/transport-composition.md#v30-exec-02-composition-contract-01-rtwin-first-v30-a-composition",
+  "docs/v3/contracts/acceptance/transport-resources.md#v30-exec-resource-enactment-contract-01",
+  "docs/v3/contracts/acceptance/transport-resources.md#v30-pbs-torque-dialect-01-exact-production-torque-renderer",
+  "docs/v3/contracts/acceptance/transport-resources.md#v30-exec-pbs-workdir-enactment-contract-01",
+  "docs/v3/contracts/acceptance/transport-proxyjump.md#v30-a-option1-mac-proxyjump-product-integration-01-acceptance",
+  "docs/v3/contracts/acceptance/v31-offline.md#v31-private-offline-closeout-acceptance",
+  "docs/v3/contracts/tasks/execution.md#v30-exec-02",
+  "docs/v3/contracts/tasks/transport.md#v30-exec-resource-enactment-contract-01",
+  "docs/v3/contracts/tasks/transport.md#v30-pbs-torque-dialect-01",
+  "docs/v3/contracts/tasks/transport.md#v30-exec-pbs-workdir-enactment-contract-01",
+  "docs/v3/contracts/tasks/transport.md#v30-a-option1-mac-proxyjump-product-integration-01",
+  "docs/v3/contracts/tasks/validation.md#v31-night-offline-closeout-20260911",
   "docs/v3/STATUS.md#auto-g16-v3-status",
 ]
 code_paths = [
@@ -240,7 +240,7 @@ id = "knowledge"
 status = "reuse-source"
 required_sections = [
   "docs/v3/reuse-adjudication.md#auto-g16-v3-reuse-adjudication",
-  "docs/v3/boundary-spec.md#context-boundaries",
+  "docs/v3/contracts/boundary/foundation.md#context-boundaries",
 ]
 code_paths = ["skills/auto-g16-knowledge-base/scripts/knowledge_base.py"]
 focused_tests = ["tests/test_knowledge_base.py", "tests/test_knowledge_store.py"]
@@ -251,7 +251,7 @@ status = "policy-rebenchmark-required"
 required_sections = [
   "OWNER_DECISIONS.md#od-09-conformer-policy-must-be-benchmarked-again",
   "docs/v3/reuse-adjudication.md#auto-g16-v3-reuse-adjudication",
-  "docs/v3/acceptance.md#v31-flexible-molecule-ensemble",
+  "docs/v3/contracts/acceptance/v31-ensemble.md#v31-flexible-molecule-ensemble",
 ]
 code_paths = ["skills/auto-g16-conformer-search/scripts/conformer_core.py"]
 focused_tests = ["tests/test_conformer_search.py"]
@@ -261,9 +261,9 @@ id = "v31-shared-contract"
 status = "integrated-live-not-authorized"
 required_sections = [
   "OWNER_DECISIONS.md#od-31-v31-shares-one-versioned-execution-and-ensemble-contract",
-  "docs/v3/boundary-spec.md#v31-shared-contract-01-shared-execution-and-ensemble-contract",
-  "docs/v3/acceptance.md#v31-flexible-molecule-ensemble",
-  "docs/v3/AUTONOMOUS_DEVELOPMENT.md#v31-shared-contract-01",
+  "docs/v3/contracts/boundary/v31-shared.md#v31-shared-contract-01-shared-execution-and-ensemble-contract",
+  "docs/v3/contracts/acceptance/v31-ensemble.md#v31-flexible-molecule-ensemble",
+  "docs/v3/contracts/tasks/v31-shared.md#v31-shared-contract-01",
   "docs/v3/STATUS.md#auto-g16-v3-status",
 ]
 code_paths = []
@@ -275,9 +275,9 @@ status = "offline-integrated-no-live-authority"
 required_sections = [
   "docs/v3/STATUS.md#verified-integration-evidence",
   "OWNER_DECISIONS.md#od-31-v31-shares-one-versioned-execution-and-ensemble-contract",
-  "docs/v3/boundary-spec.md#v31-private-offline-closeout-boundary",
-  "docs/v3/acceptance.md#v31-private-offline-closeout-acceptance",
-  "docs/v3/AUTONOMOUS_DEVELOPMENT.md#v31-night-offline-closeout-20260911",
+  "docs/v3/contracts/boundary/v31-offline.md#v31-private-offline-closeout-boundary",
+  "docs/v3/contracts/acceptance/v31-offline.md#v31-private-offline-closeout-acceptance",
+  "docs/v3/contracts/tasks/validation.md#v31-night-offline-closeout-20260911",
   "docs/v3/level2-requalification-packet.md#auto-g16-v31-offline-level-2-requalification-packet",
   "docs/v3/program-qualification-tooling.md#auto-g16-v31-local-program-inventory",
 ]
@@ -288,8 +288,8 @@ focused_tests = ["tests/v31/tooling/test_prepare_v31_level2_packet.py", "tests/v
 id = "reaction-workflow"
 status = "acceptance-target"
 required_sections = [
-  "docs/v3/acceptance.md#v32a-representative-reaction",
-  "docs/v3/boundary-spec.md#context-boundaries",
+  "docs/v3/contracts/acceptance/reaction.md#v32a-representative-reaction",
+  "docs/v3/contracts/boundary/foundation.md#context-boundaries",
 ]
 code_paths = [
   "skills/auto-g16-reaction-workflow/scripts/calculation_dag.py",
@@ -311,15 +311,15 @@ status = "c2-c3-c4-offline-integrated-no-live-authority"
 required_sections = [
   "docs/v3/STATUS.md#verified-integration-evidence",
   "OWNER_DECISIONS.md#od-32-c4-native-controller-guard-proposed",
-  "docs/v3/boundary-spec.md#c4-native-controller-directory-guard-proposal",
-  "docs/v3/acceptance.md#c4-native-controller-guard-proposed-vectors",
-  "docs/v3/AUTONOMOUS_DEVELOPMENT.md#authorized-ab-follow-up-and-proposed-c4-activation",
-  "docs/v3/boundary-spec.md#c3-rendering-material-supplement-candidate",
-  "docs/v3/acceptance.md#c3-rendering-material-candidate-vectors",
+  "docs/v3/contracts/boundary/v31-controller-guard.md#c4-native-controller-directory-guard-proposal",
+  "docs/v3/contracts/acceptance/v31-file-completion.md#c4-native-controller-guard-proposed-vectors",
+  "docs/v3/contracts/tasks/v31-file-completion.md#authorized-ab-follow-up-and-proposed-c4-activation",
+  "docs/v3/contracts/boundary/v31-file-completion.md#c3-rendering-material-supplement-candidate",
+  "docs/v3/contracts/acceptance/v31-file-completion.md#c3-rendering-material-candidate-vectors",
   "OWNER_DECISIONS.md#od-32-candidate-xtb-completion-from-an-exact-predeclared-receipt",
-  "docs/v3/boundary-spec.md#v31-pbs-compat-file-completion-01-candidate-boundary",
-  "docs/v3/acceptance.md#v31-pbs-compat-file-completion-01-candidate-acceptance",
-  "docs/v3/AUTONOMOUS_DEVELOPMENT.md#v31-pbs-compat-file-completion-01",
+  "docs/v3/contracts/boundary/v31-file-completion.md#v31-pbs-compat-file-completion-01-candidate-boundary",
+  "docs/v3/contracts/acceptance/v31-file-completion.md#v31-pbs-compat-file-completion-01-candidate-acceptance",
+  "docs/v3/contracts/tasks/v31-file-completion.md#v31-pbs-compat-file-completion-01",
   "docs/v3/pbs-file-completion-freeze.md#auto-g16-v31-file-completion-freeze-dossier",
 ]
 code_paths = []
@@ -331,7 +331,7 @@ status = "offline-integrated-production-qualification-separate"
 required_sections = [
   "docs/v3/STATUS.md#verified-integration-evidence",
   "docs/v3/publisher-r4/README.md#frozen-authority",
-  "docs/v3/AUTONOMOUS_DEVELOPMENT.md#v31-publisher-r4-offline-implementation-01",
+  "docs/v3/contracts/tasks/v31-successors.md#v31-publisher-r4-offline-implementation-01",
 ]
 code_paths = ["auto_g16/execution/_program_completion.py", "auto_g16/execution/_program_completion_wrapper.py", "auto_g16/execution/program.py", "auto_g16/execution/program_runtime.py", "auto_g16/transport/_program_rtwin.py", "scripts/run_v31_publisher_pilot.py"]
 focused_tests = ["tests/v31/transport/"]
@@ -344,9 +344,9 @@ required_sections = [
   "docs/v3/STATUS.md#verified-integration-evidence",
   "OWNER_DECISIONS.md#od-32-same-attempt-collection-recovery-c2-accepted",
   "docs/v3/same-attempt-collection-recovery-contract.md",
-  "docs/v3/boundary-spec.md#v31-same-attempt-collection-recovery-boundary",
-  "docs/v3/acceptance.md#v31-same-attempt-collection-recovery-acceptance",
-  "docs/v3/AUTONOMOUS_DEVELOPMENT.md#v31-same-attempt-collect-recovery-01",
+  "docs/v3/contracts/boundary/v31-successors.md#v31-same-attempt-collection-recovery-boundary",
+  "docs/v3/contracts/acceptance/v31-successors.md#v31-same-attempt-collection-recovery-acceptance",
+  "docs/v3/contracts/tasks/v31-successors.md#v31-same-attempt-collect-recovery-01",
 ]
 code_paths = [
   "auto_g16/execution/program.py",
@@ -359,19 +359,19 @@ focused_tests = ["tests/v31/transport/test_publisher_collection_recovery.py", "t
 [[component]]
 id = "v31-crest-completion"
 status = "delegated-design-frozen-offline-implementation"
-required_sections = ["OWNER_DECISIONS.md#od-33-crest-completion-and-receipt-seed-handoff", "docs/v3/crest-live-closure-freeze.md", "docs/v3/crest-live-closure-contract.md", "docs/v3/crest-readonly-source-addendum.md", "docs/v3/crest-fresh-project-addendum.md", "docs/v3/crest-loader-closure-addendum.md", "docs/v3/boundary-spec.md#v31-crest-completion-successor-boundary", "docs/v3/acceptance.md#v31-crest-completion-successor-acceptance", "docs/v3/AUTONOMOUS_DEVELOPMENT.md#v31-crest-live-closure-01"]
+required_sections = ["OWNER_DECISIONS.md#od-33-crest-completion-and-receipt-seed-handoff", "docs/v3/crest-live-closure-freeze.md", "docs/v3/crest-live-closure-contract.md", "docs/v3/crest-readonly-source-addendum.md", "docs/v3/crest-fresh-project-addendum.md", "docs/v3/crest-loader-closure-addendum.md", "docs/v3/contracts/boundary/v31-successors.md#v31-crest-completion-successor-boundary", "docs/v3/contracts/acceptance/v31-successors.md#v31-crest-completion-successor-acceptance", "docs/v3/contracts/tasks/v31-successors.md#v31-crest-live-closure-01"]
 code_paths = ["auto_g16/core/store.py", "auto_g16/execution/", "auto_g16/transport/_program_rtwin.py", "auto_g16/transport/program.py", "auto_g16/conformer/service.py", "scripts/run_v31_publisher_pilot.py"]
 focused_tests = ["tests/v31/transport/test_crest_completion.py", "tests/v31/conformer/test_crest_receipt_handoff.py", "tests/v31/transport/test_receipt_source.py", "tests/v31/transport/test_crest_loader.py", "tests/v31/transport/test_readonly_source_open.py"]
 
 [[component]]
 id = "v31-exact-observed-job-recovery"
 status = "delegated-offline-implementation-independent-review-pending"
-required_sections = ["OWNER_DECISIONS.md#od-33-exact-observed-job-recovery-offline-delta", "docs/v3/exact-observed-job-recovery-contract.md", "docs/v3/boundary-spec.md#v31-exact-observed-job-recovery-boundary", "docs/v3/acceptance.md#v31-exact-observed-job-recovery-acceptance", "docs/v3/AUTONOMOUS_DEVELOPMENT.md#v31-crest-695-markerless-recovery-01"]
+required_sections = ["OWNER_DECISIONS.md#od-33-exact-observed-job-recovery-offline-delta", "docs/v3/exact-observed-job-recovery-contract.md", "docs/v3/contracts/boundary/v31-successors.md#v31-exact-observed-job-recovery-boundary", "docs/v3/contracts/acceptance/v31-successors.md#v31-exact-observed-job-recovery-acceptance", "docs/v3/contracts/tasks/v31-successors.md#v31-crest-695-markerless-recovery-01"]
 code_paths = ["auto_g16/execution/_submission_recovery.py", "auto_g16/transport/_submission_recovery.py", "auto_g16/transport/_recovery_process.py", "auto_g16/execution/program.py", "auto_g16/execution/program_runtime.py", "auto_g16/transport/program.py", "auto_g16/transport/_program_rtwin.py", "scripts/run_v31_publisher_pilot.py"]
 focused_tests = ["tests/v31/transport/test_exact_job_recovery.py"]
 [[component]]
 id = "v31-crest-short-payload"
 status = "delegated-design-frozen-incremental-implementation"
-required_sections = ["docs/v3/crest-short-payload-contract.md", "docs/v3/crest-short-payload-historical-source.md", "docs/v3/boundary-spec.md#v31-crest-short-entry-delivery-boundary", "docs/v3/acceptance.md#v31-crest-short-entry-delivery-acceptance"]
+required_sections = ["docs/v3/crest-short-payload-contract.md", "docs/v3/crest-short-payload-historical-source.md", "docs/v3/contracts/boundary/v31-successors.md#v31-crest-short-entry-delivery-boundary", "docs/v3/contracts/acceptance/v31-successors.md#v31-crest-short-entry-delivery-acceptance"]
 code_paths = ["auto_g16/execution/_crest_startup.py", "auto_g16/execution/_program_completion.py", "auto_g16/execution/_receipt_source.py", "auto_g16/execution/program.py", "auto_g16/execution/program_runtime.py", "auto_g16/transport/program.py", "auto_g16/transport/_program_rtwin.py", "auto_g16/transport/_bridge.py", "scripts/run_v31_publisher_pilot.py"]
 focused_tests = ["tests/v31/transport/test_crest_startup_payload.py"]

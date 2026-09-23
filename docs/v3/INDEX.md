@@ -18,6 +18,24 @@ new authority and does not replace a current explicit Owner Gate.
 | Versioned acceptance cases and expansion stops | [`acceptance.md`](acceptance.md) |
 | Component-specific reading, code, and tests | [`context-map.toml`](../../config/context-map.toml) |
 
+## Component contracts and rule owners
+
+The boundary, acceptance and autonomy entry pages retain every original
+heading fragment and route to the component that owns its complete text:
+
+| Needed material | Reading entry |
+| --- | --- |
+| Runtime boundaries, exact records and safety contracts | [Boundary components](boundary-spec.md#component-reading-map) |
+| Component acceptance and expansion stops | [Acceptance components](acceptance.md#component-reading-map) |
+| Current autonomy rules and named frozen Task Contracts | [Autonomy rules](AUTONOMOUS_DEVELOPMENT.md#autonomy-contract) / [Task components](AUTONOMOUS_DEVELOPMENT.md#component-reading-map) |
+| General development rules and their single owning section | [Rule ownership](../development-handbook.md#rule-ownership-and-references) |
+
+`config/context-map.toml` points directly to the selected component sections.
+Component pages retain their parent's authority; a shorter entry is not a
+reduced contract. Frozen task-specific obligations and historical evidence
+are not duplicate general rules to delete. The existing BUS/Executor material
+and review thresholds are unchanged.
+
 ## Current rules and historical records
 
 | Original entry / content | Where to read now | Treatment |
