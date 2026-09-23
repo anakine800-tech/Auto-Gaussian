@@ -32,7 +32,15 @@ These rules apply to the entire repository.
   truth.
 - Treat `~/.codex/skills/<name>` as a deployed copy. Do not edit a deployed copy and a repository copy independently.
 - Before deploying a Skill, validate the repository copy, compare the planned diff, then synchronize only that named Skill.
-- Keep experimental workflow code on a feature branch. Merge it only after offline tests and an explicitly approved live smoke test.
+- Keep experimental workflow code on a feature branch. Before merge, complete
+  the required offline validation and review, and classify live-evidence needs
+  under `docs/development-handbook.md#live-evidence-and-merge-scope`.
+  Pure documentation or offline maintenance does not require a live smoke
+  solely because it is being merged. Production-reachable changes whose
+  safety depends on native execution, transport, scheduler, filesystem or
+  process behavior require the applicable explicitly approved target evidence
+  before merge. Preserve stricter frozen task gates; code integration never
+  authorizes deployment, a live test or scientific acceptance.
 
 ## Auto-G16 Skill naming
 
@@ -91,6 +99,11 @@ the existing legacy/v2 implementation contract; they do not require a new
 - Use `docs/development-handbook.md` as the mandatory operation-order entry
   point for task classification, preflight, validation, review, CI, integration,
   cleanup and release handoff; it does not override any rule in this file.
+- Record the authorized development steps once for the exact task and scope
+  under the handbook's development-authorization section. Continue already
+  authorized steps after their prerequisites pass; do not request the same
+  permission again. This creates no authority for an unlisted action, scope
+  expansion or operational effect, and does not replace BUS CTRL requirements.
 - For a BUS-managed task, the Relay-created Control Issue is the canonical
   development-control ledger. A pull request remains the diff, commit, CI, and
   review evidence surface and does not replace that ledger.
