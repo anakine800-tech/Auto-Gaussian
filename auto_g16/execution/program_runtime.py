@@ -1912,6 +1912,92 @@ def _completion_file_effect(store, snapshot, program_transport_store, driver, ba
     return observation, content
 
 
+def _interrupted_present_stat(snapshot, observations, receipts):
+    """Select the sole collection-owned present STAT without a FETCH consumer."""
+    positions = {item.observation_id: index for index, item in enumerate(observations)}
+    starts = [
+        positions[item.observation_id]
+        for item in observations
+        if item.observation_type == _COLLECTION_START
+    ]
+    if not starts:
+        return None
+    first_start = min(starts)
+    consumed = set()
+    malformed = False
+    for item in receipts:
+        if item.data["operation"] != "FETCH_EXACT_FILE":
+            continue
+        request = item.data.get("request")
+        payload = request.get("payload") if isinstance(request, Mapping) else None
+        stat_id = payload.get("stat_receipt_id") if isinstance(payload, Mapping) else None
+        if type(stat_id) is not str or not stat_id:
+            malformed = True
+        elif item.data["outcome"] == "SUCCEEDED":
+            consumed.add(stat_id)
+        else:
+            malformed = True
+    candidates = []
+    for item in receipts:
+        if (
+            item.data["operation"] != "STAT_EXACT_FILE"
+            or item.data["outcome"] != "SUCCEEDED"
+            or positions.get(item.observation_id, -1) <= first_start
+            or item.observation_id in consumed
+        ):
+            continue
+        request = item.data.get("request")
+        payload = request.get("payload") if isinstance(request, Mapping) else None
+        response = item.data.get("response")
+        if not isinstance(payload, Mapping) or not isinstance(response, Mapping):
+            malformed = True
+            continue
+        try:
+            declaration = _declared_output(snapshot, payload)
+            closed, size = _transport._stat_response(
+                response,
+                name=str(declaration["portable_name"]),
+                max_size_bytes=int(declaration["max_size_bytes"]),
+            )
+        except Exception:
+            malformed = True
+            continue
+        if size is None or closed["presence"] != "present":
+            continue
+        candidates.append(item)
+    if malformed or len(candidates) > 1:
+        raise TransportBoundaryError(
+            "interrupted collection prefix is malformed or ambiguous"
+        )
+    return candidates[0] if candidates else None
+
+
+def _repair_interrupted_completion_prefix(
+    store, snapshot, program_transport_store, driver, base, job
+):
+    """Finish one exact abandoned STAT/FETCH pair before a clean new epoch."""
+    observations = store.observations_for_attempt(snapshot.attempt_id)
+    receipts = _load_receipts(store, snapshot, program_transport_store, base)
+    stat = _interrupted_present_stat(snapshot, observations, receipts)
+    if stat is None:
+        return
+    request = stat.data["request"]
+    assert isinstance(request, Mapping)
+    declaration = _declared_output(snapshot, request["payload"])
+    _receipt, content = _completion_file_effect(
+        store,
+        snapshot,
+        program_transport_store,
+        driver,
+        base,
+        job,
+        declaration,
+        stat=stat,
+    )
+    if type(content) is not bytes:
+        raise TransportBoundaryError("interrupted collection repair returned no bytes")
+
+
 def _validate_completion_bundle(record, snapshot, job, workspace, receipts, observations):
     data = _completion._closed(record.data, frozenset({"schema", *_COMPLETION_BINDING_KEYS, "epoch_id", "inputs", "captured_files"}), "completion bundle")
     if record.result_type != _COMPLETION_EVIDENCE or record.attempt_id != snapshot.attempt_id or data["schema"] != _COMPLETION_EVIDENCE or record.result_id != semantic_id("program-completion-evidence", data) or any(data[key] != value for key, value in _completion_binding(snapshot, job).items()):
@@ -2291,6 +2377,9 @@ def _resume_program_collection(store, *, snapshot, program_transport_store, driv
             raise TransportBoundaryError("collection audit prefix changed")
         _validate_collection_audits(current, snapshot, job, continuation_sha256, source_digest)
         history.update(observations=current, audits=(*history["audits"], audit))
+        _repair_interrupted_completion_prefix(
+            store, snapshot, program_transport_store, driver, base, job
+        )
         return _collect_program_completion(store, snapshot=snapshot, program_transport_store=program_transport_store,
                                            driver=driver, input_bytes=input_bytes, _completion_token=_completion_token)
     finally:

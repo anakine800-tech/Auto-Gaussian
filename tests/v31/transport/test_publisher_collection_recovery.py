@@ -270,6 +270,118 @@ def _child(mode, path, *, scratch=None):
 
 
 class CollectionRecoveryTests(_RecoveryFixture):
+    def _leave_present_stat_without_fetch(self):
+        target = self.spec.required_outputs[0]["portable_name"]
+        original = runtime._completion_file_effect
+
+        class StopAfterStat(BaseException):
+            pass
+
+        def stop_after_stat(*args, **kwargs):
+            result = original(*args, **kwargs)
+            declaration = args[6]
+            if kwargs.get("stat") is None and declaration["portable_name"] == target:
+                raise StopAfterStat()
+            return result
+
+        with patch.object(runtime, "_completion_file_effect", side_effect=stop_after_stat):
+            with self.assertRaises(StopAfterStat):
+                self.resume()
+        receipts = tuple(
+            item
+            for item in self.store.observations_for_attempt("attempt-1")
+            if item.observation_type == transport._RECEIPT_TYPE
+        )
+        candidate = runtime._interrupted_present_stat(
+            self.snapshot,
+            self.store.observations_for_attempt("attempt-1"),
+            receipts,
+        )
+        self.assertIsNotNone(candidate)
+        self.assertEqual(candidate.data["response"]["portable_name"], target)
+        return target, candidate
+
+    def _next_continuation(self):
+        return self.changed_installation(
+            lambda document: document["window"].update(
+                started_at="2000-01-01T00:00:00.000001Z"
+            )
+        )
+
+    def test_ir01_ir04_new_continuation_finishes_orphan_then_collects_clean_epoch(self):
+        target, candidate = self._leave_present_stat_without_fetch()
+        self.wire.calls.clear()
+        result = self.resume(installation=self._next_continuation())
+        self.assertEqual(result.data["verdict"], "SUCCEEDED")
+        self.assertEqual(self.store.attempt_state("attempt-1"), core.AttemptState.SUCCEEDED)
+        self.assertGreaterEqual(len(self.wire.calls), 2)
+        self.assertEqual(self.wire.calls[0][0], "FETCH_EXACT_FILE")
+        self.assertEqual(
+            self.wire.calls[0][1]["payload"]["request_payload"]["portable_name"],
+            target,
+        )
+        self.assertEqual(
+            self.wire.calls[0][1]["payload"]["request_payload"]["stat_receipt_id"],
+            candidate.observation_id,
+        )
+        self.assertEqual(self.wire.calls[1][0], "QUERY_SCHEDULER")
+        self.wire.calls.clear()
+        self.assertEqual(self.resume(installation=self._next_continuation()), result)
+        self.assertEqual(self.wire.calls, [])
+
+    def test_ir05_failed_repair_consumes_only_new_continuation(self):
+        _target, candidate = self._leave_present_stat_without_fetch()
+        continuation = self._next_continuation()
+        self.wire.calls.clear()
+        self.wire.fail_operation = "FETCH_EXACT_FILE"
+        with self.assertRaises(Exception):
+            self.resume(installation=continuation)
+        self.assertEqual([item[0] for item in self.wire.calls], ["FETCH_EXACT_FILE"])
+        receipts = tuple(
+            item
+            for item in self.store.observations_for_attempt("attempt-1")
+            if item.observation_type == transport._RECEIPT_TYPE
+        )
+        self.assertEqual(
+            runtime._interrupted_present_stat(
+                self.snapshot,
+                self.store.observations_for_attempt("attempt-1"),
+                receipts,
+            ),
+            candidate,
+        )
+        self.wire.calls.clear()
+        with self.assertRaisesRegex(TransportBoundaryError, "already consumed"):
+            self.resume(installation=continuation)
+        self.assertEqual(self.wire.calls, [])
+
+    def test_ir01_ir06_selector_rejects_ambiguous_or_malformed_prefix(self):
+        _target, candidate = self._leave_present_stat_without_fetch()
+        observations = self.store.observations_for_attempt("attempt-1")
+        receipts = tuple(
+            item for item in observations if item.observation_type == transport._RECEIPT_TYPE
+        )
+        duplicate = core.Observation(
+            observation_id="duplicate-unmatched-stat",
+            attempt_id=candidate.attempt_id,
+            observation_type=candidate.observation_type,
+            data=candidate.data,
+        )
+        with self.assertRaisesRegex(TransportBoundaryError, "malformed or ambiguous"):
+            runtime._interrupted_present_stat(
+                self.snapshot, (*observations, duplicate), (*receipts, duplicate)
+            )
+        malformed = core.Observation(
+            observation_id="malformed-fetch",
+            attempt_id=candidate.attempt_id,
+            observation_type=candidate.observation_type,
+            data={**candidate.data, "operation": "FETCH_EXACT_FILE"},
+        )
+        with self.assertRaisesRegex(TransportBoundaryError, "malformed or ambiguous"):
+            runtime._interrupted_present_stat(
+                self.snapshot, (*observations, malformed), (*receipts, malformed)
+            )
+
     def test_cr01_cr03_native_restore_expired_window_collect_and_zero_wire_replay(self):
         old_approval = Path(self.original_run.stores[1].path).read_bytes()
         journal = Path(self.journal._path).read_bytes()
