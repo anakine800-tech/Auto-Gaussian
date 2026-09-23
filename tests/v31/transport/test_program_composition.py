@@ -5,6 +5,7 @@ from dataclasses import fields
 from hashlib import sha256
 import inspect
 from pathlib import Path
+import sqlite3
 from typing import Mapping
 import unittest
 from unittest.mock import patch
@@ -2103,6 +2104,36 @@ class ProgramCompositionTests(LaneAFixture):
 
     def test_77_product_uses_zero_private_core_schema_access(self) -> None:
         source = Path(program_runtime.__file__).read_text(encoding="utf-8")
+        self._assert_private_core_sql_scope(source)
+
+    def _assert_private_core_sql_scope(self, source: str) -> None:
+        # The frozen CREST read-only source addendum permits only this identity
+        # read in the historical proof context. Completion writers retain the
+        # original private Core SQL prohibition (boundary-spec.md).
+        query = (
+            "SELECT attempt_id,intent_id FROM submission_intents "
+            "WHERE attempt_id=? OR intent_id=?"
+        )
+        tree = ast.parse(source)
+        replay = [node for node in tree.body if isinstance(node, ast.FunctionDef)
+                  and node.name == "_assert_effect_intent_replay"]
+        self.assertEqual(len(replay), 1)
+        condition = ast.parse("_READONLY_RECEIPT_SOURCE.get() is store", mode="eval").body
+        guards = [node for node in replay[0].body if isinstance(node, ast.If)
+                  and ast.dump(node.test) == ast.dump(condition)]
+        self.assertEqual(len(guards), 1)
+        expected = ast.parse(
+            f"store._connection.execute({query!r}, "
+            "(snapshot.attempt_id, snapshot.effect_intent_id))", mode="eval"
+        ).body
+        calls = [node for node in ast.walk(guards[0]) if isinstance(node, ast.Call)
+                 and ast.dump(node) == ast.dump(expected)]
+        self.assertEqual(len(calls), 1)
+        connections = [node for node in ast.walk(tree) if isinstance(node, ast.Attribute)
+                       and node.attr == "_connection"]
+        self.assertEqual(connections, [calls[0].func.value])
+        self.assertEqual(source.count(query), 1)
+        source = source.replace(query, "historical identity read", 1)
         for forbidden in (
             "._db(",
             "auto_g16.core.store",
@@ -2110,8 +2141,109 @@ class ProgramCompositionTests(LaneAFixture):
             "reconciliations",
             "SELECT",
         ):
-            with self.subTest(forbidden=forbidden):
-                self.assertNotIn(forbidden, source)
+            self.assertNotIn(forbidden, source, msg=forbidden)
+
+    def test_77a_private_core_sql_exception_cannot_expand(self) -> None:
+        source = Path(program_runtime.__file__).read_text(encoding="utf-8")
+        for old, new in (
+            ("SELECT attempt_id,intent_id", "SELECT *"),
+            ("WHERE attempt_id=? OR intent_id=?", "WHERE attempt_id=?"),
+            ("_READONLY_RECEIPT_SOURCE.get() is store", "_READONLY_RECEIPT_SOURCE.get() == store"),
+            ("_READONLY_RECEIPT_SOURCE.get() is store", "True"),
+            ("def _assert_effect_intent_replay(", "def unrelated_reader("),
+            ("rows = store._connection.execute(", "rows = other._connection.execute("),
+            ("(snapshot.attempt_id, snapshot.effect_intent_id)).fetchall()",
+             "(snapshot.effect_intent_id, snapshot.attempt_id)).fetchall()"),
+        ):
+            with self.subTest(mutation=new):
+                self.assertIn(old, source)
+                with self.assertRaises(AssertionError):
+                    self._assert_private_core_sql_scope(source.replace(old, new, 1))
+        for extra in ('\nforbidden = "SELECT secret"\n', '\nforbidden = store._connection\n'):
+            with self.subTest(extra=extra), self.assertRaises(AssertionError):
+                self._assert_private_core_sql_scope(source + extra)
+
+    def test_77b_historical_intent_proof_is_exact_and_readonly(self) -> None:
+        # Prepare synthetic native history outside the proof. Each case then
+        # reads an isolated query-only native view, as the source owner does.
+        from auto_g16.execution import runtime as core_runtime
+        planned = self.store._connection.serialize()
+        self.store.record_submission_intent(
+            self.snapshot.attempt_id, self.snapshot.effect_intent_id
+        )
+        recorded = self.store._connection.serialize()
+        original = Path(self.database).read_bytes()
+        for case in ("exact", "planned", "missing", "wrong-attempt", "wrong-intent",
+                     "conflicting-pairs", "query-error"):
+            with self.subTest(case=case):
+                view = core.SQLiteRuntimeStore()
+                try:
+                    connection = view._connection
+                    connection.deserialize(planned if case == "planned" else recorded)
+                    connection.execute("PRAGMA foreign_keys=OFF")
+                    if case == "missing":
+                        connection.execute("DELETE FROM submission_intents")
+                    elif case == "wrong-attempt":
+                        connection.execute("UPDATE submission_intents SET attempt_id='foreign-attempt'")
+                    elif case in {"wrong-intent", "conflicting-pairs"}:
+                        connection.execute("UPDATE submission_intents SET intent_id='foreign-intent'")
+                        if case == "conflicting-pairs":
+                            connection.execute("INSERT INTO submission_intents VALUES (?, ?)",
+                                               ("foreign-attempt", self.snapshot.effect_intent_id))
+                    elif case == "query-error":
+                        connection.execute("DROP TABLE submission_intents")
+                    connection.commit()
+                    connection.execute("PRAGMA query_only=ON")
+                    before = connection.serialize()
+                    changes = connection.total_changes
+                    statements = []
+                    connection.set_trace_callback(statements.append)
+                    token = program_runtime._READONLY_RECEIPT_SOURCE.set(view)
+                    try:
+                        with patch.object(core.SQLiteRuntimeStore, "record_submission_intent",
+                                          side_effect=AssertionError("no public claim")) as claim, \
+                             patch.object(core_runtime, "_replay_submission_intent",
+                                          side_effect=AssertionError("no public replay")) as replay:
+                            if case == "exact":
+                                self.assertIsNone(_assert_effect_intent_replay(view, self.snapshot))
+                            elif case == "query-error":
+                                with self.assertRaises(sqlite3.OperationalError):
+                                    _assert_effect_intent_replay(view, self.snapshot)
+                            else:
+                                with self.assertRaises(transport.TransportBoundaryError):
+                                    _assert_effect_intent_replay(view, self.snapshot)
+                            claim.assert_not_called()
+                            replay.assert_not_called()
+                    finally:
+                        program_runtime._READONLY_RECEIPT_SOURCE.reset(token)
+                        connection.set_trace_callback(None)
+                    self.assertEqual(connection.total_changes, changes)
+                    self.assertEqual(connection.serialize(), before)
+                    self.assertFalse(connection.in_transaction)
+                    self.assertTrue(statements)
+                    self.assertTrue(all(sql.lstrip().upper().startswith("SELECT ") for sql in statements))
+                    self.assertEqual(self.driver.calls, [])
+                finally:
+                    view.close()
+                self.assertEqual(Path(self.database).read_bytes(), original)
+
+    def test_77c_other_source_context_retains_public_replay(self) -> None:
+        self.store.record_submission_intent(
+            self.snapshot.attempt_id, self.snapshot.effect_intent_id
+        )
+        other = core.SQLiteRuntimeStore()
+        self.addCleanup(other.close)
+        before = self.store._connection.serialize()
+        token = program_runtime._READONLY_RECEIPT_SOURCE.set(other)
+        try:
+            with patch.object(self.store, "record_submission_intent",
+                              wraps=self.store.record_submission_intent) as claim:
+                self.assertIsNone(_assert_effect_intent_replay(self.store, self.snapshot))
+            claim.assert_called_once_with(self.snapshot.attempt_id, self.snapshot.effect_intent_id)
+        finally:
+            program_runtime._READONLY_RECEIPT_SOURCE.reset(token)
+        self.assertEqual(self.store._connection.serialize(), before)
+        self.assertEqual(self.driver.calls, [])
 
     def test_78_planned_replay_proof_cannot_claim_intent(self) -> None:
         with patch.object(
