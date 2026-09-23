@@ -163,6 +163,7 @@ V31_TRANSPORT_TESTS = [
 CI_OFFLINE_WORKFLOW_TESTS = [
     "tests.test_audit_ci_contract",
     "tests.test_audit_python_contract",
+    "tests.test_documentation_validation",
     "tests.test_release_hygiene",
     "tests.test_test_runner",
     "tests.test_validation_selector",

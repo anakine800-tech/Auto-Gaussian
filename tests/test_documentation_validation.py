@@ -177,6 +177,10 @@ class DocumentationValidationTests(unittest.TestCase):
             self.assertEqual(result.stdout, "chemistry-required=true\n")
 
     def test_ci_gates_only_optional_work_and_always_runs_scope_and_dependency_audit(self) -> None:
+        # A later workflow-only edit must actually execute these guard checks.
+        selected = self.select(".github/workflows/offline-tests.yml")
+        self.assertEqual(selected["lane"], "affected")
+        self.assertIn("tests.test_documentation_validation", selected["tests"])
         workflow = (ROOT / ".github/workflows/offline-tests.yml").read_text()
         chemistry = workflow.split("  chemistry-dependencies:\n", 1)[1]
         self.assertIn("if: needs.source-archive-release.result == 'success'", chemistry)
