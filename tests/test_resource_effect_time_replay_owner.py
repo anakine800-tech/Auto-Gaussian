@@ -9,6 +9,7 @@ import hashlib
 import importlib.util
 import json
 import pickle
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -28,6 +29,7 @@ sys.path.insert(0, str(ROOT_SCRIPTS))
 import resource_efficiency as RESOURCE  # noqa: E402
 import resource_effect_time_replay_owner as REPLAY  # noqa: E402
 import audit_ci_contract as CI_CONTRACT  # noqa: E402
+import audit_python_contract as PYTHON_CONTRACT  # noqa: E402
 from tests import test_resource_monitor_efficiency as PACKAGE4  # noqa: E402
 from tests import (  # noqa: E402
     test_execution_batch_reservation_capability as RESERVATION,
@@ -42,6 +44,7 @@ SCHEMA_PATH = (
     / "contracts/resource-effect-time-replay"
     / "resource-effect-time-replay-capability.schema.json"
 )
+GOODVIBES_AUDIT_COMMIT = "38dabf52f7735d3904b66740d045d1a5b543dc1b"
 
 
 def wall(second: int) -> datetime:
@@ -651,6 +654,67 @@ class ResourceEffectTimeReplayOwnerTests(unittest.TestCase):
             ):
                 capability.consume_once()
 
+    def test_historical_python_audit_binding_rejects_corruption(self) -> None:
+        historical_command = [
+            "git", "show",
+            f"{GOODVIBES_AUDIT_COMMIT}:scripts/audit_python_contract.py",
+        ]
+        original_check_output = subprocess.check_output
+        original_read_text = Path.read_text
+        lineage_path = ROOT / (
+            "tests/fixtures/rtwin_pbs/"
+            "v2_7_production_closure_lineage_successor.json"
+        )
+        changed = json.loads(lineage_path.read_text(encoding="utf-8"))
+        changed["files"]["scripts/audit_python_contract.py"]["sha256"] = "0" * 64
+
+        def changed_lineage(path, *args, **kwargs):
+            if path == lineage_path:
+                return json.dumps(changed)
+            return original_read_text(path, *args, **kwargs)
+
+        def changed_blob(command, *args, **kwargs):
+            if command == historical_command:
+                return b"corrupted immutable audit blob"
+            return original_check_output(command, *args, **kwargs)
+
+        def missing_blob(command, *args, **kwargs):
+            if command == historical_command:
+                raise subprocess.CalledProcessError(128, command)
+            return original_check_output(command, *args, **kwargs)
+
+        cases = [
+            ("failed_current_audit", mock.patch.object(
+                PYTHON_CONTRACT, "audit",
+                return_value={"status": "fail", "errors": ["current drift"]},
+            ), AssertionError),
+            ("current_audit_errors", mock.patch.object(
+                PYTHON_CONTRACT, "audit",
+                return_value={"status": "pass", "errors": ["current drift"]},
+            ), AssertionError),
+            ("historical_sha", mock.patch.object(
+                Path, "read_text", changed_lineage,
+            ), AssertionError),
+            ("corrupted_blob", mock.patch.object(
+                subprocess, "check_output", changed_blob,
+            ), AssertionError),
+            ("missing_blob", mock.patch.object(
+                subprocess, "check_output", missing_blob,
+            ), subprocess.CalledProcessError),
+        ]
+        for label, patch, exception in cases:
+            with self.subTest(corruption=label):
+                # A separate, directly invoked case propagates nested subtests.
+                case = type(self)(
+                    "test_no_effect_surface_frozen_predecessors_and_package_supplement"
+                )
+                case.setUp()
+                try:
+                    with patch, self.assertRaises(exception):
+                        case.test_no_effect_surface_frozen_predecessors_and_package_supplement()
+                finally:
+                    case.tearDown()
+
     def test_no_effect_surface_frozen_predecessors_and_package_supplement(
         self,
     ) -> None:
@@ -754,6 +818,7 @@ class ResourceEffectTimeReplayOwnerTests(unittest.TestCase):
             ROOT / "config/required-checks.json"
         )
         ci_contract_report = CI_CONTRACT.audit(ROOT, ci_contract)
+        python_contract_report = PYTHON_CONTRACT.audit(ROOT)
 
         def apply_foundation_successor(relative: str, expected: str) -> str:
             if relative not in foundation_successor:
@@ -790,6 +855,20 @@ class ResourceEffectTimeReplayOwnerTests(unittest.TestCase):
                     current_binding = current_lineage[relative]
                     self.assertEqual(current_binding["before_sha256"], expected)
                     expected = current_binding["sha256"]
+                if relative == "scripts/audit_python_contract.py":
+                    # Preserve the authentic historical verifier identity while
+                    # separately checking today's CI declaration contract.
+                    historical = subprocess.check_output(
+                        ["git", "show", f"{GOODVIBES_AUDIT_COMMIT}:{relative}"],
+                        cwd=ROOT,
+                    )
+                    self.assertEqual(hashlib.sha256(historical).hexdigest(), expected)
+                    self.assertEqual(
+                        python_contract_report["status"], "pass",
+                        python_contract_report["errors"],
+                    )
+                    self.assertEqual(python_contract_report["errors"], [])
+                    continue
                 if relative == ".github/workflows/offline-tests.yml":
                     historical_binding = current_lineage[relative]
                     self.assertEqual(expected, historical_binding["sha256"])

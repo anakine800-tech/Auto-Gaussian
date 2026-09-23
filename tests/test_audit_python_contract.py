@@ -487,6 +487,7 @@ class PythonContractAuditTests(unittest.TestCase):
         original = workflow.read_text(encoding="utf-8")
         anchor = (
             "      - name: Import and report optional chemistry dependencies\n"
+            "        if: steps.documentation-scope.outputs.chemistry-required != 'false'\n"
             "        run: python -c \"import numpy, PIL, rdkit;"
         )
         self.assertIn(anchor, original)
@@ -530,9 +531,22 @@ class PythonContractAuditTests(unittest.TestCase):
         commands = AUDIT.CI_CONTRACT.parse_run_commands(
             self.path(".github/workflows/offline-tests.yml")
         )["chemistry-dependencies"]
-        self.assertEqual(len(commands), 8)
+        self.assertEqual(len(commands), 10)
         self.assertEqual(tuple(commands[-2:]), AUDIT.GOODVIBES_QUALIFICATION_COMMANDS)
         self.assertEqual(AUDIT.audit(self.root)["status"], "pass")
+
+    def test_documentation_scope_and_dependency_audit_commands_cannot_be_removed(self) -> None:
+        original = self.path(".github/workflows/offline-tests.yml").read_text(encoding="utf-8")
+        prefix, chemistry = original.split("  chemistry-dependencies:\n", 1)
+        for command in (
+            'python scripts/check_documentation.py --base "$VALIDATION_BASE" --head "$VALIDATION_HEAD" >> "$GITHUB_OUTPUT"',
+            "python scripts/audit_python_contract.py",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(chemistry.count(command), 1)
+                self._assert_chemistry_command_change_rejected(
+                    prefix + "  chemistry-dependencies:\n" + chemistry.replace(command, "true", 1)
+                )
 
     def test_goodvibes_missing_or_reordered_qualification_commands_fail(self) -> None:
         original = self.path(".github/workflows/offline-tests.yml").read_text(encoding="utf-8")
@@ -585,8 +599,8 @@ class PythonContractAuditTests(unittest.TestCase):
         workflow = self.path(".github/workflows/offline-tests.yml")
         original = workflow.read_text(encoding="utf-8")
         commands = AUDIT.CI_CONTRACT.parse_run_commands(workflow)["chemistry-dependencies"]
-        self.assertEqual(len(commands[:-2]), 6)
-        for command in commands[:-2]:
+        self.assertEqual(len(commands[2:-2]), 6)
+        for command in commands[2:-2]:
             with self.subTest(command=command):
                 payload = self._run_payload(command)
                 self.assertEqual(original.count(payload), 1)

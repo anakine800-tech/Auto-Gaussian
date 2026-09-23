@@ -12,6 +12,7 @@ import inspect
 import json
 import os
 import pickle
+import subprocess
 import sys
 import tempfile
 import threading
@@ -44,6 +45,7 @@ from tests import test_protected_local_materialization as SUPPORT  # noqa: E402
 from tests import test_protected_submit_contract as PR4D_SUPPORT  # noqa: E402
 import protected_legacy_effect_handoff as HANDOFF  # noqa: E402
 import audit_ci_contract as CI_CONTRACT  # noqa: E402
+import audit_python_contract as PYTHON_CONTRACT  # noqa: E402
 
 
 FIXTURE_PATH = (
@@ -95,6 +97,11 @@ LINEAGE_VERIFIER_TERMINAL_PATH = (
     ROOT
     / "tests/fixtures/rtwin_pbs/"
     "v2_7_lineage_verifier_terminal.json"
+)
+GOODVIBES_AUDIT_COMMIT = "38dabf52f7735d3904b66740d045d1a5b543dc1b"
+GOODVIBES_AUDIT_PATHS = (
+    "scripts/audit_python_contract.py",
+    "tests/test_audit_python_contract.py",
 )
 
 
@@ -593,10 +600,7 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
         current = json.loads(current_path.read_text(encoding="utf-8"))
         historical = json.loads(historical_path.read_text(encoding="utf-8"))
         original_read_text = Path.read_text
-        audit_paths = (
-            "scripts/audit_python_contract.py",
-            "tests/test_audit_python_contract.py",
-        )
+        audit_paths = GOODVIBES_AUDIT_PATHS
 
         def replay(current_document, historical_document):
             def read_text(path, *args, **kwargs):
@@ -655,6 +659,36 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
             with self.subTest(corruption=label):
                 with self.assertRaises(AssertionError):
                     replay(changed, changed_history)
+
+        # Historical objects remain authentic, while today's audit still has
+        # to reject current declaration drift. Neither side replaces the other.
+        with mock.patch.object(PYTHON_CONTRACT, "audit", return_value={
+            "status": "fail", "errors": ["current contract drift"],
+        }):
+            with self.assertRaises(AssertionError):
+                replay(current, historical)
+        original_check_output = subprocess.check_output
+        for relative in audit_paths:
+            command = ["git", "show", f"{GOODVIBES_AUDIT_COMMIT}:{relative}"]
+
+            def changed_blob(args, *positional, **keywords):
+                if args == command:
+                    return b"corrupted immutable audit blob"
+                return original_check_output(args, *positional, **keywords)
+
+            with self.subTest(immutable_blob=relative):
+                with mock.patch.object(subprocess, "check_output", changed_blob):
+                    with self.assertRaises(AssertionError):
+                        replay(current, historical)
+            with self.subTest(missing_immutable_blob=relative):
+                def missing_blob(args, *positional, **keywords):
+                    if args == command:
+                        raise subprocess.CalledProcessError(128, command)
+                    return original_check_output(args, *positional, **keywords)
+
+                with mock.patch.object(subprocess, "check_output", missing_blob):
+                    with self.assertRaises(subprocess.CalledProcessError):
+                        replay(current, historical)
 
     def test_fixture_binds_base_and_additive_candidate_files(self) -> None:
         integration_lineage = QST3_LINEAGE.load(ROOT)
@@ -727,6 +761,17 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
             ROOT / "config/required-checks.json"
         )
         ci_contract_report = CI_CONTRACT.audit(ROOT, ci_contract)
+        python_contract_report = PYTHON_CONTRACT.audit(ROOT)
+        # These two CI verifier files may evolve; their historical lineage is
+        # bound to the original immutable qualification commit, not rewritten
+        # to today's bytes. Current behavior is separately audited below.
+        historical_python_audits = {
+            relative: hashlib.sha256(subprocess.check_output(
+                ["git", "show", f"{GOODVIBES_AUDIT_COMMIT}:{relative}"],
+                cwd=ROOT,
+            )).hexdigest()
+            for relative in GOODVIBES_AUDIT_PATHS
+        }
         legacy_effect_owner_test_lineage_document = json.loads(
             LEGACY_EFFECT_OWNER_TEST_LINEAGE_SUCCESSOR_PATH.read_text(
                 encoding="utf-8"
@@ -780,6 +825,15 @@ class ProtectedLegacyEffectHandoffTests(unittest.TestCase):
             relative: str,
             expected_sha256: str,
         ) -> None:
+            if relative in historical_python_audits:
+                self.assertEqual(expected_sha256, historical_python_audits[relative])
+                self.assertEqual(
+                    python_contract_report["status"],
+                    "pass",
+                    python_contract_report["errors"],
+                )
+                self.assertEqual(python_contract_report["errors"], [])
+                return
             if relative == ".github/workflows/offline-tests.yml":
                 historical_binding = current_lineage[relative]
                 self.assertEqual(expected_sha256, historical_binding["sha256"])

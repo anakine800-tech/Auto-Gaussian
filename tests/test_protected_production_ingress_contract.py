@@ -46,8 +46,10 @@ import protected_owner_consumer_contract as CONSUMER  # noqa: E402
 import protected_production_ingress_contract as INGRESS  # noqa: E402
 import skill_package as SKILL_PACKAGE  # noqa: E402
 import audit_ci_contract as CI_CONTRACT  # noqa: E402
+import audit_python_contract as PYTHON_CONTRACT  # noqa: E402
 
 
+GOODVIBES_AUDIT_COMMIT = "38dabf52f7735d3904b66740d045d1a5b543dc1b"
 PUBLIC_INTEGER_FIELDS = (
     "binding_order",
     "upload_timeout_seconds",
@@ -753,6 +755,67 @@ class ProtectedProductionIngressContractTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             INGRESS.ProtectedLegacyEffectPlanFactoryPort()
 
+    def test_historical_python_audit_binding_rejects_corruption(self) -> None:
+        historical_command = [
+            "git", "show",
+            f"{GOODVIBES_AUDIT_COMMIT}:scripts/audit_python_contract.py",
+        ]
+        original_check_output = subprocess.check_output
+        original_read_text = Path.read_text
+        lineage_path = ROOT / (
+            "tests/fixtures/rtwin_pbs/"
+            "v2_7_production_closure_lineage_successor.json"
+        )
+        changed = json.loads(lineage_path.read_text(encoding="utf-8"))
+        changed["files"]["scripts/audit_python_contract.py"]["sha256"] = "0" * 64
+
+        def changed_lineage(path, *args, **kwargs):
+            if path == lineage_path:
+                return json.dumps(changed)
+            return original_read_text(path, *args, **kwargs)
+
+        def changed_blob(command, *args, **kwargs):
+            if command == historical_command:
+                return b"corrupted immutable audit blob"
+            return original_check_output(command, *args, **kwargs)
+
+        def missing_blob(command, *args, **kwargs):
+            if command == historical_command:
+                raise subprocess.CalledProcessError(128, command)
+            return original_check_output(command, *args, **kwargs)
+
+        cases = [
+            ("failed_current_audit", mock.patch.object(
+                PYTHON_CONTRACT, "audit",
+                return_value={"status": "fail", "errors": ["current drift"]},
+            ), AssertionError),
+            ("current_audit_errors", mock.patch.object(
+                PYTHON_CONTRACT, "audit",
+                return_value={"status": "pass", "errors": ["current drift"]},
+            ), AssertionError),
+            ("historical_sha", mock.patch.object(
+                Path, "read_text", changed_lineage,
+            ), AssertionError),
+            ("corrupted_blob", mock.patch.object(
+                subprocess, "check_output", changed_blob,
+            ), AssertionError),
+            ("missing_blob", mock.patch.object(
+                subprocess, "check_output", missing_blob,
+            ), subprocess.CalledProcessError),
+        ]
+        for label, patch, exception in cases:
+            with self.subTest(corruption=label):
+                # A separate, directly invoked case propagates nested subtests.
+                case = type(self)(
+                    "test_frozen_predecessors_named_package_and_git_free_relocation"
+                )
+                case.setUp()
+                try:
+                    with patch, self.assertRaises(exception):
+                        case.test_frozen_predecessors_named_package_and_git_free_relocation()
+                finally:
+                    case.tearDown()
+
     def test_frozen_predecessors_named_package_and_git_free_relocation(
         self,
     ) -> None:
@@ -808,6 +871,7 @@ class ProtectedProductionIngressContractTests(unittest.TestCase):
             ROOT / "config/required-checks.json"
         )
         ci_contract_report = CI_CONTRACT.audit(ROOT, ci_contract)
+        python_contract_report = PYTHON_CONTRACT.audit(ROOT)
         lineage_verifier_terminal = json.loads(
             (
                 ROOT
@@ -854,6 +918,20 @@ class ProtectedProductionIngressContractTests(unittest.TestCase):
             return historical_transition["terminal_content_sha256"]
 
         def assert_current_or_terminal(relative: str, expected: str) -> None:
+            if relative == "scripts/audit_python_contract.py":
+                # This verifier can evolve without rewriting historical JSON;
+                # the original Git object and current declarations both matter.
+                historical = subprocess.check_output(
+                    ["git", "show", f"{GOODVIBES_AUDIT_COMMIT}:{relative}"],
+                    cwd=ROOT,
+                )
+                self.assertEqual(hashlib.sha256(historical).hexdigest(), expected)
+                self.assertEqual(
+                    python_contract_report["status"], "pass",
+                    python_contract_report["errors"],
+                )
+                self.assertEqual(python_contract_report["errors"], [])
+                return
             if relative == ".github/workflows/offline-tests.yml":
                 historical_binding = current_lineage[relative]
                 self.assertEqual(expected, historical_binding["sha256"], relative)

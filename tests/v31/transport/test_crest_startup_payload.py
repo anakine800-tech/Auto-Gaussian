@@ -91,7 +91,9 @@ class StartupNativeTests(lane.LaneAFixture):
         self.assertEqual(len(self.driver.calls),calls)
 
     def test_native_production_wire_restore_and_seed_handoff(self):
-        previous.CrestCompletionTests.test_native_crest_snapshot_restore_collect_and_zero_wire_replay(self)
+        previous.CrestCompletionTests._native_crest_snapshot_restore_collect_and_zero_wire_replay(
+            self, recover=False
+        )
 
     def test_missing_reordered_changed_payload_reject_before_effect(self):
         original=self.snapshot.scheduler_artifacts
