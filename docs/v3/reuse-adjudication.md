@@ -1,7 +1,8 @@
 # Auto-G16 v3 Reuse Adjudication
 
 This table records the Phase 0 disposition. It is not a copy of the underlying
-v2 design reports.
+v2 design reports or a current runtime dependency graph. Current code and focused
+test locations are maintained in [context-map.toml](../../config/context-map.toml).
 
 | Capability | Existing implementation | v3 layer | Science disposition | Behavior disposition | Governance disposition | Data compatibility | Runtime compatibility | Reuse target | Must not carry into v3 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -13,6 +14,60 @@ v2 design reports.
 | CI and validation tooling | v2 test runners, static audits, and workflows | Developer Control Plane | **DEFER** science matrices to owning workflows | **EXTRACT** useful tooling; **REWRITE** change selection | **DROP** duplicated full-run topology | **PORT** sanitized fixtures when still meaningful | **DROP** v2 CI topology as a contract | **EXTRACT** focused runners and static checks | Unchanged v2 full-validation topology |
 | Minimal Workflow DAG | reaction-workflow calculation DAG plus public Core records | Workflow | **DEFER** chemistry-specific stages and policy | **EXTRACT** finite-DAG invariants; **REWRITE** typed graph/projection | **DROP** file-carried execution/readiness authority | **WRAP** reviewed scientific plans through explicit mapping | **PORT** only public Core records/APIs | **PORT** Core identities; **EXTRACT** graph tests; **WRAP** legacy plans | Chemistry stage matrix, embedded execution state, executable flags, callbacks, and hash authority |
 | Generic compatibility capsule framework | No required v3 capability | None | **DROP** | **DROP** | **DROP** | **DEFER** only concrete migrations | **DROP** | **DROP** | Any generic capsule framework |
+
+The following distinctions describe the retained relationships; they do not add
+schema fields or supersede the Phase 0 dispositions:
+
+- **CURRENT_IMPLEMENTATION:** `auto_g16/**` owns the implemented v3 product
+  surfaces. In particular, `auto_g16/conformer/` contains SamplingProfile and
+  ConformerEnsemble records, CREST ingest, audit/clustering, post-DFT refinement
+  and final integration. `auto_g16/thermochemistry/` contains Gaussian facts,
+  the GoodVibes functional-kernel adapter, normalization/aggregation and
+  ThermodynamicEnsemble. Their presence does not close policy rebenchmarking,
+  native adapter qualification or scientific acceptance.
+- **RUNTIME_DEPENDENCY:** an actual import/load relationship in its named
+  consumer, not merely a reuse reference. For example, thermochemistry consumes
+  conformer refinement provenance and loads the pinned GoodVibes kernels;
+  `scripts/python_environment.py` loads the root `scripts/runtime_config.py`,
+  not the Skill file with the same name. The legacy
+  `skills/auto-g16-rtwin-pbs/scripts/gaussian_rtwin_pbs.py` wrapper dynamically
+  compiles/executes `legacy_rtwin_pbs.py` in its compatibility namespace.
+- **VALIDATION_DEPENDENCY:** the existing
+  [validation selection](../../config/validation-selection.json) retains legacy
+  safety tests alongside modern coverage. Its `v31-conformer` route includes
+  `tests.test_conformer_search`; `v31-thermochemistry` includes conformer tests
+  and `tests.test_scientific_closure_lineage`. Execution/Transport routes retain
+  authorization, descriptor/root, qstat and resource-monitor safety tests.
+  These tests do not make the legacy implementation a v3 runtime dependency.
+  Changes to this page or `context-map.toml` select the bounded `v3-full`
+  inventory, not legacy complete-full discovery.
+- **PACKAGING_DEPENDENCY:** named-Skill `deployment-package.json` manifests
+  and `config/deployment-package-supplements/` include root scripts and resources
+  through `scripts/skill_package.py` and `scripts/sync_named_skill.py`. For
+  example, the RTwin/PBS `direct-ssh-pbs-offline.json` supplement includes
+  `scripts/direct_ssh_pbs_offline.py` and its reference document. Package
+  membership is separate from the v3 import graph and from deployment authority.
+- **REUSE_SOURCE:** legacy Skill primitives, Direct/protected safety lessons
+  and adjacent tests inform reviewed extraction or rewrite. Listing them beside
+  modern paths in the context map does not assert an import. The static Python
+  import audit found no direct `auto_g16` import of legacy Skill, `direct_*` or
+  `protected_*` modules; it does not exclude dynamic loading or packaging use.
+- **LEGACY_PRODUCT / MAINTENANCE_ONLY:** `legacy_rtwin_pbs.py` remains a retained
+  product behind its compatibility entrypoint, with bug/security maintenance.
+  It is not a destination for new v3 capabilities or architectural beautification.
+  This disposition means neither deprecated nor safe to delete.
+- **HISTORICAL_ONLY:** dated launch/status snapshots and superseded design
+  evidence preserve provenance; they do not grant current execution authority.
+  This label cannot be applied to executable legacy code just because an import
+  search finds no callers. Deletion needs a separate dependency and product decision.
+
+A semantic refactor preserves behavior; a qualification-affecting refactor also
+changes identities checked by the publisher/collector. Existing checks in
+`scripts/run_v31_publisher_pilot.py` and `auto_g16/transport/_program_rtwin.py`
+bind module paths, source inventories/hashes and loaded-module identities.
+Moving a helper can therefore preserve semantics while invalidating prior
+qualification identity. Existing qualification contracts determine the required
+new evidence; this map changes no hash/approval model or live-ready status.
 
 ## V30-WF-CONTRACT-01 Narrow Reuse Adjudication
 
