@@ -72,6 +72,17 @@ _REVIEWED_TEST_CONTAINMENT = {
     "tests.v3.execution.test_v31_lane_a.ProgramSpecTests": "tests.v3.execution.test_v31_lane_a",
     "tests.v3.transport.test_driver": "tests.v3.transport",
     "tests.v3.transport.test_driver.ManifestAndCommandTests": "tests.v3.transport.test_driver",
+    "tests.v31.transport.test_crest_completion": "tests.v31.transport",
+    "tests.v31.transport.test_crest_loader": "tests.v31.transport",
+    "tests.v31.transport.test_crest_startup_payload": "tests.v31.transport",
+    "tests.v31.transport.test_exact_job_recovery": "tests.v31.transport",
+    "tests.v31.transport.test_program_completion": "tests.v31.transport",
+    "tests.v31.transport.test_program_composition": "tests.v31.transport",
+    "tests.v31.transport.test_publisher_collection_recovery": "tests.v31.transport",
+    "tests.v31.transport.test_publisher_pilot_orchestration": "tests.v31.transport",
+    "tests.v31.transport.test_readonly_source_open": "tests.v31.transport",
+    "tests.v31.transport.test_receipt_source": "tests.v31.transport",
+    "tests.v31.transport.test_rtwin_successor_bridge.ProductionBridgeTests": "tests.v31.transport",
 }
 
 
