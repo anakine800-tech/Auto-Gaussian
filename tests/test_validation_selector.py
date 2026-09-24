@@ -160,6 +160,29 @@ V31_TRANSPORT_TESTS = [
     "tests.v3.execution.test_v31_lane_a",
     "tests.v31.transport",
 ]
+# Exact source ownership; ordinary Execution keeps its original evidence set.
+V31_EXECUTION_OWNERS = (
+    ("v31-program-execution", ("program.py", "program_runtime.py"), (
+        "test_program_composition", "test_program_completion",
+        "test_publisher_collection_recovery", "test_exact_job_recovery",
+        "test_crest_completion", "test_crest_startup_payload",
+        "test_publisher_pilot_orchestration", "test_receipt_source",
+        "test_rtwin_successor_bridge.ProductionBridgeTests",
+    )),
+    ("v31-program-completion", ("_program_completion.py", "_program_completion_wrapper.py"), (
+        "test_program_completion", "test_publisher_pilot_orchestration",
+        "test_crest_completion", "test_crest_startup_payload",
+    )),
+    ("v31-submission-recovery", ("_submission_recovery.py",), ("test_exact_job_recovery",)),
+    ("v31-crest-completion", ("_crest_completion.py",), (
+        "test_crest_completion", "test_crest_startup_payload",
+    )),
+    ("v31-crest-startup", ("_crest_startup.py",), ("test_crest_startup_payload",)),
+    ("v31-crest-loader", ("_crest_loader.py",), ("test_crest_loader",)),
+    ("v31-receipt-source", ("_receipt_source.py",), (
+        "test_receipt_source", "test_readonly_source_open", "test_crest_completion",
+    )),
+)
 CI_OFFLINE_WORKFLOW_TESTS = [
     "tests.test_audit_ci_contract",
     "tests.test_audit_python_contract",
@@ -483,7 +506,7 @@ class ValidationSelectorTests(unittest.TestCase):
             ("README.md", "focused readme\n", "focused", False),
             ("auto_g16/core/store.py", "affected store\n", "affected", False),
             ("auto_g16/approval/service.py", "approval owner\n", "affected", False),
-            ("auto_g16/execution/service.py", "execution owner\n", "affected", False),
+            ("auto_g16/execution/runtime.py", "execution owner\n", "affected", False),
             ("auto_g16/transport/rtwin.py", "transport owner\n", "affected", False),
             ("auto_g16/result/parser.py", "result owner\n", "affected", False),
             (
@@ -822,7 +845,7 @@ class ValidationSelectorTests(unittest.TestCase):
             ),
             (
                 "execution",
-                change("M", "auto_g16/execution/service.py"),
+                change("M", "auto_g16/execution/runtime.py"),
                 ["v30-execution", "v30-transport"],
                 TRANSPORT_TESTS,
             ),
@@ -896,7 +919,7 @@ class ValidationSelectorTests(unittest.TestCase):
         cases = (
             (
                 "execution product",
-                "auto_g16/execution/service.py",
+                "auto_g16/execution/runtime.py",
                 "v30-execution",
                 EXEC_TESTS,
                 EXEC_SAFETY,
@@ -931,6 +954,95 @@ class ValidationSelectorTests(unittest.TestCase):
                 self.assertEqual(result["tests"], tests)
                 self.assertEqual(result["safety_evidence"], safety)
                 self.assertFalse(result["fail_closed"])
+
+    def test_v31_execution_sources_add_only_their_behavior_modules(self) -> None:
+        for route, sources, modules in V31_EXECUTION_OWNERS:
+            expected = sorted({*EXEC_TESTS, *(f"tests.v31.transport.{m}" for m in modules)})
+            for source in sources:
+                with self.subTest(source=source):
+                    result = self.select(change("M", f"auto_g16/execution/{source}"))
+                    self.assertEqual(result["matched_routes"], [route])
+                    self.assertEqual(result["tests"], expected)
+                    self.assertNotIn("tests.v31.transport", result["tests"])
+                    self.assertEqual(result["lane"], "affected")
+                    self.assertEqual(result["safety_evidence"], EXEC_SAFETY)
+                    self.assertFalse(result["fail_closed"])
+
+        loader = unittest.TestLoader()
+        selected = self.select(change("M", "auto_g16/execution/program_runtime.py"))["tests"]
+        identifiers = suite_ids(loader.loadTestsFromNames(selected))
+        self.assertFalse(loader.errors)
+        self.assertEqual(len(identifiers), len(set(identifiers)))
+        for identifier in (
+            "tests.v31.transport.test_receipt_source.ReceiptSourceTests.test_original_success_without_any_live_installation",
+            "tests.v31.transport.test_rtwin_successor_bridge.ProductionBridgeTests.test_raw_scheduler_bytes_are_durable_before_parser_and_after_reopen",
+        ):
+            self.assertIn(identifier, identifiers)
+        self.assertFalse(any(".SchedulerTextParserTests." in name for name in identifiers))
+
+    def test_v31_execution_routing_preserves_unrelated_path_selection(self) -> None:
+        for name in (
+            "__init__.py", "_crest_seed_handoff.py", "_identity.py", "_paths.py",
+            "_rtwin_minimal.py", "models.py", "preparation.py", "project_provisioning.py",
+            "runtime.py", "synthetic_rtwin.py", "xtb_crest_handoff.py",
+        ):
+            with self.subTest(source=name):
+                result = self.select(change("M", f"auto_g16/execution/{name}"))
+                self.assertEqual(result["matched_routes"], ["v30-execution"])
+                self.assertEqual(result["tests"], EXEC_TESTS)
+                self.assertEqual(result["lane"], "affected")
+                self.assertEqual(result["safety_evidence"], EXEC_SAFETY)
+                self.assertFalse(result["fail_closed"])
+        for path, route, tests in (
+            ("tests/v3/execution/test_v31_lane_a.py", "v30-execution", EXEC_TESTS),
+            ("tests/v31/integration/test_v31_offline_end_to_end.py", "v31-offline-e2e", V31_OFFLINE_E2E_TESTS),
+            ("auto_g16/transport/program.py", "v30-transport", TRANSPORT_TESTS),
+            ("auto_g16/approval/service.py", "v30-approval", APPROVAL_TESTS),
+            ("auto_g16/result/service.py", "v30-result", RESULT_TESTS),
+            ("auto_g16/conformer/service.py", "v31-conformer", CONFORMER_TESTS),
+            ("auto_g16/thermochemistry/service.py", "v31-thermochemistry", THERMOCHEMISTRY_TESTS),
+        ):
+            with self.subTest(path=path):
+                result = self.select(change("M", path))
+                self.assertEqual(result["matched_routes"], [route])
+                self.assertEqual(result["tests"], tests)
+                self.assertEqual(result["lane"], "affected")
+                self.assertFalse(result["fail_closed"])
+
+    def test_new_execution_sources_require_registration_and_keep_self_protection(self) -> None:
+        source = change("M", "auto_g16/execution/program_runtime.py")
+        for path in ("auto_g16/execution/future.py", "auto_g16/execution/program_runtime_extra.py"):
+            with self.subTest(path=path), self.assertRaisesRegex(SELECTOR.SelectionError, "UNMAPPED_MODERN_PATH"):
+                self.select(source, change("A", path))
+        for path in self.manifest["self_protecting_paths"]:
+            with self.subTest(path=path):
+                result = self.select(source, change("M", path))
+                self.assertEqual(result["lane"], "legacy-release")
+                self.assertTrue(result["fail_closed"])
+                self.assertEqual(result["tests"], [])
+
+    def test_v31_execution_mixed_routes_preserve_exact_unique_test_union(self) -> None:
+        source = change("M", "auto_g16/execution/program_runtime.py")
+        loader = unittest.TestLoader()
+        for path in (
+            "auto_g16/transport/program.py",
+            "tests/v31/integration/test_v31_offline_end_to_end.py",
+            "tests/v31/transport/test_publisher_collection_recovery.py",
+        ):
+            with self.subTest(path=path):
+                other = change("M", path)
+                forward, reverse = self.select(source, other), self.select(other, source)
+                for field in ("lane", "tests", "matched_routes", "safety_evidence", "fail_closed"):
+                    self.assertEqual(forward[field], reverse[field])
+                expected_ids = set(suite_ids(loader.loadTestsFromNames(self.select(source)["tests"])))
+                expected_ids.update(suite_ids(loader.loadTestsFromNames(self.select(other)["tests"])))
+                actual_ids = suite_ids(loader.loadTestsFromNames(forward["tests"]))
+                self.assertFalse(loader.errors)
+                self.assertEqual(set(actual_ids), expected_ids)
+                self.assertEqual(len(actual_ids), len(set(actual_ids)))
+                self.assertEqual(forward["lane"], "affected")
+                self.assertEqual(forward["safety_evidence"], EXEC_SAFETY)
+                self.assertFalse(forward["fail_closed"])
 
     def test_scientific_validation_route_owns_future_product_and_test_prefixes(self) -> None:
         product = change("A", "auto_g16/scientific_validation/service.py")
@@ -1071,7 +1183,7 @@ class ValidationSelectorTests(unittest.TestCase):
 
     def test_approval_and_execution_union_is_deterministic(self) -> None:
         approval = change("M", "auto_g16/approval/service.py")
-        execution = change("M", "auto_g16/execution/service.py")
+        execution = change("M", "auto_g16/execution/runtime.py")
         forward = self.select(approval, execution)
         reverse = self.select(execution, approval)
         for field in ("lane", "tests", "matched_routes", "safety_evidence", "fail_closed"):
@@ -1246,7 +1358,7 @@ class ValidationSelectorTests(unittest.TestCase):
 
     def test_observe_and_execution_union_is_deterministic_and_closed(self) -> None:
         observe = change("M", "auto_g16/observe/service.py")
-        execution = change("M", "auto_g16/execution/service.py")
+        execution = change("M", "auto_g16/execution/runtime.py")
         forward = self.select(observe, execution)
         reverse = self.select(execution, observe)
         for field in ("lane", "tests", "matched_routes", "safety_evidence", "fail_closed"):
@@ -1357,7 +1469,7 @@ class ValidationSelectorTests(unittest.TestCase):
             ),
             (
                 "execution",
-                change("M", "auto_g16/execution/service.py"),
+                change("M", "auto_g16/execution/runtime.py"),
                 ["v30-execution", "v30-review"],
                 sorted({*EXEC_TESTS, *REVIEW_TESTS}),
                 EXEC_SAFETY,
@@ -1777,7 +1889,7 @@ class ValidationSelectorTests(unittest.TestCase):
         self.assertFalse(forward["fail_closed"])
 
     def test_mixed_execution_and_result_change_uses_deterministic_union(self) -> None:
-        execution = change("M", "auto_g16/execution/service.py")
+        execution = change("M", "auto_g16/execution/runtime.py")
         result = change("M", "auto_g16/result/parser.py")
         forward = self.select(execution, result)
         reverse = self.select(result, execution)

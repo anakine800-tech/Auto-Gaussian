@@ -283,9 +283,20 @@
     },
     {
       "id": "v30-execution",
-      "exact_paths": [],
+      "exact_paths": [
+        "auto_g16/execution/__init__.py",
+        "auto_g16/execution/_crest_seed_handoff.py",
+        "auto_g16/execution/_identity.py",
+        "auto_g16/execution/_paths.py",
+        "auto_g16/execution/_rtwin_minimal.py",
+        "auto_g16/execution/models.py",
+        "auto_g16/execution/preparation.py",
+        "auto_g16/execution/project_provisioning.py",
+        "auto_g16/execution/runtime.py",
+        "auto_g16/execution/synthetic_rtwin.py",
+        "auto_g16/execution/xtb_crest_handoff.py"
+      ],
       "prefixes": [
-        "auto_g16/execution/",
         "tests/v3/execution/"
       ],
       "lane": "affected",
@@ -299,6 +310,232 @@
         "tests.test_legacy_root_authority_contract",
         "tests.test_direct_qstat_acquisition",
         "tests.test_resource_monitor_efficiency"
+      ],
+      "required_safety": [
+        "approval-owner-separation",
+        "at-most-one-submission",
+        "no-overwrite",
+        "reconciliation",
+        "still-applicable-descriptor-capability",
+        "timeout-slow-running-is-not-failure",
+        "unknown-no-automatic-retry"
+      ],
+      "fail_closed": false
+    },
+    {
+      "id": "v31-program-execution",
+      "exact_paths": [
+        "auto_g16/execution/program.py",
+        "auto_g16/execution/program_runtime.py"
+      ],
+      "prefixes": [],
+      "lane": "affected",
+      "tests": [
+        "tests.v3.execution",
+        "tests.v3.core.test_store",
+        "tests.test_execution_authorization",
+        "tests.test_live_approval_effect_time_replay",
+        "tests.test_direct_one_hop_transport",
+        "tests.test_legacy_descriptor_mutation_capability",
+        "tests.test_legacy_root_authority_contract",
+        "tests.test_direct_qstat_acquisition",
+        "tests.test_resource_monitor_efficiency",
+        "tests.v31.transport.test_program_composition",
+        "tests.v31.transport.test_program_completion",
+        "tests.v31.transport.test_publisher_collection_recovery",
+        "tests.v31.transport.test_exact_job_recovery",
+        "tests.v31.transport.test_crest_completion",
+        "tests.v31.transport.test_crest_startup_payload",
+        "tests.v31.transport.test_publisher_pilot_orchestration",
+        "tests.v31.transport.test_receipt_source",
+        "tests.v31.transport.test_rtwin_successor_bridge.ProductionBridgeTests"
+      ],
+      "required_safety": [
+        "approval-owner-separation",
+        "at-most-one-submission",
+        "no-overwrite",
+        "reconciliation",
+        "still-applicable-descriptor-capability",
+        "timeout-slow-running-is-not-failure",
+        "unknown-no-automatic-retry"
+      ],
+      "fail_closed": false
+    },
+    {
+      "id": "v31-program-completion",
+      "exact_paths": [
+        "auto_g16/execution/_program_completion.py",
+        "auto_g16/execution/_program_completion_wrapper.py"
+      ],
+      "prefixes": [],
+      "lane": "affected",
+      "tests": [
+        "tests.v3.execution",
+        "tests.v3.core.test_store",
+        "tests.test_execution_authorization",
+        "tests.test_live_approval_effect_time_replay",
+        "tests.test_direct_one_hop_transport",
+        "tests.test_legacy_descriptor_mutation_capability",
+        "tests.test_legacy_root_authority_contract",
+        "tests.test_direct_qstat_acquisition",
+        "tests.test_resource_monitor_efficiency",
+        "tests.v31.transport.test_program_completion",
+        "tests.v31.transport.test_publisher_pilot_orchestration",
+        "tests.v31.transport.test_crest_completion",
+        "tests.v31.transport.test_crest_startup_payload"
+      ],
+      "required_safety": [
+        "approval-owner-separation",
+        "at-most-one-submission",
+        "no-overwrite",
+        "reconciliation",
+        "still-applicable-descriptor-capability",
+        "timeout-slow-running-is-not-failure",
+        "unknown-no-automatic-retry"
+      ],
+      "fail_closed": false
+    },
+    {
+      "id": "v31-submission-recovery",
+      "exact_paths": [
+        "auto_g16/execution/_submission_recovery.py"
+      ],
+      "prefixes": [],
+      "lane": "affected",
+      "tests": [
+        "tests.v3.execution",
+        "tests.v3.core.test_store",
+        "tests.test_execution_authorization",
+        "tests.test_live_approval_effect_time_replay",
+        "tests.test_direct_one_hop_transport",
+        "tests.test_legacy_descriptor_mutation_capability",
+        "tests.test_legacy_root_authority_contract",
+        "tests.test_direct_qstat_acquisition",
+        "tests.test_resource_monitor_efficiency",
+        "tests.v31.transport.test_exact_job_recovery"
+      ],
+      "required_safety": [
+        "approval-owner-separation",
+        "at-most-one-submission",
+        "no-overwrite",
+        "reconciliation",
+        "still-applicable-descriptor-capability",
+        "timeout-slow-running-is-not-failure",
+        "unknown-no-automatic-retry"
+      ],
+      "fail_closed": false
+    },
+    {
+      "id": "v31-crest-completion",
+      "exact_paths": [
+        "auto_g16/execution/_crest_completion.py"
+      ],
+      "prefixes": [],
+      "lane": "affected",
+      "tests": [
+        "tests.v3.execution",
+        "tests.v3.core.test_store",
+        "tests.test_execution_authorization",
+        "tests.test_live_approval_effect_time_replay",
+        "tests.test_direct_one_hop_transport",
+        "tests.test_legacy_descriptor_mutation_capability",
+        "tests.test_legacy_root_authority_contract",
+        "tests.test_direct_qstat_acquisition",
+        "tests.test_resource_monitor_efficiency",
+        "tests.v31.transport.test_crest_completion",
+        "tests.v31.transport.test_crest_startup_payload"
+      ],
+      "required_safety": [
+        "approval-owner-separation",
+        "at-most-one-submission",
+        "no-overwrite",
+        "reconciliation",
+        "still-applicable-descriptor-capability",
+        "timeout-slow-running-is-not-failure",
+        "unknown-no-automatic-retry"
+      ],
+      "fail_closed": false
+    },
+    {
+      "id": "v31-crest-startup",
+      "exact_paths": [
+        "auto_g16/execution/_crest_startup.py"
+      ],
+      "prefixes": [],
+      "lane": "affected",
+      "tests": [
+        "tests.v3.execution",
+        "tests.v3.core.test_store",
+        "tests.test_execution_authorization",
+        "tests.test_live_approval_effect_time_replay",
+        "tests.test_direct_one_hop_transport",
+        "tests.test_legacy_descriptor_mutation_capability",
+        "tests.test_legacy_root_authority_contract",
+        "tests.test_direct_qstat_acquisition",
+        "tests.test_resource_monitor_efficiency",
+        "tests.v31.transport.test_crest_startup_payload"
+      ],
+      "required_safety": [
+        "approval-owner-separation",
+        "at-most-one-submission",
+        "no-overwrite",
+        "reconciliation",
+        "still-applicable-descriptor-capability",
+        "timeout-slow-running-is-not-failure",
+        "unknown-no-automatic-retry"
+      ],
+      "fail_closed": false
+    },
+    {
+      "id": "v31-crest-loader",
+      "exact_paths": [
+        "auto_g16/execution/_crest_loader.py"
+      ],
+      "prefixes": [],
+      "lane": "affected",
+      "tests": [
+        "tests.v3.execution",
+        "tests.v3.core.test_store",
+        "tests.test_execution_authorization",
+        "tests.test_live_approval_effect_time_replay",
+        "tests.test_direct_one_hop_transport",
+        "tests.test_legacy_descriptor_mutation_capability",
+        "tests.test_legacy_root_authority_contract",
+        "tests.test_direct_qstat_acquisition",
+        "tests.test_resource_monitor_efficiency",
+        "tests.v31.transport.test_crest_loader"
+      ],
+      "required_safety": [
+        "approval-owner-separation",
+        "at-most-one-submission",
+        "no-overwrite",
+        "reconciliation",
+        "still-applicable-descriptor-capability",
+        "timeout-slow-running-is-not-failure",
+        "unknown-no-automatic-retry"
+      ],
+      "fail_closed": false
+    },
+    {
+      "id": "v31-receipt-source",
+      "exact_paths": [
+        "auto_g16/execution/_receipt_source.py"
+      ],
+      "prefixes": [],
+      "lane": "affected",
+      "tests": [
+        "tests.v3.execution",
+        "tests.v3.core.test_store",
+        "tests.test_execution_authorization",
+        "tests.test_live_approval_effect_time_replay",
+        "tests.test_direct_one_hop_transport",
+        "tests.test_legacy_descriptor_mutation_capability",
+        "tests.test_legacy_root_authority_contract",
+        "tests.test_direct_qstat_acquisition",
+        "tests.test_resource_monitor_efficiency",
+        "tests.v31.transport.test_receipt_source",
+        "tests.v31.transport.test_readonly_source_open",
+        "tests.v31.transport.test_crest_completion"
       ],
       "required_safety": [
         "approval-owner-separation",
