@@ -327,6 +327,21 @@ def _child(mode, path, *, scratch=None):
 
 
 class CollectionRecoveryTests(_RecoveryFixture):
+    def test_artifact_module_requires_inventory_and_actual_loaded_path(self):
+        from auto_g16.execution import _program_artifacts
+        artifact_path = str(Path(_program_artifacts.__file__).resolve())
+        rtwin._collection_source_files(self.installation, self.document)
+        files = tuple(binding for binding in self.installation.code_files if binding.path != artifact_path)
+        self.assertEqual(len(files), len(self.installation.code_files) - 1)
+        document = copy.deepcopy(self.document)
+        document["collector_source"]["files"] = [item for item in document["collector_source"]["files"]
+            if item["path"] != "auto_g16/execution/_program_artifacts.py"]
+        with self.assertRaisesRegex(TransportBoundaryError, "collection owner code is not pinned"):
+            rtwin._collection_source_files(replace(self.installation, code_files=files), document)
+        with patch.object(_program_artifacts, "__file__", str(self.root / "unreviewed.py")):
+            with self.assertRaisesRegex(TransportBoundaryError, "unreviewed collection import"):
+                rtwin._collection_source_files(self.installation, self.document)
+
     def _leave_present_stat_without_fetch(self):
         target = self.spec.required_outputs[0]["portable_name"]
         original = runtime._completion_file_effect

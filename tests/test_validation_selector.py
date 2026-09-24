@@ -162,7 +162,7 @@ V31_TRANSPORT_TESTS = [
 ]
 # Exact source ownership; ordinary Execution keeps its original evidence set.
 V31_EXECUTION_OWNERS = (
-    ("v31-program-execution", ("program.py", "program_runtime.py"), (
+    ("v31-program-execution", ("program.py", "program_runtime.py", "_program_artifacts.py"), (
         "test_program_composition", "test_program_completion",
         "test_publisher_collection_recovery", "test_exact_job_recovery",
         "test_crest_completion", "test_crest_startup_payload",

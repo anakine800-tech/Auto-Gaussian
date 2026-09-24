@@ -967,6 +967,7 @@ def _collection_source_files(installation, document):
     paths = {b.path for b in installation.code_files}
     required = {str(root / name) for name in (
         "auto_g16/execution/program.py", "auto_g16/execution/program_runtime.py",
+        "auto_g16/execution/_program_artifacts.py",
         "auto_g16/execution/_program_completion.py", "auto_g16/execution/_program_completion_wrapper.py",
         "auto_g16/transport/_program_rtwin.py", "scripts/run_v31_publisher_pilot.py",
     )}

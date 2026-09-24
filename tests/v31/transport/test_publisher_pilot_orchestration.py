@@ -163,7 +163,8 @@ class _PilotFixture(lane.LaneAFixture):
         for role,store,path in (("core",self.store,self.database),("approval",astore,apath),("transport",self.program_transport_store,Path(self.program_transport_store._path))):
             pin = file_binding(path)
             stores.append(controller._PilotStoreBinding(role,store,pin.path,pin.parent_chain,pin.file_identity))
-        modules = (c,w,p,runtime,rtwin,controller)
+        from auto_g16.execution import _program_artifacts
+        modules = (c,w,p,runtime,rtwin,controller,_program_artifacts)
         if is_crest:
             from auto_g16.execution import _crest_loader, _crest_seed_handoff, _receipt_source, xtb_crest_handoff
             from auto_g16.conformer import service as conformer_service
@@ -355,6 +356,22 @@ class PublisherControllerTests(_PilotFixture):
         port=runtime._ProgramExecutionPort(snapshot=self.snapshot,program_transport_store=self.program_transport_store,driver=self.driver)
         with patch.object(rtwin,"_FIXED_PUBLISHER_INSTALLATION",installation),patch.object(controller,"_FIXED_PILOT_RUN",run),patch.object(rtwin._driver,"_resolve_closed_profile_authority",return_value=authority),patch.object(controller,"_prepare_first_publisher_pilot_port",return_value=port):
             return controller._run_first_publisher_pilot()
+
+    def test_artifact_module_missing_or_stale_pin_rejects_before_execute(self):
+        from auto_g16.execution import _program_artifacts
+        installation, authority, run, _ = self.install_fixture()
+        artifact_path = str(Path(_program_artifacts.__file__).resolve())
+        pin = next(binding for binding in run.code_files if binding.path == artifact_path)
+        for files in (
+            tuple(binding for binding in run.code_files if binding is not pin),
+            tuple(replace(binding, sha256="0" * 64) if binding is pin else binding for binding in run.code_files),
+        ):
+            with self.subTest(files=len(files)), patch.object(execution, "execute_once") as execute:
+                with self.assertRaises(TransportBoundaryError):
+                    self.invoke(installation, authority, replace(run, code_files=files))
+                execute.assert_not_called()
+                self.assertEqual(self.driver.calls, [])
+                self.assertIs(self.store.attempt_state("attempt-1"), core.AttemptState.PLANNED)
 
     def test_real_validator_twice_then_unique_execute_and_restart_reject(self):
         installation,authority,run,confirmation=self.install_fixture()

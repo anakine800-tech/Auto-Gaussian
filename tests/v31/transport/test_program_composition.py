@@ -5,6 +5,7 @@ from dataclasses import fields
 from hashlib import sha256
 import inspect
 from pathlib import Path
+from types import SimpleNamespace
 import sqlite3
 from typing import Mapping
 import unittest
@@ -190,6 +191,55 @@ class ProgramCompositionTests(LaneAFixture):
             str(scheduler["portable_name"]): str(scheduler["content_utf8"]).encode("utf-8")
         }
         self.driver = _Driver()
+
+    def test_artifact_stage_bytes_keep_exact_errors_and_order(self) -> None:
+        material = program_runtime._stage_material(
+            self.snapshot, input_bytes=self.input_bytes,
+            scheduler_artifact_bytes=self.scheduler_bytes,
+        )
+        self.assertEqual([item[0]["portable_name"] for item in material], ["input.xyz", "xtb.pbs"])
+        self.assertIs(material[0][1], self.input_bytes["input.xyz"])
+        for inputs, schedulers, message in (
+            ([], self.scheduler_bytes, "successor stage bytes must be exact mappings"),
+            ({}, self.scheduler_bytes, "program input bytes differ from exact declarations"),
+            (self.input_bytes, {}, "scheduler bytes differ from exact declarations"),
+            ({"input.xyz": bytearray(XYZ)}, self.scheduler_bytes, "program input bytes differ from exact declaration"),
+            ({"input.xyz": XYZ + b"x"}, self.scheduler_bytes, "program input bytes differ from exact declaration"),
+            ({"input.xyz": b"x" * len(XYZ)}, self.scheduler_bytes, "program input bytes differ from exact declaration"),
+            (self.input_bytes, {"xtb.pbs": b"wrong"}, "scheduler bytes differ from exact snapshot artifact"),
+        ):
+            with self.subTest(message=message, inputs=type(inputs)):
+                with self.assertRaises(transport.TransportBoundaryError) as raised:
+                    program_runtime._stage_material(self.snapshot, input_bytes=inputs, scheduler_artifact_bytes=schedulers)
+                self.assertEqual(str(raised.exception), message)
+        self.assertEqual(self.driver.calls, [])
+        self.assertIs(self.store.attempt_state("attempt-1"), core.AttemptState.PLANNED)
+
+    def test_artifact_declarations_keep_exact_matching_and_output_identity(self) -> None:
+        material = program_runtime._stage_material(self.snapshot, input_bytes=self.input_bytes, scheduler_artifact_bytes=self.scheduler_bytes)
+        for declaration, _ in material:
+            self.assertEqual(program_runtime._declared_stage_payload(self.snapshot, declaration), declaration)
+            for delta in ({"sha256": "0" * 64}, {"portable_name": "../input.xyz"}, {"size_bytes": -1}, {"extra": True}):
+                with self.subTest(delta=delta), self.assertRaisesRegex(transport.TransportBoundaryError, "^persisted staged artifact is not uniquely snapshot-declared$"):
+                    program_runtime._declared_stage_payload(self.snapshot, {**declaration, **delta})
+        spec = self.snapshot.program_execution_spec
+        declaration = spec.required_outputs[0]
+        self.assertIs(program_runtime._declared_output(self.snapshot, {**declaration, "extra": True}), declaration)
+        for delta in ({"logical_role": "wrong"}, {"portable_name": "../xtb.out"}, {"format": "wrong"}):
+            with self.subTest(delta=delta), self.assertRaisesRegex(transport.TransportBoundaryError, "^persisted output request is not uniquely spec-declared$"):
+                program_runtime._declared_output(self.snapshot, {**declaration, **delta})
+        duplicate_spec = SimpleNamespace(program_kind=spec.program_kind, adapter_id=spec.adapter_id,
+            adapter_contract_version=spec.adapter_contract_version, required_outputs=(declaration, declaration), optional_outputs=())
+        with self.assertRaisesRegex(transport.TransportBoundaryError, "^persisted output request is not uniquely spec-declared$"):
+            program_runtime._declared_output(SimpleNamespace(program_execution_spec=duplicate_spec), declaration)
+
+    def test_artifact_stage_private_patch_remains_before_claim(self) -> None:
+        with patch.object(program_runtime, "_stage_material", side_effect=transport.TransportBoundaryError("artifact sentinel")) as stage:
+            with self.assertRaisesRegex(transport.TransportBoundaryError, "^artifact sentinel$"):
+                self.execute()
+        stage.assert_called_once()
+        self.assertEqual(self.driver.calls, [])
+        self.assertIs(self.store.attempt_state("attempt-1"), core.AttemptState.PLANNED)
 
     def execute(self, driver: _Driver | None = None):
         from auto_g16.execution.program_runtime import _ProgramExecutionPort, _read_program_execution_result
