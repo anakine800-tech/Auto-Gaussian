@@ -1,6 +1,9 @@
 schema = "auto-g16-v3-context-map/1"
 # Status labels describe documentation/integration, not effect authority.
 # Dated evidence and historical-stage mapping: docs/v3/STATUS.md and docs/v3/INDEX.md.
+# code_paths are reading locations, not an import graph; current implementation,
+# reuse sources and retained dependencies are distinguished in reuse-adjudication.md.
+# focused_tests locate existing coverage; config/validation-selection.json owns selection.
 default_read_policy = "Read only the selected component sections and paths; do not recursively read all docs or references."
 
 [[component]]
@@ -251,10 +254,36 @@ status = "policy-rebenchmark-required"
 required_sections = [
   "OWNER_DECISIONS.md#od-09-conformer-policy-must-be-benchmarked-again",
   "docs/v3/reuse-adjudication.md#auto-g16-v3-reuse-adjudication",
+  "docs/v3/contracts/boundary/v31-shared.md#independent-samplingprofile-policy-record",
+  "docs/v3/contracts/boundary/v31-shared.md#conformerensemble-minimum-public-shape",
   "docs/v3/contracts/acceptance/v31-ensemble.md#v31-flexible-molecule-ensemble",
 ]
-code_paths = ["skills/auto-g16-conformer-search/scripts/conformer_core.py"]
-focused_tests = ["tests/test_conformer_search.py"]
+code_paths = [
+  "auto_g16/conformer/", # CURRENT_IMPLEMENTATION: models, ingest, audit, refinement, final integration
+  "skills/auto-g16-conformer-search/scripts/conformer_core.py", # REUSE_SOURCE: primitives and benchmark evidence
+]
+# Existing v31-conformer route; retained legacy tests are VALIDATION_DEPENDENCY.
+focused_tests = ["tests/v31/conformer/", "tests/test_conformer_search.py"]
+
+[[component]]
+id = "thermochemistry"
+status = "offline-integrated-no-live-authority"
+required_sections = [
+  "OWNER_DECISIONS.md#od-31-v31-shares-one-versioned-execution-and-ensemble-contract",
+  "docs/v3/reuse-adjudication.md#auto-g16-v3-reuse-adjudication",
+  "docs/v3/contracts/boundary/v31-shared.md#thermodynamicensemble-handoff",
+  "docs/v3/contracts/acceptance/v31-ensemble.md#v31-flexible-molecule-ensemble",
+]
+code_paths = [
+  "auto_g16/thermochemistry/", # CURRENT_IMPLEMENTATION: facts, functional kernel, normalization, ThermodynamicEnsemble
+  "auto_g16/conformer/refinement_authority.py", # RUNTIME_DEPENDENCY: exact refinement provenance
+]
+# Existing v31-thermochemistry route, including conformer and legacy lineage coverage.
+focused_tests = [
+  "tests/v31/thermochemistry/",
+  "tests/v31/conformer/",
+  "tests/test_scientific_closure_lineage.py",
+]
 
 [[component]]
 id = "v31-shared-contract"
