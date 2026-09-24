@@ -326,7 +326,8 @@
       "id": "v31-program-execution",
       "exact_paths": [
         "auto_g16/execution/program.py",
-        "auto_g16/execution/program_runtime.py"
+        "auto_g16/execution/program_runtime.py",
+        "auto_g16/execution/_program_artifacts.py"
       ],
       "prefixes": [],
       "lane": "affected",

@@ -228,8 +228,8 @@ def _fixed_pilot_context():
     stores = _assert_store_bindings(run)
     snapshot = run.snapshot
     # Actual source paths, not caller-named replacement files, are pinned.
-    from auto_g16.execution import _program_completion, _program_completion_wrapper, program, program_runtime
-    actual = {str(Path(module.__file__).resolve()) for module in (_program_completion, _program_completion_wrapper, program, program_runtime, rtwin)} | {str(Path(__file__).resolve())}
+    from auto_g16.execution import _program_artifacts, _program_completion, _program_completion_wrapper, program, program_runtime
+    actual = {str(Path(module.__file__).resolve()) for module in (_program_artifacts, _program_completion, _program_completion_wrapper, program, program_runtime, rtwin)} | {str(Path(__file__).resolve())}
     if snapshot.program_execution_spec.program_kind == "crest" and snapshot.program_execution_spec.adapter_contract_version == 3:
         from auto_g16.execution import _crest_completion, _crest_loader, _crest_seed_handoff, _receipt_source, xtb_crest_handoff
         from auto_g16.conformer import service as conformer_service
