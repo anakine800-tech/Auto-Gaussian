@@ -76,6 +76,8 @@ _REVIEWED_TEST_CONTAINMENT = {
     "tests.v31.transport.test_crest_loader": "tests.v31.transport",
     "tests.v31.transport.test_crest_startup_payload": "tests.v31.transport",
     "tests.v31.transport.test_exact_job_recovery": "tests.v31.transport",
+    "tests.v31.transport.test_gaussian_successor": "tests.v31.transport",
+    "tests.v31.transport.test_gaussian_short_entry": "tests.v31.transport",
     "tests.v31.transport.test_program_completion": "tests.v31.transport",
     "tests.v31.transport.test_program_composition": "tests.v31.transport",
     "tests.v31.transport.test_publisher_collection_recovery": "tests.v31.transport",

@@ -11,6 +11,7 @@ from collections.abc import Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from hashlib import sha256
 import os
 import stat
 import sqlite3
@@ -129,8 +130,8 @@ def _probe_index(payload):
         entries.append({"role": "host-identity", "host_key": host["host_key"], "evidence": host["identity_evidence"]})
         entries.extend({"role": "location", "host_key": host["host_key"], "location_role": loc["role"], "evidence": loc["evidence"]} for loc in host["locations"])
         entries.extend({"role": "host-probe", "host_key": host["host_key"], "case_id": probe["case_id"], "evidence": probe["evidence"]} for probe in host["probes"])
-    startup = payload["schema"] == "auto-g16-v31-publisher-qualification/3"
-    crest = startup or payload["schema"] == "auto-g16-v31-publisher-qualification/2"
+    startup = payload["schema"] in {"auto-g16-v31-publisher-qualification/3", "auto-g16-v31-publisher-qualification/5", "auto-g16-v31-publisher-qualification/6"}
+    crest = payload["schema"] in {"auto-g16-v31-publisher-qualification/2", "auto-g16-v31-publisher-qualification/3"}
     if startup:
         entries.append({"role": "delivery-probe", "case_id": "P09", "evidence": payload["delivery_probe"]["evidence"]})
     if crest:
@@ -235,7 +236,12 @@ def _fixed_pilot_context():
         from auto_g16.conformer import service as conformer_service
         actual.update(str(Path(module.__file__).resolve()) for module in
                       (_crest_completion, _crest_loader, _crest_seed_handoff, _receipt_source, xtb_crest_handoff, conformer_service, transport))
-    if len(snapshot.scheduler_artifacts) == 2:
+    if snapshot.program_execution_spec.program_kind == "gaussian" and snapshot.program_execution_spec.adapter_contract_version in (4, 5):
+        from auto_g16.execution import _gaussian_completion, _gaussian_file_carrier, _gaussian_startup
+        from auto_g16.transport import _gaussian_file_handoff, _gaussian_file_submit, _gaussian_handoff, _gaussian_submit, _bridge, _driver
+        protocol = (_gaussian_file_carrier, _gaussian_file_handoff, _gaussian_file_submit) if snapshot.program_execution_spec.adapter_contract_version == 5 else (_gaussian_startup, _gaussian_handoff, _gaussian_submit)
+        actual.update(str(Path(module.__file__).resolve()) for module in (_gaussian_completion, *protocol, _bridge, _driver, transport))
+    elif len(snapshot.scheduler_artifacts) == 2:
         from auto_g16.execution import _crest_startup
         actual.add(str(Path(_crest_startup.__file__).resolve()))
     if {b.path for b in run.code_files} != actual or len(run.code_files) != len(actual):
@@ -255,20 +261,49 @@ def _fixed_pilot_context():
             pin.close()
 
 
+def _current_gaussian_handoff_approvals(run, deployment):
+    """Revalidate the winning claimed Attempt; the PLANNED gate ran before claim."""
+    stores, scientific, batch, confirmation = _load_current_authorities(run, deployment)
+    snapshot = run.snapshot
+    if snapshot.program_execution_spec.program_kind != "gaussian" or snapshot.program_execution_spec.adapter_contract_version not in (4, 5) or stores["core"].attempt_state(snapshot.attempt_id) is not core.AttemptState.SUBMISSION_INTENT_RECORDED:
+        raise rtwin._publisher_failure("Gaussian handoff is outside its claimed phase")
+    from auto_g16.execution.program_runtime import _assert_effect_intent_replay
+    _assert_effect_intent_replay(stores["core"], snapshot)
+    plan = stores["core"].load_calculation_plan(snapshot.calculation_plan_id)
+    attempt = stores["core"].load_attempt(snapshot.attempt_id)
+    scientific.assert_current(plan, displayed_semantic_meaning=run.displayed_semantic_meaning)
+    expected = approval.BatchApprovalMember(attempt_id=attempt.attempt_id, task_id=attempt.task_id, calculation_plan_id=plan.calculation_plan_id, calculation_plan_revision=plan.revision, scientific_approval_id=scientific.scientific_approval_id)
+    if batch.member_for(attempt.attempt_id) != expected:
+        raise rtwin._publisher_failure("Gaussian handoff Batch scope differs")
+    result = {}
+    for role, identity, value in (("scientific", run.scientific_approval_id, scientific), ("finite_batch", run.batch_submit_approval_id, batch), ("operational_confirmation", run.operational_confirmation_id, confirmation)):
+        result[role] = {"authority_id": identity, "payload_sha256": sha256(canonical_json_bytes(rtwin._plain(value.persisted_payload()))).hexdigest()}
+    live = deployment.basis["pilot_live_gate_evidence_sha256"]
+    result["live_gate"] = {"authority_id": "live-gate:" + live, "payload_sha256": live}
+    return result
+
+
 def _run_first_publisher_pilot():
     with _fixed_pilot_context() as (run, stores, deployment, code_pins):
         stores, confirmation = _load_validate_current(run, deployment)
         port = _prepare_first_publisher_pilot_port(run, stores)
+        handoff_token = None
         try:
             for pin in code_pins:
                 pin._read_and_check()
             stores, confirmation = _load_validate_current(run, deployment)
+            if run.snapshot.program_execution_spec.program_kind == "gaussian" and run.snapshot.program_execution_spec.adapter_contract_version in (4, 5):
+                def current_handoff_approvals():
+                    return _current_gaussian_handoff_approvals(run, deployment)
+                handoff_token = rtwin._GAUSSIAN_LAUNCH_OWNER.set((run.snapshot, current_handoff_approvals))
             return execution.execute_once(
                 stores["core"], snapshot=run.snapshot, current_profile=run.current_profile,
                 prepared_input_bytes=run.prepared_input_bytes, pbs_template_bytes=run.pbs_template_bytes,
                 confirmed_execution_snapshot_id=confirmation.execution_snapshot_id, port=port,
             )
         finally:
+            if handoff_token is not None:
+                rtwin._GAUSSIAN_LAUNCH_OWNER.reset(handoff_token)
             if type(port.driver) is rtwin._RTWinProgramEffectDriver:
                 port.driver.close()
 
@@ -326,6 +361,8 @@ class _FixedCollectionRun:
     pbs_script: rtwin._PublisherFileBinding
     reviewed_pilot_semantics: rtwin._PublisherFileBinding
     displayed_semantic_meaning: Mapping[str, object]
+    # None preserves the original explicitly bound same-root composition.
+    project_journal_root: str | None = None
 
 
 _FIXED_COLLECTION_RUN: _FixedCollectionRun | None = None
@@ -334,6 +371,10 @@ _FIXED_COLLECTION_RUN: _FixedCollectionRun | None = None
 def _open_collection_stores(run, stack):
     """Pin all existing paths before any create-capable SQLite constructor."""
     from auto_g16.execution.project_provisioning import _ProductionProvisioningJournal
+    journal_root = run.store_root if run.project_journal_root is None else run.project_journal_root
+    for root in (run.store_root, journal_root):
+        if type(root) is not str or not root or not Path(root).is_absolute():
+            raise rtwin._publisher_failure("collection store root must be an explicit absolute path")
     roles = ("core", "approval", "transport", "project-journal")
     if type(run.databases) is not tuple or len(run.databases) != 4:
         raise rtwin._publisher_failure("fixed four-store package missing")
@@ -361,7 +402,7 @@ def _open_collection_stores(run, stack):
         elif binding.role == "transport":
             handle = transport._ProgramTransportStore.open_existing(binding.path, approved_root=run.store_root)
         else:
-            handle = _ProductionProvisioningJournal.open_existing(Path(binding.path), approved_root=Path(run.store_root))
+            handle = _ProductionProvisioningJournal.open_existing(Path(binding.path), approved_root=Path(journal_root))
         stack.callback(handle.close)
         stores[binding.role] = handle
         for pin in pins:

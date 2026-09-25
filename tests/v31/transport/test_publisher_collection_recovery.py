@@ -33,6 +33,8 @@ EXPIRED = {"started_at": "2000-01-01T00:00:00.000000Z", "finished_at": "2001-01-
 
 
 class _RecoveryFixture(lane.LaneAFixture):
+    split_store_roots = False
+
     def resolved(self, **kwargs):
         if hasattr(self, "current_profile"):
             return execution.resolve_server_profile(self.current_profile)
@@ -61,7 +63,11 @@ class _RecoveryFixture(lane.LaneAFixture):
         self.wire_patch = patch.object(_driver._SubprocessRTWinDriver, "_run", side_effect=self.wire.run)
         self.wire_patch.start(); self.addCleanup(self.wire_patch.stop)
         folder = self.root / "durable"; folder.mkdir()
-        self.journal = _ProductionProvisioningJournal.create_new(folder / "projects.sqlite3", approved_root=self.root)
+        self.journal_root = self.root / "journal-root" if self.split_store_roots else self.root
+        if self.split_store_roots:
+            self.journal_root.mkdir()
+        journal_path = self.journal_root / "projects.sqlite3" if self.split_store_roots else folder / "projects.sqlite3"
+        self.journal = _ProductionProvisioningJournal.create_new(journal_path, approved_root=self.journal_root)
         self.addCleanup(self.journal.close)
         self.program_transport_store = transport._ProgramTransportStore._create_completion_store(folder / "program.sqlite3", approved_root=self.root)
         self.addCleanup(self.program_transport_store.close)
@@ -107,6 +113,8 @@ class _RecoveryFixture(lane.LaneAFixture):
         run = controller._FixedCollectionRun(self.current_profile, databases, str(self.root), snapshot_pin,
                 self.write("input.xyz", lane.XYZ), self.write(self.snapshot.scheduler_artifacts[0]["portable_name"], self.scheduler_bytes[self.snapshot.scheduler_artifacts[0]["portable_name"]]),
                 self.original_run.reviewed_semantics, {"intent": "inert"})
+        if getattr(self, "split_store_roots", False):
+            run = replace(run, project_journal_root=str(self.journal_root))
         root = Path(controller.__file__).resolve().parents[1]
         code_paths = {Path(module.__file__).resolve() for name, module in tuple(sys.modules.items()) if (name == "auto_g16" or name.startswith("auto_g16.")) and getattr(module, "__file__", None)}
         code_paths.add(Path(controller.__file__).resolve())
@@ -229,8 +237,10 @@ def _next_process_installation(installation):
 
 def _process_entry(mode, path):
     """Only synthetic fixture processes, with no real wire or scientific child."""
-    if mode == "build":
-        fixture = _RecoveryFixture(); fixture.setUp()
+    if mode in {"build", "build-split"}:
+        fixture = _RecoveryFixture()
+        fixture.split_store_roots = mode == "build-split"
+        fixture.setUp()
         fixture.export_state(path)
         # The parent owns a finite outer TemporaryDirectory. Abrupt process exit
         # deliberately preserves these synthetic stores and releases real locks.
@@ -720,7 +730,54 @@ class CollectionRecoveryTests(_RecoveryFixture):
         self.assertIsNone(runtime._COLLECTION_CHECKPOINT.get())
 
 
+class SplitRootCollectionTests(_RecoveryFixture):
+    split_store_roots = True
+
+    def test_split_roots_wrong_roots_fail_without_wire_or_store_changes(self):
+        before = {binding.path: Path(binding.path).read_bytes() for binding in self.run.databases}
+        cases = (
+            {"project_journal_root": None},  # old shared root cannot widen this journal
+            {"project_journal_root": str(self.root.parent)},
+            {"store_root": str(self.journal_root), "project_journal_root": str(self.root)},
+            {"store_root": str(self.root.parent)},
+            {"project_journal_root": str(self.root / "missing-root")},
+        )
+        for roots in cases:
+            with self.subTest(roots=roots):
+                with self.assertRaises((execution.ExecutionValueError, TransportBoundaryError)):
+                    self.resume(run=replace(self.run, **roots))
+                self.assertEqual(self.wire.calls, [])
+                self.assertEqual(before, {path: Path(path).read_bytes() for path in before})
+        self.assertFalse((self.root / "missing-root").exists())
+
+    def test_invalid_root_values_reject_before_store_open(self):
+        for field in ("store_root", "project_journal_root"):
+            for root in ("", ".", "relative/root", 1, Path(self.root)):
+                with self.subTest(field=field, root=root):
+                    with patch.object(sqlite3, "connect", side_effect=AssertionError("store opened")):
+                        with self.assertRaisesRegex(TransportBoundaryError, "explicit absolute"):
+                            self.resume(run=replace(self.run, **{field: root}))
+                    self.assertEqual(self.wire.calls, [])
+
+
 class CollectionProcessRecoveryTests(unittest.TestCase):
+    def test_split_roots_fresh_process_restore_collect_and_zero_wire_replay(self):
+        with tempfile.TemporaryDirectory() as folder:
+            state = Path(folder).resolve() / "state.json"
+            self.assertEqual(_child("build-split", state, scratch=folder).returncode, 0)
+            run = _unpack(json.loads(state.read_text()))["run"]
+            self.assertNotEqual(run.store_root, run.project_journal_root)
+            collected = json.loads(_child("resume", state).stdout)
+            self.assertEqual(collected["verdict"], "SUCCEEDED")
+            self.assertEqual(collected["wire_calls"], 11)
+            self.assertEqual(collected["persisted"]["state"], "SUCCEEDED")
+            self.assertEqual(len(collected["persisted"]["results"]), 1)
+            self.assertEqual(collected["persisted"]["audit_count"], 1)
+            before = {binding.path: Path(binding.path).read_bytes() for binding in run.databases}
+            replayed = json.loads(_child("resume", state).stdout)
+            self.assertEqual(replayed, {**collected, "wire_calls": 0})
+            self.assertEqual(before, {path: Path(path).read_bytes() for path in before})
+
     def test_ir07_actual_exit_after_present_stat_and_fresh_process_resume(self):
         with tempfile.TemporaryDirectory() as folder:
             state = Path(folder).resolve() / "state.json"
@@ -775,7 +832,7 @@ class CollectionProcessRecoveryTests(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) == 3 and sys.argv[1] in {"build", "resume", "resume-next", "crash-before-audit", "crash-audit", "crash-wire", "crash-after-present-stat", "crash-before-result", "crash-result", "crash-assessment", "crash-transition"}:
+    if len(sys.argv) == 3 and sys.argv[1] in {"build", "build-split", "resume", "resume-next", "crash-before-audit", "crash-audit", "crash-wire", "crash-after-present-stat", "crash-before-result", "crash-result", "crash-assessment", "crash-transition"}:
         _process_entry(sys.argv[1], sys.argv[2])
     else:
         unittest.main()

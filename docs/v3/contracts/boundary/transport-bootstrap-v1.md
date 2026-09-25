@@ -40,6 +40,26 @@ The private operation table version is exactly
 | `FETCH_EXACT_FILE` | `fetch-exact-file` | `("{remote_relative_name}",)` | 900 | 65536 | 179306496 | 65536 |
 | `RECONCILE_SUBMISSION` | `reconcile-submission` | `()` | 30 | 65536 | 262144 | 65536 |
 
+For the Gaussian successor adapter contracts `/4` and `/5`, the controller wraps
+`SUBMIT_QSUB_ONCE` in a 120-second outer effect wait.  The qualified server
+bootstrap keeps the exact operation-table qsub child deadline of 30 seconds;
+the additional 90-second budget covers pre-submit identity checks, publication
+and fsync of the Attempt-local file carrier, qsub invocation-start record and
+post-qsub receipt, and response transport. The additive Gaussian `/5`
+file-carrier supplement stages an exact immutable entry template, then the
+qualified submit owner publishes the final `gaussian.pbs` by substituting only
+the carrier's canonical physical descriptor. qsub uses direct arguments `-d`,
+`-l`, `-q`, and that fixed basename; it carries no `-v` or `-V` argument. The
+spooled loader opens the carrier's pending/final hard-link pair from the
+retained Attempt directory and requires its exact bytes, SHA-256 and physical
+identity to equal the descriptor embedded in the final entry before any stage.
+The invocation-start record additionally binds the final entry. The post receipt is published from
+the server-side `finally` path before a successful submitted marker may be
+written. A missing response or receipt at the outer deadline remains `UNKNOWN`
+and grants neither retry nor completion authority. This Gaussian-only outer
+wait does not change the source-controlled operation table, historical `/4`
+qualified bootstrap bytes, or any xTB/CREST deadline.
+
 Every operation has `shell=False` at the final server operation/executable
 seam, no retry, exact cwd equal to the remote Attempt workspace, and environment
 exactly `LANG=C`, `LC_ALL=C`,

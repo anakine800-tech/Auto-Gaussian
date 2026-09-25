@@ -73,3 +73,64 @@ focused adversarial tests and authority references. Require independent review
 of the precise final candidate and proportional validation. Local commit is
 allowed; publishing, merge, actual installation, real-store mutation and all
 remote operations are reserved to the parent and their separate exact gates.
+
+### V31-GAUSSIAN-SUCCESSOR-01
+
+- **Class/base:** v3 feature development from
+  `6ea392dd57024b94152cf7368ead80f8bd94cdb2` in the linked worktree branch
+  `codex/v31-gaussian-successor`.
+- **Authority:** the Owner delegated selection of one process-validation method
+  and autonomous isolated implementation, validation, review and local commit.
+  This task records only the Gaussian successor code prerequisite and does not
+  itself authorize a calculation.
+- **Allowed files:** `OWNER_DECISIONS.md`, `docs/v3/boundary-spec.md`,
+  `docs/v3/acceptance.md`, this file, `config/context-map.toml`,
+  `auto_g16/execution/models.py`, `auto_g16/execution/program.py`, narrowly
+  necessary successor qualification/completion composition code,
+  and focused `tests/v31/transport/` and affected profile tests.
+- **Outcome:** implement only `auto-g16-v31-gaussian/3` for self-contained
+  Cartesian GJF Opt/Freq, exact absolute executable identity, deterministic
+  receipt-on-absence PBS rendering, required log and optional checkpoint, plus
+  a canonical Gaussian-only qualification that binds private executable identity
+  without changing public profile records or requiring xTB authority. Bind the
+  exact GJF through standard input, bind the minimal Gaussian child environment
+  in Q/4, use the already fresh/pinned Attempt workspace as scratch, and admit material/5 only for
+  same-Attempt collection/reconciliation restore.
+- **Preserve:** V30 execution records and vectors, public record budget,
+  existing Transport operations, xTB/CREST tuples, approval gates,
+  no-overwrite, at-most-once and `UNKNOWN`/no-retry semantics.
+- **Validation:** clean preflight; focused positive/adversarial/identity/
+  composition tests; affected xTB/CREST tests; static CI-contract audit;
+  staged sensitive scan; findings-first self-review; local commit.
+- **Forbidden:** SSH, RTwin, PBS, Gaussian, deployment, real stores, push, PR,
+  merge, retry, qdel, cleanup, result/scientific acceptance, or any change to
+  V30 `PreparedInputBinding`, `PbsTemplateBinding`, `ExecutionSnapshot` or
+  historical vectors.
+
+### V31-GAUSSIAN-VERIFIED-INTEGRATION-01
+
+The Owner's 2026-09-25 delegated integration instruction authorizes the complete
+Gaussian dependency delta from `9db47738a9c01bcb04075d2daa9123a3477b4e50`
+(original execution source `7397c282e86467965fe2fabf66cc57e5bab3f2d2`)
+onto `352d7c73339d66b12da415dab2def4e01a03e6b9`, preserving merged
+implementation documentation, validation routing and the private program-artifact
+helper. This supersedes only the original task's publication prohibition for
+this new integration task; all technical and scientific gates remain unchanged.
+
+- Class: v3 feature integration, L3, bounded Owner-guided scope.
+- Branch: `codex/gaussian-verified-integration-20260925`, isolated App worktree.
+- Authorized steps: necessary composition, offline validation, independent review,
+  commit, push, Draft PR and CI closeout. Parent owns final qualification-evidence
+  reuse adjudication and merge conditions; this task does not merge.
+- Scope: the complete nine-commit source delta, component-document relocation,
+  two derived-artifact additions in the extracted helper, necessary new-module
+  test routing and focused composition regressions. No unrelated refactoring.
+- Validation: exact base/head/tree inventory, source-impact and evidence-reuse
+  matrix, selected focused/affected checks, independent L3 review, staged
+  sensitive scan and CI-contract audit. If conservative selection requires full
+  discovery, PR `source-archive-release` is its sole owner; no local duplicate.
+- Historical native completion retains its original source, installation and
+  approval bindings. It is not a fresh installation or qualification of these
+  integrated bytes, nor scientific acceptance. Missing evidence stays explicit.
+- Excluded: deployment, SSH/RTwin/PBS/Gaussian, submission/cancellation, retry,
+  recomputation, recollection, cleanup, old worktree/evidence mutation, Mac Direct.

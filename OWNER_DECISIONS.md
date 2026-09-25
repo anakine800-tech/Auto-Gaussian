@@ -1364,3 +1364,67 @@ for bounded offline implementation. It narrowly extends UNKNOWN restoration
 and reconciliation provenance without rewriting original UNKNOWN history or
 reusing old Q as new-source qualification. Parent-owned read-only qualification,
 exact native application, collection and scientific acceptance remain separate.
+
+## OD-34: Gaussian successor is one narrow closed adapter
+
+The Owner's 2026-09-23 delegated flow-validation instruction activates the
+previously reserved `gaussian` discriminant only as
+`auto-g16-v31-gaussian/3`. It is an additive `ProgramExecutionSpec` and
+`ProgramExecutionSnapshot` route; it does not modify or reinterpret V30
+`PreparedInputBinding`, `PbsTemplateBinding`, `ExecutionSnapshot`, any stored
+record, or any existing xTB/CREST adapter version.
+
+The adapter accepts exactly one non-empty UTF-8 `gaussian-gjf` input whose
+single Gaussian job is self-contained: no Link1, `%oldchk`, checkpoint-read,
+coordinate-read (`Geom=Check`, `Geom=AllCheck`, `Geom=Checkpoint`, `ReadFC`),
+or ambient-file dependency is allowed, and the input contains one explicit
+charge/multiplicity line followed by Cartesian coordinates. Its stored closed
+`program_data` is exactly `{stage, completion_mode}` with `stage` equal to
+`opt` or `freq`, matching the route section, and `completion_mode` fixed to
+`receipt-on-absence-v1`. The invocation argv is only the profile-bound absolute
+Gaussian executable; the already bound exact GJF is opened no-follow and
+supplied as standard input. There is no PATH lookup, caller command or stdin,
+open environment, fallback, or retry. The only closed outputs are required
+`gaussian.log` and optional `gaussian.chk`.
+
+Because the installed Gaussian executable is private target material, neither
+public profile record gains a field and its binary bytes must not be placed in
+`runtime_contents`. A canonical Gaussian publisher qualification stored as
+profile runtime content binds the absolute executable path, size and SHA-256;
+its own byte identity participates in the existing profile hash. Snapshot
+rendering strictly parses that qualification and compares the real executable
+identity with the spec. The Gaussian qualification contains only deployment,
+server-Python and Gaussian authority: it does not require xTB executable or
+xTB runtime-data authority. The five-root manifest-v3 model is unchanged, and
+the bootstrap rechecks the target executable by no-follow descriptor, size,
+digest and physical identity immediately around launch.
+
+Q/4 also binds the complete Gaussian child environment. `g16root`,
+`GAUSS_EXEDIR`, and `LD_LIBRARY_PATH` must each equal the bound executable's
+parent directory. `GAUSS_SCRDIR` is derived as the create-new
+exact Attempt workspace itself. That workspace was already created under the
+fresh/no-overwrite Attempt boundary, remains descriptor-pinned, and is
+replacement-checked inside final receipt publication. This removes a separate
+scratch mkdir/open race. PATH, HOME, the login-shell environment, and the
+observed target `/tmp` scratch are not inherited. Workspace replacement or
+declaration drift fails closed without deletion or cleanup; scratch evidence
+remains in the Attempt.
+
+The scheduler script remains a deterministic derivative of the spec, resolved
+resources, and target. It uses the existing receipt-on-absence authority: only
+exact scheduler absence plus a trusted Attempt-local exit receipt, stable required
+log capture, exit zero and the Gaussian normal-termination marker can establish
+flow completion. Scheduler terminal state alone, missing or untrusted receipt,
+and incomplete capture remain `UNKNOWN`; no result is scientific acceptance.
+Offline implementation and focused review do not qualify
+an installed executable or deployment and grant no SSH, PBS, Gaussian,
+submission, collection, retry, cleanup, scientific acceptance, push, PR, or
+merge authority. A live attempt still requires current target qualification,
+the exact input/structure/route/resources/workspace hashes and all three
+product approval gates plus an explicit Live Owner Gate.
+
+The exact Gaussian material tuple is
+`v31-completion-rendering-material/5`. Collection and reconciliation may
+restore that tuple only for the already submitted same Attempt under the
+existing production journal and fixed authority; restoration cannot stage,
+submit, retry, or create a replacement Attempt.

@@ -272,7 +272,7 @@ def _validate_snapshot_semantics(
     calculation_plan_id: str,
     calculation_plan_revision: int,
 ) -> Mapping[str, object]:
-    if type(value) is dict and set(value) == ProgramExecutionSnapshot._approval_field_set():
+    if type(value) is dict and set(value) in (ProgramExecutionSnapshot._approval_field_set(), ProgramExecutionSnapshot._approval_field_set(gaussian_short=True)):
         try:
             successor = ProgramExecutionSnapshot._validate_approval_semantics(value)
         except Exception as exc:

@@ -219,7 +219,9 @@
         "docs/v3/contracts/tasks/v31-shared.md",
         "docs/v3/contracts/tasks/v31-successors.md",
         "docs/v3/contracts/tasks/validation.md",
-        "docs/v3/contracts/tasks/workflow.md"
+        "docs/v3/contracts/tasks/workflow.md",
+        "docs/v3/gaussian-qsub-file-carrier-contract.md",
+        "docs/v3/gaussian-short-entry-contract.md"
       ],
       "prefixes": [
         "docs/v3/publisher-r4/"
@@ -349,7 +351,9 @@
         "tests.v31.transport.test_crest_startup_payload",
         "tests.v31.transport.test_publisher_pilot_orchestration",
         "tests.v31.transport.test_receipt_source",
-        "tests.v31.transport.test_rtwin_successor_bridge.ProductionBridgeTests"
+        "tests.v31.transport.test_rtwin_successor_bridge.ProductionBridgeTests",
+        "tests.v31.transport.test_gaussian_successor",
+        "tests.v31.transport.test_gaussian_short_entry"
       ],
       "required_safety": [
         "approval-owner-separation",
@@ -383,7 +387,9 @@
         "tests.v31.transport.test_program_completion",
         "tests.v31.transport.test_publisher_pilot_orchestration",
         "tests.v31.transport.test_crest_completion",
-        "tests.v31.transport.test_crest_startup_payload"
+        "tests.v31.transport.test_crest_startup_payload",
+        "tests.v31.transport.test_gaussian_successor",
+        "tests.v31.transport.test_gaussian_short_entry"
       ],
       "required_safety": [
         "approval-owner-separation",
@@ -475,6 +481,39 @@
         "tests.test_direct_qstat_acquisition",
         "tests.test_resource_monitor_efficiency",
         "tests.v31.transport.test_crest_startup_payload"
+      ],
+      "required_safety": [
+        "approval-owner-separation",
+        "at-most-one-submission",
+        "no-overwrite",
+        "reconciliation",
+        "still-applicable-descriptor-capability",
+        "timeout-slow-running-is-not-failure",
+        "unknown-no-automatic-retry"
+      ],
+      "fail_closed": false
+    },
+    {
+      "id": "v31-gaussian-execution",
+      "exact_paths": [
+        "auto_g16/execution/_gaussian_completion.py",
+        "auto_g16/execution/_gaussian_startup.py",
+        "auto_g16/execution/_gaussian_file_carrier.py"
+      ],
+      "prefixes": [],
+      "lane": "affected",
+      "tests": [
+        "tests.v3.execution",
+        "tests.v3.core.test_store",
+        "tests.test_execution_authorization",
+        "tests.test_live_approval_effect_time_replay",
+        "tests.test_direct_one_hop_transport",
+        "tests.test_legacy_descriptor_mutation_capability",
+        "tests.test_legacy_root_authority_contract",
+        "tests.test_direct_qstat_acquisition",
+        "tests.test_resource_monitor_efficiency",
+        "tests.v31.transport.test_gaussian_successor",
+        "tests.v31.transport.test_gaussian_short_entry"
       ],
       "required_safety": [
         "approval-owner-separation",
@@ -733,7 +772,9 @@
     },
     {
       "id": "v31-transport-tests",
-      "exact_paths": ["scripts/run_v31_publisher_pilot.py"],
+      "exact_paths": [
+        "scripts/run_v31_publisher_pilot.py"
+      ],
       "prefixes": [
         "tests/v31/transport/"
       ],

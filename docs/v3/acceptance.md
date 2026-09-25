@@ -174,3 +174,7 @@ complete contract text; this list contains no replacement policy.
 <a id="v31-crest-short-entry-delivery-acceptance"></a>
 
 - [V31 CREST short-entry delivery acceptance](contracts/acceptance/v31-successors.md#v31-crest-short-entry-delivery-acceptance)
+
+<a id="v31-gaussian-successor-adapter-acceptance"></a>
+
+- [V31 Gaussian successor adapter acceptance](contracts/acceptance/v31-successors.md#v31-gaussian-successor-adapter-acceptance)

@@ -1179,6 +1179,12 @@ def _base_binding(value: object) -> Mapping[str, object]:
     return _validate_binding({key: value[key] for key in _BINDING_FIELDS})
 
 
+def _stage_name(payload):
+    if payload.get("artifact_kind") == "submit-intent-marker" and payload.get("portable_name") == ".auto-g16-v31-submit-intent":
+        return payload["portable_name"]
+    return _portable(payload["portable_name"], "stage portable_name")
+
+
 def _validate_operation_payload(
     operation: str, value: object
 ) -> Mapping[str, object]:
@@ -1186,16 +1192,19 @@ def _validate_operation_payload(
         return _exact_keys(value, set(), "allocate payload")
     if operation == "STAGE_EXACT_FILE":
         payload = _exact_keys(value, _STAGE_FIELDS, "stage payload")
-        _portable(payload["portable_name"], "stage portable_name")
+        _stage_name(payload)
         for key in ("artifact_kind", "logical_role", "format"):
             _text(payload[key], f"stage {key}")
-        if payload["artifact_kind"] not in {"program-input", "scheduler-script", "startup-payload"}:
+        if payload["artifact_kind"] not in {"program-input", "scheduler-script", "startup-payload", "derived-config", "submit-intent-marker"}:
             raise TransportBoundaryError("stage artifact kind is outside the closed set")
         if not isinstance(payload["sha256"], str) or _SHA256.fullmatch(payload["sha256"]) is None:
             raise TransportBoundaryError("stage sha256 is invalid")
         _positive(payload["size_bytes"], "stage size_bytes")
-        if payload["artifact_kind"] == "startup-payload" and ((payload["logical_role"], payload["portable_name"], payload["format"]) != ("startup-payload", "crest-startup.json", "json") or payload["size_bytes"] > 8*1024*1024):
+        if payload["artifact_kind"] == "startup-payload" and ((payload["logical_role"], payload["portable_name"], payload["format"]) not in {("startup-payload", "crest-startup.json", "json"), ("startup-payload", "gaussian-startup.json", "canonical-json-utf8")} or payload["size_bytes"] > 8*1024*1024):
             raise TransportBoundaryError("startup payload declaration differs")
+        for kind, name, cap in (("derived-config", "gaussian-config.json", 6291456), ("submit-intent-marker", ".auto-g16-v31-submit-intent", 65536)):
+            if payload["artifact_kind"] == kind and ((payload["logical_role"],payload["portable_name"],payload["format"]) != (kind,name,"canonical-json-utf8") or payload["size_bytes"]>cap):
+                raise TransportBoundaryError("Gaussian derived artifact declaration differs")
         return payload
     if operation == "SUBMIT_QSUB_ONCE":
         payload = _exact_keys(
@@ -1203,7 +1212,7 @@ def _validate_operation_payload(
             {
                 "scheduler_portable_name", "scheduler_artifact_authority_id",
                 "program_input_artifact_authority_ids",
-            } | ({"startup_payload_artifact_authority_ids"} if isinstance(value, Mapping) and "startup_payload_artifact_authority_ids" in value else set()),
+            } | ({"startup_payload_artifact_authority_ids"} if isinstance(value, Mapping) and "startup_payload_artifact_authority_ids" in value else set()) | ({"handoff_artifact_authority_ids"} if isinstance(value, Mapping) and "handoff_artifact_authority_ids" in value else set()),
             "submit payload",
         )
         _portable(payload["scheduler_portable_name"], "scheduler portable_name")
@@ -1226,6 +1235,14 @@ def _validate_operation_payload(
             _text(ids[0], "startup payload authority")
             if ids[0] in (*input_ids, payload["scheduler_artifact_authority_id"]):
                 raise TransportBoundaryError("startup payload authority overlaps")
+        if "handoff_artifact_authority_ids" in payload:
+            ids=payload["handoff_artifact_authority_ids"]
+            if type(ids) is not tuple or len(ids)!=2 or "startup_payload_artifact_authority_ids" not in payload:
+                raise TransportBoundaryError("Gaussian handoff requires config and marker authorities")
+            for identity in ids:_text(identity,"handoff authority")
+            all_ids=(*input_ids,payload["scheduler_artifact_authority_id"],*payload["startup_payload_artifact_authority_ids"],*ids)
+            if len(all_ids)!=len(set(all_ids)):
+                raise TransportBoundaryError("Gaussian handoff authority overlap")
         return payload
     if operation == "QUERY_SCHEDULER":
         payload = _exact_keys(value, {"job_id"}, "scheduler query payload")
@@ -1342,7 +1359,7 @@ def _prepare_program_effect_requests(
             raise TransportBoundaryError("successor stage material item is malformed")
         payload = _exact_keys(item[0], _STAGE_FIELDS, f"stage material[{index}]")
         content = item[1]
-        name = _portable(payload["portable_name"], "stage portable_name")
+        name = _stage_name(payload)
         for key in ("artifact_kind", "logical_role", "format"):
             _text(payload[key], f"stage {key}")
         if (
@@ -1359,7 +1376,7 @@ def _prepare_program_effect_requests(
             scheduler_names.append(name)
         elif payload["artifact_kind"] == "startup-payload":
             startup_names.append(name)
-        elif payload["artifact_kind"] != "program-input":
+        elif payload["artifact_kind"] not in {"program-input", "derived-config", "submit-intent-marker"}:
             raise TransportBoundaryError("successor artifact kind is outside the closed set")
         closed_material.append((dict(payload), content))
     if len(scheduler_names) != 1 or len(startup_names) > 1:
@@ -1372,17 +1389,19 @@ def _prepare_program_effect_requests(
     }
     for payload, _content in closed_material:
         _request("STAGE_EXACT_FILE", {**closed_binding, **placeholder_workspace}, payload)
+    submit_scheduler_name = "gaussian.pbs" if scheduler_names[0] == "gaussian-entry-template.pbs" and any(item[0]["artifact_kind"] == "derived-config" for item in material) else scheduler_names[0]
     _request(
         "SUBMIT_QSUB_ONCE", {**closed_binding, **placeholder_workspace},
         {
-            "scheduler_portable_name": scheduler_names[0],
+            "scheduler_portable_name": submit_scheduler_name,
             "scheduler_artifact_authority_id": "pre-effect-placeholder",
-            "program_input_artifact_authority_ids": ("pre-effect-placeholder",),
+            "program_input_artifact_authority_ids": ("pre-effect-input" if any(item[0]["artifact_kind"] == "derived-config" for item in material) else "pre-effect-placeholder",),
             **({"startup_payload_artifact_authority_ids": ("pre-effect-payload",)} if startup_names else {}),
+            **({"handoff_artifact_authority_ids": ("pre-effect-config", "pre-effect-marker")} if any(item[0]["artifact_kind"] == "derived-config" for item in material) else {}),
         },
     )
     return _PreparedProgramEffects(
-        closed_binding, tuple(closed_material), allocate, scheduler_names[0]
+        closed_binding, tuple(closed_material), allocate, submit_scheduler_name
     )
 
 
@@ -1440,6 +1459,7 @@ def _submit_request(
     scheduler_artifact_authority_id: str,
     program_input_artifact_authority_ids: tuple[str, ...],
     startup_payload_artifact_authority_ids: tuple[str, ...] = (),
+    handoff_artifact_authority_ids: tuple[str, ...] = (),
 ) -> Mapping[str, object]:
     return _request(
         "SUBMIT_QSUB_ONCE", {**binding, **workspace},
@@ -1448,6 +1468,7 @@ def _submit_request(
             "scheduler_artifact_authority_id": scheduler_artifact_authority_id,
             "program_input_artifact_authority_ids": program_input_artifact_authority_ids,
             **({"startup_payload_artifact_authority_ids": startup_payload_artifact_authority_ids} if startup_payload_artifact_authority_ids else {}),
+            **({"handoff_artifact_authority_ids": handoff_artifact_authority_ids} if handoff_artifact_authority_ids else {}),
         },
     )
 
