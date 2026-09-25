@@ -113,7 +113,7 @@ class _RecoveryFixture(lane.LaneAFixture):
         run = controller._FixedCollectionRun(self.current_profile, databases, str(self.root), snapshot_pin,
                 self.write("input.xyz", lane.XYZ), self.write(self.snapshot.scheduler_artifacts[0]["portable_name"], self.scheduler_bytes[self.snapshot.scheduler_artifacts[0]["portable_name"]]),
                 self.original_run.reviewed_semantics, {"intent": "inert"})
-        if self.split_store_roots:
+        if getattr(self, "split_store_roots", False):
             run = replace(run, project_journal_root=str(self.journal_root))
         root = Path(controller.__file__).resolve().parents[1]
         code_paths = {Path(module.__file__).resolve() for name, module in tuple(sys.modules.items()) if (name == "auto_g16" or name.startswith("auto_g16.")) and getattr(module, "__file__", None)}
