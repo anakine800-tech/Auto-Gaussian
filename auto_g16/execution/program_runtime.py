@@ -67,7 +67,7 @@ def _completion_checkpoint(snapshot, program_transport_store):
 
 
 def _publisher_completion_checkpoint(snapshot, driver):
-    if snapshot.program_execution_spec.invocation["executable_identity"]["absolute_path"] in {"/opt/auto-g16-fixtures/bin/xtb", "/opt/auto-g16-fixtures/bin/crest"}:
+    if snapshot.program_execution_spec.invocation["executable_identity"]["absolute_path"] in {"/opt/auto-g16-fixtures/bin/g16", "/opt/auto-g16-fixtures/bin/xtb", "/opt/auto-g16-fixtures/bin/crest"}:
         return
     from auto_g16.transport._program_rtwin import _RTWinProgramEffectDriver
     if type(driver) is not _RTWinProgramEffectDriver or driver._snapshot != snapshot:
@@ -93,10 +93,10 @@ def _snapshot_binding(
         raise TransportBoundaryError("completion-store-not-qualified" if receipt_mode else "strict requires a version-1 program store")
     if receipt_mode:
         material = snapshot._completion_material()
-        synthetic = (snapshot.program_execution_spec.invocation["executable_identity"]["absolute_path"] in {"/opt/auto-g16-fixtures/bin/xtb", "/opt/auto-g16-fixtures/bin/crest"} and driver.runtime_qualification.get("bootstrap_protocol") == "synthetic-v31-program-effect/1")
+        synthetic = (snapshot.program_execution_spec.invocation["executable_identity"]["absolute_path"] in {"/opt/auto-g16-fixtures/bin/g16", "/opt/auto-g16-fixtures/bin/xtb", "/opt/auto-g16-fixtures/bin/crest"} and driver.runtime_qualification.get("bootstrap_protocol") == "synthetic-v31-program-effect/1")
         if not synthetic:
             from auto_g16.transport._program_rtwin import _RTWinProgramEffectDriver
-            if material["schema"] not in {_completion._PILOT_MATERIAL_SCHEMA, _completion._crest._MATERIAL_SCHEMA, _completion._startup._MATERIAL_SCHEMA} or type(driver) is not _RTWinProgramEffectDriver:
+            if material["schema"] not in {_completion._PILOT_MATERIAL_SCHEMA, _completion._crest._MATERIAL_SCHEMA, _completion._startup._MATERIAL_SCHEMA, _completion._gaussian._MATERIAL_SCHEMA, _completion._gstartup._MATERIAL_SCHEMA, _completion._gfile._MATERIAL_SCHEMA} or type(driver) is not _RTWinProgramEffectDriver:
                 raise TransportBoundaryError("publisher-not-qualified")
             driver._authority()
     closed_driver = _transport._require_driver(driver)
@@ -360,20 +360,38 @@ def _reconstruct_submit_request(
         if len(matches) != 1:
             raise TransportBoundaryError("submit requires exact startup payload authority")
         payload_ids.append(str(matches[0]["artifact_authority_id"]))
-    if len(matched_schedulers) != 1 or len(authorities) != len(expected_inputs) + 1 + len(payload_ids):
+    handoff_ids = _handoff_stage_ids(snapshot, authorities)
+    if len(matched_schedulers) != 1 or len(authorities) != len(expected_inputs) + 1 + len(payload_ids) + len(handoff_ids):
         raise TransportBoundaryError(
             "submit staged predecessor authority set is not exact"
         )
     return _transport._submit_request(
         base,
         workspace,
-        scheduler_portable_name=str(scheduler["portable_name"]),
+        scheduler_portable_name=("gaussian.pbs" if snapshot.program_execution_spec.program_kind == "gaussian" and snapshot.program_execution_spec.adapter_contract_version == 5 else str(scheduler["portable_name"])),
         scheduler_artifact_authority_id=str(
             matched_schedulers[0]["artifact_authority_id"]
         ),
         program_input_artifact_authority_ids=tuple(expected_inputs),
         startup_payload_artifact_authority_ids=tuple(payload_ids),
+        handoff_artifact_authority_ids=handoff_ids,
     )
+
+
+def _handoff_stage_ids(snapshot, authorities):
+    derived = (*_completion._gstartup._derived_artifacts(snapshot), *_completion._gfile._derived_artifacts(snapshot))
+    if not derived:
+        if any(item["artifact_kind"] in {"derived-config", "submit-intent-marker"} for item in authorities):
+            raise TransportBoundaryError("historical tuple cannot gain handoff stages")
+        return ()
+    controls = [item for item in authorities if item["artifact_kind"] != "program-input"]
+    expected_kinds = ["scheduler-script", "startup-payload", "derived-config", "submit-intent-marker"]
+    if [item["artifact_kind"] for item in controls] != expected_kinds:
+        raise TransportBoundaryError("Gaussian handoff requires four ordered durable stages")
+    for item, (declaration, _) in zip(controls[2:], derived):
+        if any(item[k] != value for k, value in declaration.items()):
+            raise TransportBoundaryError("Gaussian config or marker differs from unique snapshot derivation")
+    return tuple(item["artifact_authority_id"] for item in controls[2:])
 
 
 def _assert_effect_intent_replay(
@@ -1392,6 +1410,7 @@ def _execute_claimed_program(
                 str(item["artifact_authority_id"]) for item in program_inputs
             ),
             startup_payload_artifact_authority_ids=tuple(str(item["artifact_authority_id"]) for item in payloads),
+            handoff_artifact_authority_ids=_handoff_stage_ids(snapshot, authorities),
         )
         submit_map = _transport._submit_response(
             _invoke_program_driver(store, snapshot, program_transport_store, closed_driver.submit_qsub_once, current_request)
@@ -2012,7 +2031,7 @@ def _validate_completion_bundle(record, snapshot, job, workspace, receipts, obse
     code = term["returncode"] if term["kind"] == "exited" else 128 + term["signal"]
     diagnostic = _scheduler_diagnostic(observations, code)
     if diagnostic is None:
-        diagnostic = "program-signaled" if term["kind"] == "signaled" else "program-nonzero" if code else (_completion._crest._output_closure(next(iter(input_bytes.values())), content_map) if snapshot.program_execution_spec.program_kind == "crest" else _completion._output_closure(str(snapshot.program_execution_spec.program_data["task"]), next(iter(input_bytes.values())), content_map)) or "completed"
+        diagnostic = "program-signaled" if term["kind"] == "signaled" else "program-nonzero" if code else (_completion._crest._output_closure(next(iter(input_bytes.values())), content_map) if snapshot.program_execution_spec.program_kind == "crest" else _completion._gaussian._output_closure(content_map) if snapshot.program_execution_spec.program_kind == "gaussian" else _completion._output_closure(str(snapshot.program_execution_spec.program_data["task"]), next(iter(input_bytes.values())), content_map)) or "completed"
     return diagnostic, capture, sha256(raw).hexdigest(), opening.observation_id, closing.observation_id
 
 

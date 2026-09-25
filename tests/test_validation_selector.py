@@ -168,16 +168,21 @@ V31_EXECUTION_OWNERS = (
         "test_crest_completion", "test_crest_startup_payload",
         "test_publisher_pilot_orchestration", "test_receipt_source",
         "test_rtwin_successor_bridge.ProductionBridgeTests",
+        "test_gaussian_successor", "test_gaussian_short_entry",
     )),
     ("v31-program-completion", ("_program_completion.py", "_program_completion_wrapper.py"), (
         "test_program_completion", "test_publisher_pilot_orchestration",
         "test_crest_completion", "test_crest_startup_payload",
+        "test_gaussian_successor", "test_gaussian_short_entry",
     )),
     ("v31-submission-recovery", ("_submission_recovery.py",), ("test_exact_job_recovery",)),
     ("v31-crest-completion", ("_crest_completion.py",), (
         "test_crest_completion", "test_crest_startup_payload",
     )),
     ("v31-crest-startup", ("_crest_startup.py",), ("test_crest_startup_payload",)),
+    ("v31-gaussian-execution", ("_gaussian_completion.py", "_gaussian_startup.py", "_gaussian_file_carrier.py"), (
+        "test_gaussian_successor", "test_gaussian_short_entry",
+    )),
     ("v31-crest-loader", ("_crest_loader.py",), ("test_crest_loader",)),
     ("v31-receipt-source", ("_receipt_source.py",), (
         "test_receipt_source", "test_readonly_source_open", "test_crest_completion",

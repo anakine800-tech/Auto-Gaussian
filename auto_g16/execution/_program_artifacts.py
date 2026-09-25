@@ -56,6 +56,7 @@ def _stage_material(
             "sha256": declaration["sha256"],
             "size_bytes": declaration["size_bytes"],
         }, content))
+    material.extend((*_completion._gstartup._derived_artifacts(snapshot), *_completion._gfile._derived_artifacts(snapshot)))
     return tuple(material)
 
 
@@ -84,6 +85,7 @@ def _declared_stage_payload(
         }
         for item in snapshot.scheduler_artifacts
     )
+    declared += tuple(item for item, _ in (*_completion._gstartup._derived_artifacts(snapshot), *_completion._gfile._derived_artifacts(snapshot)))
     matched = tuple(item for item in declared if item == dict(candidate))
     if len(matched) != 1:
         raise TransportBoundaryError(

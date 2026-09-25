@@ -85,3 +85,71 @@ same-process loader and native stage/submit/replay closure own both artifacts.
 Old tuples remain distinct. Historical xTB proof compatibility is limited to
 [the exact retained bridge generation](../../crest-short-payload-historical-source.md).
 Neither inert delivery nor candidate validation grants scientific success.
+
+### V31 Gaussian successor adapter boundary
+
+`auto-g16-v31-gaussian/3` is the base Gaussian successor tuple.
+The additive `/4` short-entry and `/5` file-carrier tuples are governed by
+[the short-entry contract](../../gaussian-short-entry-contract.md) and
+[the file-carrier supplement](../../gaussian-qsub-file-carrier-contract.md).
+The base requirements below remain subject to those exact versioned supplements.
+It uses the existing public `ProgramExecutionSpec` and
+`ProgramExecutionSnapshot` records and the existing private closed adapter
+registry. It adds no public record, registry mutation API, Transport operation,
+or persistent schema. V30 Gaussian execution remains byte-for-byte independent
+and production-usable.
+
+The exact input inventory is one portable `gaussian-gjf` file. Preparation
+must parse its UTF-8 bytes and reject NUL/CR bytes, multiple jobs, `%oldchk`,
+checkpoint/geometry read dependencies including `Geom=Check`,
+`Geom=AllCheck`, `Geom=Checkpoint`, `Opt=ReadFC`, or bare `ReadFC`, missing
+charge/multiplicity, missing or non-Cartesian coordinates, and a route that
+does not contain the exact closed stage selected by `program_data.stage`
+(`opt` or `freq`). Stored `program_data` is exactly
+`{stage, completion_mode}` with `completion_mode` equal to
+`receipt-on-absence-v1`. The adapter owns no
+method, basis, solvent, charge, multiplicity, or scientific default; all such
+meaning is already present in the exact input bytes and remains subject to the
+normal approval gates.
+
+`ServerProfile` and `ResolvedServerProfile` retain their frozen public shapes.
+The profile binds `gaussian_executable_path` and contains one canonical
+`v31-gaussian-publisher-qualification-v4.json`; that qualification binds the
+real executable `{path,sha256,size_bytes}` and its exact bytes are hash-bound by
+the existing `runtime_identities` projection. Snapshot rendering parses the
+closed qualification and rejects any mismatch with the spec invocation. The
+Gaussian executable bytes themselves are forbidden in `runtime_contents`, and
+the qualification digest is never substituted for the executable digest. The
+Gaussian qualification and rendering material omit xTB executable and runtime-
+data authority. Manifest-v3 remains exactly five roots; public records,
+bootstrap protocol and Transport operations do not change.
+
+The closed argv is `[absolute_gaussian_executable]`. The exact bound GJF is
+opened no-follow, reattested against its staged identity, and passed as the
+child's standard input. Q/4 owns the complete child environment:
+`OMP_NUM_THREADS` derives solely from resolved resources; `g16root`,
+`GAUSS_EXEDIR`, and `LD_LIBRARY_PATH` must each equal the bound executable's
+parent directory; and `GAUSS_SCRDIR` has the sole `attempt-workspace` policy:
+the already fresh/no-overwrite Attempt workspace is the scratch directory.
+Its existing descriptor chain remains pinned through the
+child and is reattested inside final receipt publication, eliminating a second
+scratch mkdir/open seam. Workspace replacement or identity drift fails closed.
+PATH, HOME, the login-shell environment and any shared `/tmp` scratch are not
+inherited.
+Required output is exact `gaussian.log`; optional output is
+exact `gaussian.chk`. The deterministic receipt-on-absence scheduler renderer writes `gaussian.pbs`,
+redirects program stdout/stderr only to `gaussian.log`, records the exact exit
+status in an immutable Attempt-local receipt, and adds no caller shell fragment
+or ambient lookup. Scheduler terminal state alone never proves completion. Exact
+absence may promote only through the same receipt/capture authority: trustworthy
+exit zero, stable required `gaussian.log`, and the Gaussian normal-termination
+marker produce flow-level `SUCCEEDED`; nonzero or invalid/missing required output
+produces the contract-defined `FAILED`; missing, malformed, unstable or
+untrusted evidence remains `UNKNOWN`. No branch authorizes automatic retry or
+scientific acceptance.
+
+The renderer embeds `v31-completion-rendering-material/5`. The same fixed tuple
+is admitted by collection and reconciliation restoration only for the exact
+already submitted Attempt under its production Project journal. Restore does
+not allocate, stage, submit, retry, replace the Attempt, or reinterpret prior
+UNKNOWN evidence.

@@ -314,6 +314,18 @@ code_paths = ["scripts/prepare_v31_level2_packet.py", "scripts/qualify_v31_progr
 focused_tests = ["tests/v31/tooling/test_prepare_v31_level2_packet.py", "tests/v31/tooling/test_qualify_v31_program.py"]
 
 [[component]]
+id = "v31-gaussian-successor"
+status = "offline-candidate-live-not-authorized"
+required_sections = [
+  "OWNER_DECISIONS.md#od-34-gaussian-successor-is-one-narrow-closed-adapter",
+  "docs/v3/boundary-spec.md#v31-gaussian-successor-adapter-boundary",
+  "docs/v3/acceptance.md#v31-gaussian-successor-adapter-acceptance",
+  "docs/v3/AUTONOMOUS_DEVELOPMENT.md#v31-gaussian-successor-01",
+]
+code_paths = ["auto_g16/execution/models.py", "auto_g16/execution/program.py", "auto_g16/execution/_gaussian_completion.py", "auto_g16/execution/_program_completion.py", "auto_g16/execution/program_runtime.py", "auto_g16/transport/_program_rtwin.py"]
+focused_tests = ["tests/v31/transport/test_gaussian_successor.py"]
+
+[[component]]
 id = "reaction-workflow"
 status = "acceptance-target"
 required_sections = [

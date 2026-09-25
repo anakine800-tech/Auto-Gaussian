@@ -458,3 +458,7 @@ complete contract text; this list contains no replacement policy.
 <a id="v31-crest-short-entry-delivery-boundary"></a>
 
 - [V31 CREST short-entry delivery boundary](contracts/boundary/v31-successors.md#v31-crest-short-entry-delivery-boundary)
+
+<a id="v31-gaussian-successor-adapter-boundary"></a>
+
+- [V31 Gaussian successor adapter boundary](contracts/boundary/v31-successors.md#v31-gaussian-successor-adapter-boundary)

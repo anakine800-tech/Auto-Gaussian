@@ -392,6 +392,12 @@ def _resolve_closed_profile_authority(frozen:object,current_profile:ServerProfil
     manifest_name="transport-deployment-manifest-v3.json" if successor else _MANIFEST_NAME
     source_name=_PROGRAM_BOOTSTRAP_SOURCE_NAME if successor else _BOOTSTRAP_SOURCE_NAME
     source_bytes=_PROGRAM_BOOTSTRAP_SOURCE_BYTES if successor else _BOOTSTRAP_SOURCE_BYTES
+    if successor and "v31-gaussian-publisher-qualification-v6.json" in current_profile.runtime_contents:
+        from ._gaussian_file_submit import SOURCE_NAME, source_bytes as gaussian_source_bytes
+        source_name=SOURCE_NAME; source_bytes=gaussian_source_bytes()
+    elif successor and "v31-gaussian-publisher-qualification-v5.json" in current_profile.runtime_contents:
+        from ._gaussian_submit import SOURCE_NAME, source_bytes as gaussian_source_bytes
+        source_name=SOURCE_NAME; source_bytes=gaussian_source_bytes()
     try:
         frozen.assert_identity_closed(); frozen_profile=_freeze_profile(current_profile); current=resolve_server_profile(frozen_profile)
     except Exception as exc: raise TransportBoundaryError("current profile cannot be resolved") from exc

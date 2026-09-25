@@ -550,6 +550,10 @@ def resolve_server_profile(profile: ServerProfile) -> ResolvedServerProfile:
             raise ExecutionValueError("runtime contents must not include credential material")
         if not isinstance(content, bytes):
             raise ExecutionValueError("runtime content must be immutable bytes")
+        if name == "gaussian":
+            raise ExecutionValueError(
+                "Gaussian executable bytes must not be embedded in runtime_contents"
+            )
         _reject_secret_content(name, content)
         identity_content = (
             _canonical_xtb_runtime_data_manifest(content)

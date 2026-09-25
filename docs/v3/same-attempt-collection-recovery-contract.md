@@ -15,6 +15,41 @@ This document proposes the smallest private recovery delta. It does not activate
 a deployment, change an existing approval, or authorize product implementation
 before the coordinating task records acceptance of these exact bytes.
 
+## 2026-09-25 frozen per-store root compatibility delta
+
+The Owner delegated a narrow v3 maintenance patch for same-Attempt recovery
+to isolated task `01a0d64c-913f-7550-a743-6b2ee0e292d2`, branch
+`codex/v31-716-collection-store-roots`, from exact base
+`7397c282e86467965fe2fabf66cc57e5bab3f2d2`, tree
+`9b190e0f4b300dcce39dc8fa4fb28388fcd3b58d`. The worktree is the App-created
+`3a17` checkout; clean development preflight passed before edits. This is not
+a BUS task. Authorized steps are this small contract freeze, implementation,
+proportional offline checks, independent L3 review and local commit only.
+Allowed files are this contract, `scripts/run_v31_publisher_pilot.py` and
+`tests/v31/transport/test_publisher_collection_recovery.py`.
+
+The fixed private `_FixedCollectionRun.store_root` continues to bind the
+transport store's original approved root. Append optional
+`project_journal_root: str | None = None`: an explicit value binds the journal's
+own original approved root; only `None` retains the legacy same-root binding to
+`store_root`. Both effective roots must be non-empty absolute strings before
+opening stores. Relative/empty values cannot infer the current directory.
+Split-root packages must supply the journal root explicitly; no environment or
+current default, common-ancestor widening, metadata rewrite, database copy or
+move is allowed. Both native `open_existing` APIs and their exact persisted
+root/path/inode/attestation checks remain unchanged. Wrong or swapped roots
+must fail before any wire, audit, Result or Attempt transition.
+
+Acceptance adds real synthetic SQLite split-root restore/collection and
+fresh-process zero-wire replay, wrong-root/adversarial rejection with unchanged
+store bytes, and existing same-root compatibility. Preserve original
+submission/snapshot/source/installation identities: this patch is solely a new
+collector candidate. Run the exact selector and report conservative routing;
+no full suite, unchanged evidence reruns, real-store mutation, old installation
+change, SSH/live effects, push, PR or merge is authorized. Native same-job
+collection remains the coordinating task's separately reviewed CR10 gate;
+offline success supplies no live, integration or scientific acceptance.
+
 ## 1. Authority, baseline and outcome
 
 Authority remains AGENTS → OWNER_DECISIONS → boundary-spec → acceptance →

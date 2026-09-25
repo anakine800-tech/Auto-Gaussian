@@ -222,3 +222,7 @@ complete contract text; this list contains no replacement policy.
 <a id="v31-crest-695-markerless-recovery-01"></a>
 
 - [V31-CREST-695-MARKERLESS-RECOVERY-01](contracts/tasks/v31-successors.md#v31-crest-695-markerless-recovery-01)
+
+<a id="v31-gaussian-successor-01"></a>
+
+- [V31-GAUSSIAN-SUCCESSOR-01](contracts/tasks/v31-successors.md#v31-gaussian-successor-01)
