@@ -1,5 +1,13 @@
 # Auto-G16 v3 Boundary Specification
 
+## Managed native Direct candidate boundary
+
+The private [MAC-DIRECT-MANAGED-NATIVE-V1 contract](contracts/mac-direct-managed-native-v1.md#boundary)
+adds an inactive process/IPC/lifecycle adapter candidate. Production stays
+closed and native qualification is absent. Its single native child owner does
+not redefine business completion, Core observations or Transport physical
+authority. Original Option-1 process behavior and Gaussian science are unchanged.
+
 This document fixes stable dependency and data boundaries only. It does not
 select implementation techniques.
 

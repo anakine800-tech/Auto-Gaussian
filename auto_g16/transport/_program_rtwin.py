@@ -8,7 +8,7 @@ from hashlib import sha256
 import os
 import re
 import stat
-from threading import Event, RLock, Thread
+from threading import Event, Lock, RLock, Thread, get_ident
 import time
 from types import MappingProxyType
 from contextvars import ContextVar
@@ -23,6 +23,64 @@ from ._canonical import TransportBoundaryError, canonical_json_bytes, strict_can
 _COLLECTION_WIRE_OWNER = ContextVar("collection_wire_owner", default=None)
 _GAUSSIAN_LAUNCH_OWNER = ContextVar("gaussian_launch_owner", default=None)
 _GAUSSIAN_WIRE_CONTEXT = ContextVar("gaussian_wire_context", default=None)
+_DIRECT_WIRE_HANDOFF = ContextVar("direct_wire_handoff", default=None)
+
+
+class _DirectWireHandoff:
+    """One lower dispatch after the original request has been consumed.
+
+    This is transient Transport context, never an approval, claim or retry
+    ticket. The original owner retains its physical guard throughout.
+    """
+    __slots__ = ("_binding", "_used", "_closed", "_lock")
+
+    def __init__(self, driver, invocation):
+        if (type(driver) is not _RTWinProgramEffectDriver
+                or type(invocation) is not _ProgramRTWinInvocation
+                or driver._active is not None
+                or type(invocation.authority.ssh_effect) is not _driver._MacDirectEffectAuthority):
+            raise TransportBoundaryError("Direct wire handoff requires consumed original owner")
+        driver._store._require_current_completion_owner()
+        self._binding = (driver, driver._snapshot, invocation,
+                         canonical_json_bytes(_plain(invocation.request)), os.getpid(), get_ident())
+        self._used = self._closed = False
+        self._lock = Lock()
+
+    def _check(self, driver, scope, invocation):
+        bound, snapshot, wire, raw, pid, thread = self._binding
+        if (self._closed or _DIRECT_WIRE_HANDOFF.get() is not self
+                or driver is not bound or scope is not snapshot or invocation is not wire
+                or (os.getpid(), get_ident()) != (pid, thread) or driver._active is not None
+                or canonical_json_bytes(_plain(invocation.request)) != raw):
+            raise TransportBoundaryError("Direct wire handoff is foreign, changed or expired")
+        driver._store._require_current_completion_owner()
+
+    def consume(self, driver, scope, invocation):
+        if not self._lock.acquire(False):
+            raise TransportBoundaryError("Direct wire handoff busy")
+        try:
+            if self._used:
+                raise TransportBoundaryError("Direct wire handoff already consumed")
+            self._used = True  # Rejection or uncertainty cannot reopen this wire.
+            self._check(driver, scope, invocation)
+            return self
+        finally:
+            self._lock.release()
+
+    def assert_consumed(self, driver, scope, invocation):
+        if not self._used:
+            raise TransportBoundaryError("Direct wire handoff not consumed")
+        self._check(driver, scope, invocation)
+
+    def close(self):
+        self._closed = True
+
+
+def _consume_direct_wire(driver, scope, invocation):
+    handoff = _DIRECT_WIRE_HANDOFF.get()
+    if type(handoff) is not _DirectWireHandoff:
+        raise TransportBoundaryError("Direct wire handoff missing")
+    return handoff.consume(driver, scope, invocation)
 
 
 def _gaussian_derived_stages(snapshot):
@@ -186,7 +244,10 @@ def _prepare_program_invocation(
     )
     if authority != invocation.authority or scope_id != invocation.scope_identity:
         raise TransportBoundaryError("successor deployment changed before subprocess")
-    if not authority.resource_dialect.live_capable or type(authority.ssh_effect) is not _driver._MacProxyJumpEffectAuthority:
+    if type(authority.ssh_effect) is _driver._MacDirectEffectAuthority:
+        if type(scope) is ProgramExecutionSnapshot and scope.program_execution_spec.program_kind != "xtb":
+            raise TransportBoundaryError("managed Direct first version is xTB only")
+    elif not authority.resource_dialect.live_capable or type(authority.ssh_effect) is not _driver._MacProxyJumpEffectAuthority:
         raise TransportBoundaryError("successor requires the qualified RTwin ProxyJump deployment")
     if type(scope) is ProgramExecutionSnapshot and scope.program_execution_spec.adapter_contract_version in (3, 4, 5):
         collection = _COLLECTION_WIRE_OWNER.get()
@@ -226,6 +287,9 @@ def _prepare_program_invocation(
     frame = _bridge._encode_frame(request)
     if len(frame) > invocation.operation.stdin_cap:
         raise TransportBoundaryError("successor request exceeds operation cap")
+    if type(authority.ssh_effect) is _driver._MacDirectEffectAuthority:
+        from ._direct import _build_mac_direct_command
+        return _build_mac_direct_command(scope, authority, source=source), frame
     # Only these source-owned bootstrap bytes may contain literal newlines.
     quoted_source = "'" + source.decode("utf-8").replace("'", "'\"'\"'") + "'"
     roots = authority.manifest.trust_roots
@@ -591,7 +655,12 @@ class _RTWinProgramEffectDriver:
         if str(executable["absolute_path"]).startswith("/opt/auto-g16-fixtures/"):
             raise TransportBoundaryError("synthetic executables cannot qualify a production driver")
         authority = _driver._resolve_closed_profile_authority(self._snapshot.resolved_server_profile, self._profile, self._snapshot.program_execution_snapshot_id, successor=True)
-        if not authority.resource_dialect.live_capable or type(authority.ssh_effect) is not _driver._MacProxyJumpEffectAuthority:
+        if type(authority.ssh_effect) is _driver._MacDirectEffectAuthority:
+            from auto_g16._managed_native.service import _require_managed_driver
+            _require_managed_driver(self)
+            if not authority.resource_dialect.live_capable or self._snapshot.program_execution_spec.program_kind != "xtb":
+                raise TransportBoundaryError("managed Direct requires qualified xTB resources")
+        elif not authority.resource_dialect.live_capable or type(authority.ssh_effect) is not _driver._MacProxyJumpEffectAuthority:
             raise TransportBoundaryError("production successor requires qualified ProxyJump")
         if self._snapshot.program_execution_spec.adapter_contract_version in (3, 4, 5):
             if self._publisher is None:
@@ -712,7 +781,13 @@ class _RTWinProgramEffectDriver:
             gaussian_token = _GAUSSIAN_WIRE_CONTEXT.set((snapshot, _closed_copy(context)))
         invocation = _ProgramRTWinInvocation(_gaussian_submit_operation(snapshot.program_execution_spec.adapter_contract_version == 5) if gaussian_submit else _driver._operation(operation), authority, self._profile, _closed_copy(wire), snapshot.program_execution_snapshot_id)
         token = None
+        direct_token = direct_handoff = None
         try:
+            if type(authority.ssh_effect) is _driver._MacDirectEffectAuthority:
+                if _DIRECT_WIRE_HANDOFF.get() is not None:
+                    raise TransportBoundaryError("nested Direct wire handoff")
+                direct_handoff = _DirectWireHandoff(self, invocation)
+                direct_token = _DIRECT_WIRE_HANDOFF.set(direct_handoff)
             if self._collection_only:
                 if _COLLECTION_WIRE_OWNER.get() is not None:
                     raise _publisher_failure("nested collection wire owner")
@@ -728,6 +803,10 @@ class _RTWinProgramEffectDriver:
             else:
                 result = _wire_call(snapshot, invocation)
         finally:
+            if direct_handoff is not None:
+                direct_handoff.close()
+            if direct_token is not None:
+                _DIRECT_WIRE_HANDOFF.reset(direct_token)
             if token is not None:
                 _COLLECTION_WIRE_OWNER.reset(token)
             if gaussian_token is not None:

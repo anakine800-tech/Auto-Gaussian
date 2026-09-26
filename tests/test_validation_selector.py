@@ -79,6 +79,18 @@ TRANSPORT_TESTS = [
     "tests.v3.transport",
     "tests.v31.transport",
 ]
+MANAGED_DIRECT_TESTS = [
+    "tests.v3.managed_native.test_boundaries",
+    "tests.v3.managed_native.test_durable_veto",
+    "tests.v3.managed_native.test_service",
+    "tests.v3.managed_native.test_supervisor",
+]
+DIRECT_TRANSPORT_TESTS = sorted({*TRANSPORT_TESTS, *MANAGED_DIRECT_TESTS})
+DIRECT_TRANSPORT_PATHS = tuple(
+    "auto_g16/transport/" + name for name in (
+        "_bridge.py", "_direct.py", "_driver.py", "_program_rtwin.py", "_recovery_process.py",
+    )
+)
 APPROVAL_SAFETY = [
     "approval-owner-separation",
     "at-most-one-submission",
@@ -1659,6 +1671,70 @@ class ValidationSelectorTests(unittest.TestCase):
                     self.assertTrue(decision["fail_closed"])
                     self.assertEqual(decision["tests"], [])
 
+    def test_managed_direct_shared_sources_select_consumers_exactly(self) -> None:
+        for path in DIRECT_TRANSPORT_PATHS:
+            with self.subTest(path=path):
+                result = self.select(change("M", path))
+                self.assertEqual(result["matched_routes"], ["mac-direct-shared-transport"])
+                self.assertEqual(result["tests"], DIRECT_TRANSPORT_TESTS)
+                self.assertEqual(result["safety_evidence"], TRANSPORT_SAFETY)
+                self.assertEqual(result["lane"], "affected")
+                self.assertFalse(result["fail_closed"])
+
+    def test_managed_offline_dependencies_select_real_service_consumer(self) -> None:
+        sources = sorted((ROOT / "auto_g16/_managed_offline").glob("*.py"))
+        self.assertGreater(len(sources), 1)
+        for path in sources:
+            with self.subTest(path=path.name):
+                result = self.select(change("M", path.relative_to(ROOT).as_posix()))
+                self.assertEqual(result["matched_routes"], ["mac-direct-managed-offline-v1"])
+                self.assertEqual(result["lane"], "affected")
+                self.assertFalse(result["fail_closed"])
+                self.assertIn("tests.v3.managed_native.test_service", result["tests"])
+                self.assertFalse(set(MANAGED_DIRECT_TESTS) - {"tests.v3.managed_native.test_service"} & set(result["tests"]))
+                for module in ("material", "review", "lifecycle", "routing"):
+                    self.assertIn("tests.v3.managed_offline.test_" + module, result["tests"])
+
+    def test_managed_direct_routing_preserves_other_transport_and_protection(self) -> None:
+        sources = sorted((ROOT / "auto_g16/transport").glob("*.py"))
+        for path in sources:
+            relative = path.relative_to(ROOT).as_posix()
+            if relative in DIRECT_TRANSPORT_PATHS:
+                continue
+            with self.subTest(path=relative):
+                result = self.select(change("M", relative))
+                self.assertEqual(result["matched_routes"], ["v30-transport"])
+                self.assertEqual(result["tests"], TRANSPORT_TESTS)
+                self.assertEqual(result["safety_evidence"], TRANSPORT_SAFETY)
+        for path in ("auto_g16/transport/future.py", "auto_g16/transport/_direct_extra.py"):
+            with self.subTest(path=path), self.assertRaisesRegex(SELECTOR.SelectionError, "UNMAPPED_MODERN_PATH"):
+                self.select(change("A", path))
+        for path in self.manifest["self_protecting_paths"]:
+            result = self.select(change("M", DIRECT_TRANSPORT_PATHS[0]), change("M", path))
+            self.assertEqual(result["lane"], "legacy-release")
+            self.assertTrue(result["fail_closed"])
+            self.assertEqual(result["tests"], [])
+
+    def test_managed_direct_mixed_routes_have_exact_unique_loader_union(self) -> None:
+        changes = [change("M", path) for path in (
+            DIRECT_TRANSPORT_PATHS[0], "auto_g16/_managed_offline/review.py",
+            "auto_g16/_managed_native/service.py",
+        )]
+        loader = unittest.TestLoader()
+        expected = set()
+        for item in changes:
+            identifiers = suite_ids(loader.loadTestsFromNames(self.select(item)["tests"]))
+            self.assertTrue(identifiers)
+            self.assertFalse(any("_FailedTest" in identifier for identifier in identifiers))
+            expected.update(identifiers)
+        for order in (changes, list(reversed(changes))):
+            selected = self.select(*order)
+            identifiers = suite_ids(loader.loadTestsFromNames(selected["tests"]))
+            self.assertEqual(set(identifiers), expected)
+            self.assertEqual(len(identifiers), len(set(identifiers)))
+            self.assertTrue(set(MANAGED_DIRECT_TESTS) <= set(selected["tests"]))
+        self.assertFalse(loader.errors)
+
     def test_transport_union_removes_only_reviewed_execution_overlap(self) -> None:
         product = change("M", "auto_g16/transport/_program_rtwin.py")
         child = change("M", "tests/v31/transport/test_rtwin_successor_bridge.py")
@@ -1667,7 +1743,7 @@ class ValidationSelectorTests(unittest.TestCase):
         for field in ("lane", "tests", "matched_routes", "safety_evidence", "fail_closed"):
             self.assertEqual(forward[field], reverse[field])
         self.assertEqual(forward["lane"], "affected")
-        self.assertEqual(forward["tests"], TRANSPORT_TESTS)
+        self.assertEqual(forward["tests"], DIRECT_TRANSPORT_TESTS)
         self.assertEqual(forward["safety_evidence"], TRANSPORT_SAFETY)
         self.assertEqual(self.select(child)["tests"], V31_TRANSPORT_TESTS)
 
@@ -1697,7 +1773,7 @@ class ValidationSelectorTests(unittest.TestCase):
             self.assertTrue(child_ids)
             self.assertTrue(set(child_ids).issubset(parent_ids))
             self.assertEqual(len(parent_ids), len(set(parent_ids)))
-        old_names = sorted({*TRANSPORT_TESTS, *V31_TRANSPORT_TESTS})
+        old_names = sorted({*DIRECT_TRANSPORT_TESTS, *V31_TRANSPORT_TESTS})
         new_names = self.select(
             change("M", "auto_g16/transport/_program_rtwin.py"),
             change("M", "tests/v31/transport/test_rtwin_successor_bridge.py"),
@@ -1748,7 +1824,7 @@ class ValidationSelectorTests(unittest.TestCase):
         for stem in ("prepare_v31_level2_packet", "qualify_v31_program"):
             tool = change("A", f"scripts/{stem}.py")
             tool_names = self.select(tool)["tests"]
-            original_names = sorted({*TRANSPORT_TESTS, *tool_names})
+            original_names = sorted({*DIRECT_TRANSPORT_TESTS, *tool_names})
             selected = self.select(transport, tool)
             self.assertEqual(selected["safety_evidence"], TRANSPORT_SAFETY)
             # New tool modules live in their independent lanes until integration.

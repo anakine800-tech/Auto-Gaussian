@@ -1,5 +1,18 @@
 # Auto-G16 v3 Owner Decisions
 
+## MAC-DIRECT-MANAGED-NATIVE-V1 bounded candidate
+
+The explicit Owner gate permits only the isolated implementation, offline
+validation, author review and uncommitted freeze described in the
+[task contract](docs/v3/contracts/mac-direct-managed-native-v1.md).
+The managed Direct production entry remains unconditionally closed. Native
+adapter source, offline call-order tests and previous Direct L3 evidence do
+not qualify an installation or authorize native experiments or activation.
+The accepted explicit Codex/front-end human-confirmation source assumption
+does not grant desktop UID write access to the managed execution domain.
+Existing Core/Approval/Transport authority and Option-1 behavior remain owned
+by their existing contracts; no new submission or approval ledger is added.
+
 These decisions close the design questions accepted in Phase 0 and Phase 0.6.
 They govern v3 planning until changed by a later reviewed Git commit.
 

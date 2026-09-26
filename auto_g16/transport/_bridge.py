@@ -879,6 +879,16 @@ _PROGRAM_BOOTSTRAP_SOURCE = _PROGRAM_BOOTSTRAP_SOURCE.replace(
 _PROGRAM_BOOTSTRAP_SOURCE_BYTES: Final = _PROGRAM_BOOTSTRAP_SOURCE.encode("utf-8")
 
 
+def _render_program_server_command(authority:object,source:bytes)->str:
+    """Render the shared fixed Program bootstrap; callers own source authority."""
+    roots=authority.manifest.trust_roots
+    if roots["server_remote_shell"].shell_grammar!="posix-sh-v1":
+        raise TransportBoundaryError("successor server shell grammar is unsupported")
+    quoted_source="'"+source.decode("utf-8").replace("'", "'\"'\"'")+"'"
+    tokens=(roots["server_python"].path,"-I","-S","-B","-c")
+    return " ".join((*(_posix_quote_v1(token) for token in tokens),quoted_source,_posix_quote_v1(base64.b64encode(authority.manifest.raw_bytes).decode("ascii"))))
+
+
 def _build_mac_proxyjump_command(snapshot:object,authority:object)->tuple[str,...]:
     manifest=authority.manifest; roots=manifest.trust_roots; profile=snapshot.resolved_server_profile
     if (

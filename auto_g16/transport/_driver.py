@@ -20,6 +20,7 @@ from auto_g16.execution import ExecutionSnapshot, ServerProfile, assert_executio
 
 from ._bridge import _BOOTSTRAP_PROTOCOL, _BOOTSTRAP_SOURCE_BYTES, _BOOTSTRAP_SOURCE_NAME, _RTWIN_LAUNCHER_SHA256, _RTWIN_LAUNCHER_SIZE, _build_mac_proxyjump_command, _build_rtwin_command, _decode_response_frame, _encode_request_frame
 from ._canonical import TransportBoundaryError, canonical_json_bytes, strict_canonical_json
+from ._direct import _DIRECT_CONFIG_PATHS, _DIRECT_MAC_SSH, _MacDirectEffectAuthority, _resolve_mac_direct, _attest_direct_local
 
 _FIXED_ENV: Final = {"LANG":"C","LC_ALL":"C","PYTHONNOUSERSITE":"1","PYTHONUTF8":"1"}
 _MANIFEST_NAME: Final = "transport-deployment-manifest-v2.json"
@@ -107,7 +108,7 @@ class _MacProxyJumpEffectAuthority:
     route:str; config:_BoundEffectFile; rtwin_known_hosts:_BoundEffectFile; final_known_hosts:_BoundEffectFile; final_public_key:_BoundEffectFile; final_identity_fingerprint:str; final_identity_file_identity:tuple[int,int,int,int,int]; rtwin_target:_SSHConfigTarget; final_target:_SSHConfigTarget
 @dataclass(frozen=True,slots=True)
 class _DeploymentAuthority:
-    manifest:_DeploymentManifest; resource_dialect:_ResourceDialect; ssh_effect:_SSHEffectAuthority|_MacProxyJumpEffectAuthority; resolved_server_profile_id:str; effective_config_sha256:str; execution_snapshot_id:str; bootstrap_source_sha256:str; bootstrap_source_size_bytes:int; bootstrap_source_path:str|None; manifest_path:str|None
+    manifest:_DeploymentManifest; resource_dialect:_ResourceDialect; ssh_effect:_SSHEffectAuthority|_MacProxyJumpEffectAuthority|_MacDirectEffectAuthority; resolved_server_profile_id:str; effective_config_sha256:str; execution_snapshot_id:str; bootstrap_source_sha256:str; bootstrap_source_size_bytes:int; bootstrap_source_path:str|None; manifest_path:str|None
 @dataclass(frozen=True,slots=True,kw_only=True)
 class _Invocation:
     operation:_Operation; argv:tuple[str,...]; cwd:str; request:Mapping[str,object]; authority:_DeploymentAuthority
@@ -343,8 +344,10 @@ def _parse_mac_proxyjump_config(raw:bytes,*,config_path:str,rtwin_known_hosts_pa
         _SSHConfigTarget(final["Host"],final["HostName"],int(final["Port"]),final["User"],final_identity),
     )
 
-def _resolve_ssh_effect(profile:ServerProfile,current:object)->_SSHEffectAuthority|_MacProxyJumpEffectAuthority:
+def _resolve_ssh_effect(profile:ServerProfile,current:object)->_SSHEffectAuthority|_MacProxyJumpEffectAuthority|_MacDirectEffectAuthority:
     names=tuple(name for name,_content in profile.config_files)
+    if set(names).intersection(_DIRECT_CONFIG_PATHS) or set(_DIRECT_CONFIG_PATHS.values()).intersection(getattr(current,"platform_paths")):
+        return _resolve_mac_direct(profile,current)
     if len(names)==len(_PROXYJUMP_CONFIG_NAMES) and set(names)==set(_PROXYJUMP_CONFIG_NAMES):
         contents=dict(profile.config_files); paths=getattr(current,"platform_paths"); bound={}
         for logical_name,path_key in _PROXYJUMP_CONFIG_PATHS.items():
@@ -411,7 +414,12 @@ def _resolve_closed_profile_authority(frozen:object,current_profile:ServerProfil
     expected_source={"sha256":sha256(source_bytes).hexdigest(),"size_bytes":len(source_bytes)}
     if source_identity!=expected_source: raise TransportBoundaryError("bootstrap source differs from source")
     manifest=_parse_deployment_manifest(raw,successor=successor); dialect=_parse_resource_descriptor(descriptor_raw); _validate_resource_deployment(manifest,dialect); ssh_effect=_resolve_ssh_effect(frozen_profile,current)
-    if isinstance(ssh_effect,_MacProxyJumpEffectAuthority):
+    if type(ssh_effect) is _MacDirectEffectAuthority:
+        if not successor: raise TransportBoundaryError("Mac direct requires the Program successor manifest")
+        mac_ssh=manifest.trust_roots["mac_ssh"]
+        if (mac_ssh.path,mac_ssh.expected_size_bytes,mac_ssh.expected_sha256)!=_DIRECT_MAC_SSH: raise TransportBoundaryError("Mac direct OpenSSH candidate identity differs")
+        bootstrap_path=manifest_path=None
+    elif isinstance(ssh_effect,_MacProxyJumpEffectAuthority):
         mac_ssh=manifest.trust_roots["mac_ssh"]
         if (mac_ssh.path,mac_ssh.expected_size_bytes,mac_ssh.expected_sha256)!=_OPTION1_MAC_SSH: raise TransportBoundaryError("Option-1 Mac OpenSSH identity differs from qualification")
         bootstrap_path=manifest_path=None
@@ -584,6 +592,9 @@ class _SubprocessRTWinDriver:
             return b"",b"",None,"transport-error",False,False
         roots=invocation.authority.manifest.trust_roots
         effect=invocation.authority.ssh_effect
+        if type(effect) is _MacDirectEffectAuthority:
+            from auto_g16._managed_native.service import run_direct
+            return run_direct(snapshot, invocation)
         if isinstance(effect,_MacProxyJumpEffectAuthority):
             local_files=(effect.config,effect.rtwin_known_hosts,effect.final_known_hosts,effect.final_public_key); root_names=("mac_ssh",)
             identity_paths=((effect.rtwin_target.identity_file,None),(effect.final_target.identity_file,effect.final_identity_file_identity))

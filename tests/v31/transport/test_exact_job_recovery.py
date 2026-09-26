@@ -237,19 +237,77 @@ class ParserTests(unittest.TestCase):
 
 
 class ProcessCaptureTests(unittest.TestCase):
+    def observe_child(self,pid):
+        self.assertIs(type(pid),int);self.assertGreater(pid,0);self.assertLessEqual(pid,0x7fffffff)
+        if sys.platform=="darwin":
+            import ctypes
+            import errno
+            # Darwin SDK: proc_bsdshortinfo, PROC_PIDT_SHORTBSDINFO=13, SZOMB=5.
+            # Query the real kernel state without executing the setuid /bin/ps.
+            class BsdShortInfo(ctypes.Structure):
+                _fields_=[(name,ctypes.c_uint32) for name in ("pid","ppid","pgid","status")]+[
+                    ("comm",ctypes.c_char*16)]+[(name,ctypes.c_uint32) for name in (
+                    "flags","uid","gid","ruid","rgid","svuid","svgid","reserved")]
+            self.assertEqual(ctypes.sizeof(BsdShortInfo),64)
+            library=ctypes.CDLL("/usr/lib/libproc.dylib",use_errno=True)
+            query=library.proc_pidinfo
+            query.argtypes=[ctypes.c_int,ctypes.c_int,ctypes.c_uint64,ctypes.c_void_p,ctypes.c_int]
+            query.restype=ctypes.c_int
+            info=BsdShortInfo();ctypes.set_errno(0)
+            size=query(pid,13,0,ctypes.byref(info),ctypes.sizeof(info));error=ctypes.get_errno()
+            if size==0 and error==errno.ESRCH:return None
+            if size<=0:raise OSError(error or errno.EIO,"proc_pidinfo observation failed")
+            self.assertEqual(size,ctypes.sizeof(info),"incomplete process observation")
+            self.assertEqual(info.pid,pid,"process observation identity mismatch")
+            self.assertIn(info.status,(1,2,3,4,5),"unknown process state")
+            return info.pid,info.pgid,"Z" if info.status==5 else str(info.status)
+        observed=subprocess.run(["/bin/ps","-p",str(pid),"-o","pid=,pgid=,stat="],capture_output=True,text=True,timeout=2)
+        if observed.returncode==1 and not observed.stdout.strip() and not observed.stderr.strip():return None
+        self.assertEqual(observed.returncode,0,observed.stderr)
+        fields=observed.stdout.split();self.assertEqual(len(fields),3)
+        self.assertEqual(int(fields[0]),pid)
+        return int(fields[0]),int(fields[1]),fields[2]
+
     def assert_child_exited(self,pid,group):
         # Darwin can report EPERM for a disappeared process group; observe the
         # exact self-created child instead of treating signal errors as proof.
         deadline=time.monotonic()+2
         while time.monotonic()<deadline:
-            observed=subprocess.run(["/bin/ps","-p",str(pid),"-o","pid=,pgid=,stat="],capture_output=True,text=True,timeout=2)
-            if observed.returncode==1 and not observed.stdout.strip() and not observed.stderr.strip():return
-            fields=observed.stdout.split()
-            if len(fields)==3 and fields[:2]==[str(pid),str(group)] and fields[2].startswith("Z"):return
-            self.assertEqual(observed.returncode,0,observed.stderr)
-            self.assertEqual(fields[:2],[str(pid),str(group)])
+            observed=self.observe_child(pid)
+            if observed is None:return
+            self.assertEqual(observed[:2],(pid,group))
+            if observed[2].startswith("Z"):return
             time.sleep(.01)
-        self.fail("exact owned child survived leader-exit timeout: "+observed.stdout)
+        self.fail("exact owned child survived leader-exit timeout: "+repr(observed))
+
+    def test_process_observer_checks_real_live_identity_and_exit(self):
+        process=subprocess.Popen([sys.executable,"-c","import sys; sys.stdin.buffer.read()"],stdin=subprocess.PIPE,start_new_session=True)
+        try:
+            observed=self.observe_child(process.pid)
+            self.assertEqual(observed[:2],(process.pid,process.pid))
+            self.assertFalse(observed[2].startswith("Z"))
+            with self.assertRaises(AssertionError):self.assert_child_exited(process.pid,process.pid+1)
+            with self.assertRaisesRegex(AssertionError,"survived leader-exit timeout"):
+                self.assert_child_exited(process.pid,process.pid)
+            process.communicate(timeout=2);self.assertEqual(process.returncode,0)
+            self.assertIsNone(self.observe_child(process.pid))
+            self.assert_child_exited(process.pid,process.pid)
+        finally:
+            if process.poll() is None:process.kill();process.wait(timeout=2)
+            if process.stdin is not None:process.stdin.close()
+
+    def test_process_observer_denials_and_short_reads_cannot_prove_exit(self):
+        import ctypes
+        import errno
+        for size,error in ((0,errno.EPERM),(0,errno.EACCES),(0,0),(-1,errno.ESRCH),(1,0),(63,0),(65,0)):
+            with self.subTest(size=size,error=error):
+                def rejected_query(*args):
+                    ctypes.set_errno(error)
+                    return size
+                # Fault injection only: no simulated successful exit observation.
+                with patch.object(sys,"platform","darwin"),patch.object(ctypes,"CDLL",return_value=SimpleNamespace(proc_pidinfo=rejected_query)):
+                    with self.assertRaises(OSError if size<=0 else AssertionError):
+                        self.assert_child_exited(os.getpid(),os.getpgrp())
 
     def test_timeout_kills_owned_group_after_leader_exit(self):
         source="import os,time\nif os.fork(): os._exit(0)\nos.write(1,str(os.getpid()).encode())\ntime.sleep(30)\n"

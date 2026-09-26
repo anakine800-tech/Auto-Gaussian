@@ -220,6 +220,8 @@
         "docs/v3/contracts/tasks/v31-successors.md",
         "docs/v3/contracts/tasks/validation.md",
         "docs/v3/contracts/tasks/workflow.md",
+        "docs/v3/contracts/mac-direct-managed-offline-v1.md",
+        "docs/v3/contracts/mac-direct-managed-native-v1.md",
         "docs/v3/gaussian-qsub-file-carrier-contract.md",
         "docs/v3/gaussian-short-entry-contract.md"
       ],
@@ -590,9 +592,19 @@
     },
     {
       "id": "v30-transport",
-      "exact_paths": [],
+      "exact_paths": [
+        "auto_g16/transport/__init__.py",
+        "auto_g16/transport/_canonical.py",
+        "auto_g16/transport/_gaussian_file_handoff.py",
+        "auto_g16/transport/_gaussian_file_submit.py",
+        "auto_g16/transport/_gaussian_handoff.py",
+        "auto_g16/transport/_gaussian_submit.py",
+        "auto_g16/transport/_submission_recovery.py",
+        "auto_g16/transport/models.py",
+        "auto_g16/transport/program.py",
+        "auto_g16/transport/rtwin.py"
+      ],
       "prefixes": [
-        "auto_g16/transport/",
         "tests/v3/transport/"
       ],
       "lane": "affected",
@@ -609,6 +621,46 @@
         "tests.test_direct_qstat_acquisition",
         "tests.test_resource_monitor_efficiency",
         "tests.v31.transport"
+      ],
+      "required_safety": [
+        "approval-owner-separation",
+        "at-most-one-submission",
+        "no-overwrite",
+        "reconciliation",
+        "still-applicable-descriptor-capability",
+        "timeout-slow-running-is-not-failure",
+        "unknown-no-automatic-retry"
+      ],
+      "fail_closed": false
+    },
+    {
+      "id": "mac-direct-shared-transport",
+      "exact_paths": [
+        "auto_g16/transport/_bridge.py",
+        "auto_g16/transport/_direct.py",
+        "auto_g16/transport/_driver.py",
+        "auto_g16/transport/_program_rtwin.py",
+        "auto_g16/transport/_recovery_process.py"
+      ],
+      "prefixes": [],
+      "lane": "affected",
+      "tests": [
+        "tests.v3.transport",
+        "tests.v3.execution",
+        "tests.v3.observe",
+        "tests.v3.core.test_store",
+        "tests.test_execution_authorization",
+        "tests.test_live_approval_effect_time_replay",
+        "tests.test_direct_one_hop_transport",
+        "tests.test_legacy_descriptor_mutation_capability",
+        "tests.test_legacy_root_authority_contract",
+        "tests.test_direct_qstat_acquisition",
+        "tests.test_resource_monitor_efficiency",
+        "tests.v31.transport",
+        "tests.v3.managed_native.test_boundaries",
+        "tests.v3.managed_native.test_supervisor",
+        "tests.v3.managed_native.test_service",
+        "tests.v3.managed_native.test_durable_veto"
       ],
       "required_safety": [
         "approval-owner-separation",
@@ -867,6 +919,63 @@
       "lane": "legacy-release",
       "tests": [],
       "required_safety": [],
+      "fail_closed": false
+    },
+    {
+      "id": "mac-direct-managed-offline-v1",
+      "exact_paths": [],
+      "prefixes": [
+        "auto_g16/_managed_offline/",
+        "tests/v3/managed_offline/"
+      ],
+      "lane": "affected",
+      "tests": [
+        "tests.v3.managed_offline.test_material",
+        "tests.v3.managed_offline.test_review",
+        "tests.v3.managed_offline.test_lifecycle",
+        "tests.v3.managed_offline.test_routing",
+        "tests.v3.approval",
+        "tests.v3.core.test_store",
+        "tests.v3.execution.test_v31_lane_a",
+        "tests.test_execution_authorization",
+        "tests.test_live_approval_effect_time_replay",
+        "tests.v3.managed_native.test_service"
+      ],
+      "required_safety": [
+        "approval-owner-separation",
+        "at-most-one-submission",
+        "no-overwrite",
+        "unknown-no-automatic-retry"
+      ],
+      "fail_closed": false
+    },
+    {
+      "id": "mac-direct-managed-native-v1",
+      "exact_paths": [],
+      "prefixes": [
+        "auto_g16/_managed_native/",
+        "tests/v3/managed_native/"
+      ],
+      "lane": "affected",
+      "tests": [
+        "tests.v3.managed_native.test_boundaries",
+        "tests.v3.managed_native.test_supervisor",
+        "tests.v3.managed_native.test_service",
+        "tests.v3.managed_native.test_durable_veto",
+        "tests.v3.managed_offline.test_material",
+        "tests.v3.managed_offline.test_review",
+        "tests.v3.managed_offline.test_lifecycle",
+        "tests.v3.managed_offline.test_routing",
+        "tests.v3.core.test_store",
+        "tests.test_execution_authorization",
+        "tests.test_live_approval_effect_time_replay"
+      ],
+      "required_safety": [
+        "approval-owner-separation",
+        "at-most-one-submission",
+        "no-overwrite",
+        "unknown-no-automatic-retry"
+      ],
       "fail_closed": false
     }
   ]
