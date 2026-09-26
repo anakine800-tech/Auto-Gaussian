@@ -12,7 +12,7 @@ arranged independent L3. Parent: `01a0d199-6213-7502-9398-6d7e9b4d854d`.
 This is v3 feature development, OWNER-GUIDED, safety-critical L3, not BUS.
 Base/HEAD: `c1e39c409370f0dd639b0e2739e75ca6e04a51fe`; local main and
 origin/main agree. Network refresh is prohibited and was not performed.
-Worktree: `/Users/sundeli/.codex/worktrees/9aff/用RTwin进行计算`;
+Worktree: `<codex-home>/worktrees/9aff/<repository>`;
 branch: `codex/mac-direct-managed-offline-v1`. App-created detached worktree
 was bound to this new unique branch; subsequent read-only preflight passed.
 
@@ -40,7 +40,7 @@ authority wins. The exact external manifests verified before implementation:
 | R3 `mac-direct-managed-domain-b-r3-20260924T132115Z` | `c0c2ae741160a7909748cf1dff83f36f48e9a4da839af68851d34ed3c8f7c56a` |
 | R2 `mac-direct-managed-domain-b-r2-20260924T125837Z` | `3d7d78dbb252878f8c39ac7c3e07e6f86c10c9376aa0e791378cc91d9eba8f83` |
 
-All source directories are under `/Users/sundeli/.codex/task-evidence/`.
+All source directories are under `<codex-home>/task-evidence/`.
 R5 independent REVIEW.md SHA256 is
 `858c3c58b09ac51b8e1258b3ca8b21bbaefcf7301ed376d223bf7a92e1044649`;
 PASS 0/0/0/0 covers design delta only, not implementation or qualification.

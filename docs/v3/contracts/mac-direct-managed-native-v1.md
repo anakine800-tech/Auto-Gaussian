@@ -6,7 +6,7 @@ Owner-guided v3 feature development, L3 security boundary, not BUS. The
 parent task `01a0d199-6213-7502-9398-6d7e9b4d854d` authorized implementation,
 offline validation, author review and an uncommitted frozen handoff only.
 Base/HEAD is `b9a5fb1ce24bc708e60ddb4424aae493c440c171`.
-App worktree is `/Users/sundeli/.codex/worktrees/6577/用RTwin进行计算`, branch
+App worktree is `<codex-home>/worktrees/6577/<repository>`, branch
 `codex/mac-direct-managed-native-v1`. Initial tree was clean. Startup preflight
 passed all seven checks, exit 0, with no modifiers or live flags.
 
