@@ -169,11 +169,32 @@ class CrestLoaderTests(unittest.TestCase):
             ns['cl_bounded_process']([sys.executable,'-c','import os; os.write(1,b"x"*300000)'],stdin=ns['_cl_subprocess'].DEVNULL,env={})
         fd=os.open(self.executable,os.O_RDONLY)
         try:
-            os.chmod(self.executable,0o4755)
-            with self.assertRaisesRegex(ValueError,'secure execution'):ns['cl_no_secure'](fd)
-            os.chmod(self.executable,0o755)
-            with patch.object(ns['_cl_os'],'getxattr',create=True,return_value=b'capability'),self.assertRaisesRegex(ValueError,'capabilities'):
-                ns['cl_no_secure'](fd)
+            # Sandbox chmod may strip setuid; model Linux metadata explicitly.
+            # Keep the synthetic OS local to this fresh loader namespace.
+            metadata=SimpleNamespace(st_mode=0o104755,uid=1000,euid=1000,gid=1000,egid=1000)
+            capability_calls=[]
+            def fstat(actual_fd):
+                self.assertEqual(actual_fd,fd)
+                return metadata
+            def getxattr(actual_fd,name):
+                self.assertEqual((actual_fd,name),(fd,'security.capability'))
+                capability_calls.append((actual_fd,name))
+                return b'capability'
+            synthetic_os=SimpleNamespace(fstat=fstat,getuid=lambda:metadata.uid,
+                geteuid=lambda:metadata.euid,getgid=lambda:metadata.gid,
+                getegid=lambda:metadata.egid,getxattr=getxattr)
+            with patch.dict(ns,{'_cl_os':synthetic_os}):
+                for mode,euid,egid in ((0o104755,1000,1000),(0o102755,1000,1000),
+                                      (0o100755,1001,1000),(0o100755,1000,1001)):
+                    with self.subTest(mode=oct(mode),euid=euid,egid=egid):
+                        metadata.st_mode=mode;metadata.euid=euid;metadata.egid=egid
+                        with self.assertRaisesRegex(ValueError,'secure execution'):ns['cl_no_secure'](fd)
+                        self.assertEqual(capability_calls,[])
+                metadata.st_mode=0o100755;metadata.euid=metadata.uid;metadata.egid=metadata.gid
+                with self.assertRaisesRegex(ValueError,'capabilities'):
+                    ns['cl_no_secure'](fd)
+                self.assertEqual(capability_calls,[(fd,'security.capability')])
+            self.assertIs(ns['_cl_os'],os)
         finally:os.close(fd)
 
     def test_symlink_cycle_rejects(self):

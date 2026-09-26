@@ -77,6 +77,9 @@ class _RecoveryProcessOwner(_driver._SubprocessRTWinDriver):
         if invocation.operation.name != "RECONCILE_SUBMISSION":
             raise TransportBoundaryError("recovery process requires exact reconciliation")
         roots, effect = invocation.authority.manifest.trust_roots, invocation.authority.ssh_effect
+        if type(effect) is _driver._MacDirectEffectAuthority:
+            from auto_g16._managed_native.service import run_direct
+            return run_direct(snapshot, invocation)
         if type(effect) is not _driver._MacProxyJumpEffectAuthority:
             raise TransportBoundaryError("recovery process requires fixed ProxyJump")
         def local_identity():

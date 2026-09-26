@@ -1,5 +1,15 @@
 # Auto-G16 v3 Acceptance Cases
 
+## Managed native Direct candidate acceptance
+
+Follow the [bounded offline matrix](contracts/mac-direct-managed-native-v1.md#validation-and-acceptance).
+Reject activation regardless of client flags, environment, test fakes or an
+unqualified installation description. Validate cumulative observation faults,
+STOP/launch ordering and no second reap using offline adapters. Actual suspended
+creation, peer identity, cross-UID protection, fsync/crash durability and fork/
+exec observation require separately authorized target qualification and remain
+NOT RUN. A process-completed result never establishes business completion.
+
 These are feature-expansion stop conditions, not authority for a live run.
 
 

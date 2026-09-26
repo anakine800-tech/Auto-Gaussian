@@ -79,7 +79,8 @@ class DocumentationValidationTests(unittest.TestCase):
         for path in ("AGENTS.md", "OWNER_DECISIONS.md", "docs/development-handbook.md",
                      "docs/v3/acceptance.md", "docs/v3/post-core-history.md",
                      "docs/v3/publisher-r4/README.md", "auto_g16/core/models.py",
-                     "auto_g16/core/store.py", "auto_g16/transport/driver.py",
+                     "auto_g16/core/store.py", "auto_g16/transport/_driver.py",
+                     "auto_g16/transport/program.py",
                      "requirements/chemistry.lock.txt", "requirements/schema-validation.lock.txt",
                      ".github/workflows/offline-tests.yml", *self.manifest["self_protecting_paths"]):
             with self.subTest(path=path):
@@ -99,6 +100,10 @@ class DocumentationValidationTests(unittest.TestCase):
         self.assertFalse(docs.is_lightweight(self.select()))
         with self.assertRaisesRegex(selector.SelectionError, "UNMAPPED_MODERN_PATH"):
             self.select("README.md", "auto_g16/new/unknown.py")
+        with self.assertRaisesRegex(selector.SelectionError, "UNMAPPED_MODERN_PATH"):
+            self.select("auto_g16/transport/driver.py")
+        with self.assertRaisesRegex(selector.SelectionError, "UNMAPPED_MODERN_PATH"):
+            self.select("README.md", "auto_g16/transport/driver.py")
 
     def test_add_delete_copy_and_rename_cannot_launder_contract_paths(self) -> None:
         for status in ("A", "D", "T"):
