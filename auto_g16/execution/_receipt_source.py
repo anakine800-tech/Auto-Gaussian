@@ -19,6 +19,7 @@ class _FixedReceiptSource:
 
 
 _FIXED_RECEIPT_SOURCE: _FixedReceiptSource | None = None
+_FIXED_CREST_RECEIPT_SOURCE: _FixedReceiptSource | None = None
 
 
 @contextmanager
@@ -29,11 +30,22 @@ def _source_qualification(store, snapshot, transport_store, driver):
             raise TransportBoundaryError("synthetic source requires explicit inert qualification")
         yield store, driver.runtime_qualification
         return
-    fixed = _FIXED_RECEIPT_SOURCE
+    from . import _crest_completion, _crest_startup
+    kind = snapshot.program_execution_spec.program_kind
+    def selected_source():
+        return _FIXED_CREST_RECEIPT_SOURCE if kind == "crest" else _FIXED_RECEIPT_SOURCE
+    fixed = selected_source()
     if type(fixed) is not _FixedReceiptSource or fixed.snapshot_id != snapshot.program_execution_snapshot_id:
         raise TransportBoundaryError("fixed historical source locator NOT_ACQUIRED")
-    if snapshot.program_execution_spec.program_kind != "xtb" or snapshot._completion_material()["schema"] != c._PILOT_MATERIAL_SCHEMA:
-        raise TransportBoundaryError("historical source requires the exact original xTB tuple")
+    supported = {
+        ("xtb", "auto-g16-v31-xtb", 3, c._PILOT_MATERIAL_SCHEMA),
+        ("crest", "auto-g16-v31-crest", 3, _crest_completion._MATERIAL_SCHEMA),
+        ("crest", "auto-g16-v31-crest", 3, _crest_startup._MATERIAL_SCHEMA),
+    }
+    spec = snapshot.program_execution_spec
+    if (kind, spec.adapter_id, spec.adapter_contract_version,
+            snapshot._completion_material()["schema"]) not in supported:
+        raise TransportBoundaryError("historical source requires the exact original receipt tuple")
     from auto_g16.transport._bridge import _PROGRAM_BOOTSTRAP_SOURCE_BYTES, _PRE_STARTUP_PROGRAM_BOOTSTRAP_SOURCE_BYTES
     known = {(sha256(raw).hexdigest(), len(raw)) for raw in (_PRE_STARTUP_PROGRAM_BOOTSTRAP_SOURCE_BYTES, _PROGRAM_BOOTSTRAP_SOURCE_BYTES)}
     if (fixed.bootstrap_source_sha256, fixed.bootstrap_source_size_bytes) not in known:
@@ -41,7 +53,7 @@ def _source_qualification(store, snapshot, transport_store, driver):
     pins = []
     view = None
     def current():
-        if _FIXED_RECEIPT_SOURCE is not fixed:
+        if selected_source() is not fixed:
             raise TransportBoundaryError("historical source locator changed")
         for native, binding in ((store, fixed.core), (transport_store, fixed.transport)):
             if native._connection.in_transaction or native._connection.execute("PRAGMA journal_mode").fetchone()[0] != "delete":

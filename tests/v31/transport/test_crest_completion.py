@@ -202,6 +202,38 @@ class CrestCompletionTests(lane.LaneAFixture):
             assessment=collect();self.assertEqual(assessment.data['verdict'],'SUCCEEDED')
             calls=len(wire.calls);self.assertEqual(collect(),assessment);self.assertEqual(calls,len(wire.calls))
             if recover:self.assertEqual(tuple(self.store._connection.execute("SELECT * FROM submission_outcomes WHERE attempt_id='crest-attempt'").fetchone()),original_outcome)
+            # Historical CREST source uses its original stores and needs no live
+            # publisher or transport effect driver. A recovered submission
+            # still needs its original immutable recovery-continuation proof.
+            from auto_g16.transport import _bridge
+            crest_source = source_module._FixedReceiptSource(
+                self.snapshot.program_execution_snapshot_id,
+                pilot.file_binding(Path(self.database)),
+                pilot.file_binding(Path(self.program_transport_store._path)),
+                sha256(_bridge._PROGRAM_BOOTSTRAP_SOURCE_BYTES).hexdigest(),
+                len(_bridge._PROGRAM_BOOTSTRAP_SOURCE_BYTES))
+            before = tuple(Path(b.path).read_bytes() for b in (crest_source.core, crest_source.transport))
+            with patch.object(source_module, '_FIXED_CREST_RECEIPT_SOURCE', crest_source), \
+                 patch.object(rtwin, '_FIXED_PUBLISHER_INSTALLATION', None), \
+                 patch.object(rtwin, '_FIXED_COLLECTION_INSTALLATION', self.installation if recover else None), \
+                 patch.object(rtwin, '_RTWinProgramEffectDriver', side_effect=AssertionError('live driver')), \
+                 patch.object(core.SQLiteRuntimeStore, 'append_observation', side_effect=AssertionError('write')), \
+                 patch.object(core.SQLiteRuntimeStore, 'append_result', side_effect=AssertionError('write')):
+                if recover:
+                    with patch.object(rtwin, '_FIXED_COLLECTION_INSTALLATION', None), self.assertRaisesRegex(TransportBoundaryError, 'no fixed recovery installation'):
+                        runtime._read_program_receipt_success_authority(
+                            self.store, snapshot=self.snapshot, program_transport_store=self.program_transport_store)
+                proof, capture = runtime._read_program_receipt_success_authority(
+                    self.store, snapshot=self.snapshot, program_transport_store=self.program_transport_store)
+                self.assertEqual(proof['capture_authority_id'], capture.capture_authority_id)
+                for bad in (None, replace(crest_source, snapshot_id='other'),
+                            replace(crest_source, core=replace(crest_source.core, sha256='0'*64))):
+                    with patch.object(source_module, '_FIXED_CREST_RECEIPT_SOURCE', bad), self.assertRaises(TransportBoundaryError):
+                        runtime._read_program_receipt_success_authority(
+                            self.store, snapshot=self.snapshot, program_transport_store=self.program_transport_store)
+            self.assertEqual(before, tuple(Path(b.path).read_bytes() for b in (crest_source.core, crest_source.transport)))
+            self.assertEqual(calls, len(wire.calls))
+
 
     def test_nonzero_is_native_failed(self):
         self.execute();self.publish(code=7)
