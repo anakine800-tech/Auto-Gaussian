@@ -160,3 +160,15 @@ following hold:
     This behavior is an additive Gaussian adapter `/5` tuple (Q6, material
     `/7`, scheduler `/8`, prebinding `/8`, deployment-v6). The historical `/4`
     Q5 tuple remains decodable and replayable with its original exact bytes.
+
+### Gaussian Opt resource successor acceptance
+
+The additive `/6` candidate requires focused evidence for strict Link0 and
+minimum-Opt grammar, byte/hash preservation, explicit binary unit conversion,
+positive headroom, core/total equality, immutable spec and snapshot roundtrip,
+closed staging and rejection of older or mixed qualification tuples. Historical
+source vectors and replay remain unchanged. Native inert-child evidence must
+exercise generated source and exact stdin, retaining qualification, spec,
+source and no-follow checks; any host/process fixture adaptation must be stated
+and does not qualify the Linux/PBS target. New source installation and target
+qualification, exact approvals and the live gate remain separate prerequisites.

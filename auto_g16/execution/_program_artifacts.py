@@ -12,6 +12,16 @@ from .program import ProgramExecutionSnapshot, _uses_completion_receipt
 from . import _program_completion as _completion
 
 
+def _derived_gaussian_artifacts(snapshot):
+    spec = snapshot.program_execution_spec
+    if spec.program_kind != "gaussian":
+        return ()
+    owner = _completion._resource_owner() if spec.adapter_contract_version == 6 else {
+        4: _completion._gstartup, 5: _completion._gfile,
+    }.get(spec.adapter_contract_version)
+    return () if owner is None else owner._derived_artifacts(snapshot)
+
+
 def _stage_material(
     snapshot: ProgramExecutionSnapshot,
     *,
@@ -34,6 +44,13 @@ def _stage_material(
         content = input_bytes[name]
         if type(content) is not bytes or len(content) != declaration["size_bytes"] or sha256(content).hexdigest() != declaration["sha256"]:
             raise TransportBoundaryError("program input bytes differ from exact declaration")
+        spec = snapshot.program_execution_spec
+        if (spec.program_kind, spec.adapter_contract_version) == ("gaussian", 6):
+            from .program import _gaussian_input_resources, _validate_gaussian_resource_binding
+            selected = spec.program_data["gaussian_resources"]
+            if _gaussian_input_resources(name, content) != {key: selected[key] for key in ("memory_mib", "cores")}:
+                raise TransportBoundaryError("Gaussian input resources differ from spec")
+            _validate_gaussian_resource_binding(spec, snapshot.resolved_resource_request)
         material.append(({
             "artifact_kind": "program-input",
             "logical_role": declaration["logical_role"],
@@ -56,7 +73,7 @@ def _stage_material(
             "sha256": declaration["sha256"],
             "size_bytes": declaration["size_bytes"],
         }, content))
-    material.extend((*_completion._gstartup._derived_artifacts(snapshot), *_completion._gfile._derived_artifacts(snapshot)))
+    material.extend(_derived_gaussian_artifacts(snapshot))
     return tuple(material)
 
 
@@ -85,7 +102,7 @@ def _declared_stage_payload(
         }
         for item in snapshot.scheduler_artifacts
     )
-    declared += tuple(item for item, _ in (*_completion._gstartup._derived_artifacts(snapshot), *_completion._gfile._derived_artifacts(snapshot)))
+    declared += tuple(item for item, _ in _derived_gaussian_artifacts(snapshot))
     matched = tuple(item for item in declared if item == dict(candidate))
     if len(matched) != 1:
         raise TransportBoundaryError(

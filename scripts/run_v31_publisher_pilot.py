@@ -130,7 +130,7 @@ def _probe_index(payload):
         entries.append({"role": "host-identity", "host_key": host["host_key"], "evidence": host["identity_evidence"]})
         entries.extend({"role": "location", "host_key": host["host_key"], "location_role": loc["role"], "evidence": loc["evidence"]} for loc in host["locations"])
         entries.extend({"role": "host-probe", "host_key": host["host_key"], "case_id": probe["case_id"], "evidence": probe["evidence"]} for probe in host["probes"])
-    startup = payload["schema"] in {"auto-g16-v31-publisher-qualification/3", "auto-g16-v31-publisher-qualification/5", "auto-g16-v31-publisher-qualification/6"}
+    startup = payload["schema"] in {"auto-g16-v31-publisher-qualification/3", "auto-g16-v31-publisher-qualification/5", "auto-g16-v31-publisher-qualification/6", "auto-g16-v31-publisher-qualification/7"}
     crest = payload["schema"] in {"auto-g16-v31-publisher-qualification/2", "auto-g16-v31-publisher-qualification/3"}
     if startup:
         entries.append({"role": "delivery-probe", "case_id": "P09", "evidence": payload["delivery_probe"]["evidence"]})
@@ -236,10 +236,16 @@ def _fixed_pilot_context():
         from auto_g16.conformer import service as conformer_service
         actual.update(str(Path(module.__file__).resolve()) for module in
                       (_crest_completion, _crest_loader, _crest_seed_handoff, _receipt_source, xtb_crest_handoff, conformer_service, transport))
-    if snapshot.program_execution_spec.program_kind == "gaussian" and snapshot.program_execution_spec.adapter_contract_version in (4, 5):
+    if snapshot.program_execution_spec.program_kind == "gaussian" and snapshot.program_execution_spec.adapter_contract_version in (4, 5, 6):
         from auto_g16.execution import _gaussian_completion, _gaussian_file_carrier, _gaussian_startup
         from auto_g16.transport import _gaussian_file_handoff, _gaussian_file_submit, _gaussian_handoff, _gaussian_submit, _bridge, _driver
         protocol = (_gaussian_file_carrier, _gaussian_file_handoff, _gaussian_file_submit) if snapshot.program_execution_spec.adapter_contract_version == 5 else (_gaussian_startup, _gaussian_handoff, _gaussian_submit)
+        if snapshot.program_execution_spec.adapter_contract_version == 6:
+            from auto_g16.execution import _gaussian_resources
+            from auto_g16.transport import _gaussian_resource_submit
+            protocol = (_gaussian_resources, _gaussian_resource_submit, _gaussian_file_carrier,
+                        _gaussian_file_handoff, _gaussian_file_submit, _gaussian_startup,
+                        _gaussian_handoff, _gaussian_submit)
         actual.update(str(Path(module.__file__).resolve()) for module in (_gaussian_completion, *protocol, _bridge, _driver, transport))
     elif len(snapshot.scheduler_artifacts) == 2:
         from auto_g16.execution import _crest_startup
@@ -265,7 +271,7 @@ def _current_gaussian_handoff_approvals(run, deployment):
     """Revalidate the winning claimed Attempt; the PLANNED gate ran before claim."""
     stores, scientific, batch, confirmation = _load_current_authorities(run, deployment)
     snapshot = run.snapshot
-    if snapshot.program_execution_spec.program_kind != "gaussian" or snapshot.program_execution_spec.adapter_contract_version not in (4, 5) or stores["core"].attempt_state(snapshot.attempt_id) is not core.AttemptState.SUBMISSION_INTENT_RECORDED:
+    if snapshot.program_execution_spec.program_kind != "gaussian" or snapshot.program_execution_spec.adapter_contract_version not in (4, 5, 6) or stores["core"].attempt_state(snapshot.attempt_id) is not core.AttemptState.SUBMISSION_INTENT_RECORDED:
         raise rtwin._publisher_failure("Gaussian handoff is outside its claimed phase")
     from auto_g16.execution.program_runtime import _assert_effect_intent_replay
     _assert_effect_intent_replay(stores["core"], snapshot)
@@ -292,7 +298,7 @@ def _run_first_publisher_pilot():
             for pin in code_pins:
                 pin._read_and_check()
             stores, confirmation = _load_validate_current(run, deployment)
-            if run.snapshot.program_execution_spec.program_kind == "gaussian" and run.snapshot.program_execution_spec.adapter_contract_version in (4, 5):
+            if run.snapshot.program_execution_spec.program_kind == "gaussian" and run.snapshot.program_execution_spec.adapter_contract_version in (4, 5, 6):
                 def current_handoff_approvals():
                     return _current_gaussian_handoff_approvals(run, deployment)
                 handoff_token = rtwin._GAUSSIAN_LAUNCH_OWNER.set((run.snapshot, current_handoff_approvals))

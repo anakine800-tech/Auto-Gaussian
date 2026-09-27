@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 from hashlib import sha256
 import shlex
+import sys
 import zlib
 
 from ._identity import ExecutionValueError, freeze_mapping
@@ -123,8 +124,9 @@ def _wrapper_sources():
 _envelope = _q5._envelope
 
 
-def _payload(artifacts):
-    ns = protocol_namespace()
+def _payload(artifacts, *, _owner=None):
+    owner = _owner or sys.modules[__name__]
+    ns = owner.protocol_namespace()
     if len(artifacts) != 2:
         raise ExecutionValueError("Gaussian short entry requires two artifacts")
     for item, role, name, form, cap in zip(artifacts, ("scheduler-script", "startup-payload"), ("gaussian-entry-template.pbs", _PAYLOAD_NAME), ("pbs-shell-utf8", "canonical-json-utf8"), (16384, 8388608)):
@@ -134,12 +136,13 @@ def _payload(artifacts):
         if type(item["size_bytes"]) is not int or len(raw) != item["size_bytes"] or not 0<len(raw)<=cap or sha256(raw).hexdigest()!=item["sha256"]:
             raise ExecutionValueError("Gaussian artifact bytes differ")
     source, raw_config, config = ns["g_payload"](artifacts[1]["content_utf8"].encode())
-    if source != _wrapper_sources()[0].encode():
+    if source != owner._wrapper_sources()[0].encode():
         raise ExecutionValueError("Gaussian wrapper source differs")
     return {"config": config, "config_bytes": raw_config, "wrapper_source": source}
 
 
-def _render(config, deployment, resources, project_binding):
+def _render(config, deployment, resources, project_binding, *, _owner=None):
+    owner = _owner or sys.modules[__name__]
     from ._program_completion import _receipt_json
     from .project_provisioning import ProjectPhysicalBinding
     if type(project_binding) is not ProjectPhysicalBinding:
@@ -148,37 +151,39 @@ def _render(config, deployment, resources, project_binding):
     b=config["prebinding"]
     if b["project_physical_binding_id"]!=project_binding.project_physical_binding_id or b["cwd_binding"]["path"]!=project_binding.remote_project_dir+"/"+b["attempt_id"]:
         raise ExecutionValueError("Gaussian startup Project differs")
-    wrapper=_wrapper_sources()[0].encode();cfg=_receipt_json(config)[:-1]
+    wrapper=owner._wrapper_sources()[0].encode();cfg=_receipt_json(config)[:-1]
     raw=_receipt_json({"schema":_PAYLOAD_SCHEMA,"wrapper_source":_envelope(wrapper,"auto-g16-v31-gaussian-wrapper-source-bytes/1"),"config":_envelope(cfg,"auto-g16-v31-gaussian-wrapper-config-bytes/1")})
-    protocol_namespace()["g_payload"](raw)
+    owner.protocol_namespace()["g_payload"](raw)
     py=deployment["trust_roots"]["server_python"]
     constants={"schema":"auto-g16-v31-gaussian-startup-invocation/1",**{k:b[k] for k in ("attempt_id","workspace_binding_id","project_physical_binding_id","resolved_server_profile_id")},"workspace":b["cwd_binding"]["path"],"payload":{"sha256":sha256(raw).hexdigest(),"size_bytes":len(raw)},"wrapper_source":{"sha256":sha256(wrapper).hexdigest(),"size_bytes":len(wrapper)},"resources":{"cores":resources.cores,"memory_mb":resources.memory_mb,"walltime_seconds":resources.walltime_seconds,"queue":resources.queue},"server_python":{"path":py["path"],"sha256":py["expected_sha256"],"size_bytes":py["expected_size_bytes"]}}
-    lines=["#!/bin/bash",_HEADER,f"#PBS -l nodes=1:ppn={resources.cores}",f"#PBS -l mem={resources.memory_mb}mb",f"#PBS -l walltime={resources.walltime_seconds}"]
+    lines=["#!/bin/bash",owner._HEADER,f"#PBS -l nodes=1:ppn={resources.cores}",f"#PBS -l mem={resources.memory_mb}mb",f"#PBS -l walltime={resources.walltime_seconds}"]
     if resources.queue is not None:lines.append(f"#PBS -q {resources.queue}")
-    lines.append("exec "+" ".join(shlex.quote(x) for x in (py["path"],"-I","-S","-B","-c",_LOADER_SOURCE,base64.b64encode(_receipt_json(constants)).decode(),"__AUTO_G16_CARRIER_DESCRIPTOR_BASE64__")))
+    lines.append("exec "+" ".join(shlex.quote(x) for x in (py["path"],"-I","-S","-B","-c",owner._LOADER_SOURCE,base64.b64encode(_receipt_json(constants)).decode(),"__AUTO_G16_CARRIER_DESCRIPTOR_BASE64__")))
     entry=("\n".join(lines)+"\n").encode()
     if len(entry)>16384:raise ExecutionValueError("Gaussian entry exceeds 16 KiB")
     if entry.count(b"__AUTO_G16_CARRIER_DESCRIPTOR_BASE64__")!=1:raise ExecutionValueError("Gaussian carrier placeholder differs")
     result=tuple(freeze_mapping({"logical_role":role,"portable_name":name,"format":form,"sha256":sha256(data).hexdigest(),"size_bytes":len(data),"content_utf8":data.decode()},"Gaussian startup artifact") for role,name,form,data in (("scheduler-script","gaussian-entry-template.pbs","pbs-shell-utf8",entry),("startup-payload",_PAYLOAD_NAME,"canonical-json-utf8",raw)))
-    _payload(result)
+    owner._payload(result)
     return result
 
 
-def _derived_artifacts(snapshot):
+def _derived_artifacts(snapshot, *, _owner=None):
     """The only config/marker staging source, deterministically snapshot-owned."""
+    owner = _owner or sys.modules[__name__]
     from ._program_completion import _receipt_json
-    if (snapshot.program_execution_spec.program_kind,snapshot.program_execution_spec.adapter_contract_version)!=("gaussian",5):return ()
-    cfg=_payload(snapshot.scheduler_artifacts)["config_bytes"]
+    if (snapshot.program_execution_spec.program_kind,snapshot.program_execution_spec.adapter_contract_version)!=("gaussian",getattr(owner,"_ADAPTER_VERSION",5)):return ()
+    cfg=owner._payload(snapshot.scheduler_artifacts)["config_bytes"]
     marker=_receipt_json({"program_execution_snapshot_id":snapshot.program_execution_snapshot_id,"effect_intent_id":snapshot.effect_intent_id})
     return tuple(({"artifact_kind":role,"logical_role":role,"portable_name":name,"format":"canonical-json-utf8","sha256":sha256(raw).hexdigest(),"size_bytes":len(raw)},raw) for role,name,raw in (("derived-config","gaussian-config.json",cfg),("submit-intent-marker",".auto-g16-v31-submit-intent",marker)))
 
 
-def _review_disclosure(snapshot):
+def _review_disclosure(snapshot, *, _owner=None):
     """Expanded review only: no extra snapshot identity or operational authority."""
+    owner = _owner or sys.modules[__name__]
     return {
         "schema": "auto-g16-v31-gaussian-startup-review/1",
         "physical_handoff_contract_sha256": _CONTRACT_SHA256,
-        "derived_stages": [declaration for declaration, _ in _derived_artifacts(snapshot)],
+        "derived_stages": [declaration for declaration, _ in owner._derived_artifacts(snapshot)],
         "artifact_caps": {"gaussian-entry-template.pbs": 16384, "gaussian.pbs": 16384, "gaussian-startup.json": 8388608, "gaussian-config.json": 6291456, ".auto-g16-v31-submit-intent": 65536},
         "stage_protocol": {
             "schema": "auto-g16-v31-gaussian-startup-stage/1",

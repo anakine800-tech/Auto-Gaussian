@@ -355,7 +355,8 @@
         "tests.v31.transport.test_receipt_source",
         "tests.v31.transport.test_rtwin_successor_bridge.ProductionBridgeTests",
         "tests.v31.transport.test_gaussian_successor",
-        "tests.v31.transport.test_gaussian_short_entry"
+        "tests.v31.transport.test_gaussian_short_entry",
+        "tests.v31.transport.test_gaussian_opt_resources"
       ],
       "required_safety": [
         "approval-owner-separation",
@@ -391,7 +392,8 @@
         "tests.v31.transport.test_crest_completion",
         "tests.v31.transport.test_crest_startup_payload",
         "tests.v31.transport.test_gaussian_successor",
-        "tests.v31.transport.test_gaussian_short_entry"
+        "tests.v31.transport.test_gaussian_short_entry",
+        "tests.v31.transport.test_gaussian_opt_resources"
       ],
       "required_safety": [
         "approval-owner-separation",
@@ -500,7 +502,8 @@
       "exact_paths": [
         "auto_g16/execution/_gaussian_completion.py",
         "auto_g16/execution/_gaussian_startup.py",
-        "auto_g16/execution/_gaussian_file_carrier.py"
+        "auto_g16/execution/_gaussian_file_carrier.py",
+        "auto_g16/execution/_gaussian_resources.py"
       ],
       "prefixes": [],
       "lane": "affected",
@@ -515,7 +518,8 @@
         "tests.test_direct_qstat_acquisition",
         "tests.test_resource_monitor_efficiency",
         "tests.v31.transport.test_gaussian_successor",
-        "tests.v31.transport.test_gaussian_short_entry"
+        "tests.v31.transport.test_gaussian_short_entry",
+        "tests.v31.transport.test_gaussian_opt_resources"
       ],
       "required_safety": [
         "approval-owner-separation",
@@ -597,6 +601,7 @@
         "auto_g16/transport/_canonical.py",
         "auto_g16/transport/_gaussian_file_handoff.py",
         "auto_g16/transport/_gaussian_file_submit.py",
+        "auto_g16/transport/_gaussian_resource_submit.py",
         "auto_g16/transport/_gaussian_handoff.py",
         "auto_g16/transport/_gaussian_submit.py",
         "auto_g16/transport/_submission_recovery.py",

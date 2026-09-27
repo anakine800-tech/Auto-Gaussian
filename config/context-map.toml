@@ -430,3 +430,10 @@ status = "production-closed-native-unqualified"
 required_sections = ["docs/v3/contracts/mac-direct-managed-native-v1.md", "OWNER_DECISIONS.md#mac-direct-managed-native-v1-bounded-candidate", "docs/v3/boundary-spec.md#managed-native-direct-candidate-boundary", "docs/v3/acceptance.md#managed-native-direct-candidate-acceptance"]
 code_paths = ["auto_g16/_managed_native/"]
 focused_tests = ["tests/v3/managed_native/test_boundaries.py", "tests/v3/managed_native/test_supervisor.py"]
+
+[[component]]
+id = "v31-gaussian-opt-resources"
+status = "offline-candidate-target-unqualified"
+required_sections = ["OWNER_DECISIONS.md#od-34-additive-opt-resource-contract-2026-09-27", "docs/v3/contracts/boundary/v31-successors.md#gaussian-opt-resource-successor-boundary", "docs/v3/contracts/acceptance/v31-successors.md#gaussian-opt-resource-successor-acceptance", "docs/v3/contracts/tasks/v31-successors.md#gaussian-opt-resource-link0-development-contract"]
+code_paths = ["auto_g16/execution/_gaussian_resources.py", "auto_g16/transport/_gaussian_resource_submit.py"]
+focused_tests = ["tests/v31/transport/test_gaussian_opt_resources.py", "tests/v31/transport/test_gaussian_successor.py", "tests/v31/transport/test_gaussian_short_entry.py"]
