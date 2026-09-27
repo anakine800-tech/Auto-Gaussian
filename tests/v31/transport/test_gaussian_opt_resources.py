@@ -211,6 +211,45 @@ class GaussianOptResourceBindingTests(LaneAFixture):
     kwargs = predecessor.GaussianSuccessorTests.kwargs
 
     def test_rendered_wrapper_real_inert_child_exact_stdin_and_zero_child_failures(self):
+        self._run_native_fixture_isolated(with_parent_child=False)
+
+    def test_rendered_wrapper_isolated_from_parent_inert_child(self):
+        self._run_native_fixture_isolated(with_parent_child=True)
+
+    def _run_native_fixture_isolated(self, *, with_parent_child):
+        """The wrapper owns every child of its process, never the suite's children."""
+        import subprocess, sys
+        from pathlib import Path
+
+        command = """
+import unittest
+from tests.v31.transport.test_gaussian_opt_resources import GaussianOptResourceBindingTests
+case = GaussianOptResourceBindingTests('_check_rendered_wrapper_real_inert_child')
+result = unittest.TextTestRunner(verbosity=2).run(unittest.TestSuite([case]))
+raise SystemExit(not result.wasSuccessful())
+"""
+        peer = None
+        try:
+            if with_parent_child:
+                peer = subprocess.Popen(
+                    [sys.executable, "-c", "import sys; sys.stdin.buffer.read()"],
+                    stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                )
+                self.assertIsNone(peer.poll())
+            completed = subprocess.run(
+                [sys.executable, "-c", command],
+                cwd=Path(__file__).resolve().parents[3],
+                capture_output=True, text=True, timeout=45, check=False,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+            if peer is not None:
+                self.assertIsNone(peer.poll(), "fixture reaped or terminated the suite's child")
+        finally:
+            if peer is not None:
+                peer.communicate(timeout=10)
+                self.assertEqual(peer.returncode, 0)
+
+    def _check_rendered_wrapper_real_inert_child(self):
         """Native local stdin/inode evidence; host observation and Linux entry adapted.
 
         Full rendered wrapper, qualification/source/spec/resource/file guards run.
