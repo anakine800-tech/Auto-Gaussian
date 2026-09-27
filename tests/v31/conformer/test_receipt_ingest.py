@@ -126,17 +126,24 @@ class ReadonlyReconciliationTests(lane.LaneAFixture):
         self.store.reconcile_unknown('attempt-1', self.receipt.observation_id, core.ReconciliationResolution.SUBMITTED)
         self.store.advance_attempt('attempt-1', core.AttemptState.SUCCEEDED)
 
-    def read_reconciliation(self):
-        before = self.store._connection.total_changes
-        self.store._connection.execute('PRAGMA query_only=ON')
-        token = runtime._READONLY_RECEIPT_SOURCE.set(self.store)
+    def read_reconciliation(self, store=None):
+        store = self.store if store is None else store
+        before = store._connection.total_changes
+        original = store._connection.serialize()
+        store._connection.execute('PRAGMA query_only=ON')
+        statements = []
+        store._connection.set_trace_callback(statements.append)
+        token = runtime._READONLY_RECEIPT_SOURCE.set(store)
         try:
-            with patch.object(self.store, 'reconcile_unknown', side_effect=AssertionError('write transaction')):
-                return runtime._replay_submitted_reconciliation(self.store, self.bound_snapshot, self.receipt)
+            with patch.object(store, 'reconcile_unknown', side_effect=AssertionError('write transaction')):
+                return runtime._replay_submitted_reconciliation(store, self.bound_snapshot, self.receipt)
         finally:
             runtime._READONLY_RECEIPT_SOURCE.reset(token)
-            self.assertEqual(before, self.store._connection.total_changes)
-            self.store._connection.execute('PRAGMA query_only=OFF')
+            store._connection.set_trace_callback(None)
+            self.assertEqual(before, store._connection.total_changes)
+            self.assertEqual(original, store._connection.serialize())
+            self.assertTrue(all(sql.lstrip().upper().startswith('SELECT') for sql in statements))
+            store._connection.execute('PRAGMA query_only=OFF')
 
     def test_exact_existing_reconciliation_is_read_without_transaction(self):
         self.assertEqual(self.read_reconciliation(), core.AttemptState.SUCCEEDED)
@@ -158,3 +165,37 @@ class ReadonlyReconciliationTests(lane.LaneAFixture):
         with patch.object(self.store, 'reconcile_unknown', wraps=self.store.reconcile_unknown) as replay:
             self.assertEqual(runtime._replay_submitted_reconciliation(self.store, self.bound_snapshot, self.receipt), core.AttemptState.SUCCEEDED)
         replay.assert_called_once_with('attempt-1', 'reconciled-job', core.ReconciliationResolution.SUBMITTED)
+
+    def test_corrupt_join_duplicate_and_query_error_reject_readonly(self):
+        import sqlite3
+        from auto_g16.transport._canonical import TransportBoundaryError
+        original = self.store._connection.serialize()
+        for case in ('missing-observation', 'foreign-observation', 'duplicate-terminal', 'query-error'):
+            with self.subTest(case=case):
+                # Corruption is confined to a disposable memory fixture. The
+                # production source reader also rejects unsupported schemas.
+                view = core.SQLiteRuntimeStore()
+                try:
+                    view._connection.deserialize(original)
+                    view._connection.execute('PRAGMA foreign_keys=OFF')
+                    if case == 'missing-observation':
+                        view._connection.execute("DELETE FROM observations WHERE observation_id='reconciled-job'")
+                    elif case == 'foreign-observation':
+                        view._connection.execute("UPDATE observations SET attempt_id='foreign-attempt' WHERE observation_id='reconciled-job'")
+                    elif case == 'duplicate-terminal':
+                        view._connection.execute('DROP INDEX reconciliation_terminal_once')
+                        view._connection.execute(
+                            "INSERT INTO observations(observation_id,attempt_id,observation_type,data) "
+                            "SELECT 'extra',attempt_id,observation_type,data FROM observations "
+                            "WHERE observation_id='reconciled-job'")
+                        view._connection.execute(
+                            "INSERT INTO reconciliations(attempt_id,observation_id,resolution) "
+                            "VALUES ('attempt-1','extra','SUBMITTED')")
+                    else:
+                        view._connection.execute('DROP TABLE reconciliations')
+                    expected = sqlite3.OperationalError if case == 'query-error' else TransportBoundaryError
+                    with self.assertRaises(expected):
+                        self.read_reconciliation(view)
+                finally:
+                    view.close()
+                self.assertEqual(original, self.store._connection.serialize())
