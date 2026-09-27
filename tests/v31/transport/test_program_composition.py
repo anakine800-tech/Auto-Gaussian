@@ -2157,33 +2157,51 @@ class ProgramCompositionTests(LaneAFixture):
         self._assert_private_core_sql_scope(source)
 
     def _assert_private_core_sql_scope(self, source: str) -> None:
-        # The frozen CREST read-only source addendum permits only this identity
-        # read in the historical proof context. Completion writers retain the
-        # original private Core SQL prohibition (boundary-spec.md).
-        query = (
-            "SELECT attempt_id,intent_id FROM submission_intents "
-            "WHERE attempt_id=? OR intent_id=?"
+        # Only the two exact reads accepted in the CREST source addendum may
+        # access private Core SQL, each directly inside its proof-context guard.
+        reads = (
+            ("_assert_effect_intent_replay",
+             "SELECT attempt_id,intent_id FROM submission_intents "
+             "WHERE attempt_id=? OR intent_id=?",
+             "(snapshot.attempt_id, snapshot.effect_intent_id)"),
+            ("_replay_submitted_reconciliation",
+             "SELECT r.observation_id,r.resolution,o.attempt_id "
+             "FROM reconciliations r LEFT JOIN observations o "
+             "ON o.observation_id=r.observation_id "
+             "WHERE r.attempt_id=? AND r.resolution != 'UNRESOLVED'",
+             "(snapshot.attempt_id,)"),
         )
         tree = ast.parse(source)
-        replay = [node for node in tree.body if isinstance(node, ast.FunctionDef)
-                  and node.name == "_assert_effect_intent_replay"]
-        self.assertEqual(len(replay), 1)
         condition = ast.parse("_READONLY_RECEIPT_SOURCE.get() is store", mode="eval").body
-        guards = [node for node in replay[0].body if isinstance(node, ast.If)
-                  and ast.dump(node.test) == ast.dump(condition)]
-        self.assertEqual(len(guards), 1)
-        expected = ast.parse(
-            f"store._connection.execute({query!r}, "
-            "(snapshot.attempt_id, snapshot.effect_intent_id))", mode="eval"
-        ).body
-        calls = [node for node in ast.walk(guards[0]) if isinstance(node, ast.Call)
-                 and ast.dump(node) == ast.dump(expected)]
-        self.assertEqual(len(calls), 1)
+        permitted_connections = []
+        permitted_literals = []
+        for function, query, parameters in reads:
+            replay = [node for node in tree.body if isinstance(node, ast.FunctionDef)
+                      and node.name == function]
+            self.assertEqual(len(replay), 1, msg=function)
+            guards = [node for node in replay[0].body if isinstance(node, ast.If)
+                      and ast.dump(node.test) == ast.dump(condition)]
+            self.assertEqual(len(guards), 1, msg=function)
+            expected = ast.parse(
+                f"rows = store._connection.execute({query!r}, {parameters}).fetchall()"
+            ).body[0]
+            self.assertEqual(ast.dump(guards[0].body[0]), ast.dump(expected), msg=function)
+            permitted_connections.extend(
+                node for node in ast.walk(guards[0].body[0])
+                if isinstance(node, ast.Attribute) and node.attr == "_connection"
+            )
+            literals = [node for node in ast.walk(tree) if isinstance(node, ast.Constant)
+                        and node.value == query]
+            self.assertEqual(len(literals), 1, msg=function)
+            permitted_literals.extend(literals)
         connections = [node for node in ast.walk(tree) if isinstance(node, ast.Attribute)
                        and node.attr == "_connection"]
-        self.assertEqual(connections, [calls[0].func.value])
-        self.assertEqual(source.count(query), 1)
-        source = source.replace(query, "historical identity read", 1)
+        self.assertEqual(connections, permitted_connections)
+        # Adjacent source string literals are one AST constant. Scrub only the
+        # two exact validated SQL literals, then retain the general prohibition.
+        for literal in permitted_literals:
+            literal.value = "approved historical identity read"
+        remainder = ast.unparse(tree)
         for forbidden in (
             "._db(",
             "auto_g16.core.store",
@@ -2191,7 +2209,7 @@ class ProgramCompositionTests(LaneAFixture):
             "reconciliations",
             "SELECT",
         ):
-            self.assertNotIn(forbidden, source, msg=forbidden)
+            self.assertNotIn(forbidden, remainder, msg=forbidden)
 
     def test_77a_private_core_sql_exception_cannot_expand(self) -> None:
         source = Path(program_runtime.__file__).read_text(encoding="utf-8")
@@ -2210,6 +2228,41 @@ class ProgramCompositionTests(LaneAFixture):
                 with self.assertRaises(AssertionError):
                     self._assert_private_core_sql_scope(source.replace(old, new, 1))
         for extra in ('\nforbidden = "SELECT secret"\n', '\nforbidden = store._connection\n'):
+            with self.subTest(extra=extra), self.assertRaises(AssertionError):
+                self._assert_private_core_sql_scope(source + extra)
+
+    def test_77c_reconciliation_sql_exception_cannot_expand(self) -> None:
+        source = Path(program_runtime.__file__).read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        replay = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
+                      and node.name == "_replay_submitted_reconciliation")
+        segment = ast.get_source_segment(source, replay)
+        self.assertIsNotNone(segment)
+        for old, new in (
+            ("SELECT r.observation_id,r.resolution,o.attempt_id", "SELECT *"),
+            ("LEFT JOIN observations o", "JOIN observations o"),
+            ("ON o.observation_id=r.observation_id", "ON 1=1"),
+            ("WHERE r.attempt_id=? AND", "WHERE r.observation_id=? AND"),
+            ("r.resolution != 'UNRESOLVED'", "1=1"),
+            ("(snapshot.attempt_id,)", "(receipt.observation_id,)"),
+            ("_READONLY_RECEIPT_SOURCE.get() is store", "_READONLY_RECEIPT_SOURCE.get() == store"),
+            ("_READONLY_RECEIPT_SOURCE.get() is store", "True"),
+            ("def _replay_submitted_reconciliation(", "def unrelated_reader("),
+            ("rows = store._connection.execute(", "rows = other._connection.execute("),
+            (").fetchall()", ").fetchone()"),
+        ):
+            with self.subTest(mutation=new):
+                self.assertIn(old, segment)
+                changed = source.replace(segment, segment.replace(old, new, 1), 1)
+                with self.assertRaises(AssertionError):
+                    self._assert_private_core_sql_scope(changed)
+        # A correct query outside the context guard is still forbidden.
+        guard = replay.body[0]
+        replay.body.insert(0, guard.body.pop(0))
+        with self.assertRaises(AssertionError):
+            self._assert_private_core_sql_scope(ast.unparse(tree))
+        for extra in ("\nstore._connection.execute('SELECT 1')\n",
+                      "\nforbidden = 'reconciliations'\n"):
             with self.subTest(extra=extra), self.assertRaises(AssertionError):
                 self._assert_private_core_sql_scope(source + extra)
 

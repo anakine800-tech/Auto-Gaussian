@@ -45,6 +45,41 @@ handoff ID and private CalculationPlan intent. Missing or changed authority
 must cause zero claim/qsub. Synthetic fixtures retain their explicitly
 nonproduction identity path and cannot qualify a real binary or installation.
 
+## Accepted historical reconciliation read delta
+
+On 2026-09-27 the Owner explicitly approved the bounded reconciliation read
+exception for the CREST receipt-ingestion candidate. This is an additive
+exception to the private Core SQL prohibition; the earlier freeze and the
+original effect-intent exception remain unchanged.
+
+Only `_replay_submitted_reconciliation`, under the exact condition
+`_READONLY_RECEIPT_SOURCE.get() is store`, may make the following additional
+SELECT on the fixed original Core file's pinned, schema-validated, query-only
+native memory view:
+
+```sql
+SELECT r.observation_id,r.resolution,o.attempt_id
+FROM reconciliations r LEFT JOIN observations o
+ON o.observation_id=r.observation_id
+WHERE r.attempt_id=? AND r.resolution != 'UNRESOLVED'
+```
+
+Its sole parameter is `snapshot.attempt_id`. Exactly one result row must equal
+`(receipt.observation_id, SUBMITTED, snapshot.attempt_id)`. Missing, additional,
+cross-Attempt, differently resolved or malformed evidence, and query errors,
+reject. Existing surrounding proof reconstruction still validates the original
+UNKNOWN submission, recovery request, physical effect and current compatible
+Attempt state.
+
+This exception validates an already-recorded terminal reconciliation. It must
+not call the public reconciliation method's write transaction, create or change
+reconciliation/history/state, accept an unpinned source, or authorize an effect.
+Outside this proof context the existing public Core replay remains unchanged.
+Static guards must pin both permitted reads to their exact function, proof
+condition, query, receiver, parameters and count, rejecting any additional
+private Core access. The broader SQL/API/schema prohibition remains in force.
+This delta grants no deployment, live or scientific authority.
+
 ## Accepted native read-only open delta
 
 On 2026-09-16 the parent delegate explicitly accepted the narrowly identified

@@ -462,6 +462,27 @@ def _reconstruct_ambiguous_submit(
     return receipt
 
 
+def _replay_submitted_reconciliation(store, snapshot, receipt):
+    if _READONLY_RECEIPT_SOURCE.get() is store:
+        # Like submission-intent proof above, historical reconciliation must
+        # validate the persisted record without opening a replay transaction.
+        rows = store._connection.execute(
+            "SELECT r.observation_id,r.resolution,o.attempt_id "
+            "FROM reconciliations r LEFT JOIN observations o "
+            "ON o.observation_id=r.observation_id "
+            "WHERE r.attempt_id=? AND r.resolution != 'UNRESOLVED'",
+            (snapshot.attempt_id,),
+        ).fetchall()
+        if [tuple(row) for row in rows] != [
+            (receipt.observation_id, ReconciliationResolution.SUBMITTED.value, snapshot.attempt_id)
+        ]:
+            raise TransportBoundaryError("historical source lacks the exact recorded SUBMITTED reconciliation")
+        return store.attempt_state(snapshot.attempt_id)
+    return store.reconcile_unknown(
+        snapshot.attempt_id, receipt.observation_id, ReconciliationResolution.SUBMITTED,
+    )
+
+
 def _reconstruct_job_authority_from_receipts(
     store: SQLiteRuntimeStore,
     snapshot: ProgramExecutionSnapshot,
@@ -503,11 +524,7 @@ def _reconstruct_job_authority_from_receipts(
     else:
         try:
             _completion_checkpoint(snapshot, program_transport_store)
-            replayed_state = store.reconcile_unknown(
-                snapshot.attempt_id,
-                receipt.observation_id,
-                ReconciliationResolution.SUBMITTED,
-            )
+            replayed_state = _replay_submitted_reconciliation(store, snapshot, receipt)
         except RuntimeStoreError as exc:
             raise TransportBoundaryError(
                 "Core SUBMITTED reconciliation does not replay for the job receipt"

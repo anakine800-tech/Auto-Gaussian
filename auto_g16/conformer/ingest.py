@@ -418,6 +418,24 @@ def _ingest_crest_conformers_xyz_common(
         xtb_validation_driver=xtb_validation_driver,
         xtb_output_capture=xtb_output_capture,
     )
+    return _ingest_bound_crest_artifact(
+        profile=profile,
+        program_execution_snapshot=program_execution_snapshot,
+        program_execution_spec=program_execution_spec,
+        declaration=declaration,
+        artifact_binding=artifact_binding,
+        artifact_bytes=artifact_bytes,
+        descriptors_by_member_index=descriptors_by_member_index,
+        relevance_tags_by_member_index=relevance_tags_by_member_index,
+    )
+
+
+def _ingest_bound_crest_artifact(
+    *, profile, program_execution_snapshot, program_execution_spec, declaration,
+    artifact_binding, artifact_bytes, descriptors_by_member_index,
+    relevance_tags_by_member_index, receipt_provenance=None,
+):
+    """Parse bytes only after the version-specific execution authority closes."""
     _require(
         type(artifact_binding) is _CrestOutputArtifactBinding,
         "artifact_binding must be exact",
@@ -461,6 +479,8 @@ def _ingest_crest_conformers_xyz_common(
         **artifact_binding.semantic_payload(),
         "output_declaration": declaration,
     }
+    if receipt_provenance is not None:
+        artifact_payload["receipt_provenance"] = receipt_provenance
     artifact_identity = semantic_id("crest-output-artifact", artifact_payload)
     source_set_id = semantic_id(
         "crest-conformer-set",
@@ -601,4 +621,110 @@ def _ingest_preoptimized_crest_conformers_xyz(
         xtb_program_transport_store=xtb_program_transport_store,
         xtb_validation_driver=xtb_validation_driver,
         xtb_output_capture=xtb_output_capture,
+    )
+
+
+def _ingest_receipt_crest_conformers_xyz(
+    *,
+    profile: SamplingProfile,
+    program_execution_snapshot: ProgramExecutionSnapshot,
+    core_store: SQLiteRuntimeStore,
+    program_transport_store: _transport._ProgramTransportStore,
+    preoptimization_handoff,
+    xtb_core_store: SQLiteRuntimeStore,
+    xtb_program_execution_snapshot: ProgramExecutionSnapshot,
+    xtb_program_transport_store: _transport._ProgramTransportStore,
+    crest_exact_input_bytes: bytes,
+    descriptors_by_member_index: Mapping[int, Mapping[str, object]] | None,
+    relevance_tags_by_member_index: Mapping[int, Sequence[str]] | None = None,
+    validation_driver: _transport._ProgramEffectDriver | None = None,
+    xtb_validation_driver: _transport._ProgramEffectDriver | None = None,
+) -> tuple[Mapping[str, object], ...]:
+    """Read adapter-3 native receipt/capture authority; never collect or replay.
+
+    Real sources require the fixed original xTB and CREST read-only locators.
+    Output bytes and their binding are derived from the persisted capture, not
+    supplied by the caller. Historical adapter-2 ingestion remains separate.
+    """
+    from auto_g16.execution._crest_seed_handoff import _assert_receipt_seed_handoff
+    from auto_g16.execution.program_runtime import _read_program_receipt_success_authority
+    from auto_g16.execution._receipt_source import _source_qualification
+    from auto_g16.transport._canonical import TransportBoundaryError
+
+    snapshot = program_execution_snapshot
+    _require(type(profile) is SamplingProfile, "profile must be an exact SamplingProfile")
+    _require(type(snapshot) is ProgramExecutionSnapshot, "snapshot must be exact")
+    _require(type(core_store) is SQLiteRuntimeStore, "core_store must be exact")
+    try:
+        snapshot.assert_identity_closed()
+        spec = snapshot.program_execution_spec
+        _require(
+            (spec.program_kind, spec.adapter_id, spec.adapter_contract_version)
+            == ("crest", "auto-g16-v31-crest", 3),
+            "receipt ingestion requires the exact CREST v3 adapter",
+        )
+        _assert_crest_program_execution_alignment(profile, spec)
+        _assert_receipt_seed_handoff(
+            preoptimization_handoff,
+            crest_program_execution_snapshot=snapshot,
+            core_store=xtb_core_store,
+            xtb_program_execution_snapshot=xtb_program_execution_snapshot,
+            xtb_program_transport_store=xtb_program_transport_store,
+            xtb_validation_driver=xtb_validation_driver,
+            crest_program_execution_spec=spec,
+            crest_exact_input_bytes=crest_exact_input_bytes,
+            sampling_profile=profile,
+        )
+        # Read the plan from the same pinned original Core bytes used for
+        # receipt authority. A stale same-path caller connection is not proof.
+        with _source_qualification(
+            core_store, snapshot, program_transport_store, validation_driver
+        ) as (source_store, _qualification):
+            plan = source_store.load_calculation_plan(snapshot.calculation_plan_id)
+            _require(plan.revision == snapshot.calculation_plan_revision,
+                     "persisted CalculationPlan revision differs from snapshot")
+            _require(plan.intent.get("crest_receipt_seed_handoff") == {
+                "handoff_authority_id": preoptimization_handoff.handoff_authority_id,
+                "payload_sha256": preoptimization_handoff.payload_sha256,
+            }, "persisted CalculationPlan binds a different receipt seed handoff")
+            proof, capture = _read_program_receipt_success_authority(
+                core_store, snapshot=snapshot,
+                program_transport_store=program_transport_store, driver=validation_driver,
+            )
+    except (ExecutionValueError, TransportBoundaryError) as exc:
+        raise ConformerError(f"CREST receipt ingestion authority is not closed: {exc}") from exc
+    _require(
+        proof["schema"] == "program-terminal-success-authority/2"
+        and proof["capture_authority_id"] == capture.capture_authority_id
+        and capture.program_execution_snapshot_id == snapshot.program_execution_snapshot_id
+        and capture.effect_intent_id == snapshot.effect_intent_id,
+        "CREST receipt proof and capture differ from snapshot",
+    )
+    declaration = _exact_output_declaration(spec)
+    artifacts = tuple(item for item in capture.artifacts
+                      if item.logical_role == _CREST_OUTPUT_ROLE)
+    _require(len(artifacts) == 1, "capture must contain exactly one CREST ensemble")
+    artifact = artifacts[0]
+    _require(artifact.presence == "present" and type(artifact.content) is bytes,
+             "CREST ensemble must have native captured bytes")
+    binding = _CrestOutputArtifactBinding(
+        program_execution_snapshot_id=artifact.program_execution_snapshot_id,
+        effect_intent_id=artifact.effect_intent_id,
+        program_execution_spec_id=spec.program_execution_spec_id,
+        logical_role=artifact.logical_role, portable_name=artifact.portable_name,
+        format=artifact.format, sha256=artifact.sha256, size_bytes=artifact.size_bytes,
+    )
+    return _ingest_bound_crest_artifact(
+        profile=profile, program_execution_snapshot=snapshot,
+        program_execution_spec=spec, declaration=declaration,
+        artifact_binding=binding, artifact_bytes=artifact.content,
+        descriptors_by_member_index=descriptors_by_member_index,
+        relevance_tags_by_member_index=relevance_tags_by_member_index,
+        receipt_provenance={
+            "terminal_success_authority": proof,
+            "capture_authority_id": capture.capture_authority_id,
+            "captured_artifact": artifact.identity_payload(),
+            "preoptimization_handoff_authority_id": preoptimization_handoff.handoff_authority_id,
+            "preoptimization_handoff_payload_sha256": preoptimization_handoff.payload_sha256,
+        },
     )
