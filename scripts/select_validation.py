@@ -78,6 +78,7 @@ _REVIEWED_TEST_CONTAINMENT = {
     "tests.v31.transport.test_exact_job_recovery": "tests.v31.transport",
     "tests.v31.transport.test_gaussian_successor": "tests.v31.transport",
     "tests.v31.transport.test_gaussian_short_entry": "tests.v31.transport",
+    "tests.v31.transport.test_gaussian_opt_resources": "tests.v31.transport",
     "tests.v31.transport.test_program_completion": "tests.v31.transport",
     "tests.v31.transport.test_program_composition": "tests.v31.transport",
     "tests.v31.transport.test_publisher_collection_recovery": "tests.v31.transport",

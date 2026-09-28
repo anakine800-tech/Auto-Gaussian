@@ -134,3 +134,103 @@ this new integration task; all technical and scientific gates remain unchanged.
   integrated bytes, nor scientific acceptance. Missing evidence stays explicit.
 - Excluded: deployment, SSH/RTwin/PBS/Gaussian, submission/cancellation, retry,
   recomputation, recollection, cleanup, old worktree/evidence mutation, Mac Direct.
+
+
+# Gaussian Opt resource Link0 development contract
+
+## Authority and current disposition
+
+This is an Owner-guided v3 feature task in the isolated App worktree `da0d`,
+branch `codex/gaussian-opt-resource-link0`, based on
+`0babf19a72d53c417e04df147c1aca77004f45b1` (no intake drift).
+The Owner approved contract freeze, isolated implementation, proportional
+offline validation and independent read-only review on 2026-09-27.
+The approved proposal SHA-256 is
+`def74bf52c2f702cfaff831bf61fa6ef7cecdf6820a8320e0012ce7e2c9f2f11`.
+Its readiness package and all nine sealed files were verified at intake.
+Startup `dev_preflight.py --json` passed all seven checks on a clean tree.
+
+Allowed paths are the existing Execution parser/resource/snapshot owners,
+necessary versioned Gaussian rendering seams, synthetic tests and associated
+contract/context documentation. Only the primary agent may edit. Review
+agents are read-only. No commit, push, PR, merge, installation, deployment,
+SSH, PBS, Gaussian execution, cleanup, private data or approval writes are
+authorized. Existing scientific inputs remain external and unchanged.
+The initial four repair cycles and first extension's four cycles are consumed.
+On 2026-09-27 the Owner approved a second extension of at most four cycles or
+thirty minutes of active diagnosis/editing, whichever comes first. Its scope
+is the non-synthetic material/8 admission gap, production composition positive
+and negative coverage, necessary regression and final read-only review.
+Counts remain cumulative (eight consumed at extension intake). Waiting for
+checks/review does not consume active time. No additional operational authority
+is granted.
+
+## Frozen independent portion
+
+Gaussian adapter `/6` implements the approved Opt resource contract. Existing
+`/3`, `/4`, `/5` retain their parsing, program data, identity and replay.
+
+The new input grammar requires exactly one of each Link0 declaration:
+`%chk=gaussian.chk`, `%mem=<positive integer>MB|GB`, and
+`%nprocshared=<positive integer>`. Keys/units are case-insensitive; the
+checkpoint value is exactly lowercase `gaussian.chk`. No embedded whitespace,
+decimal, sign, exponent, word unit, bare unitless memory, leading zero,
+comment, path, unknown key or duplicate is accepted. Values are bounded to
+nine decimal digits to keep parsing finite. Parse units to uppercase and
+integers without rewriting any input byte or replacing the exact input hash.
+No conversion to scheduler MB or resource default is implied by this grammar.
+
+Reuse the existing single-job Cartesian validator directly over the original
+bytes with a separate opt-in Link0 branch, never by deleting resource lines
+and revalidating a modified input. Reject Freq, TS/QST, IRC, Link1, oldchk,
+checkpoint/geometry reads and ambient dependencies. Method, basis, solvent,
+charge, multiplicity and coordinates remain input-owned; no scientific
+defaults are supplied. New Opt options are limited to MaxCycles, MaxStep,
+CalcFC, Tight, VeryTight, Loose and Cartesian; Geom and Guess directives are
+excluded from this narrow slice. Unknown Opt options fail closed.
+The new route grammar additionally requires one explicit method/basis token
+and admits only Opt, SCF (Tight/MaxCycle), Integral (UltraFine) and NoSymm.
+It rejects duplicate directives/options and all other directives, including
+SCF restart, density/checkpoint reads, SCRF and ExtraLinks. This bounded
+gas-phase vocabulary covers the approved candidates; expanding it is future
+scope and does not silently authorize a scientific setting.
+Method/basis tokens exclude commas and parentheses in this slice, so a basis
+token cannot swallow a second route directive; parenthesized basis spellings
+need a separately reviewed grammar extension.
+Full adapter acceptance still requires exact spec,
+snapshot/resource binding, native inert-child stdin evidence and review.
+
+## Approved resource binding and version tuple
+
+Owner explicitly approved Gaussian `12GB` using binary GB = 1024 MiB,
+8 cores; PBS `memory_mb=16384`, 8 cores; explicit positive headroom 4096 MiB;
+concurrency one, serial Opt execution and 3600 seconds per job. This is the
+case-specific budget for the two unchanged candidates, not a global default.
+The reported eight spare cores are Owner context, not a refreshed observation.
+No automatic promotion to the general 22-core tier is permitted.
+
+`ResolvedResourceRequest` continues to own scheduler resources. OD-21's
+`memory_mb` renders verbatim as Torque `Mmb`. Input-derived `memory_mib` and
+`cores`, plus caller-explicit positive `headroom_mib`, belong to the immutable
+/6 spec. Snapshot construction, identity rebuild, staging and native wrapper
+require matching cores and exactly `memory_mib + headroom_mib == memory_mb`.
+There is no resource inference, mutation or zero-headroom default.
+
+The new tuple is adapter6 / Q7 / material8 / prebinding9 / scheduler9 /
+deployment7 / `v31-gaussian-resource-bootstrap-v3.py`. Its contract domain is
+`V31-GAUSSIAN-OPT-RESOURCE-01/binary-MiB-explicit-headroom-v1` plus LF,
+SHA-256 bound by Q7. It reuses Q6 file carrier/descriptor handling and the
+completion receipt, Attempt and Result owners. Historical tuples retain their
+generated bytes and identity rules; /6 source generation is selected only for
+its explicit tuple. Q7 qualification and installed-source closure are new
+requirements, not inherited live acceptance. This task does not create them.
+
+## Evidence boundaries
+
+Synthetic fixtures belong in Git; the two private candidates may be read for
+offline acceptance, with only sanitized hashes/status in the handoff.
+Parser success alone is not a valid spec/snapshot or execution readiness.
+Unchanged historical evidence is reused with its original source binding;
+changed parser claims get focused tests. Selector diagnosis on this
+uncommitted candidate cannot be represented as an authoritative committed
+base/head CI attestation. CI contract audit proves local declarations only.

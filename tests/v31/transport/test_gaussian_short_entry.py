@@ -48,7 +48,7 @@ class ShortEntryCompositionTests(LaneAFixture):
         runtime._prepare_program_execution(self.store, **self.kwargs(), input_bytes=self.input_bytes, scheduler_artifact_bytes=self.scheduler_bytes)
         result = execution.execute_once(self.store, snapshot=self.snapshot, current_profile=self.profile_current,
             confirmed_execution_snapshot_id=self.snapshot.program_execution_snapshot_id,
-            prepared_input_bytes=previous.OPT, pbs_template_bytes=self.scheduler_bytes[entry_name],
+            prepared_input_bytes=self.input_bytes["flow.gjf"], pbs_template_bytes=self.scheduler_bytes[entry_name],
             port=runtime._ProgramExecutionPort(**self.kwargs()))
         return runtime._read_program_execution_result(self.store, **self.kwargs(), claim=result.claim)
 
@@ -167,6 +167,11 @@ class ShortEntryCompositionTests(LaneAFixture):
             with self.assertRaises(ValueError): runtime._handoff_stage_ids(self.snapshot, bad)
 
     def test_native_q6_durable_authorities_context_and_wire(self):
+        with patch.object(completion, "_resource_owner", side_effect=AssertionError("historical tuple called resource owner")):
+            self._check_installed_gaussian_delivery()
+
+    def _check_installed_gaussian_delivery(self, *, startup_mode="file", input_raw=previous.OPT, resource_kwargs=None):
+        """Real production composition owners with fixture authorities and inert wire."""
         from auto_g16.transport import _bridge, _driver
         from tests.v3.transport import _fixtures as v30
         from tests.v31.transport import test_rtwin_successor_bridge as bridge_test
@@ -177,12 +182,12 @@ class ShortEntryCompositionTests(LaneAFixture):
         manifest["trust_roots"]={k:v for k,v in manifest["trust_roots"].items() if k in completion._ROOT_RULES}
         from tests.v3.execution import test_v31_lane_a as lane
         profile=replace(raw,platform_paths={**raw.platform_paths,"xtb_executable_path":lane.XTB_EXECUTABLE_PATH,"xtb_data_path":lane.XTB_DATA_PATH},runtime_contents={"xtb":lane.XTB_EXECUTABLE_BYTES,completion._DATA_NAME:lane.xtb_runtime_data_manifest_bytes(),_driver._TABLE_NAME:_driver._OPERATION_TABLE_BYTES,_driver._RESOURCE_DESCRIPTOR_NAME:v30.TORQUE_RESOURCE_DESCRIPTOR_BYTES,completion._DEPLOYMENT_NAME:completion._receipt_json(manifest)})
-        current,target,q,evidence,_,_,_,_,snapshot=self.qualified_case(startup="file",production_generation=True,base_profile_override=profile,g16_path=previous.TARGET_G16_PATH,g16_size=previous.TARGET_G16_SIZE,g16_sha256=previous.TARGET_G16_SHA256)
+        current,target,q,evidence,_,_,_,_,snapshot=self.qualified_case(startup=startup_mode,input_raw=input_raw,**(resource_kwargs or {}),production_generation=True,base_profile_override=profile,g16_path=previous.TARGET_G16_PATH,g16_size=previous.TARGET_G16_SIZE,g16_sha256=previous.TARGET_G16_SHA256)
         installation,authority=self.installed_case(current,target,q,evidence,snapshot)
         calls=[]
         def peer(scope,invocation):
             command,frame=rtwin._prepare_program_invocation(scope,invocation)
-            request=_bridge._decode_frame(frame,cap=invocation.operation.stdin_cap,field="inert Q6 request")
+            request=_bridge._decode_frame(frame,cap=invocation.operation.stdin_cap,field="inert Gaussian request")
             self.assertIn(submit.source_bytes().decode().splitlines()[0],command[-1])
             op=request["operation"];payload=request["payload"]["request_payload"];calls.append(request)
             self.assertEqual(invocation.operation.timeout_seconds, 120 if op=="SUBMIT_QSUB_ONCE" else _driver._operation(op).timeout_seconds)
@@ -202,7 +207,7 @@ class ShortEntryCompositionTests(LaneAFixture):
             return _bridge._encode_frame({"protocol":_bridge._PROGRAM_BOOTSTRAP_PROTOCOL,"operation":op,"status":"ok","result":response}),b"",0,"completed",True,True
         from auto_g16 import approval
         from scripts import run_v31_publisher_pilot as controller
-        meaning={"fixture":"inert Q6 only"}
+        meaning={"fixture":"inert Gaussian delivery only"}
         scientific=approval.ScientificApproval.for_plan(self.store,self.store.load_calculation_plan(snapshot.calculation_plan_id),displayed_semantic_meaning=meaning,reviewer_id="fixture",reviewer_evidence={})
         batch=approval.BatchSubmitApproval.for_existing_attempts(self.store,[(snapshot.attempt_id,scientific)],reviewer_id="fixture",reviewer_evidence={})
         confirmation=approval.ExactOperationalConfirmation.for_snapshot(self.store,snapshot,confirmer_id="fixture",confirmer_evidence={})
@@ -212,10 +217,19 @@ class ShortEntryCompositionTests(LaneAFixture):
             with patch.object(controller,"_load_current_authorities",return_value=({"core":self.store},scientific,batch,confirmation)):
                 return controller._current_gaussian_handoff_approvals(run,deployment)
         with self.assertRaises(ValueError):current_approvals()
-        with patch.object(rtwin,"_FIXED_PUBLISHER_INSTALLATION",installation),patch.object(rtwin,"_publisher_window",return_value=None),patch.object(_driver._SubprocessRTWinDriver,"_run",side_effect=peer),patch.object(_driver.subprocess,"Popen",side_effect=AssertionError("live forbidden")):
+        with patch.object(rtwin,"_FIXED_PUBLISHER_INSTALLATION",installation),patch.object(rtwin,"_publisher_window",return_value=None),patch.object(_driver._SubprocessRTWinDriver,"_run",side_effect=peer),patch.object(_driver.subprocess,"Popen",side_effect=AssertionError("live forbidden")) as forbidden_process:
+            # No installation may qualify even a correctly constructed /6 tuple.
+            with patch.object(rtwin,"_FIXED_PUBLISHER_INSTALLATION",None), self.assertRaises(ValueError):
+                rtwin._RTWinProgramEffectDriver(snapshot=snapshot,current_profile=current,program_transport_store=self.program_transport_store)
             driver=rtwin._RTWinProgramEffectDriver(snapshot=snapshot,current_profile=current,program_transport_store=self.program_transport_store)
             self.addCleanup(driver.close)
+            with self.assertRaises(ValueError):
+                runtime._snapshot_binding(snapshot,self.program_transport_store,composition._Driver({}))
+            with patch.object(type(snapshot),"_completion_material",return_value={"schema":"unsupported-material/999"}), self.assertRaises(ValueError):
+                runtime._snapshot_binding(snapshot,self.program_transport_store,driver)
+            self.assertEqual(calls,[])
             self.snapshot=snapshot;self.profile_current=current;self.driver=driver
+            self.input_bytes={"flow.gjf":input_raw}
             self.scheduler_bytes={a["portable_name"]:a["content_utf8"].encode() for a in snapshot.scheduler_artifacts}
             token=rtwin._GAUSSIAN_LAUNCH_OWNER.set((snapshot,current_approvals))
             try:
@@ -223,6 +237,7 @@ class ShortEntryCompositionTests(LaneAFixture):
                 self.assertIsNone(rtwin._GAUSSIAN_WIRE_CONTEXT.get())
                 count=len(calls);self.execute();self.assertEqual(len(calls),count)
             finally:rtwin._GAUSSIAN_LAUNCH_OWNER.reset(token)
+            forbidden_process.assert_not_called()
         self.assertEqual([r["operation"] for r in calls],["ALLOCATE_WORKSPACE"]+["STAGE_EXACT_FILE"]*5+["SUBMIT_QSUB_ONCE"])
 
     def test_historical_source_bytes_and_child_status_helpers_unchanged(self):

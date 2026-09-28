@@ -184,7 +184,7 @@ def _validate_invocation(
     _exact_keys(stdin, {"mode", "logical_role"}, "invocation.stdin")
     expected_stdin = (
         {"mode": "exact-input", "logical_role": "gaussian-input"}
-        if program_kind == "gaussian" and adapter_contract_version in (3, 4, 5)
+        if program_kind == "gaussian" and adapter_contract_version in (3, 4, 5, 6)
         else {"mode": "none", "logical_role": None}
     )
     if dict(stdin) != expected_stdin:
@@ -233,6 +233,37 @@ def _validate_gaussian_data(value: Mapping[str, object]) -> Mapping[str, object]
     if value["completion_mode"] != _MODE:
         raise ExecutionValueError("unknown completion mode")
     return freeze_mapping(dict(value), "Gaussian program_data")
+
+
+def _validate_gaussian_resource_data(value: Mapping[str, object]) -> Mapping[str, object]:
+    _exact_keys(value, {"stage", "completion_mode", "gaussian_resources"}, "Gaussian resource program_data")
+    _validate_gaussian_data({key: value[key] for key in ("stage", "completion_mode")})
+    if value["stage"] != "opt":
+        raise ExecutionValueError("Gaussian resource adapter is Opt only")
+    resources = value["gaussian_resources"]
+    if not isinstance(resources, Mapping):
+        raise ExecutionValueError("Gaussian input resources must be a closed mapping")
+    _exact_keys(resources, {"memory_mib", "cores", "headroom_mib"}, "Gaussian input resources")
+    for key, cap in (("memory_mib", 999999999 * 1024), ("cores", 999999999), ("headroom_mib", 999999999 * 1024)):
+        if type(resources[key]) is not int or not 1 <= resources[key] <= cap:
+            raise ExecutionValueError("Gaussian input resource integer is invalid")
+    return freeze_mapping(dict(value), "Gaussian resource program_data")
+
+
+def _gaussian_input_resources(input_name: str, input_bytes: bytes) -> Mapping[str, object]:
+    parsed = _validate_gaussian_input(input_name, input_bytes, {"stage": "opt"}, resource_link0=True)
+    from ._gaussian_resources import _resource_facts
+    return freeze_mapping(_resource_facts(input_bytes), "Gaussian binary input resources")
+
+
+def _validate_gaussian_resource_binding(spec, resources) -> None:
+    if (spec.program_kind, spec.adapter_contract_version) == ("gaussian", 6):
+        selected = spec.program_data["gaussian_resources"]
+        resources.assert_identity_closed()
+        if selected["cores"] != resources.cores:
+            raise ExecutionValueError("Gaussian cores differ from resolved resources")
+        if selected["memory_mib"] + selected["headroom_mib"] != resources.memory_mb:
+            raise ExecutionValueError("Gaussian working memory plus explicit headroom differs from PBS budget")
 
 
 def _gaussian_route_directives(route: str) -> tuple[tuple[str, frozenset[str]], ...]:
@@ -285,9 +316,63 @@ def _gaussian_route_directives(route: str) -> tuple[tuple[str, frozenset[str]], 
     return tuple(directives)
 
 
+def _validate_gaussian_resource_route(route: str) -> None:
+    """Narrow gas-phase minimum Opt vocabulary; no ambient/read directives.
+
+    This opt-in grammar does not change the historical route tokenizer. It
+    validates exact input semantics without rendering or selecting chemistry.
+    """
+    header = re.match(r"#[pnt]?(?=\s)\s+", route, re.ASCII)
+    if header is None:
+        raise ExecutionValueError("Gaussian resource route header is invalid")
+    rest = route[header.end():]
+    seen: set[str] = set()
+    option_sets = {
+        "opt": r"(?:maxcycles|maxstep)\s*=\s*[1-9][0-9]{0,8}|calcfc|tight|verytight|loose|cartesian",
+        "scf": r"maxcycle\s*=\s*[1-9][0-9]{0,8}|tight",
+        "integral": r"ultrafine",
+    }
+    while rest:
+        method = re.match(r"[a-z][a-z0-9+_-]*/[a-z0-9][a-z0-9+*_-]*(?=\s|$)", rest, re.ASCII)
+        if method is not None:
+            key, end = "method/basis", method.end()
+        else:
+            name = re.match(r"(opt|scf|integral|nosymm)(?=\s|=|\(|$)", rest, re.ASCII)
+            if name is None:
+                raise ExecutionValueError("Gaussian resource route directive is outside the closed set")
+            key, end = name[1], name.end()
+            tail = rest[end:]
+            if key != "nosymm":
+                assignment = re.match(r"\s*(?:=\s*)?(\([^()]*\)|[^\s()=]+)(?=\s|$)", tail, re.ASCII)
+                # A bare keyword is allowed; only consume an explicit = or (
+                # so the next bare route keyword is never swallowed as data.
+                if tail.lstrip().startswith(("=", "(")):
+                    if assignment is None:
+                        raise ExecutionValueError("Gaussian resource route options are malformed")
+                    value = assignment[1]
+                    options = value[1:-1].split(",") if value.startswith("(") else [value]
+                    names: set[str] = set()
+                    for option in options:
+                        option = option.strip()
+                        label = option.split("=", 1)[0].strip()
+                        if re.fullmatch(option_sets[key], option, re.ASCII) is None or label in names:
+                            raise ExecutionValueError("Gaussian resource route option is outside the closed set")
+                        names.add(label)
+                    end += assignment.end()
+            if end < len(rest) and not rest[end].isspace():
+                raise ExecutionValueError("Gaussian resource route token is malformed")
+        if key in seen:
+            raise ExecutionValueError("Gaussian resource route directive is duplicated")
+        seen.add(key)
+        rest = rest[end:].lstrip()
+    if not {"method/basis", "opt"}.issubset(seen):
+        raise ExecutionValueError("Gaussian resource route requires method/basis and Opt")
+
+
 def _validate_gaussian_input(
-    input_name: str, input_bytes: bytes, data: Mapping[str, object]
-) -> None:
+    input_name: str, input_bytes: bytes, data: Mapping[str, object],
+    *, resource_link0: bool = False,
+) -> Mapping[str, object] | None:
     if not input_name.lower().endswith(".gjf"):
         raise ExecutionValueError("Gaussian input must use the .gjf suffix")
     if b"\x00" in input_bytes or b"\r" in input_bytes:
@@ -297,19 +382,50 @@ def _validate_gaussian_input(
     except UnicodeDecodeError as exc:
         raise ExecutionValueError("Gaussian input must be canonical UTF-8 text") from exc
     lines = text.split("\n")
+    if resource_link0 and any(ord(char) < 32 and char not in "\n\t" or ord(char) == 127 for char in text):
+        raise ExecutionValueError("Gaussian resource input contains control characters")
     if any(line.strip().lower() == "--link1--" for line in lines):
         raise ExecutionValueError("Gaussian successor accepts one job only")
     position = 0
     while position < len(lines) and not lines[position].strip():
         position += 1
     link0_count = 0
+    resource_fields: dict[str, object] = {}
     while position < len(lines) and lines[position].lstrip().startswith("%"):
-        if lines[position].strip().lower() != "%chk=gaussian.chk":
-            raise ExecutionValueError("Gaussian Link0 authority is outside the closed set")
-        link0_count += 1
-        if link0_count > 1:
-            raise ExecutionValueError("Gaussian Link0 authority is duplicated")
+        if resource_link0:
+            match = re.fullmatch(
+                r"%(chk|mem|nprocshared)=(gaussian\.chk|[1-9][0-9]{0,8}(?:MB|GB)?)",
+                lines[position], re.IGNORECASE | re.ASCII,
+            )
+            if match is None:
+                raise ExecutionValueError("Gaussian resource Link0 syntax is outside the closed set")
+            key, value = match[1].lower(), match[2]
+            if key in resource_fields:
+                raise ExecutionValueError("Gaussian resource Link0 authority is duplicated")
+            if key == "chk":
+                if value != "gaussian.chk":
+                    raise ExecutionValueError("Gaussian checkpoint must be exactly gaussian.chk")
+                resource_fields[key] = value
+            elif key == "mem":
+                memory = re.fullmatch(r"([1-9][0-9]{0,8})(MB|GB)", value, re.IGNORECASE | re.ASCII)
+                if memory is None:
+                    raise ExecutionValueError("Gaussian memory requires integer MB or GB")
+                resource_fields[key] = (int(memory[1]), memory[2].upper())
+            else:
+                if re.fullmatch(r"[1-9][0-9]{0,8}", value, re.ASCII) is None:
+                    raise ExecutionValueError("Gaussian cores require a positive integer")
+                resource_fields[key] = int(value)
+        else:
+            if lines[position].strip().lower() != "%chk=gaussian.chk":
+                raise ExecutionValueError("Gaussian Link0 authority is outside the closed set")
+            link0_count += 1
+            if link0_count > 1:
+                raise ExecutionValueError("Gaussian Link0 authority is duplicated")
         position += 1
+    if resource_link0 and set(resource_fields) != {"chk", "mem", "nprocshared"}:
+        raise ExecutionValueError("Gaussian resources require exactly chk, mem and nprocshared")
+    if resource_link0 and any("%" in line or "@" in line for line in lines[position:]):
+        raise ExecutionValueError("Gaussian resource input contains an extra directive or include")
     if position >= len(lines) or not lines[position].lstrip().startswith("#"):
         raise ExecutionValueError("Gaussian input requires one route section")
     route_lines = []
@@ -317,7 +433,11 @@ def _validate_gaussian_input(
         route_lines.append(lines[position].strip())
         position += 1
     route = " ".join(route_lines).lower()
+    if resource_link0:
+        _validate_gaussian_resource_route(route)
     directives = _gaussian_route_directives(route)
+    if resource_link0 and data["stage"] != "opt":
+        raise ExecutionValueError("Gaussian resource adapter accepts minimum Opt only")
     if (
         any(
             name == "geom"
@@ -360,6 +480,11 @@ def _validate_gaussian_input(
         position += 1
     if atoms == 0 or any(line.strip() for line in lines[position:]):
         raise ExecutionValueError("Gaussian input must end after one Cartesian geometry")
+    if resource_link0:
+        memory_value, memory_unit = resource_fields["mem"]
+        return freeze_mapping({"memory_value": memory_value, "memory_unit": memory_unit,
+                               "cores": resource_fields["nprocshared"]}, "Gaussian input resources")
+    return None
 
 
 def _render_gaussian(
@@ -737,6 +862,9 @@ _Adapter = tuple[
 from . import _crest_completion
 
 _ADAPTER_REGISTRY: Final[Mapping[tuple[str, str, int], _Adapter]] = {
+    ("gaussian", "auto-g16-v31-gaussian", 6): (
+        "auto-g16-v31-gaussian", 6, _validate_gaussian_resource_data, _render_gaussian,
+    ),
     ("gaussian", "auto-g16-v31-gaussian", 5): (
         "auto-g16-v31-gaussian", 5, _validate_gaussian_data, _render_gaussian,
     ),
@@ -838,7 +966,7 @@ class ProgramExecutionSpec:
         if (inputs[0]["logical_role"], inputs[0]["format"]) != expected_input:
             raise ExecutionValueError("program input declaration differs from its adapter")
         data = validate_data(program_data)
-        if program_kind in {"gaussian", "xtb", "crest"} and adapter_contract_version in (3, 4, 5):
+        if program_kind in {"gaussian", "xtb", "crest"} and adapter_contract_version in (3, 4, 5, 6):
             from ._program_completion import _RESERVED_NAMES
             names = [item["portable_name"] for item in (*inputs, *required_outputs, *optional_outputs)]
             if len(set(names)) != len(names) or any(
@@ -923,6 +1051,7 @@ def _prepare_program_execution_spec(
     resolved_profile: ResolvedServerProfile | None = None,
     completion_mode: str | None = None,
     startup_mode: str | None = None,
+    gaussian_headroom_mib: int | None = None,
 ) -> ProgramExecutionSpec:
     if program_kind not in _PROGRAM_KINDS:
         raise ExecutionValueError("unknown program kind")
@@ -936,7 +1065,8 @@ def _prepare_program_execution_spec(
     if startup_mode is not None:
         from ._gaussian_startup import _Q_NAME as old_name
         from ._gaussian_file_carrier import _Q_NAME as file_name
-        version = {"short-entry-physical-handoff-v1": (4, old_name), "short-entry-file-carrier-v2": (5, file_name)}.get(startup_mode)
+        resource_name = "v31-gaussian-publisher-qualification-v7.json"
+        version = {"short-entry-physical-handoff-v1": (4, old_name), "short-entry-file-carrier-v2": (5, file_name), "short-entry-opt-resources-v3": (6, resource_name)}.get(startup_mode)
         if program_kind != "gaussian" or version is None or completion_mode is None or resolved_profile is None or version[1] not in resolved_profile.runtime_identities:
             raise ExecutionValueError("Gaussian short entry requires explicit qualified selection")
         adapter_key = ("gaussian", "auto-g16-v31-gaussian", version[0])
@@ -948,8 +1078,16 @@ def _prepare_program_execution_spec(
     if not isinstance(input_bytes, bytes) or not input_bytes:
         raise ExecutionValueError("program input must be non-empty immutable bytes")
     adapter_id, version, validate_data, renderer = adapter
+    if version == 6 and program_kind == "gaussian":
+        require_positive_integer(gaussian_headroom_mib, "gaussian_headroom_mib")
+        if "gaussian_resources" in program_data:
+            raise ExecutionValueError("Gaussian resource facts must be input-derived")
+        program_data = {**program_data, "gaussian_resources": {
+            **_gaussian_input_resources(input_name, input_bytes), "headroom_mib": gaussian_headroom_mib}}
+    elif gaussian_headroom_mib is not None:
+        raise ExecutionValueError("Gaussian headroom requires explicit adapter 6")
     data = validate_data(program_data)
-    if program_kind == "gaussian":
+    if program_kind == "gaussian" and version != 6:
         _validate_gaussian_input(input_name, input_bytes, data)
     absolute_path = validate_posix_path(executable_path, "executable_path")
     expected_path = _SYNTHETIC_SERVER_EXECUTABLE_PATHS.get(program_kind)
@@ -1014,6 +1152,7 @@ def _render_scheduler_artifact(
     completion_rendering_material: Mapping[str, object] | None = None,
     project_physical_binding: ProjectPhysicalBinding | None = None,
 ) -> tuple[Mapping[str, object], ...]:
+    _validate_gaussian_resource_binding(spec, resources)
     if _uses_completion_receipt(spec):
         from ._program_completion import _render_completion_scheduler
         if prebinding_fields is None or completion_rendering_material is None:
@@ -1127,7 +1266,7 @@ def _uses_xtb_runtime_data_authority(spec: ProgramExecutionSpec) -> bool:
 
 
 def _uses_completion_receipt(spec: ProgramExecutionSpec) -> bool:
-    return (spec.program_kind, spec.adapter_id, spec.adapter_contract_version) in {("gaussian", "auto-g16-v31-gaussian", 3), ("gaussian", "auto-g16-v31-gaussian", 4), ("gaussian", "auto-g16-v31-gaussian", 5), ("xtb", "auto-g16-v31-xtb", 3), ("crest", "auto-g16-v31-crest", 3)}
+    return (spec.program_kind, spec.adapter_id, spec.adapter_contract_version) in {("gaussian", "auto-g16-v31-gaussian", 3), ("gaussian", "auto-g16-v31-gaussian", 4), ("gaussian", "auto-g16-v31-gaussian", 5), ("gaussian", "auto-g16-v31-gaussian", 6), ("xtb", "auto-g16-v31-xtb", 3), ("crest", "auto-g16-v31-crest", 3)}
 
 
 def _assert_xtb_runtime_data_authority(profile: ResolvedServerProfile) -> str:
@@ -1213,6 +1352,8 @@ class ProgramExecutionSnapshot:
         """Expanded review evidence; the existing snapshot identity is unchanged."""
         from . import _gaussian_startup, _gaussian_file_carrier
         short_version = self.program_execution_spec.adapter_contract_version if self.program_execution_spec.program_kind == "gaussian" else None
+        if short_version == 6:
+            from . import _gaussian_resources
         return freeze_mapping({
             **dict(self.semantic_payload()),
             "program_execution_spec": self.program_execution_spec.semantic_payload(),
@@ -1226,7 +1367,7 @@ class ProgramExecutionSnapshot:
                 "parent_parts": self.workspace_binding._local_parent_parts,
                 "component_identities": self.workspace_binding._local_component_identities,
             },
-            **({"gaussian_startup_review": (_gaussian_file_carrier if short_version == 5 else _gaussian_startup)._review_disclosure(self)} if short_version in (4, 5) else {}),
+            **({"gaussian_startup_review": (_gaussian_resources if short_version == 6 else _gaussian_file_carrier if short_version == 5 else _gaussian_startup)._review_disclosure(self)} if short_version in (4, 5, 6) else {}),
         }, "expanded ProgramExecutionSnapshot review evidence")
 
     @staticmethod
@@ -1581,7 +1722,7 @@ class _ProgramExecutionSnapshotService:
         restorable_schemas = (
             {"v31-completion-rendering-material/3", "v31-completion-rendering-material/4"}
             if snapshot.program_execution_spec.program_kind == "crest"
-            else {"v31-completion-rendering-material/5", "v31-completion-rendering-material/6", "v31-completion-rendering-material/7"}
+            else {"v31-completion-rendering-material/5", "v31-completion-rendering-material/6", "v31-completion-rendering-material/7", "v31-completion-rendering-material/8"}
             if snapshot.program_execution_spec.program_kind == "gaussian"
             else {"v31-completion-rendering-material/2"}
         )
@@ -1691,6 +1832,7 @@ def _prepare_program_execution_snapshot_owned(
             raise ExecutionValueError("completion preparation requires a fresh unconsumed Attempt")
     elif completion_rendering_material is not None:
         raise ExecutionValueError("strict adapters reject completion rendering material")
+    _validate_gaussian_resource_binding(program_execution_spec, resolved_resource_request)
     current_proof = owned_project_provisioning._attest_current(
         project_physical_binding, resolved_server_profile
     )
