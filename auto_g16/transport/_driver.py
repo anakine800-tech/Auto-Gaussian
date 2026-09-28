@@ -540,6 +540,10 @@ class _SubprocessRTWinDriver:
             self._kill(process); process.wait(); return b"",b"",None,"transport-error",False,False
         streams={"stdin":process.stdin,"stdout":process.stdout,"stderr":process.stderr}
         selector=selectors.DefaultSelector(); output={"stdout":bytearray(),"stderr":bytearray()}; offset=0
+        def diagnostic(status):
+            if operation.name in {"OBSERVE_PROJECT", "PROVISION_PROJECT"}:
+                return bytes(output["stdout"][:operation.stdout_cap]),bytes(output["stderr"][:operation.stderr_cap]),None,status,False,False
+            return b"",b"",None,status,False,False
         try:
             for stream in streams.values(): os.set_blocking(stream.fileno(),False)
             selector.register(process.stdin,selectors.EVENT_WRITE,"stdin")
@@ -549,10 +553,10 @@ class _SubprocessRTWinDriver:
             while selector.get_map():
                 remaining=deadline-time.monotonic()
                 if remaining<=0:
-                    self._kill(process); process.wait(); return b"",b"",None,"timeout",False,False
+                    self._kill(process); process.wait(); return diagnostic("timeout")
                 events=selector.select(remaining)
                 if not events:
-                    self._kill(process); process.wait(); return b"",b"",None,"timeout",False,False
+                    self._kill(process); process.wait(); return diagnostic("timeout")
                 for key,_mask in events:
                     name=key.data; stream=key.fileobj
                     if name=="stdin":
@@ -568,14 +572,14 @@ class _SubprocessRTWinDriver:
                         selector.unregister(stream); stream.close(); continue
                     output[name].extend(chunk)
                     if len(output[name])>cap:
-                        self._kill(process); process.wait(); return b"",b"",None,"transport-error",False,False
+                        self._kill(process); process.wait(); return diagnostic("transport-error")
             remaining=max(0.0,deadline-time.monotonic())
             try: returncode=process.wait(timeout=remaining)
             except subprocess.TimeoutExpired:
-                self._kill(process); process.wait(); return b"",b"",None,"timeout",False,False
+                self._kill(process); process.wait(); return diagnostic("timeout")
             return bytes(output["stdout"]),bytes(output["stderr"]),returncode,"completed",True,True
         except (OSError,ValueError):
-            self._kill(process); process.wait(); return b"",b"",None,"transport-error",False,False
+            self._kill(process); process.wait(); return diagnostic("transport-error")
         finally:
             selector.close()
             for stream in streams.values():
@@ -607,13 +611,16 @@ class _SubprocessRTWinDriver:
         before.update({f"identity-{index}":_attest_identity_reference(path,expected) for index,(path,expected) in enumerate(identity_paths)})
         if not successor: request=_encode_request_frame(invocation.request,cap=invocation.operation.stdin_cap)
         process=None
+        stdout,stderr=b"",b""
         try:
             process=subprocess.Popen(command,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=dict(_FIXED_ENV),shell=False,start_new_session=True)
             stdout,stderr,returncode,status,eofout,eoferr=self._communicate_bounded(process,request,invocation.operation)
             after={name:_attest_local(roots[name]) for name in root_names}
             after.update({bound.name:_attest_local_effect_file(bound) for bound in local_files})
             after.update({f"identity-{index}":_attest_identity_reference(path,expected) for index,(path,expected) in enumerate(identity_paths)})
-            if before!=after: return b"",b"",None,"transport-error",False,False
+            if before!=after:
+                if invocation.operation.name in {"OBSERVE_PROJECT", "PROVISION_PROJECT"}: return stdout,stderr,None,"transport-error",False,False
+                return b"",b"",None,"transport-error",False,False
             if status!="completed": return stdout,stderr,returncode,status,eofout,eoferr
             return stdout,stderr,returncode,"completed",True,True
         except (OSError,TransportBoundaryError):
@@ -621,6 +628,7 @@ class _SubprocessRTWinDriver:
                 try: active=process.poll() is None
                 except (AttributeError,OSError): active=True
                 if active: self._kill(process)
+            if invocation.operation.name in {"OBSERVE_PROJECT", "PROVISION_PROJECT"}: return stdout,stderr,None,"transport-error",False,False
             return b"",b"",None,"transport-error",False,False
     def invoke_text(self,snapshot:ExecutionSnapshot,invocation:_Invocation)->_TextResult:
         stdout,stderr,code,status,eofout,eoferr=self._run(snapshot,invocation)

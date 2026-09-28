@@ -656,6 +656,172 @@ class ProductionBridgeTests(lane.LaneAFixture):
         foreign.record_submission_intent.assert_not_called()
         self.assertEqual(v30_port.calls, 0)
 
+    def _recovery_fixture(self):
+        path = self.journal_path.with_name("recoverable.sqlite3")
+        journal = _ProductionProvisioningJournal.create_new_recoverable(path, approved_root=path.parent)
+        self.addCleanup(journal.close)
+        self.journal = journal
+        self.journal_path = path
+        self.service = _ProjectProvisioningService._from_project_attestor(
+            attestor=bridge._RTWinProjectAttestor(current_profile=self.current_profile, target=self.target),
+            target=self.target, journal=journal,
+        )
+
+    def _intent_id(self):
+        return self.journal._connection.execute("SELECT intent_id FROM provisioning_intents").fetchone()[0]
+
+    def _reconcile(self, service=None, intent_id=None):
+        return (service or self.service).reconcile_remote_project(
+            project=self.store.load_project("project-1"), target=self.target,
+            remote_project_dir=self.remote_project_dir, intent_id=intent_id or self._intent_id(),
+        )
+
+    def test_readonly_recovery_rejects_wal_header_without_creating_sidecars(self):
+        self.journal._connection.execute("PRAGMA journal_mode=WAL")
+        self.journal.close()
+        self.assertEqual(self.journal_path.read_bytes()[18:20], b"\x02\x02")
+        before = {path.name for path in self.journal_path.parent.iterdir()}
+        with self.assertRaisesRegex(execution.ExecutionValueError, "rollback-format"):
+            _ProductionProvisioningJournal.open_existing_readonly(self.journal_path, approved_root=self.journal_path.parent)
+        self.assertEqual({path.name for path in self.journal_path.parent.iterdir()}, before)
+
+    def test_readonly_recovery_detects_source_change_and_missing_files(self):
+        self.provision()
+        with _ProductionProvisioningJournal.open_existing_readonly(self.journal_path, approved_root=self.journal_path.parent) as reader:
+            self.journal_path.touch()
+            with self.assertRaisesRegex(execution.ExecutionValueError, "snapshot changed"):
+                reader.inspect_intent("project-1", intent_id=self._intent_id())
+        path = self.journal_path.with_name("missing.sqlite3")
+        with self.assertRaises(FileNotFoundError):
+            _ProductionProvisioningJournal.open_existing_readonly(path, approved_root=path.parent)
+        self.assertFalse(path.exists())
+
+    def test_v3_binding_requires_matching_success_even_when_intent_is_valid(self):
+        self._recovery_fixture()
+        binding = self.provision()
+        connection = self.journal._connection
+        rows = connection.execute("SELECT name,sql FROM sqlite_schema WHERE name IN ('provisioning_results_no_delete','provisioning_results_no_update')").fetchall()
+        for name, _ in rows:
+            connection.execute("DROP TRIGGER " + name)
+        connection.execute("DELETE FROM provisioning_results")
+        for _, ddl in rows:
+            connection.execute(ddl)
+        with self.assertRaisesRegex(execution.ExecutionValueError, "durable creation result"):
+            self.journal.load_binding("project-1")
+        with self.assertRaisesRegex(execution.ExecutionValueError, "durable creation result"):
+            self.journal.append_binding(binding)
+        calls = len(self.wire.calls)
+        with self.assertRaisesRegex(execution.ExecutionValueError, "durable creation result"):
+            self._reconcile()
+        self.assertEqual(len(self.wire.calls), calls)
+
+    def test_creation_result_survives_binding_failure_and_recovery_never_creates(self):
+        self._recovery_fixture()
+        with patch.object(self.journal, "append_binding", side_effect=RuntimeError("simulated local crash")):
+            with self.assertRaisesRegex(RuntimeError, "simulated local crash"):
+                self.provision()
+        self.assertEqual(self.journal._connection.execute("SELECT COUNT(*) FROM provisioning_results").fetchone()[0], 1)
+        self.assertIsNone(self.journal.load_binding("project-1"))
+        digest = sha256(self.journal_path.read_bytes()).hexdigest()
+        with _ProductionProvisioningJournal.open_existing_readonly(self.journal_path, approved_root=self.journal_path.parent) as reader:
+            service = _ProjectProvisioningService._from_project_attestor(attestor=self.service._attestor, target=self.target, journal=reader)
+            self.assertEqual(self._reconcile(service), ("RECOVERABLE", None))
+            with self.assertRaisesRegex(execution.ExecutionValueError, "read-only"):
+                service.provision_remote_project(project=self.store.load_project("project-1"), target=self.target, remote_project_dir=self.remote_project_dir)
+        self.assertEqual(sha256(self.journal_path.read_bytes()).hexdigest(), digest)
+        calls = len(self.wire.calls)
+        # Reopen rather than relying on an in-memory creation result.
+        with _ProductionProvisioningJournal.open_existing(self.journal_path, approved_root=self.journal_path.parent) as reopened:
+            service = _ProjectProvisioningService._from_project_attestor(attestor=self.service._attestor, target=self.target, journal=reopened)
+            outcome, binding = self._reconcile(service)
+            self.assertEqual(outcome, "BOUND")
+            self.assertEqual(self._reconcile(service), ("BOUND", binding))
+        self.assertEqual([call[0] for call in self.wire.calls[calls:]], ["OBSERVE_PROJECT", "OBSERVE_PROJECT"])
+        self.assertEqual(self.wire.mkdir_count, 1)
+
+    def test_old_unknown_intent_readonly_recovery_does_not_infer_effect(self):
+        self.wire.fail_operation = "PROVISION_PROJECT"
+        with self.assertRaises(program._ProgramEffectUnknown):
+            self.provision()
+        self.wire.fail_operation = None
+        digest = sha256(self.journal_path.read_bytes()).hexdigest()
+        with _ProductionProvisioningJournal.open_existing_readonly(self.journal_path, approved_root=self.journal_path.parent) as reader:
+            intent = reader.inspect_intent("project-1", intent_id=self._intent_id())
+            self.assertEqual(intent["path"], self.remote_project_dir)
+            service = _ProjectProvisioningService._from_project_attestor(attestor=self.service._attestor, target=self.target, journal=reader)
+            for state in ("ABSENT", "EXISTING"):
+                self.wire.project_state = state
+                self.assertEqual(self._reconcile(service), ("UNKNOWN", None))
+            self.assertIsNone(reader.load_binding("project-1"))
+        self.assertEqual(sha256(self.journal_path.read_bytes()).hexdigest(), digest)
+        self.assertEqual(self.wire.mkdir_count, 0)
+        self.assertEqual(self.journal._connection.execute("PRAGMA user_version").fetchone()[0], 2)
+
+    def test_unknown_new_intent_has_no_creation_result_or_binding(self):
+        self._recovery_fixture()
+        self.wire.raise_after_mkdir = True
+        with self.assertRaises(program._ProgramEffectUnknown):
+            self.provision()
+        self.assertEqual(self._reconcile(), ("UNKNOWN", None))
+        self.assertEqual(self.journal._connection.execute("SELECT COUNT(*) FROM provisioning_results").fetchone()[0], 0)
+        self.assertEqual(self.wire.mkdir_count, 1)
+
+    def test_recovery_rejects_wrong_intent_before_observation(self):
+        self.provision()
+        calls = len(self.wire.calls)
+        with self.assertRaisesRegex(execution.ExecutionValueError, "exact existing"):
+            self._reconcile(intent_id="wrong-intent")
+        self.assertEqual(len(self.wire.calls), calls)
+
+    def test_recovery_rejects_changed_parent_or_result_identity(self):
+        self._recovery_fixture()
+        with patch.object(self.journal, "append_binding", side_effect=RuntimeError("local crash")):
+            with self.assertRaises(RuntimeError):
+                self.provision()
+        for field, value in (("parent", directory_token("/home/user100/SDL", 999)), ("project", directory_token(self.remote_project_dir, 999)), ("project_state", "ABSENT")):
+            with self.subTest(field=field), patch.object(self.wire, field, value):
+                with self.assertRaisesRegex(execution.ExecutionValueError, "physical identity drifted"):
+                    self._reconcile()
+                self.assertIsNone(self.journal.load_binding("project-1"))
+        self.assertEqual(self.wire.mkdir_count, 1)
+
+    def test_creation_result_commit_failure_never_publishes_binding(self):
+        self._recovery_fixture()
+        connection = self.journal._connection
+        def deny_result(action, name, *args):
+            if action == sqlite3.SQLITE_INSERT and name == "provisioning_results":
+                return sqlite3.SQLITE_IGNORE
+            return sqlite3.SQLITE_OK
+        connection.set_authorizer(deny_result)
+        try:
+            with self.assertRaisesRegex(execution.ExecutionValueError, "insert/readback"):
+                self.provision()
+        finally:
+            connection.set_authorizer(None)
+        self.assertEqual(self._reconcile(), ("UNKNOWN", None))
+        self.assertEqual(self.wire.mkdir_count, 1)
+
+    def test_project_transport_error_preserves_bounded_untrusted_diagnostic(self):
+        self.wire.replace_parent = True
+        with self.assertRaises(bridge._ProjectWireUnknown) as caught:
+            self.provision()
+        evidence = caught.exception.transport_evidence
+        self.assertEqual(base64.b64decode(evidence["stderr_base64"]), b"parent-drift")
+        self.assertEqual(evidence["returncode"], 2)
+        self.assertEqual(evidence["transport_state"], "completed")
+        self.assertFalse(evidence["trusted_creation_receipt"])
+        self.assertEqual(evidence["operation"], "PROVISION_PROJECT")
+        self.assertNotIn("parent-drift", str(caught.exception))
+        self.assertEqual(self._reconcile(), ("UNKNOWN", None))
+
+    def test_project_decode_failure_preserves_raw_response_without_success_authority(self):
+        self.run_spy.side_effect = lambda *_: (b"malformed frame", b"", 0, "completed", True, True)
+        with self.assertRaises(bridge._ProjectWireUnknown) as caught:
+            self.provision()
+        self.assertEqual(base64.b64decode(caught.exception.transport_evidence["stdout_base64"]), b"malformed frame")
+        self.assertIsNone(self.journal.load_binding("project-1"))
+        self.assertEqual(self.wire.mkdir_count, 0)
+
     def test_project_provision_intent_precedes_one_mkdir_and_reopen_replays(self):
         committed = []
 

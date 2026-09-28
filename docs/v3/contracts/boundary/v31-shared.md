@@ -68,6 +68,12 @@ for a later contract. They live outside the Core schema. Their future design
 must preserve the above outcomes and cannot be inferred from legacy v2 owner,
 receipt, or capability machinery.
 
+The bounded offline [Project creation-record recovery](../../project-provision-recovery.md)
+adds an explicitly selected private journal successor with durable validated
+creation results and same-intent local binding completion. Existing journals
+are not migrated; missing creation evidence remains UNKNOWN. Its read-only
+restoration, diagnostics and compatibility constraints preserve this boundary.
+
 ### Additive versioned multi-program execution successor
 
 Generation selection is per Attempt, not per Workflow or Batch. A V31 Workflow

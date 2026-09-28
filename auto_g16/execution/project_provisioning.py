@@ -528,6 +528,54 @@ class _ProjectProvisioningService:
         require_text(physical, "observed Project physical identity")
         return state, parent, physical
 
+    def reconcile_remote_project(
+        self, *, project: Project, target: ResolvedServerProfile,
+        remote_project_dir: str, intent_id: str,
+    ) -> tuple[str, ProjectPhysicalBinding | None]:
+        """Reconcile one existing intent; never issue another creation call.
+
+        Old journals have no creation result and remain UNKNOWN without a
+        binding. A recoverable journal may finish only the local binding write
+        after its durable validated result and current physical identities agree.
+        """
+        if not isinstance(project, Project):
+            raise ExecutionValueError("project must be a public Core Project")
+        path = _validate_remote_target(target, remote_project_dir)
+        self._assert_production_authority(target)
+        intent = self._journal.inspect_intent(project.project_id, intent_id=intent_id)
+        if (intent["target_id"], intent["path"], intent["authority_id"]) != (
+            target.resolved_server_profile_id, path, self._authority_id,
+        ):
+            raise ExecutionValueError("reconciliation differs from the exact intent authority")
+        binding = self._journal.load_binding(project.project_id)
+        result = self._journal._load_success(intent_id, intent)
+        state, parent, physical = self._observe_current(target, path)
+        if parent != intent["parent_identity"]:
+            raise ExecutionValueError("reconciliation parent physical identity drifted")
+        if binding is not None:
+            self._assert_owned_binding(binding=binding, project=project, target=target, remote_project_dir=path)
+            if state != "EXISTING" or physical != binding.project_physical_identity:
+                raise ExecutionValueError("reconciliation bound Project physical identity drifted")
+            return "BOUND", binding
+        if result is None:
+            # Existence is not creation provenance; absence is not non-effect proof.
+            return "UNKNOWN", None
+        if state != "EXISTING" or physical != result["project_identity"]:
+            raise ExecutionValueError("reconciliation creation result physical identity drifted")
+        binding = ProjectPhysicalBinding._from_attested(
+            project=project, target=target, remote_project_dir=path,
+            provisioning_disposition="ABSENT", parent_physical_identity=parent,
+            project_physical_identity=physical,
+            evidence_identity=semantic_id("project-provision-evidence", {
+                "intent_id": intent_id, "parent": parent, "project": physical,
+            }), provisioning_authority_id=self._authority_id,
+        )
+        # A read-only restoration may inspect this state but cannot finish it.
+        if self._journal._read_only:
+            return "RECOVERABLE", None
+        self._journal.append_binding(binding)
+        return "BOUND", binding
+
     def classify_remote_project(
         self, *, project: Project, target: ResolvedServerProfile,
         remote_project_dir: str, stored_binding: ProjectPhysicalBinding | None,
@@ -589,6 +637,8 @@ class _ProjectProvisioningService:
         evidence_identity: str | None = None,
         stored_binding: ProjectPhysicalBinding | None = None,
     ) -> ProjectPhysicalBinding:
+        if self._journal is not None and self._journal._read_only:
+            raise ExecutionValueError("read-only Project journal cannot provision")
         classification, replay, first_parent_identity, _observed_physical = self._classify_with_observation(
             project=project,
             target=target,
@@ -627,6 +677,7 @@ class _ProjectProvisioningService:
                 raise ExecutionValueError("provisioned Project evidence changed its exact parent")
             parent_identity, project_identity = provisioned
             require_text(project_identity, "provisioned Project physical identity")
+            self._journal._record_success(intent_id, project.project_id, parent_identity, project_identity)
             evidence_identity = semantic_id("project-provision-evidence", {
                 "intent_id": intent_id, "parent": parent_identity, "project": project_identity,
             })
@@ -900,6 +951,13 @@ _PRODUCTION_DDL: Final = (*_DDL,
 )
 
 
+_RECOVERABLE_DDL: Final = (*_PRODUCTION_DDL,
+    "CREATE TABLE provisioning_results(intent_id TEXT PRIMARY KEY,payload_json TEXT NOT NULL) WITHOUT ROWID",
+    *(f"CREATE TRIGGER provisioning_results_no_{verb} BEFORE {verb.upper()} ON provisioning_results BEGIN SELECT RAISE(ABORT,'append-only'); END"
+      for verb in ("update", "delete")),
+)
+
+
 def _journal_paths(path: Path, approved_root: Path) -> tuple[str, str]:
     absolute, root = os.path.abspath(path), os.path.abspath(approved_root)
     require_local_workspace_anchor(absolute, root)
@@ -924,11 +982,20 @@ class _ProductionProvisioningJournal(_ProvisioningJournal):
         return cls._open(path, approved_root=approved_root, create=True)
 
     @classmethod
+    def create_new_recoverable(cls, path: Path, *, approved_root: Path) -> _ProductionProvisioningJournal:
+        """Explicit new private generation; never migrate an existing journal."""
+        return cls._open(path, approved_root=approved_root, create=True, version=3)
+
+    @classmethod
+    def open_existing_readonly(cls, path: Path, *, approved_root: Path) -> _ProductionProvisioningJournal:
+        return cls._open(path, approved_root=approved_root, create=False, read_only=True)
+
+    @classmethod
     def open_existing(cls, path: Path, *, approved_root: Path) -> _ProductionProvisioningJournal:
         return cls._open(path, approved_root=approved_root, create=False)
 
     @classmethod
-    def _open(cls, path: Path, *, approved_root: Path, create: bool) -> _ProductionProvisioningJournal:
+    def _open(cls, path: Path, *, approved_root: Path, create: bool, version: int = 2, read_only: bool = False) -> _ProductionProvisioningJournal:
         absolute, root = _journal_paths(path, approved_root)
         if create:
             fd = os.open(absolute, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
@@ -938,7 +1005,26 @@ class _ProductionProvisioningJournal(_ProvisioningJournal):
         value._path = absolute
         value._root = root
         value._file_identity = identity
-        value._connection = sqlite3.connect(absolute, isolation_level=None)
+        value._read_only = read_only
+        if read_only:
+            # A recovery reader never creates WAL/SHM companions or ignores a WAL.
+            if any(os.path.lexists(absolute + suffix) for suffix in ("-wal", "-shm", "-journal")):
+                raise ExecutionValueError("read-only Project recovery requires a quiescent journal")
+            descriptor = os.open(absolute, os.O_RDONLY | os.O_NOFOLLOW)
+            try:
+                metadata = os.fstat(descriptor)
+                header = os.read(descriptor, 100)
+                if (metadata.st_dev, metadata.st_ino) != identity or len(header) != 100 or header[:16] != b"SQLite format 3\x00" or header[18:20] != b"\x01\x01":
+                    raise ExecutionValueError("read-only Project recovery requires a rollback-format database")
+                value._readonly_version = (metadata.st_size, metadata.st_mtime_ns, metadata.st_ctime_ns)
+            finally:
+                os.close(descriptor)
+            # immutable suppresses recovery/sidecar creation even during drift.
+            # Every attestation checks header-era file version and companions;
+            # WAL contents are never silently treated as a complete database.
+            value._connection = sqlite3.connect(Path(absolute).as_uri() + "?mode=ro&immutable=1&cache=private", uri=True, isolation_level=None)
+        else:
+            value._connection = sqlite3.connect(absolute, isolation_level=None)
         value._connection.execute("PRAGMA foreign_keys=ON")
         value._connection.execute("PRAGMA trusted_schema=OFF")
         value._connection.execute("PRAGMA synchronous=FULL")
@@ -946,12 +1032,17 @@ class _ProductionProvisioningJournal(_ProvisioningJournal):
             if create:
                 value._connection.execute("BEGIN IMMEDIATE")
                 value._connection.execute(f"PRAGMA application_id={_APPLICATION_ID}")
-                value._connection.execute("PRAGMA user_version=2")
-                for statement in _PRODUCTION_DDL:
+                value._connection.execute(f"PRAGMA user_version={version}")
+                for statement in (_RECOVERABLE_DDL if version == 3 else _PRODUCTION_DDL):
                     value._connection.execute(statement)
                 payload = {"nonce": secrets.token_hex(32), "root": root, "path": absolute, "device": identity[0], "inode": identity[1]}
                 value._connection.execute("INSERT INTO provisioning_meta VALUES(1,?)", (_canonical_json(payload),))
                 value._connection.execute("COMMIT")
+            value._version = value._connection.execute("PRAGMA user_version").fetchone()[0]
+            if read_only:
+                value._connection.execute("PRAGMA query_only=ON")
+                if value._connection.execute("PRAGMA journal_mode").fetchone()[0] == "wal":
+                    raise ExecutionValueError("read-only Project recovery does not open WAL journals")
             value._attest()
             meta = value._connection.execute("SELECT identity_json FROM provisioning_meta WHERE singleton=1").fetchone()
             value._identity = semantic_id("project-provisioning-journal", json.loads(meta[0]))
@@ -963,6 +1054,11 @@ class _ProductionProvisioningJournal(_ProvisioningJournal):
     def _attest(self) -> None:
         if _journal_paths(self._path, self._root) != (self._path, self._root) or _journal_file_identity(self._path) != self._file_identity:
             raise ExecutionValueError("production Project journal physical identity drifted")
+        if self._read_only:
+            metadata = os.lstat(self._path)
+            if ((metadata.st_size, metadata.st_mtime_ns, metadata.st_ctime_ns) != self._readonly_version
+                    or any(os.path.lexists(self._path + suffix) for suffix in ("-wal", "-shm", "-journal"))):
+                raise ExecutionValueError("read-only Project recovery snapshot changed")
         connection = self._connection
         if type(connection) is not sqlite3.Connection or connection.isolation_level is not None:
             raise ExecutionValueError("production Project journal connection policy drifted")
@@ -980,10 +1076,12 @@ class _ProductionProvisioningJournal(_ProvisioningJournal):
             not in {"delete", "truncate", "persist", "wal"}
         ):
             raise ExecutionValueError("production Project journal durability policy drifted")
-        if self._connection.execute("PRAGMA application_id").fetchone()[0] != _APPLICATION_ID or self._connection.execute("PRAGMA user_version").fetchone()[0] != 2:
+        if self._connection.execute("PRAGMA application_id").fetchone()[0] != _APPLICATION_ID or self._connection.execute("PRAGMA user_version").fetchone()[0] != self._version or self._version not in (2, 3):
             raise ExecutionValueError("production Project journal schema version drifted")
         observed = dict(self._connection.execute("SELECT name,sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%'"))
-        expected = {statement.split()[2].split("(", 1)[0]: statement for statement in _PRODUCTION_DDL}
+        if self._read_only and connection.execute("PRAGMA query_only").fetchone()[0] != 1:
+            raise ExecutionValueError("read-only Project recovery connection policy drifted")
+        expected = {statement.split()[2].split("(", 1)[0]: statement for statement in (_RECOVERABLE_DDL if self._version == 3 else _PRODUCTION_DDL)}
         if observed != expected:
             raise ExecutionValueError("production Project journal schema drifted")
         rows = self._connection.execute("SELECT singleton,identity_json FROM provisioning_meta").fetchall()
@@ -1009,6 +1107,80 @@ class _ProductionProvisioningJournal(_ProvisioningJournal):
             self._require_binding_intent(binding)
         return binding
 
+    def inspect_intent(self, project_id: str, *, intent_id: str) -> Mapping[str, object]:
+        """Read exact persisted intent, validating columns and semantic identity."""
+        require_text(project_id, "project_id")
+        require_text(intent_id, "intent_id")
+        self._attest()
+        rows = self._connection.execute(
+            "SELECT intent_id,project_id,target_id,project_path,payload_json FROM main.provisioning_intents WHERE project_id=?",
+            (project_id,),
+        ).fetchall()
+        if len(rows) != 1 or rows[0][0] != intent_id:
+            raise ExecutionValueError("recovery requires the exact existing Project intent")
+        identity, project, target, path, raw = rows[0]
+        payload = json.loads(raw)
+        if not isinstance(payload, dict) or set(payload) != {"project_id", "target_id", "path", "parent_identity", "authority_id"}:
+            raise ExecutionValueError("Project provisioning intent is malformed")
+        for key, value in payload.items():
+            require_text(value, key)
+        if (_canonical_json(payload) != raw or semantic_id("project-provision-intent", payload) != identity
+                or (project, target, path) != (payload["project_id"], payload["target_id"], payload["path"])):
+            raise ExecutionValueError("Project provisioning intent identity drifted")
+        self._attest()
+        return freeze_mapping(payload, "Project recovery intent")
+
+    def _load_success(self, intent_id: str, intent: Mapping[str, object]) -> Mapping[str, object] | None:
+        self._attest()
+        if self._version == 2:
+            return None
+        rows = self._connection.execute("SELECT payload_json FROM main.provisioning_results WHERE intent_id=?", (intent_id,)).fetchall()
+        if not rows:
+            return None
+        raw = rows[0][0]
+        payload = json.loads(raw)
+        if not isinstance(payload, dict) or set(payload) != {"journal_identity", "intent_id", "intent_sha256", "parent_identity", "project_identity"}:
+            raise ExecutionValueError("Project creation result is malformed")
+        require_text(payload["project_identity"], "creation result Project identity")
+        expected = {"journal_identity": self._identity, "intent_id": intent_id,
+                    "intent_sha256": semantic_sha256(intent), "parent_identity": intent["parent_identity"],
+                    "project_identity": payload["project_identity"]}
+        if payload != expected or _canonical_json(payload) != raw:
+            raise ExecutionValueError("Project creation result differs from exact intent/journal")
+        return freeze_mapping(payload, "Project creation result")
+
+    def _record_success(self, intent_id: str, project_id: str, parent: str, physical: str) -> None:
+        if self._version == 2:
+            return
+        if self._read_only or self._connection.in_transaction:
+            raise ExecutionValueError("creation result requires an independent writable transaction")
+        intent = self.inspect_intent(project_id, intent_id=intent_id)
+        if parent != intent["parent_identity"]:
+            raise ExecutionValueError("creation result parent differs from intent")
+        require_text(physical, "creation result Project identity")
+        payload = {"journal_identity": self._identity, "intent_id": intent_id,
+                   "intent_sha256": semantic_sha256(intent), "parent_identity": parent,
+                   "project_identity": physical}
+        raw = _canonical_json(payload)
+        self._connection.execute("BEGIN IMMEDIATE")
+        try:
+            inserted = self._connection.execute("INSERT INTO main.provisioning_results VALUES(?,?)", (intent_id, raw))
+            if inserted.rowcount != 1 or self._load_success(intent_id, intent) != freeze_mapping(payload, "creation result"):
+                raise ExecutionValueError("creation result lacks exact insert/readback")
+            self._connection.execute("COMMIT")
+        except BaseException:
+            if self._connection.in_transaction:
+                self._connection.execute("ROLLBACK")
+            raise
+        self._attest()
+        reader = sqlite3.connect(Path(self._path).as_uri() + "?mode=ro&cache=private", uri=True)
+        try:
+            if reader.execute("SELECT payload_json FROM main.provisioning_results WHERE intent_id=?", (intent_id,)).fetchall() != [(raw,)]:
+                raise ExecutionValueError("creation result lacks committed readback")
+        finally:
+            reader.close()
+        self._attest()
+
     def _require_binding_intent(self, binding: ProjectPhysicalBinding) -> None:
         rows = self._connection.execute("SELECT intent_id,project_id,target_id,project_path,payload_json FROM provisioning_intents WHERE project_id=?", (binding.project_id,)).fetchall()
         if len(rows) != 1:
@@ -1024,13 +1196,21 @@ class _ProductionProvisioningJournal(_ProvisioningJournal):
         expected = semantic_id("project-provision-evidence", {"intent_id": intent_id, "parent": binding.parent_physical_identity, "project": binding.project_physical_identity})
         if binding.locations[0]["evidence_identity"] != expected:
             raise ExecutionValueError("Project binding evidence differs from exact intent/result")
+        if self._version == 3:
+            result = self._load_success(intent_id, payload)
+            if result is None or result["project_identity"] != binding.project_physical_identity:
+                raise ExecutionValueError("Project binding lacks its exact durable creation result")
 
     def append_binding(self, binding: ProjectPhysicalBinding) -> None:
+        if self._read_only:
+            raise ExecutionValueError("read-only Project journal cannot append a binding")
         self._attest()
         self._require_binding_intent(binding)
         super().append_binding(binding)
 
     def _record_intent(self, *, project_id: str, target: ResolvedServerProfile, path: str, parent_identity: str, authority_id: str) -> str:
+        if self._read_only:
+            raise ExecutionValueError("read-only Project journal cannot record an intent")
         if self._connection.in_transaction:
             raise ExecutionValueError("Project provision cannot use a pre-existing transaction")
         self._attest()

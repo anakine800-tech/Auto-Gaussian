@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from hashlib import sha256
 import os
+import base64
 import re
 import stat
 from threading import Event, Lock, RLock, Thread, get_ident
@@ -431,7 +432,38 @@ def _gaussian_submit_operation(file_carrier: bool = False) -> _driver._Operation
     )
 
 
-def _wire_call(scope: object, invocation: _ProgramRTWinInvocation) -> Mapping[str, object]:
+class _ProjectWireCapture:
+    """Private bounded diagnostics, explicitly not a creation receipt."""
+
+    def __init__(self) -> None:
+        self.evidence = None
+
+    def record(self, invocation, stdout, stderr, code, state, eofout, eoferr):
+        operation = invocation.operation
+        out, err = stdout[:operation.stdout_cap], stderr[:operation.stderr_cap]
+        self.evidence = MappingProxyType({
+            "schema": "project-wire-diagnostic/1", "trusted_creation_receipt": False,
+            "operation": operation.name,
+            "request_sha256": sha256(canonical_json_bytes(_plain(invocation.request))).hexdigest(),
+            "stdout_base64": base64.b64encode(out).decode("ascii"),
+            "stderr_base64": base64.b64encode(err).decode("ascii"),
+            "stdout_sha256": sha256(out).hexdigest(), "stderr_sha256": sha256(err).hexdigest(),
+            "output_complete": state == "completed" and eofout and eoferr and len(stdout) <= len(out) and len(stderr) <= len(err),
+            "stdout_capture_limit": operation.stdout_cap, "stderr_capture_limit": operation.stderr_cap,
+            "returncode": code, "transport_state": state,
+            "eof_stdout": eofout, "eof_stderr": eoferr,
+        })
+
+
+class _ProjectWireUnknown(program._ProgramEffectUnknown):
+    def __init__(self, evidence):
+        super().__init__("Project transport completion is ambiguous; bounded diagnostic retained")
+        self.transport_evidence = evidence
+
+
+def _wire_call(scope: object, invocation: _ProgramRTWinInvocation, *, project_capture: _ProjectWireCapture | None = None) -> Mapping[str, object]:
+    if project_capture is not None and (type(project_capture) is not _ProjectWireCapture or invocation.operation.name not in {"OBSERVE_PROJECT", "PROVISION_PROJECT"}):
+        raise TransportBoundaryError("Project capture is only for exact Project operations")
     progress = None
     if _COLLECTION_WIRE_OWNER.get() is not None and invocation.operation.name == "FETCH_EXACT_FILE":
         try:
@@ -446,6 +478,8 @@ def _wire_call(scope: object, invocation: _ProgramRTWinInvocation) -> Mapping[st
         if progress is not None:
             progress.finish(status="interrupted", returncode=None, stdout_bytes=0, stderr_bytes=0, eof_stdout=False, eof_stderr=False)
         raise
+    if project_capture is not None:
+        project_capture.record(invocation, stdout, stderr, code, state, eofout, eoferr)
     if progress is not None:
         progress.finish(status=state, returncode=code, stdout_bytes=len(stdout), stderr_bytes=len(stderr), eof_stdout=eofout, eof_stderr=eoferr)
     if state != "completed" or code != 0 or stderr or not eofout or not eoferr:
@@ -519,18 +553,24 @@ class _RTWinProjectAttestor(_ProjectAttestor):
             _directory_token(parent, path.rsplit("/", 1)[0])
         request = {"protocol": _bridge._PROGRAM_BOOTSTRAP_PROTOCOL, "operation": operation, "binding": binding, "payload": {} if operation == "OBSERVE_PROJECT" else {"provision_intent_id": program._text(intent, "Project intent")}}
         invocation = _ProgramRTWinInvocation(_project_operation(operation), self._authority(), self._profile, _closed_copy(request), target.resolved_server_profile_id)
-        result = _wire_call(target, invocation)
-        program._exact_keys(result, {"state", "parent_physical_identity", "project_physical_identity"}, "Project observation")
-        parent_id = _directory_token(result["parent_physical_identity"], path.rsplit("/", 1)[0])
-        state = result["state"]
-        if state == "ABSENT" and result["project_physical_identity"] is None and operation == "OBSERVE_PROJECT":
-            return "ABSENT", parent_id, None
-        if state != "EXISTING":
-            raise TransportBoundaryError("Project operation returned invalid physical evidence")
-        project_id = _directory_token(result["project_physical_identity"], path)
-        if parent is not None and parent_id != parent:
-            raise TransportBoundaryError("Project parent changed during provisioning")
-        return "EXISTING", parent_id, project_id
+        capture = _ProjectWireCapture()
+        try:
+            result = _wire_call(target, invocation, project_capture=capture)
+            program._exact_keys(result, {"state", "parent_physical_identity", "project_physical_identity"}, "Project observation")
+            parent_id = _directory_token(result["parent_physical_identity"], path.rsplit("/", 1)[0])
+            state = result["state"]
+            if state == "ABSENT" and result["project_physical_identity"] is None and operation == "OBSERVE_PROJECT":
+                return "ABSENT", parent_id, None
+            if state != "EXISTING":
+                raise TransportBoundaryError("Project operation returned invalid physical evidence")
+            project_id = _directory_token(result["project_physical_identity"], path)
+            if parent is not None and parent_id != parent:
+                raise TransportBoundaryError("Project parent changed during provisioning")
+            return "EXISTING", parent_id, project_id
+        except Exception as exc:
+            if capture.evidence is None:
+                raise
+            raise _ProjectWireUnknown(capture.evidence) from exc
 
     def _observe_current(self, target: ResolvedServerProfile, remote_project_dir: str) -> tuple[str, str, str | None]:
         return self._invoke(target, remote_project_dir, "OBSERVE_PROJECT")
