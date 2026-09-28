@@ -153,3 +153,16 @@ is admitted by collection and reconciliation restoration only for the exact
 already submitted Attempt under its production Project journal. Restore does
 not allocate, stage, submit, retry, replace the Attempt, or reinterpret prior
 UNKNOWN evidence.
+
+### Gaussian Opt resource successor boundary
+
+Adapter `/6` is the additive Opt-only route frozen in the task contract.
+One exact `%mem` (positive integer MB/GB, binary MiB) and `%nprocshared`
+(positive integer) are input facts; `%chk=gaussian.chk` is fixed. No input byte
+is rewritten. The immutable spec stores those facts and positive explicit
+`headroom_mib`. Existing `ResolvedResourceRequest` owns PBS cores, memory and
+walltime. Construction, identity rebuild, staging and wrapper reject unequal
+cores or a total differing from working memory plus headroom. No tier fallback
+or automatic budget correction is allowed. Q7/material8/prebinding9/scheduler9
+and deployment7 must close with the exact new source; older Q cannot qualify it.
+The existing file-carrier, Attempt, receipt and Result owners remain authoritative.

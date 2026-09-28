@@ -312,7 +312,7 @@ def _validate_material(material: object, profile: ResolvedServerProfile) -> Mapp
     if len(_receipt_json(value)) > cap:
         raise _CompletionValueError("material cap")
     material_runtime = (("deployment_manifest_base64", _DEPLOYMENT_NAME),)
-    if value["schema"] not in {_gaussian._MATERIAL_SCHEMA, _gstartup._MATERIAL_SCHEMA, _gfile._MATERIAL_SCHEMA}:
+    if value["schema"] not in {_gaussian._MATERIAL_SCHEMA, _gstartup._MATERIAL_SCHEMA, _gfile._MATERIAL_SCHEMA, 'v31-completion-rendering-material/8'}:
         material_runtime += (("xtb_runtime_data_manifest_base64", _DATA_NAME),)
     for key, name in material_runtime:
         content = _unbase64(value[key], 1024 * 1024)
@@ -323,15 +323,15 @@ def _validate_material(material: object, profile: ResolvedServerProfile) -> Mapp
             _deployment_projection(content)
         elif _canonical_xtb_runtime_data_manifest(content) != content:
             raise _CompletionValueError("runtime data manifest is not canonical")
-    if value["schema"] in {_PILOT_MATERIAL_SCHEMA, _crest._MATERIAL_SCHEMA, _startup._MATERIAL_SCHEMA, _gaussian._MATERIAL_SCHEMA, _gstartup._MATERIAL_SCHEMA, _gfile._MATERIAL_SCHEMA}:
+    if value["schema"] in {_PILOT_MATERIAL_SCHEMA, _crest._MATERIAL_SCHEMA, _startup._MATERIAL_SCHEMA, _gaussian._MATERIAL_SCHEMA, _gstartup._MATERIAL_SCHEMA, _gfile._MATERIAL_SCHEMA, 'v31-completion-rendering-material/8'}:
         raw = _unbase64(value["publisher_qualification_base64"], _Q_CAP)
-        qname = (_gfile._Q_NAME if value["schema"] == _gfile._MATERIAL_SCHEMA else _gstartup._Q_NAME if value["schema"] == _gstartup._MATERIAL_SCHEMA else _startup._Q_NAME if value["schema"] == _startup._MATERIAL_SCHEMA else _crest._Q_NAME if value["schema"] == _crest._MATERIAL_SCHEMA else _gaussian._Q_NAME if value["schema"] == _gaussian._MATERIAL_SCHEMA else _Q_NAME)
-        if (sum(name in profile.runtime_identities for name in (_crest._Q_NAME, _startup._Q_NAME, _gaussian._Q_NAME, _gstartup._Q_NAME, _gfile._Q_NAME)) > 1 or any(name in profile.runtime_identities for name in (_gstartup._Q_NAME, _gfile._Q_NAME)) and _Q_NAME in profile.runtime_identities):
+        qname = ('v31-gaussian-publisher-qualification-v7.json' if value["schema"] == 'v31-completion-rendering-material/8' else _gfile._Q_NAME if value["schema"] == _gfile._MATERIAL_SCHEMA else _gstartup._Q_NAME if value["schema"] == _gstartup._MATERIAL_SCHEMA else _startup._Q_NAME if value["schema"] == _startup._MATERIAL_SCHEMA else _crest._Q_NAME if value["schema"] == _crest._MATERIAL_SCHEMA else _gaussian._Q_NAME if value["schema"] == _gaussian._MATERIAL_SCHEMA else _Q_NAME)
+        if (sum(name in profile.runtime_identities for name in (_crest._Q_NAME, _startup._Q_NAME, _gaussian._Q_NAME, _gstartup._Q_NAME, _gfile._Q_NAME, 'v31-gaussian-publisher-qualification-v7.json')) > 1 or any(name in profile.runtime_identities for name in (_gstartup._Q_NAME, _gfile._Q_NAME, 'v31-gaussian-publisher-qualification-v7.json')) and _Q_NAME in profile.runtime_identities):
             raise _CompletionValueError("ambiguous publisher qualification tuple")
         if profile.runtime_identities.get(qname) != {"sha256": sha256(raw).hexdigest(), "size_bytes": len(raw)}:
             raise _CompletionValueError("qualification differs from profile runtime bytes")
         q = _decode_publisher_qualification(raw)
-        expected_schema = (_gfile._Q_SCHEMA if value["schema"] == _gfile._MATERIAL_SCHEMA else _gstartup._Q_SCHEMA if value["schema"] == _gstartup._MATERIAL_SCHEMA else _startup._Q_SCHEMA if value["schema"] == _startup._MATERIAL_SCHEMA else _crest._Q_SCHEMA if value["schema"] == _crest._MATERIAL_SCHEMA else _gaussian._Q_SCHEMA if value["schema"] == _gaussian._MATERIAL_SCHEMA else _Q_SCHEMA)
+        expected_schema = ('auto-g16-v31-publisher-qualification/7' if value["schema"] == 'v31-completion-rendering-material/8' else _gfile._Q_SCHEMA if value["schema"] == _gfile._MATERIAL_SCHEMA else _gstartup._Q_SCHEMA if value["schema"] == _gstartup._MATERIAL_SCHEMA else _startup._Q_SCHEMA if value["schema"] == _startup._MATERIAL_SCHEMA else _crest._Q_SCHEMA if value["schema"] == _crest._MATERIAL_SCHEMA else _gaussian._Q_SCHEMA if value["schema"] == _gaussian._MATERIAL_SCHEMA else _Q_SCHEMA)
         if q["payload"]["schema"] != expected_schema:
             raise _CompletionValueError("mixed publisher qualification tuple")
         _validate_publisher_profile(q, profile, _deployment_projection(_unbase64(value["deployment_manifest_base64"], _Q_CAP)))
@@ -356,9 +356,22 @@ def _prepare_completion_rendering_material(current_profile: ServerProfile, resol
     }, resolved_profile)
 
 
+def _resource_owner():
+    # Import only after the explicit /6 tuple is selected. Historical owners
+    # must not execute the resource source generator while rejecting a tuple.
+    from . import _gaussian_resources
+    return _gaussian_resources
+
+
 def _material_from_artifact(artifacts: tuple[Mapping[str, object], ...], profile: ResolvedServerProfile) -> Mapping[str, object]:
     if len(artifacts) == 2:
-        owners = ((_gfile, _gstartup) if artifacts[1].get("portable_name") == _gstartup._PAYLOAD_NAME else (_startup,))
+        header = str(artifacts[0].get("content_utf8", "")).splitlines()[:2]
+        owner = None
+        if len(header) == 2 and header[0] == "#!/bin/bash":
+            owner = {_gfile._HEADER: _gfile, _gstartup._HEADER: _gstartup, _startup._HEADER: _startup}.get(header[1])
+            if header[1] == "# auto-g16-v31-scheduler/9":
+                owner = _resource_owner()
+        owners = () if owner is None else (owner,)
         for owner in owners:
             try:
                 payload = owner._payload(artifacts)
@@ -394,9 +407,9 @@ def _render_completion_scheduler(spec, resources, profile, fields, material, *, 
     material = _validate_material(material, profile)
     if (spec.program_kind == "crest") != (material["schema"] in {_crest._MATERIAL_SCHEMA, _startup._MATERIAL_SCHEMA}):
         raise _CompletionValueError("CREST requires its exact publisher tuple")
-    if (spec.program_kind == "gaussian") != (material["schema"] in {_gaussian._MATERIAL_SCHEMA, _gstartup._MATERIAL_SCHEMA, _gfile._MATERIAL_SCHEMA}):
+    if (spec.program_kind == "gaussian") != (material["schema"] in {_gaussian._MATERIAL_SCHEMA, _gstartup._MATERIAL_SCHEMA, _gfile._MATERIAL_SCHEMA, 'v31-completion-rendering-material/8'}):
         raise _CompletionValueError("Gaussian requires its exact publisher tuple")
-    expected_gaussian = {3: _gaussian._MATERIAL_SCHEMA, 4: _gstartup._MATERIAL_SCHEMA, 5: _gfile._MATERIAL_SCHEMA}
+    expected_gaussian = {3: _gaussian._MATERIAL_SCHEMA, 4: _gstartup._MATERIAL_SCHEMA, 5: _gfile._MATERIAL_SCHEMA, 6: 'v31-completion-rendering-material/8'}
     if spec.program_kind == "gaussian" and expected_gaussian.get(spec.adapter_contract_version) != material["schema"]:
         raise _CompletionValueError("Gaussian adapter/startup tuple differs")
     header, binding_schema, wrapper, cap = _completion_tuple(material)
@@ -408,8 +421,11 @@ def _render_completion_scheduler(spec, resources, profile, fields, material, *, 
         "spec": spec.semantic_payload(), "material": material,
         "cores": resources.cores, "walltime_seconds": resources.walltime_seconds,
     }
-    if material["schema"] not in {_gaussian._MATERIAL_SCHEMA, _gstartup._MATERIAL_SCHEMA, _gfile._MATERIAL_SCHEMA}:
+    if material["schema"] not in {_gaussian._MATERIAL_SCHEMA, _gstartup._MATERIAL_SCHEMA, _gfile._MATERIAL_SCHEMA, 'v31-completion-rendering-material/8'}:
         config["xtb_data_path"] = profile.platform_paths["xtb_data_path"]
+    if material["schema"] == 'v31-completion-rendering-material/8':
+        config["memory_mb"] = resources.memory_mb
+        return _resource_owner()._render(config, deployment, resources, project_binding)
     if material["schema"] == _gfile._MATERIAL_SCHEMA:
         return _gfile._render(config, deployment, resources, project_binding)
     if material["schema"] == _gstartup._MATERIAL_SCHEMA:
@@ -422,7 +438,7 @@ def _render_completion_scheduler(spec, resources, profile, fields, material, *, 
         lines.append(f"#PBS -q {resources.queue}")
     arguments = (deployment["trust_roots"]["server_python"]["path"], "-I", "-S", "-B", "-c", wrapper)
     encoded_config = base64.b64encode(_receipt_json(config)).decode("ascii")
-    if material["schema"] in {_PILOT_MATERIAL_SCHEMA, _crest._MATERIAL_SCHEMA, _startup._MATERIAL_SCHEMA, _gaussian._MATERIAL_SCHEMA, _gstartup._MATERIAL_SCHEMA, _gfile._MATERIAL_SCHEMA}:
+    if material["schema"] in {_PILOT_MATERIAL_SCHEMA, _crest._MATERIAL_SCHEMA, _startup._MATERIAL_SCHEMA, _gaussian._MATERIAL_SCHEMA, _gstartup._MATERIAL_SCHEMA, _gfile._MATERIAL_SCHEMA, 'v31-completion-rendering-material/8'}:
         if len(encoded_config) > 8 * 1024 * 1024 or len(wrapper.encode("utf-8")) > 65536:
             raise _CompletionValueError("publisher fixed source/config launch cap")
         lines.append("exec " + " ".join(shlex.quote(str(x)) for x in arguments) + " <<'AUTO_G16_PUBLISHER_CONFIG'")
@@ -588,11 +604,12 @@ def _decode_publisher_qualification(raw):
     _q_depth(envelope)
     startup = envelope["payload"].get("schema") == _startup._Q_SCHEMA
     gstartup = envelope["payload"].get("schema") == _gstartup._Q_SCHEMA
+    gres = envelope["payload"].get("schema") == 'auto-g16-v31-publisher-qualification/7'
     gfile = envelope["payload"].get("schema") == _gfile._Q_SCHEMA
-    gaussian = envelope["payload"].get("schema") in {_gaussian._Q_SCHEMA, _gstartup._Q_SCHEMA, _gfile._Q_SCHEMA}
-    payload = _closed(envelope["payload"], frozenset({"schema", "contract_sha256", "scope", "implementation", "profile_basis_sha256", "runtime", "execution_domain", "hosts", "observation_window", "evidence_manifest_sha256", "controller_probe"} | ({"delivery_probe"} if startup or gstartup or gfile else set())), "qualification payload")
+    gaussian = envelope["payload"].get("schema") in {_gaussian._Q_SCHEMA, _gstartup._Q_SCHEMA, _gfile._Q_SCHEMA, 'auto-g16-v31-publisher-qualification/7'}
+    payload = _closed(envelope["payload"], frozenset({"schema", "contract_sha256", "scope", "implementation", "profile_basis_sha256", "runtime", "execution_domain", "hosts", "observation_window", "evidence_manifest_sha256", "controller_probe"} | ({"delivery_probe"} if startup or gstartup or gfile or gres else set())), "qualification payload")
     crest = payload["schema"] in {_crest._Q_SCHEMA, _startup._Q_SCHEMA}
-    if payload["schema"] not in {_Q_SCHEMA, _crest._Q_SCHEMA, _startup._Q_SCHEMA, _gaussian._Q_SCHEMA, _gstartup._Q_SCHEMA, _gfile._Q_SCHEMA} or payload["contract_sha256"] != (_gfile._CONTRACT_SHA256 if gfile else _gstartup._CONTRACT_SHA256 if gstartup else _startup._CONTRACT_SHA256 if startup else _crest._CONTRACT_SHA256 if crest else _gaussian._CONTRACT_SHA256 if gaussian else _PUBLISHER_CONTRACT_SHA256):
+    if payload["schema"] not in {_Q_SCHEMA, _crest._Q_SCHEMA, _startup._Q_SCHEMA, _gaussian._Q_SCHEMA, _gstartup._Q_SCHEMA, _gfile._Q_SCHEMA, 'auto-g16-v31-publisher-qualification/7'} or payload["contract_sha256"] != (_resource_owner()._CONTRACT_SHA256 if gres else _gfile._CONTRACT_SHA256 if gfile else _gstartup._CONTRACT_SHA256 if gstartup else _startup._CONTRACT_SHA256 if startup else _crest._CONTRACT_SHA256 if crest else _gaussian._CONTRACT_SHA256 if gaussian else _PUBLISHER_CONTRACT_SHA256):
         raise _CompletionValueError("qualification contract/schema mismatch")
     for key in ("profile_basis_sha256", "evidence_manifest_sha256"):
         require_sha256(payload[key], key)
@@ -601,16 +618,16 @@ def _decode_publisher_qualification(raw):
     if crest:
         expected_scope = {**expected_scope, "program_kind": "crest", "adapter_id": "auto-g16-v31-crest", "operations": ["imtd-gc"]}
     elif gaussian:
-        expected_scope = {**expected_scope, "program_kind": "gaussian", "adapter_id": "auto-g16-v31-gaussian", "operations": ["opt", "freq"], "adapter_contract_version": 5 if gfile else 4 if gstartup else 3}
+        expected_scope = {**expected_scope, "program_kind": "gaussian", "adapter_id": "auto-g16-v31-gaussian", "operations": ["opt"] if gres else ["opt", "freq"], "adapter_contract_version": 6 if gres else 5 if gfile else 4 if gstartup else 3}
     if dict(scope) != expected_scope or type(scope["adapter_contract_version"]) is not int:
         raise _CompletionValueError("qualification scope mismatch")
-    impl = _closed(payload["implementation"], frozenset({"commit", "tree", "wrapper_source", "probe_source"} | ({"loader_source"} if startup or gstartup or gfile else set())), "implementation")
+    impl = _closed(payload["implementation"], frozenset({"commit", "tree", "wrapper_source", "probe_source"} | ({"loader_source"} if startup or gstartup or gfile or gres else set())), "implementation")
     for key in ("commit", "tree"):
         if type(impl[key]) is not str or re.fullmatch(r"[0-9a-f]{40}", impl[key]) is None:
             raise _CompletionValueError("invalid source Git identity")
     from ._program_completion_wrapper import _PUBLISHER_WRAPPER_SOURCE, _PUBLISHER_PROBE_SOURCE
-    wrapper, probe_source = _gfile._wrapper_sources() if gfile else _gstartup._wrapper_sources() if gstartup else _startup._wrapper_sources() if startup else _crest._wrapper_sources() if crest else _gaussian._wrapper_sources() if gaussian else (_PUBLISHER_WRAPPER_SOURCE, _PUBLISHER_PROBE_SOURCE)
-    for key, source in (("wrapper_source", wrapper), ("probe_source", probe_source)) + ((("loader_source", _gfile._LOADER_SOURCE),) if gfile else (("loader_source", _gstartup._LOADER_SOURCE),) if gstartup else (("loader_source", _startup._LOADER_SOURCE),) if startup else ()):
+    wrapper, probe_source = _resource_owner()._wrapper_sources() if gres else _gfile._wrapper_sources() if gfile else _gstartup._wrapper_sources() if gstartup else _startup._wrapper_sources() if startup else _crest._wrapper_sources() if crest else _gaussian._wrapper_sources() if gaussian else (_PUBLISHER_WRAPPER_SOURCE, _PUBLISHER_PROBE_SOURCE)
+    for key, source in (("wrapper_source", wrapper), ("probe_source", probe_source)) + ((("loader_source", _resource_owner()._LOADER_SOURCE),) if gres else (("loader_source", _gfile._LOADER_SOURCE),) if gfile else (("loader_source", _gstartup._LOADER_SOURCE),) if gstartup else (("loader_source", _startup._LOADER_SOURCE),) if startup else ()):
         if _q_digest(impl[key]) != {"sha256": sha256(source.encode()).hexdigest(), "size_bytes": len(source.encode())}:
             raise _CompletionValueError("qualification source differs from built-in source")
     runtime_fields = (
@@ -692,7 +709,7 @@ def _decode_publisher_qualification(raw):
     if keys != list(domain["eligible_host_keys"]):
         raise _CompletionValueError("host inventory differs from eligible set")
     _q_probe(payload["controller_probe"], "P08", window)
-    if startup or gstartup or gfile:
+    if startup or gstartup or gfile or gres:
         _q_probe(payload["delivery_probe"], "P09", window)
     frozen = freeze_mapping(payload, "qualification payload")
     if envelope["payload_sha256"] != semantic_sha256(frozen):
@@ -700,18 +717,18 @@ def _decode_publisher_qualification(raw):
     return freeze_mapping(envelope, "qualification")
 
 
-def _publisher_profile_basis(profile, *, crest=False, startup=False, gaussian=False, gstartup=False, gfile=False):
+def _publisher_profile_basis(profile, *, crest=False, startup=False, gaussian=False, gstartup=False, gfile=False, gres=False):
     profile.assert_identity_closed()
     original = _closed(profile._identity_payload, _PROFILE_BASIS_FIELDS, "profile identity payload")
     projection = {key: value for key, value in original.items() if key != "effective_config_sha256"}
-    projection["runtime_identities"] = {key: value for key, value in original["runtime_identities"].items() if key != (_gfile._Q_NAME if gfile else _gstartup._Q_NAME if gstartup else _startup._Q_NAME if startup else _crest._Q_NAME if crest else _gaussian._Q_NAME if gaussian else _Q_NAME)}
+    projection["runtime_identities"] = {key: value for key, value in original["runtime_identities"].items() if key != ('v31-gaussian-publisher-qualification-v7.json' if gres else _gfile._Q_NAME if gfile else _gstartup._Q_NAME if gstartup else _startup._Q_NAME if startup else _crest._Q_NAME if crest else _gaussian._Q_NAME if gaussian else _Q_NAME)}
     return semantic_sha256(freeze_mapping(projection, "publisher profile basis"))
 
 
 def _validate_publisher_profile(q, profile, deployment):
     p = q["payload"]
-    gaussian = p["schema"] in {_gaussian._Q_SCHEMA, _gstartup._Q_SCHEMA, _gfile._Q_SCHEMA}
-    if p["profile_basis_sha256"] != _publisher_profile_basis(profile, crest=p["schema"] == _crest._Q_SCHEMA, startup=p["schema"] == _startup._Q_SCHEMA, gaussian=p["schema"] == _gaussian._Q_SCHEMA, gstartup=p["schema"] == _gstartup._Q_SCHEMA, gfile=p["schema"] == _gfile._Q_SCHEMA):
+    gaussian = p["schema"] in {_gaussian._Q_SCHEMA, _gstartup._Q_SCHEMA, _gfile._Q_SCHEMA, 'auto-g16-v31-publisher-qualification/7'}
+    if p["profile_basis_sha256"] != _publisher_profile_basis(profile, crest=p["schema"] == _crest._Q_SCHEMA, startup=p["schema"] == _startup._Q_SCHEMA, gaussian=p["schema"] == _gaussian._Q_SCHEMA, gstartup=p["schema"] == _gstartup._Q_SCHEMA, gfile=p["schema"] == _gfile._Q_SCHEMA, gres=p["schema"] == 'auto-g16-v31-publisher-qualification/7'):
         raise _CompletionValueError("qualification does not bind complete profile basis")
     runtime, domain = p["runtime"], p["execution_domain"]
     if runtime["deployment_manifest"] != profile.runtime_identities[_DEPLOYMENT_NAME] or (not gaussian and runtime["xtb_runtime_data_manifest"] != profile.runtime_identities[_DATA_NAME]):
@@ -738,9 +755,10 @@ def _validate_publisher_profile(q, profile, deployment):
 
 
 def _prepare_publisher_pilot_rendering_material(current_profile, resolved_profile):
+    gres = 'v31-gaussian-publisher-qualification-v7.json' in current_profile.runtime_contents
     gfile = _gfile._Q_NAME in current_profile.runtime_contents
     gstartup = _gstartup._Q_NAME in current_profile.runtime_contents
-    gaussian = _gaussian._Q_NAME in current_profile.runtime_contents or gstartup or gfile
+    gaussian = _gaussian._Q_NAME in current_profile.runtime_contents or gstartup or gfile or gres
     if gaussian:
         current = resolve_server_profile(current_profile)
         if current != resolved_profile or current.semantic_payload() != resolved_profile.semantic_payload():
@@ -759,12 +777,12 @@ def _prepare_publisher_pilot_rendering_material(current_profile, resolved_profil
     try:
         crest = _crest._Q_NAME in current_profile.runtime_contents
         startup = _startup._Q_NAME in current_profile.runtime_contents
-        if (sum(name in current_profile.runtime_contents for name in (_crest._Q_NAME, _startup._Q_NAME, _gaussian._Q_NAME, _gstartup._Q_NAME, _gfile._Q_NAME)) > 1 or (gstartup or gfile) and _Q_NAME in current_profile.runtime_contents):
+        if (sum(name in current_profile.runtime_contents for name in (_crest._Q_NAME, _startup._Q_NAME, _gaussian._Q_NAME, _gstartup._Q_NAME, _gfile._Q_NAME, 'v31-gaussian-publisher-qualification-v7.json')) > 1 or (gstartup or gfile or gres) and _Q_NAME in current_profile.runtime_contents):
             raise _CompletionValueError("ambiguous publisher qualification tuple")
-        raw = current_profile.runtime_contents[_gfile._Q_NAME if gfile else _gstartup._Q_NAME if gstartup else _startup._Q_NAME if startup else _crest._Q_NAME if crest else _gaussian._Q_NAME if gaussian else _Q_NAME]
+        raw = current_profile.runtime_contents['v31-gaussian-publisher-qualification-v7.json' if gres else _gfile._Q_NAME if gfile else _gstartup._Q_NAME if gstartup else _startup._Q_NAME if startup else _crest._Q_NAME if crest else _gaussian._Q_NAME if gaussian else _Q_NAME]
     except KeyError as exc:
         raise _CompletionValueError("publisher qualification material missing") from exc
-    return _validate_material({**old, "schema": _gfile._MATERIAL_SCHEMA if gfile else _gstartup._MATERIAL_SCHEMA if gstartup else _startup._MATERIAL_SCHEMA if startup else _crest._MATERIAL_SCHEMA if crest else _gaussian._MATERIAL_SCHEMA if gaussian else _PILOT_MATERIAL_SCHEMA, "publisher_qualification_base64": base64.b64encode(raw).decode("ascii")}, resolved_profile)
+    return _validate_material({**old, "schema": 'v31-completion-rendering-material/8' if gres else _gfile._MATERIAL_SCHEMA if gfile else _gstartup._MATERIAL_SCHEMA if gstartup else _startup._MATERIAL_SCHEMA if startup else _crest._MATERIAL_SCHEMA if crest else _gaussian._MATERIAL_SCHEMA if gaussian else _PILOT_MATERIAL_SCHEMA, "publisher_qualification_base64": base64.b64encode(raw).decode("ascii")}, resolved_profile)
 
 
 def _completion_tuple(material):
@@ -785,11 +803,13 @@ def _completion_tuple(material):
         return _gstartup._HEADER, "v31-completion-prebinding/7", _gstartup._wrapper_sources()[0], 5 * _Q_CAP
     if material.get("schema") == _gfile._MATERIAL_SCHEMA and set(material) == (_MATERIAL_FIELDS - {"xtb_runtime_data_manifest_base64"}) | {"publisher_qualification_base64"}:
         return _gfile._HEADER, "v31-completion-prebinding/8", _gfile._wrapper_sources()[0], 5 * _Q_CAP
+    if material.get("schema") == 'v31-completion-rendering-material/8' and set(material) == (_MATERIAL_FIELDS - {"xtb_runtime_data_manifest_base64"}) | {"publisher_qualification_base64"}:
+        return '# auto-g16-v31-scheduler/9', "v31-completion-prebinding/9", _resource_owner()._wrapper_sources()[0], 5 * _Q_CAP
     raise _CompletionValueError("unknown/mixed completion tuple")
 
 
 def _validate_publisher_invocation(material, spec, resources):
-    if material["schema"] in {_PILOT_MATERIAL_SCHEMA, _crest._MATERIAL_SCHEMA, _startup._MATERIAL_SCHEMA, _gaussian._MATERIAL_SCHEMA, _gstartup._MATERIAL_SCHEMA, _gfile._MATERIAL_SCHEMA}:
+    if material["schema"] in {_PILOT_MATERIAL_SCHEMA, _crest._MATERIAL_SCHEMA, _startup._MATERIAL_SCHEMA, _gaussian._MATERIAL_SCHEMA, _gstartup._MATERIAL_SCHEMA, _gfile._MATERIAL_SCHEMA, 'v31-completion-rendering-material/8'}:
         q = _decode_publisher_qualification(_unbase64(material["publisher_qualification_base64"], _Q_CAP))["payload"]
         executable = spec.invocation["executable_identity"]
         if resources.queue != q["execution_domain"]["queue"] or q["scope"]["program_kind"] != spec.program_kind or q["runtime"][spec.program_kind] != {"path": executable["absolute_path"], "sha256": executable["sha256"], "size_bytes": executable["size_bytes"]}:

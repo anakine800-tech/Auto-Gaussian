@@ -290,6 +290,9 @@ class GaussianSuccessorTests(LaneAFixture):
         production_generation=False,
         base_profile_override=None,
         startup=False,
+        input_raw=OPT,
+        headroom_mib=None,
+        resource_memory_mb=None,
     ):
         from scripts import run_v31_publisher_pilot as controller
 
@@ -312,8 +315,8 @@ class GaussianSuccessorTests(LaneAFixture):
             },
         )
         if startup:
-            from auto_g16.transport import _gaussian_file_submit, _gaussian_submit, _bridge
-            submit_owner = _gaussian_file_submit if startup == "file" else _gaussian_submit
+            from auto_g16.transport import _gaussian_file_submit, _gaussian_submit, _gaussian_resource_submit, _bridge
+            submit_owner = _gaussian_resource_submit if startup == "resource" else _gaussian_file_submit if startup == "file" else _gaussian_submit
             base_profile = replace(base_profile, runtime_contents={**{k:v for k,v in base_profile.runtime_contents.items() if k != _bridge._PROGRAM_BOOTSTRAP_SOURCE_NAME}, submit_owner.SOURCE_NAME: submit_owner.source_bytes()})
         payload, evidence = qualification_fixture(
             base_profile, queue="batch" if production_generation else "simple"
@@ -330,23 +333,23 @@ class GaussianSuccessorTests(LaneAFixture):
                 if key not in {"xtb", completion._DATA_NAME}
             },
         )
-        from auto_g16.execution import _gaussian_file_carrier, _gaussian_startup
-        owner = _gaussian_file_carrier if startup == "file" else _gaussian_startup if startup else gaussian
+        from auto_g16.execution import _gaussian_file_carrier, _gaussian_startup, _gaussian_resources
+        owner = _gaussian_resources if startup == "resource" else _gaussian_file_carrier if startup == "file" else _gaussian_startup if startup else gaussian
         wrapper, probe = owner._wrapper_sources()
         payload.update(
             schema=owner._Q_SCHEMA,
             contract_sha256=owner._CONTRACT_SHA256,
             profile_basis_sha256=completion._publisher_profile_basis(
-                execution.resolve_server_profile(profile), gaussian=not startup, gstartup=startup is True, gfile=startup == "file"
+                execution.resolve_server_profile(profile), gaussian=not startup, gstartup=startup is True, gfile=startup == "file", gres=startup == "resource"
             ),
         )
         payload["scope"] = {
             "backend": "legacy_rtwin_pbs",
             "program_kind": "gaussian",
             "adapter_id": "auto-g16-v31-gaussian",
-            "adapter_contract_version": 5 if startup == "file" else 4 if startup else 3,
+            "adapter_contract_version": 6 if startup == "resource" else 5 if startup == "file" else 4 if startup else 3,
             "completion_mode": completion._MODE,
-            "operations": ["opt", "freq"],
+            "operations": ["opt"] if startup == "resource" else ["opt", "freq"],
         }
         payload["implementation"]["wrapper_source"] = {
             "sha256": sha256(wrapper.encode()).hexdigest(),
@@ -396,9 +399,10 @@ class GaussianSuccessorTests(LaneAFixture):
         spec = _prepare_program_execution_spec(
             program_kind="gaussian", executable_path=g16_path,
             executable_size_bytes=g16_size, executable_sha256=g16_sha256,
-            input_name="flow.gjf", input_bytes=OPT, program_data={"stage": "opt"},
+            input_name="flow.gjf", input_bytes=input_raw, program_data={"stage": "opt"},
             resolved_profile=target, completion_mode=completion._MODE,
-            startup_mode="short-entry-file-carrier-v2" if startup == "file" else "short-entry-physical-handoff-v1" if startup else None,
+            gaussian_headroom_mib=headroom_mib,
+            startup_mode="short-entry-opt-resources-v3" if startup == "resource" else "short-entry-file-carrier-v2" if startup == "file" else "short-entry-physical-handoff-v1" if startup else None,
         )
         parent_identity = "gaussian-parent"
         project_identity = "gaussian-project"
@@ -464,6 +468,9 @@ class GaussianSuccessorTests(LaneAFixture):
                     walltime_seconds=resources.walltime_seconds,
                     queue="batch",
                 )
+            if resource_memory_mb is not None:
+                resources = execution.ResolvedResourceRequest(resource_spec=self.store.load_resource_spec("resource-1"),
+                    cores=resources.cores, memory_mb=resource_memory_mb, walltime_seconds=resources.walltime_seconds, queue=resources.queue)
             snapshot = service.prepare(
                 self.store, attempt_id="attempt-1", calculation_plan_id="plan-1",
                 resource_spec_id="resource-1", program_execution_spec=spec,
@@ -490,8 +497,9 @@ class GaussianSuccessorTests(LaneAFixture):
             return file_binding(path)
 
         from auto_g16.execution import _gaussian_file_carrier, _gaussian_startup
-        short = snapshot.program_execution_spec.adapter_contract_version in (4, 5)
-        qname = _gaussian_file_carrier._Q_NAME if snapshot.program_execution_spec.adapter_contract_version == 5 else _gaussian_startup._Q_NAME if short else gaussian._Q_NAME
+        short = snapshot.program_execution_spec.adapter_contract_version in (4, 5, 6)
+        from auto_g16.execution import _gaussian_resources
+        qname = _gaussian_resources._Q_NAME if snapshot.program_execution_spec.adapter_contract_version == 6 else _gaussian_file_carrier._Q_NAME if snapshot.program_execution_spec.adapter_contract_version == 5 else _gaussian_startup._Q_NAME if short else gaussian._Q_NAME
         qpin = write(qname, qualified.runtime_contents[qname])
         owner = b"SYNTHETIC Gaussian Q/4 owner acceptance\n"
         live = b"SYNTHETIC Gaussian Q/4 offline driver construction\n"
@@ -501,7 +509,7 @@ class GaussianSuccessorTests(LaneAFixture):
             for index, raw in enumerate(evidence.values())
         )
         basis = {
-            "schema": "auto-g16-v31-publisher-pilot-deployment/6" if snapshot.program_execution_spec.adapter_contract_version == 5 else "auto-g16-v31-publisher-pilot-deployment/5" if short else "auto-g16-v31-publisher-pilot-deployment/4",
+            "schema": "auto-g16-v31-publisher-pilot-deployment/7" if snapshot.program_execution_spec.adapter_contract_version == 6 else "auto-g16-v31-publisher-pilot-deployment/6" if snapshot.program_execution_spec.adapter_contract_version == 5 else "auto-g16-v31-publisher-pilot-deployment/5" if short else "auto-g16-v31-publisher-pilot-deployment/4",
             "source_commit": "a" * 40,
             "source_tree": "b" * 40,
             "resolved_server_profile_id": target.resolved_server_profile_id,

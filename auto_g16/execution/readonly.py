@@ -43,6 +43,7 @@ def _snapshot(registration):
     raw = json.loads(registration.content, object_pairs_hook=pairs)
     value, spec, binding, resources, profile, workspace = owner._decode_program_review_components(raw)
     owner._assert_executable_matches_resolved_profile(spec, profile)
+    owner._validate_gaussian_resource_binding(spec, resources)
     payload = freeze_mapping({key: value[key] for key in owner._SNAPSHOT_PAYLOAD_FIELDS}, "historical snapshot")
     for key, expected in {
         "program_execution_spec_id": spec.program_execution_spec_id,
@@ -63,8 +64,8 @@ def _snapshot(registration):
     allowed = {single}
     if spec.program_kind == "crest" and spec.adapter_contract_version == 3:
         allowed.add((*single, ("startup-payload", "crest-startup.json", "json")))
-    if spec.program_kind == "gaussian" and spec.adapter_contract_version in (4, 5):
-        first = "gaussian-entry-template.pbs" if spec.adapter_contract_version == 5 else "gaussian.pbs"
+    if spec.program_kind == "gaussian" and spec.adapter_contract_version in (4, 5, 6):
+        first = "gaussian-entry-template.pbs" if spec.adapter_contract_version in (5, 6) else "gaussian.pbs"
         allowed = {(("scheduler-script", first, "pbs-shell-utf8"), ("startup-payload", "gaussian-startup.json", "canonical-json-utf8"))}
     _check(type(artifacts) is tuple)
     _check(tuple((a["logical_role"], a["portable_name"], a["format"]) for a in artifacts) in allowed)
