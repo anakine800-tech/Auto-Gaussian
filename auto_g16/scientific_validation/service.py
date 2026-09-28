@@ -212,11 +212,20 @@ def validate_minimum(
             classification=MinimumValidationClassification.INCOMPLETE,
             reason_code="incomplete-provenance",
         )
+    return _classify_gaussian_facts(
+        envelope, parse_outcome,
+        lambda **fields: _outcome(input_binding, envelope, parse_outcome, **fields),
+    )
+
+
+def _classify_gaussian_facts(envelope, parse_outcome, make_outcome, *, pure_opt=False):
+    """Shared fact interpretation; callers separately close their own provenance.
+
+    pure_opt is private to the successor Opt assessment. The V30 caller keeps
+    its frozen composite-step selection and classification order unchanged.
+    """
     if envelope.capture_completeness is not CaptureCompleteness.COMPLETE:
-        return _outcome(
-            input_binding,
-            envelope,
-            parse_outcome,
+        return make_outcome(
             classification=MinimumValidationClassification.INCOMPLETE,
             reason_code="incomplete-capture",
         )
@@ -225,27 +234,19 @@ def validate_minimum(
         parse_outcome.parser_version,
         parse_outcome.result_kind,
     )
-    if parser_tuple not in _SUPPORTED_RESULT_TUPLES:
-        return _outcome(
-            input_binding,
-            envelope,
-            parse_outcome,
+    native_opt = pure_opt and parser_tuple == ("auto-g16-v3-gaussian-job", "1.2.0", "gaussian-job-facts")
+    if parser_tuple not in _SUPPORTED_RESULT_TUPLES and not native_opt:
+        return make_outcome(
             classification=MinimumValidationClassification.UNSUPPORTED,
             reason_code="unsupported-result-tuple",
         )
     if parse_outcome.parse_status is ParseStatus.UNSUPPORTED:
-        return _outcome(
-            input_binding,
-            envelope,
-            parse_outcome,
+        return make_outcome(
             classification=MinimumValidationClassification.UNSUPPORTED,
             reason_code="unsupported-parse-status",
         )
     if parse_outcome.parse_status is not ParseStatus.PARSED or not parse_outcome.facts:
-        return _outcome(
-            input_binding,
-            envelope,
-            parse_outcome,
+        return make_outcome(
             classification=MinimumValidationClassification.INCOMPLETE,
             reason_code="incomplete-parse",
         )
@@ -256,10 +257,7 @@ def validate_minimum(
     if not isinstance(source_artifact, Mapping) or not isinstance(job_section, Mapping):
         raise ScientificValidationError("parsed Result source authority is malformed")
     if facts["program_status"] == "error-termination":
-        return _outcome(
-            input_binding,
-            envelope,
-            parse_outcome,
+        return make_outcome(
             source_artifact=source_artifact,
             job_section=job_section,
             classification=MinimumValidationClassification.INCOMPLETE,
@@ -292,10 +290,7 @@ def validate_minimum(
             )
         )
     if not terminal_closed:
-        return _outcome(
-            input_binding,
-            envelope,
-            parse_outcome,
+        return make_outcome(
             source_artifact=source_artifact,
             job_section=job_section,
             classification=MinimumValidationClassification.INCOMPLETE,
@@ -330,17 +325,14 @@ def validate_minimum(
         except (KeyError, ScientificValidationError):
             pair_closed = False
     if not pair_closed:
-        return _outcome(
-            input_binding,
-            envelope,
-            parse_outcome,
+        return make_outcome(
             source_artifact=source_artifact,
             job_section=job_section,
             classification=MinimumValidationClassification.INCOMPLETE,
             reason_code="incomplete-marker-pair",
         )
     accepted_pair_index = len(optimization) - 1
-    if parser_tuple == _SUPPORTED_RESULT_TUPLE_V2:
+    if parser_tuple == _SUPPORTED_RESULT_TUPLE_V2 and not pure_opt:
         frequency_blocks = facts["frequency_blocks"]
         first_frequency_start: int | None = None
         if isinstance(frequency_blocks, tuple) and frequency_blocks:
@@ -360,10 +352,7 @@ def validate_minimum(
             )
         )
         if not eligible_pairs:
-            return _outcome(
-                input_binding,
-                envelope,
-                parse_outcome,
+            return make_outcome(
                 source_artifact=source_artifact,
                 job_section=job_section,
                 classification=MinimumValidationClassification.INCOMPLETE,
@@ -402,10 +391,7 @@ def validate_minimum(
             unique_geometry = True
             selected_geometry = rightmost[0]
     if not unique_geometry or selected_geometry is None:
-        return _outcome(
-            input_binding,
-            envelope,
-            parse_outcome,
+        return make_outcome(
             source_artifact=source_artifact,
             job_section=job_section,
             accepted_optimization_span=accepted_optimization,
@@ -443,55 +429,37 @@ def validate_minimum(
         "selected_frequencies_cm1": selected_frequencies,
     }
     if len(atoms) < 3:
-        return _outcome(
-            input_binding,
-            envelope,
-            parse_outcome,
+        return make_outcome(
             **common,
             classification=MinimumValidationClassification.UNSUPPORTED,
             reason_code="unsupported-atom-cardinality",
         )
     if any(atom["atomic_number"] == 0 for atom in atoms):  # type: ignore[index]
-        return _outcome(
-            input_binding,
-            envelope,
-            parse_outcome,
+        return make_outcome(
             **common,
             classification=MinimumValidationClassification.UNSUPPORTED,
             reason_code="unsupported-dummy-center",
         )
     expected_modes = 3 * len(atoms) - 6
     if len(selected_frequencies) < expected_modes:
-        return _outcome(
-            input_binding,
-            envelope,
-            parse_outcome,
+        return make_outcome(
             **common,
             classification=MinimumValidationClassification.INCOMPLETE,
             reason_code="incomplete-mode-count",
         )
     if len(selected_frequencies) > expected_modes:
-        return _outcome(
-            input_binding,
-            envelope,
-            parse_outcome,
+        return make_outcome(
             **common,
             classification=MinimumValidationClassification.UNSUPPORTED,
             reason_code="unsupported-mode-count",
         )
     if any(frequency < 0.0 for frequency in selected_frequencies):
-        return _outcome(
-            input_binding,
-            envelope,
-            parse_outcome,
+        return make_outcome(
             **common,
             classification=MinimumValidationClassification.NOT_MINIMUM,
             reason_code="negative-frequency",
         )
-    return _outcome(
-        input_binding,
-        envelope,
-        parse_outcome,
+    return make_outcome(
         **common,
         classification=MinimumValidationClassification.VALIDATED_MINIMUM,
         reason_code="validated-minimum",

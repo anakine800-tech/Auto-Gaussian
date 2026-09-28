@@ -43,7 +43,9 @@ _GAUSSIAN_JOB_TUPLE_V2 = (
     "1.1.0",
     _GAUSSIAN_JOB_RESULT_KIND,
 )
+_GAUSSIAN_JOB_TUPLE_V3 = ("auto-g16-v3-gaussian-job", "1.2.0", _GAUSSIAN_JOB_RESULT_KIND)
 _GAUSSIAN_JOB_GRAMMAR_IDS = {
+    _GAUSSIAN_JOB_TUPLE_V3: "auto-g16-v3-gaussian-job-grammar/3",
     _GAUSSIAN_JOB_TUPLE_V1: "auto-g16-v3-gaussian-job-grammar/1",
     _GAUSSIAN_JOB_TUPLE_V2: "auto-g16-v3-gaussian-job-grammar/2",
 }

@@ -166,3 +166,12 @@ cores or a total differing from working memory plus headroom. No tier fallback
 or automatic budget correction is allowed. Q7/material8/prebinding9/scheduler9
 and deployment7 must close with the exact new source; older Q cannot qualify it.
 The existing file-carrier, Attempt, receipt and Result owners remain authoritative.
+
+
+### Gaussian successor Result and Opt refinement boundary
+
+The Owner-accepted [private handoff contract](../../proposals/gaussian-successor-result-refinement.md) and [destination revision adjustment](../../proposals/gaussian-successor-destination-addendum.md) add offline source-attributed Result records and Opt-only frequency-pending conformer revisions. Original sources and destination snapshots stay read-only; publication creates a new immutable local database revision. V30 public contracts and live execution remain unchanged.
+
+The accepted [native banner delta](../../proposals/gaussian-native-banner-parser-addendum.md) adds explicitly selected private parser 1.2.0/grammar-3. Parser 1.1.0 remains the default. Existing versioned pairs cannot be replaced; a different parser requires an explicitly selected existing compatible destination and a fresh revision. Public V30 scientific interpretation is unchanged.
+
+Serial member execution does not require a fabricated linear ensemble ancestry. Preserve the original ensemble E0 and the anti-only revision EA; after gauche, replay both original sources against E0 to build the jointly audited EAB. EA and EAB are separately retained successors of E0. Never compare a historical original input to an optimized member as if those were the same source geometry. One Attempt cannot supply two selected member dispositions.

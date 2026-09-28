@@ -296,82 +296,13 @@ def _negative_projection(
     }
 
 
-def build_refined_conformer_ensemble(
-    prior: ConformerEnsemble,
-    profile: SamplingProfile,
-    *,
-    positive_optimization_inputs: Sequence[Mapping[str, object]],
-    negative_optimization_inputs: Sequence[Mapping[str, object]],
-    positive_frequency_inputs: Sequence[Mapping[str, object]],
-    negative_frequency_inputs: Sequence[Mapping[str, object]],
-) -> ConformerEnsemble:
-    """Compose terminal private authorities into one immutable revision."""
-
-    _closed_ensemble(prior)
-    _closed_profile(profile)
-    _require(
-        prior.sampling_profile_id == profile.sampling_profile_id
-        and prior.sampling_profile_payload_sha256 == profile.payload_sha256,
-        "SamplingProfile does not match the prior ensemble",
-    )
-    _require(prior.species_binding == profile.species_binding, "species binding differs from SamplingProfile")
-    _require(
-        prior.stereochemistry_binding == profile.stereochemistry_binding,
-        "stereochemistry binding differs from SamplingProfile",
-    )
-    members_by_id = {member["member_id"]: member for member in prior.members}
+def _audit_and_deduplicate(prior, profile, observations_by_id, optimized_coordinates):
+    """Reuse the same identity audit, mapped RMSD and deterministic clustering."""
     canonical_member_ids = tuple(member["member_id"] for member in prior.members)
-    _require(bool(canonical_member_ids), "the prior ensemble has no members to refine")
-    _require(len(members_by_id) == len(canonical_member_ids), "prior member identities are not unique")
-    observations_by_id = _sampling_observation_by_member(prior)
-    _require(
-        set(observations_by_id) >= set(canonical_member_ids),
-        "each prior member must retain one exact sampling observation",
-    )
-
-    optimizations = _resolve_current_authorities(
-        prior,
-        positive_optimization_inputs,
-        name="positive_optimization_inputs",
-        expected_keys=_OPT_INPUT_KEYS,
-        validator=_validate_current_optimization_geometry_authority,
-    )
-    negative_optimizations = _resolve_current_authorities(
-        prior,
-        negative_optimization_inputs,
-        name="negative_optimization_inputs",
-        expected_keys=_OPT_INPUT_KEYS,
-        validator=validate_negative_optimization_authority,
-    )
-    _require(
-        not (set(optimizations) & set(negative_optimizations)),
-        "a member cannot have both positive and negative Opt authority",
-    )
-    _require(
-        set(optimizations) | set(negative_optimizations) == set(canonical_member_ids),
-        "Opt disposition set must equal the complete prior member set",
-    )
-
-    optimized_coordinates: dict[str, tuple[tuple[float, float, float], ...]] = {}
-    for member_id, authority in optimizations.items():
-        optimized_coordinates[member_id] = _closed_optimization_authority(
-            authority, prior, members_by_id[member_id],
-        )
-    for member_id, authority in negative_optimizations.items():
-        _closed_negative_authority(authority, prior, members_by_id[member_id], stage="opt")
-    opt_method_ids = {
-        authority["method_id"]
-        for authority in (*optimizations.values(), *negative_optimizations.values())
-    }
-    _require(
-        len(opt_method_ids) == 1,
-        "Opt dispositions must use one exact method identity",
-    )
-
     post_opt_valid: list[str] = []
     identity_rejections: dict[str, tuple[str, ...]] = {}
     for member_id in canonical_member_ids:
-        if member_id not in optimizations:
+        if member_id not in optimized_coordinates:
             continue
         observation = dict(observations_by_id[member_id])
         observation["coordinates_angstrom"] = optimized_coordinates[member_id]
@@ -446,6 +377,87 @@ def build_refined_conformer_ensemble(
     survivors = tuple(
         member_id for member_id in canonical_member_ids
         if representative_by_member.get(member_id) == member_id
+    )
+
+    return (identity_rejections, comparisons, new_blockers, new_clusters,
+            representative_by_member, survivors)
+
+
+def build_refined_conformer_ensemble(
+    prior: ConformerEnsemble,
+    profile: SamplingProfile,
+    *,
+    positive_optimization_inputs: Sequence[Mapping[str, object]],
+    negative_optimization_inputs: Sequence[Mapping[str, object]],
+    positive_frequency_inputs: Sequence[Mapping[str, object]],
+    negative_frequency_inputs: Sequence[Mapping[str, object]],
+) -> ConformerEnsemble:
+    """Compose terminal private authorities into one immutable revision."""
+
+    _closed_ensemble(prior)
+    _closed_profile(profile)
+    _require(
+        prior.sampling_profile_id == profile.sampling_profile_id
+        and prior.sampling_profile_payload_sha256 == profile.payload_sha256,
+        "SamplingProfile does not match the prior ensemble",
+    )
+    _require(prior.species_binding == profile.species_binding, "species binding differs from SamplingProfile")
+    _require(
+        prior.stereochemistry_binding == profile.stereochemistry_binding,
+        "stereochemistry binding differs from SamplingProfile",
+    )
+    members_by_id = {member["member_id"]: member for member in prior.members}
+    canonical_member_ids = tuple(member["member_id"] for member in prior.members)
+    _require(bool(canonical_member_ids), "the prior ensemble has no members to refine")
+    _require(len(members_by_id) == len(canonical_member_ids), "prior member identities are not unique")
+    observations_by_id = _sampling_observation_by_member(prior)
+    _require(
+        set(observations_by_id) >= set(canonical_member_ids),
+        "each prior member must retain one exact sampling observation",
+    )
+
+    optimizations = _resolve_current_authorities(
+        prior,
+        positive_optimization_inputs,
+        name="positive_optimization_inputs",
+        expected_keys=_OPT_INPUT_KEYS,
+        validator=_validate_current_optimization_geometry_authority,
+    )
+    negative_optimizations = _resolve_current_authorities(
+        prior,
+        negative_optimization_inputs,
+        name="negative_optimization_inputs",
+        expected_keys=_OPT_INPUT_KEYS,
+        validator=validate_negative_optimization_authority,
+    )
+    _require(
+        not (set(optimizations) & set(negative_optimizations)),
+        "a member cannot have both positive and negative Opt authority",
+    )
+    _require(
+        set(optimizations) | set(negative_optimizations) == set(canonical_member_ids),
+        "Opt disposition set must equal the complete prior member set",
+    )
+
+    optimized_coordinates: dict[str, tuple[tuple[float, float, float], ...]] = {}
+    for member_id, authority in optimizations.items():
+        optimized_coordinates[member_id] = _closed_optimization_authority(
+            authority, prior, members_by_id[member_id],
+        )
+    for member_id, authority in negative_optimizations.items():
+        _closed_negative_authority(authority, prior, members_by_id[member_id], stage="opt")
+    opt_method_ids = {
+        authority["method_id"]
+        for authority in (*optimizations.values(), *negative_optimizations.values())
+    }
+    _require(
+        len(opt_method_ids) == 1,
+        "Opt dispositions must use one exact method identity",
+    )
+
+    (identity_rejections, comparisons, new_blockers, new_clusters,
+     representative_by_member, survivors) = _audit_and_deduplicate(
+        prior, profile, observations_by_id, optimized_coordinates,
     )
 
     minima = _resolve_current_authorities(

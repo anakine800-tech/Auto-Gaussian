@@ -316,7 +316,20 @@ def _atom(line: _Line, expected_center: int) -> tuple[dict[str, object] | None, 
     return {"center": center, "atomic_number": atomic_number, "x": _number(match.group("n3")), "y": _number(match.group("n4")), "z": _number(match.group("n5"))}, None
 
 
-def _recognize(data: bytes, source: Mapping[str, object]) -> _Recognition:
+def _recognize(data: bytes, source: Mapping[str, object], *, _policy=None) -> _Recognition:
+    # An immutable, explicit private policy; legacy calls use the frozen table.
+    def match(name, line):
+        pattern = P[name]
+        if _policy is not None and name in {"job", "other_program"}:
+            pattern = _policy.job if name == "job" else _policy.other_program
+        return pattern.fullmatch(line.content)
+
+    def multi(line):
+        return bool(match("job", line) or match("link1", line) or match("internal", line))
+
+    def orphan(line, allowed=frozenset()):
+        return any(name not in allowed and match(name, line) for name in ORPHANS)
+
     lines, failed = _tokenize(data)
     if failed:
         return failed
@@ -351,15 +364,15 @@ def _recognize(data: bytes, source: Mapping[str, object]) -> _Recognition:
             scfs.append({"energy_hartree": parsed_scf, "source_span": _span(source, line.start, line.end)})
             consumed(line)
             return parent, None
-        if _m("opt_header", line):
+        if match("opt_header", line):
             return_state, predicted_seen, opt_done = parent, False, None
             consumed(line)
             return "OPT_MAX_FORCE", None
-        if _m("fh1", line):
+        if match("fh1", line):
             return_state = parent
             consumed(line)
             return "FREQ_HEAD_2", None
-        orientation = _m("orientation", line)
+        orientation = match("orientation", line)
         if orientation:
             return_state, geometry_start, geometry_atoms = parent, line.start, []
             geometry_kind = "input-orientation" if orientation.group("k") == b"Input" else "standard-orientation"
@@ -383,44 +396,48 @@ def _recognize(data: bytes, source: Mapping[str, object]) -> _Recognition:
             )
             consumed(line)
             return "TERMINATED", None
-        if _multi(line):
+        if multi(line):
             return parent, _line_fail("unsupported-multiple-job", line, ParseStatus.UNSUPPORTED)
-        if _m("other_program", line):
+        if match("other_program", line):
             return parent, _line_fail("unsupported-program", line, ParseStatus.UNSUPPORTED)
-        if _m("unsupported_orientation", line):
+        if match("unsupported_orientation", line):
             return parent, _line_fail("unsupported-valid-gaussian-grammar", line, ParseStatus.UNSUPPORTED)
-        if _m("grad", line):
+        if match("grad", line):
             consumed(line)
             return parent, None
-        if _m("symbolic", line) or _m("charge", line):
+        if match("symbolic", line) or match("charge", line):
             return parent, _line_fail("unparseable-echo-boundary", line)
         allowed = {"scf", "opt_header", "fh1", "orientation", "normal", "error_a", "error_b"}
-        if _orphan(line, allowed):
+        if orphan(line, allowed):
             return parent, _line_fail("unparseable-orphan-anchor", line)
         return parent, _prefix_failure(line)
 
     while index < len(lines):
         line, advance = lines[index], True
+        if (_policy is not None and state in {"PREAMBLE", "MACHINE_BODY", "FREQUENCY_BODY", "TERMINATED"}
+                and _policy.banner_prefix.match(line.content)
+                and not match("job", line) and not match("other_program", line)):
+            return _line_fail("unsupported-valid-gaussian-grammar", line, ParseStatus.UNSUPPORTED)
         if state == "PREAMBLE":
-            if _m("job", line):
+            if match("job", line):
                 job_start, state = line, "INPUT_ECHO"; consumed(line)
-            elif _m("other_program", line):
+            elif match("other_program", line):
                 return _line_fail("unsupported-program", line, ParseStatus.UNSUPPORTED)
         elif state == "INPUT_ECHO":
-            if _m("symbolic", line): state = "INPUT_MOLECULE"; consumed(line)
-            elif _m("charge", line) or _m("grad", line): return _line_fail("unparseable-echo-boundary", line)
+            if match("symbolic", line): state = "INPUT_MOLECULE"; consumed(line)
+            elif match("charge", line) or match("grad", line): return _line_fail("unparseable-echo-boundary", line)
         elif state == "INPUT_MOLECULE":
-            if _m("charge", line): state, echo_molecule = "INPUT_BOUND", False; consumed(line)
-            elif _m("symbolic", line) or _m("grad", line): return _line_fail("unparseable-echo-boundary", line)
+            if match("charge", line): state, echo_molecule = "INPUT_BOUND", False; consumed(line)
+            elif match("symbolic", line) or match("grad", line): return _line_fail("unparseable-echo-boundary", line)
         elif state == "INPUT_BOUND":
-            if _m("symbolic", line) or _m("charge", line): return _line_fail("unparseable-echo-boundary", line)
-            if _m("grad", line):
+            if match("symbolic", line) or match("charge", line): return _line_fail("unparseable-echo-boundary", line)
+            if match("grad", line):
                 if not echo_molecule: return _line_fail("unparseable-echo-boundary", line)
                 state = "MACHINE_BODY"; consumed(line)
-            elif not _m("blank", line): echo_molecule = True; consumed(line)
+            elif not match("blank", line): echo_molecule = True; consumed(line)
         elif state in {"MACHINE_BODY", "FREQUENCY_BODY"}:
-            mode = _m("modes", line) if state == "FREQUENCY_BODY" else None
-            next_sym = _m("sym", lines[index + 1]) if index + 1 < len(lines) else None
+            mode = match("modes", line) if state == "FREQUENCY_BODY" else None
+            next_sym = match("sym", lines[index + 1]) if index + 1 < len(lines) else None
             next_body = _body(lines[index + 2]) if index + 2 < len(lines) else None
             frequency_continuation = bool(
                 mode
@@ -443,7 +460,7 @@ def _recognize(data: bytes, source: Mapping[str, object]) -> _Recognition:
             label, next_state = spec[state]
             failed = _opt_row(line, label)
             if failed:
-                if _orphan(line): return _line_fail("unparseable-orphan-anchor", line)
+                if orphan(line): return _line_fail("unparseable-orphan-anchor", line)
                 return failed
             consumed(line)
             state = next_state
@@ -453,22 +470,22 @@ def _recognize(data: bytes, source: Mapping[str, object]) -> _Recognition:
             if predicted:
                 if predicted_seen: return _line_fail("unparseable-optimization-block", line)
                 predicted_seen = True; consumed(line)
-            elif _m("opt_done", line): opt_done, state = line, "OPT_STATIONARY"; consumed(line)
+            elif match("opt_done", line): opt_done, state = line, "OPT_STATIONARY"; consumed(line)
             else: state, advance = return_state, False
         elif state == "OPT_STATIONARY":
-            if _m("stationary", line):
+            if match("stationary", line):
                 assert opt_done is not None
                 opts.append(_span(source, opt_done.start, opt_done.end)); stations.append(_span(source, line.start, line.end)); state = return_state; consumed(line)
-            elif _orphan(line, {"stationary"}): return _line_fail("unparseable-orphan-anchor", line)
+            elif orphan(line, {"stationary"}): return _line_fail("unparseable-orphan-anchor", line)
             else: return _line_fail("unparseable-optimization-block", line)
         elif state in {"FREQ_HEAD_2", "FREQ_HEAD_3", "FREQ_HEAD_4"}:
             wanted, next_state = {"FREQ_HEAD_2": ("fh2", "FREQ_HEAD_3"), "FREQ_HEAD_3": ("fh3", "FREQ_HEAD_4"), "FREQ_HEAD_4": ("fh4", "FREQUENCY_EMPTY")}[state]
-            if _m(wanted, line): state = next_state; consumed(line)
-            elif _orphan(line, {wanted}): return _line_fail("unparseable-orphan-anchor", line)
+            if match(wanted, line): state = next_state; consumed(line)
+            elif orphan(line, {wanted}): return _line_fail("unparseable-orphan-anchor", line)
             else: return _line_fail("unparseable-frequency-block", line)
         elif state == "FREQUENCY_EMPTY":
-            mode = _m("modes", line)
-            if _m("blank", line): pass
+            mode = match("modes", line)
+            if match("blank", line): pass
             elif mode:
                 modes = tuple(int(v) for v in mode.group("v").split())
                 if any(b != a + 1 for a, b in zip(modes, modes[1:])) or (
@@ -476,21 +493,21 @@ def _recognize(data: bytes, source: Mapping[str, object]) -> _Recognition:
                 ):
                     return _line_fail("unparseable-frequency-block", line)
                 group_modes, group_start, state = modes, line.start, "FREQ_SYM"; consumed(line)
-            elif _orphan(line, {"modes"}): return _line_fail("unparseable-orphan-anchor", line)
+            elif orphan(line, {"modes"}): return _line_fail("unparseable-orphan-anchor", line)
             else: return _line_fail("unparseable-frequency-block", line)
         elif state == "FREQ_SYM":
-            sym = _m("sym", line)
+            sym = match("sym", line)
             if sym and len(sym.group("v").split()) == len(group_modes): state = "FREQ_VALUES"; consumed(line)
-            elif _orphan(line, {"sym"}): return _line_fail("unparseable-orphan-anchor", line)
+            elif orphan(line, {"sym"}): return _line_fail("unparseable-orphan-anchor", line)
             else: return _line_fail("unparseable-frequency-block", line)
         elif state in {"FREQ_VALUES", "FREQ_MASS", "FREQ_FORCE", "FREQ_IR"}:
             label, exact_name, next_state = {"FREQ_VALUES": (b"Frequencies", "freq", "FREQ_MASS"), "FREQ_MASS": (b"Red. masses", "mass", "FREQ_FORCE"), "FREQ_FORCE": (b"Frc consts", "force", "FREQ_IR"), "FREQ_IR": (b"IR Inten", "ir", "FREQUENCY_BODY")}[state]
-            exact = _m(exact_name, line)
+            exact = match(exact_name, line)
             if exact and len(exact.group("v").split()) == len(group_modes):
                 values = tuple(_number(raw) for raw in exact.group("v").split())
                 if any(v is None for v in values): parsed = _series(line, label, len(group_modes))
                 else: parsed = tuple(v for v in values if v is not None)
-            elif _orphan(line, {exact_name}): return _line_fail("unparseable-orphan-anchor", line)
+            elif orphan(line, {exact_name}): return _line_fail("unparseable-orphan-anchor", line)
             else: parsed = _series(line, label, len(group_modes))
             if isinstance(parsed, _Recognition): return parsed
             consumed(line)
@@ -501,38 +518,38 @@ def _recognize(data: bytes, source: Mapping[str, object]) -> _Recognition:
             state = next_state
         elif state in {"GEOM_SEP_1", "GEOM_HEAD_1", "GEOM_HEAD_2", "GEOM_SEP_2"}:
             wanted, next_state = {"GEOM_SEP_1": ("sep", "GEOM_HEAD_1"), "GEOM_HEAD_1": ("gh1", "GEOM_HEAD_2"), "GEOM_HEAD_2": ("gh2", "GEOM_SEP_2"), "GEOM_SEP_2": ("sep", "GEOM_ROWS")}[state]
-            if _m(wanted, line): state = next_state; consumed(line)
-            elif _orphan(line, {wanted}): return _line_fail("unparseable-orphan-anchor", line)
+            if match(wanted, line): state = next_state; consumed(line)
+            elif orphan(line, {wanted}): return _line_fail("unparseable-orphan-anchor", line)
             else: return _line_fail("unparseable-geometry-block", line)
         elif state == "GEOM_ROWS":
             body = _body(line)
             if body is not None and body.startswith(b"-"):
-                if not _m("sep", line) or not geometry_atoms: return _line_fail("unparseable-geometry-block", line)
+                if not match("sep", line) or not geometry_atoms: return _line_fail("unparseable-geometry-block", line)
                 assert geometry_start is not None and geometry_kind is not None
                 geometries.append({"orientation_kind": geometry_kind, "units": "angstrom", "source_span": _span(source, geometry_start, line.end), "atoms": tuple(geometry_atoms)}); state = return_state; consumed(line)
-            elif _orphan(line): return _line_fail("unparseable-orphan-anchor", line)
+            elif orphan(line): return _line_fail("unparseable-orphan-anchor", line)
             else:
                 atom, failed = _atom(line, len(geometry_atoms) + 1)
                 if failed: return failed
                 assert atom is not None; geometry_atoms.append(atom); consumed(line)
         elif state == "TERMINATED":
-            if _m("blank", line): pass
-            elif _m("internal_enter", line):
+            if match("blank", line): pass
+            elif match("internal_enter", line):
                 if terminals[-1]["kind"] != "normal-termination":
                     return _line_fail("unparseable-trailing-content", line)
                 state = "INTERNAL_ENTER"; consumed(line)
-            elif (internal := _m("internal", line)):
+            elif (internal := match("internal", line)):
                 step = int(internal.group("n"))
                 if terminals[-1]["kind"] != "normal-termination" or step != next_internal_step:
                     return _line_fail("unparseable-ambiguous-transition", line)
                 next_internal_step += 1
                 state, echo_molecule = "INPUT_MOLECULE", False; consumed(line)
-            elif _m("job", line) or _m("link1", line): return _line_fail("unsupported-multiple-job", line, ParseStatus.UNSUPPORTED)
-            elif _m("other_program", line): return _line_fail("unsupported-program", line, ParseStatus.UNSUPPORTED)
+            elif match("job", line) or match("link1", line): return _line_fail("unsupported-multiple-job", line, ParseStatus.UNSUPPORTED)
+            elif match("other_program", line): return _line_fail("unsupported-program", line, ParseStatus.UNSUPPORTED)
             elif _terminal(line): return _line_fail("unparseable-terminal", line)
             else: return _line_fail("unparseable-trailing-content", line)
         elif state == "INTERNAL_ENTER":
-            internal = _m("internal", line)
+            internal = match("internal", line)
             if internal is None:
                 return _line_fail("unparseable-ambiguous-transition", line)
             step = int(internal.group("n"))
@@ -558,7 +575,7 @@ def _recognize(data: bytes, source: Mapping[str, object]) -> _Recognition:
     error_count = sum(item["kind"] == "error-termination" for item in terminals)
     terminal_kind = "normal-termination" if error_count == 0 else "error-termination"
     facts = {
-        "facts_schema_version": 1, "grammar_id": GRAMMAR_ID, "source_artifact": dict(source),
+        "facts_schema_version": 1, "grammar_id": GRAMMAR_ID if _policy is None else _policy.grammar_id, "source_artifact": dict(source),
         "job_section": _span(source, job_start.start, terminal_line.end), "program_status": terminal_kind,
         "normal_termination_count": normal_count, "error_termination_count": error_count,
         "termination_evidence": tuple(terminals), "optimization_completed_marker": bool(opts), "optimization_completed_evidence": tuple(opts),
@@ -584,6 +601,8 @@ def _verify(envelope: OutputEnvelope, supplied: Mapping[str, bytes]) -> tuple[ob
 class GaussianJobParser:
     """Parse one exact Gaussian 16 job into source-attributed neutral facts."""
 
+    _recognizer = staticmethod(_recognize)
+
     parser_name = PARSER_NAME
     parser_version = PARSER_VERSION
     result_kind = RESULT_KIND
@@ -597,5 +616,33 @@ class GaussianJobParser:
         else:
             item = logs[0]
             source = {"envelope_observation_id": envelope.observation_id, "artifact_kind": item.artifact_kind, "logical_name": item.logical_name, "sha256": item.sha256, "size_bytes": item.size_bytes}
-            parsed = _recognize(artifact_bytes[item.logical_name], source)
+            parsed = self._recognizer(artifact_bytes[item.logical_name], source)
         return ParseOutcome(attempt_id=envelope.attempt_id, envelope_observation_id=envelope.observation_id, parser_name=self.parser_name, parser_version=self.parser_version, result_kind=self.result_kind, parse_status=parsed.status, facts=parsed.facts, diagnostics=() if parsed.diagnostic is None else (parsed.diagnostic,))
+
+
+@dataclass(frozen=True, slots=True)
+class _GrammarPolicy:
+    grammar_id: str
+    job: re.Pattern[bytes]
+    other_program: re.Pattern[bytes]
+    banner_prefix: re.Pattern[bytes]
+
+
+# These paths are parsed as text only, never opened or used as authority.
+_NATIVE_COMPONENT = rb"(?!(?:\.|\.\.)/)[A-Za-z0-9_+.\-]+/"
+_NATIVE_PATH = rb"(?:/(?:" + _NATIVE_COMPONENT + rb")*)?"
+_NATIVE_GRAMMAR = _GrammarPolicy(
+    "auto-g16-v3-gaussian-job-grammar/3",
+    _rx(rb" Entering Gaussian System, Link 0=" + _NATIVE_PATH + rb"g16"),
+    _rx(rb" Entering Gaussian System, Link 0=" + _NATIVE_PATH + rb"g(?:03|09)"),
+    re.compile(rb"[ \t]+Entering Gaussian System, Link 0="),
+)
+
+
+class _NativeGaussianJobParser(GaussianJobParser):
+    """Explicit private grammar-3 parser; never changes the public default."""
+    parser_version = "1.2.0"
+
+    @staticmethod
+    def _recognizer(data, source):
+        return _recognize(data, source, _policy=_NATIVE_GRAMMAR)
