@@ -94,7 +94,7 @@ class ReadonlySourceOpenTests(unittest.TestCase):
             before = self.inventory()
             if path == self.core_path:
                 owner, method = core, '_readonly_database_state'
-                fail_owner, fail_method = core.SQLiteRuntimeStore, '_initialize_schema'
+                fail_owner, fail_method = core.SQLiteRuntimeStore, '_validate_schema_identity'
             else:
                 owner, method = transport, '_readonly_source_state'
                 fail_owner, fail_method = transport._ProgramTransportStore, '_require_completion_guard'
@@ -104,8 +104,19 @@ class ReadonlySourceOpenTests(unittest.TestCase):
                 calls.append(args)
                 if len(calls) > 1:raise ValueError('injected recheck failure')
                 return actual(*args)
-            with patch.object(owner, method, side_effect=recheck), patch.object(fail_owner, fail_method, side_effect=ValueError('primary schema failure')):
+            primary = ValueError('primary schema failure')
+            with patch.object(owner, method, side_effect=recheck), patch.object(fail_owner, fail_method, side_effect=primary):
                 with self.assertRaisesRegex(ValueError, 'primary schema failure') as caught:opener(path)
+            self.assertIs(caught.exception, primary)
             self.assertGreaterEqual(len(calls), 2)
             self.assertIn('injected recheck failure', str(caught.exception.__notes__))
             self.assertEqual(self.inventory(), before)
+
+    def test_core_readonly_open_never_initializes_schema(self):
+        before = self.inventory()
+        with patch.object(core.SQLiteRuntimeStore, '_initialize_schema',
+                          side_effect=AssertionError('readonly must not initialize')) as initialize:
+            with core.SQLiteRuntimeStore.read_snapshot(self.core_path) as store:
+                self.assertEqual(store.list_projects(), ())
+            initialize.assert_not_called()
+        self.assertEqual(self.inventory(), before)
