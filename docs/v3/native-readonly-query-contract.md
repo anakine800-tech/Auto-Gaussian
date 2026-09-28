@@ -11,7 +11,7 @@ Owner authorized implementation, offline validation, isolated local preview,
 read-only comparison with explicitly configured existing sources, and then
 local commit freeze, formal integration validation and local installation
 preparation. A local frontend switch is authorized only after the applicable
-formal integration gates pass. Push, PR creation and merge remain unapproved;
+formal integration gates pass. Push and updates to the same Draft PR are authorized; merge remains unapproved;
 required PR-owned full validation cannot be replaced by a local full run.
 No SSH, new monitor, scheduler, execution provider, business/approval migration,
 scientific execution or parsing on reads is authorized.
@@ -21,12 +21,15 @@ The source-candidate implementation and bounded acceptance are complete.
 exact query validation ownership exists. Clean commit selection, required CI,
 integration and installed acceptance are distinct subsequent evidence gates.
 
-The initial four repair cycles were consumed. Of the subsequently authorized
-four additional cycles or 30 active diagnosis/editing minutes, one cycle and a
-conservative six minutes were consumed at source-candidate acceptance. Three
-cycles and at least 24 active minutes remain; later work does not reset them.
-Test/review waiting is excluded. Evidence and operational identities stay in
-private task records rather than this public contract.
+The private ledger retains the prior cumulative ten repair cycles and failed
+integration evidence. Owner subsequently approved at most four new cycles or
+30 active diagnosis/editing minutes to correct three exact CI failures, review
+the actual increment, create a successor commit, update the same Draft PR and
+run its prescribed CI once. Test, CI and independent-review waiting is excluded;
+unused browser-diagnostic allowance is not pooled into this scope. The three
+repairs are conservative document routing, OD-35's exact downstream Observe
+consumer, and fault injection at the real read-only schema validation entry.
+No runtime implementation change is required by these repairs.
 
 ## Narrow contract and reuse
 
@@ -63,6 +66,10 @@ validation and review are independent. No clock or scheduler freshness inferred.
 Field sources:
 
 - hierarchy, state, record identities/types: public Core snapshot methods;
+- V30 persisted Observe axes: OD-35 permits only `query/service.py` to consume
+  public `OBSERVATION_TYPE`, `ObserveBoundaryError`, and
+  `project_attempt_observations` within the exact Core read snapshot. No append,
+  private decoding, freshness recomputation or acquisition is permitted;
 - V30 exact InputBinding, plan revision, capture/envelopes, attributed results:
   public ResultProvenanceService and GaussianResultQuery;
 - Gaussian energy (hartree), geometry (angstrom), frequencies (cm^-1): only
@@ -90,7 +97,7 @@ qualification, transport dual-source qualification or scientific acceptance.
 Focused tests: schema/sidecars/no-follow/missing DB/zero mutation, stable ordering,
 exact bound old plan, multi-source failures/collisions, mixed generations,
 unknown protocols, list-detail parity, Gaussian attributed units and provenance.
-Affected tests: Core and Result; old frontend query/result routes. Preview:
+Affected tests: Core, Result and Observe; old frontend query/result routes. Preview:
 GET-only native endpoints using existing frontend boundary, no provider/monitor,
 list/detail/missing/source navigation in browser. Real-source comparison binds
 configuration and before/after digests plus directory/physical identity;
@@ -129,7 +136,8 @@ acceptance. Persisted assessments remain labelled recorded, not independently
 recomputed science. Missing parsed native energy/geometry stays missing. A
 snapshot mismatch, unknown adapter or ambiguous completion fails closed.
 
-Exact new query/reader/test/document routes are added to the existing selector;
+Exact new query/reader/test routes are added to the existing selector;
+this contract document retains the conservative `v3-full` document route;
 existing owning routes and self-protection remain intact. No full-lane fallback
 or required check is weakened. Authoritative clean-commit selection remains a
 later gate, now authorized under the current local commit freeze scope.

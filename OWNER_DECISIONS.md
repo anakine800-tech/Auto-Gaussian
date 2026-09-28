@@ -1441,3 +1441,23 @@ The exact Gaussian material tuple is
 restore that tuple only for the already submitted same Attempt under the
 existing production journal and fixed authority; restoration cannot stage,
 submit, retry, or create a replacement Attempt.
+
+## OD-35: Query may display the public read-only Observe projection
+
+For V31-NATIVE-READONLY-QUERY-01, Owner approves one downstream display
+consumer: `auto_g16/query/service.py` may import only `OBSERVATION_TYPE`,
+`ObserveBoundaryError`, and `project_attempt_observations` from the public
+`auto_g16.observe` surface. Query calls the projection for the exact requested
+Attempt inside its public Core `read_snapshot` lifetime and returns detached
+source-attributed fields only after the snapshot safety checks complete.
+
+This preserves `Observe -> Core`. Core, Execution, Result, Approval, Workflow,
+ScientificValidation and Transport must not import Observe; no other Query
+module or future consumer inherits this exception. Query may not append Observe
+records, decode private Observe payloads, recompute freshness, acquire evidence,
+or create filesystem, process, transport, scheduler, execution or scientific
+effects. Observe must not depend on Query. Existing V30 display semantics and
+DTOs remain unchanged. Closed consumer/import/call checks and affected Observe
+and Query validation must cover this exception; blanket package exemptions and
+dynamic-import workarounds are forbidden. This decision grants no merge,
+deployment, live operation or scientific-acceptance authority.

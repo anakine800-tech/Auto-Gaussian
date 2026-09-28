@@ -62,7 +62,17 @@ mutation, Core/API/schema change, transport, or live observation:
     are not treated as self-authenticating transport or acquisition evidence.
     Observe does not recompute freshness from ambient time.
 16. Dependency tests prove `Observe -> Core` only: Core, Execution, Result,
-    Approval, Workflow, and ScientificValidation never import Observe.
+    Approval, Workflow, ScientificValidation and Transport never import Observe.
+    Under OD-35 only `auto_g16/query/service.py` may consume the public
+    `OBSERVATION_TYPE`, `ObserveBoundaryError`, and `project_attempt_observations`
+    symbols. Tests reject other consumers, private or aliased imports, append or
+    acquisition calls, and projection outside the exact-Attempt/read-only
+    snapshot contract. No entire Query directory is exempted. Existing pure
+    Observe projection, freshness and malformed-evidence checks remain required.
+    The sole reviewed Query consumer has a normalized AST semantic sentinel: any
+    semantic edit, including an alias, effect, parameter rebinding, freshness
+    substitution or snapshot-lifetime change, requires renewed boundary review.
+    This is a closed reviewed-consumer check, not a general Python dataflow proof.
 17. Narrow reuse evidence records `PORT`, `EXTRACT`, `WRAP`, `REWRITE`, `DROP`,
     and `DEFER`; the `REWRITE` reason names the legacy acquisition/governance
     coupling, and no v2 owner/receipt/capability/hash-lineage object becomes v3

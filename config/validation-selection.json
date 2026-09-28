@@ -223,7 +223,8 @@
         "docs/v3/contracts/mac-direct-managed-offline-v1.md",
         "docs/v3/contracts/mac-direct-managed-native-v1.md",
         "docs/v3/gaussian-qsub-file-carrier-contract.md",
-        "docs/v3/gaussian-short-entry-contract.md"
+        "docs/v3/gaussian-short-entry-contract.md",
+        "docs/v3/native-readonly-query-contract.md"
       ],
       "prefixes": [
         "docs/v3/publisher-r4/"
@@ -743,7 +744,8 @@
         "tests.test_direct_qstat_acquisition",
         "tests.test_resource_monitor_efficiency",
         "tests.v3.core.test_store",
-        "tests.v3.observe"
+        "tests.v3.observe",
+        "tests.v3.query.test_native"
       ],
       "required_safety": [
         "no-overwrite",
@@ -988,8 +990,7 @@
         "auto_g16/execution/readonly.py",
         "tests/v3/query/__init__.py",
         "tests/v3/query/test_native.py",
-        "tests/v3/query/test_execution_readonly.py",
-        "docs/v3/native-readonly-query-contract.md"
+        "tests/v3/query/test_execution_readonly.py"
       ],
       "prefixes": [],
       "lane": "affected",
@@ -997,7 +998,8 @@
         "tests.v3.query.test_native",
         "tests.v3.query.test_execution_readonly",
         "tests.v3.core.test_store",
-        "tests.v3.result"
+        "tests.v3.result",
+        "tests.v3.observe"
       ],
       "required_safety": [
         "no-overwrite",

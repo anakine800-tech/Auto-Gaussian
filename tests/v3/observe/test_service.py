@@ -3,12 +3,45 @@
 from __future__ import annotations
 
 import ast
+import hashlib
+import json
 from pathlib import Path
 import tempfile
 import unittest
 
 import auto_g16.core as core
 import auto_g16.observe as observe
+
+
+def canonical_ast(node: object) -> object:
+    """Version-neutral semantic form; omit absent fields, never nonempty syntax."""
+    if isinstance(node, ast.AST):
+        return {"node": type(node).__name__, "fields": {
+            name: canonical_ast(value) for name, value in ast.iter_fields(node)
+            if value is not None and value != []
+        }}
+    if isinstance(node, list):
+        return [canonical_ast(item) for item in node]
+    return node
+
+
+def resolved_imports(relative: str, tree: ast.AST) -> set[str]:
+    """Resolve ordinary imports and literal dynamic module references."""
+    package = ["auto_g16", *Path(relative).parts[:-1]]
+    imported = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            module = (node.module or "").split(".") if node.module else []
+            base = package[:len(package) - node.level + 1] + module if node.level else module
+            imported.update(".".join([*base, alias.name]) for alias in node.names)
+        elif isinstance(node, ast.Call):
+            arguments = [*node.args, *(keyword.value for keyword in node.keywords)]
+            imported.update(arg.value for arg in arguments
+                            if isinstance(arg, ast.Constant) and isinstance(arg.value, str)
+                            and arg.value.startswith("auto_g16."))
+    return imported
 
 
 def populate_core(store: core.SQLiteRuntimeStore) -> None:
@@ -295,31 +328,15 @@ class ObserveServiceTests(unittest.TestCase):
         calls: set[str] = set()
         for path in sorted(package.glob("*.py")):
             tree = ast.parse(path.read_text(encoding="utf-8"))
+            imported_roots.update(resolved_imports("observe/" + path.name, tree))
             for node in ast.walk(tree):
-                if isinstance(node, ast.Import):
-                    imported_roots.update(alias.name for alias in node.names)
-                elif isinstance(node, ast.ImportFrom) and node.module:
-                    imported_roots.add(node.module)
-                elif isinstance(node, ast.Call):
+                if isinstance(node, ast.Call):
                     function = node.func
                     if isinstance(function, ast.Name):
                         calls.add(function.id)
                     elif isinstance(function, ast.Attribute):
                         calls.add(function.attr)
-        self.assertFalse(
-            any(
-                name.startswith(
-                    (
-                        "auto_g16.execution",
-                        "auto_g16.result",
-                        "auto_g16.approval",
-                        "auto_g16.workflow",
-                        "auto_g16.scientific_validation",
-                    )
-                )
-                for name in imported_roots
-            )
-        )
+        self._assert_observe_dependencies(imported_roots)
         self.assertTrue(any(name.startswith("auto_g16.core") for name in imported_roots))
         self.assertTrue(calls.isdisjoint(forbidden_calls))
 
@@ -328,16 +345,98 @@ class ObserveServiceTests(unittest.TestCase):
             if package in path.parents:
                 continue
             tree = ast.parse(path.read_text(encoding="utf-8"))
-            imported: set[str] = set()
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Import):
-                    imported.update(alias.name for alias in node.names)
-                elif isinstance(node, ast.ImportFrom) and node.module:
-                    imported.add(node.module)
-            self.assertFalse(
-                any(name.startswith("auto_g16.observe") for name in imported),
-                path,
-            )
+            self._assert_observe_consumer(path.relative_to(repository).as_posix(), tree)
+
+    def _assert_observe_dependencies(self, imported: set[str]) -> None:
+        self.assertFalse(any(name.startswith("auto_g16.")
+                             and name != "auto_g16.core"
+                             and not name.startswith("auto_g16.core.")
+                             and not name.startswith("auto_g16.observe.")
+                             for name in imported))
+
+    def test_observe_rejects_reverse_query_and_transport_dependencies(self) -> None:
+        for source in ("from auto_g16 import query", "from auto_g16 import transport",
+                       "from .. import query", "from ..query import QueryService",
+                       "import auto_g16.transport", "__import__('auto_g16.query')",
+                       "import importlib; importlib.import_module(name='auto_g16.query')"):
+            with self.subTest(source=source), self.assertRaises(AssertionError):
+                self._assert_observe_dependencies(resolved_imports("observe/service.py", ast.parse(source)))
+
+    def _assert_observe_consumer(self, relative: str, tree: ast.AST) -> None:
+        imports = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                if any(alias.name.startswith("auto_g16.observe") for alias in node.names):
+                    imports.append(node)
+            elif isinstance(node, ast.ImportFrom):
+                module = node.module or ""
+                if module.startswith("auto_g16.observe") or (
+                    (module == "auto_g16" or node.level) and any(a.name == "observe" for a in node.names)
+                ) or (node.level and "observe" in module.split(".")):
+                    imports.append(node)
+        # Literal dynamic module references outside Observe are not a loophole.
+        self.assertFalse(any(isinstance(node, ast.Constant) and isinstance(node.value, str)
+                             and node.value.startswith("auto_g16.observe")
+                             for node in ast.walk(tree)), relative)
+        if relative != "query/service.py":
+            self.assertFalse(any(name.startswith("auto_g16.observe")
+                                 for name in resolved_imports(relative, tree)), relative)
+            self.assertEqual(imports, [], relative)
+            return
+
+        # OD-35 admits this exact downstream reader, never a whole package.
+        self.assertEqual(len(imports), 1)
+        declaration = imports[0]
+        self.assertIsInstance(declaration, ast.ImportFrom)
+        self.assertEqual((declaration.module, declaration.level), ("auto_g16.observe", 0))
+        self.assertEqual([(a.name, a.asname) for a in declaration.names], [
+            ("OBSERVATION_TYPE", None), ("ObserveBoundaryError", None),
+            ("project_attempt_observations", None),
+        ])
+        # Reviewed OD-35 consumer semantic sentinel, not a general Python analyzer.
+        # It closes every call/alias/rebinding and the snapshot lifetime together;
+        # future semantic changes require renewed boundary review, not an exemption.
+        semantic_digest = hashlib.sha256(
+            json.dumps(canonical_ast(tree), sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        self.assertEqual(semantic_digest, "10092ab1d2006e41956f6217cc43a60766125040bf38fc2c0205d58d13b7b734")
+
+    def test_query_consumer_guard_rejects_other_owners_symbols_and_effects(self) -> None:
+        root = Path(observe.__file__).resolve().parent.parent
+        source = (root / "query/service.py").read_text(encoding="utf-8")
+        for relative in ("core/consumer.py", "execution/consumer.py", "result/consumer.py",
+                         "approval/consumer.py", "workflow/consumer.py",
+                         "scientific_validation/consumer.py", "transport/consumer.py",
+                         "query/other.py"):
+            with self.subTest(relative=relative), self.assertRaises(AssertionError):
+                self._assert_observe_consumer(relative, ast.parse(source))
+        for consumer in ("core/consumer.py", "transport/consumer.py", "query/other.py"):
+            for source_form in ("from .. import observe", "from auto_g16 import observe",
+                                "__import__('auto_g16.observe')",
+                                "import importlib; importlib.import_module('auto_g16.observe')",
+                                "from importlib import import_module as load; load('auto_g16.observe')"):
+                with self.subTest(consumer=consumer, source=source_form), self.assertRaises(AssertionError):
+                    self._assert_observe_consumer(consumer, ast.parse(source_form))
+        mutations = [
+            source.replace("from auto_g16.observe import", "from auto_g16.observe.service import"),
+            source.replace("OBSERVATION_TYPE, ObserveBoundaryError", "append_observation, ObserveBoundaryError"),
+            source.replace("OBSERVATION_TYPE, ObserveBoundaryError", "OBSERVATION_TYPE as alias, ObserveBoundaryError"),
+            source.replace("attempt_id=attempt_id)", "attempt_id='other')"),
+            source.replace("with SQLiteRuntimeStore.read_snapshot(self.database) as store:",
+                           "with SQLiteRuntimeStore(self.database) as store:"),
+            source + "\nappend_observation(None)\n",
+            source + "\n__import__('auto_g16.observe')\n",
+            source.replace("        projection = project_attempt_observations(",
+                           "        attempt_id = 'other'\n        projection = project_attempt_observations("),
+            source.replace("                data = operation(store)",
+                           "                pass\n            data = operation(store)"),
+            source + "\nstore.advance_attempt()\n",
+            source.replace('"freshness": record.freshness', '"freshness": "fresh"'),
+            source + "\nalias = project_attempt_observations\nalias(store, attempt_id=attempt_id)\n",
+        ]
+        for index, changed in enumerate(mutations):
+            with self.subTest(mutation=index), self.assertRaises(AssertionError):
+                self._assert_observe_consumer("query/service.py", ast.parse(changed))
 
 
 if __name__ == "__main__":
