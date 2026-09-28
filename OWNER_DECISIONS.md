@@ -1477,3 +1477,40 @@ DTOs remain unchanged. Closed consumer/import/call checks and affected Observe
 and Query validation must cover this exception; blanket package exemptions and
 dynamic-import workarounds are forbidden. This decision grants no merge,
 deployment, live operation or scientific-acceptance authority.
+
+
+## OD-36: Gaussian successor attributed Opt refinement
+
+On 2026-09-28 Owner accepted the independently reviewed
+[Gaussian successor result/refinement contract](docs/v3/proposals/gaussian-successor-result-refinement.md)
+with “继续” after the explicit contract decision request. Its reviewed SHA-256
+is `fee8a9b8f1d6cfc4df1167055503e882fe561e7cb0e1c400d744574c588cafaa`.
+This narrowly adds private source/parsed records and an Opt-only
+frequency-pending ensemble variant while retaining public V30 contracts.
+Task V31-GAUSSIAN-RESULT-REFINEMENT-01 is OWNER-GUIDED, non-BUS, on
+`codex/successor-result-refinement`, base main `0d405200`. Implementation,
+offline validation and independent read-only review are authorized within
+the linked paths and acceptance rules. Publication/merge remain separate.
+No live execution, installation activation, UNKNOWN retry, new Project,
+Freq, thermochemistry or ScientificAcceptance is authorized.
+
+Owner subsequently accepted the [destination persistence adjustment](docs/v3/proposals/gaussian-successor-destination-addendum.md),
+reviewed SHA-256 `5c2a06713fd91abba8a76e9d21504ad020cf97775ef97ae781a2ad68bb391df6`.
+This replaces arbitrary disk writable connections with read-only destination
+snapshot import, owner-created in-memory append, and exclusive immutable local
+revision publication. It grants implementation/offline/native-local validation
+within the same scope, with no Core schema or public V30 API change.
+
+
+On 2026-09-28 Owner explicitly instructed completion of the reviewed five-step
+closure plan. This accepts the [native banner parser delta](docs/v3/proposals/gaussian-native-banner-parser-addendum.md),
+reviewed SHA-256 `56c92c09ff43164cf0e9bbc65fb93a9611be2c91f584d89dd11ef51f33649642`,
+and authorizes implementation, adversarial/offline validation, independent
+read-only review, local commit, push, PR, required CI/full validation and merge
+after those gates pass. Continue installation preparation and exact running
+binding, then the selected anti Opt followed by accepted anti and serial gauche.
+This supersedes the preceding publication deferral for this task. It does not
+reopen the old UNKNOWN intent, permit inferred execution identities or dispense
+with the exact successor-disposition and live binding gates. Preserve the
+selected method/input/resource scope; no Freq, retry, qdel or cleanup. Record
+precise local operational artifacts outside Git before any applicable effect.

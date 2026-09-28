@@ -291,6 +291,9 @@ class GaussianSuccessorTests(LaneAFixture):
         base_profile_override=None,
         startup=False,
         input_raw=OPT,
+        attempt_id="attempt-1",
+        calculation_plan_id="plan-1",
+        resource_spec_id="resource-1",
         headroom_mib=None,
         resource_memory_mb=None,
     ):
@@ -462,18 +465,18 @@ class GaussianSuccessorTests(LaneAFixture):
             resources = self.resources()
             if production_generation:
                 resources = execution.ResolvedResourceRequest(
-                    resource_spec=self.store.load_resource_spec("resource-1"),
+                    resource_spec=self.store.load_resource_spec(resource_spec_id),
                     cores=resources.cores,
                     memory_mb=resources.memory_mb,
                     walltime_seconds=resources.walltime_seconds,
                     queue="batch",
                 )
             if resource_memory_mb is not None:
-                resources = execution.ResolvedResourceRequest(resource_spec=self.store.load_resource_spec("resource-1"),
+                resources = execution.ResolvedResourceRequest(resource_spec=self.store.load_resource_spec(resource_spec_id),
                     cores=resources.cores, memory_mb=resource_memory_mb, walltime_seconds=resources.walltime_seconds, queue=resources.queue)
             snapshot = service.prepare(
-                self.store, attempt_id="attempt-1", calculation_plan_id="plan-1",
-                resource_spec_id="resource-1", program_execution_spec=spec,
+                self.store, attempt_id=attempt_id, calculation_plan_id=calculation_plan_id,
+                resource_spec_id=resource_spec_id, program_execution_spec=spec,
                 project_physical_binding=binding,
                 resolved_resource_request=resources,
                 resolved_server_profile=target, workspace_binding=self.workspace(),

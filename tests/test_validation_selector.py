@@ -105,12 +105,18 @@ APPROVAL_TESTS = [
     "tests.v3.execution",
 ]
 RESULT_SAFETY = ["no-overwrite", "unknown-no-automatic-retry"]
-RESULT_TESTS = ["tests.v3.core.test_store", "tests.v3.result"]
+SUCCESSOR_RESULT_TESTS = [
+    "tests.v31.conformer.test_successor_opt",
+    "tests.v31.conformer.test_successor_result",
+    "tests.v31.conformer.test_successor_revision_file",
+]
+RESULT_TESTS = ["tests.v3.core.test_store", "tests.v3.result", *SUCCESSOR_RESULT_TESTS]
 SCIENTIFIC_VALIDATION_SAFETY = ["no-overwrite", "unknown-no-automatic-retry"]
 SCIENTIFIC_VALIDATION_TESTS = [
     "tests.v3.core.test_store",
     "tests.v3.result",
     "tests.v3.scientific_validation",
+    *SUCCESSOR_RESULT_TESTS,
 ]
 WORKFLOW_SAFETY = ["approval-owner-separation", "unknown-no-automatic-retry"]
 # Workflow owns its future package tests; Core store anchors exact record/replay and
@@ -1481,14 +1487,14 @@ class ValidationSelectorTests(unittest.TestCase):
                 "scientific validation",
                 change("M", "auto_g16/scientific_validation/service.py"),
                 ["v30-review", "v30-scientific-validation"],
-                REVIEW_TESTS,
+                sorted({*REVIEW_TESTS, *SCIENTIFIC_VALIDATION_TESTS}),
                 REVIEW_SAFETY,
             ),
             (
                 "result",
                 change("M", "auto_g16/result/parser.py"),
                 ["v30-result", "v30-review"],
-                REVIEW_TESTS,
+                sorted({*REVIEW_TESTS, *RESULT_TESTS}),
                 REVIEW_SAFETY,
             ),
             (

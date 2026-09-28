@@ -437,3 +437,10 @@ status = "offline-candidate-target-unqualified"
 required_sections = ["OWNER_DECISIONS.md#od-34-additive-opt-resource-contract-2026-09-27", "docs/v3/contracts/boundary/v31-successors.md#gaussian-opt-resource-successor-boundary", "docs/v3/contracts/acceptance/v31-successors.md#gaussian-opt-resource-successor-acceptance", "docs/v3/contracts/tasks/v31-successors.md#gaussian-opt-resource-link0-development-contract"]
 code_paths = ["auto_g16/execution/_gaussian_resources.py", "auto_g16/transport/_gaussian_resource_submit.py"]
 focused_tests = ["tests/v31/transport/test_gaussian_opt_resources.py", "tests/v31/transport/test_gaussian_successor.py", "tests/v31/transport/test_gaussian_short_entry.py"]
+
+[[component]]
+id = "v31-gaussian-result-refinement"
+status = "offline-candidate"
+required_sections = ["OWNER_DECISIONS.md#od-36-gaussian-successor-attributed-opt-refinement", "docs/v3/proposals/gaussian-successor-result-refinement.md", "docs/v3/proposals/gaussian-successor-destination-addendum.md"]
+code_paths = ["auto_g16/execution/_gaussian_result_source.py", "auto_g16/result/_successor.py", "auto_g16/result/_revision_file.py", "auto_g16/scientific_validation/_successor_opt.py", "auto_g16/conformer/_successor_opt.py"]
+focused_tests = ["tests/v31/conformer/test_successor_result.py", "tests/v31/conformer/test_successor_opt.py", "tests/v31/conformer/test_successor_revision_file.py"]

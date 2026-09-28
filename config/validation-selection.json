@@ -225,7 +225,10 @@
         "docs/v3/contracts/mac-direct-managed-native-v1.md",
         "docs/v3/gaussian-qsub-file-carrier-contract.md",
         "docs/v3/gaussian-short-entry-contract.md",
-        "docs/v3/native-readonly-query-contract.md"
+        "docs/v3/native-readonly-query-contract.md",
+        "docs/v3/proposals/gaussian-successor-result-refinement.md",
+        "docs/v3/proposals/gaussian-successor-destination-addendum.md",
+        "docs/v3/proposals/gaussian-native-banner-parser-addendum.md"
       ],
       "prefixes": [
         "docs/v3/publisher-r4/"
@@ -690,7 +693,10 @@
       "lane": "affected",
       "tests": [
         "tests.v3.result",
-        "tests.v3.core.test_store"
+        "tests.v3.core.test_store",
+        "tests.v31.conformer.test_successor_result",
+        "tests.v31.conformer.test_successor_opt",
+        "tests.v31.conformer.test_successor_revision_file"
       ],
       "required_safety": [
         "no-overwrite",
@@ -709,7 +715,10 @@
       "tests": [
         "tests.v3.scientific_validation",
         "tests.v3.result",
-        "tests.v3.core.test_store"
+        "tests.v3.core.test_store",
+        "tests.v31.conformer.test_successor_result",
+        "tests.v31.conformer.test_successor_opt",
+        "tests.v31.conformer.test_successor_revision_file"
       ],
       "required_safety": [
         "no-overwrite",
@@ -1006,6 +1015,29 @@
         "tests.v3.core.test_store",
         "tests.v3.result",
         "tests.v3.observe"
+      ],
+      "required_safety": [
+        "no-overwrite",
+        "unknown-no-automatic-retry"
+      ],
+      "fail_closed": false
+    },
+    {
+      "id": "v31-gaussian-result-refinement",
+      "exact_paths": [
+        "auto_g16/execution/_gaussian_result_source.py"
+      ],
+      "prefixes": [],
+      "lane": "affected",
+      "tests": [
+        "tests.v31.conformer.test_successor_result",
+        "tests.v31.conformer.test_successor_opt",
+        "tests.v31.conformer.test_successor_revision_file",
+        "tests.v31.transport.test_receipt_source",
+        "tests.v3.result",
+        "tests.v3.scientific_validation",
+        "tests.v31.conformer",
+        "tests.v31.thermochemistry"
       ],
       "required_safety": [
         "no-overwrite",
