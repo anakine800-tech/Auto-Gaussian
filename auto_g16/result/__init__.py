@@ -23,6 +23,7 @@ from .models import (
     ResultViewState,
 )
 from .service import ResultProvenanceService, ResultStore
+from .query import GaussianResultQuery, ResultReadStore
 
 __all__ = [
     "AttemptResultView",
@@ -30,6 +31,8 @@ __all__ = [
     "CaptureStatus",
     "GaussianLogParser",
     "GaussianJobParser",
+    "GaussianResultQuery",
+    "ResultReadStore",
     "INPUT_BINDING_OBSERVATION",
     "InputBinding",
     "MalformedEnvelopeError",

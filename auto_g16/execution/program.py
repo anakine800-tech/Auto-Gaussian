@@ -1361,7 +1361,8 @@ def _validate_program_review_semantics(raw: Mapping[str, object]) -> Mapping[str
     return _decode_program_review_semantics(raw)._approval_semantics()
 
 
-def _decode_program_review_semantics(raw: Mapping[str, object]) -> ProgramExecutionSnapshot:
+def _decode_program_review_components(raw: Mapping[str, object]):
+    """Pure closed component decoding shared by execution and historical reads."""
     value = freeze_mapping(raw, "persisted successor review semantics")
     _exact_keys(value, set(ProgramExecutionSnapshot._approval_field_set(gaussian_short="gaussian_startup_review" in value)), "successor review semantics")
 
@@ -1462,6 +1463,11 @@ def _decode_program_review_semantics(raw: Mapping[str, object]) -> ProgramExecut
     require_text(value["attempt_id"], "attempt_id")
     require_text(value["calculation_plan_id"], "calculation_plan_id")
     require_positive_integer(value["calculation_plan_revision"], "calculation_plan_revision")
+    return value, spec, binding, resources, profile, workspace
+
+
+def _decode_program_review_semantics(raw: Mapping[str, object]) -> ProgramExecutionSnapshot:
+    value, spec, binding, resources, profile, workspace = _decode_program_review_components(raw)
     snapshot = ProgramExecutionSnapshot._from_verified(
         payload=freeze_mapping({key: value[key] for key in _SNAPSHOT_PAYLOAD_FIELDS}, "persisted snapshot identity"),
         effect_intent_id=value["effect_intent_id"], snapshot_id=value["program_execution_snapshot_id"],
