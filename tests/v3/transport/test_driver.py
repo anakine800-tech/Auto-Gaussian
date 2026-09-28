@@ -512,12 +512,15 @@ class DriverBoundaryTests(TransportFixture):
             def close(self) -> None:
                 os.close(self._stdin_read)
 
-        process = Process()
-        operation = replace(_operation("ALLOCATE_WORKSPACE"), stdout_cap=8)
-        result = _SubprocessRTWinDriver()._communicate_bounded(process, b"request", operation)
-        process.close()
-        self.assertEqual(result[3], "transport-error")
-        self.assertTrue(process.killed)
+        for name in ("ALLOCATE_WORKSPACE", "OBSERVE_PROJECT", "PROVISION_PROJECT"):
+            with self.subTest(operation=name):
+                process = Process()
+                operation = replace(_operation("ALLOCATE_WORKSPACE"), name=name, stdout_cap=8)
+                result = _SubprocessRTWinDriver()._communicate_bounded(process, b"request", operation)
+                process.close()
+                self.assertEqual(result[3:], ("transport-error", False, False))
+                self.assertEqual(result[0], b"" if name == "ALLOCATE_WORKSPACE" else b"x" * 8)
+                self.assertTrue(process.killed)
 
     def test_unknown_operation_is_closed(self) -> None:
         with self.assertRaises(transport.TransportBoundaryError):
