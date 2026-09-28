@@ -338,6 +338,57 @@ class SQLiteRuntimeStore:
         self._connect(database)
 
     @classmethod
+    @contextmanager
+    def read_snapshot(cls, database: str | Path) -> Iterator[SQLiteRuntimeStore]:
+        """Read an existing, quiescent rollback-format store without initializing it.
+
+        The transaction pins all reads until context exit. Path/sidecar drift
+        rejects the entire operation; callers must not publish partial output
+        before this context exits successfully. No live-writer support is implied.
+        """
+        path = os.fspath(database)
+        before = _readonly_database_state(path)
+        store = cls._open_readonly_existing(database)
+        try:
+            store._db().execute("BEGIN")
+            store._validate_schema_identity()  # First read pins the SQLite snapshot.
+            if store._db().execute("PRAGMA foreign_key_check").fetchone() is not None:
+                raise RuntimeStoreSchemaError("read-only source has broken relationships")
+            if _readonly_database_state(path) != before:
+                raise RuntimeStoreSchemaError("read-only source changed before snapshot")
+            yield store
+            if _readonly_database_state(path) != before:
+                raise RuntimeStoreSchemaError("read-only source changed during snapshot")
+        finally:
+            store.close()
+
+    def list_projects(self) -> tuple[Project, ...]:
+        """Enumerate all Projects in binary lexical identity order."""
+        return tuple(self.load_project(row[0]) for row in self._db().execute(
+            "SELECT project_id FROM projects ORDER BY project_id COLLATE BINARY"))
+
+    def list_workflow_runs(self, project_id: str) -> tuple[WorkflowRun, ...]:
+        """Enumerate an existing Project's runs; unknown parents raise."""
+        self.load_project(project_id)
+        return tuple(self.load_workflow_run(row[0]) for row in self._db().execute(
+            "SELECT workflow_run_id FROM workflow_runs WHERE project_id = ? "
+            "ORDER BY workflow_run_id COLLATE BINARY", (project_id,)))
+
+    def list_tasks(self, workflow_run_id: str) -> tuple[Task, ...]:
+        """Enumerate an existing run's Tasks in binary lexical identity order."""
+        self.load_workflow_run(workflow_run_id)
+        return tuple(self.load_task(row[0]) for row in self._db().execute(
+            "SELECT task_id FROM tasks WHERE workflow_run_id = ? "
+            "ORDER BY task_id COLLATE BINARY", (workflow_run_id,)))
+
+    def list_attempts(self, task_id: str) -> tuple[Attempt, ...]:
+        """Enumerate an existing Task's Attempts by ordinal then identity."""
+        self.load_task(task_id)
+        return tuple(self.load_attempt(row[0]) for row in self._db().execute(
+            "SELECT attempt_id FROM attempts WHERE task_id = ? "
+            "ORDER BY ordinal, attempt_id COLLATE BINARY", (task_id,)))
+
+    @classmethod
     def _open_readonly_existing(cls, database: str | Path) -> SQLiteRuntimeStore:
         """Open historical authority without creating files or recovering journals."""
         path = os.fspath(database)
@@ -372,7 +423,10 @@ class SQLiteRuntimeStore:
             self._connection.execute("PRAGMA foreign_keys = ON")
             if self._connection.execute("PRAGMA foreign_keys").fetchone()[0] != 1:
                 raise RuntimeStoreSchemaError("SQLite foreign keys could not be enabled")
-            self._initialize_schema()
+            if readonly:
+                self._validate_schema_identity()
+            else:
+                self._initialize_schema()
         except BaseException:
             connection = getattr(self, "_connection", None)
             if connection is not None:
@@ -431,6 +485,10 @@ class SQLiteRuntimeStore:
             raise RuntimeStoreSchemaError(
                 f"unsupported runtime store schema version {version}; expected {SCHEMA_VERSION}"
             )
+        self._validate_schema_identity()
+
+    def _validate_schema_identity(self) -> None:
+        connection = self._db()
         try:
             identity_matches = (
                 _schema_identity(connection) == _expected_schema_identity()
@@ -669,6 +727,15 @@ class SQLiteRuntimeStore:
             if child.ordinal <= parent[1]:
                 raise RecordConflictError("child Attempt ordinal must be greater than its parent")
             self._insert_attempt(connection, child, parent_attempt_id=parent_attempt_id)
+
+    def load_submission_intent(self, attempt_id: str) -> str | None:
+        """Read the existing intent without claiming or replaying a submission."""
+        self.load_attempt(attempt_id)
+        row = self._connection.execute(
+            "SELECT intent_id FROM submission_intents WHERE attempt_id = ?",
+            (attempt_id,),
+        ).fetchone()
+        return None if row is None else row[0]
 
     def record_submission_intent(
         self, attempt_id: str, intent_id: str

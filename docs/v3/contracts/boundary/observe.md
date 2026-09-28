@@ -217,5 +217,12 @@ Core owns Attempt state/history; Execution owns effects; Observe owns only its
 Observation payload and derived projection; Workflow owns orchestration;
 Result owns parsed facts; ScientificValidation owns scientific classification.
 The dependency direction is `Observe -> Core`; upstream layers never import
-Observe. Contract integration alone authorizes neither selector ownership nor
-implementation.
+Observe. OD-35 permits only the downstream display consumer
+`auto_g16/query/service.py` to import `OBSERVATION_TYPE`, `ObserveBoundaryError`,
+and `project_attempt_observations` from the public package. Its exact-Attempt
+projection runs within Core `read_snapshot`; detached output is published only
+after successful snapshot exit. This is not an exception for Core, Execution,
+Result, Approval, Workflow, ScientificValidation or Transport, nor for other
+Query modules. It permits no append, private decoding, freshness recomputation,
+acquisition, effect or reverse Observe-to-Query dependency. Contract integration
+alone authorizes neither live operation nor scientific acceptance.

@@ -138,6 +138,7 @@ OBSERVE_TESTS = [
     "tests.test_resource_monitor_efficiency",
     "tests.v3.core.test_store",
     "tests.v3.observe",
+    "tests.v3.query.test_native",
 ]
 REVIEW_SAFETY = ["no-overwrite", "unknown-no-automatic-retry"]
 # Review is a pure projection over public Core, Result, and
@@ -870,7 +871,7 @@ class ValidationSelectorTests(unittest.TestCase):
                 "observe",
                 change("M", "auto_g16/observe/service.py"),
                 ["v30-observe", "v30-transport"],
-                TRANSPORT_TESTS,
+                sorted({*TRANSPORT_TESTS, *OBSERVE_TESTS}),
             ),
             (
                 "result",
@@ -1373,6 +1374,24 @@ class ValidationSelectorTests(unittest.TestCase):
         )
         self.assertFalse(forward["fail_closed"])
 
+    def test_native_query_and_observe_keep_both_owners_and_conservative_contract(self) -> None:
+        query = change("M", "auto_g16/query/service.py")
+        observe = change("M", "auto_g16/observe/service.py")
+        query_tests = sorted({
+            "tests.v3.query.test_native", "tests.v3.query.test_execution_readonly",
+            "tests.v3.core.test_store", "tests.v3.result", "tests.v3.observe",
+        })
+        self.assertEqual(self.select(query)["tests"], query_tests)
+        self.assertEqual(self.select(observe)["tests"], OBSERVE_TESTS)
+        forward, reverse = self.select(query, observe), self.select(observe, query)
+        for field in ("lane", "tests", "matched_routes", "safety_evidence", "fail_closed"):
+            self.assertEqual(forward[field], reverse[field])
+        self.assertEqual(forward["tests"], sorted({*query_tests, *OBSERVE_TESTS}))
+        document = self.select(change("M", "docs/v3/native-readonly-query-contract.md"))
+        self.assertEqual(document["matched_routes"], ["v3-control-docs"])
+        self.assertEqual(document["lane"], "v3-full")
+        self.assertEqual(document["tests"], self.manifest["v3_full_tests"])
+
     def test_observe_and_execution_union_is_deterministic_and_closed(self) -> None:
         observe = change("M", "auto_g16/observe/service.py")
         execution = change("M", "auto_g16/execution/runtime.py")
@@ -1384,7 +1403,7 @@ class ValidationSelectorTests(unittest.TestCase):
         self.assertEqual(
             forward["matched_routes"], ["v30-execution", "v30-observe"]
         )
-        self.assertEqual(forward["tests"], sorted({*EXEC_TESTS, "tests.v3.observe"}))
+        self.assertEqual(forward["tests"], sorted({*EXEC_TESTS, *OBSERVE_TESTS}))
         self.assertEqual(forward["safety_evidence"], EXEC_SAFETY)
         self.assertFalse(forward["fail_closed"])
 
