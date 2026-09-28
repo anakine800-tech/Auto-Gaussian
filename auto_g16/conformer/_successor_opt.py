@@ -111,8 +111,6 @@ def read_opt_authority(ensemble, member_id, *, source_store, snapshot, transport
     with gaussian_result_source(source_store, snapshot=snapshot, transport_store=transport_store,
                                 validation_driver=validation_driver) as (source, payload, inp, log):
         _same_destination(source, destination, snapshot)
-        _require(ensemble.project_id == snapshot.project_physical_binding.project_id,
-                 'ensemble and Gaussian source projects differ')
         source_record, result, envelope, parsed = parse_source(payload, log, parser_version=parser_version)
         require_pair(destination, source_record, result)
         _input_member(ensemble, member, inp)

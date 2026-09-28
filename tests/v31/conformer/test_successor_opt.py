@@ -33,7 +33,7 @@ class SuccessorOptTests(unittest.TestCase):
         observations = [c.observation(self.profile, 'anti', coordinates=coords),
                         c.observation(self.profile, 'gauche', member_index=1,
                                       coordinates=[[0., 0., 0.], [1.5, 0., 0.], [2.5, 1.7, 0.], [3.5, 1., 0.]])]
-        self.prior = build_conformer_ensemble(project_id='project-1', calculation_plan_id='ensemble-plan',
+        self.prior = build_conformer_ensemble(project_id=getattr(self, 'sampling_project', 'project-1'), calculation_plan_id='ensemble-plan',
                                              calculation_plan_revision=1, profile=self.profile, observations=observations)
         member_id = getattr(self, 'selected_member', 'anti')
         coords = self.prior.members[0 if member_id == 'anti' else 1]['coordinates_angstrom']
@@ -118,6 +118,13 @@ class SuccessorOptTests(unittest.TestCase):
     def test_wrong_member_input_geometry_rejects(self):
         with self.assertRaisesRegex(RefinementAuthorityError, 'geometry differs'):
             read_opt_authority(self.prior, 'gauche', **self.args)
+
+    def test_destination_execution_project_mismatch_rejects(self):
+        destination = self.args['destination']
+        destination.store_project(core.Project(project_id='different-execution-project'))
+        destination._connection.execute("UPDATE workflow_runs SET project_id='different-execution-project' WHERE workflow_run_id='run-1'")
+        with self.assertRaisesRegex(execution.ExecutionValueError, 'differs from current Core'):
+            read_opt_authority(self.prior, 'anti', **self.args)
 
     def test_disk_revision_and_fresh_process_source_replay(self):
         import json
@@ -234,6 +241,7 @@ class NativeSerialOptTests(unittest.TestCase):
     def case(self, member, attempt, output):
         case = SuccessorOptTests()
         case.parser_version = '1.2.0'
+        case.sampling_project = 'original-sampling-project'
         case.selected_member = member
         case.attempt_id = attempt
         case.output_coordinates = output
@@ -258,7 +266,9 @@ class NativeSerialOptTests(unittest.TestCase):
         optimized = [[x+0.02, y+0.03, z+0.04] for x,y,z in original]
         anti = self.case('anti', 'attempt-1', optimized)
         e0 = anti.prior
+        self.assertNotEqual(e0.project_id, anti.args['snapshot'].project_physical_binding.project_id)
         ea = refine_opt_ensemble(e0, anti.profile, inputs=[{'member_id':'anti', **anti.args}])
+        self.assertEqual(ea.project_id, e0.project_id)
         self.assertNotEqual(ea.members[0]['coordinates_angstrom'], e0.members[0]['coordinates_angstrom'])
         self.assertEqual(ea.members[1]['post_dft_status'], 'optimization_pending')
         ea_payload = _plain(ea._identity_payload())
@@ -269,6 +279,7 @@ class NativeSerialOptTests(unittest.TestCase):
         self.assertEqual(e0, gauche.prior)
         inputs = [{'member_id':'anti', **anti.args}, {'member_id':'gauche', **gauche.args}]
         eab = refine_opt_ensemble(e0, anti.profile, inputs=inputs)
+        self.assertEqual(eab.project_id, e0.project_id)
         self.assertEqual(eab.supersedes_conformer_ensemble_id, e0.conformer_ensemble_id)
         self.assertEqual(ea_payload, _plain(ea._identity_payload()))
         self.assertEqual(eab.members[0]['post_dft_status'], 'optimized_frequency_pending')

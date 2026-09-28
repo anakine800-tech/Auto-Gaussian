@@ -179,3 +179,9 @@ qualification, exact approvals and the live gate remain separate prerequisites.
 The [accepted handoff](../../proposals/gaussian-successor-result-refinement.md) requires original native proof and exact-byte parser/SV replay, destination lineage preservation, exclusive revision publication, fresh-process replay and Opt-only pending state. The [persistence adjustment](../../proposals/gaussian-successor-destination-addendum.md) requires native local filesystem checks. Synthetic workflow success is not real wB97XD scientific acceptance; retained RHF historical output can qualify source reading and method rejection only.
 
 The [native banner delta](../../proposals/gaussian-native-banner-parser-addendum.md) additionally requires old parser replay, exact-byte native-log parsing, malformed/banner/echo/child-block precedence, explicit parser selection and cross-version pair conflict tests. A two-Attempt serial fixture must change both original geometries, retain the anti-only revision, and reconstruct the joint final revision from E0 in a fresh process with zero wire calls. The joint audit must include mapped-RMSD comparison of both members and retain duplicates as negative evidence; it creates no frequency or thermodynamic eligibility.
+
+The serial fixture also covers a sampling Project distinct from the DFT
+execution Project. E0, EA and EAB retain the original sampling Project and
+exact ensemble/member source hashes. The DFT source and destination must
+still have identical complete execution ownership; a substituted destination
+Project rejects. Never rewrite sampling history to satisfy execution identity.
