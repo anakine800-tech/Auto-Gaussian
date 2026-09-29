@@ -226,6 +226,7 @@
         "docs/v3/gaussian-qsub-file-carrier-contract.md",
         "docs/v3/gaussian-short-entry-contract.md",
         "docs/v3/native-readonly-query-contract.md",
+        "docs/v3/native-opt-readout.md",
         "docs/v3/proposals/gaussian-successor-result-refinement.md",
         "docs/v3/proposals/gaussian-successor-destination-addendum.md",
         "docs/v3/proposals/gaussian-native-banner-parser-addendum.md"

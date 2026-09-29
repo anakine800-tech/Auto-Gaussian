@@ -1,5 +1,6 @@
 """Fixed local source locator for historical proof; never a live installation."""
 from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from hashlib import sha256
 import os
@@ -21,6 +22,25 @@ class _FixedReceiptSource:
 _FIXED_RECEIPT_SOURCE: _FixedReceiptSource | None = None
 _FIXED_CREST_RECEIPT_SOURCE: _FixedReceiptSource | None = None
 _FIXED_GAUSSIAN_RECEIPT_SOURCE: _FixedReceiptSource | None = None
+_GAUSSIAN_SOURCES = ContextVar("gaussian_historical_sources", default=None)
+
+
+@contextmanager
+def _gaussian_receipt_sources(sources):
+    """Explicit request-local originals; never a live or inferred registration."""
+    if (type(sources) is not tuple or not sources
+            or any(type(item) is not _FixedReceiptSource for item in sources)
+            or len({item.snapshot_id for item in sources}) != len(sources)):
+        raise TransportBoundaryError("invalid Gaussian historical source catalogue")
+    if _GAUSSIAN_SOURCES.get() is not None:
+        raise TransportBoundaryError("Gaussian historical source catalogue already active")
+    token = _GAUSSIAN_SOURCES.set(sources)
+    try:
+        yield
+        if _GAUSSIAN_SOURCES.get() is not sources:
+            raise TransportBoundaryError("Gaussian historical source catalogue changed")
+    finally:
+        _GAUSSIAN_SOURCES.reset(token)
 
 
 @contextmanager
@@ -34,6 +54,10 @@ def _source_qualification(store, snapshot, transport_store, driver):
     from . import _crest_completion, _crest_startup
     kind = snapshot.program_execution_spec.program_kind
     def selected_source():
+        catalogue = _GAUSSIAN_SOURCES.get()
+        if kind == "gaussian" and catalogue is not None:
+            return next((item for item in catalogue
+                         if item.snapshot_id == snapshot.program_execution_snapshot_id), None)
         return {"crest": _FIXED_CREST_RECEIPT_SOURCE, "xtb": _FIXED_RECEIPT_SOURCE,
                 "gaussian": _FIXED_GAUSSIAN_RECEIPT_SOURCE}.get(kind)
     fixed = selected_source()

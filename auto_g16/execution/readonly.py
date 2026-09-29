@@ -296,5 +296,6 @@ class ProgramReadQuery:
                 _check(item["evidence_result_id"] == record.result_id and item["epoch_id"] == data["epoch_id"])
                 _check(item["receipt_sha256"] == metadata_digest and item["capture_authority_id"] == capture_id, "terminal-assessment-capture-mismatch")
             summary["assessments"].append({"id": assessment.observation_id, "recorded_verdict": item["verdict"], "recorded_diagnostic": item["diagnostic"]})
-        summary["capture"] = {"result_id": record.result_id, "epoch_id": data["epoch_id"], "integrity": "persisted-content-associations"}
+        summary["capture"] = {"result_id": record.result_id, "epoch_id": data["epoch_id"],
+                              "job_id": job_id, "integrity": "persisted-content-associations"}
         return summary
