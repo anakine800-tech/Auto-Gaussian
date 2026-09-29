@@ -15,6 +15,8 @@ from .models import (
 
 SOURCE = "v31-gaussian-result-source/1"
 PARSED = "v31-gaussian-parsed-result/1"
+FREQ_SOURCE = "v31-gaussian-result-source/2"
+FREQ_PARSED = "v31-gaussian-parsed-result/2"
 _SOURCE_KEYS = {
     "schema", "attempt_id", "calculation_plan_id", "calculation_plan_revision",
     "program_execution_snapshot_id", "snapshot_payload_sha256", "effect_intent_id",
@@ -44,10 +46,25 @@ def _require(condition, message):
 
 
 def parse_source(payload, log_bytes, *, parser_version="1.1.0"):
-    """Reconstruct records from owning proof, never from a stored facts claim."""
-    _require(isinstance(payload, Mapping) and set(payload) == _SOURCE_KEYS,
+    """Reconstruct historical Opt records without widening their schema."""
+    return _parse_source(payload, log_bytes, parser_version=parser_version, freq=False)
+
+
+def parse_freq_source(payload, log_bytes, *, parser_version="1.2.0"):
+    _require(parser_version == "1.2.0", "Freq requires the native parser tuple")
+    return _parse_source(payload, log_bytes, parser_version=parser_version, freq=True)
+
+
+def _parse_source(payload, log_bytes, *, parser_version, freq):
+    """Shared exact-byte parser carrier; schema domains remain independent."""
+    source_type, parsed_type = (FREQ_SOURCE, FREQ_PARSED) if freq else (SOURCE, PARSED)
+    source_domain = "v31-gaussian-result-source-v2" if freq else "v31-gaussian-result-source"
+    parsed_domain = "v31-gaussian-parsed-result-v2" if freq else "v31-gaussian-parsed-result"
+    if freq:
+        _require(payload.get("stage") == "freq", "Freq source stage differs")
+    _require(isinstance(payload, Mapping) and set(payload) == _SOURCE_KEYS | ({"stage"} if freq else set()),
              "successor source fields are not closed")
-    _require(payload["schema"] == SOURCE, "successor source schema differs")
+    _require(payload["schema"] == source_type, "successor source schema differs")
     for field, identity in (("input", "stage_observation_id"), ("log", "fetch_observation_id")):
         descriptor = payload[field]
         _require(isinstance(descriptor, Mapping) and set(descriptor) == _DESCRIPTOR_KEYS | {identity},
@@ -62,8 +79,8 @@ def parse_source(payload, log_bytes, *, parser_version="1.1.0"):
              "source log declaration differs")
     _require(type(log_bytes) is bytes and len(log_bytes) == log["size_bytes"]
              and sha256(log_bytes).hexdigest() == log["sha256"], "source log bytes differ")
-    source_id = _identity(NS_INPUT_BINDING, ("v31-gaussian-result-source", payload_hash(payload)))
-    source = Observation(observation_id=source_id, attempt_id=payload["attempt_id"], observation_type=SOURCE, data=payload)
+    source_id = _identity(NS_INPUT_BINDING, (source_domain, payload_hash(payload)))
+    source = Observation(observation_id=source_id, attempt_id=payload["attempt_id"], observation_type=source_type, data=payload)
     # This carrier is never persisted and carries no V30 provenance authority.
     envelope = OutputEnvelope(
         attempt_id=source.attempt_id, input_binding_observation_id=source_id,
@@ -77,23 +94,30 @@ def parse_source(payload, log_bytes, *, parser_version="1.1.0"):
     _require(type(parser_version) is str and parser_version in {"1.1.0", "1.2.0"}, "unsupported successor parser version")
     parser = {"1.1.0": GaussianJobParser, "1.2.0": _NativeGaussianJobParser}[parser_version]()
     parsed = parser.parse(envelope, {log["portable_name"]: log_bytes})
-    data = {"schema": PARSED, "attempt_id": source.attempt_id,
+    data = {"schema": parsed_type, "attempt_id": source.attempt_id,
             "source_observation_id": source_id, "source_payload_sha256": payload_hash(source.data),
             **{key: parsed.payload()[key] for key in ("parser_name", "parser_version", "result_kind",
                                                      "parse_status", "facts", "diagnostics")}}
-    result = Result(result_id=_identity(NS_PARSED_RESULT, ("v31-gaussian-parsed-result", payload_hash(data))),
-                    attempt_id=source.attempt_id, result_type=PARSED, data=data)
+    result = Result(result_id=_identity(NS_PARSED_RESULT, (parsed_domain, payload_hash(data))),
+                    attempt_id=source.attempt_id, result_type=parsed_type, data=data)
     return source, result, envelope, parsed
 
 
 def require_pair(store, source, result, *, allow_partial=False):
+    pair = (source.observation_type, result.result_type)
+    _require(pair in {(SOURCE, PARSED), (FREQ_SOURCE, FREQ_PARSED)}
+             and source.data["schema"] == pair[0] and result.data["schema"] == pair[1]
+             and source.attempt_id == result.attempt_id, "mixed successor record pair")
     observations = store.observations_for_attempt(source.attempt_id)
     results = store.results_for_attempt(source.attempt_id)
     _require(not any((item.observation_type.startswith("v30-result-") or item.observation_type == "v3.remote-effect-receipt") for item in observations)
              and not any(item.result_type.startswith("v30-result-") for item in results),
              "mixed V30/successor Result generation")
-    sources = tuple(item for item in observations if item.observation_type == SOURCE)
-    parsed = tuple(item for item in results if item.result_type == PARSED)
+    _require(not any(item.observation_type in {SOURCE, FREQ_SOURCE} - {pair[0]} for item in observations)
+             and not any(item.result_type in {PARSED, FREQ_PARSED} - {pair[1]} for item in results),
+             "mixed successor stage records")
+    sources = tuple(item for item in observations if item.observation_type == pair[0])
+    parsed = tuple(item for item in results if item.result_type == pair[1])
     _require(sources in ((), (source,)) and parsed in ((), (result,)),
              "stored successor source or parsed facts conflict with original-byte replay")
     _require(not parsed or sources, "orphan successor Result")

@@ -1514,3 +1514,8 @@ reopen the old UNKNOWN intent, permit inferred execution identities or dispense
 with the exact successor-disposition and live binding gates. Preserve the
 selected method/input/resource scope; no Freq, retry, qdel or cleanup. Record
 precise local operational artifacts outside Git before any applicable effect.
+
+
+## OD-37: Native Gaussian successor Freq continuation
+
+On 2026-09-29 Owner accepted [the exact r2 Freq contract](docs/v3/proposals/gaussian-successor-frequency.md), SHA-256 `f8bbea9abd11ff064f17c402968777b525b8a497191506450604c61d1479d6be`, and authorized offline implementation, validation and independent read-only review. The retained proposal status is historical; this decision activates its implementation scope. Task V31-GAUSSIAN-FREQ-SUCCESSOR-01 is OWNER-GUIDED, non-BUS, based on main `b5f65f6`. Preserve every historical tuple and old UNKNOWN. Publication, integration, installation, target qualification and live computation remain separately authorized. No existing Q7 evidence alone qualifies the new tuple.

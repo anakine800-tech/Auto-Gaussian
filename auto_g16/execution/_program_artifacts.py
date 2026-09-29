@@ -16,7 +16,7 @@ def _derived_gaussian_artifacts(snapshot):
     spec = snapshot.program_execution_spec
     if spec.program_kind != "gaussian":
         return ()
-    owner = _completion._resource_owner() if spec.adapter_contract_version == 6 else {
+    owner = _completion._freq_owner() if spec.adapter_contract_version == 7 else _completion._resource_owner() if spec.adapter_contract_version == 6 else {
         4: _completion._gstartup, 5: _completion._gfile,
     }.get(spec.adapter_contract_version)
     return () if owner is None else owner._derived_artifacts(snapshot)
@@ -45,10 +45,10 @@ def _stage_material(
         if type(content) is not bytes or len(content) != declaration["size_bytes"] or sha256(content).hexdigest() != declaration["sha256"]:
             raise TransportBoundaryError("program input bytes differ from exact declaration")
         spec = snapshot.program_execution_spec
-        if (spec.program_kind, spec.adapter_contract_version) == ("gaussian", 6):
+        if spec.program_kind == "gaussian" and spec.adapter_contract_version in (6, 7):
             from .program import _gaussian_input_resources, _validate_gaussian_resource_binding
             selected = spec.program_data["gaussian_resources"]
-            if _gaussian_input_resources(name, content) != {key: selected[key] for key in ("memory_mib", "cores")}:
+            if _gaussian_input_resources(name, content, freq=spec.adapter_contract_version == 7) != {key: selected[key] for key in ("memory_mib", "cores")}:
                 raise TransportBoundaryError("Gaussian input resources differ from spec")
             _validate_gaussian_resource_binding(spec, snapshot.resolved_resource_request)
         material.append(({

@@ -509,7 +509,8 @@
         "auto_g16/execution/_gaussian_completion.py",
         "auto_g16/execution/_gaussian_startup.py",
         "auto_g16/execution/_gaussian_file_carrier.py",
-        "auto_g16/execution/_gaussian_resources.py"
+        "auto_g16/execution/_gaussian_resources.py",
+        "auto_g16/execution/_gaussian_freq_resources.py"
       ],
       "prefixes": [],
       "lane": "affected",
@@ -608,6 +609,7 @@
         "auto_g16/transport/_gaussian_file_handoff.py",
         "auto_g16/transport/_gaussian_file_submit.py",
         "auto_g16/transport/_gaussian_resource_submit.py",
+        "auto_g16/transport/_gaussian_freq_submit.py",
         "auto_g16/transport/_gaussian_handoff.py",
         "auto_g16/transport/_gaussian_submit.py",
         "auto_g16/transport/_submission_recovery.py",
@@ -696,6 +698,7 @@
         "tests.v3.result",
         "tests.v3.core.test_store",
         "tests.v31.conformer.test_successor_result",
+        "tests.v31.conformer.test_successor_freq",
         "tests.v31.conformer.test_successor_opt",
         "tests.v31.conformer.test_successor_revision_file"
       ],
@@ -718,6 +721,7 @@
         "tests.v3.result",
         "tests.v3.core.test_store",
         "tests.v31.conformer.test_successor_result",
+        "tests.v31.conformer.test_successor_freq",
         "tests.v31.conformer.test_successor_opt",
         "tests.v31.conformer.test_successor_revision_file"
       ],
@@ -1032,6 +1036,7 @@
       "lane": "affected",
       "tests": [
         "tests.v31.conformer.test_successor_result",
+        "tests.v31.conformer.test_successor_freq",
         "tests.v31.conformer.test_successor_opt",
         "tests.v31.conformer.test_successor_revision_file",
         "tests.v31.transport.test_receipt_source",

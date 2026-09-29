@@ -106,6 +106,7 @@ APPROVAL_TESTS = [
 ]
 RESULT_SAFETY = ["no-overwrite", "unknown-no-automatic-retry"]
 SUCCESSOR_RESULT_TESTS = [
+    "tests.v31.conformer.test_successor_freq",
     "tests.v31.conformer.test_successor_opt",
     "tests.v31.conformer.test_successor_result",
     "tests.v31.conformer.test_successor_revision_file",

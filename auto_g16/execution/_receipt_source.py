@@ -70,16 +70,20 @@ def _source_qualification(store, snapshot, transport_store, driver):
     }
     supported.update(("gaussian", "auto-g16-v31-gaussian", version,
                       f"v31-completion-rendering-material/{version + 2}")
-                     for version in (3, 4, 5, 6))
+                     for version in (3, 4, 5, 6, 7))
     spec = snapshot.program_execution_spec
     if (kind, spec.adapter_id, spec.adapter_contract_version,
             snapshot._completion_material()["schema"]) not in supported:
         raise TransportBoundaryError("historical source requires the exact original receipt tuple")
     from auto_g16.transport._bridge import _PROGRAM_BOOTSTRAP_SOURCE_BYTES, _PRE_STARTUP_PROGRAM_BOOTSTRAP_SOURCE_BYTES
     known = {(sha256(raw).hexdigest(), len(raw)) for raw in (_PRE_STARTUP_PROGRAM_BOOTSTRAP_SOURCE_BYTES, _PROGRAM_BOOTSTRAP_SOURCE_BYTES)}
-    if kind == "gaussian" and spec.adapter_contract_version in (4, 5, 6):
+    if kind == "gaussian" and spec.adapter_contract_version in (4, 5, 6, 7):
         from auto_g16.transport import _gaussian_submit, _gaussian_file_submit, _gaussian_resource_submit
-        owner = {4: _gaussian_submit, 5: _gaussian_file_submit, 6: _gaussian_resource_submit}[spec.adapter_contract_version]
+        if spec.adapter_contract_version == 7:
+            from auto_g16.transport import _gaussian_freq_submit
+            owner = _gaussian_freq_submit
+        else:
+            owner = {4: _gaussian_submit, 5: _gaussian_file_submit, 6: _gaussian_resource_submit}[spec.adapter_contract_version]
         raw = owner.source_bytes()
         known = {(sha256(raw).hexdigest(), len(raw))}
 

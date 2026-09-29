@@ -33,7 +33,7 @@ class ExecutionReadTests(unittest.TestCase):
         # facts still come from the existing qualified completion fixture.
         query = object.__new__(NativeQueryService)
         reader = SimpleNamespace(read=lambda *_: (_ for _ in ()).throw(OptReadBusy('occupied')))
-        query._sources = {'native': SimpleNamespace(snapshots=(self.registration,), opt_readout=reader)}
+        query._sources = {'native': SimpleNamespace(snapshots=(self.registration,), opt_readout=reader, freq_readout=None)}
         with self.assertRaises(QueryError) as error:
             query._attempt(self.fixture.store, 'native', 'attempt-1')
         self.assertEqual(error.exception.code, 'store-unavailable')
