@@ -111,3 +111,24 @@ def append_pair(store, source, result):
         store.append_result(result)
     require_pair(store, source, result)
     return source, result
+
+
+def project_opt_facts(payload, result, parsed):
+    """Pure fact projection; the composition owner must replay source and pair."""
+    facts = parsed.facts
+    return _plain({
+        'source': 'Result:' + result.result_id,
+        'provenance': {'source_observation_id': result.data['source_observation_id'],
+            'source_payload_sha256': result.data['source_payload_sha256'],
+            'parsed_result_id': result.result_id, 'parsed_payload_sha256': payload_hash(result.data),
+            'parser_name': parsed.parser_name, 'parser_version': parsed.parser_version,
+            'input': payload['input'], 'log': payload['log']},
+        'energy': facts['final_energy_hartree'], 'geometry': facts['geometry_blocks'],
+        'frequencies': facts['frequency_blocks'],
+        'optimization': {'completed_marker': facts['optimization_completed_marker'],
+                         'stationary_point_marker': facts['stationary_point_marker'],
+                         'optimization_evidence': facts['optimization_completed_evidence'],
+                         'stationary_point_evidence': facts['stationary_point_evidence'],
+                         'termination_evidence': facts['termination_evidence'],
+                         'scope': 'Opt geometry only; frequency validation pending'},
+    })

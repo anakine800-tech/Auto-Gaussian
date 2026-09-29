@@ -31,6 +31,7 @@ class ExecutionReadTests(unittest.TestCase):
         self.assertEqual(value['program'], 'xtb')
         self.assertEqual(value['bound_plan'], {'id':'plan-1', 'revision':1})
         self.assertIsNotNone(value['capture'])
+        self.assertEqual(value['capture']['job_id'], '123.server')
         self.assertNotIn('content_base64', json.dumps(value))
         self.assertNotIn('/home/', json.dumps(value))
         self.assertEqual(value['scientific_facts'], 'not-recorded')
