@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from inspect import signature
 from hashlib import sha256
 import json
+from threading import Lock
 
 from auto_g16.core import SQLiteRuntimeStore
 from auto_g16.execution._receipt_source import _FixedReceiptSource, _gaussian_receipt_sources
@@ -20,6 +21,14 @@ from auto_g16.result._successor import parse_source, require_pair, _plain, proje
 from .models import SamplingProfile, ConformerEnsemble
 from ._successor_opt import refine_opt_ensemble
 from .refinement_authority import _require
+
+
+_OPT_READ_LOCK = Lock()
+_OPT_READ_WAIT_SECONDS = 30
+
+
+class OptReadBusy(ValueError):
+    """The consumer's bounded read slot is occupied; no proof was replayed."""
 
 
 def load_opt_readout(content: bytes, digest: str):
@@ -111,6 +120,16 @@ class OptReadout:
         return matches[0]
 
     def read(self, store, attempt_id):
+        # The retained Transport owner intentionally rejects concurrent access.
+        # Share one consumer slot across registrations without weakening that guard.
+        if not _OPT_READ_LOCK.acquire(timeout=_OPT_READ_WAIT_SECONDS):
+            raise OptReadBusy("Opt read slot is busy")
+        try:
+            return self._read_serial(store, attempt_id)
+        finally:
+            _OPT_READ_LOCK.release()
+
+    def _read_serial(self, store, attempt_id):
         selected = self.source_for(attempt_id)
         with ExitStack() as stack:
             pins = []

@@ -4,6 +4,7 @@ from dataclasses import replace
 from hashlib import sha256
 import json
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from auto_g16.execution import program, program_runtime
@@ -24,6 +25,18 @@ class ExecutionReadTests(unittest.TestCase):
         self.addCleanup(self.fixture.doCleanups)
         self.fixture.execute(); self.fixture.publish(); self.fixture.collect()
         self.registration = registration(self.fixture.snapshot)
+
+    def test_opt_read_slot_timeout_is_unavailable_not_invalid_evidence(self):
+        from auto_g16.conformer.readonly import OptReadBusy
+        from auto_g16.query import NativeQueryService, QueryError
+        # Inject only the read-owner outcome; actual Core and detached Execution
+        # facts still come from the existing qualified completion fixture.
+        query = object.__new__(NativeQueryService)
+        reader = SimpleNamespace(read=lambda *_: (_ for _ in ()).throw(OptReadBusy('occupied')))
+        query._sources = {'native': SimpleNamespace(snapshots=(self.registration,), opt_readout=reader)}
+        with self.assertRaises(QueryError) as error:
+            query._attempt(self.fixture.store, 'native', 'attempt-1')
+        self.assertEqual(error.exception.code, 'store-unavailable')
 
     def test_detached_reader_does_not_render_parse_or_claim(self):
         with patch.object(program, '_render_scheduler_artifact', side_effect=AssertionError('render')), patch.object(program_runtime, '_assert_effect_intent_replay', side_effect=AssertionError('claim')), patch.object(fixture.completion, '_output_closure', side_effect=AssertionError('parse')), patch('builtins.open', side_effect=AssertionError('open')):

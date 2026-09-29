@@ -8,7 +8,7 @@ import re
 from hashlib import sha256
 from typing import Callable
 
-from auto_g16.conformer.readonly import OptReadout
+from auto_g16.conformer.readonly import OptReadout, OptReadBusy
 from auto_g16.execution.readonly import ProgramReadSnapshot, ProgramReadQuery
 from auto_g16.result import (GaussianResultQuery, ResultProvenanceService,
     INPUT_BINDING_OBSERVATION, OUTPUT_ENVELOPE_OBSERVATION, PARSED_RESULT_TYPE)
@@ -164,7 +164,10 @@ class NativeQueryService:
             data["facts"] = {key: _absent("unsupported-native-result-contract" if unknown else "parsed-native-fact-not-recorded", field["unit"], unavailable=unknown) for key, field in data["facts"].items()}
             readout = self._sources[source_id].opt_readout
             if readout is not None:
-                facts = readout.read(store, attempt_id)
+                try:
+                    facts = readout.read(store, attempt_id)
+                except OptReadBusy:
+                    raise QueryError("store-unavailable") from None
                 for key, unit in (("energy", "hartree"), ("geometry", "angstrom"),
                                   ("frequencies", "cm^-1"), ("optimization", None)):
                     value = facts[key]
