@@ -1,5 +1,13 @@
 # Auto-G16 native Opt readout
 
+Concurrent Opt requests in one consumer process share a read slot across all
+registrations. Waiting is bounded to 30 seconds; expiry returns the existing
+`store-unavailable` query error without starting proof replay. The slot is
+released after success or failure. This coordinates reads around the retained
+Transport owner's exclusive guards; it neither relaxes those guards nor retries
+failed evidence reads. Independent consumer processes can still contend for the
+underlying Transport owner and must preserve that owner's rejection.
+
 This offline slice consumes completed Gaussian Opt evidence under the accepted
 [successor refinement contract](proposals/gaussian-successor-result-refinement.md)
 and [immutable destination adjustment](proposals/gaussian-successor-destination-addendum.md).

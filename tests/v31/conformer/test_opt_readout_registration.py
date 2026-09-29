@@ -4,6 +4,10 @@ from hashlib import sha256
 import json
 from unittest import TestCase
 from unittest.mock import patch
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event
+
+from auto_g16.conformer import readonly
 
 from auto_g16.core import SQLiteRuntimeStore
 from auto_g16.conformer.readonly import load_opt_readout
@@ -61,3 +65,41 @@ class OptRegistrationTests(TestCase):
         self.snapshot_path.rename(self.snapshot_path.with_suffix('.retained'))
         self.snapshot_path.write_bytes(raw)
         with self.assertRaises(ValueError): self.load()
+
+    def test_distinct_registrations_share_one_read_slot(self):
+        first, second = self.load(), self.load()
+        entered, release, second_entered = Event(), Event(), Event()
+        def replay(reader, store, attempt_id):
+            if reader is first:
+                entered.set()
+                if not release.wait(2): raise AssertionError('first reader not released')
+            else:
+                second_entered.set()
+            return attempt_id
+        with patch.object(readonly.OptReadout, '_read_serial', replay), ThreadPoolExecutor(2) as pool:
+            one = pool.submit(first.read, None, 'first')
+            self.assertTrue(entered.wait(1))
+            two = pool.submit(second.read, None, 'second')
+            try:
+                self.assertFalse(second_entered.wait(.05))
+            finally:
+                release.set()
+            self.assertEqual((one.result(2), two.result(2)), ('first', 'second'))
+
+    def test_wait_is_bounded_and_does_not_start_replay(self):
+        reader = self.load()
+        self.assertTrue(readonly._OPT_READ_LOCK.acquire(timeout=1))
+        try:
+            with patch.object(readonly, '_OPT_READ_WAIT_SECONDS', .01), \
+                 patch.object(readonly.OptReadout, '_read_serial') as replay:
+                with self.assertRaises(readonly.OptReadBusy): reader.read(None, 'attempt')
+                replay.assert_not_called()
+        finally:
+            readonly._OPT_READ_LOCK.release()
+
+    def test_failed_replay_releases_slot_without_retry(self):
+        reader = self.load()
+        with patch.object(readonly.OptReadout, '_read_serial', side_effect=[ValueError('proof mismatch'), 'next']) as replay:
+            with self.assertRaisesRegex(ValueError, 'proof mismatch'): reader.read(None, 'first')
+            self.assertEqual(reader.read(None, 'second'), 'next')
+            self.assertEqual(replay.call_count, 2)
