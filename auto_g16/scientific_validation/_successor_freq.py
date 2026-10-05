@@ -1,7 +1,7 @@
 """Private fact-only Freq assessment; no parsing, persistence or V30 outcome."""
 from collections.abc import Mapping
 from math import isfinite
-from auto_g16.result.models import CaptureCompleteness, ParseStatus
+from auto_g16.result import CaptureCompleteness, ParseStatus
 from .models import ScientificValidationError
 
 POLICY = "v31-successor-two-stage-minimum/1"

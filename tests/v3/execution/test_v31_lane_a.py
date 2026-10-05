@@ -464,6 +464,7 @@ class ProgramSpecTests(LaneAFixture):
                 "resolved_target_identity",
                 "provisioning_authority_id",
                 "locations",
+                "project_profile_association",
             },
         )
 
