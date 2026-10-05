@@ -17,6 +17,7 @@ class _FixedReceiptSource:
     transport: _PublisherFileBinding
     bootstrap_source_sha256: str
     bootstrap_source_size_bytes: int
+    project_association: object = None
 
 
 _FIXED_RECEIPT_SOURCE: _FixedReceiptSource | None = None
@@ -45,6 +46,23 @@ def _gaussian_receipt_sources(sources):
 
 @contextmanager
 def _source_qualification(store, snapshot, transport_store, driver):
+    from ._project_association import associated
+    if associated(snapshot.project_physical_binding):
+        from ._project_association_source import replay
+        catalogue = _GAUSSIAN_SOURCES.get()
+        fixed = next((item for item in catalogue if item.snapshot_id == snapshot.program_execution_snapshot_id), None) if catalogue else _FIXED_GAUSSIAN_RECEIPT_SOURCE
+        if type(fixed) is not _FixedReceiptSource or fixed.snapshot_id != snapshot.program_execution_snapshot_id or fixed.project_association is None:
+            raise TransportBoundaryError("registered historical association source NOT_ACQUIRED")
+        with replay(snapshot.project_physical_binding, fixed.project_association):
+            with _source_qualification_original(store, snapshot, transport_store, driver) as value:
+                yield value
+    else:
+        with _source_qualification_original(store, snapshot, transport_store, driver) as value:
+            yield value
+
+
+@contextmanager
+def _source_qualification_original(store, snapshot, transport_store, driver):
     executable = snapshot.program_execution_spec.invocation["executable_identity"]["absolute_path"]
     if executable in {"/opt/auto-g16-fixtures/bin/xtb", "/opt/auto-g16-fixtures/bin/crest", "/opt/auto-g16-fixtures/bin/g16"}:
         if driver is None or driver.runtime_qualification.get("bootstrap_protocol") != "synthetic-v31-program-effect/1":

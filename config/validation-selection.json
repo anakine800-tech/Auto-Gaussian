@@ -168,6 +168,7 @@
         "docs/v3/post-core-history.md",
         "docs/v3/program-qualification-tooling.md",
         "docs/v3/project-provision-recovery.md",
+        "docs/v3/contracts/tasks/project-profile-association.md",
         "docs/v3/reuse-adjudication.md",
         "docs/v3/same-attempt-collection-recovery-contract.md",
         "docs/v3/scheduler-raw-evidence.md",
@@ -557,6 +558,45 @@
         "tests.test_direct_qstat_acquisition",
         "tests.test_resource_monitor_efficiency",
         "tests.v31.transport.test_crest_loader"
+      ],
+      "required_safety": [
+        "approval-owner-separation",
+        "at-most-one-submission",
+        "no-overwrite",
+        "reconciliation",
+        "still-applicable-descriptor-capability",
+        "timeout-slow-running-is-not-failure",
+        "unknown-no-automatic-retry"
+      ],
+      "fail_closed": false
+    },
+    {
+      "id": "v31-project-profile-association",
+      "exact_paths": [
+        "auto_g16/execution/_project_association.py",
+        "auto_g16/execution/_project_association_source.py"
+      ],
+      "prefixes": [],
+      "lane": "affected",
+      "tests": [
+        "tests.v3.execution",
+        "tests.v3.core.test_store",
+        "tests.test_execution_authorization",
+        "tests.test_live_approval_effect_time_replay",
+        "tests.test_direct_one_hop_transport",
+        "tests.test_legacy_descriptor_mutation_capability",
+        "tests.test_legacy_root_authority_contract",
+        "tests.test_direct_qstat_acquisition",
+        "tests.test_resource_monitor_efficiency",
+        "tests.v31.transport.test_gaussian_successor",
+        "tests.v31.transport.test_gaussian_short_entry",
+        "tests.v31.transport.test_gaussian_opt_resources",
+        "tests.v31.transport.test_project_profile_association",
+        "tests.v31.transport.test_publisher_collection_recovery",
+        "tests.v31.transport.test_receipt_source",
+        "tests.v31.transport.test_gaussian_source_catalogue",
+        "tests.v31.conformer.test_successor_freq",
+        "tests.v31.conformer.test_opt_readout_registration"
       ],
       "required_safety": [
         "approval-owner-separation",

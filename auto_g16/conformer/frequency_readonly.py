@@ -38,12 +38,12 @@ def load_freq_readout(content: bytes, digest: str):
         return result
     data=json.loads(content,object_pairs_hook=pairs)
     _require(type(data) is dict and set(data)=={"schema","material","optimization_sources","frequency_sources"}
-             and data["schema"]=="auto-g16-freq-readout-registration/1","Freq registry fields differ")
+             and data["schema"] in {"auto-g16-freq-readout-registration/1", "auto-g16-freq-readout-registration/2"},"Freq registry fields differ")
     # Decode the unchanged closed physical bindings with the owning startup decoder.
-    def decode(rows):
+    def decode(rows, associated=False):
         raw=json.dumps({"schema":"auto-g16-opt-readout-registration/1","material":data["material"],"sources":rows}).encode()
-        return opt_reader.load_opt_readout(raw,sha256(raw).hexdigest())
-    optimization,frequency=decode(data["optimization_sources"]),decode(data["frequency_sources"])
+        return opt_reader._load_readout(raw,sha256(raw).hexdigest(), associated=associated)
+    optimization,frequency=decode(data["optimization_sources"]),decode(data["frequency_sources"], associated=data["schema"].endswith("/2"))
     return FreqReadout(material=optimization.material,optimization_sources=optimization.sources,
                        frequency_sources=frequency.sources)
 

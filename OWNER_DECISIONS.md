@@ -1519,3 +1519,7 @@ precise local operational artifacts outside Git before any applicable effect.
 ## OD-37: Native Gaussian successor Freq continuation
 
 On 2026-09-29 Owner accepted [the exact r2 Freq contract](docs/v3/proposals/gaussian-successor-frequency.md), SHA-256 `f8bbea9abd11ff064f17c402968777b525b8a497191506450604c61d1479d6be`, and authorized offline implementation, validation and independent read-only review. The retained proposal status is historical; this decision activates its implementation scope. Task V31-GAUSSIAN-FREQ-SUCCESSOR-01 is OWNER-GUIDED, non-BUS, based on main `b5f65f6`. Preserve every historical tuple and old UNKNOWN. Publication, integration, installation, target qualification and live computation remain separately authorized. No existing Q7 evidence alone qualifies the new tuple.
+
+## OD-38: Bounded same-Project Q7 to Q8 profile association
+
+On 2026-09-30 Owner accepted the reviewed r2 addendum, SHA-256 `874f692ceebbe067276daf7883d612737b1a1bc8d4fa74dbc667ea28792472f4`, and continued offline implementation, validation and independent read-only review in the existing Freq task. [The implementation contract](docs/v3/contracts/tasks/project-profile-association.md) preserves the original Project/journal and historical binding semantics, introducing only the closed associated-binding branch for Q7 Opt to Q8 Freq. No target observation, installation of a changed candidate, calculation, publication or integration is authorized by this development decision.

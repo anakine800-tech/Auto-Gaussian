@@ -29,6 +29,7 @@ class CatalogueTests(unittest.TestCase):
 
     def test_active_catalogue_never_falls_back(self):
         snapshot = SimpleNamespace(program_execution_snapshot_id='one',
+            project_physical_binding=SimpleNamespace(provisioning_contract_version='remote-project-physical-binding/2'),
             program_execution_spec=SimpleNamespace(program_kind='gaussian',
                 invocation={'executable_identity': {'absolute_path': '/production/g16'}}))
         with patch.object(owner, '_FIXED_GAUSSIAN_RECEIPT_SOURCE', self.one), \

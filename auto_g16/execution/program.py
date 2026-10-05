@@ -1542,16 +1542,20 @@ def _decode_program_review_components(raw: Mapping[str, object]):
     spec = ProgramExecutionSpec._from_closed(**{key: item for key, item in spec_data.items() if key != "program_execution_spec_id"})
     if spec.semantic_payload() != spec_data:
         raise ExecutionValueError("persisted program spec identity is stale")
-    binding_data = closed("project_physical_binding", {
-        "project_physical_binding_id", "project_id", "provisioning_contract_version",
-        "transport_kind", "resolved_server_profile_id", "resolved_target_identity",
-        "provisioning_authority_id", "locations",
-    })
-    binding = object.__new__(ProjectPhysicalBinding)
-    for key, item in binding_data.items():
-        object.__setattr__(binding, key, item)
-    object.__setattr__(binding, "_identity_payload", freeze_mapping({key: item for key, item in binding_data.items() if key != "project_physical_binding_id"}, "persisted Project identity"))
-    binding.assert_identity_closed()
+    if value["project_physical_binding"].get("provisioning_contract_version") == "v31-project-profile-associated-binding/1":
+        from ._project_association import decode_binding
+        binding = decode_binding(value["project_physical_binding"])
+    else:
+        binding_data = closed("project_physical_binding", {
+            "project_physical_binding_id", "project_id", "provisioning_contract_version",
+            "transport_kind", "resolved_server_profile_id", "resolved_target_identity",
+            "provisioning_authority_id", "locations",
+        })
+        binding = object.__new__(ProjectPhysicalBinding)
+        for key, item in binding_data.items():
+            object.__setattr__(binding, key, item)
+        object.__setattr__(binding, "_identity_payload", freeze_mapping({key: item for key, item in binding_data.items() if key != "project_physical_binding_id"}, "persisted Project identity"))
+        binding.assert_identity_closed()
     resource_data = closed("resolved_resource_request", {
         "resolved_resource_request_id", "resource_spec_id", "cores", "memory_mb", "walltime_seconds", "queue",
     })

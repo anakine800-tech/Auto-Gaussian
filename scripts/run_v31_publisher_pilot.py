@@ -254,6 +254,9 @@ def _fixed_pilot_context():
     elif len(snapshot.scheduler_artifacts) == 2:
         from auto_g16.execution import _crest_startup
         actual.add(str(Path(_crest_startup.__file__).resolve()))
+    if snapshot.project_physical_binding.provisioning_contract_version == "v31-project-profile-associated-binding/1":
+        from auto_g16.execution import _project_association, _project_association_source, project_provisioning
+        actual.update(str(Path(module.__file__).resolve()) for module in (_project_association, _project_association_source, project_provisioning))
     if {b.path for b in run.code_files} != actual or len(run.code_files) != len(actual):
         raise rtwin._publisher_failure("installed code inventory differs")
     code_pins = []
@@ -393,13 +396,18 @@ def _open_collection_stores(run, stack):
         if type(binding) is not _CollectionDatabaseBinding or binding.role != role:
             raise rtwin._publisher_failure("fixed four-store roles differ")
         pins.append(stack.enter_context(_PinnedStorePath(binding)))
-        # Read-only URI cannot manufacture an empty file before version checks.
-        connection = sqlite3.connect(Path(binding.path).as_uri() + "?mode=ro", uri=True)
-        try:
-            if connection.execute("PRAGMA user_version").fetchone()[0] != version:
-                raise rtwin._publisher_failure("existing collection schema differs")
-        finally:
-            connection.close()
+        if role == "project-journal":
+            # Header/sidecar/schema checks precede opening this immutable reader.
+            with _ProductionProvisioningJournal.open_existing_readonly(
+                    Path(binding.path), approved_root=Path(journal_root)):
+                pass
+        else:
+            connection = sqlite3.connect(Path(binding.path).as_uri() + "?mode=ro", uri=True)
+            try:
+                if connection.execute("PRAGMA user_version").fetchone()[0] != version:
+                    raise rtwin._publisher_failure("existing collection schema differs")
+            finally:
+                connection.close()
         pins[-1].assert_current()
     if len({b.path for b in run.databases}) != 4 or len({b.file_identity for b in run.databases}) != 4:
         raise rtwin._publisher_failure("fixed four stores are not distinct")
@@ -412,7 +420,7 @@ def _open_collection_stores(run, stack):
         elif binding.role == "transport":
             handle = transport._ProgramTransportStore.open_existing(binding.path, approved_root=run.store_root)
         else:
-            handle = _ProductionProvisioningJournal.open_existing(Path(binding.path), approved_root=Path(journal_root))
+            handle = _ProductionProvisioningJournal.open_existing_readonly(Path(binding.path), approved_root=Path(journal_root))
         stack.callback(handle.close)
         stores[binding.role] = handle
         for pin in pins:
@@ -533,8 +541,9 @@ def _resume_fixed_publisher_read(*, reconciliation):
                     _assert_connected_store(stores[binding.role], binding.path)
                 stores["transport"]._attest()
                 program._assert_collection_local_workspace(snapshot)
-                if stores["project-journal"].load_binding(snapshot.project_physical_binding.project_id) != snapshot.project_physical_binding:
-                    raise rtwin._publisher_failure("collection Project journal changed")
+                service._assert_owned_binding(binding=snapshot.project_physical_binding,
+                    project=core.Project(project_id=snapshot.project_physical_binding.project_id),
+                    target=resolved, remote_project_dir=snapshot.project_physical_binding.remote_project_dir)
                 driver._authority()
                 _validate_collection_review(deployment)
                 if _collection_original_approvals(run, stores, deployment) != initial_approvals:

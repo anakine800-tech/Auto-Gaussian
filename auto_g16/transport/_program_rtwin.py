@@ -559,7 +559,7 @@ class _RTWinProjectAttestor(_ProjectAttestor):
             raise TransportBoundaryError("Project semantic target differs from closed deployment")
         return self.authority_identity
 
-    def _invoke(self, target: ResolvedServerProfile, path: str, operation: str, parent: str | None = None, intent: str | None = None) -> tuple[str, str, str | None]:
+    def _invoke(self, target: ResolvedServerProfile, path: str, operation: str, parent: str | None = None, intent: str | None = None, *, _association_capture=None) -> tuple[str, str, str | None]:
         from auto_g16.execution.project_provisioning import _validate_remote_target
         _validate_remote_target(target, path)
         if target != self._target:
@@ -571,6 +571,8 @@ class _RTWinProjectAttestor(_ProjectAttestor):
         request = {"protocol": _bridge._PROGRAM_BOOTSTRAP_PROTOCOL, "operation": operation, "binding": binding, "payload": {} if operation == "OBSERVE_PROJECT" else {"provision_intent_id": program._text(intent, "Project intent")}}
         invocation = _ProgramRTWinInvocation(_project_operation(operation), self._authority(), self._profile, _closed_copy(request), target.resolved_server_profile_id)
         capture = _ProjectWireCapture()
+        from datetime import datetime, timezone
+        started = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
         try:
             result = _wire_call(target, invocation, project_capture=capture)
             program._exact_keys(result, {"state", "parent_physical_identity", "project_physical_identity"}, "Project observation")
@@ -583,11 +585,25 @@ class _RTWinProjectAttestor(_ProjectAttestor):
             project_id = _directory_token(result["project_physical_identity"], path)
             if parent is not None and parent_id != parent:
                 raise TransportBoundaryError("Project parent changed during provisioning")
+            if _association_capture is not None:
+                if operation != "OBSERVE_PROJECT" or type(_association_capture) is not list or _association_capture:
+                    raise TransportBoundaryError("invalid private association capture")
+                _association_capture.append((canonical_json_bytes(_plain(request)),
+                    canonical_json_bytes(_plain(capture.evidence)), dict(result),
+                    {"started_at": started, "finished_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")}))
             return "EXISTING", parent_id, project_id
         except Exception as exc:
             if capture.evidence is None:
                 raise
             raise _ProjectWireUnknown(capture.evidence) from exc
+
+    def _observe_association(self, target, path):
+        """Retain exactly this production invocation, never caller-supplied bytes."""
+        captured = []
+        self._invoke(target, path, "OBSERVE_PROJECT", _association_capture=captured)
+        if len(captured) != 1:
+            raise TransportBoundaryError("association requires an existing Project")
+        return captured[0]
 
     def _observe_current(self, target: ResolvedServerProfile, remote_project_dir: str) -> tuple[str, str, str | None]:
         return self._invoke(target, remote_project_dir, "OBSERVE_PROJECT")
