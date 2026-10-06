@@ -470,3 +470,7 @@ complete contract text; this list contains no replacement policy.
 <a id="v31-gaussian-successor-adapter-boundary"></a>
 
 - [V31 Gaussian successor adapter boundary](contracts/boundary/v31-successors.md#v31-gaussian-successor-adapter-boundary)
+
+<a id="v31-project-profile-association"></a>
+
+- [Bounded Project Q7-to-Q8 profile association](contracts/tasks/project-profile-association.md): Owner-accepted offline implementation boundary. Original recoverable creation journal remains read-only; a separate registered proof binds the effective Project identity. Installation, native OBSERVE qualification and scientific execution remain separate. Acceptance requires full loader/receipt and two-stage source replay in addition to focused owner checks.

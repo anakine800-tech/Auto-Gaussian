@@ -64,8 +64,8 @@ def _snapshot(registration):
     allowed = {single}
     if spec.program_kind == "crest" and spec.adapter_contract_version == 3:
         allowed.add((*single, ("startup-payload", "crest-startup.json", "json")))
-    if spec.program_kind == "gaussian" and spec.adapter_contract_version in (4, 5, 6):
-        first = "gaussian-entry-template.pbs" if spec.adapter_contract_version in (5, 6) else "gaussian.pbs"
+    if spec.program_kind == "gaussian" and spec.adapter_contract_version in (4, 5, 6, 7):
+        first = "gaussian-entry-template.pbs" if spec.adapter_contract_version in (5, 6, 7) else "gaussian.pbs"
         allowed = {(("scheduler-script", first, "pbs-shell-utf8"), ("startup-payload", "gaussian-startup.json", "canonical-json-utf8"))}
     _check(type(artifacts) is tuple)
     _check(tuple((a["logical_role"], a["portable_name"], a["format"]) for a in artifacts) in allowed)

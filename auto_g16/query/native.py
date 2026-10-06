@@ -9,6 +9,7 @@ from hashlib import sha256
 from typing import Callable
 
 from auto_g16.conformer.readonly import OptReadout, OptReadBusy
+from auto_g16.conformer.frequency_readonly import FreqReadout
 from auto_g16.execution.readonly import ProgramReadSnapshot, ProgramReadQuery
 from auto_g16.result import (GaussianResultQuery, ResultProvenanceService,
     INPUT_BINDING_OBSERVATION, OUTPUT_ENVELOPE_OBSERVATION, PARSED_RESULT_TYPE)
@@ -21,7 +22,8 @@ _SUCCESSOR = frozenset({"program-completion-evidence/1", "v31-program-effect-rec
                         "program-completion-assessment/1", "auto-g16-v31-collection-start/1"})
 _KNOWN = _SUCCESSOR | {INPUT_BINDING_OBSERVATION, OUTPUT_ENVELOPE_OBSERVATION,
                        PARSED_RESULT_TYPE, "v3.remote-effect-receipt", "auto-g16-v3-attempt-observation",
-                       "v31-gaussian-result-source/1", "v31-gaussian-parsed-result/1"}
+                       "v31-gaussian-result-source/1", "v31-gaussian-parsed-result/1",
+                       "v31-gaussian-result-source/2", "v31-gaussian-parsed-result/2"}
 
 
 def _identifier(value: str) -> str:
@@ -53,6 +55,8 @@ class NativeSource:
     snapshots: tuple[ProgramReadSnapshot, ...] = field(default=(), repr=False)
     opt_readout: OptReadout | None = field(default=None, repr=False)
 
+    freq_readout: FreqReadout | None = field(default=None, repr=False)
+
     def __post_init__(self):
         if type(self.snapshots) is not tuple or any(type(s) is not ProgramReadSnapshot for s in self.snapshots):
             raise QueryError("invalid-source-registration")
@@ -63,6 +67,14 @@ class NativeSource:
         if not path.is_absolute() or str(path) != str(self.database) or ".." in path.parts:
             raise QueryError("invalid-source-registration")
         object.__setattr__(self, "database", path)
+        if self.opt_readout is not None and self.freq_readout is not None:
+            raise QueryError("conflicting-stage-registration")
+        if self.freq_readout is not None:
+            if type(self.freq_readout) is not FreqReadout or len(self.snapshots) != 1:
+                raise QueryError("invalid-freq-registration")
+            selected = self.freq_readout.source_for(self.snapshots[0].attempt_id)
+            if selected.revision.path != str(path) or selected.snapshot != self.snapshots[0]:
+                raise QueryError("invalid-freq-registration")
         if self.opt_readout is not None:
             if type(self.opt_readout) is not OptReadout or len(self.snapshots) != 1:
                 raise QueryError("invalid-opt-registration")
@@ -162,7 +174,7 @@ class NativeQueryService:
             data["axes"]["capture"] = (_fact(native["capture"], attribution) if native["capture"] else _absent("capture-not-recorded", unavailable=False))
             unknown = native["scientific_facts"] != "not-recorded"
             data["facts"] = {key: _absent("unsupported-native-result-contract" if unknown else "parsed-native-fact-not-recorded", field["unit"], unavailable=unknown) for key, field in data["facts"].items()}
-            readout = self._sources[source_id].opt_readout
+            readout = self._sources[source_id].freq_readout or self._sources[source_id].opt_readout
             if readout is not None:
                 try:
                     facts = readout.read(store, attempt_id)
@@ -175,7 +187,7 @@ class NativeQueryService:
                         if value is not None and value != [] else
                         _absent(key + "-not-recorded", unit, unavailable=False))
                 data["facts"]["sampling"] = _absent("not-a-sampling-result")
-                data["axes"]["validation"] = _fact(facts['assessment'], "Conformer:Opt-source-replay")
+                data["axes"]["validation"] = _fact(facts['assessment'], "Conformer:Opt-Freq-source-replay" if type(readout) is FreqReadout else "Conformer:Opt-source-replay")
                 data["provenance"] = {**native, "parsed_result": facts['provenance']}
             return data
         source = gaussian["source"]

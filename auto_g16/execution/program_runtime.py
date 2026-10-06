@@ -96,7 +96,7 @@ def _snapshot_binding(
         synthetic = (snapshot.program_execution_spec.invocation["executable_identity"]["absolute_path"] in {"/opt/auto-g16-fixtures/bin/g16", "/opt/auto-g16-fixtures/bin/xtb", "/opt/auto-g16-fixtures/bin/crest"} and driver.runtime_qualification.get("bootstrap_protocol") == "synthetic-v31-program-effect/1")
         if not synthetic:
             from auto_g16.transport._program_rtwin import _RTWinProgramEffectDriver
-            if material["schema"] not in {_completion._PILOT_MATERIAL_SCHEMA, _completion._crest._MATERIAL_SCHEMA, _completion._startup._MATERIAL_SCHEMA, _completion._gaussian._MATERIAL_SCHEMA, _completion._gstartup._MATERIAL_SCHEMA, _completion._gfile._MATERIAL_SCHEMA, "v31-completion-rendering-material/8"} or type(driver) is not _RTWinProgramEffectDriver:
+            if material["schema"] not in {_completion._PILOT_MATERIAL_SCHEMA, _completion._crest._MATERIAL_SCHEMA, _completion._startup._MATERIAL_SCHEMA, _completion._gaussian._MATERIAL_SCHEMA, _completion._gstartup._MATERIAL_SCHEMA, _completion._gfile._MATERIAL_SCHEMA, "v31-completion-rendering-material/8", "v31-completion-rendering-material/9"} or type(driver) is not _RTWinProgramEffectDriver:
                 raise TransportBoundaryError("publisher-not-qualified")
             driver._authority()
     closed_driver = _transport._require_driver(driver)
@@ -368,7 +368,7 @@ def _reconstruct_submit_request(
     return _transport._submit_request(
         base,
         workspace,
-        scheduler_portable_name=("gaussian.pbs" if snapshot.program_execution_spec.program_kind == "gaussian" and snapshot.program_execution_spec.adapter_contract_version in (5, 6) else str(scheduler["portable_name"])),
+        scheduler_portable_name=("gaussian.pbs" if snapshot.program_execution_spec.program_kind == "gaussian" and snapshot.program_execution_spec.adapter_contract_version in (5, 6, 7) else str(scheduler["portable_name"])),
         scheduler_artifact_authority_id=str(
             matched_schedulers[0]["artifact_authority_id"]
         ),

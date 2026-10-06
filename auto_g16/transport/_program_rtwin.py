@@ -86,7 +86,9 @@ def _consume_direct_wire(driver, scope, invocation):
 
 def _gaussian_derived_stages(snapshot):
     """Recheck fixed transport declarations; Execution owns payload rendering."""
-    if snapshot.program_execution_spec.adapter_contract_version == 6:
+    if snapshot.program_execution_spec.adapter_contract_version == 7:
+        from ._gaussian_freq_submit import protocol_namespace
+    elif snapshot.program_execution_spec.adapter_contract_version == 6:
         from ._gaussian_resource_submit import protocol_namespace
     elif snapshot.program_execution_spec.adapter_contract_version == 5:
         from ._gaussian_file_handoff import protocol_namespace
@@ -109,7 +111,7 @@ def _gaussian_launch_context(driver, base, receipts, staged):
     if len(allocation) != 1:
         raise _publisher_failure("handoff allocation receipt missing")
     selected = [r for r in receipts if r["operation"] == "STAGE_EXACT_FILE" and r["outcome"] == "SUCCEEDED" and r["response"]["artifact_kind"] != "program-input"]
-    entry_name = "gaussian-entry-template.pbs" if snapshot.program_execution_spec.adapter_contract_version in (5, 6) else "gaussian.pbs"
+    entry_name = "gaussian-entry-template.pbs" if snapshot.program_execution_spec.adapter_contract_version in (5, 6, 7) else "gaussian.pbs"
     names = (entry_name, "gaussian-startup.json", "gaussian-config.json", ".auto-g16-v31-submit-intent")
     if tuple(r["response"]["portable_name"] for r in selected) != names:
         raise _publisher_failure("handoff durable stages incomplete or reordered")
@@ -220,13 +222,13 @@ def _prepare_program_invocation(
     gaussian_submit = (
         type(scope) is ProgramExecutionSnapshot
         and scope.program_execution_spec.program_kind == "gaussian"
-        and scope.program_execution_spec.adapter_contract_version in (4, 5, 6)
+        and scope.program_execution_spec.adapter_contract_version in (4, 5, 6, 7)
         and name == "SUBMIT_QSUB_ONCE"
     )
     expected_operation = (
         _project_operation(name)
         if name in {"OBSERVE_PROJECT", "PROVISION_PROJECT"}
-        else _gaussian_submit_operation(scope.program_execution_spec.adapter_contract_version in (5, 6), resource_adapter=scope.program_execution_spec.adapter_contract_version == 6)
+        else _gaussian_submit_operation(scope.program_execution_spec.adapter_contract_version in (5, 6, 7), resource_adapter=scope.program_execution_spec.adapter_contract_version == 6, freq_adapter=scope.program_execution_spec.adapter_contract_version == 7)
         if gaussian_submit
         else _driver._operation(name)
     )
@@ -252,7 +254,7 @@ def _prepare_program_invocation(
             raise TransportBoundaryError("managed Direct first version is xTB only")
     elif not authority.resource_dialect.live_capable or type(authority.ssh_effect) is not _driver._MacProxyJumpEffectAuthority:
         raise TransportBoundaryError("successor requires the qualified RTwin ProxyJump deployment")
-    if type(scope) is ProgramExecutionSnapshot and scope.program_execution_spec.adapter_contract_version in (3, 4, 5, 6):
+    if type(scope) is ProgramExecutionSnapshot and scope.program_execution_spec.adapter_contract_version in (3, 4, 5, 6, 7):
         collection = _COLLECTION_WIRE_OWNER.get()
         if collection is None:
             fixed = _read_fixed_publisher_deployment(authority, scope)
@@ -270,7 +272,10 @@ def _prepare_program_invocation(
         raise TransportBoundaryError("successor wire protocol/operation drifted")
     _assert_wire_scope(scope, invocation.scope_identity, request)
     source = _bridge._PROGRAM_BOOTSTRAP_SOURCE_BYTES
-    if "v31-gaussian-publisher-qualification-v7.json" in profile.runtime_identities:
+    if "v31-gaussian-publisher-qualification-v8.json" in profile.runtime_identities:
+        from ._gaussian_freq_submit import source_bytes
+        source = source_bytes()
+    elif "v31-gaussian-publisher-qualification-v7.json" in profile.runtime_identities:
         from ._gaussian_resource_submit import source_bytes
         source = source_bytes()
     elif "v31-gaussian-publisher-qualification-v6.json" in profile.runtime_identities:
@@ -334,7 +339,7 @@ def _assert_wire_scope(scope: object, scope_id: str, request: Mapping[str, objec
         workspace_token = None if name == "ALLOCATE_WORKSPACE" else _directory_token(binding.get("workspace_physical_token"), scope.workspace_binding.remote_attempt_dir)
         expected.update(parent_physical_identity=project.parent_physical_identity, project_physical_identity=project.project_physical_identity, attempt_id=scope.attempt_id, program_execution_snapshot_id=scope.program_execution_snapshot_id, effect_intent_id=scope.effect_intent_id, remote_workspace=scope.workspace_binding.remote_attempt_dir, workspace_physical_token=workspace_token)
         recovering = name == "RECONCILE_SUBMISSION" and payload.get("request_payload", {}).get("schema") == "v31-exact-observed-job-reconciliation-request/1"
-        handoff = scope.program_execution_spec.program_kind == "gaussian" and scope.program_execution_spec.adapter_contract_version in (4, 5, 6)
+        handoff = scope.program_execution_spec.program_kind == "gaussian" and scope.program_execution_spec.adapter_contract_version in (4, 5, 6, 7)
         program._exact_keys(payload, {"request_payload", "executable", "resources", "staged"} | ({"launch_context"} if handoff and name == "SUBMIT_QSUB_ONCE" else set()) | ({"recovery_identity"} if recovering else set()), "successor wire payload")
         if recovering:
             owner = _COLLECTION_WIRE_OWNER.get()
@@ -384,12 +389,12 @@ def _assert_wire_scope(scope: object, scope_id: str, request: Mapping[str, objec
                 raise TransportBoundaryError("successor wire stage bytes differ from declaration")
         if name == "SUBMIT_QSUB_ONCE" and (("startup_payload_artifact_authority_ids" in original) != (len(scope.scheduler_artifacts) == 2)):
             raise TransportBoundaryError("successor submit startup authority tuple differs")
-        expected_submit_name = "gaussian.pbs" if scope.program_execution_spec.program_kind == "gaussian" and scope.program_execution_spec.adapter_contract_version in (5, 6) else scope.scheduler_artifacts[0]["portable_name"]
+        expected_submit_name = "gaussian.pbs" if scope.program_execution_spec.program_kind == "gaussian" and scope.program_execution_spec.adapter_contract_version in (5, 6, 7) else scope.scheduler_artifacts[0]["portable_name"]
         if name == "SUBMIT_QSUB_ONCE" and original["scheduler_portable_name"] != expected_submit_name:
             raise TransportBoundaryError("successor wire scheduler differs from snapshot")
         if name in {"STAT_EXACT_FILE", "FETCH_EXACT_FILE"}:
             outputs = (*scope.program_execution_spec.required_outputs, *scope.program_execution_spec.optional_outputs)
-            if scope.program_execution_spec.adapter_contract_version in (3, 4, 5, 6):
+            if scope.program_execution_spec.adapter_contract_version in (3, 4, 5, 6, 7):
                 outputs = (*outputs, {"logical_role": "completion-receipt", "portable_name": "v31-completion.json", "format": "json", "max_size_bytes": 65536})
             matched = [item for item in outputs if all(original[key] == item[key] for key in ("logical_role", "portable_name", "format"))]
             if len(matched) != 1 or name == "FETCH_EXACT_FILE" and original["expected_size_bytes"] > matched[0]["max_size_bytes"]:
@@ -418,10 +423,13 @@ def _project_operation(name: str) -> _driver._Operation:
     return _driver._Operation(name, name.lower().replace("_", "-"), reference.timeout_seconds, reference.stdin_cap, reference.stdout_cap, reference.stderr_cap)
 
 
-def _gaussian_submit_operation(file_carrier: bool = False, *, resource_adapter: bool = False) -> _driver._Operation:
+def _gaussian_submit_operation(file_carrier: bool = False, *, resource_adapter: bool = False, freq_adapter: bool = False) -> _driver._Operation:
     """Bind Gaussian short-entry submits to the longer outer wait."""
     from . import _gaussian_file_submit, _gaussian_submit
-    if resource_adapter:
+    if freq_adapter:
+        from . import _gaussian_freq_submit
+        owner = _gaussian_freq_submit
+    elif resource_adapter:
         from . import _gaussian_resource_submit
         owner = _gaussian_resource_submit
     else:
@@ -551,7 +559,7 @@ class _RTWinProjectAttestor(_ProjectAttestor):
             raise TransportBoundaryError("Project semantic target differs from closed deployment")
         return self.authority_identity
 
-    def _invoke(self, target: ResolvedServerProfile, path: str, operation: str, parent: str | None = None, intent: str | None = None) -> tuple[str, str, str | None]:
+    def _invoke(self, target: ResolvedServerProfile, path: str, operation: str, parent: str | None = None, intent: str | None = None, *, _association_capture=None) -> tuple[str, str, str | None]:
         from auto_g16.execution.project_provisioning import _validate_remote_target
         _validate_remote_target(target, path)
         if target != self._target:
@@ -563,6 +571,8 @@ class _RTWinProjectAttestor(_ProjectAttestor):
         request = {"protocol": _bridge._PROGRAM_BOOTSTRAP_PROTOCOL, "operation": operation, "binding": binding, "payload": {} if operation == "OBSERVE_PROJECT" else {"provision_intent_id": program._text(intent, "Project intent")}}
         invocation = _ProgramRTWinInvocation(_project_operation(operation), self._authority(), self._profile, _closed_copy(request), target.resolved_server_profile_id)
         capture = _ProjectWireCapture()
+        from datetime import datetime, timezone
+        started = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
         try:
             result = _wire_call(target, invocation, project_capture=capture)
             program._exact_keys(result, {"state", "parent_physical_identity", "project_physical_identity"}, "Project observation")
@@ -575,11 +585,25 @@ class _RTWinProjectAttestor(_ProjectAttestor):
             project_id = _directory_token(result["project_physical_identity"], path)
             if parent is not None and parent_id != parent:
                 raise TransportBoundaryError("Project parent changed during provisioning")
+            if _association_capture is not None:
+                if operation != "OBSERVE_PROJECT" or type(_association_capture) is not list or _association_capture:
+                    raise TransportBoundaryError("invalid private association capture")
+                _association_capture.append((canonical_json_bytes(_plain(request)),
+                    canonical_json_bytes(_plain(capture.evidence)), dict(result),
+                    {"started_at": started, "finished_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")}))
             return "EXISTING", parent_id, project_id
         except Exception as exc:
             if capture.evidence is None:
                 raise
             raise _ProjectWireUnknown(capture.evidence) from exc
+
+    def _observe_association(self, target, path):
+        """Retain exactly this production invocation, never caller-supplied bytes."""
+        captured = []
+        self._invoke(target, path, "OBSERVE_PROJECT", _association_capture=captured)
+        if len(captured) != 1:
+            raise TransportBoundaryError("association requires an existing Project")
+        return captured[0]
 
     def _observe_current(self, target: ResolvedServerProfile, remote_project_dir: str) -> tuple[str, str, str | None]:
         return self._invoke(target, remote_project_dir, "OBSERVE_PROJECT")
@@ -682,7 +706,7 @@ class _RTWinProgramEffectDriver:
     def _initialize(self, snapshot, current_profile, program_transport_store):
         if type(snapshot) is not ProgramExecutionSnapshot or type(program_transport_store) is not program._ProgramTransportStore:
             raise TransportBoundaryError("production successor dependencies are not exact")
-        if snapshot.program_execution_spec.adapter_contract_version in (3, 4, 5, 6) and not any(snapshot.scheduler_artifacts[0]["content_utf8"].startswith("#!/bin/bash\n# auto-g16-v31-scheduler/" + version + "\n") for version in (("4", "5") if snapshot.program_execution_spec.program_kind == "crest" else ("6", "7", "8", "9") if snapshot.program_execution_spec.program_kind == "gaussian" else ("3",))):
+        if snapshot.program_execution_spec.adapter_contract_version in (3, 4, 5, 6, 7) and not any(snapshot.scheduler_artifacts[0]["content_utf8"].startswith("#!/bin/bash\n# auto-g16-v31-scheduler/" + version + "\n") for version in (("4", "5") if snapshot.program_execution_spec.program_kind == "crest" else ("6", "7", "8", "9", "10") if snapshot.program_execution_spec.program_kind == "gaussian" else ("3",))):
             raise TransportBoundaryError("publisher-not-qualified")
         self._publisher = None
         self._snapshot = snapshot
@@ -711,7 +735,7 @@ class _RTWinProgramEffectDriver:
                 raise TransportBoundaryError("managed Direct requires qualified xTB resources")
         elif not authority.resource_dialect.live_capable or type(authority.ssh_effect) is not _driver._MacProxyJumpEffectAuthority:
             raise TransportBoundaryError("production successor requires qualified ProxyJump")
-        if self._snapshot.program_execution_spec.adapter_contract_version in (3, 4, 5, 6):
+        if self._snapshot.program_execution_spec.adapter_contract_version in (3, 4, 5, 6, 7):
             if self._publisher is None:
                 reader = _read_fixed_collection_deployment if self._collection_only else _read_fixed_publisher_deployment
                 self._publisher = reader(authority, self._snapshot)
@@ -722,7 +746,7 @@ class _RTWinProgramEffectDriver:
         resources = self._snapshot.resolved_resource_request
         _driver._render_qsub_argv(
             _driver._ResourceEnactment(self._snapshot.program_execution_snapshot_id, resources.resolved_resource_request_id, resources.cores, resources.memory_mb, resources.walltime_seconds, resources.queue, authority.resource_dialect.dialect_id),
-            "gaussian.pbs" if self._snapshot.program_execution_spec.program_kind == "gaussian" and self._snapshot.program_execution_spec.adapter_contract_version in (5, 6) else str(self._snapshot.scheduler_artifacts[0]["portable_name"]),
+            "gaussian.pbs" if self._snapshot.program_execution_spec.program_kind == "gaussian" and self._snapshot.program_execution_spec.adapter_contract_version in (5, 6, 7) else str(self._snapshot.scheduler_artifacts[0]["portable_name"]),
             self._snapshot.workspace_binding.remote_attempt_dir,
         )
         project = self._snapshot.project_physical_binding
@@ -823,12 +847,12 @@ class _RTWinProgramEffectDriver:
             marker = canonical_json_bytes({"program_execution_snapshot_id": snapshot.program_execution_snapshot_id, "effect_intent_id": snapshot.effect_intent_id})
             wire["payload"]["recovery_identity"] = {"host": self._publisher.document["reconciliation"]["host"], "marker_sha256": sha256(marker).hexdigest(), "marker_size": len(marker)}
         gaussian_token = None
-        gaussian_submit = snapshot.program_execution_spec.program_kind == "gaussian" and snapshot.program_execution_spec.adapter_contract_version in (4, 5, 6) and operation == "SUBMIT_QSUB_ONCE"
+        gaussian_submit = snapshot.program_execution_spec.program_kind == "gaussian" and snapshot.program_execution_spec.adapter_contract_version in (4, 5, 6, 7) and operation == "SUBMIT_QSUB_ONCE"
         if gaussian_submit:
             context = _gaussian_launch_context(self, base, receipts, staged)
             wire["payload"]["launch_context"] = context
             gaussian_token = _GAUSSIAN_WIRE_CONTEXT.set((snapshot, _closed_copy(context)))
-        invocation = _ProgramRTWinInvocation(_gaussian_submit_operation(snapshot.program_execution_spec.adapter_contract_version in (5, 6), resource_adapter=snapshot.program_execution_spec.adapter_contract_version == 6) if gaussian_submit else _driver._operation(operation), authority, self._profile, _closed_copy(wire), snapshot.program_execution_snapshot_id)
+        invocation = _ProgramRTWinInvocation(_gaussian_submit_operation(snapshot.program_execution_spec.adapter_contract_version in (5, 6, 7), resource_adapter=snapshot.program_execution_spec.adapter_contract_version == 6, freq_adapter=snapshot.program_execution_spec.adapter_contract_version == 7) if gaussian_submit else _driver._operation(operation), authority, self._profile, _closed_copy(wire), snapshot.program_execution_snapshot_id)
         token = None
         direct_token = direct_handoff = None
         try:
@@ -1066,7 +1090,7 @@ def _read_publisher_deployment_identity(authority, snapshot):
         snapshot.assert_identity_closed()
         if type(authority) is not _driver._DeploymentAuthority:
             raise _publisher_failure("closed deployment authority required")
-        if not any(snapshot.scheduler_artifacts[0]["content_utf8"].startswith("#!/bin/bash\n# auto-g16-v31-scheduler/" + version + "\n") for version in (("4", "5") if snapshot.program_execution_spec.program_kind == "crest" else ("6", "7", "8", "9") if snapshot.program_execution_spec.program_kind == "gaussian" else ("3",))):
+        if not any(snapshot.scheduler_artifacts[0]["content_utf8"].startswith("#!/bin/bash\n# auto-g16-v31-scheduler/" + version + "\n") for version in (("4", "5") if snapshot.program_execution_spec.program_kind == "crest" else ("6", "7", "8", "9", "10") if snapshot.program_execution_spec.program_kind == "gaussian" else ("3",))):
             raise _publisher_failure("old receipt source cannot gain production qualification")
         basis_pin = _PinnedPublisherFile(installation.basis, 65536); pins.append(basis_pin)
         if installation.basis.path.rsplit("/", 1)[-1] != "v31-publisher-pilot-deployment.json":
@@ -1074,7 +1098,7 @@ def _read_publisher_deployment_identity(authority, snapshot):
         basis = strict_canonical_json(basis_pin.raw, "publisher deployment basis")
         program._exact_keys(basis, set(_PUBLISHER_BASIS_KEYS), "publisher deployment basis")
         startup = len(snapshot.scheduler_artifacts) == 2
-        if basis["schema"] != ("auto-g16-v31-publisher-pilot-deployment/7" if snapshot.program_execution_spec.program_kind == "gaussian" and snapshot.program_execution_spec.adapter_contract_version == 6 else "auto-g16-v31-publisher-pilot-deployment/6" if snapshot.program_execution_spec.adapter_contract_version == 5 else "auto-g16-v31-publisher-pilot-deployment/5" if snapshot.program_execution_spec.program_kind == "gaussian" and startup else "auto-g16-v31-publisher-pilot-deployment/4" if snapshot.program_execution_spec.program_kind == "gaussian" else "auto-g16-v31-publisher-pilot-deployment/3" if startup else "auto-g16-v31-publisher-pilot-deployment/2" if snapshot.program_execution_spec.program_kind == "crest" else "auto-g16-v31-publisher-pilot-deployment/1"):
+        if basis["schema"] != ("auto-g16-v31-publisher-pilot-deployment/8" if snapshot.program_execution_spec.program_kind == "gaussian" and snapshot.program_execution_spec.adapter_contract_version == 7 else "auto-g16-v31-publisher-pilot-deployment/7" if snapshot.program_execution_spec.program_kind == "gaussian" and snapshot.program_execution_spec.adapter_contract_version == 6 else "auto-g16-v31-publisher-pilot-deployment/6" if snapshot.program_execution_spec.adapter_contract_version == 5 else "auto-g16-v31-publisher-pilot-deployment/5" if snapshot.program_execution_spec.program_kind == "gaussian" and startup else "auto-g16-v31-publisher-pilot-deployment/4" if snapshot.program_execution_spec.program_kind == "gaussian" else "auto-g16-v31-publisher-pilot-deployment/3" if startup else "auto-g16-v31-publisher-pilot-deployment/2" if snapshot.program_execution_spec.program_kind == "crest" else "auto-g16-v31-publisher-pilot-deployment/1"):
             raise _publisher_failure("unknown deployment basis")
         for key in ("source_commit", "source_tree"):
             if type(basis[key]) is not str or re.fullmatch("[0-9a-f]{40}", basis[key]) is None or basis[key] != getattr(installation, key):

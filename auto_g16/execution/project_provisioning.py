@@ -149,6 +149,7 @@ class ProjectPhysicalBinding:
     resolved_target_identity: Mapping[str, object]
     provisioning_authority_id: str
     locations: tuple[Mapping[str, object], ...]
+    project_profile_association: Mapping[str, object] = field(repr=False, compare=False)
     _identity_payload: Mapping[str, object] = field(repr=False, compare=False)
 
     def __init__(self) -> None:
@@ -238,6 +239,10 @@ class ProjectPhysicalBinding:
         )
 
     def assert_identity_closed(self) -> None:
+        if self.provisioning_contract_version == "v31-project-profile-associated-binding/1":
+            from ._project_association import assert_binding
+            assert_binding(self)
+            return
         if self.provisioning_contract_version != _CONTRACT_VERSION:
             raise ExecutionValueError("ProjectPhysicalBinding contract version is stale")
         if self.transport_kind != _TRANSPORT_KIND:
@@ -695,6 +700,10 @@ class _ProjectProvisioningService:
             self._journal.append_binding(binding)
         return binding
 
+    def _associate_profile(self, *, project):
+        from ._project_association_source import issue
+        return issue(self, project)
+
     def _assert_owned_binding(
         self,
         *,
@@ -706,7 +715,15 @@ class _ProjectProvisioningService:
         if not isinstance(binding, ProjectPhysicalBinding):
             raise ExecutionValueError("binding must be a ProjectPhysicalBinding")
         binding.assert_identity_closed()
-        if self._journal is not None and self._journal.load_binding(project.project_id) != binding:
+        from ._project_association import associated
+        if associated(binding):
+            from ._project_association_source import replay
+            if type(self._journal) is not _ProductionProvisioningJournal or not self._journal._read_only:
+                raise ExecutionValueError("associated Project requires its read-only production creation journal")
+            with replay(binding) as original:
+                if self._journal.load_binding(project.project_id) != original:
+                    raise ExecutionValueError("association differs from original creation journal")
+        elif self._journal is not None and self._journal.load_binding(project.project_id) != binding:
             raise ExecutionValueError("Project binding has no exact durable authority")
         if (
             binding.project_id != project.project_id
@@ -857,6 +874,8 @@ class _ProvisioningJournal:
         if not isinstance(binding, ProjectPhysicalBinding):
             raise ExecutionValueError("binding must be a ProjectPhysicalBinding")
         binding.assert_identity_closed()
+        if binding.provisioning_contract_version != _CONTRACT_VERSION:
+            raise ExecutionValueError("creation journal cannot append an associated binding")
         payload = _canonical_json(binding.semantic_payload())
         self._append(
             "project_physical_bindings",
@@ -1106,6 +1125,30 @@ class _ProductionProvisioningJournal(_ProvisioningJournal):
                 raise ExecutionValueError("persisted production Project binding is noncanonical")
             self._require_binding_intent(binding)
         return binding
+
+    def _association_creation_source(self, project_id):
+        """Exact successful creation lineage; this accessor is strictly read-only."""
+        self._attest()
+        if not self._read_only or self._version != 3:
+            raise ExecutionValueError("association requires read-only recoverable creation journal")
+        binding = self.load_binding(project_id)
+        if binding is None:
+            raise ExecutionValueError("association requires a durable creation binding")
+        rows = self._connection.execute(
+            "SELECT intent_id FROM provisioning_intents WHERE project_id=?", (project_id,)).fetchall()
+        if len(rows) != 1:
+            raise ExecutionValueError("association requires the original unique intent")
+        identity = rows[0][0]
+        intent = self.inspect_intent(project_id, intent_id=identity)
+        result = self._load_success(identity, intent)
+        if result is None:
+            raise ExecutionValueError("association cannot consume UNKNOWN creation")
+        self._attest()
+        return freeze_mapping({
+            "intent": {"intent_id": identity, "payload_sha256": semantic_sha256(intent), "payload": intent},
+            "creation_result": {"payload_sha256": semantic_sha256(result), "payload": result},
+            "original_binding": binding.semantic_payload(),
+        }, "association creation source")
 
     def inspect_intent(self, project_id: str, *, intent_id: str) -> Mapping[str, object]:
         """Read exact persisted intent, validating columns and semantic identity."""

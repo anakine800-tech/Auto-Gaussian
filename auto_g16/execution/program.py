@@ -184,7 +184,7 @@ def _validate_invocation(
     _exact_keys(stdin, {"mode", "logical_role"}, "invocation.stdin")
     expected_stdin = (
         {"mode": "exact-input", "logical_role": "gaussian-input"}
-        if program_kind == "gaussian" and adapter_contract_version in (3, 4, 5, 6)
+        if program_kind == "gaussian" and adapter_contract_version in (3, 4, 5, 6, 7)
         else {"mode": "none", "logical_role": None}
     )
     if dict(stdin) != expected_stdin:
@@ -250,14 +250,23 @@ def _validate_gaussian_resource_data(value: Mapping[str, object]) -> Mapping[str
     return freeze_mapping(dict(value), "Gaussian resource program_data")
 
 
-def _gaussian_input_resources(input_name: str, input_bytes: bytes) -> Mapping[str, object]:
-    parsed = _validate_gaussian_input(input_name, input_bytes, {"stage": "opt"}, resource_link0=True)
+def _validate_gaussian_freq_resource_data(value):
+    _exact_keys(value, {"stage", "completion_mode", "gaussian_resources"}, "Freq resource program_data")
+    if value["stage"] != "freq":
+        raise ExecutionValueError("Gaussian Freq resource adapter is Freq only")
+    # Reuse the resource field validator without changing the frozen /6 branch.
+    _validate_gaussian_resource_data({**value, "stage": "opt"})
+    return freeze_mapping(dict(value), "Gaussian Freq resource program_data")
+
+
+def _gaussian_input_resources(input_name: str, input_bytes: bytes, *, freq: bool = False) -> Mapping[str, object]:
+    parsed = _validate_gaussian_input(input_name, input_bytes, {"stage": "freq" if freq else "opt"}, resource_link0=True, freq_resource=freq)
     from ._gaussian_resources import _resource_facts
     return freeze_mapping(_resource_facts(input_bytes), "Gaussian binary input resources")
 
 
 def _validate_gaussian_resource_binding(spec, resources) -> None:
-    if (spec.program_kind, spec.adapter_contract_version) == ("gaussian", 6):
+    if spec.program_kind == "gaussian" and spec.adapter_contract_version in (6, 7):
         selected = spec.program_data["gaussian_resources"]
         resources.assert_identity_closed()
         if selected["cores"] != resources.cores:
@@ -371,8 +380,10 @@ def _validate_gaussian_resource_route(route: str) -> None:
 
 def _validate_gaussian_input(
     input_name: str, input_bytes: bytes, data: Mapping[str, object],
-    *, resource_link0: bool = False,
+    *, resource_link0: bool = False, freq_resource: bool = False,
 ) -> Mapping[str, object] | None:
+    if freq_resource and not resource_link0:
+        raise ExecutionValueError("Freq resources require explicit Link0 binding")
     if not input_name.lower().endswith(".gjf"):
         raise ExecutionValueError("Gaussian input must use the .gjf suffix")
     if b"\x00" in input_bytes or b"\r" in input_bytes:
@@ -433,10 +444,14 @@ def _validate_gaussian_input(
         route_lines.append(lines[position].strip())
         position += 1
     route = " ".join(route_lines).lower()
-    if resource_link0:
+    if freq_resource:
+        from ._gaussian_freq_resources import ROUTE
+        if route_lines != [ROUTE]:
+            raise ExecutionValueError("Freq resource route differs from the closed method")
+    elif resource_link0:
         _validate_gaussian_resource_route(route)
     directives = _gaussian_route_directives(route)
-    if resource_link0 and data["stage"] != "opt":
+    if resource_link0 and data["stage"] != ("freq" if freq_resource else "opt"):
         raise ExecutionValueError("Gaussian resource adapter accepts minimum Opt only")
     if (
         any(
@@ -865,6 +880,9 @@ _ADAPTER_REGISTRY: Final[Mapping[tuple[str, str, int], _Adapter]] = {
     ("gaussian", "auto-g16-v31-gaussian", 6): (
         "auto-g16-v31-gaussian", 6, _validate_gaussian_resource_data, _render_gaussian,
     ),
+    ("gaussian", "auto-g16-v31-gaussian", 7): (
+        "auto-g16-v31-gaussian", 7, _validate_gaussian_freq_resource_data, _render_gaussian,
+    ),
     ("gaussian", "auto-g16-v31-gaussian", 5): (
         "auto-g16-v31-gaussian", 5, _validate_gaussian_data, _render_gaussian,
     ),
@@ -966,7 +984,7 @@ class ProgramExecutionSpec:
         if (inputs[0]["logical_role"], inputs[0]["format"]) != expected_input:
             raise ExecutionValueError("program input declaration differs from its adapter")
         data = validate_data(program_data)
-        if program_kind in {"gaussian", "xtb", "crest"} and adapter_contract_version in (3, 4, 5, 6):
+        if program_kind in {"gaussian", "xtb", "crest"} and adapter_contract_version in (3, 4, 5, 6, 7):
             from ._program_completion import _RESERVED_NAMES
             names = [item["portable_name"] for item in (*inputs, *required_outputs, *optional_outputs)]
             if len(set(names)) != len(names) or any(
@@ -1066,7 +1084,8 @@ def _prepare_program_execution_spec(
         from ._gaussian_startup import _Q_NAME as old_name
         from ._gaussian_file_carrier import _Q_NAME as file_name
         resource_name = "v31-gaussian-publisher-qualification-v7.json"
-        version = {"short-entry-physical-handoff-v1": (4, old_name), "short-entry-file-carrier-v2": (5, file_name), "short-entry-opt-resources-v3": (6, resource_name)}.get(startup_mode)
+        freq_name = "v31-gaussian-publisher-qualification-v8.json"
+        version = {"short-entry-physical-handoff-v1": (4, old_name), "short-entry-file-carrier-v2": (5, file_name), "short-entry-opt-resources-v3": (6, resource_name), "short-entry-freq-resources-v4": (7, freq_name)}.get(startup_mode)
         if program_kind != "gaussian" or version is None or completion_mode is None or resolved_profile is None or version[1] not in resolved_profile.runtime_identities:
             raise ExecutionValueError("Gaussian short entry requires explicit qualified selection")
         adapter_key = ("gaussian", "auto-g16-v31-gaussian", version[0])
@@ -1078,16 +1097,16 @@ def _prepare_program_execution_spec(
     if not isinstance(input_bytes, bytes) or not input_bytes:
         raise ExecutionValueError("program input must be non-empty immutable bytes")
     adapter_id, version, validate_data, renderer = adapter
-    if version == 6 and program_kind == "gaussian":
+    if version in (6, 7) and program_kind == "gaussian":
         require_positive_integer(gaussian_headroom_mib, "gaussian_headroom_mib")
         if "gaussian_resources" in program_data:
             raise ExecutionValueError("Gaussian resource facts must be input-derived")
         program_data = {**program_data, "gaussian_resources": {
-            **_gaussian_input_resources(input_name, input_bytes), "headroom_mib": gaussian_headroom_mib}}
+            **_gaussian_input_resources(input_name, input_bytes, freq=version == 7), "headroom_mib": gaussian_headroom_mib}}
     elif gaussian_headroom_mib is not None:
-        raise ExecutionValueError("Gaussian headroom requires explicit adapter 6")
+        raise ExecutionValueError("Gaussian headroom requires explicit resource adapter")
     data = validate_data(program_data)
-    if program_kind == "gaussian" and version != 6:
+    if program_kind == "gaussian" and version not in (6, 7):
         _validate_gaussian_input(input_name, input_bytes, data)
     absolute_path = validate_posix_path(executable_path, "executable_path")
     expected_path = _SYNTHETIC_SERVER_EXECUTABLE_PATHS.get(program_kind)
@@ -1266,7 +1285,7 @@ def _uses_xtb_runtime_data_authority(spec: ProgramExecutionSpec) -> bool:
 
 
 def _uses_completion_receipt(spec: ProgramExecutionSpec) -> bool:
-    return (spec.program_kind, spec.adapter_id, spec.adapter_contract_version) in {("gaussian", "auto-g16-v31-gaussian", 3), ("gaussian", "auto-g16-v31-gaussian", 4), ("gaussian", "auto-g16-v31-gaussian", 5), ("gaussian", "auto-g16-v31-gaussian", 6), ("xtb", "auto-g16-v31-xtb", 3), ("crest", "auto-g16-v31-crest", 3)}
+    return (spec.program_kind, spec.adapter_id, spec.adapter_contract_version) in {("gaussian", "auto-g16-v31-gaussian", 3), ("gaussian", "auto-g16-v31-gaussian", 4), ("gaussian", "auto-g16-v31-gaussian", 5), ("gaussian", "auto-g16-v31-gaussian", 6), ("gaussian", "auto-g16-v31-gaussian", 7), ("xtb", "auto-g16-v31-xtb", 3), ("crest", "auto-g16-v31-crest", 3)}
 
 
 def _assert_xtb_runtime_data_authority(profile: ResolvedServerProfile) -> str:
@@ -1352,6 +1371,8 @@ class ProgramExecutionSnapshot:
         """Expanded review evidence; the existing snapshot identity is unchanged."""
         from . import _gaussian_startup, _gaussian_file_carrier
         short_version = self.program_execution_spec.adapter_contract_version if self.program_execution_spec.program_kind == "gaussian" else None
+        if short_version == 7:
+            from . import _gaussian_freq_resources
         if short_version == 6:
             from . import _gaussian_resources
         return freeze_mapping({
@@ -1367,7 +1388,7 @@ class ProgramExecutionSnapshot:
                 "parent_parts": self.workspace_binding._local_parent_parts,
                 "component_identities": self.workspace_binding._local_component_identities,
             },
-            **({"gaussian_startup_review": (_gaussian_resources if short_version == 6 else _gaussian_file_carrier if short_version == 5 else _gaussian_startup)._review_disclosure(self)} if short_version in (4, 5, 6) else {}),
+            **({"gaussian_startup_review": (_gaussian_freq_resources if short_version == 7 else _gaussian_resources if short_version == 6 else _gaussian_file_carrier if short_version == 5 else _gaussian_startup)._review_disclosure(self)} if short_version in (4, 5, 6, 7) else {}),
         }, "expanded ProgramExecutionSnapshot review evidence")
 
     @staticmethod
@@ -1521,16 +1542,20 @@ def _decode_program_review_components(raw: Mapping[str, object]):
     spec = ProgramExecutionSpec._from_closed(**{key: item for key, item in spec_data.items() if key != "program_execution_spec_id"})
     if spec.semantic_payload() != spec_data:
         raise ExecutionValueError("persisted program spec identity is stale")
-    binding_data = closed("project_physical_binding", {
-        "project_physical_binding_id", "project_id", "provisioning_contract_version",
-        "transport_kind", "resolved_server_profile_id", "resolved_target_identity",
-        "provisioning_authority_id", "locations",
-    })
-    binding = object.__new__(ProjectPhysicalBinding)
-    for key, item in binding_data.items():
-        object.__setattr__(binding, key, item)
-    object.__setattr__(binding, "_identity_payload", freeze_mapping({key: item for key, item in binding_data.items() if key != "project_physical_binding_id"}, "persisted Project identity"))
-    binding.assert_identity_closed()
+    if value["project_physical_binding"].get("provisioning_contract_version") == "v31-project-profile-associated-binding/1":
+        from ._project_association import decode_binding
+        binding = decode_binding(value["project_physical_binding"])
+    else:
+        binding_data = closed("project_physical_binding", {
+            "project_physical_binding_id", "project_id", "provisioning_contract_version",
+            "transport_kind", "resolved_server_profile_id", "resolved_target_identity",
+            "provisioning_authority_id", "locations",
+        })
+        binding = object.__new__(ProjectPhysicalBinding)
+        for key, item in binding_data.items():
+            object.__setattr__(binding, key, item)
+        object.__setattr__(binding, "_identity_payload", freeze_mapping({key: item for key, item in binding_data.items() if key != "project_physical_binding_id"}, "persisted Project identity"))
+        binding.assert_identity_closed()
     resource_data = closed("resolved_resource_request", {
         "resolved_resource_request_id", "resource_spec_id", "cores", "memory_mb", "walltime_seconds", "queue",
     })
@@ -1722,7 +1747,7 @@ class _ProgramExecutionSnapshotService:
         restorable_schemas = (
             {"v31-completion-rendering-material/3", "v31-completion-rendering-material/4"}
             if snapshot.program_execution_spec.program_kind == "crest"
-            else {"v31-completion-rendering-material/5", "v31-completion-rendering-material/6", "v31-completion-rendering-material/7", "v31-completion-rendering-material/8"}
+            else {"v31-completion-rendering-material/5", "v31-completion-rendering-material/6", "v31-completion-rendering-material/7", "v31-completion-rendering-material/8", "v31-completion-rendering-material/9"}
             if snapshot.program_execution_spec.program_kind == "gaussian"
             else {"v31-completion-rendering-material/2"}
         )

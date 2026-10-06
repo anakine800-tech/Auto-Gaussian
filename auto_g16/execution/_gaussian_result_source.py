@@ -19,15 +19,25 @@ def reject_legacy_generation(store, attempt_id):
         raise TransportBoundaryError("mixed V30/successor execution or Result generation")
 
 
-@contextmanager
 def gaussian_result_source(store, *, snapshot, transport_store, validation_driver=None):
+    return _gaussian_source(store, snapshot=snapshot, transport_store=transport_store,
+                            validation_driver=validation_driver, freq=False)
+
+
+def gaussian_freq_result_source(store, *, snapshot, transport_store, validation_driver=None):
+    return _gaussian_source(store, snapshot=snapshot, transport_store=transport_store,
+                            validation_driver=validation_driver, freq=True)
+
+
+@contextmanager
+def _gaussian_source(store, *, snapshot, transport_store, validation_driver, freq):
     if type(store) is not SQLiteRuntimeStore or type(snapshot) is not ProgramExecutionSnapshot:
         raise TransportBoundaryError("Gaussian source requires exact native owners")
     spec = snapshot.program_execution_spec
     if (spec.program_kind, spec.adapter_id, spec.adapter_contract_version) not in {
-        ("gaussian", "auto-g16-v31-gaussian", version) for version in (3, 4, 5, 6)
-    } or spec.program_data["stage"] != "opt":
-        raise TransportBoundaryError("Gaussian source requires a supported pure Opt adapter")
+        ("gaussian", "auto-g16-v31-gaussian", version) for version in ((7,) if freq else (3, 4, 5, 6))
+    } or spec.program_data["stage"] != ("freq" if freq else "opt"):
+        raise TransportBoundaryError("Gaussian source requires a supported pure stage adapter")
     with _source_qualification(store, snapshot, transport_store, validation_driver) as (source, _qualification):
         reject_legacy_generation(source, snapshot.attempt_id)
         proof, capture = _read_program_receipt_success_authority(
@@ -62,6 +72,8 @@ def gaussian_result_source(store, *, snapshot, transport_store, validation_drive
             "input": {**{key: inp[key] for key in fields}, "stage_observation_id": inp["stage_observation_id"]},
             "log": {**{key: log[key] for key in fields}, "fetch_observation_id": log["fetch_observation_id"]},
         }
+        if freq:
+            payload = {**payload, "schema": "v31-gaussian-result-source/2", "stage": "freq"}
         input_bytes = completion._unbase64(inp["content_base64"], 64 * 1024 * 1024)
         log_bytes = completion._unbase64(log["content_base64"], 64 * 1024 * 1024)
         yield source, payload, input_bytes, log_bytes

@@ -130,7 +130,7 @@ def _probe_index(payload):
         entries.append({"role": "host-identity", "host_key": host["host_key"], "evidence": host["identity_evidence"]})
         entries.extend({"role": "location", "host_key": host["host_key"], "location_role": loc["role"], "evidence": loc["evidence"]} for loc in host["locations"])
         entries.extend({"role": "host-probe", "host_key": host["host_key"], "case_id": probe["case_id"], "evidence": probe["evidence"]} for probe in host["probes"])
-    startup = payload["schema"] in {"auto-g16-v31-publisher-qualification/3", "auto-g16-v31-publisher-qualification/5", "auto-g16-v31-publisher-qualification/6", "auto-g16-v31-publisher-qualification/7"}
+    startup = payload["schema"] in {"auto-g16-v31-publisher-qualification/3", "auto-g16-v31-publisher-qualification/5", "auto-g16-v31-publisher-qualification/6", "auto-g16-v31-publisher-qualification/7", "auto-g16-v31-publisher-qualification/8"}
     crest = payload["schema"] in {"auto-g16-v31-publisher-qualification/2", "auto-g16-v31-publisher-qualification/3"}
     if startup:
         entries.append({"role": "delivery-probe", "case_id": "P09", "evidence": payload["delivery_probe"]["evidence"]})
@@ -236,20 +236,27 @@ def _fixed_pilot_context():
         from auto_g16.conformer import service as conformer_service
         actual.update(str(Path(module.__file__).resolve()) for module in
                       (_crest_completion, _crest_loader, _crest_seed_handoff, _receipt_source, xtb_crest_handoff, conformer_service, transport))
-    if snapshot.program_execution_spec.program_kind == "gaussian" and snapshot.program_execution_spec.adapter_contract_version in (4, 5, 6):
+    if snapshot.program_execution_spec.program_kind == "gaussian" and snapshot.program_execution_spec.adapter_contract_version in (4, 5, 6, 7):
         from auto_g16.execution import _gaussian_completion, _gaussian_file_carrier, _gaussian_startup
         from auto_g16.transport import _gaussian_file_handoff, _gaussian_file_submit, _gaussian_handoff, _gaussian_submit, _bridge, _driver
         protocol = (_gaussian_file_carrier, _gaussian_file_handoff, _gaussian_file_submit) if snapshot.program_execution_spec.adapter_contract_version == 5 else (_gaussian_startup, _gaussian_handoff, _gaussian_submit)
-        if snapshot.program_execution_spec.adapter_contract_version == 6:
+        if snapshot.program_execution_spec.adapter_contract_version in (6, 7):
             from auto_g16.execution import _gaussian_resources
             from auto_g16.transport import _gaussian_resource_submit
             protocol = (_gaussian_resources, _gaussian_resource_submit, _gaussian_file_carrier,
                         _gaussian_file_handoff, _gaussian_file_submit, _gaussian_startup,
                         _gaussian_handoff, _gaussian_submit)
+        if snapshot.program_execution_spec.adapter_contract_version == 7:
+            from auto_g16.execution import _gaussian_freq_resources
+            from auto_g16.transport import _gaussian_freq_submit
+            protocol = (*protocol, _gaussian_freq_resources, _gaussian_freq_submit)
         actual.update(str(Path(module.__file__).resolve()) for module in (_gaussian_completion, *protocol, _bridge, _driver, transport))
     elif len(snapshot.scheduler_artifacts) == 2:
         from auto_g16.execution import _crest_startup
         actual.add(str(Path(_crest_startup.__file__).resolve()))
+    if snapshot.project_physical_binding.provisioning_contract_version == "v31-project-profile-associated-binding/1":
+        from auto_g16.execution import _project_association, _project_association_source, project_provisioning
+        actual.update(str(Path(module.__file__).resolve()) for module in (_project_association, _project_association_source, project_provisioning))
     if {b.path for b in run.code_files} != actual or len(run.code_files) != len(actual):
         raise rtwin._publisher_failure("installed code inventory differs")
     code_pins = []
@@ -271,7 +278,7 @@ def _current_gaussian_handoff_approvals(run, deployment):
     """Revalidate the winning claimed Attempt; the PLANNED gate ran before claim."""
     stores, scientific, batch, confirmation = _load_current_authorities(run, deployment)
     snapshot = run.snapshot
-    if snapshot.program_execution_spec.program_kind != "gaussian" or snapshot.program_execution_spec.adapter_contract_version not in (4, 5, 6) or stores["core"].attempt_state(snapshot.attempt_id) is not core.AttemptState.SUBMISSION_INTENT_RECORDED:
+    if snapshot.program_execution_spec.program_kind != "gaussian" or snapshot.program_execution_spec.adapter_contract_version not in (4, 5, 6, 7) or stores["core"].attempt_state(snapshot.attempt_id) is not core.AttemptState.SUBMISSION_INTENT_RECORDED:
         raise rtwin._publisher_failure("Gaussian handoff is outside its claimed phase")
     from auto_g16.execution.program_runtime import _assert_effect_intent_replay
     _assert_effect_intent_replay(stores["core"], snapshot)
@@ -298,7 +305,7 @@ def _run_first_publisher_pilot():
             for pin in code_pins:
                 pin._read_and_check()
             stores, confirmation = _load_validate_current(run, deployment)
-            if run.snapshot.program_execution_spec.program_kind == "gaussian" and run.snapshot.program_execution_spec.adapter_contract_version in (4, 5, 6):
+            if run.snapshot.program_execution_spec.program_kind == "gaussian" and run.snapshot.program_execution_spec.adapter_contract_version in (4, 5, 6, 7):
                 def current_handoff_approvals():
                     return _current_gaussian_handoff_approvals(run, deployment)
                 handoff_token = rtwin._GAUSSIAN_LAUNCH_OWNER.set((run.snapshot, current_handoff_approvals))
@@ -389,13 +396,18 @@ def _open_collection_stores(run, stack):
         if type(binding) is not _CollectionDatabaseBinding or binding.role != role:
             raise rtwin._publisher_failure("fixed four-store roles differ")
         pins.append(stack.enter_context(_PinnedStorePath(binding)))
-        # Read-only URI cannot manufacture an empty file before version checks.
-        connection = sqlite3.connect(Path(binding.path).as_uri() + "?mode=ro", uri=True)
-        try:
-            if connection.execute("PRAGMA user_version").fetchone()[0] != version:
-                raise rtwin._publisher_failure("existing collection schema differs")
-        finally:
-            connection.close()
+        if role == "project-journal":
+            # Header/sidecar/schema checks precede opening this immutable reader.
+            with _ProductionProvisioningJournal.open_existing_readonly(
+                    Path(binding.path), approved_root=Path(journal_root)):
+                pass
+        else:
+            connection = sqlite3.connect(Path(binding.path).as_uri() + "?mode=ro", uri=True)
+            try:
+                if connection.execute("PRAGMA user_version").fetchone()[0] != version:
+                    raise rtwin._publisher_failure("existing collection schema differs")
+            finally:
+                connection.close()
         pins[-1].assert_current()
     if len({b.path for b in run.databases}) != 4 or len({b.file_identity for b in run.databases}) != 4:
         raise rtwin._publisher_failure("fixed four stores are not distinct")
@@ -408,7 +420,7 @@ def _open_collection_stores(run, stack):
         elif binding.role == "transport":
             handle = transport._ProgramTransportStore.open_existing(binding.path, approved_root=run.store_root)
         else:
-            handle = _ProductionProvisioningJournal.open_existing(Path(binding.path), approved_root=Path(journal_root))
+            handle = _ProductionProvisioningJournal.open_existing_readonly(Path(binding.path), approved_root=Path(journal_root))
         stack.callback(handle.close)
         stores[binding.role] = handle
         for pin in pins:
@@ -529,8 +541,9 @@ def _resume_fixed_publisher_read(*, reconciliation):
                     _assert_connected_store(stores[binding.role], binding.path)
                 stores["transport"]._attest()
                 program._assert_collection_local_workspace(snapshot)
-                if stores["project-journal"].load_binding(snapshot.project_physical_binding.project_id) != snapshot.project_physical_binding:
-                    raise rtwin._publisher_failure("collection Project journal changed")
+                service._assert_owned_binding(binding=snapshot.project_physical_binding,
+                    project=core.Project(project_id=snapshot.project_physical_binding.project_id),
+                    target=resolved, remote_project_dir=snapshot.project_physical_binding.remote_project_dir)
                 driver._authority()
                 _validate_collection_review(deployment)
                 if _collection_original_approvals(run, stores, deployment) != initial_approvals:

@@ -32,6 +32,10 @@ class OptReadBusy(ValueError):
 
 
 def load_opt_readout(content: bytes, digest: str):
+    return _load_readout(content, digest, associated=False)
+
+
+def _load_readout(content: bytes, digest: str, *, associated: bool):
     """Decode a hash-bound startup document; open only its pinned Snapshot files.
 
     Core/Transport/material databases are validated by the read owner at query
@@ -63,7 +67,12 @@ def load_opt_readout(content: bytes, digest: str):
     for row in data['sources']:
         closed(row, ('member_id', 'original', 'snapshot', 'transport_root', 'revision', 'parser_version'))
         original = closed(row['original'], ('snapshot_id', 'core', 'transport',
-                                           'bootstrap_source_sha256', 'bootstrap_source_size_bytes'))
+                                           'bootstrap_source_sha256', 'bootstrap_source_size_bytes') +
+                          (('project_association',) if associated else ()))
+        association = None
+        if associated:
+            from auto_g16.execution._project_association_source import decode_source
+            association = decode_source(original['project_association'])
         snapshot_binding = binding(row['snapshot'])
         pin = _PinnedPublisherFile(snapshot_binding, 16 * 1024 * 1024)
         try:
@@ -74,7 +83,7 @@ def load_opt_readout(content: bytes, digest: str):
         sources.append(OptMemberSource(member_id=row['member_id'], snapshot=snapshot,
             original=_FixedReceiptSource(original['snapshot_id'], binding(original['core']),
                 binding(original['transport']), original['bootstrap_source_sha256'],
-                original['bootstrap_source_size_bytes']),
+                original['bootstrap_source_size_bytes'], project_association=association),
             transport_root=row['transport_root'], revision=binding(row['revision']),
             parser_version=row['parser_version']))
     return OptReadout(material=binding(data['material']), sources=tuple(sources))

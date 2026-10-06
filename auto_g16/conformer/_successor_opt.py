@@ -42,7 +42,7 @@ def _ownership(store, snapshot):
     )
 
 
-def _same_destination(source, destination, snapshot):
+def _same_destination(source, destination, snapshot, *, record_types=(SOURCE, PARSED)):
     _require(type(destination) is SQLiteRuntimeStore, 'destination must be the native Core store')
     _require(destination is not source and destination._connection is not source._connection,
              'source cannot be its own destination')
@@ -60,11 +60,11 @@ def _same_destination(source, destination, snapshot):
         _require(all(item in retained for item in original), f'destination lost original {kind} lineage')
         extras = tuple(item for item in retained if item not in original)
         _require(all((item.observation_type if kind == 'observation' else item.result_type)
-                     == (SOURCE if kind == 'observation' else PARSED) for item in extras),
+                     == record_types[0 if kind == 'observation' else 1] for item in extras),
                  'destination has unrelated or mixed-generation lineage')
 
 
-def _input_member(ensemble, member, raw):
+def _input_member(ensemble, member, raw, *, expected_route=ROUTE):
     species = ensemble.species_binding
     _require(species['formal_charge'] == 0 and species['multiplicity'] == 1
              and species['electronic_state_family'] == 'reviewed_closed_shell_singlet',
@@ -73,9 +73,9 @@ def _input_member(ensemble, member, raw):
              'closed-shell input electron count is odd')
     lines = raw.decode('utf-8').splitlines()
     route = next((i for i, line in enumerate(lines) if line.startswith('#')), None)
-    _require(route is not None and lines[route] == ROUTE, 'input route differs from accepted method')
+    _require(route is not None and lines[route] == expected_route, 'input route differs from accepted method')
     body = '\n'.join(lines[route:]).split('\n\n')
-    _require(len(body) >= 3 and body[0] == ROUTE and body[1].strip(), 'input sections differ')
+    _require(len(body) >= 3 and body[0] == expected_route and body[1].strip(), 'input sections differ')
     rows = body[2].splitlines()
     _require(rows and rows[0] == '0 1', 'input charge/multiplicity differs')
     atoms = [row.split() for row in rows[1:]]
@@ -238,7 +238,18 @@ def refine_opt_ensemble(prior, profile, *, inputs):
 
 def import_opt_result_revision(*, source_store, snapshot, transport_store,
                                destination_path, output_path, approved_root, validation_driver=None, parser_version="1.1.0"):
-    """Explicit new immutable destination revision; original databases stay read-only."""
+    """Explicit new immutable Opt revision; frozen source/record semantics."""
+    return _import_result_revision(source_store=source_store, snapshot=snapshot,
+        transport_store=transport_store, destination_path=destination_path,
+        output_path=output_path, approved_root=approved_root, validation_driver=validation_driver,
+        parser_version=parser_version, source_reader=gaussian_result_source,
+        parser=parse_source, record_types=(SOURCE, PARSED))
+
+
+def _import_result_revision(*, source_store, snapshot, transport_store, destination_path,
+                            output_path, approved_root, validation_driver, parser_version,
+                            source_reader, parser, record_types):
+    """Shared memory append/exclusive publication; owners select the closed stage."""
     from auto_g16.core.store import _readonly_database_state
     from auto_g16.result._successor import append_pair
     from auto_g16.result._revision_file import publish_revision
@@ -252,11 +263,11 @@ def import_opt_result_revision(*, source_store, snapshot, transport_store,
     states = tuple(_readonly_database_state(path) for path in input_paths)
     identities = tuple(state[0][-1] for state in states)
     _require(len(set(identities)) == 3, 'source/destination physical files alias')
-    with gaussian_result_source(source_store, snapshot=snapshot, transport_store=transport_store,
+    with source_reader(source_store, snapshot=snapshot, transport_store=transport_store,
                                 validation_driver=validation_driver) as (source, payload, _inp, log):
-        source_record, result, _envelope, _parsed = parse_source(payload, log, parser_version=parser_version)
+        source_record, result, _envelope, _parsed = parser(payload, log, parser_version=parser_version)
         with SQLiteRuntimeStore.read_snapshot(destination_path) as destination:
-            _same_destination(source, destination, snapshot)
+            _same_destination(source, destination, snapshot, record_types=record_types)
             require_pair(destination, source_record, result, allow_partial=True)
             cached = destination._connection.serialize()
         # Both appends happen only in an owner-created memory database.

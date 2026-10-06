@@ -17,6 +17,7 @@ class _FixedReceiptSource:
     transport: _PublisherFileBinding
     bootstrap_source_sha256: str
     bootstrap_source_size_bytes: int
+    project_association: object = None
 
 
 _FIXED_RECEIPT_SOURCE: _FixedReceiptSource | None = None
@@ -45,6 +46,23 @@ def _gaussian_receipt_sources(sources):
 
 @contextmanager
 def _source_qualification(store, snapshot, transport_store, driver):
+    from ._project_association import associated
+    if associated(snapshot.project_physical_binding):
+        from ._project_association_source import replay
+        catalogue = _GAUSSIAN_SOURCES.get()
+        fixed = next((item for item in catalogue if item.snapshot_id == snapshot.program_execution_snapshot_id), None) if catalogue else _FIXED_GAUSSIAN_RECEIPT_SOURCE
+        if type(fixed) is not _FixedReceiptSource or fixed.snapshot_id != snapshot.program_execution_snapshot_id or fixed.project_association is None:
+            raise TransportBoundaryError("registered historical association source NOT_ACQUIRED")
+        with replay(snapshot.project_physical_binding, fixed.project_association):
+            with _source_qualification_original(store, snapshot, transport_store, driver) as value:
+                yield value
+    else:
+        with _source_qualification_original(store, snapshot, transport_store, driver) as value:
+            yield value
+
+
+@contextmanager
+def _source_qualification_original(store, snapshot, transport_store, driver):
     executable = snapshot.program_execution_spec.invocation["executable_identity"]["absolute_path"]
     if executable in {"/opt/auto-g16-fixtures/bin/xtb", "/opt/auto-g16-fixtures/bin/crest", "/opt/auto-g16-fixtures/bin/g16"}:
         if driver is None or driver.runtime_qualification.get("bootstrap_protocol") != "synthetic-v31-program-effect/1":
@@ -70,16 +88,20 @@ def _source_qualification(store, snapshot, transport_store, driver):
     }
     supported.update(("gaussian", "auto-g16-v31-gaussian", version,
                       f"v31-completion-rendering-material/{version + 2}")
-                     for version in (3, 4, 5, 6))
+                     for version in (3, 4, 5, 6, 7))
     spec = snapshot.program_execution_spec
     if (kind, spec.adapter_id, spec.adapter_contract_version,
             snapshot._completion_material()["schema"]) not in supported:
         raise TransportBoundaryError("historical source requires the exact original receipt tuple")
     from auto_g16.transport._bridge import _PROGRAM_BOOTSTRAP_SOURCE_BYTES, _PRE_STARTUP_PROGRAM_BOOTSTRAP_SOURCE_BYTES
     known = {(sha256(raw).hexdigest(), len(raw)) for raw in (_PRE_STARTUP_PROGRAM_BOOTSTRAP_SOURCE_BYTES, _PROGRAM_BOOTSTRAP_SOURCE_BYTES)}
-    if kind == "gaussian" and spec.adapter_contract_version in (4, 5, 6):
+    if kind == "gaussian" and spec.adapter_contract_version in (4, 5, 6, 7):
         from auto_g16.transport import _gaussian_submit, _gaussian_file_submit, _gaussian_resource_submit
-        owner = {4: _gaussian_submit, 5: _gaussian_file_submit, 6: _gaussian_resource_submit}[spec.adapter_contract_version]
+        if spec.adapter_contract_version == 7:
+            from auto_g16.transport import _gaussian_freq_submit
+            owner = _gaussian_freq_submit
+        else:
+            owner = {4: _gaussian_submit, 5: _gaussian_file_submit, 6: _gaussian_resource_submit}[spec.adapter_contract_version]
         raw = owner.source_bytes()
         known = {(sha256(raw).hexdigest(), len(raw))}
 
