@@ -12,6 +12,7 @@ from ._successor_opt import (read_opt_authority, _same_destination, _input_membe
                             _output_method, _record_payload, _import_result_revision)
 
 SCHEMA = "v31-conformer-successor-two-stage-minimum-authority/1"
+SCHEMA_V2 = "v31-conformer-successor-two-stage-minimum-authority/2"
 
 
 def optimization_link(opt):
@@ -30,7 +31,8 @@ def _inputs(value):
     return dict(value)
 
 
-def read_two_stage_authority(ensemble, member_id, *, optimization, frequency):
+def read_two_stage_authority(ensemble, member_id, *, optimization, frequency, authority_schema=SCHEMA):
+    _require(authority_schema in (SCHEMA, SCHEMA_V2), "unknown Freq authority schema")
     optimization, frequency = _inputs(optimization), _inputs(frequency)
     _require(optimization["snapshot"].attempt_id != frequency["snapshot"].attempt_id,
              "Opt and Freq must be distinct Attempts")
@@ -69,7 +71,16 @@ def read_two_stage_authority(ensemble, member_id, *, optimization, frequency):
         # Both inputs are exact closed routes; method equality excludes stage-specific route versions.
         method = {k:v for k,v in opt["method_binding"].items() if k != "route_contract_version"}
         _require(plan.intent.get("method_binding") == method, "Freq scientific plan method differs from Opt")
-        geometry, assessment = assess_frequency(envelope, parsed, opt["selected_geometry"])
+        tail = None
+        if (authority_schema == SCHEMA_V2 and parsed.parse_status.value == "parsed"
+                and envelope.capture_completeness.value == "complete"
+                and parsed.facts["normal_termination_count"] == 1
+                and parsed.facts["error_termination_count"] == 0):
+            from ._freq_tail import frequency_tail
+            tail = frequency_tail(log, parsed.facts)
+        geometry, assessment = assess_frequency(envelope, parsed, opt["selected_geometry"],
+            policy="v31-successor-two-stage-minimum/2" if authority_schema == SCHEMA_V2 else "v31-successor-two-stage-minimum/1",
+            tail_evidence=tail)
         if parsed.parse_status.value == "parsed" and parsed.facts.get("scf_calculations"):
             _output_method(log, parsed)
             basis = re.findall(rb"^\s*Standard basis:\s*(.+)$", log, re.M)
@@ -77,7 +88,7 @@ def read_two_stage_authority(ensemble, member_id, *, optimization, frequency):
         if assessment["classification"] == "VALIDATED_TWO_STAGE_MINIMUM":
             _require(bool(parsed.facts.get("scf_calculations")), "Freq output lacks method evidence")
         facts = parsed.facts
-        value = {"authority_schema":SCHEMA, "source":_source(ensemble,member),
+        value = {"authority_schema":authority_schema, "source":_source(ensemble,member),
             "method_binding":method, "method_id":payload_hash({"domain":"v31-successor-stage-independent-method/1", "method":method}),
             "optimization":opt,
             "frequency":{"calculation_plan":{"calculation_plan_id":plan.calculation_plan_id,"revision":plan.revision,
@@ -88,7 +99,9 @@ def read_two_stage_authority(ensemble, member_id, *, optimization, frequency):
                          "selected_geometry":geometry, "frequency_blocks":facts.get("frequency_blocks",()),
                          "frequencies_cm1":facts.get("frequencies_cm-1",()), "mode_count":facts.get("frequency_count",0)},
             "assessment":assessment}
-        return _freeze_mapping({**value,"two_stage_minimum_authority_id":payload_hash({"domain":SCHEMA,"payload":value})},"successor two-stage authority")
+        if authority_schema == SCHEMA_V2:
+            value["frequency"]["tail_evidence"] = tail
+        return _freeze_mapping({**value,"two_stage_minimum_authority_id":payload_hash({"domain":authority_schema,"payload":value})},"successor two-stage authority")
 
 
 def import_freq_result_revision(*, source_store, snapshot, transport_store, destination_path,
@@ -99,10 +112,11 @@ def import_freq_result_revision(*, source_store, snapshot, transport_store, dest
         parser=parse_freq_source,record_types=(FREQ_SOURCE,FREQ_PARSED))
 
 
-def refine_freq_ensemble(prior, profile, *, optimization_ensemble, inputs, history=()):
+def refine_freq_ensemble(prior, profile, *, optimization_ensemble, inputs, history=(), authority_schema=SCHEMA):
     """Publish a new value; replay every claimed positive or negative Freq member."""
     from .refinement import _closed_ensemble, _closed_profile, _audit_and_deduplicate, _sampling_observation_by_member
     from ._successor_opt import refine_opt_ensemble
+    _require(authority_schema in (SCHEMA, SCHEMA_V2), "unknown Freq authority schema")
     _closed_ensemble(prior); _closed_ensemble(optimization_ensemble); _closed_profile(profile)
     _require(bool(inputs) and isinstance(inputs,(tuple,list)), "Freq refinement requires stage sources")
     ids=set(); attempts=set(); authorities={}; opt_inputs=[]
@@ -113,7 +127,7 @@ def refine_freq_ensemble(prior, profile, *, optimization_ensemble, inputs, histo
         if item["frequency"] is not None:
             fid=item["frequency"]["snapshot"].attempt_id
             _require(fid not in attempts,"one Freq Attempt cannot validate two members");attempts.add(fid)
-            authorities[mid]=read_two_stage_authority(optimization_ensemble,mid,optimization=item["optimization"],frequency=item["frequency"])
+            authorities[mid]=read_two_stage_authority(optimization_ensemble,mid,optimization=item["optimization"],frequency=item["frequency"],authority_schema=authority_schema)
     _require(ids=={m["member_id"] for m in prior.members},"every retained member needs an explicit Opt source")
     fresh=refine_opt_ensemble(optimization_ensemble,profile,inputs=opt_inputs)
     _require(isinstance(history,(tuple,list)) and len(history) <= 32, "invalid Freq revision history")
@@ -125,7 +139,11 @@ def refine_freq_ensemble(prior, profile, *, optimization_ensemble, inputs, histo
         for member in revision.members:
             claimed = member.get("two_stage_minimum_authority") or member.get("negative_frequency_authority")
             if claimed is not None:
-                current = authorities.get(member["member_id"])
+                item = next(i for i in inputs if i["member_id"] == member["member_id"])
+                _require(item["frequency"] is not None, "retained Freq source is missing")
+                current = read_two_stage_authority(optimization_ensemble, member["member_id"],
+                    optimization=item["optimization"], frequency=item["frequency"],
+                    authority_schema=claimed["authority_schema"])
                 _require(current == claimed, "retained Freq authority differs from original source replay")
                 previous[member["member_id"]] = current
         replayed = _apply_frequency(cursor,profile,previous)

@@ -12,15 +12,16 @@ def _require(value, reason):
         raise ScientificValidationError(reason)
 
 
-def assess_frequency(envelope, parsed, expected_geometry):
+def assess_frequency(envelope, parsed, expected_geometry, *, policy=POLICY, tail_evidence=None):
     """Assess a single Freq capture against a separately proven Opt geometry.
 
     The composition owner must close both sources first. This function never
     adds Opt markers to Freq facts or constructs a public minimum outcome.
     """
+    _require(policy in (POLICY, "v31-successor-two-stage-minimum/2"), "unknown Freq policy")
     def outcome(classification, reason, geometry=None):
         return geometry, {"classification": classification, "reason_code": reason,
-                          "validation_policy": POLICY}
+                          "validation_policy": policy}
     if envelope.capture_completeness is not CaptureCompleteness.COMPLETE:
         return outcome("INCOMPLETE", "incomplete-capture")
     if (parsed.parser_name, parsed.parser_version, parsed.result_kind) != (
@@ -33,9 +34,12 @@ def assess_frequency(envelope, parsed, expected_geometry):
     facts = parsed.facts
     if facts["normal_termination_count"] != 1 or facts["error_termination_count"] != 0:
         return outcome("INCOMPLETE", "incomplete-normal-termination")
-    _require(not facts["optimization_completed_marker"] and not facts["stationary_point_marker"]
-             and not facts["optimization_completed_evidence"] and not facts["stationary_point_evidence"],
-             "Freq result contains optimization evidence")
+    has_markers = bool(facts["optimization_completed_marker"] or facts["stationary_point_marker"]
+                       or facts["optimization_completed_evidence"] or facts["stationary_point_evidence"])
+    if policy == POLICY:
+        _require(not has_markers and tail_evidence is None, "Freq result contains optimization evidence")
+    else:
+        _require(has_markers == (tail_evidence is not None), "Freq tail evidence inventory differs")
     expected = expected_geometry["atoms"]
     if len(expected) != 14 or [a["atomic_number"] for a in expected] != [6]*4+[1]*10:
         return outcome("UNSUPPORTED", "unsupported-atom-domain")
@@ -63,6 +67,28 @@ def assess_frequency(envelope, parsed, expected_geometry):
                  "Freq span is not attributed to its unique job")
         return value["start"], value["end"]
     span(section)
+    if tail_evidence is not None:
+        t = tail_evidence
+        keys = {"schema", "form", "source_artifact", "job_section", "route_echo_span", "archive_span",
+                "tail_span", "optimization_completed_span", "stationary_point_span"}
+        _require(isinstance(t, Mapping) and set(t) == keys
+                 and t["schema"] == "v31-gaussian-freq-tail-evidence/1"
+                 and t["form"] == "g16-a03-freq-l716-l103/1"
+                 and t["source_artifact"] == source and t["job_section"] == section,
+                 "Freq tail evidence identity differs")
+        r, a, tail, o, st = (span(t[k]) for k in
+            ("route_echo_span", "archive_span", "tail_span", "optimization_completed_span", "stationary_point_span"))
+        _require(facts["optimization_completed_marker"] and facts["stationary_point_marker"]
+                 and list(facts["optimization_completed_evidence"]) == [t["optimization_completed_span"]]
+                 and list(facts["stationary_point_evidence"]) == [t["stationary_point_span"]]
+                 and r[1] <= tail[0] <= o[0] < o[1] == st[0] < st[1] <= tail[1] <= a[0],
+                 "Freq tail evidence order differs")
+        _require(len(facts["geometry_blocks"]) == len(facts["scf_calculations"]) == 1
+                 and facts["frequency_blocks"]
+                 and all(span(b["source_span"])[1] <= tail[0] for b in
+                         (*facts["geometry_blocks"], *facts["scf_calculations"], *facts["frequency_blocks"]))
+                 and all(a[1] <= span(e["source_span"])[0] for e in facts["termination_evidence"]),
+                 "Freq tail overlaps evaluation or termination")
     geometries, blocks = facts["geometry_blocks"], facts["frequency_blocks"]
     all_spans = sorted(span(b["source_span"]) for b in (*geometries, *blocks))
     _require(all(a[1] <= b[0] for a,b in zip(all_spans,all_spans[1:])), "Freq spans overlap or duplicate")

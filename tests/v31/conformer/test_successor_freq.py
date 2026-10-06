@@ -40,8 +40,9 @@ def log_bytes(*,freq=False,values=None,coords=COORDS,extra=()):
         for i in range(0,len(values),3):
             group=values[i:i+3]
             if i==0:rows.extend(LINES[17:21])
-            rows.extend([(' '+ ' '.join(str(n) for n in range(i+1,i+len(group)+1))).encode(),b' A1 A1 A1',
-                         (' Frequencies -- '+' '.join(map(str,group))).encode(),*LINES[24:27]])
+            rows.extend([(' '+ ' '.join(str(n) for n in range(i+1,i+len(group)+1))).encode(),(' '+' '.join(['A1']*len(group))).encode(),
+                         (' Frequencies -- '+' '.join(map(str,group))).encode(),
+                         *(line.split(b'--')[0]+b'-- '+b' '.join(line.split(b'--')[1].split()[:len(group)]) for line in LINES[24:27])])
     else:rows.extend(LINES[10:17])
     rows.extend(extra);rows.append(LINES[36])
     return b'\n'.join(rows)+b'\n'
@@ -129,14 +130,18 @@ class FrequencyWorkflowTests(unittest.TestCase):
         qualified,*_,snapshot=f.qualified_case(**kwargs)
         root=f.root/'result-transport';root.mkdir()
         transport=_ProgramTransportStore._create_completion_store(root/'program.sqlite3',approved_root=root);self.addCleanup(transport.close)
-        driver=_Driver({'gaussian.log':log_bytes(freq=stage=='freq',values=values,coords=coords)})
+        driver=_Driver({'gaussian.log':self.freq_log_factory(values=values) if stage=='freq' and hasattr(self,'freq_log_factory') else log_bytes(freq=stage=='freq',values=values,coords=coords)})
         scheduler={a['portable_name']:a['content_utf8'].encode() for a in snapshot.scheduler_artifacts}
         runtime._prepare_program_execution(f.store,snapshot=snapshot,program_transport_store=transport,input_bytes={'flow.gjf':raw},scheduler_artifact_bytes=scheduler,driver=driver)
         execution.execute_once(f.store,snapshot=snapshot,current_profile=qualified,confirmed_execution_snapshot_id=snapshot.program_execution_snapshot_id,
             prepared_input_bytes=raw,pbs_template_bytes=next(iter(scheduler.values())),port=runtime._ProgramExecutionPort(snapshot=snapshot,program_transport_store=transport,driver=driver))
         f.snapshot,f.program_transport_store,f.driver=snapshot,transport,driver;f.input_bytes={'flow.gjf':raw}
-        completiontests_fixture.CompletionTests.publish(f);self.assertEqual(completiontests_fixture.CompletionTests.collect(f).data['diagnostic'],'completed')
+        completiontests_fixture.CompletionTests.publish(f)
+        expected=getattr(self,'freq_completion_diagnostic','completed') if stage=='freq' else 'completed'
+        self.assertEqual(completiontests_fixture.CompletionTests.collect(f).data['diagnostic'],expected)
         destination=core.SQLiteRuntimeStore();self.addCleanup(destination.close);destination._connection.deserialize(f.store._connection.serialize())
+        if expected != 'completed':
+            return dict(source_store=f.store,snapshot=snapshot,transport_store=transport,destination=destination,validation_driver=driver,parser_version='1.2.0')
         reader,parser=(gaussian_freq_result_source,parse_freq_source) if stage=='freq' else (gaussian_result_source,parse_source)
         with reader(f.store,snapshot=snapshot,transport_store=transport,validation_driver=driver) as (_,payload,_,log):
             source,result,_,_=parser(payload,log,parser_version='1.2.0')
@@ -217,12 +222,12 @@ class FrequencyPersistenceTests(FrequencyWorkflowTests):
             with core.SQLiteRuntimeStore.read_snapshot(output) as dest:
                 args['destination']=dest
                 if importer is import_freq_result_revision:
-                    a=read_two_stage_authority(self.ensemble,'anti',optimization=self.opt,frequency=args)
+                    a=read_two_stage_authority(self.ensemble,'anti',optimization=self.opt,frequency=args,**getattr(self,'authority_kwargs',{}))
                     self.assertEqual(a['assessment']['classification'],'VALIDATED_TWO_STAGE_MINIMUM')
                 # Keep a separate immutable-memory snapshot for later composition.
                 retained=core.SQLiteRuntimeStore();self.addCleanup(retained.close)
                 retained._connection.deserialize(dest._connection.serialize());args['destination']=retained
-        refined=refine_freq_ensemble(self.refined,self.profile,optimization_ensemble=self.ensemble,inputs=self.inputs())
+        refined=refine_freq_ensemble(self.refined,self.profile,optimization_ensemble=self.ensemble,inputs=self.inputs(),**getattr(self,'authority_kwargs',{}))
         root=Path(self.freq['transport_store']._path).parent
         material=root/'material.json';material.write_text(json.dumps(_plain(dict(profile=self.profile._identity_payload(),original=self.ensemble._identity_payload(),
             opt_refined=self.refined._identity_payload(),history=[],prior=self.refined._identity_payload(),refined=refined._identity_payload()))))
@@ -305,3 +310,117 @@ class TwoMemberFrequencyTests(FrequencyWorkflowTests):
         self.assertFalse(final.thermodynamic_eligible_members or final.ts_seed_members)
         inputs[0]['frequency']=None
         with self.assertRaises(RefinementAuthorityError):refine_freq_ensemble(first,self.profile,optimization_ensemble=self.ensemble,inputs=inputs)
+
+
+def tail_log(*, values=None):
+    """Synthetic A.03 structural grammar, never a copied calculation output."""
+    raw=log_bytes(freq=True,values=values)
+    prefix=(b' Gaussian 16: ES64L-G16RevA.03 synthetic\n -----\n '+ROUTE.encode()+
+            b'\n -----\n (Enter /synthetic/l101.exe)\n')
+    raw=raw.replace(b' Symbolic Z-matrix:',prefix+b' Symbolic Z-matrix:')
+    tail=b'\n'.join((b' Leave Link  716 at synthetic',b' (Enter /synthetic/l103.exe)',
+        b' Step number   1 out of a maximum of    2',*LINES[10:16],
+        b'    -- Stationary point found.',b' Leave Link  103 at synthetic',b' (Enter /synthetic/l9999.exe)',
+        b' 1\\1\\SYNTHETIC\\Freq\\RwB97XD\\def2SVP\\C4H10\\0\\\\'+ROUTE.encode()+b'\\\\synthetic\\\\@'))+b'\n'
+    return raw.replace(LINES[36],tail+LINES[36])
+
+
+class FrequencyTailTests(unittest.TestCase):
+    def parse(self,raw):
+        env,files=envelope(raw);p=_NativeGaussianJobParser().parse(env,files)
+        self.assertEqual(p.parse_status.value,'parsed',p.diagnostics)
+        return env,p
+    def check(self,raw):
+        from auto_g16.conformer._freq_tail import frequency_tail
+        env,p=self.parse(raw);t=frequency_tail(raw,p.facts)
+        return assess_frequency(env,p,p.facts['geometry_blocks'][0],policy='v31-successor-two-stage-minimum/2',tail_evidence=t),t
+    def test_tail_positive_preserves_legacy_rejection(self):
+        raw=tail_log();env,p=self.parse(raw)
+        self.assertEqual(self.check(raw)[0][1]['classification'],'VALIDATED_TWO_STAGE_MINIMUM')
+        with self.assertRaisesRegex(ScientificValidationError,'optimization evidence'):
+            assess_frequency(env,p,p.facts['geometry_blocks'][0])
+    def test_tail_never_overrides_negative_or_count_classification(self):
+        for values,kind in [(tuple(range(35)),'INCOMPLETE'),(tuple(range(37)),'UNSUPPORTED'),((-1.,*range(35)),'NOT_MINIMUM')]:
+            with self.subTest(kind=kind):self.assertEqual(self.check(tail_log(values=values))[0][1]['classification'],kind)
+    def test_bad_tail_and_echo_are_rejected(self):
+        raw=tail_log()
+        changes=[(b'G16RevA.03',b'G16RevC.01'),(b'\\Freq\\',b'\\FOpt\\'),
+            (b'Leave Link  103',b'Leave Link  104'),(b'l103.exe',b'l104.exe'),
+            (b' Step number   1',b' Step number   2'),
+            (b' Step number   1',b' Step number 2 out of a maximum of 2\n Step number   1'),
+            (b' (Enter /synthetic/l9999.exe)',b' (Enter /synthetic/l502.exe)\n (Enter /synthetic/l9999.exe)'),
+            (b'    -- Stationary point found.',b' intervening\n    -- Stationary point found.'),
+            (b' Leave Link  103',b' SCF Done: E(RwB97XD) = -158.0 A.U. after 1 cycles\n Leave Link  103'),
+            (b'\\\\@',b'\\\\truncated'),(b' Leave Link  716',b' (Enter /synthetic/l103.exe)\n Leave Link  716')]
+        for old,new in changes:
+            with self.subTest(old=old):
+                with self.assertRaises((ValueError,AssertionError)):self.check(raw.replace(old,new))
+        with self.assertRaises((ValueError,AssertionError)):
+            self.check(raw.replace(ROUTE.encode(),(ROUTE+' Opt').encode()))
+    def test_forged_tail_source_and_boolean_reject(self):
+        from auto_g16.result._successor import _plain
+        raw=tail_log();env,p=self.parse(raw);_,t=self.check(raw)
+        bad=_plain(t);bad['tail_span']['sha256']='0'*64
+        for fake in (True,bad):
+            with self.assertRaises(ScientificValidationError):
+                assess_frequency(env,p,p.facts['geometry_blocks'][0],policy='v31-successor-two-stage-minimum/2',tail_evidence=fake)
+
+
+class FrequencyVersionTests(FrequencyWorkflowTests):
+    test_complete_native_two_stage_and_serial_replay=None
+    test_forged_self_consistent_parsed_payload_rejected=None
+    test_old_reader_and_same_attempt_reject=None
+    def test_v1_history_replayed_before_explicit_v2_revision(self):
+        from auto_g16.conformer._successor_freq import SCHEMA,SCHEMA_V2
+        first=refine_freq_ensemble(self.refined,self.profile,optimization_ensemble=self.ensemble,inputs=self.inputs())
+        second=refine_freq_ensemble(first,self.profile,optimization_ensemble=self.ensemble,inputs=self.inputs(),authority_schema=SCHEMA_V2)
+        self.assertEqual(first.members[0]['two_stage_minimum_authority']['authority_schema'],SCHEMA)
+        a=second.members[0]['two_stage_minimum_authority']
+        self.assertEqual(a['authority_schema'],SCHEMA_V2);self.assertIsNone(a['frequency']['tail_evidence'])
+        self.assertEqual(a['assessment']['validation_policy'],'v31-successor-two-stage-minimum/2')
+        with self.assertRaisesRegex(RefinementAuthorityError,'unknown'):
+            refine_freq_ensemble(first,self.profile,optimization_ensemble=self.ensemble,inputs=self.inputs(),authority_schema='unknown')
+
+
+class FrequencyTailWorkflowTests(FrequencyWorkflowTests):
+    freq_log_factory=staticmethod(tail_log)
+    test_complete_native_two_stage_and_serial_replay=None
+    test_forged_self_consistent_parsed_payload_rejected=None
+    test_old_reader_and_same_attempt_reject=None
+    def test_source_replay_tail_revision_and_legacy_guard(self):
+        from auto_g16.conformer._successor_freq import SCHEMA_V2
+        with self.assertRaisesRegex(ScientificValidationError,'optimization evidence'):
+            read_two_stage_authority(self.ensemble,'anti',optimization=self.opt,frequency=self.freq)
+        a=read_two_stage_authority(self.ensemble,'anti',optimization=self.opt,frequency=self.freq,authority_schema=SCHEMA_V2)
+        self.assertEqual(a['assessment']['classification'],'VALIDATED_TWO_STAGE_MINIMUM')
+        self.assertEqual(a['frequency']['tail_evidence']['form'],'g16-a03-freq-l716-l103/1')
+        first=refine_freq_ensemble(self.refined,self.profile,optimization_ensemble=self.ensemble,inputs=self.inputs(),authority_schema=SCHEMA_V2)
+        second=refine_freq_ensemble(first,self.profile,optimization_ensemble=self.ensemble,inputs=self.inputs(),authority_schema=SCHEMA_V2)
+        self.assertEqual(second.members[0]['post_dft_status'],'validated_minimum')
+        self.assertEqual(first.members[0]['two_stage_minimum_authority'],second.members[0]['two_stage_minimum_authority'])
+
+
+class FrequencyTailPersistenceTests(FrequencyPersistenceTests):
+    freq_log_factory=staticmethod(tail_log)
+    authority_kwargs={'authority_schema':'v31-conformer-successor-two-stage-minimum-authority/2'}
+
+
+class FrequencyIncompleteTailTests(FrequencyWorkflowTests):
+    freq_completion_diagnostic='output-invalid'
+    freq_log_factory=staticmethod(lambda **kw: tail_log(**kw).replace(LINES[36],b' Error termination via Lnk1e.'))
+    test_complete_native_two_stage_and_serial_replay=None
+    test_forged_self_consistent_parsed_payload_rejected=None
+    test_old_reader_and_same_attempt_reject=None
+    def test_invalid_output_rejected_upstream_and_fact_classification_stays_incomplete(self):
+        from auto_g16.conformer._successor_freq import SCHEMA_V2
+        from auto_g16.transport import TransportBoundaryError
+        with patch('auto_g16.conformer._freq_tail.frequency_tail',side_effect=AssertionError('invalid tail inspected')):
+            with self.assertRaises(TransportBoundaryError):
+                read_two_stage_authority(self.ensemble,'anti',optimization=self.opt,frequency=self.freq,authority_schema=SCHEMA_V2)
+        raw=self.freq_log_factory();env,files=envelope(raw);parsed=_NativeGaussianJobParser().parse(env,files)
+        assessment=assess_frequency(env,parsed,self.authority['selected_geometry'],policy='v31-successor-two-stage-minimum/2')[1]
+        self.assertEqual(assessment['classification'],'INCOMPLETE')
+
+
+class FrequencyTruncatedTailTests(FrequencyIncompleteTailTests):
+    freq_log_factory=staticmethod(lambda **kw: tail_log(**kw).split(b' 1\\1\\SYNTHETIC')[0])

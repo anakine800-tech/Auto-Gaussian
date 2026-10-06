@@ -120,8 +120,11 @@ class FreqReadout:
                 from ._successor_opt import refine_opt_ensemble
                 opt=refine_opt_ensemble(original,profile,inputs=[dict(member_id=mid,**args) for mid,args in opts.items()])
                 _require(_plain(opt._identity_payload())==material["opt_refined"],"registered Opt revision differs")
+                schemas = {a["authority_schema"] for m in material["refined"]["members"]
+                           if (a := m.get("two_stage_minimum_authority") or m.get("negative_frequency_authority")) is not None}
+                _require(len(schemas) == 1, "Freq material authority schemas differ")
                 refined=refine_freq_ensemble(prior,profile,optimization_ensemble=original,inputs=inputs,
-                                             history=[ensemble(p) for p in material["history"]])
+                                             history=[ensemble(p) for p in material["history"]],authority_schema=next(iter(schemas)))
                 _require(_plain(refined._identity_payload())==material["refined"],"registered Freq refinement differs")
                 args=freqs[selected.member_id]
                 with gaussian_freq_result_source(args["source_store"],snapshot=args["snapshot"],transport_store=args["transport_store"]) as (_,payload,_,log):

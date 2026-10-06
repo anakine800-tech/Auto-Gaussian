@@ -49,3 +49,7 @@ Q8 source commit/tree, installed loader, qualification, actual Freq Attempt,
 Snapshot and live window remain separate prerequisites. No real Freq result,
 submission, installation, ScientificAcceptance or thermodynamic result is
 claimed by this change.
+
+## Accepted tail amendment continuation (2026-10-06)
+
+OD-39 activates the byte-preserved tail r2 proposal (its pending header is historical). Related feature continuation, OWNER-GUIDED/non-BUS, in the same linked worktree and `codex/native-freq-successor` branch; exact starting HEAD `3b9df8c2f287b6a289328711ce2eb52fba2c6dc1`, tree `7116d5d039c9031e5a01fc7f11db21ba8cf0e8bf`. Preflight passed clean before edits. Authorized: contract recording, Conformer tail evidence and version dispatch, fact-only ScientificValidation /2, native readout history dispatch, corresponding offline tests, context map and independent read-only review. Original parser, source/parsed records, transport and installed files remain unchanged. Two repair cycles / 15 active minutes; required running validation/review may finish afterward. No commit/push/PR/merge/install/live authority is added. Evidence is retained outside Git.

@@ -448,8 +448,8 @@ focused_tests = ["tests/v31/conformer/test_successor_result.py", "tests/v31/conf
 [[component]]
 id = "v31-gaussian-freq-successor"
 status = "offline-candidate-target-unqualified"
-required_sections = ["OWNER_DECISIONS.md#od-37-native-gaussian-successor-freq-continuation", "docs/v3/proposals/gaussian-successor-frequency.md", "docs/v3/contracts/tasks/gaussian-frequency-implementation.md"]
-code_paths = ["auto_g16/execution/_gaussian_freq_resources.py", "auto_g16/transport/_gaussian_freq_submit.py", "auto_g16/scientific_validation/_successor_freq.py", "auto_g16/conformer/_successor_freq.py", "auto_g16/conformer/frequency_readonly.py"]
+required_sections = ["OWNER_DECISIONS.md#od-37-native-gaussian-successor-freq-continuation", "docs/v3/proposals/gaussian-successor-frequency.md", "docs/v3/contracts/tasks/gaussian-frequency-implementation.md", "docs/v3/proposals/gaussian-freq-tail-amendment-r2.md"]
+code_paths = ["auto_g16/execution/_gaussian_freq_resources.py", "auto_g16/transport/_gaussian_freq_submit.py", "auto_g16/scientific_validation/_successor_freq.py", "auto_g16/conformer/_successor_freq.py", "auto_g16/conformer/frequency_readonly.py", "auto_g16/conformer/_freq_tail.py"]
 focused_tests = ["tests/v31/transport/test_gaussian_freq_resources.py", "tests/v31/transport/test_gaussian_opt_resources.py", "tests/v31/conformer/test_successor_freq.py", "tests/v31/conformer/test_opt_readout_registration.py", "tests/v3/query/test_execution_readonly.py"]
 
 [[component]]
