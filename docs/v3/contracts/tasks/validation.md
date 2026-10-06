@@ -53,6 +53,34 @@ not a new authorization. This annotation changes no selector semantics.
   qualification, remote chemistry, Skill deployment, or branch-protection
   changes. Review and merge remain separate from production installation.
 
+### Non-exact copy validation amendment
+
+OD-40 accepts the bounded r2 control change for the Freq integration candidate.
+Git C001–C099 similarity records are not lineage evidence. Before selecting
+tests, verify both endpoint blob objects, their non-equality, and the complete
+actual added/modified/deleted/type-changed path set against an independent
+`--no-renames` diff over the same resolved `merge_base` to `head`. Bind the
+requested base, merge base and head even when base has advanced. Missing,
+malformed, contradictory or incomplete evidence still stops with zero tests.
+C100 retains exact blob equality and complete equivalent-source enumeration
+over that comparison tree; similarity never substitutes for this proof.
+
+Only a successfully verified non-exact copy may select the conservative
+`legacy-release` lane, with all declared safety evidence. A different Git source
+attribution cannot reduce its lane or safety inventory. Validate all tracked
+modern paths and changed endpoints before this expansion; unknown modern
+ownership still stops, including with selector self-protection changes. No
+error handler may authorize full discovery. Required CI names and the sole
+complete-full owner remain unchanged.
+
+The canonical selection result keeps its existing closed schema. Raw copy
+records, exact blob and no-renames proof may be retained externally as
+hash-bound review evidence; runner revalidation recomputes the decision from
+exact clean identities. Preserve copy thresholds and qualified runtime bytes.
+Tests cover the real Freq C050 range, changed source attribution, cross-risk
+paths, advanced base, unavailable/invalid proof, false C100, unknown modern
+ownership and self-protection. This grants no merge or operational authority.
+
 ### V3-MAINT-TEST-01
 
 **Partial supersession:** only the historical selector expand-on-error clause

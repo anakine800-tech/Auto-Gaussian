@@ -1527,3 +1527,17 @@ On 2026-09-30 Owner accepted the reviewed r2 addendum, SHA-256 `874f692ceebbe067
 ## OD-39: Native Freq tail evidence amendment
 
 On 2026-10-06 Owner accepted [the exact tail amendment r2](docs/v3/proposals/gaussian-freq-tail-amendment-r2.md), SHA-256 `09e343d223bdccb81af8793131021fd61eaf44a6e9fd7f4b6d8a740e4de05302`, and authorized its limited offline implementation, validation and independent read-only review. This supersedes only the blanket marker prohibition for the explicit new /2 authority branch; /1 remains unchanged. No installation, new calculation or scientific acceptance is implied.
+
+## OD-40: Conservative non-exact copy validation
+
+On 2026-10-06 Owner accepted the independently reviewed selector amendment r2,
+SHA-256 `c5beb8c87339bbdd19b4a92763a7310a8c9ef6bc9ebcf38d6a90502b4d3dea21`,
+with “接受 r2，继续限定修复与验证”. The [bounded validation amendment](docs/v3/contracts/tasks/validation.md#non-exact-copy-validation-amendment)
+continues the existing Freq integration task from `853cb59`, permitting only
+selector, corresponding tests and required authority records. Offline repair,
+independent read-only review, local commit, push, Draft PR update and CI are
+authorized; the designated CI source-archive job owns complete full validation
+once on the frozen candidate. Four repair cycles or 30 active minutes; running
+validation/review may finish afterward. Merge remains separately confirmed.
+No runtime, installation, computation, historical UNKNOWN or scientific rule
+changes are authorized by this amendment.

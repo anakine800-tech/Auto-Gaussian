@@ -450,6 +450,62 @@ def _close_exact_copy_sources(
     return sorted(closed, key=lambda item: (tuple(item["paths"]), item["status"]))
 
 
+def _is_nonexact_copy(status: str) -> bool:
+    return bool(re.fullmatch(r"C0[0-9]{2}", status)) and status != "C000"
+
+
+def _verify_nonexact_copy_delta(
+    root: Path, merge_base: str, head: str,
+    changes: list[dict[str, Any]], git_executable: str,
+) -> dict[str, Any]:
+    """Close actual tree changes, not similarity ancestry; return external evidence."""
+    expected: set[tuple[str, str]] = set()
+    endpoints = []
+    for change in changes:
+        status, paths = change["status"], change["paths"]
+        if status.startswith("C"):
+            if (status != "C100" and not _is_nonexact_copy(status)) or len(paths) != 2:
+                raise SelectionError("invalid copy status or endpoints")
+            source, destination = paths
+            source_blob = _tree_blob(root, merge_base, source, git_executable)
+            destination_blob = _tree_blob(root, head, destination, git_executable)
+            for blob in (source_blob, destination_blob):
+                if _git(git_executable, root, "cat-file", "-e", f"{blob}^{{blob}}").returncode:
+                    raise SelectionError("copy endpoint blob is unavailable")
+            if (source_blob == destination_blob) != (status == "C100"):
+                raise SelectionError("copy status and exact blob identities disagree")
+            endpoints.append({"status": status, "source": source, "destination": destination,
+                              "source_blob": source_blob, "destination_blob": destination_blob})
+            effects = [("A", destination)]
+        elif re.fullmatch(r"R(?:0[0-9]{2}|100)", status) and status != "R000" and len(paths) == 2:
+            effects = [("D", paths[0]), ("A", paths[1])]
+        elif status in {"A", "D", "M", "T"} and len(paths) == 1:
+            effects = [(status, paths[0])]
+        else:
+            raise SelectionError("unsupported change in non-exact copy proof")
+        for effect in effects:
+            if effect in expected:
+                raise SelectionError("duplicate tree effect in copy proof")
+            expected.add(effect)
+    raw = _git(git_executable, root, "diff", "--name-status", "-z", "--no-renames",
+               merge_base, head, "--")
+    if raw.returncode:
+        raise SelectionError("independent no-renames tree diff is unavailable")
+    tree_changes = parse_name_status(raw.stdout)
+    actual: set[tuple[str, str]] = set()
+    for change in tree_changes:
+        if change["status"] not in {"A", "D", "M", "T"} or len(change["paths"]) != 1:
+            raise SelectionError("no-renames tree diff is malformed")
+        effect = (change["status"], change["paths"][0])
+        if effect in actual:
+            raise SelectionError("duplicate no-renames tree effect")
+        actual.add(effect)
+    if actual != expected:
+        raise SelectionError("copy records do not cover the exact no-renames tree diff")
+    return {"merge_base": merge_base, "head": head, "raw_changes": changes,
+            "tree_changes": tree_changes, "copy_endpoints": endpoints}
+
+
 def inspect_git_range(
     root: Path,
     base: str,
@@ -493,13 +549,13 @@ def inspect_git_range(
         raise SelectionError("Git diff could not be inspected")
     changes = parse_name_status(diff.stdout)
     try:
-        changes = _close_exact_copy_sources(
-            root,
-            base,
-            head,
-            changes,
-            git_executable,
-        )
+        nonexact = [item for item in changes if _is_nonexact_copy(item["status"])]
+        if nonexact:
+            _verify_nonexact_copy_delta(root, merge_base, head, changes, git_executable)
+        exact_and_other = [item for item in changes if item not in nonexact]
+        changes = _close_exact_copy_sources(root, merge_base, head, exact_and_other, git_executable)
+        if nonexact:
+            changes = sorted([*changes, *nonexact], key=lambda item: (tuple(item["paths"]), item["status"]))
     except SelectionError as exc:
         raise AmbiguousCopyError(
             str(exc),
@@ -713,6 +769,16 @@ def select_changes(
         }
 
     self_paths = set(manifest["self_protecting_paths"])
+    if any(_is_nonexact_copy(item["status"]) for item in changes):
+        result = fallback_result(
+            base=base, head=head, changes=changes, merge_base=merge_base, head_tree=head_tree,
+            reason="verified non-exact copy requires conservative complete validation; similarity is not lineage",
+        )
+        # An uncertain source attribution cannot reduce the evidence inventory.
+        result["safety_evidence"] = sorted(manifest["safety_evidence"])
+        if any(path in self_paths for path in paths):
+            result["reasons"].append("selector, manifest, runner, or selector-test bytes changed")
+        return result
     if any(path in self_paths for path in paths):
         return fallback_result(
             base=base,
@@ -877,7 +943,11 @@ def validate_result(value: Any, *, require_authority: bool = True) -> dict[str, 
         if status[:1] not in {"A", "C", "D", "M", "R", "T"}:
             raise SelectionError("selection result change status is unsupported")
         if status[:1] == "C":
-            valid_path_count = isinstance(paths, list) and len(paths) >= 2
+            if status != "C100" and not _is_nonexact_copy(status):
+                raise SelectionError("selection result copy status is invalid")
+            valid_path_count = isinstance(paths, list) and (
+                len(paths) >= 2 if status == "C100" else len(paths) == 2
+            )
         else:
             expected = 2 if status[:1] == "R" else 1
             valid_path_count = isinstance(paths, list) and len(paths) == expected
@@ -892,6 +962,9 @@ def validate_result(value: Any, *, require_authority: bool = True) -> dict[str, 
         raise SelectionError("selection result changed_paths do not match change records")
 
     lane = value["lane"]
+    if any(_is_nonexact_copy(item["status"]) for item in value["changes"]):
+        if lane != "legacy-release" or not value["fail_closed"]:
+            raise SelectionError("non-exact copy cannot authorize reduced validation")
     tests = _test_names(value["tests"], "selection result tests")
     if lane == "blocked":
         if require_authority or tests or not value["fail_closed"]:

@@ -2518,7 +2518,7 @@ class ValidationSelectorTests(unittest.TestCase):
         self.assertEqual(decision["tests"], ["tests.v3.core.test_models"])
         self.assertEqual(decision["safety_evidence"], [])
 
-    def test_non_exact_or_blob_mismatched_copy_fails_closed(self) -> None:
+    def test_copy_score_inconsistent_with_blob_identity_fails_closed(self) -> None:
         cases = (
             ("C099", "same exact blob\nsecond line\n"),
             ("C100", "different destination blob\nsecond line\n"),
@@ -2538,6 +2538,99 @@ class ValidationSelectorTests(unittest.TestCase):
                 ):
                     with self.assertRaisesRegex(SELECTOR.SelectionError, "ambiguous_copy_source"):
                         SELECTOR.compute_selection(root, base, head)
+
+    def test_real_freq_c050_requires_authoritative_complete_validation(self) -> None:
+        source = "auto_g16/transport/_gaussian_resource_submit.py"
+        destination = "auto_g16/transport/_gaussian_freq_submit.py"
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            base = initialize_repository(root, {source: (ROOT / source).read_text()})
+            head = commit_change(root, destination, (ROOT / destination).read_text())
+            raw = raw_copy_diff(root, base, head)
+            self.assertEqual(raw, [change("C050", source, destination)])
+            decision = SELECTOR.compute_selection(root, base, head)
+            SELECTOR.validate_result(decision)
+            self.assertEqual(decision["changes"], raw)
+            self.assertEqual(decision["lane"], "legacy-release")
+            self.assertTrue(decision["fail_closed"])
+            self.assertEqual(decision["tests"], [])
+            self.assertEqual(decision["safety_evidence"], sorted(self.manifest["safety_evidence"]))
+            reduced = copy.deepcopy(decision)
+            reduced.update(lane="focused", fail_closed=False, tests=["tests.v3.core.test_models"])
+            with self.assertRaisesRegex(SELECTOR.SelectionError, "non-exact copy"):
+                SELECTOR.validate_result(reduced)
+
+    def test_nonexact_source_attribution_cannot_reduce_lane_or_safety(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            sources = ("auto_g16/core/models.py", "skills/high-risk.py")
+            destination = "tests/v3/core/test_models.py"
+            base = initialize_repository(root, {s: "source\n" for s in sources})
+            head = commit_change(root, destination, "different destination\n")
+            executable, _ = SELECTOR.resolve_git()
+            decisions = []
+            for source in sources:
+                records = [change("C050", source, destination)]
+                proof = SELECTOR._verify_nonexact_copy_delta(root, base, head, records, executable)
+                self.assertEqual(proof["tree_changes"], [change("A", destination)])
+                self.assertNotEqual(proof["copy_endpoints"][0]["source_blob"],
+                                    proof["copy_endpoints"][0]["destination_blob"])
+                decisions.append(SELECTOR.select_changes(self.manifest, records))
+            for decision in decisions:
+                self.assertEqual(decision["lane"], "legacy-release")
+                self.assertTrue(decision["fail_closed"])
+                self.assertEqual(decision["safety_evidence"], sorted(self.manifest["safety_evidence"]))
+
+    def test_nonexact_proof_rejects_malformed_missing_and_uncovered_effects(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source, destination = "auto_g16/core/models.py", "tests/v3/core/test_models.py"
+            base = initialize_repository(root, {source: "old\n"})
+            head = commit_change(root, destination, "new\n")
+            executable, _ = SELECTOR.resolve_git()
+            cases = [[change(score, source, destination)] for score in ("C000", "C101", "C99", "Cbad")]
+            cases += [[change("C050", source)], [change("C050", "absent.py", destination)],
+                      [], [change("C050", source, destination), change("A", destination)],
+                      [change("C050", source, destination), change("M", source)]]
+            for records in cases:
+                with self.subTest(records=records), self.assertRaises(SELECTOR.SelectionError):
+                    SELECTOR._verify_nonexact_copy_delta(root, base, head, records, executable)
+            original_git = SELECTOR._git
+            for unavailable in ("--no-renames", "cat-file"):
+                def failing_git(*args, **kwargs):
+                    if unavailable in args:
+                        return subprocess.CompletedProcess(args, 1, b"", b"unavailable")
+                    return original_git(*args, **kwargs)
+                with self.subTest(unavailable=unavailable), mock.patch.object(SELECTOR, "_git", side_effect=failing_git):
+                    with self.assertRaises(SELECTOR.SelectionError):
+                        SELECTOR._verify_nonexact_copy_delta(root, base, head,
+                                                            [change("C050", source, destination)], executable)
+
+    def test_nonexact_proof_uses_merge_base_not_advanced_requested_base(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = "auto_g16/transport/_gaussian_resource_submit.py"
+            destination = "auto_g16/transport/_gaussian_freq_submit.py"
+            common = initialize_repository(root, {source: (ROOT / source).read_text()})
+            requested_base = commit_change(root, "README.md", "base-only progress\n")
+            git(root, "checkout", "-q", "-b", "candidate", common)
+            head = commit_change(root, destination, (ROOT / destination).read_text())
+            decision = SELECTOR.compute_selection(root, requested_base, head)
+            self.assertEqual(decision["base"], requested_base)
+            self.assertEqual(decision["merge_base"], common)
+            self.assertEqual(decision["lane"], "legacy-release")
+            self.assertNotIn("README.md", decision["changed_paths"])
+
+    def test_nonexact_keeps_unknown_modern_stop_and_selector_self_protection(self) -> None:
+        source, destination = "auto_g16/core/models.py", "tests/v3/core/test_models.py"
+        records = [change("C050", source, destination)]
+        for unknown in ("auto_g16/unowned-copy.py", "tests/v31/unowned-copy.py"):
+            with self.subTest(unknown=unknown), self.assertRaisesRegex(SELECTOR.SelectionError, "UNMAPPED_MODERN_PATH"):
+                SELECTOR.select_changes(self.manifest, records + [change("A", unknown)])
+        decision = SELECTOR.select_changes(self.manifest, records + [change("M", "scripts/select_validation.py")])
+        self.assertEqual(decision["lane"], "legacy-release")
+        self.assertTrue(decision["fail_closed"])
+        self.assertIn("selector, manifest, runner, or selector-test bytes changed", decision["reasons"])
 
     def test_unclosable_exact_candidate_enumeration_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
