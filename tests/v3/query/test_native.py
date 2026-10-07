@@ -46,6 +46,7 @@ class NativeQueryTests(unittest.TestCase):
         self.assertEqual(data['axes']['execution']['value'], 'PLANNED')
         self.assertEqual(data['axes']['validation']['availability'], 'unavailable')
         self.assertTrue(data['history'])
+        self.assertEqual(data['facts']['thermochemistry'],dict(availability='unavailable',reason='thermochemistry-unavailable',source=None,value=None,unit='hartree'))
 
     def test_list_detail_identical(self):
         for row in self.query.list_attempts('one', 'project-1')['data']['items']:
@@ -87,6 +88,7 @@ class NativeQueryTests(unittest.TestCase):
         self.assertEqual(data['facts']['energy']['availability'],'unavailable')
         self.assertNotIn('/private/host',json.dumps(data))
         self.assertNotIn('content_base64',json.dumps(data))
+        self.assertEqual(data['facts']['thermochemistry']['reason'],'thermochemistry-unavailable')
 
     def test_mixed_generation_conflict(self):
         with SQLiteRuntimeStore(self.db) as store:
@@ -95,6 +97,7 @@ class NativeQueryTests(unittest.TestCase):
         self.assertEqual(data['reason'],'mixed-execution-generations')
         self.assertIsNone(data['facts']['energy']['value'])
         self.assertIsNone(data['generation']['value'])
+        self.assertEqual(data['facts']['thermochemistry']['reason'],'thermochemistry-unavailable')
 
     def test_unknown_contract_not_leaked(self):
         with SQLiteRuntimeStore(self.db) as store:

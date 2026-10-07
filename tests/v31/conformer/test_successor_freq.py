@@ -239,6 +239,27 @@ class FrequencyPersistenceTests(FrequencyWorkflowTests):
         self.assertEqual(data['provenance']['parsed_result']['frequency_count'],36)
         self.assertEqual(data['provenance']['parsed_result']['optimization_attempt_id'],'attempt-1')
         self.assertEqual(data['axes']['validation']['value']['classification'],'VALIDATED_TWO_STAGE_MINIMUM')
+        thermal=data['facts']['thermochemistry']
+        self.assertEqual(thermal['unit'],'hartree')
+        self.assertEqual(thermal['availability'],'missing')
+        self.assertEqual(thermal['reason'],'thermochemistry-not-recorded')
+        self.assertIsNone(thermal['source']);self.assertIsNone(thermal['value'])
+        # Synthetic projections isolate query-state handling after the separately tested full replay.
+        from auto_g16.conformer.frequency_readonly import FreqReadout
+        projected={k:data['facts'][k]['value'] for k in ('energy','geometry','frequencies','optimization')}
+        projected.update(source='Result:'+data['provenance']['parsed_result']['parsed_result_id'],
+                         assessment=data['axes']['validation']['value'],provenance=data['provenance']['parsed_result'])
+        for value,state in ((None,'unavailable'),({},'missing'),({'zero_point_correction_hartree':{'value_hartree':0.,'source_span':{}}},'available')):
+            with self.subTest(thermal_state=state),patch.object(FreqReadout,'read',return_value={**projected,'thermochemistry':value}):
+                actual=inert_readout(registry)['data']['facts']['thermochemistry']
+                self.assertEqual(actual['availability'],state)
+                self.assertEqual(actual['value'],value if state=='available' else None)
+                self.assertEqual(actual['source'],projected['source'] if state=='available' else None)
+                self.assertEqual(actual['reason'],None if state=='available' else 'thermochemistry-'+('not-recorded' if state=='missing' else 'unavailable'))
+        with patch.object(FreqReadout,'read',side_effect=RefinementAuthorityError('source replay mismatch')):
+            from auto_g16.query import QueryError
+            with self.assertRaisesRegex(QueryError,'invalid-evidence'):inert_readout(registry)
+
         script='import json,sys; from tests.v31.conformer.test_successor_freq import inert_readout; print(json.dumps(inert_readout(sys.argv[1])))'
         proc=subprocess.run([sys.executable,'-B','-c',script,str(registry)],capture_output=True,text=True,timeout=60)
         self.assertEqual(proc.returncode,0,proc.stderr);self.assertEqual(json.loads(proc.stdout),dto)
@@ -246,6 +267,31 @@ class FrequencyPersistenceTests(FrequencyWorkflowTests):
 
 
 class FrequencyProjectionTests(unittest.TestCase):
+    def test_reported_thermochemistry_projection_preserves_facts(self):
+        from types import SimpleNamespace
+        from auto_g16.conformer.frequency_readonly import _thermochemistry_facts
+        from auto_g16.result.models import ParseStatus
+        from auto_g16.result._successor import _plain
+        thermal_lines=(b' Zero-point correction= 0.000000 (Hartree/Particle)',
+            b' Thermal correction to Energy= 0.010000',b' Thermal correction to Enthalpy= 0.011000',
+            b' Thermal correction to Gibbs Free Energy= -0.012000',
+            b' Sum of electronic and zero-point Energies= -158.000000',
+            b' Sum of electronic and thermal Enthalpies= -157.989000',
+            b' Sum of electronic and thermal Free Energies= -158.012000')
+        for lines in ((),thermal_lines[:1],thermal_lines):
+            raw=log_bytes(freq=True,extra=lines);env,files=envelope(raw)
+            parsed=_NativeGaussianJobParser().parse(env,files)
+            self.assertEqual(parsed.parse_status,ParseStatus.PARSED)
+            got=_thermochemistry_facts(parsed)
+            self.assertEqual(len(got),len(lines))
+            self.assertEqual(_plain(got),_plain(parsed.facts['thermochemistry']))
+            for key,item in got.items():
+                span=item['source_span']
+                self.assertIn(raw[span['start']:span['end']].strip(),[line.strip() for line in lines])
+            if lines:self.assertEqual(got['zero_point_correction_hartree']['value_hartree'],0.)
+        for status in (ParseStatus.UNSUPPORTED,ParseStatus.UNPARSEABLE):
+            self.assertIsNone(_thermochemistry_facts(SimpleNamespace(parse_status=status,facts={})))
+
     def test_unparsed_counts_are_unknown_and_actual_zero_remains_visible(self):
         from types import SimpleNamespace
         from auto_g16.conformer.frequency_readonly import _frequency_counts

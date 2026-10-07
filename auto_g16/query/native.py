@@ -148,7 +148,8 @@ class NativeQueryService:
                 "facts": {"energy": _absent(unavailable, "hartree"),
                           "geometry": _absent(unavailable, "angstrom"),
                           "frequencies": _absent(unavailable, "cm^-1"),
-                          "optimization": _absent(unavailable), "sampling": _absent(unavailable)},
+                          "optimization": _absent(unavailable), "sampling": _absent(unavailable),
+                          "thermochemistry": _absent("thermochemistry-unavailable", "hartree")},
                 "availability": "unavailable" if successor or conflict else "missing",
                 "reason": reason or unavailable, "provenance": None, "history": gaussian["history"]}
         if conflict:
@@ -173,7 +174,7 @@ class NativeQueryService:
             data["artifacts"] = _fact(native["artifacts"], attribution)
             data["axes"]["capture"] = (_fact(native["capture"], attribution) if native["capture"] else _absent("capture-not-recorded", unavailable=False))
             unknown = native["scientific_facts"] != "not-recorded"
-            data["facts"] = {key: _absent("unsupported-native-result-contract" if unknown else "parsed-native-fact-not-recorded", field["unit"], unavailable=unknown) for key, field in data["facts"].items()}
+            data["facts"] = {key: field if key == "thermochemistry" else _absent("unsupported-native-result-contract" if unknown else "parsed-native-fact-not-recorded", field["unit"], unavailable=unknown) for key, field in data["facts"].items()}
             readout = self._sources[source_id].freq_readout or self._sources[source_id].opt_readout
             if readout is not None:
                 try:
@@ -186,6 +187,11 @@ class NativeQueryService:
                     data["facts"][key] = (_fact(value, facts['source'], unit)
                         if value is not None and value != [] else
                         _absent(key + "-not-recorded", unit, unavailable=False))
+                if type(readout) is FreqReadout:
+                    thermo = facts["thermochemistry"]
+                    if thermo is not None:
+                        data["facts"]["thermochemistry"] = (_fact(thermo, facts["source"], "hartree") if thermo else
+                            _absent("thermochemistry-not-recorded", "hartree", unavailable=False))
                 data["facts"]["sampling"] = _absent("not-a-sampling-result")
                 data["axes"]["validation"] = _fact(facts['assessment'], "Conformer:Opt-Freq-source-replay" if type(readout) is FreqReadout else "Conformer:Opt-source-replay")
                 data["provenance"] = {**native, "parsed_result": facts['provenance']}
