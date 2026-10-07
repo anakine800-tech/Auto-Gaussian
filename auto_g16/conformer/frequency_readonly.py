@@ -27,6 +27,11 @@ def _frequency_counts(parsed):
             "zero_frequency_count":sum(v==0 for v in values),"frequency_count_availability":"available","frequency_count_reason":None}
 
 
+def _thermochemistry_facts(parsed):
+    """Project only already validated parser facts; None is not an empty report."""
+    return parsed.facts["thermochemistry"] if parsed.parse_status.value == "parsed" else None
+
+
 def load_freq_readout(content: bytes, digest: str):
     _require(type(content) is bytes and len(content)<=2*1024*1024
              and sha256(content).hexdigest()==digest,"invalid Freq registry digest")
@@ -143,6 +148,7 @@ class FreqReadout:
                     "frequency_unit":"cm^-1","two_stage_minimum_authority_id":authority["two_stage_minimum_authority_id"]},
                 "energy":facts.get("final_energy_hartree"),"geometry":facts.get("geometry_blocks",()),
                 "frequencies":facts.get("frequency_blocks",()),"assessment":authority["assessment"],
+                "thermochemistry":_thermochemistry_facts(parsed),
                 "optimization":{"scope":"Opt and Freq machine evidence; ScientificAcceptance and thermodynamics pending",
                     "optimization_authority_id":authority["optimization"]["optimization_geometry_authority_id"],
                     "ensemble":{"conformer_ensemble_id":refined.conformer_ensemble_id,"payload_sha256":refined.payload_sha256,

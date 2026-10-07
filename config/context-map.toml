@@ -458,3 +458,10 @@ status = "offline-candidate-unreviewed"
 required_sections = ["OWNER_DECISIONS.md#od-38-bounded-same-project-q7-to-q8-profile-association", "docs/v3/contracts/tasks/project-profile-association.md"]
 code_paths = ["auto_g16/execution/_project_association.py", "auto_g16/execution/_project_association_source.py"]
 focused_tests = ["tests/v31/transport/test_project_profile_association.py", "tests/v31/transport/test_gaussian_freq_resources.py", "tests/v31/transport/test_publisher_collection_recovery.py", "tests/v31/transport/test_receipt_source.py", "tests/v31/conformer/test_successor_freq.py", "tests/v31/conformer/test_opt_readout_registration.py"]
+
+[[component]]
+id = "native-thermochemistry-reported-facts"
+status = "offline-candidate-unreviewed"
+required_sections = ["OWNER_DECISIONS.md#od-41-native-thermochemistry-reported-facts", "docs/v3/contracts/tasks/native-thermochemistry-reported-facts.md"]
+code_paths = ["auto_g16/conformer/frequency_readonly.py", "auto_g16/query/native.py"]
+focused_tests = ["tests/v31/conformer/test_successor_freq.py", "tests/v3/query/test_native.py"]

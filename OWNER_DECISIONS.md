@@ -1541,3 +1541,7 @@ once on the frozen candidate. Four repair cycles or 30 active minutes; running
 validation/review may finish afterward. Merge remains separately confirmed.
 No runtime, installation, computation, historical UNKNOWN or scientific rule
 changes are authorized by this amendment.
+
+## OD-41: Native thermochemistry reported facts
+
+On 2026-10-07 Owner accepted [the bounded r2 contract](docs/v3/contracts/tasks/native-thermochemistry-reported-facts.md), SHA-256 `8a1f8fb3896d353298d124ce36226b7fcbb1cbb96b1105b744eb6824e271a238`, and authorized its limited offline implementation, validation and independent read-only review. This activates NATIVE-THERMO-REPORTED-FACTS-01 (OWNER-GUIDED, non-BUS); the proposal status retained in the contract is historical. Only existing Gaussian reported facts are projected to native reads. No scientific parameters, thermodynamic eligibility, qRRHO, populations, commit/publication, integration, installation or computation are authorized. Preserve all existing source replay and read-only storage boundaries.
