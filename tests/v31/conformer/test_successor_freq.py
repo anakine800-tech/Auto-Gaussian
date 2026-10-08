@@ -470,3 +470,215 @@ class FrequencyIncompleteTailTests(FrequencyWorkflowTests):
 
 class FrequencyTruncatedTailTests(FrequencyIncompleteTailTests):
     freq_log_factory=staticmethod(lambda **kw: tail_log(**kw).split(b' 1\\1\\SYNTHETIC')[0])
+
+
+# New consumer tests use only synthetic local stores and the existing inert driver.
+def thermo_log(*, values=None, coords=COORDS, tail=False):
+    raw=tail_log(values=values) if tail else log_bytes(freq=True,values=values,coords=coords)
+    rows=(b' Molecular mass: 58.07825 amu.',b' Rotational symmetry number 1.',
+          b' Rotational temperatures (Kelvin) 1.0 2.0 3.0',b' Full point group C1 NOp 1',
+          b' Zero-point correction= 0.000000 (Hartree/Particle)',
+          b' Thermal correction to Gibbs Free Energy= -0.012000')
+    return raw.replace(LINES[36],b'\n'.join(rows)+b'\n'+LINES[36])
+
+
+def registered_thermo_fixture(fixture, inputs, *, schema=None, history=(), prior=None):
+    """Persist an exact synthetic registration, preserving all original owners."""
+    import json
+    from dataclasses import asdict
+    from pathlib import Path
+    from hashlib import sha256
+    from auto_g16.result._successor import _plain
+    from auto_g16.conformer._successor_freq import SCHEMA_V2
+    from auto_g16.conformer.frequency_readonly import load_freq_readout
+    from tests.v31.transport.test_publisher_pilot_orchestration import file_binding
+    opt=refine_opt_ensemble(fixture.ensemble,fixture.profile,
+        inputs=[dict(member_id=row['member_id'],**row['optimization']) for row in inputs])
+    prior=opt if prior is None else prior
+    refined=refine_freq_ensemble(prior,fixture.profile,optimization_ensemble=fixture.ensemble,
+        inputs=inputs,history=history,authority_schema=schema or SCHEMA_V2)
+    stages=[]
+    for stage in ('optimization','frequency'):
+        rows=[]
+        for row in inputs:
+            args=row[stage]
+            if args is None:continue
+            root=Path(args['transport_store']._path).parent
+            revision=root/'thermo-parsed.sqlite3'
+            if not revision.exists():revision.write_bytes(args['destination']._connection.serialize())
+            snapshot=root/'thermo-snapshot.json'
+            if not snapshot.exists():snapshot.write_text(json.dumps(_plain(args['snapshot']._approval_semantics())))
+            corepath=args['source_store']._connection.execute('PRAGMA database_list').fetchone()[2]
+            rows.append(dict(member_id=row['member_id'],original=dict(snapshot_id=args['snapshot'].program_execution_snapshot_id,
+                core=asdict(file_binding(Path(corepath))),transport=asdict(file_binding(Path(args['transport_store']._path))),
+                bootstrap_source_sha256='0'*64,bootstrap_source_size_bytes=1),snapshot=asdict(file_binding(snapshot)),
+                transport_root=str(root),revision=asdict(file_binding(revision)),parser_version='1.2.0'))
+        stages.append(rows)
+    import tempfile
+    temporary=tempfile.TemporaryDirectory();fixture.addCleanup(temporary.cleanup)
+    root=Path(temporary.name).resolve()
+    material=root/'material.json'
+    material.write_text(json.dumps(_plain(dict(profile=fixture.profile._identity_payload(),original=fixture.ensemble._identity_payload(),
+        opt_refined=opt._identity_payload(),history=[v._identity_payload() for v in history],
+        prior=prior._identity_payload(),refined=refined._identity_payload()))))
+    registry=json.dumps(dict(schema='auto-g16-freq-readout-registration/1',material=asdict(file_binding(material)),
+        optimization_sources=stages[0],frequency_sources=stages[1])).encode()
+    return load_freq_readout(registry,sha256(registry).hexdigest()),refined
+
+
+def inert_thermo_owners():
+    from contextlib import ExitStack
+    import auto_g16.conformer._successor_opt as opt_owner
+    import auto_g16.conformer._successor_freq as freq_owner
+    import auto_g16.conformer.frequency_readonly as read_owner
+    stack=ExitStack()
+    def opt(*args,**kwargs):return gaussian_result_source(*args,**{**kwargs,'validation_driver':_Driver({})})
+    def freq(*args,**kwargs):return gaussian_freq_result_source(*args,**{**kwargs,'validation_driver':_Driver({})})
+    stack.enter_context(patch.object(opt_owner,'gaussian_result_source',opt))
+    stack.enter_context(patch.object(freq_owner,'gaussian_freq_result_source',freq))
+    stack.enter_context(patch.object(read_owner,'gaussian_freq_result_source',freq))
+    for name in ('append_result','append_observation'):
+        stack.enter_context(patch.object(core.SQLiteRuntimeStore,name,side_effect=AssertionError('read wrote')))
+    return stack
+
+
+class NativeThermoReadTests(FrequencyWorkflowTests):
+    freq_log_factory=staticmethod(thermo_log)
+    test_complete_native_two_stage_and_serial_replay=None
+    test_forged_self_consistent_parsed_payload_rejected=None
+    test_old_reader_and_same_attempt_reject=None
+
+    def test_full_replay_tail_detached_projection_and_exit_failure(self):
+        from pathlib import Path
+        from auto_g16.conformer import readonly
+        from auto_g16.conformer._successor_thermo_source import read_native_thermo_inputs
+        import auto_g16.conformer._successor_thermo_source as owner
+        # A complete A.03 tail is accepted by the same existing source owner.
+        self.freq_log_factory=lambda **kw:thermo_log(tail=True,**kw)
+        freq=self.case('freq','attempt-tail',opt=self.authority)
+        readout,refined=registered_thermo_fixture(self,[dict(member_id='anti',optimization=self.opt,frequency=freq)])
+        paths=[readout.material.path]+[b.path for s in (*readout.optimization_sources,*readout.frequency_sources)
+                                     for b in (s.original.core,s.original.transport,s.revision)]
+        before={p:Path(p).read_bytes() for p in paths}
+        with inert_thermo_owners():
+            got=read_native_thermo_inputs(readout)
+            self.assertEqual(got,read_native_thermo_inputs(readout))
+            member=got['members'][0]
+            self.assertEqual(got['source_ensemble']['conformer_ensemble_id'],refined.conformer_ensemble_id)
+            self.assertEqual(member['minimum_authority'],refined.members[0]['two_stage_minimum_authority'])
+            self.assertIsNotNone(member['minimum_authority']['frequency']['tail_evidence'])
+            self.assertEqual(member['native_result']['parser_version'],'1.2.0')
+            self.assertEqual(member['thermo_facts']['molecular_mass_amu']['value'],58.07825)
+            self.assertEqual(member['thermo_facts']['gaussian_reported_thermochemistry']['zero_point_correction_hartree']['value_hartree'],0.)
+            with self.assertRaises(TypeError):member['thermo_facts']['molecular_mass_amu']['value']=0
+            self.assertFalse(any(p in repr(got) for p in paths))
+            with core.SQLiteRuntimeStore.read_snapshot(readout.frequency_sources[0].revision.path) as store:
+                old=readout.read(store,'attempt-tail')
+                self.assertEqual(old['thermochemistry'],member['thermo_facts']['gaussian_reported_thermochemistry'])
+            self.assertEqual({p:Path(p).read_bytes() for p in paths},before)
+            # Drift after projection construction must still prevent any return.
+            extract=owner.extract_successor_thermo_facts
+            def drift(**kw):
+                result=extract(**kw)
+                Path(readout.material.path).write_bytes(before[readout.material.path]+b' ')
+                return result
+            with patch.object(owner,'extract_successor_thermo_facts',drift):
+                with self.assertRaises(ValueError):read_native_thermo_inputs(readout)
+        self.assertTrue(readonly._OPT_READ_LOCK.acquire(timeout=.01));readonly._OPT_READ_LOCK.release()
+
+    def test_old_v1_zero_negative_and_caller_store_guards_remain(self):
+        from auto_g16.conformer._successor_freq import SCHEMA
+        from auto_g16.conformer._successor_thermo_source import read_native_thermo_inputs
+        for label,values,schema in (('v1',None,SCHEMA),('zero',tuple(range(36)),None),('negative',(-1.,*range(1,36)),None)):
+            with self.subTest(label=label):
+                freq=self.freq if values is None else self.case('freq','attempt-'+label,opt=self.authority,values=values)
+                readout,_=registered_thermo_fixture(self,[dict(member_id='anti',optimization=self.opt,frequency=freq)],schema=schema)
+                with inert_thermo_owners():
+                    with core.SQLiteRuntimeStore.read_snapshot(readout.frequency_sources[0].revision.path) as store:
+                        old=readout.read(store,freq['snapshot'].attempt_id)
+                        self.assertEqual(old['provenance']['frequency_count'],36)
+                        self.assertEqual(old['provenance']['zero_frequency_count'],int(label=='zero'))
+                        self.assertEqual(old['provenance']['imaginary_frequency_count'],int(label=='negative'))
+                    with self.assertRaises(ValueError):read_native_thermo_inputs(readout)
+                    with core.SQLiteRuntimeStore() as store:
+                        with self.assertRaisesRegex(ValueError,'query view differs'):readout.read(store,freq['snapshot'].attempt_id)
+
+    def test_snapshots_close_when_extraction_or_exit_fails(self):
+        from contextlib import contextmanager
+        import sqlite3
+        from auto_g16.conformer import readonly
+        import auto_g16.conformer._successor_thermo_source as owner
+        readout,_=registered_thermo_fixture(self,self.inputs())
+        original=core.SQLiteRuntimeStore.read_snapshot
+        for fail_exit in (False,True):
+            opened=[]
+            @contextmanager
+            def tracked(*args,**kwargs):
+                with original(*args,**kwargs) as store:
+                    opened.append(store)
+                    yield store
+                if fail_exit:raise ValueError('synthetic snapshot exit failure')
+            with inert_thermo_owners(),patch.object(core.SQLiteRuntimeStore,'read_snapshot',tracked):
+                if fail_exit:
+                    with self.assertRaisesRegex(ValueError,'snapshot exit'):owner.read_native_thermo_inputs(readout)
+                else:
+                    with patch.object(owner,'extract_successor_thermo_facts',side_effect=ValueError('synthetic extraction failure')):
+                        with self.assertRaisesRegex(ValueError,'extraction failure'):owner.read_native_thermo_inputs(readout)
+            self.assertTrue(opened)
+            for store in opened:
+                with self.assertRaises(sqlite3.ProgrammingError):store._connection.execute('SELECT 1')
+            self.assertTrue(readonly._OPT_READ_LOCK.acquire(timeout=.01));readonly._OPT_READ_LOCK.release()
+
+
+class NativeThermoTwoMemberTests(NativeThermoReadTests):
+    two_members=True
+    test_full_replay_tail_detached_projection_and_exit_failure=None
+    test_old_v1_zero_negative_and_caller_store_guards_remain=None
+    test_snapshots_close_when_extraction_or_exit_fails=None
+
+    def test_full_canonical_order_partial_old_reader_and_material_drift(self):
+        import json
+        from pathlib import Path
+        from tests.v31.transport.test_publisher_pilot_orchestration import file_binding
+        from auto_g16.conformer._successor_thermo_source import read_native_thermo_inputs
+        gopt=self.case('opt','attempt-3',coords=GAUCHE)
+        ga=read_opt_authority(self.ensemble,'gauche',**gopt)
+        partial=[dict(member_id='anti',optimization=self.opt,frequency=self.freq),dict(member_id='gauche',optimization=gopt,frequency=None)]
+        readout,first=registered_thermo_fixture(self,partial)
+        with inert_thermo_owners():
+            with core.SQLiteRuntimeStore.read_snapshot(readout.frequency_sources[0].revision.path) as store:
+                old=readout.read(store,'attempt-2')
+                self.assertEqual([m['status'] for m in old['optimization']['ensemble']['members']],['validated_minimum','optimized_frequency_pending'])
+            with self.assertRaisesRegex(ValueError,'every member'):read_native_thermo_inputs(readout)
+        self.freq_log_factory=lambda **kw:thermo_log(coords=GAUCHE,**kw)
+        gfreq=self.case('freq','attempt-4',coords=GAUCHE,opt=ga)
+        complete=[partial[0],dict(member_id='gauche',optimization=gopt,frequency=gfreq)]
+        readout,final=registered_thermo_fixture(self,complete,prior=first)
+        with inert_thermo_owners():
+            # Physical registration order is not the output order.
+            shuffled=replace(readout,optimization_sources=readout.optimization_sources[::-1],frequency_sources=readout.frequency_sources[::-1])
+            got=read_native_thermo_inputs(shuffled)
+            self.assertEqual(tuple(m['member_id'] for m in got['members']),tuple(m['member_id'] for m in final.members))
+            self.assertEqual(len(got['members']),2)
+            # Self-consistent outer hash cannot excuse a forged prior/material identity.
+            path=Path(readout.material.path);data=json.loads(path.read_bytes());data['prior']['revision']+=1
+            path.write_text(json.dumps(data));bad=replace(readout,material=file_binding(path))
+            with self.assertRaises(ValueError):read_native_thermo_inputs(bad)
+
+
+class NativeThermoSlotTests(unittest.TestCase):
+    def test_exact_readout_and_busy_before_invalid_old_attempt(self):
+        from types import SimpleNamespace
+        from auto_g16.conformer import readonly
+        from auto_g16.conformer.frequency_readonly import FreqReadout
+        from auto_g16.conformer._successor_thermo_source import read_native_thermo_inputs
+        class Subclass(FreqReadout):pass
+        for fake in ({},SimpleNamespace(),object.__new__(Subclass)):
+            with self.assertRaises(ValueError):read_native_thermo_inputs(fake)
+        reader=object.__new__(FreqReadout)
+        self.assertTrue(readonly._OPT_READ_LOCK.acquire(timeout=.01))
+        try:
+            with patch.object(readonly,'_OPT_READ_WAIT_SECONDS',.01):
+                with self.assertRaises(readonly.OptReadBusy):reader.read(None,'invalid')
+                with self.assertRaises(readonly.OptReadBusy):read_native_thermo_inputs(reader)
+        finally:readonly._OPT_READ_LOCK.release()

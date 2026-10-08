@@ -1,5 +1,5 @@
 """Pinned, detached two-stage readout. Only trusted local startup registers paths."""
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from hashlib import sha256
 from inspect import signature
@@ -87,54 +87,11 @@ class FreqReadout:
 
     def _read_serial(self,store,attempt_id):
         selected=self.source_for(attempt_id)
-        with ExitStack() as stack:
-            pins=[]
-            def pin(binding):
-                value=_PinnedPublisherFile(binding,64*1024*1024);stack.callback(value.close);pins.append(value)
-                return value.raw
-            def pairs(items):
-                d={}
-                for k,v in items:
-                    _require(k not in d,"duplicate Freq material key");d[k]=v
-                return d
-            material=json.loads(pin(self.material),object_pairs_hook=pairs)
-            _require(set(material)=={"profile","original","opt_refined","history","prior","refined"},"Freq material fields differ")
-            def restore(factory,payload,**extra):
-                value=factory(**extra,**{k:payload[k] for k in signature(factory).parameters if k in payload})
-                _require(_plain(value._identity_payload())==payload,"Freq material identity differs")
-                return value
-            profile=restore(SamplingProfile._create,material["profile"])
-            def ensemble(payload):
-                return restore(ConformerEnsemble._create,payload,profile=profile)
-            original=ensemble(material["original"]);prior=ensemble(material["prior"])
-            def opened(item):
-                pin(item.revision)
-                source=SQLiteRuntimeStore._open_readonly_existing(item.original.core.path);stack.callback(source.close)
-                transport=_ProgramTransportStore._open_readonly_existing(item.original.transport.path,approved_root=item.transport_root)
-                stack.callback(transport.close)
-                dest=stack.enter_context(SQLiteRuntimeStore.read_snapshot(item.revision.path))
-                if item is selected:
-                    _require(store._connection.serialize()==dest._connection.serialize(),"query view differs from Freq revision")
-                return dict(source_store=source,transport_store=transport,destination=dest,
-                    snapshot=_decode_program_review_semantics(json.loads(item.snapshot.content)),parser_version=item.parser_version)
-            opts={s.member_id:opened(s) for s in self.optimization_sources}
-            freqs={s.member_id:opened(s) for s in self.frequency_sources}
-            inputs=[dict(member_id=mid,optimization=args,frequency=freqs.get(mid)) for mid,args in opts.items()]
-            sources=(*self.optimization_sources,*self.frequency_sources)
-            with _gaussian_receipt_sources(tuple(s.original for s in sources)):
-                from ._successor_opt import refine_opt_ensemble
-                opt=refine_opt_ensemble(original,profile,inputs=[dict(member_id=mid,**args) for mid,args in opts.items()])
-                _require(_plain(opt._identity_payload())==material["opt_refined"],"registered Opt revision differs")
-                schemas = {a["authority_schema"] for m in material["refined"]["members"]
-                           if (a := m.get("two_stage_minimum_authority") or m.get("negative_frequency_authority")) is not None}
-                _require(len(schemas) == 1, "Freq material authority schemas differ")
-                refined=refine_freq_ensemble(prior,profile,optimization_ensemble=original,inputs=inputs,
-                                             history=[ensemble(p) for p in material["history"]],authority_schema=next(iter(schemas)))
-                _require(_plain(refined._identity_payload())==material["refined"],"registered Freq refinement differs")
-                args=freqs[selected.member_id]
-                with gaussian_freq_result_source(args["source_store"],snapshot=args["snapshot"],transport_store=args["transport_store"]) as (_,payload,_,log):
-                    observation,result,_,parsed=parse_freq_source(payload,log)
-                    require_pair(store,observation,result)
+        with _replayed_frequency(self, store=store, selected=selected) as (_, prior, refined, opts, freqs):
+            args=freqs[selected.member_id]
+            with gaussian_freq_result_source(args["source_store"],snapshot=args["snapshot"],transport_store=args["transport_store"]) as (_,payload,_,log):
+                observation,result,_,parsed=parse_freq_source(payload,log)
+                require_pair(store,observation,result)
             member=next(m for m in refined.members if m["member_id"]==selected.member_id)
             authority=member["two_stage_minimum_authority"] or member["negative_frequency_authority"]
             facts=parsed.facts
@@ -156,5 +113,56 @@ class FreqReadout:
                         "member_id":selected.member_id,"status":member["post_dft_status"],
                         "members":[{"member_id":m["member_id"],"status":m["post_dft_status"]} for m in refined.members],
                         "thermodynamic_eligible_members":(),"ts_seed_members":(),"audit":refined.audit_evidence,"dedup":refined.dedup_decisions}}})
-            for value in pins:value._read_and_check()
             return projection
+
+
+@contextmanager
+def _replayed_frequency(readout, *, store=None, selected=None):
+    """Internal resources stay inside this context; no new consumer policy here."""
+    with ExitStack() as stack:
+        pins=[]
+        def pin(binding):
+            value=_PinnedPublisherFile(binding,64*1024*1024);stack.callback(value.close);pins.append(value)
+            return value.raw
+        def pairs(items):
+            d={}
+            for k,v in items:
+                _require(k not in d,"duplicate Freq material key");d[k]=v
+            return d
+        material=json.loads(pin(readout.material),object_pairs_hook=pairs)
+        _require(set(material)=={"profile","original","opt_refined","history","prior","refined"},"Freq material fields differ")
+        def restore(factory,payload,**extra):
+            value=factory(**extra,**{k:payload[k] for k in signature(factory).parameters if k in payload})
+            _require(_plain(value._identity_payload())==payload,"Freq material identity differs")
+            return value
+        profile=restore(SamplingProfile._create,material["profile"])
+        def ensemble(payload):
+            return restore(ConformerEnsemble._create,payload,profile=profile)
+        original=ensemble(material["original"]);prior=ensemble(material["prior"])
+        def opened(item):
+            pin(item.revision)
+            source=SQLiteRuntimeStore._open_readonly_existing(item.original.core.path);stack.callback(source.close)
+            transport=_ProgramTransportStore._open_readonly_existing(item.original.transport.path,approved_root=item.transport_root)
+            stack.callback(transport.close)
+            dest=stack.enter_context(SQLiteRuntimeStore.read_snapshot(item.revision.path))
+            if item is selected:
+                _require(store._connection.serialize()==dest._connection.serialize(),"query view differs from Freq revision")
+            return dict(source_store=source,transport_store=transport,destination=dest,
+                snapshot=_decode_program_review_semantics(json.loads(item.snapshot.content)),parser_version=item.parser_version)
+        opts={s.member_id:opened(s) for s in readout.optimization_sources}
+        freqs={s.member_id:opened(s) for s in readout.frequency_sources}
+        inputs=[dict(member_id=mid,optimization=args,frequency=freqs.get(mid)) for mid,args in opts.items()]
+        sources=(*readout.optimization_sources,*readout.frequency_sources)
+        with _gaussian_receipt_sources(tuple(s.original for s in sources)):
+            from ._successor_opt import refine_opt_ensemble
+            opt=refine_opt_ensemble(original,profile,inputs=[dict(member_id=mid,**args) for mid,args in opts.items()])
+            _require(_plain(opt._identity_payload())==material["opt_refined"],"registered Opt revision differs")
+            schemas = {a["authority_schema"] for m in material["refined"]["members"]
+                       if (a := m.get("two_stage_minimum_authority") or m.get("negative_frequency_authority")) is not None}
+            _require(len(schemas) == 1, "Freq material authority schemas differ")
+            refined=refine_freq_ensemble(prior,profile,optimization_ensemble=original,inputs=inputs,
+                                         history=[ensemble(p) for p in material["history"]],authority_schema=next(iter(schemas)))
+            _require(_plain(refined._identity_payload())==material["refined"],"registered Freq refinement differs")
+            yield profile, prior, refined, opts, freqs
+        for value in pins:
+            value._read_and_check()

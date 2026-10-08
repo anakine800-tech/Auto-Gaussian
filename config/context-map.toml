@@ -465,3 +465,10 @@ status = "offline-candidate-unreviewed"
 required_sections = ["OWNER_DECISIONS.md#od-41-native-thermochemistry-reported-facts", "docs/v3/contracts/tasks/native-thermochemistry-reported-facts.md"]
 code_paths = ["auto_g16/conformer/frequency_readonly.py", "auto_g16/query/native.py"]
 focused_tests = ["tests/v31/conformer/test_successor_freq.py", "tests/v3/query/test_native.py"]
+
+[[component]]
+id = "native-thermochemistry-source-adapter"
+status = "offline-candidate-unreviewed"
+required_sections = ["OWNER_DECISIONS.md#od-42-native-thermochemistry-source-adapter", "docs/v3/contracts/tasks/native-thermochemistry-source-adapter.md"]
+code_paths = ["auto_g16/conformer/_successor_thermo_source.py", "auto_g16/conformer/frequency_readonly.py", "auto_g16/thermochemistry/_successor_facts.py"]
+focused_tests = ["tests/v31/conformer/test_successor_freq.py", "tests/v31/thermochemistry/test_core.py", "tests/v3/query/test_native.py"]

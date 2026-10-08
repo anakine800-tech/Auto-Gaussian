@@ -383,6 +383,40 @@ class ThermochemistryCoreTests(unittest.TestCase):
             members.append({**dict(member), **changes} if member["member_id"] == member_id else dict(member))
         return self._refined(members, self.refined.thermodynamic_eligible_members)
 
+    def _set_synthetic_energies(self, energies):
+        members = []
+        for member, energy in zip(self.refined.members, energies):
+            mid = member['member_id']
+            raw, result = self._result(mid, energy=energy)
+            minimum, optimization = self._minimum(mid, result)
+            self.raw_by_member[mid], self.result_by_member[mid] = raw, result
+            members.append({**dict(member), 'two_stage_minimum_authority': minimum,
+                            'optimization_geometry_authority': optimization})
+        self.refined = self._refined(members, self.refined.thermodynamic_eligible_members)
+
+    def test_numeric_equal_energy_has_exact_degeneracy_ratio(self):
+        self._set_synthetic_energies((-100., -100.))
+        result = self.build(self.inputs(degeneracy_b=3))
+        self.assertEqual([round(m['normalized_population'], 12) for m in result.member_observations], [0.25, 0.75])
+
+    def test_numeric_extreme_energy_and_large_integer_degeneracy_are_finite(self):
+        self._set_synthetic_energies((-1000., 1000.))
+        result = self.build(self.inputs(degeneracy_b=10**400))
+        values = [m['normalized_population'] for m in result.member_observations]
+        self.assertTrue(math.isfinite(result.ensemble_treated_free_energy_hartree))
+        self.assertTrue(all(math.isfinite(v) and v >= 0. for v in values))
+        self.assertAlmostEqual(math.fsum(values), 1., places=12)
+
+    def test_numeric_ensemble_gibbs_has_independent_partition_oracle(self):
+        inputs = self.inputs(degeneracy_b=5)
+        inputs[0]['degeneracy'] = 2
+        result = self.build(inputs)
+        rt = result.gas_constant_binding['gas_constant_hartree_per_mol_k'] * result.temperature_k
+        gs = [m['treated_qrrho']['gibbs_free_energy_hartree'] for m in result.member_observations]
+        ref = min(gs)
+        partition = sum(d * math.exp(-(g-ref)/rt) for d,g in zip((2,5),gs))
+        self.assertAlmostEqual(result.ensemble_treated_free_energy_hartree, ref-rt*math.log(partition), places=12)
+
     def test_01_public_surface_has_one_record(self):
         self.assertEqual(thermochemistry.__all__, ["ThermodynamicEnsemble"])
         self.assertTrue(is_dataclass(ThermodynamicEnsemble))
@@ -526,10 +560,11 @@ class ThermochemistryCoreTests(unittest.TestCase):
         self.assertEqual(result.population_normalization["status"], "normalized")
 
     def test_23_invalid_degeneracy_rejects(self):
-        inputs = self.inputs()
-        inputs[0]["degeneracy"] = True
-        with self.assertRaisesRegex(ThermochemistryError, "positive integer"):
-            self.build(inputs)
+        for value in (True, 1.0, 0, -1):
+            inputs = self.inputs()
+            inputs[0]["degeneracy"] = value
+            with self.subTest(value=value), self.assertRaisesRegex(ThermochemistryError, "positive integer"):
+                self.build(inputs)
 
     def test_24_raw_and_treated_values_are_distinct(self):
         result = self.build()
@@ -758,6 +793,134 @@ class ThermochemistryCoreTests(unittest.TestCase):
                 observation["two_stage_minimum_authority_id"],
                 self.minimum_by_member[member_id][0]["two_stage_minimum_authority_id"],
             )
+
+
+class NativeThermoFactTests(unittest.TestCase):
+    """Pure extraction after synthetic owner replay; no live materials."""
+    def setUp(self):
+        from tests.v31.conformer import test_successor_freq as fixtures
+        from auto_g16.conformer._successor_freq import SCHEMA_V2
+        self.fixtures = fixtures
+        self.workflow = fixtures.FrequencyWorkflowTests()
+        self.workflow.freq_log_factory = lambda **kw: fixtures.log_bytes(freq=True, **kw, extra=(
+            b' Molecular mass: 58.07825 amu.',
+            b' Rotational symmetry number  1.',
+            b' Rotational temperatures (Kelvin) 1.0 2.0 3.0',
+            b' Full point group C1 NOp 1',
+            b' Zero-point correction= 0.0 (Hartree/Particle)',
+            b' Thermal correction to Gibbs Free Energy= -0.012345',
+        ))
+        self.workflow.setUp()
+        self.addCleanup(self.workflow.doCleanups)
+        w = self.workflow
+        self.minimum = fixtures.read_two_stage_authority(w.ensemble, 'anti', optimization=w.opt,
+            frequency=w.freq, authority_schema=SCHEMA_V2)
+        args = w.freq
+        with fixtures.gaussian_freq_result_source(args['source_store'], snapshot=args['snapshot'],
+                transport_store=args['transport_store'], validation_driver=args['validation_driver']) as (_, payload, _, log):
+            self.payload, self.raw = payload, log
+        self.kwargs = self.rebuild(self.raw)
+
+    def rebuild(self, raw, *, attempt=None):
+        from auto_g16.result._successor import _plain, parse_freq_source, payload_hash
+        payload = _plain(self.payload)
+        payload['log'].update(sha256=sha256(raw).hexdigest(), size_bytes=len(raw))
+        if attempt is not None:
+            payload['attempt_id'] = attempt
+        obs, result, _, parsed = parse_freq_source(payload, raw)
+        minimum = _plain(self.minimum)
+        f = minimum['frequency']
+        f['result_source'] = {'observation_id': obs.observation_id, 'payload_sha256': payload_hash(obs.data)}
+        f['parsed_result'] = {'result_id': result.result_id, 'payload_sha256': payload_hash(result.data)}
+        f['frequency_blocks'] = _plain(parsed.facts['frequency_blocks'])
+        f['frequencies_cm1'] = _plain(parsed.facts['frequencies_cm-1'])
+        f['mode_count'] = parsed.facts['frequency_count']
+        # Freeze this deliberately reconstructed synthetic authority just like its owner.
+        self.reidentify(minimum)
+        from auto_g16.conformer.models import _freeze_mapping
+        return dict(raw_gaussian_bytes=raw, source_result=parsed,
+                    minimum_authority=_freeze_mapping(minimum, 'test authority'), native_source=obs, native_result=result)
+
+    @staticmethod
+    def reidentify(value):
+        from auto_g16.result._successor import payload_hash
+        value['two_stage_minimum_authority_id'] = payload_hash({'domain': value['authority_schema'],
+            'payload': {k:v for k,v in value.items() if k != 'two_stage_minimum_authority_id'}})
+
+    def extract(self, **changes):
+        from auto_g16.thermochemistry._successor_facts import extract_successor_thermo_facts
+        return extract_successor_thermo_facts(**{**self.kwargs, **changes})
+
+    def test_exact_native_identities_values_spans_and_freeze(self):
+        value = self.extract()
+        self.assertNotEqual(self.kwargs['source_result'].result_id, self.kwargs['native_result'].result_id)
+        self.assertEqual(value['electronic_energy_hartree']['value'], -158.0)
+        self.assertEqual(value['molecular_mass_amu']['value'], 58.07825)
+        self.assertEqual(len(value['frequencies_cm1']), 36)
+        self.assertEqual(value['gaussian_reported_thermochemistry']['zero_point_correction_hartree']['value_hartree'], 0.)
+        self.assertLess(value['gaussian_reported_thermochemistry']['thermal_correction_gibbs_hartree']['value_hartree'], 0.)
+        span = value['molecular_mass_amu']['source_spans'][0]
+        self.assertEqual(self.raw[span['start']:span['end']], b' Molecular mass: 58.07825 amu.\n')
+        with self.assertRaises(TypeError):
+            value['molecular_mass_amu']['value'] = 1
+
+    def test_exact_types_and_self_consistent_cross_attempt_splices_reject(self):
+        other = self.rebuild(self.raw, attempt='other-attempt')
+        for key in ('native_source', 'native_result', 'source_result'):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                self.extract(**{key: other[key]})
+        with self.assertRaises(ValueError):
+            self.extract(native_result={'result_id': self.kwargs['native_result'].result_id})
+        with self.assertRaises(ValueError):
+            self.extract(raw_gaussian_bytes=self.raw + b' ')
+
+    def test_self_consistent_authority_method_span_and_source_splices_reject(self):
+        from auto_g16.result._successor import _plain
+        for field in ('method', 'source', 'span', 'schema', 'tail'):
+            a = _plain(self.minimum)
+            if field == 'method': a['method_binding']['basis'] = 'other'
+            elif field == 'source': a['frequency']['parsed_result']['result_id'] = 'other'
+            elif field == 'span': a['frequency']['frequency_blocks'][0]['source_span']['end'] += 1
+            elif field == 'schema': a['authority_schema'] = a['authority_schema'][:-1]+'1'
+            else: a['frequency']['tail_evidence'] = {}
+            self.reidentify(a)
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                self.extract(minimum_authority=a)
+
+    def test_line_endings_d_exponent_repeated_symmetry_and_missing_point_group(self):
+        raw = self.raw.replace(b'58.07825', b'5.807825D+1').replace(b' Full point group C1 NOp 1\n', b'')
+        raw = raw.replace(b' Rotational symmetry number  1.\n', b' Rotational symmetry number  1.\n'*2)
+        raw = raw.replace(b'\n', b'\r\n')
+        from auto_g16.thermochemistry._successor_facts import extract_successor_thermo_facts
+        value = extract_successor_thermo_facts(**self.rebuild(raw))
+        self.assertEqual(value['molecular_mass_amu']['value'], 58.07825)
+        self.assertIsNone(value['point_group_diagnostic'])
+        self.assertEqual(len(value['rotational_symmetry_number']['source_spans']), 2)
+        span = value['molecular_mass_amu']['source_spans'][0]
+        self.assertEqual(raw[span['start']:span['end']], b' Molecular mass: 5.807825D+1 amu.\r\n')
+
+    def test_missing_duplicate_conflicting_and_false_line_facts_reject(self):
+        from auto_g16.thermochemistry._successor_facts import extract_successor_thermo_facts
+        mass = b' Molecular mass: 58.07825 amu.\n'
+        sym = b' Rotational symmetry number  1.\n'
+        rot = b' Rotational temperatures (Kelvin) 1.0 2.0 3.0\n'
+        variants = [self.raw.replace(mass,b''), self.raw.replace(mass,mass*2),
+                    self.raw.replace(sym,b''), self.raw.replace(sym,sym+b' Rotational symmetry number  2.\n'),
+                    self.raw.replace(rot,b''), self.raw.replace(rot,rot*2),
+                    self.raw.replace(rot,b' Rotational temperatures (Kelvin) 0.0 2.0 3.0\n')]
+        variants += [self.raw.replace(sym,b'junk'+separator+sym) for separator in (b'\x0b',b'\x0c',b'\xc2\x85')]
+        for raw in variants:
+            with self.subTest(raw=sha256(raw).hexdigest()), self.assertRaises(ValueError):
+                extract_successor_thermo_facts(**self.rebuild(raw))
+
+    def test_zero_negative_modes_reject_and_reported_empty_mapping_preserved(self):
+        from auto_g16.thermochemistry._successor_facts import extract_successor_thermo_facts
+        for token in (b'0',b'-1'):
+            raw = self.raw.replace(b'Frequencies -- 100 ', b'Frequencies -- '+token+b' ')
+            with self.assertRaisesRegex(ValueError, 'positive finite'):
+                extract_successor_thermo_facts(**self.rebuild(raw))
+        raw = self.raw.replace(b' Zero-point correction= 0.0 (Hartree/Particle)\n', b'').replace(b' Thermal correction to Gibbs Free Energy= -0.012345\n',b'')
+        self.assertEqual(extract_successor_thermo_facts(**self.rebuild(raw))['gaussian_reported_thermochemistry'], {})
 
 
 if __name__ == "__main__":
