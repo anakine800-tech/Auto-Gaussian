@@ -59,7 +59,14 @@ def fixture_compilation_cache():
                            optimize=-1, *, _feature_version=-1):
             try:
                 flags = index(flags)
-                dont_inherit = bool(dont_inherit)
+                if type(dont_inherit) is not bool:
+                    # Let the running builtin apply its own conversion rules:
+                    # supported Python minors differ on index vs truthiness.
+                    # This module's annotations flag reveals the normalized
+                    # value without evaluating a caller object a second time.
+                    probe = _ORIGINAL_COMPILE("", "<fixture-inheritance-probe>",
+                                              "exec", dont_inherit=dont_inherit)
+                    dont_inherit = not bool(probe.co_flags & __future__.annotations.compiler_flag)
                 caller = sys._getframe(1)
                 try:
                     inherited = caller.f_code.co_flags & _FUTURE_MASK if not dont_inherit else 0

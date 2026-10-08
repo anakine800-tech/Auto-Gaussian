@@ -141,11 +141,14 @@ class FixtureCompilationCacheTests(unittest.TestCase):
                 with cache.fixture_compilation_cache():
                     self.assertEqual(outcome(), original)
 
-    def test_dont_inherit_truthiness_matches_uncached_compile(self):
+    def test_dont_inherit_conversion_matches_uncached_compile(self):
         self.backend.write_text("def value(item: UndefinedName): return item\n")
         for expression in ("type('IndexInherit', (), {'__index__': lambda self: 0})()",
                            "type('IndexInherit', (), {'__index__': lambda self: 1})()",
-                           "1.5", "'0'"):
+                           "type('ConflictingInherit', (), {'__index__': lambda self: 0,"
+                           " '__bool__': lambda self: True})()",
+                           "None", "False", "True", "0", "1", "-1",
+                           "1 << 100", "-(1 << 100)", "1.5", "'0'"):
             with self.subTest(dont_inherit=expression):
                 self.wrapper_source("from __future__ import annotations\n",
                                     ", dont_inherit=" + expression)
@@ -157,6 +160,24 @@ class FixtureCompilationCacheTests(unittest.TestCase):
                 original = outcome()
                 with cache.fixture_compilation_cache():
                     self.assertEqual(outcome(), original)
+
+    def test_dont_inherit_conversion_runs_once_per_load_including_cache_hit(self):
+        self.wrapper_source(
+            "from __future__ import annotations\n"
+            "calls = []\n"
+            "class Inherit:\n"
+            "    def __index__(self):\n"
+            "        calls.append('index')\n"
+            "        return 0\n"
+            "    def __bool__(self):\n"
+            "        calls.append('bool')\n"
+            "        return False\n", ", dont_inherit=Inherit()")
+        expected = self.load().calls
+        self.assertEqual(len(expected), 1)
+        with cache.fixture_compilation_cache() as stats:
+            self.assertEqual(self.load().calls, expected)
+            self.assertEqual(self.load().calls, expected)
+            self.assertEqual((stats.misses, stats.hits), (1, 1))
 
     def test_mode_subclass_cannot_alias_an_exec_cache_entry(self):
         with cache.fixture_compilation_cache() as stats:
