@@ -1549,3 +1549,8 @@ On 2026-10-07 Owner accepted [the bounded r2 contract](docs/v3/contracts/tasks/n
 ## OD-42: Native thermochemistry source adapter
 
 On 2026-10-08 Owner accepted the independently reviewed [r2 source-adapter contract](docs/v3/contracts/tasks/native-thermochemistry-source-adapter.md), SHA-256 `cfb23dcb6e98bf770b2781079792aacb8d9190bd5babcb31e747eac5d944cecd`, and continued limited offline implementation, validation and independent code review in NATIVE-THERMO-ADAPTATION-01. Retained proposal status is historical. The new private input-facts consumer replays complete native sources; it does not promote thermodynamic eligibility, compute real thermochemistry or populations, persist new records, or widen historical readers. Publication, integration, installation, real-store replay and scientific parameters remain separate.
+
+
+## OD-43: Native thermochemistry eligibility and compute
+
+Owner accepted the independently reviewed [r2 eligibility-and-compute contract](docs/v3/contracts/tasks/native-thermochemistry-eligibility-compute.md), SHA-256 `e7b1469c17bb576df7bab3ff78393681283714c1630e7c61b497c308c99c6020`, and authorized its bounded offline implementation, validation and independent review in NATIVE-THERMO-ADAPTATION-02 (OWNER-GUIDED, non-BUS). The proposal header is retained as historical evidence. This permits a two-member native source replay, in-memory eligibility revision and reuse of the existing thermochemistry kernel under explicit synthetic policies. It does not select real scientific parameters or authorize real-source replay/computation, persistence, deployment, commit/publication, integration or cleanup.

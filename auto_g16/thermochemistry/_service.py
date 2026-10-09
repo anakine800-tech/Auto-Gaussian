@@ -428,6 +428,18 @@ def _build_thermodynamic_ensemble(
             "degeneracy_rationale": rationale,
             "inclusion_status": "included_thermodynamic_eligible",
         })
+    return _finish_thermodynamic_ensemble(
+        ensemble=ensemble, policy=policy, standard_state=standard_state,
+        normalized_members=normalized_members, gas_constant=gas_constant,
+        joule_to_au=joule_to_au,
+    )
+
+
+def _finish_thermodynamic_ensemble(
+    *, ensemble, policy, standard_state, normalized_members, gas_constant, joule_to_au,
+):
+    """Shared aggregation of already validated, complete normalized members."""
+    eligible = ensemble.thermodynamic_eligible_members
     first = normalized_members[0]
     _require(
         all(item["method_compatibility_id"] == first["method_compatibility_id"] for item in normalized_members),
