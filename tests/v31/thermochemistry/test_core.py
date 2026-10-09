@@ -421,6 +421,14 @@ class ThermochemistryCoreTests(unittest.TestCase):
         self.assertEqual(thermochemistry.__all__, ["ThermodynamicEnsemble"])
         self.assertTrue(is_dataclass(ThermodynamicEnsemble))
 
+    def test_shared_finish_preserves_pre_native_complete_payload_identity(self):
+        # Captured from the unchanged 12a4a5c baseline with this exact synthetic fixture.
+        result = self.build()
+        self.assertEqual(result.thermodynamic_ensemble_id,
+                         "thermodynamic-ensemble-d6fea206d3cc4bd50104d3a4769967d95c10a8bfcbc0e41c9bb349338ca92302")
+        self.assertEqual(result.payload_sha256,
+                         "1684c57716d61cc66e7bbb973c341bc52ec85f95dcaf41289dfa8d465949f77e")
+
     def test_02_deterministic_ensemble_identity(self):
         first = self.build()
         second = self.build(list(reversed(self.inputs())))

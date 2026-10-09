@@ -682,3 +682,300 @@ class NativeThermoSlotTests(unittest.TestCase):
                 with self.assertRaises(readonly.OptReadBusy):reader.read(None,'invalid')
                 with self.assertRaises(readonly.OptReadBusy):read_native_thermo_inputs(reader)
         finally:readonly._OPT_READ_LOCK.release()
+
+
+class NativeThermochemistryTests(FrequencyWorkflowTests):
+    """Synthetic two-member computation; no installed/live source registration."""
+    two_members = True
+    freq_log_factory = staticmethod(thermo_log)
+    test_complete_native_two_stage_and_serial_replay = None
+    test_forged_self_consistent_parsed_payload_rejected = None
+    test_old_reader_and_same_attempt_reject = None
+
+    def setUp(self):
+        super().setUp()
+        from tests.v31.thermochemistry import test_core as thermo_fixture
+        self.thermo_fixture = thermo_fixture
+        legacy = thermo_fixture.ThermochemistryCoreTests()
+        legacy.setUp()
+        self.policy = dict(legacy.policy)
+        gopt = self.case('opt', 'attempt-3', coords=GAUCHE)
+        authority = read_opt_authority(self.ensemble, 'gauche', **gopt)
+        self.freq_log_factory = lambda **kw: thermo_log(coords=GAUCHE, **kw)
+        gfreq = self.case('freq', 'attempt-4', coords=GAUCHE, opt=authority)
+        self.complete = [dict(member_id='anti', optimization=self.opt, frequency=self.freq),
+                         dict(member_id='gauche', optimization=gopt, frequency=gfreq)]
+        self.readout, self.source = registered_thermo_fixture(self, self.complete)
+        from auto_g16.thermochemistry._native_service import _source_binding, _profile_binding
+        self.request = dict(
+            schema='auto-g16-native-thermochemistry-request/1', purpose='bounded_workflow_validation',
+            source_ensemble=_source_binding(self.source), sampling_profile=_profile_binding(self.profile),
+            source_member_ids=('anti', 'gauche'),
+            coverage_scope=dict(kind='frozen_profile_nonexhaustive_scope', rationale='Synthetic complete two-member fixture'),
+            method_binding=dict(self.source.members[0]['two_stage_minimum_authority']['method_binding']),
+            thermochemistry_policy=self.policy,
+            member_policies=tuple(dict(member_id=mid, degeneracy=d, degeneracy_rationale='Synthetic integer weighting',
+                                      symmetry_rationale='Synthetic Gaussian sigma convention')
+                                  for mid, d in (('anti', 1), ('gauche', 3))),
+        )
+
+    def build(self, request=None):
+        from auto_g16.conformer._successor_thermochemistry import build_native_thermodynamic_ensemble
+        with inert_thermo_owners(), patch('auto_g16.thermochemistry._goodvibes._load_goodvibes_kernels',
+                                         side_effect=self.thermo_fixture._fake_kernels):
+            return build_native_thermodynamic_ensemble(self.readout, request=self.request if request is None else request)
+
+    def source_facts(self):
+        from auto_g16.conformer._successor_thermo_source import read_native_thermo_inputs
+        with inert_thermo_owners():
+            return read_native_thermo_inputs(self.readout)
+
+    def test_complete_source_to_ensemble_with_independent_partition_oracle(self):
+        import math
+        from auto_g16.thermochemistry._native_service import _PRESERVED
+        before = self.source._identity_payload()
+        facts = self.source_facts()
+        qualified, result = self.build()
+        repeated = self.build()
+        self.assertEqual((qualified, result), repeated)
+        self.assertEqual(before, self.source._identity_payload())
+        self.assertEqual(qualified.revision, self.source.revision + 1)
+        self.assertEqual(qualified.supersedes_conformer_ensemble_id, self.source.conformer_ensemble_id)
+        self.assertEqual(qualified.audit_evidence[:-1], self.source.audit_evidence)
+        for key in _PRESERVED:
+            self.assertEqual(getattr(qualified, key), getattr(self.source, key))
+        self.assertEqual(qualified.thermodynamic_eligible_members, ('anti', 'gauche'))
+        self.assertEqual(result.source_member_ids, qualified.thermodynamic_eligible_members)
+        self.assertEqual(result.conformer_ensemble_id, qualified.conformer_ensemble_id)
+        rows = result.member_observations
+        self.assertAlmostEqual(rows[0]['normalized_population'], .25, places=14)
+        self.assertAlmostEqual(rows[1]['normalized_population'], .75, places=14)
+        rt = 8.3144621 / (4.184 * 627.509541 * 1000) * self.policy['temperature_k']
+        expected = rows[0]['treated_qrrho']['gibbs_free_energy_hartree'] - rt * math.log(4)
+        self.assertAlmostEqual(result.ensemble_treated_free_energy_hartree, expected, places=13)
+        for row, original in zip(rows, facts['members']):
+            self.assertEqual(row['source_provenance']['thermo_facts'], original['thermo_facts'])
+            self.assertEqual(row['source_provenance']['minimum_authority'], original['minimum_authority'])
+            self.assertEqual(row['method_compatibility_binding']['method'], self.request['method_binding'])
+            self.assertEqual(row['source_provenance']['request_id'], qualified.audit_evidence[-1]['request_id'])
+        self.assertEqual(self.source_facts(), facts)
+        with self.assertRaises(TypeError):
+            result.member_observations[0]['source_provenance']['request_id'] = 'changed'
+
+    def test_explicit_synthetic_temperature_standard_state_and_degeneracy_change_identity(self):
+        baseline, first = self.build()
+        for state, temperature in (('1M', 298.15), ('1atm', 350.0)):
+            with self.subTest(state=state, temperature=temperature):
+                request = {**self.request, 'thermochemistry_policy': {**self.policy, 'standard_state': state, 'temperature_k': temperature}}
+                qualified, result = self.build(request)
+                self.assertNotEqual(qualified.conformer_ensemble_id, baseline.conformer_ensemble_id)
+                self.assertNotEqual(result.payload_sha256, first.payload_sha256)
+                self.assertEqual(result.standard_state, state)
+                self.assertEqual(result.temperature_k, temperature)
+                if state == '1M':
+                    self.assertEqual(result.standard_state_binding['concentration_mol_per_l'], 1.)
+        request = {**self.request, 'member_policies': tuple({**p, 'degeneracy': 1} for p in self.request['member_policies'])}
+        qualified, result = self.build(request)
+        self.assertNotEqual(qualified.payload_sha256, baseline.payload_sha256)
+        self.assertAlmostEqual(result.member_observations[0]['normalized_population'], .5)
+
+    def test_closed_request_rejections_precede_kernel(self):
+        from auto_g16.thermochemistry._native_service import _normalize_request
+        cases = [None, {}, {**self.request, 'extra': 1}, {**self.request, 'source_member_ids': ('anti',)},
+                 {**self.request, 'source_member_ids': ('anti', 'anti')},
+                 {**self.request, 'method_binding': {**self.request['method_binding'], 'route_contract_version': 'opt'}},
+                 {**self.request, 'method_binding': {**self.request['method_binding'], 'charge': False}},
+                 {**self.request, 'method_binding': {**self.request['method_binding'], 'basis': 'other'}},
+                 {**self.request, 'method_binding': {k: v for k, v in self.request['method_binding'].items() if k != 'solvent'}}]
+        for d in (None, True, 1., 0, -1):
+            cases.append({**self.request, 'member_policies': ({**self.request['member_policies'][0], 'degeneracy': d}, self.request['member_policies'][1])})
+        for field in ('degeneracy_rationale', 'symmetry_rationale'):
+            cases.append({**self.request, 'member_policies': ({**self.request['member_policies'][0], field: ''}, self.request['member_policies'][1])})
+        for key in ('temperature_k', 'entropy_frequency_cutoff_cm1', 'enthalpy_frequency_cutoff_cm1', 'frequency_scaling_factor', 'zpe_scaling_factor'):
+            for value in (None, float('nan'), float('inf'), 0, -1, True):
+                cases.append({**self.request, 'thermochemistry_policy': {**self.policy, key: value}})
+        with patch('auto_g16.thermochemistry._goodvibes._load_goodvibes_kernels') as kernel:
+            for i, request in enumerate(cases):
+                with self.subTest(case=i), self.assertRaises(ValueError):
+                    _normalize_request(request)
+            kernel.assert_not_called()
+
+    def test_wrong_source_profile_order_and_subset_rejected_before_kernel(self):
+        from auto_g16.conformer._successor_thermochemistry import build_native_thermodynamic_ensemble
+        cases = [
+            {**self.request, 'source_ensemble': {**self.request['source_ensemble'], 'payload_sha256': '0' * 64}},
+            {**self.request, 'sampling_profile': {**self.request['sampling_profile'], 'sampling_profile_id': 'another'}},
+            {**self.request, 'source_member_ids': ('gauche', 'anti'), 'member_policies': self.request['member_policies'][::-1]},
+        ]
+        with inert_thermo_owners(), patch('auto_g16.thermochemistry._goodvibes._load_goodvibes_kernels') as kernel:
+            for i, request in enumerate(cases):
+                with self.subTest(case=i), self.assertRaises(ValueError):
+                    build_native_thermodynamic_ensemble(self.readout, request=request)
+            kernel.assert_not_called()
+
+    def clone_ensemble(self, original, **changes):
+        from auto_g16.conformer.models import ConformerEnsemble
+        keys = ('project_id', 'calculation_plan_id', 'calculation_plan_revision', 'sampling_observations',
+                'audit_evidence', 'negative_evidence', 'dedup_decisions', 'independent_review_blockers',
+                'clusters', 'members', 'coverage', 'thermodynamic_eligible_members', 'ts_seed_members',
+                'revision', 'supersedes_conformer_ensemble_id')
+        return ConformerEnsemble._create(profile=self.profile, **{**{k: getattr(original, k) for k in keys}, **changes})
+
+    def test_self_consistent_qualified_revision_forgery_rejected(self):
+        from auto_g16.thermochemistry._native_service import _build_native_thermodynamic_ensemble, _qualify_ensemble
+        facts = self.source_facts()
+        qualified = _qualify_ensemble(self.source, self.profile, facts, self.request)
+        cases = [dict(revision=qualified.revision + 1), dict(supersedes_conformer_ensemble_id='another'),
+                 dict(project_id='another'), dict(coverage={**qualified.coverage, 'status': 'uncertain'}),
+                 dict(members=qualified.members[::-1]), dict(audit_evidence=qualified.audit_evidence[:-1]),
+                 dict(audit_evidence=qualified.audit_evidence + qualified.audit_evidence[-1:]),
+                 dict(audit_evidence=qualified.audit_evidence[1:]), dict(ts_seed_members=('anti',)),
+                 dict(thermodynamic_eligible_members=('anti',))]
+        with patch('auto_g16.thermochemistry._goodvibes._load_goodvibes_kernels') as kernel:
+            for i, changes in enumerate(cases):
+                forged = self.clone_ensemble(qualified, **changes)
+                with self.subTest(case=i), self.assertRaises(ValueError):
+                    _build_native_thermodynamic_ensemble(source_ensemble=self.source, qualified_ensemble=forged,
+                        profile=self.profile, native_facts=facts, request=self.request)
+            kernel.assert_not_called()
+
+    def test_coverage_and_member_failures_with_self_consistent_source_hash(self):
+        from auto_g16.thermochemistry._native_service import _qualify_ensemble, _source_binding
+        facts = self.source_facts()
+        coverage = dict(self.source.coverage)
+        obligations = dict(coverage['obligations'])
+        cases = [dict(coverage={**coverage, 'obligations': values}) for values in (
+            {}, {**obligations, 'extra': True}, {k: v for k, v in obligations.items() if k != 'minimum_valid_met'},
+            {**obligations, 'minimum_valid_met': False}, {**obligations, 'minimum_valid_met': 1})]
+        cases += [dict(coverage={**coverage, k: v}) for k, v in (
+            ('status', 'insufficient'), ('observed_count', True), ('valid_count', 1), ('scope', 'global'),
+            ('global_minimum_claim', 0), ('exhaustive_coverage_claim', True))]
+        cases += [dict(independent_review_blockers=({'reason': 'unresolved'},)), dict(ts_seed_members=('anti',)),
+                  dict(thermodynamic_eligible_members=('anti',))]
+        for key, value in (('post_dft_status', 'frequency_failed'), ('post_dft_minimum_evidence_available', False),
+                           ('post_dft_duplicate_of_member_id', 'anti'), ('negative_frequency_authority', {})):
+            cases.append(dict(members=(self.source.members[0], {**self.source.members[1], key: value})))
+        with patch('auto_g16.thermochemistry._goodvibes._load_goodvibes_kernels') as kernel:
+            for i, changes in enumerate(cases):
+                source = self.clone_ensemble(self.source, **changes)
+                binding = _source_binding(source)
+                with self.subTest(case=i), self.assertRaises(ValueError):
+                    _qualify_ensemble(source, self.profile, {**facts, 'source_ensemble': binding},
+                                      {**self.request, 'source_ensemble': binding})
+            kernel.assert_not_called()
+
+    def test_cross_member_authority_and_fact_splice_rejected(self):
+        from auto_g16.thermochemistry._native_service import _qualify_ensemble
+        facts = self.source_facts()
+        for key in ('minimum_authority', 'native_source', 'native_result'):
+            forged = {**facts, 'members': (facts['members'][0], {**facts['members'][1], key: facts['members'][0][key]})}
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                _qualify_ensemble(self.source, self.profile, forged, self.request)
+
+    def test_kernel_keeps_locks_and_snapshots_and_failure_closes_everything(self):
+        from contextlib import contextmanager
+        import sqlite3
+        from auto_g16.conformer import readonly
+        from auto_g16.thermochemistry import _goodvibes
+        original_snapshot = core.SQLiteRuntimeStore.read_snapshot
+        original_compute = _goodvibes.functional_thermochemistry
+        for mode in ('success', 'kernel_failure', 'exit_failure'):
+            opened = []
+            active = set()
+            calls = []
+            @contextmanager
+            def tracked(*args, **kwargs):
+                with original_snapshot(*args, **kwargs) as store:
+                    opened.append(store)
+                    active.add(id(store))
+                    try:
+                        yield store
+                    finally:
+                        active.remove(id(store))
+                if mode == 'exit_failure' and calls:
+                    raise ValueError('synthetic exit failure after compute')
+            def compute(**kwargs):
+                calls.append(kwargs)
+                self.assertTrue(active)
+                for store in opened:
+                    if id(store) in active:
+                        store._connection.execute('SELECT 1')
+                self.assertFalse(readonly._OPT_READ_LOCK.acquire(blocking=False))
+                with patch.object(readonly, '_OPT_READ_WAIT_SECONDS', .01):
+                    with self.assertRaises(readonly.OptReadBusy):
+                        self.readout.read(None, 'attempt-2')
+                if mode == 'kernel_failure':
+                    raise ValueError('synthetic kernel failure')
+                return original_compute(**kwargs)
+            with self.subTest(mode=mode), patch.object(core.SQLiteRuntimeStore, 'read_snapshot', tracked), patch.object(_goodvibes, 'functional_thermochemistry', compute):
+                if mode == 'success':
+                    self.build()
+                else:
+                    with self.assertRaisesRegex(ValueError, 'synthetic'):
+                        self.build()
+            self.assertTrue(calls)
+            self.assertFalse(active)
+            for store in opened:
+                with self.assertRaises(sqlite3.ProgrammingError):
+                    store._connection.execute('SELECT 1')
+            self.assertTrue(readonly._OPT_READ_LOCK.acquire(timeout=.01))
+            readonly._OPT_READ_LOCK.release()
+
+    def test_pin_drift_after_compute_discards_entire_result(self):
+        from pathlib import Path
+        from auto_g16.thermochemistry import _goodvibes
+        original = _goodvibes.functional_thermochemistry
+        def drift(**kwargs):
+            result = original(**kwargs)
+            with Path(self.readout.material.path).open('ab') as stream:
+                stream.write(b' ')
+            return result
+        with patch.object(_goodvibes, 'functional_thermochemistry', drift), self.assertRaises(ValueError):
+            self.build()
+
+    def test_selected_exact_wheel_computes_native_synthetic_records(self):
+        import math
+        from tests.v31.thermochemistry import test_goodvibes_qualification as qualification
+        from auto_g16.conformer._successor_thermochemistry import build_native_thermodynamic_ensemble
+        owner = qualification.GoodVibesDifferentialQualification
+        owner.setUpClass()
+        try:
+            with inert_thermo_owners():
+                qualified, result = build_native_thermodynamic_ensemble(self.readout, request=self.request)
+            self.assertEqual(result.source_member_ids, qualified.thermodynamic_eligible_members)
+            self.assertAlmostEqual(result.member_observations[0]['normalized_population'], .25, places=14)
+            self.assertTrue(math.isfinite(result.ensemble_treated_free_energy_hartree))
+            for row in result.member_observations:
+                self.assertTrue(math.isfinite(row['treated_qrrho']['gibbs_free_energy_hartree']))
+                self.assertNotEqual(row['raw_rrho'], row['treated_qrrho'])
+        finally:
+            owner.tearDownClass()
+
+
+class NativeThermochemistryEntryTests(unittest.TestCase):
+    def test_exact_readout_and_shared_busy_slot_before_source_access(self):
+        from types import SimpleNamespace
+        from auto_g16.conformer import readonly
+        from auto_g16.conformer.frequency_readonly import FreqReadout
+        from auto_g16.conformer._successor_thermochemistry import build_native_thermodynamic_ensemble
+        class Subclass(FreqReadout):
+            pass
+        for fake in ({}, SimpleNamespace(), object.__new__(Subclass)):
+            with self.assertRaises(ValueError):
+                build_native_thermodynamic_ensemble(fake, request={})
+        reader = object.__new__(FreqReadout)
+        self.assertTrue(readonly._OPT_READ_LOCK.acquire(timeout=.01))
+        try:
+            with patch.object(readonly, '_OPT_READ_WAIT_SECONDS', .01):
+                with self.assertRaises(readonly.OptReadBusy):
+                    build_native_thermodynamic_ensemble(reader, request={})
+        finally:
+            readonly._OPT_READ_LOCK.release()
+
+    def test_module_import_does_not_load_goodvibes(self):
+        import subprocess
+        import sys
+        program = ('import sys; import auto_g16.conformer._successor_thermochemistry; '
+                   'assert not any(k == "goodvibes" or k.startswith("goodvibes.") for k in sys.modules)')
+        result = subprocess.run([sys.executable, '-c', program], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
