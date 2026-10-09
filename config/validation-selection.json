@@ -1049,23 +1049,42 @@
       "fail_closed": false
     },
     {
-      "id": "v31-native-readonly-query",
+      "id": "native-thermodynamics-projection",
       "exact_paths": [
-        "auto_g16/query/__init__.py",
-        "auto_g16/query/models.py",
-        "auto_g16/query/service.py",
         "auto_g16/query/native.py",
-        "auto_g16/execution/readonly.py",
-        "tests/v3/query/__init__.py",
-        "tests/v3/query/test_native.py",
-        "tests/v3/query/test_native_thermodynamics.py",
-        "tests/v3/query/test_execution_readonly.py"
+        "tests/v3/query/test_native_thermodynamics.py"
       ],
       "prefixes": [],
       "lane": "affected",
       "tests": [
         "tests.v3.query.test_native",
         "tests.v3.query.test_native_thermodynamics",
+        "tests.v3.query.test_execution_readonly",
+        "tests.v3.core.test_store",
+        "tests.v3.result",
+        "tests.v3.observe"
+      ],
+      "required_safety": [
+        "no-overwrite",
+        "unknown-no-automatic-retry"
+      ],
+      "fail_closed": false
+    },
+    {
+      "id": "v31-native-readonly-query",
+      "exact_paths": [
+        "auto_g16/query/__init__.py",
+        "auto_g16/query/models.py",
+        "auto_g16/query/service.py",
+        "auto_g16/execution/readonly.py",
+        "tests/v3/query/__init__.py",
+        "tests/v3/query/test_native.py",
+        "tests/v3/query/test_execution_readonly.py"
+      ],
+      "prefixes": [],
+      "lane": "affected",
+      "tests": [
+        "tests.v3.query.test_native",
         "tests.v3.query.test_execution_readonly",
         "tests.v3.core.test_store",
         "tests.v3.result",
