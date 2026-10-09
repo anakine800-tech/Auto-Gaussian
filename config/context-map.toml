@@ -274,6 +274,7 @@ required_sections = [
   "docs/v3/contracts/boundary/v31-shared.md#thermodynamicensemble-handoff",
   "docs/v3/contracts/acceptance/v31-ensemble.md#v31-flexible-molecule-ensemble",
   "docs/v3/contracts/tasks/native-thermochemistry-eligibility-compute.md",
+  "docs/v3/contracts/tasks/native-thermochemistry-persistence-readback.md",
 ]
 code_paths = [
   "auto_g16/thermochemistry/", # CURRENT_IMPLEMENTATION: facts, functional kernel, normalization, ThermodynamicEnsemble
