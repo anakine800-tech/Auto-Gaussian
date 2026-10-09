@@ -175,6 +175,7 @@
         "docs/v3/contracts/tasks/native-thermochemistry-source-adapter.md",
         "docs/v3/contracts/tasks/native-thermochemistry-eligibility-compute.md",
         "docs/v3/contracts/tasks/native-thermochemistry-persistence-readback.md",
+        "docs/v3/contracts/tasks/native-thermochemistry-readonly-projection.md",
         "docs/v3/contracts/tasks/project-profile-association.md",
         "docs/v3/reuse-adjudication.md",
         "docs/v3/same-attempt-collection-recovery-contract.md",
@@ -1057,12 +1058,14 @@
         "auto_g16/execution/readonly.py",
         "tests/v3/query/__init__.py",
         "tests/v3/query/test_native.py",
+        "tests/v3/query/test_native_thermodynamics.py",
         "tests/v3/query/test_execution_readonly.py"
       ],
       "prefixes": [],
       "lane": "affected",
       "tests": [
         "tests.v3.query.test_native",
+        "tests.v3.query.test_native_thermodynamics",
         "tests.v3.query.test_execution_readonly",
         "tests.v3.core.test_store",
         "tests.v3.result",
