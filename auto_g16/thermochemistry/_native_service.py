@@ -200,6 +200,38 @@ def _qualify_ensemble(source, profile, native_facts, request):
     )
 
 
+def _native_method(request):
+    return _freeze_mapping({
+        'schema': 'auto-g16-native-thermochemistry-method/1', 'method': request['method_binding'],
+        'minimum_authority_schema': _SCHEMA, 'parser_name': 'auto-g16-v3-gaussian-job',
+        'parser_version': '1.2.0', 'energy_source': 'frequency_result_final_scf',
+        'symmetry_source': 'gaussian_reported_rotational_symmetry_number',
+    }, 'native method compatibility')
+
+
+def _native_member_binding(qualified, row, member_policy, request):
+    """Pure source association shared with persisted-result verification."""
+    method = _native_method(request)
+    method_id, _ = _identified_payload('native-thermochemistry-method', method)
+    request_id, request_hash = _identified_payload('native-thermochemistry-request', request)
+    policy = request['thermochemistry_policy']
+    return {
+        'member_id': row['member_id'], 'source_refined_conformer_ensemble_id': qualified.conformer_ensemble_id,
+        'source_refined_conformer_ensemble_revision': qualified.revision,
+        'two_stage_minimum_authority_id': row['minimum_authority']['two_stage_minimum_authority_id'],
+        'method_compatibility_id': method_id, 'method_compatibility_binding': method,
+        'source_provenance': {
+            'schema': 'auto-g16-native-thermochemistry-provenance/1', 'source_ensemble': request['source_ensemble'],
+            'sampling_profile': request['sampling_profile'], 'native_source': row['native_source'],
+            'native_result': row['native_result'], 'minimum_authority': row['minimum_authority'],
+            'thermo_facts': row['thermo_facts'], 'request_id': request_id, 'request_payload_sha256': request_hash,
+        },
+        'temperature_k': policy['temperature_k'], 'standard_state': policy['standard_state'],
+        'degeneracy': member_policy['degeneracy'], 'degeneracy_rationale': member_policy['degeneracy_rationale'],
+        'inclusion_status': 'included_thermodynamic_eligible',
+    }
+
+
 def _build_native_thermodynamic_ensemble(*, source_ensemble, qualified_ensemble, profile, native_facts, request):
     request = _normalize_request(request)
     ids = _validate_source(source_ensemble, profile, native_facts, request)
@@ -210,14 +242,6 @@ def _build_native_thermodynamic_ensemble(*, source_ensemble, qualified_ensemble,
              and qualified_ensemble.audit_evidence == (*source_ensemble.audit_evidence, _eligibility_audit(request))
              and qualified_ensemble.thermodynamic_eligible_members == ids, 'qualified ensemble is not the exact eligibility revision')
     # Every source, request and qualification check above precedes kernel loading or consumption.
-    method = _freeze_mapping({
-        'schema': 'auto-g16-native-thermochemistry-method/1', 'method': request['method_binding'],
-        'minimum_authority_schema': _SCHEMA, 'parser_name': 'auto-g16-v3-gaussian-job',
-        'parser_version': '1.2.0', 'energy_source': 'frequency_result_final_scf',
-        'symmetry_source': 'gaussian_reported_rotational_symmetry_number',
-    }, 'native method compatibility')
-    method_id, _ = _identified_payload('native-thermochemistry-method', method)
-    request_id, request_hash = _identified_payload('native-thermochemistry-request', request)
     policy = request['thermochemistry_policy']
     _, constants = _goodvibes._load_goodvibes_kernels()
     standard_state = _standard_state_binding(policy, constants['GAS_CONSTANT'])
@@ -235,20 +259,8 @@ def _build_native_thermodynamic_ensemble(*, source_ensemble, qualified_ensemble,
             frequency_scaling_factor=policy['frequency_scaling_factor'], zpe_scaling_factor=policy['zpe_scaling_factor'],
         )
         normalized.append({
-            'member_id': row['member_id'], 'source_refined_conformer_ensemble_id': qualified_ensemble.conformer_ensemble_id,
-            'source_refined_conformer_ensemble_revision': qualified_ensemble.revision,
-            'two_stage_minimum_authority_id': row['minimum_authority']['two_stage_minimum_authority_id'],
-            'method_compatibility_id': method_id, 'method_compatibility_binding': method,
-            'source_provenance': {
-                'schema': 'auto-g16-native-thermochemistry-provenance/1', 'source_ensemble': request['source_ensemble'],
-                'sampling_profile': request['sampling_profile'], 'native_source': row['native_source'],
-                'native_result': row['native_result'], 'minimum_authority': row['minimum_authority'],
-                'thermo_facts': facts, 'request_id': request_id, 'request_payload_sha256': request_hash,
-            },
-            'temperature_k': policy['temperature_k'], 'standard_state': policy['standard_state'],
+            **_native_member_binding(qualified_ensemble, row, member_policy, request),
             'raw_rrho': computed['raw_rrho'], 'treated_qrrho': computed['treated_qrrho'],
-            'degeneracy': member_policy['degeneracy'], 'degeneracy_rationale': member_policy['degeneracy_rationale'],
-            'inclusion_status': 'included_thermodynamic_eligible',
         })
     return _finish_thermodynamic_ensemble(
         ensemble=qualified_ensemble, policy=policy, standard_state=standard_state,
