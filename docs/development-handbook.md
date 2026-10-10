@@ -113,9 +113,10 @@ scope/dependency expansion, or a required contract/security/live-boundary
 change not already authorized by the applicable gate. Bind the proposed delta
 and request only the missing decision; do not restart the entire approval
 sequence. An implementation fix within the approved contract is not a new
-contract decision. Changed candidate bytes still invalidate affected review
+contract decision. Changed candidate bytes require reassessing affected review
 and test evidence under sections 6–9, even when development permission remains
-valid. A new task does not inherit the previous task's action permissions.
+valid; permission alone cannot make prior evidence applicable. A new task does
+not inherit the previous task's action permissions.
 
 BUS-managed work still requires the latest canonical CTRL and its finite
 actions; FIX requires a new CTRL and terminal tasks cannot resume. No standing
@@ -317,6 +318,33 @@ selector inputs stop before tests. Reviewed conservative routes can require
 candidate. A running, silent, or slow runner is not failed and does not
 authorize a rerun.
 
+### Local and CI responsibilities
+
+Use local focused/affected checks for development feedback, the existing
+designated CI jobs for required integration coverage, and local supplements
+for named gaps that those jobs cannot cover. Before freezing the candidate,
+record which applicable contract or selected route requires each check,
+where it will run, and any uncovered claim. Do not add an unstarted duplicate
+local full run merely because CI is running or the validation policy is under
+discussion. A frozen contract that explicitly requires local full validation
+still requires it until explicitly revised under the applicable authority.
+
+This allocation does not change the selector, selected inventory, workflow,
+full-run triggers or five required contexts. Compute authoritative selection
+from clean exact base/head identities; execute every check required by that
+route and the applicable contract. Conservative routes remain conservative,
+and invalid selection still starts zero tests. Required CI evidence cannot be
+replaced with local results. Let already-started checks finish under their
+existing policy; policy discussion, silence or slowness does not authorize
+cancellation, restart or an added timeout.
+
+Local supplements must identify the missing coverage, environment and result;
+they are not automatic permission for live work. Preserve the
+[live-evidence classification](#live-evidence-and-merge-scope), scientific and
+server gates, native-target qualification, and separate installation/release
+and operational authority. Neither local nor CI success implies scientific
+acceptance.
+
 Typical commands are:
 
 ```bash
@@ -347,8 +375,40 @@ candidate, rather than repeatedly running the heavy ladder while editing.
 
 For every run record exact command, interpreter/profile, commit or tree hash,
 start time, exit code, test total/skip/failure counts, wall time, and coverage
-modifiers. Historical README, task, or PR totals are context, never current
-evidence.
+modifiers. Bind the evidence to its baseline, candidate, environment, covered
+claim/inventory and terminal result, including CI run/job links where relevant.
+Historical README, task, or PR totals are context, never current evidence.
+
+### Evidence reuse and policy transition
+
+Before reusing evidence, compare its binding and coverage with the current
+candidate and baseline, including relevant code, dependencies, configuration,
+environment and validation route. Record the delta, what remains applicable,
+what does not, and the review accepting that judgment. A matching tree or old
+passing record alone cannot satisfy current baseline requirements, current
+required checks or a stricter frozen contract. Missing, failed, running or
+unbound evidence is not a pass.
+
+A change triggers reassessment of affected evidence, not an unexplained repeat
+of every full suite. Close the identified gaps and run the checks required for
+the current candidate. This does not waive the final complete release
+validation rule above or any stricter contract; exact candidate and current
+required-check verification before merge remain mandatory.
+
+Validation-policy changes are accepted under the effective rules from before
+their edit. Save that baseline's rules and route, and state their requirements,
+local completion, CI obligations and remaining gaps in the handoff. A proposal
+cannot reduce its own acceptance requirements. After the policy enters main,
+new tasks use it directly. Existing tasks compare it with their original
+contract at the next freeze; an explicit local-full clause needs an explicit
+authorized revision before it can change, never silent omission.
+
+Integrate general policy into main first; do not copy it into every active
+feature branch. If a task needs the new files or baseline, synchronize once
+under that task's authorization, inspect the resulting diff/conflicts and
+reassess evidence. CI may evaluate the updated candidate again. This rule
+does not authorize a baseline update, bypass required checks, or prevent a
+later update required by a new reviewed dependency or integration condition.
 
 ### Reviewed documentation validation
 

@@ -42,9 +42,17 @@ for the separate operational and scientific gates.
 - `running` is not `failed`. A slow runner or harness that is still running must
   not be failed, rerun, or given an unapproved timeout.
 - Follow the handbook's [validation ladder and deduplication](../development-handbook.md#6-validation-ladder-and-deduplication)
-  for focused feedback, full-validation ownership and reuse of frozen evidence.
+  for local focused feedback, designated CI coverage and supplements for named
+  gaps; existing routes, required checks and stricter frozen contracts remain
+  binding. Use its [evidence reuse and policy transition](../development-handbook.md#evidence-reuse-and-policy-transition)
+  rules to reassess changed evidence and adopt merged policy at the applicable
+  freeze, without duplicating full runs or silently omitting contract duties.
 - Every handoff is compact and contains: `task`, `base`, `head`, `scope`,
   `autonomy`, `status`, `findings`, `validation`, `blocker`, and `next gate`.
+  Within `validation`, distinguish local completion, required CI results,
+  accepted evidence reuse and uncovered claims; bind evidence to the candidate,
+  baseline, environment, coverage and result. Identify any pending contract
+  revision or baseline synchronization and its authority in `next gate`.
 
 ### Ordinary offline repair budget
 
