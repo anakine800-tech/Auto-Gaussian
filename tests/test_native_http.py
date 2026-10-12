@@ -93,30 +93,18 @@ class NativeHTTPTests(unittest.TestCase):
 class NativeThermodynamicsIntegrationTests(unittest.TestCase):
     """Real registry/query integration over the pinned backend's synthetic fixture.
 
-    CI supplies .ci/backend at the workflow's exact SHA. Local source runs may
-    use that checkout or the checkout containing the imported auto_g16 package.
+    Tests may explicitly select AUTOG_TEST_BACKEND_CHECKOUT (the joint repository
+    root after migration). Otherwise retain .ci/backend and source-run fallback.
     No fixture is read from an installed application or a user database.
     """
 
     @classmethod
     def setUpClass(cls):
         import auto_g16
-        import hashlib
         import tests
+        from tests.backend_fixture_source import backend_fixture_checkout
         backend_package = Path(auto_g16.__file__).resolve().parent
-        checkout = Path(__file__).resolve().parents[1] / '.ci' / 'backend'
-        if not checkout.is_dir():
-            checkout = backend_package.parent
-        fixture_path = checkout / 'tests' / 'v31' / 'conformer' / 'test_thermochemistry_readonly.py'
-        if not fixture_path.is_file():
-            raise RuntimeError('exact backend source checkout with synthetic fixtures is required')
-        # An installed wheel and source fixture must use the same owner bytes.
-        for relative in ('query/native.py', 'conformer/thermochemistry_readonly.py',
-                         'conformer/frequency_readonly.py', 'thermochemistry/_native_service.py'):
-            actual = hashlib.sha256((backend_package / relative).read_bytes()).digest()
-            expected = hashlib.sha256((checkout / 'auto_g16' / relative).read_bytes()).digest()
-            if actual != expected:
-                raise RuntimeError('backend fixture/installed owner mismatch')
+        checkout = backend_fixture_checkout(Path(__file__).resolve().parents[1], backend_package)
         fixture_root = str(checkout / 'tests')
         if fixture_root not in tests.__path__:
             tests.__path__.append(fixture_root)
