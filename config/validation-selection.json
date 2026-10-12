@@ -326,6 +326,7 @@
         "auto_g16/execution/models.py",
         "auto_g16/execution/preparation.py",
         "auto_g16/execution/project_provisioning.py",
+        "auto_g16/execution/_project_existing.py",
         "auto_g16/execution/runtime.py",
         "auto_g16/execution/synthetic_rtwin.py",
         "auto_g16/execution/xtb_crest_handoff.py"

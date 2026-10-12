@@ -1028,7 +1028,7 @@ class ValidationSelectorTests(unittest.TestCase):
     def test_v31_execution_routing_preserves_unrelated_path_selection(self) -> None:
         for name in (
             "__init__.py", "_crest_seed_handoff.py", "_identity.py", "_paths.py",
-            "_rtwin_minimal.py", "models.py", "preparation.py", "project_provisioning.py",
+            "_rtwin_minimal.py", "models.py", "preparation.py", "project_provisioning.py", "_project_existing.py",
             "runtime.py", "synthetic_rtwin.py", "xtb_crest_handoff.py",
         ):
             with self.subTest(source=name):
