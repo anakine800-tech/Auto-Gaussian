@@ -27,6 +27,23 @@ from tests.v31.transport.test_gaussian_freq_resources import INPUT
 
 REAL_POPEN = subprocess.Popen
 REAL_RUN = _driver._SubprocessRTWinDriver._run
+REAL_ATTEST_LOCAL = _driver._attest_local
+TIMEOUT_HOST_IMAGE = b'synthetic controller executable identity for local timeout peer only\n'
+
+
+def timeout_host_attestation(root, expected_root, path, log):
+    """Only replace fixed Mac SSH host bytes; never attest Linux as qualified SSH."""
+    if root.name != 'mac_ssh':
+        return REAL_ATTEST_LOCAL(root)
+    assert root is expected_root, 'foreign Mac SSH fixture root'
+    assert (root.path, root.expected_size_bytes, root.expected_sha256) == _driver._OPTION1_MAC_SSH
+    synthetic = replace(root, path=str(path), expected_size_bytes=len(TIMEOUT_HOST_IMAGE),
+        expected_sha256=sha256(TIMEOUT_HOST_IMAGE).hexdigest(), deployment_identity='synthetic-local-timeout-host')
+    physical = REAL_ATTEST_LOCAL(synthetic)
+    append(log, dict(scope='synthetic-local-host-only-no-SSH-qualification', physical=list(physical),
+                     sha256=synthetic.expected_sha256, size_bytes=synthetic.expected_size_bytes))
+    return physical
+
 READS = frozenset(rtwin._COLLECTION_OPERATIONS)
 
 
@@ -187,13 +204,18 @@ def run(mode, path):
         append(str(path) + '.wire.jsonl', {'pid': os.getpid(), 'phase': mode, 'operation': op})
         assert op in READS, 'recovery attempted non-read operation: ' + op
         if mode == 'timeout':
+            host = Path(str(path) + '.timeout-host')
+            with host.open('xb') as output: output.write(TIMEOUT_HOST_IMAGE)
+            host.chmod(0o700)
             def local_process(command, **kwargs):
                 assert command[0] == '/usr/bin/ssh'
                 proc = REAL_POPEN([sys.executable, '-c', 'import sys,time;sys.stdin.buffer.read();time.sleep(120)'], **kwargs)
                 peer_processes.append(proc)
                 append(str(path) + '.peer.jsonl', {'pid': proc.pid, 'parent': os.getpid(), 'event': 'started'})
                 return proc
-            with patch.object(_driver.subprocess, 'Popen', side_effect=local_process):
+            with patch.object(_driver.subprocess, 'Popen', side_effect=local_process), \
+                    patch.object(_driver, '_attest_local', side_effect=lambda root: timeout_host_attestation(
+                        root, invocation.authority.manifest.trust_roots['mac_ssh'], host, str(path) + '.host.jsonl')):
                 value = REAL_RUN(_driver._SubprocessRTWinDriver(), scope, invocation)
             for proc in peer_processes:
                 assert proc.poll() is not None

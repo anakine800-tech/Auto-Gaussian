@@ -112,7 +112,13 @@ class GaussianCollectionFaultTests(unittest.TestCase):
                 self.assertEqual(failed['persisted']['core']['attempts'][0][-1], 'SUBMITTED')
                 self.unchanged_history(before, failed['persisted'])
                 (path.parent/'timeout-prefix.json').write_text(json.dumps(failed['persisted']))
-                peers = [json.loads(line) for line in Path(str(path)+'.peer.jsonl').read_text().splitlines()]
+                peer_file = Path(str(path)+'.peer.jsonl')
+                self.assertTrue(peer_file.is_file(), 'fixture failed before launching real timeout peer')
+                peers = [json.loads(line) for line in peer_file.read_text().splitlines()]
+                host = [json.loads(line) for line in Path(str(path)+'.host.jsonl').read_text().splitlines()]
+                self.assertEqual(len(host), 2)
+                self.assertEqual(host[0], host[1])
+                self.assertEqual(host[0]['scope'], 'synthetic-local-host-only-no-SSH-qualification')
                 self.assertEqual(len(peers), 2)
                 self.assertEqual(peers[0]['pid'], peers[1]['pid'])
                 self.assertEqual(peers[1]['event'], 'reaped')
@@ -168,3 +174,29 @@ class GaussianCollectionFaultTests(unittest.TestCase):
 
 
 if __name__ == '__main__': unittest.main()
+
+
+class TimeoutHostAttestationTests(unittest.TestCase):
+    def test_only_exact_root_uses_real_synthetic_file_attestation(self):
+        from dataclasses import replace
+        from unittest.mock import patch
+        driver=fixture._driver
+        path,size,digest=driver._OPTION1_MAC_SSH
+        root=driver._TrustRoot('mac_ssh','controller-file-v1','synthetic-qualified-shape',digest,size,path,'macos',None)
+        with tempfile.TemporaryDirectory() as folder:
+            host=Path(folder)/'host';host.write_bytes(fixture.TIMEOUT_HOST_IMAGE);host.chmod(0o700)
+            log=Path(folder)/'attest.jsonl'
+            first=fixture.timeout_host_attestation(root,root,host,log)
+            self.assertEqual(first,(host.stat().st_dev,host.stat().st_ino))
+            self.assertEqual(len(log.read_text().splitlines()),1)
+            with self.assertRaisesRegex(AssertionError,'foreign Mac SSH'):
+                fixture.timeout_host_attestation(replace(root),root,host,log)
+            host.write_bytes(b'drift')
+            with self.assertRaises(fixture.TransportBoundaryError):
+                fixture.timeout_host_attestation(root,root,host,log)
+            self.assertEqual(len(log.read_text().splitlines()),1)
+            other=replace(root,name='server_python')
+            with patch.object(fixture,'REAL_ATTEST_LOCAL',side_effect=fixture.TransportBoundaryError('untouched')) as native:
+                with self.assertRaisesRegex(fixture.TransportBoundaryError,'untouched'):
+                    fixture.timeout_host_attestation(other,root,host,log)
+                native.assert_called_once_with(other)
