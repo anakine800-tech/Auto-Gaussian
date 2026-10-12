@@ -218,81 +218,24 @@ _REQUIRED = {'auto_g16/__init__.py', 'auto_g16/study/__init__.py', 'auto_g16/stu
              'scripts/run_v31_publisher_pilot.py', 'pyproject.toml'}
 
 
-class _Inspection:
-    def __init__(self, bundle, *, loaded):
-        self.pins = _Pins()
-        try:
-            self.bundle = _path(bundle, absolute=True)
-            self.source, self.installation = bundle + '/source', bundle + '/installation'
-            self.loaded = loaded
-            for path in (bundle, self.source, self.installation):
-                self.pins.open(path)
-            self._layout()
-            raw, bindings = {}, {}
-            for name, cap in _FILES.items():
-                path = self.installation + '/' + name
-                data, digest, _, size = self.pins.read(path, cap)
-                raw[name] = data
-                bindings[name] = self.pins.binding(path, file=True, digest=digest, size=size)
-            self.manifest = _closed(_json(raw['source-manifest.json']), {'schema', 'source_commit', 'source_tree', 'entries'})
-            _require(self.manifest['schema'] == 'auto-g16-study-source-manifest/1')
-            for key in ('source_commit', 'source_tree'):
-                _hash(self.manifest[key], 40)
-            self._source_entries()
-            self._inventory()
-            tree = self._git_tree()
-            _require(tree.hex() == self.manifest['source_tree'], 'source-mismatch')
-            commit = raw['git-commit.bin']
-            _require(sha1(b'commit ' + str(len(commit)).encode() + b'\0' + commit).hexdigest()
-                     == self.manifest['source_commit'], 'source-mismatch')
-            _require(b'\n\n' in commit)
-            headers = commit.split(b'\n\n', 1)[0].split(b'\n')
-            _require(headers[0] == b'tree ' + self.manifest['source_tree'].encode()
-                     and sum(line.startswith(b'tree ') for line in headers) == 1, 'source-mismatch')
-            locator = _closed(_json(raw['study-runtime.json']), {'schema', 'source_commit', 'source_tree',
-                'source_manifest', 'commit_object', 'profile', 'qualification', 'roots'})
-            _require(locator['schema'] == 'auto-g16-study-installation-locator/1')
-            for key, name in (('source_manifest', 'source-manifest.json'), ('commit_object', 'git-commit.bin'),
-                              ('profile', 'profile.json'), ('qualification', 'qualification.json')):
-                _validate_binding(locator[key], file=True)
-                _require(locator[key] == bindings[name], 'identity-drift')
-            roots = _closed(locator['roots'], {'creation', 'runtime', 'registry'})
-            root_paths = [bundle]
-            root_ids = [self.pins.nodes[bundle][2]]
-            for value in roots.values():
-                _validate_binding(value)
-                path = value['path']
-                _require(all(os.path.commonpath((path, other)) not in (path, other) for other in root_paths))
-                observed = self.pins.binding(path)
-                _require(value == observed and tuple(value['file_identity']) not in root_ids, 'identity-drift')
-                root_paths.append(path); root_ids.append(tuple(value['file_identity']))
-            readback = _closed(_json(raw['study-runtime-readback.json']), {'schema', 'bundle', 'source',
-                'installation', 'locator', 'source_commit', 'source_tree'})
-            _require(readback['schema'] == 'auto-g16-study-installation-readback/1')
-            for key, path in (('bundle', bundle), ('source', self.source), ('installation', self.installation)):
-                _validate_binding(readback[key])
-                _require(readback[key] == self.pins.binding(path), 'identity-drift')
-            _validate_binding(readback['locator'], file=True)
-            _require(readback['locator'] == bindings['study-runtime.json'], 'identity-drift')
-            _require(all(v[k] == self.manifest[k] for v in (locator, readback)
-                         for k in ('source_commit', 'source_tree')), 'source-mismatch')
-            if loaded:
-                self._origins()
-            self.facts = InstallationFacts('mechanically-verified', self.manifest['source_commit'],
-                self.manifest['source_tree'], bindings['source-manifest.json']['sha256'],
-                bindings['study-runtime.json']['sha256'], _freeze(bindings['study-runtime-readback.json']),
-                _freeze(readback['bundle']), _freeze(roots), _freeze(locator['profile']),
-                _freeze(locator['qualification']), 'matched' if loaded else 'not-assessed')
-            self.check()
-        except BaseException as error:
-            self.pins.close(error)
-            raise
-
-    def _layout(self):
-        _require(set(os.listdir(self.pins.nodes[self.bundle][0])) == {'source', 'installation'})
-        names = set(os.listdir(self.pins.nodes[self.installation][0]))
-        _require(set(_FILES) <= names, 'installation-unavailable')
-        _require(names == set(_FILES))
+class _SourceTree:
+    """Complete source validation shared by reader and exclusive local publisher."""
+    def __init__(self, pins, source, manifest_raw, commit):
+        self.pins, self.source = pins, source
+        self.manifest = _closed(_json(manifest_raw), {'schema', 'source_commit', 'source_tree', 'entries'})
+        _require(self.manifest['schema'] == 'auto-g16-study-source-manifest/1')
+        for key in ('source_commit', 'source_tree'):
+            _hash(self.manifest[key], 40)
+        self._source_entries()
+        self._inventory()
+        tree = self._git_tree()
+        _require(tree.hex() == self.manifest['source_tree'], 'source-mismatch')
+        _require(sha1(b'commit ' + str(len(commit)).encode() + b'\0' + commit).hexdigest()
+                 == self.manifest['source_commit'], 'source-mismatch')
+        _require(b'\n\n' in commit)
+        headers = commit.split(b'\n\n', 1)[0].split(b'\n')
+        _require(headers[0] == b'tree ' + self.manifest['source_tree'].encode()
+                 and sum(line.startswith(b'tree ') for line in headers) == 1, 'source-mismatch')
 
     def _source_entries(self):
         entries = self.manifest['entries']
@@ -363,6 +306,76 @@ class _Inspection:
             objects[directory] = ('40000', sha1(b'tree ' + str(len(payload)).encode() + b'\0' + payload).digest())
         return objects[''][1]
 
+    def check(self):
+        self.pins.check()
+        self._inventory()
+        _require(self._git_tree().hex() == self.manifest["source_tree"], "source-mismatch")
+        self.pins.check()
+
+
+class _Inspection:
+    def __init__(self, bundle, *, loaded):
+        self.pins = _Pins()
+        try:
+            self.bundle = _path(bundle, absolute=True)
+            self.source, self.installation = bundle + '/source', bundle + '/installation'
+            self.loaded = loaded
+            for path in (bundle, self.source, self.installation):
+                self.pins.open(path)
+            self._layout()
+            raw, bindings = {}, {}
+            for name, cap in _FILES.items():
+                path = self.installation + '/' + name
+                data, digest, _, size = self.pins.read(path, cap)
+                raw[name] = data
+                bindings[name] = self.pins.binding(path, file=True, digest=digest, size=size)
+            self.source_tree = _SourceTree(self.pins, self.source, raw["source-manifest.json"], raw["git-commit.bin"])
+            self.manifest = self.source_tree.manifest
+            locator = _closed(_json(raw['study-runtime.json']), {'schema', 'source_commit', 'source_tree',
+                'source_manifest', 'commit_object', 'profile', 'qualification', 'roots'})
+            _require(locator['schema'] == 'auto-g16-study-installation-locator/1')
+            for key, name in (('source_manifest', 'source-manifest.json'), ('commit_object', 'git-commit.bin'),
+                              ('profile', 'profile.json'), ('qualification', 'qualification.json')):
+                _validate_binding(locator[key], file=True)
+                _require(locator[key] == bindings[name], 'identity-drift')
+            roots = _closed(locator['roots'], {'creation', 'runtime', 'registry'})
+            root_paths = [bundle]
+            root_ids = [self.pins.nodes[bundle][2]]
+            for value in roots.values():
+                _validate_binding(value)
+                path = value['path']
+                _require(all(os.path.commonpath((path, other)) not in (path, other) for other in root_paths))
+                observed = self.pins.binding(path)
+                _require(value == observed and tuple(value['file_identity']) not in root_ids, 'identity-drift')
+                root_paths.append(path); root_ids.append(tuple(value['file_identity']))
+            readback = _closed(_json(raw['study-runtime-readback.json']), {'schema', 'bundle', 'source',
+                'installation', 'locator', 'source_commit', 'source_tree'})
+            _require(readback['schema'] == 'auto-g16-study-installation-readback/1')
+            for key, path in (('bundle', bundle), ('source', self.source), ('installation', self.installation)):
+                _validate_binding(readback[key])
+                _require(readback[key] == self.pins.binding(path), 'identity-drift')
+            _validate_binding(readback['locator'], file=True)
+            _require(readback['locator'] == bindings['study-runtime.json'], 'identity-drift')
+            _require(all(v[k] == self.manifest[k] for v in (locator, readback)
+                         for k in ('source_commit', 'source_tree')), 'source-mismatch')
+            if loaded:
+                self._origins()
+            self.facts = InstallationFacts('mechanically-verified', self.manifest['source_commit'],
+                self.manifest['source_tree'], bindings['source-manifest.json']['sha256'],
+                bindings['study-runtime.json']['sha256'], _freeze(bindings['study-runtime-readback.json']),
+                _freeze(readback['bundle']), _freeze(roots), _freeze(locator['profile']),
+                _freeze(locator['qualification']), 'matched' if loaded else 'not-assessed')
+            self.check()
+        except BaseException as error:
+            self.pins.close(error)
+            raise
+
+    def _layout(self):
+        _require(set(os.listdir(self.pins.nodes[self.bundle][0])) == {'source', 'installation'})
+        names = set(os.listdir(self.pins.nodes[self.installation][0]))
+        _require(set(_FILES) <= names, 'installation-unavailable')
+        _require(names == set(_FILES))
+
     def _origins(self):
         for name, relative in (('auto_g16', 'auto_g16/__init__.py'),
                                ('auto_g16.study', 'auto_g16/study/__init__.py'),
@@ -375,8 +388,7 @@ class _Inspection:
     def check(self):
         self.pins.check()
         self._layout()
-        self._inventory()
-        _require(self._git_tree().hex() == self.manifest['source_tree'], 'source-mismatch')
+        self.source_tree.check()
         if self.loaded:
             self._origins()
         self.pins.check()

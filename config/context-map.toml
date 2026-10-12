@@ -545,3 +545,10 @@ status = "contract-frozen-mechanical-facts-only"
 required_sections = ["docs/v3/contracts/tasks/direct-study-installation.md"]
 code_paths = ["auto_g16/study/_installation.py"]
 focused_tests = ["tests/v3/study/test_installation.py"]
+
+[[component]]
+id = "direct-study-local-installation-cli"
+status = "contract-frozen-local-unqualified"
+required_sections = ["docs/v3/contracts/tasks/direct-study-local-install.md"]
+code_paths = ["auto_g16/study/_local_install.py", "auto_g16/study/_installation.py", "auto_g16/study/__main__.py", "auto_g16/study/_runtime_initialization.py"]
+focused_tests = ["tests/v3/study/test_local_install.py", "tests/v3/study/test_installation.py", "tests/v3/study/test_runtime_initialization.py", "tests/v3/study/test_direct.py"]

@@ -40,7 +40,8 @@ class Fixture:
                 # Complete-full CI uses a Git source archive without repository metadata.
                 names=[str(p.relative_to(ROOT)) for p in ROOT.rglob('*')
                        if p.is_file() and '__pycache__' not in p.relative_to(ROOT).parts]
-            names += ['auto_g16/study/_installation.py']
+            names += [name for name in ('auto_g16/study/_installation.py', 'auto_g16/study/_local_install.py')
+                      if (ROOT/name).is_file()]
             for name in sorted(set(names)):
                 source=ROOT/name;target=self.source/name
                 target.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(source,target)

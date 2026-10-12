@@ -20,10 +20,22 @@ def main(argv=None):
         if name == 'create':
             command.add_argument('--request', required=True)
             command.add_argument('--sha256', required=True)
+        if name == 'run':
+            command.add_argument('--initialize-local', action='store_true')
+    command = commands.add_parser('install-local')
+    command.add_argument('--request', required=True)
+    command.add_argument('--sha256', required=True)
     try:
         args = parser.parse_args(argv)
-        result = operate(args.command, args.directory, request_path=getattr(args, 'request', None),
-                         request_sha256=getattr(args, 'sha256', None))
+        if args.command == 'install-local':
+            from ._local_install import publish_local
+            result = publish_local(args.request, args.sha256)
+        elif args.command == 'run' and args.initialize_local:
+            from ._local_install import initialize_installed
+            result = initialize_installed(args.directory)
+        else:
+            result = operate(args.command, args.directory, request_path=getattr(args, 'request', None),
+                             request_sha256=getattr(args, 'sha256', None))
     except FileNotFoundError:
         print(encode(dict(schema='auto-g16-direct-study-error/1', error='not-found')).decode())
         return 2

@@ -278,7 +278,7 @@ def _inside(source, parent, runtime, journal, creation, value, *, write, newly_r
     return _response(value, sha, events, None)
 
 
-def _operate(creation_directory, runtime_root, *, write):
+def _operate(creation_directory, runtime_root, *, write, expected_creation_chain=None, expected_runtime_chain=None):
     require(type(creation_directory) is str and type(runtime_root) is str, 'invalid-request')
     require(all(p.startswith('/') and p != '/' and not p.endswith('/')
                 and all(v not in {'', '.', '..'} for v in p[1:].split('/'))
@@ -286,6 +286,7 @@ def _operate(creation_directory, runtime_root, *, write):
     require(os.path.commonpath((creation_directory, runtime_root)) not in (creation_directory, runtime_root),
             'invalid-request')
     with Directory(creation_directory) as source:
+        require(expected_creation_chain is None or source.chain == expected_creation_chain, 'identity-drift')
         creation = fresh.operate_locked('status', source, None, None)
         require(creation['status'] == 'local-created', 'invalid-evidence')
         value = fresh._intent(source, fresh._events(source)[0])
@@ -296,6 +297,8 @@ def _operate(creation_directory, runtime_root, *, write):
         try:
             with ExitStack() as stack:
                 parent = stack.enter_context(Directory(runtime_root, write=write))
+                require(expected_runtime_chain is None or parent.chain == expected_runtime_chain, 'identity-drift')
+                source.check(); parent.check()
                 study_id = creation['study_id']
                 newly_reserved = study_id not in parent.names()
                 if newly_reserved:
@@ -325,3 +328,10 @@ def initialize_local(creation_directory, runtime_root):
 
 def inspect_local(creation_directory, runtime_root):
     return _operate(creation_directory, runtime_root, write=False)
+
+
+def _initialize_bound(creation_directory, runtime_root, *, creation_chain, runtime_chain):
+    """Installed CLI handoff: compare owner-held chains before any runtime write."""
+    require(type(creation_chain) is list and type(runtime_chain) is list, 'invalid-request')
+    return _operate(creation_directory, runtime_root, write=True,
+                    expected_creation_chain=creation_chain, expected_runtime_chain=runtime_chain)
