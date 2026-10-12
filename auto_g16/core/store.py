@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import sqlite3
 import stat
+import threading
 from typing import cast
 
 from .models import (
@@ -341,6 +342,7 @@ class _ExistingMutableGuard:
         self.path, self.root = os.fspath(database), os.fspath(approved_root)
         self.fds = []
         self.pid = os.getpid()
+        self.thread = threading.get_ident()
         self.poisoned = False
         self.stores = []
         self.unresolved = False
@@ -478,6 +480,62 @@ class SQLiteRuntimeStore:
     def __init__(self, database: str | Path = ":memory:") -> None:
         self._connect(database)
 
+    def _existing_binding_rows(self, statement):
+        """Fully consume a same-connection read; never reopen a database FD."""
+        guard = self._existing_mutable_guard
+        try:
+            cursor = self._connection.cursor()
+        except BaseException:
+            guard.poisoned = True
+            raise
+        original = None
+        try:
+            cursor.execute(statement)
+            return tuple(tuple(row) for row in cursor.fetchall())
+        except BaseException as error:
+            original = error
+            guard.poisoned = True
+            raise
+        finally:
+            try:
+                cursor.close()
+            except BaseException as error:
+                guard.retain()
+                if original is None:
+                    raise
+                original.add_note('binding cursor close unresolved: ' + type(error).__name__)
+
+    def assert_existing_binding(self):
+        """Assert only the current guarded connection and its retained binding."""
+        from types import MappingProxyType
+        guard = getattr(self, '_existing_mutable_guard', None)
+        if (guard is None or guard.pid != os.getpid()
+                or guard.thread != threading.get_ident() or getattr(self, '_closed', True)):
+            raise RuntimeStoreError('binding requires the original open guarded owner')
+        guard.check()
+        if self._connection is not self._existing_binding_connection:
+            guard.poisoned = True
+            raise RuntimeStoreError('binding connection was replaced')
+        if self._connection.in_transaction:
+            raise RuntimeStoreError('binding requires an idle connection')
+        guard.check(idle=True)
+        try:
+            rows = self._existing_binding_rows
+            if (rows('PRAGMA database_list') != ((0, 'main', guard.path),)
+                    or rows('PRAGMA user_version') != ((SCHEMA_VERSION,),)
+                    or rows('PRAGMA application_id') != ((0,),)
+                    or rows('PRAGMA foreign_keys') != ((1,),)
+                    or rows('PRAGMA journal_mode') != (('delete',),)):
+                raise RuntimeStoreError('existing binding native policy differs')
+            if self._connection.in_transaction:
+                raise RuntimeStoreError('binding unexpectedly entered a transaction')
+            guard.check(idle=True)
+        except BaseException:
+            guard.poisoned = True
+            raise
+        return MappingProxyType(dict(path=guard.path, parent_chain=tuple(guard.identities[:-1]),
+            file_identity=guard.identities[-1], native_identity=None))
+
     def registration_schema_facts(self):
         """Read schema facts only through this existing guarded native handle."""
         from hashlib import sha256
@@ -585,6 +643,7 @@ class SQLiteRuntimeStore:
                 Path(guard.path).as_uri() + f'?mode={mode}&cache=private',
                 uri=True, isolation_level=None)
             store._closed = False
+            store._existing_binding_connection = store._connection
             guard.check(idle=True)
             store._connection.execute('PRAGMA query_only=ON')
             store._connection.row_factory = sqlite3.Row

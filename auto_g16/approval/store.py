@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import sqlite3
 import stat
+import threading
 from typing import Final, cast
 from uuid import UUID
 
@@ -750,6 +751,7 @@ class _ExistingMutableGuard:
             raise ApprovalPersistenceIntegrityError('invalid existing approval paths') from error
         self.fds = []
         self.pid = os.getpid()
+        self.thread = threading.get_ident()
         self.poisoned = False
         self.stores = []
         self.unresolved = False
@@ -933,6 +935,61 @@ class SQLiteApprovalStore:
             self._closed = True
             raise
 
+    def _existing_binding_rows(self, statement):
+        """Fully consume a same-connection read; never reopen a database FD."""
+        guard = self._existing_mutable_guard
+        try:
+            cursor = self._connection.cursor()
+        except BaseException:
+            guard.poisoned = True
+            raise
+        original = None
+        try:
+            cursor.execute(statement)
+            return tuple(tuple(row) for row in cursor.fetchall())
+        except BaseException as error:
+            original = error
+            guard.poisoned = True
+            raise
+        finally:
+            try:
+                cursor.close()
+            except BaseException as error:
+                guard.retain()
+                if original is None:
+                    raise
+                original.add_note('binding cursor close unresolved: ' + type(error).__name__)
+
+    def assert_existing_binding(self):
+        """Assert only the current guarded connection and its retained binding."""
+        from types import MappingProxyType
+        guard = getattr(self, '_existing_mutable_guard', None)
+        if (guard is None or guard.pid != os.getpid()
+                or guard.thread != threading.get_ident() or getattr(self, '_closed', True)):
+            raise ApprovalPersistenceIntegrityError('binding requires the original open guarded owner')
+        guard.check()
+        if self._connection is not self._existing_binding_connection:
+            guard.poisoned = True
+            raise ApprovalPersistenceIntegrityError('binding connection was replaced')
+        if self._connection.in_transaction:
+            raise ApprovalPersistenceIntegrityError('binding requires an idle connection')
+        guard.check(idle=True)
+        try:
+            self._assert_database_list(self._connection)
+            rows = self._existing_binding_rows
+            if (rows('PRAGMA application_id') != ((_APPLICATION_ID,),)
+                    or rows('PRAGMA user_version') != ((_USER_VERSION,),)
+                    or rows('PRAGMA journal_mode') != (('delete',),)):
+                raise ApprovalPersistenceIntegrityError('existing binding native policy differs')
+            if self._connection.in_transaction:
+                raise ApprovalPersistenceIntegrityError('binding unexpectedly entered a transaction')
+            guard.check(idle=True)
+        except BaseException:
+            guard.poisoned = True
+            raise
+        return MappingProxyType(dict(path=guard.path, parent_chain=tuple(guard.identities[:-1]),
+            file_identity=guard.identities[-1], native_identity=None))
+
     def registration_schema_facts(self):
         """Read schema facts only through this existing guarded native handle."""
         from hashlib import sha256
@@ -1039,6 +1096,7 @@ class SQLiteApprovalStore:
                 Path(guard.path).as_uri() + f'?mode={mode}&cache=private',
                 uri=True, isolation_level=None)
             store._closed = False
+            store._existing_binding_connection = store._connection
             guard.check(idle=True)
             store._connection.execute('PRAGMA query_only=ON')
             store._configure_connection()
@@ -1246,9 +1304,12 @@ class SQLiteApprovalStore:
             ) from exc
 
     def _assert_database_list(self, connection: sqlite3.Connection) -> None:
-        observed = tuple(
-            tuple(row) for row in connection.execute("PRAGMA database_list")
-        )
+        if getattr(self, '_existing_mutable_guard', None) is not None:
+            observed = self._existing_binding_rows("PRAGMA database_list")
+        else:
+            observed = tuple(
+                tuple(row) for row in connection.execute("PRAGMA database_list")
+            )
         if len(observed) != 1 or observed[0][0:2] != (0, "main"):
             raise ApprovalStoreSchemaError(
                 "approval connection must contain only the expected main database"

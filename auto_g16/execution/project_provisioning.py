@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 import json
 import os
@@ -1001,6 +1002,31 @@ class _ProductionProvisioningJournal(_ProvisioningJournal):
     def __init__(self) -> None:
         raise TypeError("use create_new/open_existing with a reviewed local root")
 
+    def assert_existing_binding(self):
+        """Assert a retained original owner binding without opening any database FD."""
+        from types import MappingProxyType
+        import threading
+        guard = getattr(self, '_existing_guard', None)
+        if (guard is None or guard.pid != os.getpid() or guard.thread != threading.get_ident()
+                or getattr(self, '_closed', True)):
+            raise ExecutionValueError('binding requires the original open guarded owner')
+        guard.owner()
+        if self._connection is not self._existing_binding_connection:
+            guard.poisoned = True
+            raise ExecutionValueError('binding connection was replaced')
+        if self._connection.in_transaction:
+            raise ExecutionValueError('binding requires an idle connection')
+        self._attest()
+        if self._identity != guard.journal_identity:
+            guard.poisoned = True
+            raise ExecutionValueError('binding journal creation identity differs')
+        if self._connection.in_transaction:
+            guard.poisoned = True
+            raise ExecutionValueError('binding unexpectedly entered a transaction')
+        guard.check(idle=True)
+        return MappingProxyType(dict(path=guard.path, parent_chain=tuple(guard.identities[:-1]),
+            file_identity=guard.identities[-1], native_identity=MappingProxyType({'journal_identity': self._identity})))
+
     def registration_schema_facts(self):
         """Read schema facts only through this existing guarded native handle."""
         from hashlib import sha256
@@ -1025,12 +1051,15 @@ class _ProductionProvisioningJournal(_ProvisioningJournal):
         return freeze_mapping(value, 'schema_facts')
 
     @classmethod
+    @contextmanager
     def open_existing_mutable(cls, database, *, approved_root, expected_parent_chain,
                               expected_file_identity, expected_journal_identity):
         from ._project_existing import open_existing
-        return open_existing(cls, database, approved_root=approved_root,
+        with open_existing(cls, database, approved_root=approved_root,
             expected_parent_chain=expected_parent_chain, expected_file_identity=expected_file_identity,
-            expected_journal_identity=expected_journal_identity, application_id=_APPLICATION_ID)
+            expected_journal_identity=expected_journal_identity, application_id=_APPLICATION_ID) as store:
+            store._existing_binding_connection = store._connection
+            yield store
 
     def _sql(self, statement, parameters=()):
         guard = getattr(self, '_existing_guard', None)
@@ -1337,6 +1366,29 @@ class _ProductionProvisioningJournal(_ProvisioningJournal):
                 raise ExecutionValueError("persisted production Project binding is noncanonical")
             self._require_binding_intent(binding)
         return binding
+
+    def inspect_creation_receipts(self, project_id):
+        """Read successful creation lineage through the existing guarded handle."""
+        self.assert_existing_binding()
+        require_text(project_id, 'project_id')
+        binding = self.load_binding(project_id)
+        if binding is None:
+            raise ExecutionValueError('creation receipts require a durable binding')
+        rows = self._sql('SELECT intent_id FROM provisioning_intents WHERE project_id=?',
+                         (project_id,)).fetchall()
+        if len(rows) != 1:
+            raise ExecutionValueError('creation receipts require one original intent')
+        identity = rows[0][0]
+        intent = self.inspect_intent(project_id, intent_id=identity)
+        result = self._load_success(identity, intent)
+        if result is None:
+            raise ExecutionValueError('creation receipts cannot consume UNKNOWN creation')
+        self.assert_existing_binding()
+        return freeze_mapping({
+            'intent': {'intent_id': identity, 'payload_sha256': semantic_sha256(intent), 'payload': intent},
+            'creation_result': {'payload_sha256': semantic_sha256(result), 'payload': result},
+            'original_binding': binding.semantic_payload(),
+        }, 'creation receipts')
 
     def _association_creation_source(self, project_id):
         """Exact successful creation lineage; this accessor is strictly read-only."""

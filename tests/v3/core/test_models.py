@@ -111,6 +111,7 @@ class PublicInterfaceTests(unittest.TestCase):
             "sqlite3",
             "stat",
             "types",
+            "threading",
             "typing",
         }
         for path in sorted((ROOT / "auto_g16" / "core").glob("*.py")):

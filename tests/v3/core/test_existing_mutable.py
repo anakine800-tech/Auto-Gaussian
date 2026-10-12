@@ -4,6 +4,7 @@ import os
 import sqlite3
 import subprocess
 import sys
+import threading
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -13,6 +14,128 @@ from auto_g16.core import Project
 
 
 class ExistingMutableTests(unittest.TestCase):
+
+    def test_binding_exact_immutable_and_no_new_database_resources(self):
+        before=self.path.read_bytes()
+        with self.open() as store:
+            guard=store._existing_mutable_guard
+            expected=dict(path=str(self.path),parent_chain=tuple(guard.identities[:-1]),
+                          file_identity=guard.identities[-1],native_identity=None)
+            from contextlib import nullcontext
+            with nullcontext():
+                with patch.object(os,'open',side_effect=AssertionError('new FD')), \
+                        patch.object(sqlite3,'connect',side_effect=AssertionError('new SQLite')):
+                    result=store.assert_existing_binding()
+                self.assertEqual(dict(result),expected)
+                with self.assertRaises(TypeError):result['path']='changed'
+                if result['native_identity'] is not None:
+                    with self.assertRaises(TypeError):result['native_identity']['other']='changed'
+                with self.assertRaises(TypeError):store.assert_existing_binding('argument')
+            self.assertFalse(store._connection.in_transaction)
+        self.assertEqual(before,self.path.read_bytes())
+
+    def test_binding_active_transaction_preserves_lock_and_handle(self):
+        with self.open() as store:
+            connection=store._connection
+            connection.execute('BEGIN IMMEDIATE').close()
+            try:
+                with patch.object(os,'open',side_effect=AssertionError('new FD')), \
+                        patch.object(sqlite3,'connect',side_effect=AssertionError('new SQLite')):
+                    with self.assertRaises(owner.RuntimeStoreError):store.assert_existing_binding()
+                self.assertTrue(connection.in_transaction)
+                self.assertFalse(store._existing_mutable_guard.poisoned)
+                pid=os.fork()
+                if pid==0:
+                    class Forbidden:
+                        def __getattribute__(self,name):raise AssertionError('inherited SQLite access')
+                    store._connection=Forbidden()
+                    try:store.assert_existing_binding()
+                    except owner.RuntimeStoreError:os._exit(0)
+                    except BaseException:os._exit(2)
+                    os._exit(3)
+                self.assertEqual(os.waitpid(pid,0)[1],0)
+                self.assertTrue(connection.in_transaction)
+                script="import sqlite3,sys;c=sqlite3.connect(sys.argv[1],timeout=0);\ntry:c.execute('BEGIN IMMEDIATE')\nexcept sqlite3.OperationalError:sys.exit(0)\nelse:sys.exit(3)"
+                child=subprocess.run([sys.executable,'-c',script,str(self.path)],capture_output=True,text=True,timeout=10)
+                self.assertEqual(child.returncode,0,child.stderr)
+            finally:connection.execute('ROLLBACK').close()
+            store.assert_existing_binding()
+
+    def test_binding_wrong_thread_pid_and_closed_reject_before_sqlite(self):
+        class Forbidden:
+            def __getattribute__(self,name):raise AssertionError('SQLite touched '+name)
+        with self.open() as store:
+            connection=store._connection
+            store._connection=Forbidden()
+            errors=[]
+            def other():
+                try:store.assert_existing_binding()
+                except BaseException as error:errors.append(error)
+            thread=threading.Thread(target=other);thread.start();thread.join(5)
+            self.assertFalse(thread.is_alive())
+            self.assertEqual(len(errors),1);self.assertIsInstance(errors[0],owner.RuntimeStoreError)
+            try:
+                with patch.object(os,'getpid',return_value=-1):
+                    with self.assertRaises(owner.RuntimeStoreError):store.assert_existing_binding()
+                store._closed=True
+                with self.assertRaises(owner.RuntimeStoreError):store.assert_existing_binding()
+            finally:store._connection=connection;store._closed=False
+            store.assert_existing_binding()
+        store._connection=Forbidden()
+        with self.assertRaises(owner.RuntimeStoreError):store.assert_existing_binding()
+        legacy=object.__new__(owner.SQLiteRuntimeStore)
+        legacy._connection=Forbidden()
+        with self.assertRaises(owner.RuntimeStoreError):legacy.assert_existing_binding()
+
+    def test_binding_attached_database_and_replaced_connection_reject(self):
+        for mode in ('attached','replaced'):
+            with self.subTest(mode=mode),self.assertRaises(owner.RuntimeStoreError):
+                with self.open() as store:
+                    original=store._connection
+                    if mode=='attached':
+                        original.execute("ATTACH DATABASE ':memory:' AS other").close()
+                        try:
+                            with self.assertRaises(owner.RuntimeStoreError):store.assert_existing_binding()
+                        finally:original.execute('DETACH DATABASE other').close()
+                    else:
+                        substitute=sqlite3.connect(':memory:',isolation_level=None)
+                        store._connection=substitute
+                        try:
+                            with self.assertRaises(owner.RuntimeStoreError):store.assert_existing_binding()
+                        finally:store._connection=original;substitute.close()
+                    self.assertTrue(store._existing_mutable_guard.poisoned)
+
+    def test_binding_sidecar_rejection_is_permanent(self):
+        side=Path(str(self.path)+'-wal')
+        with self.assertRaises(owner.RuntimeStoreError):
+            with self.open() as store:
+                side.write_bytes(b'synthetic sidecar')
+                try:
+                    with self.assertRaises(owner.RuntimeStoreError):store.assert_existing_binding()
+                finally:side.unlink()
+                with self.assertRaises(owner.RuntimeStoreError):store.assert_existing_binding()
+
+    def test_binding_file_and_ancestor_drift_preserves_original(self):
+        for kind in ('file','ancestor'):
+            before=self.path.read_bytes()
+            with self.subTest(kind=kind),self.assertRaises(owner.RuntimeStoreError):
+                with self.open() as store:
+                    if kind=='file':
+                        saved=self.root/'retained-original';self.path.rename(saved)
+                        self.path.write_bytes(b'replacement')
+                    else:
+                        saved=self.root.with_name(self.root.name+'-retained')
+                        self.root.rename(saved);self.root.mkdir();self.path.write_bytes(b'replacement')
+                    try:
+                        with self.assertRaises(owner.RuntimeStoreError):store.assert_existing_binding()
+                        self.assertEqual(self.path.read_bytes(),b'replacement')
+                    finally:
+                        self.path.unlink()  # Only synthetic test replacement.
+                        if kind=='file':saved.rename(self.path)
+                        else:self.root.rmdir();saved.rename(self.root)
+                    with self.assertRaises(owner.RuntimeStoreError):store.assert_existing_binding()
+            self.assertEqual(before,self.path.read_bytes())
+
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)

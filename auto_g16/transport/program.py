@@ -433,6 +433,33 @@ class _ProgramTransportStore:
     def __init__(self) -> None:
         raise TypeError("use _ProgramTransportStore.create_new/open_existing")
 
+    def assert_existing_binding(self):
+        """Assert a retained original owner binding without opening any database FD."""
+        from types import MappingProxyType
+        guard = getattr(self, '_existing_guard', None)
+        if (guard is None or guard.pid != os.getpid() or guard.thread != get_ident()
+                or getattr(self, '_closed', True)):
+            raise TransportBoundaryError('binding requires the original open guarded owner')
+        guard.owner()
+        if self._connection is not self._existing_binding_connection:
+            guard.poisoned = True
+            raise TransportBoundaryError('binding connection was replaced')
+        if self._connection.in_transaction:
+            raise TransportBoundaryError('binding requires an idle connection')
+        with self._store_access(), self._lock:
+            self._attest()
+            databases = self._sql('PRAGMA database_list').fetchall()
+            if (databases not in ([(0, 'main', guard.path)], [(0, 'main', guard.path), (1, 'temp', '')])
+                    or (len(databases) == 2 and self._sql('SELECT name FROM temp.sqlite_master').fetchall())):
+                guard.poisoned = True
+                raise TransportBoundaryError('binding connection database identity differs')
+            if self._connection.in_transaction:
+                guard.poisoned = True
+                raise TransportBoundaryError('binding unexpectedly entered a transaction')
+            guard.check()
+            return MappingProxyType(dict(path=guard.path, parent_chain=tuple(guard.identities[:-1]),
+                file_identity=guard.identities[-1], native_identity=MappingProxyType({'program_transport_store_id': self.program_transport_store_id, 'store_instance_id': self.store_instance_id})))
+
     def registration_schema_facts(self):
         """Read schema facts only through this existing guarded native handle."""
         from hashlib import sha256
@@ -459,12 +486,15 @@ class _ProgramTransportStore:
             return MappingProxyType(value)
 
     @classmethod
+    @contextmanager
     def open_existing_mutable(cls, database, *, approved_root, expected_parent_chain,
                               expected_file_identity, expected_store_instance_id):
         from ._program_existing import open_existing
-        return open_existing(cls, database, approved_root=approved_root,
+        with open_existing(cls, database, approved_root=approved_root,
             expected_parent_chain=expected_parent_chain, expected_file_identity=expected_file_identity,
-            expected_store_instance_id=expected_store_instance_id)
+            expected_store_instance_id=expected_store_instance_id) as store:
+            store._existing_binding_connection = store._connection
+            yield store
 
     def _sql(self, statement, parameters=()):
         guard = getattr(self, '_existing_guard', None)
