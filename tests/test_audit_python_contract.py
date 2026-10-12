@@ -593,7 +593,15 @@ class PythonContractAuditTests(unittest.TestCase):
             with self.subTest(anchor=anchor):
                 self.assertEqual(original.count(anchor), 1)
                 self._assert_chemistry_command_change_rejected(original.replace(anchor, extra + anchor, 1))
-        self._assert_chemistry_command_change_rejected(original + extra)
+        last = self._run_payload(AUDIT.GOODVIBES_QUALIFICATION_COMMANDS[-1])
+        self.assertEqual(original.count(last), 1)
+        changed = original.replace(last, last + extra, 1)
+        self.path(".github/workflows/offline-tests.yml").write_text(changed, encoding="utf-8")
+        commands = AUDIT.CI_CONTRACT.parse_run_commands(
+            self.path(".github/workflows/offline-tests.yml")
+        )["chemistry-dependencies"]
+        self.assertEqual(commands[-1], "python -c \"print('extra')\"")
+        self._assert_chemistry_command_change_rejected(changed)
 
     def test_original_chemistry_schema_and_rdkit_commands_remain_exact(self) -> None:
         workflow = self.path(".github/workflows/offline-tests.yml")
