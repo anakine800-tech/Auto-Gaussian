@@ -6,3 +6,8 @@
 .native-saved-thermodynamics{margin-top:28px;border-top:2px solid #ddd;padding-top:16px;overflow-wrap:anywhere;min-width:0}.native-saved-members{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:24px}.native-saved-members article{min-width:0}.native-saved-members table{width:100%;table-layout:fixed;border-collapse:collapse;font-variant-numeric:tabular-nums}.native-saved-members th,.native-saved-members td{text-align:left;vertical-align:top;padding:6px;border-bottom:1px solid #ddd;overflow-wrap:anywhere}.native-saved-members caption{text-align:left;margin-bottom:8px}.native-saved-parameters{display:grid;grid-template-columns:minmax(120px,1fr) minmax(0,3fr);gap:8px 16px}.native-saved-parameters dd{margin:0;overflow-wrap:anywhere}.native-saved-thermodynamics pre{max-height:320px;overflow:auto}@media(max-width:480px){.native-saved-parameters{grid-template-columns:1fr}.native-saved-parameters dd{margin-bottom:8px}.native-saved-members th,.native-saved-members td{font-size:12px;padding:4px}}
 
 @media(max-width:480px){.native-thermochemistry table{table-layout:fixed}.native-thermochemistry th,.native-thermochemistry td{min-width:0;white-space:normal;overflow-wrap:anywhere;padding:4px;font-size:12px}}
+
+/* Preserve saved scientific numbers as unbroken strings; contain narrow-screen overflow. */
+.native-population-scroll{max-width:100%;overflow-x:auto}
+.native-population-scroll table{table-layout:auto;min-width:560px}
+.native-population-scroll td{white-space:nowrap;overflow-wrap:normal;font-size:12px}

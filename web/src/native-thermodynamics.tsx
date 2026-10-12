@@ -123,7 +123,7 @@ function SavedResult({data}:{data:Extract<Data,{availability:'available'}>}){
   <details><summary>集合与请求身份</summary><pre>{JSON.stringify({artifact_sha256:r.artifact_sha256,source_ensemble:r.source_ensemble,qualified_ensemble:r.qualified_ensemble,thermodynamic_ensemble:r.thermodynamic_ensemble,sampling_profile:r.sampling_profile,request:r.request},null,2)}</pre></details>
  </>;
 }
-export function NativeThermodynamics({sourceId,attemptId,token}:{sourceId:string;attemptId:string;token:string}){
+export function NativeThermodynamics({sourceId,attemptId,token,onArtifact}:{sourceId:string;attemptId:string;token:string;onArtifact?:(hash:string|null)=>void}){
  const key=JSON.stringify([sourceId,attemptId,token]);
  const [state,setState]=useState<{key:string;data:Data|null;error:string}>({key,data:null,error:''});
  useEffect(()=>{
@@ -134,6 +134,7 @@ export function NativeThermodynamics({sourceId,attemptId,token}:{sourceId:string
   return()=>controller.abort();
  },[sourceId,attemptId,token,key]);
  const {data,error}=state.key===key?state:{data:null,error:''};
+ useEffect(()=>{onArtifact?.(data?.availability==='available'?data.result.artifact_sha256:null);},[data,onArtifact]);
  return <section className="native-saved-thermodynamics" aria-label="已保存的集合热化学结果"><h2>已保存的集合热化学结果</h2>
   {error?<p role="alert">读取失败：{error}</p>:!data?<p role="status">正在读取已保存的热化学结果…</p>:data.availability==='unavailable'?<p>未登记（unavailable · not-registered）</p>:<SavedResult data={data}/>}
  </section>;

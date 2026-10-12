@@ -305,6 +305,29 @@ def create_app(database: str | Path, *, token: str = "", local_no_token: bool = 
             return invoke(lambda source, attempt: native_query.get_thermodynamics(source, attempt),
                           source_id, attempt_id)
 
+    # Optional additive owners: older backends remain explicitly unavailable.
+    if native_sources is not None:
+        def native_optional(kind, source, attempt):
+            operation = getattr(native_query, 'get_' + kind, None)
+            if operation is not None:
+                return operation(source, attempt)
+            native_query.get_attempt(source, attempt)  # membership; no invented result
+            data = dict(source_id=source, attempt_id=attempt, availability='unavailable',
+                        reason='backend-unavailable', result=None)
+            if kind == 'populations':
+                data['selected_member_id'] = None
+            return dict(schema='auto-g16-native-' + kind + '-query/1', kind=kind, data=data)
+
+        @app.get('/api/v1/native/sources/{source_id}/attempts/{attempt_id}/lifecycle')
+        def native_lifecycle(source_id: str, attempt_id: str):
+            return invoke(lambda source, attempt: native_optional('lifecycle', source, attempt),
+                          source_id, attempt_id)
+
+        @app.get('/api/v1/native/sources/{source_id}/attempts/{attempt_id}/populations')
+        def native_populations(source_id: str, attempt_id: str):
+            return invoke(lambda source, attempt: native_optional('populations', source, attempt),
+                          source_id, attempt_id)
+
     @app.get("/api/projects")
     def projects():
         return invoke(query.list_projects)

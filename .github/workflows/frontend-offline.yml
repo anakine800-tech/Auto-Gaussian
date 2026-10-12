@@ -74,4 +74,4 @@ jobs:
         run: |
           export AUTOG_SOURCE_PYTHON="$(command -v python)"
           export AUTOG_TEST_OPERATIONS=1
-          node node_modules/@playwright/test/cli.js test native-frequency.spec.ts native-navigation.spec.ts pre-v31.spec.ts navigation.spec.ts native-thermodynamics.spec.ts
+          node node_modules/@playwright/test/cli.js test native-frequency.spec.ts native-navigation.spec.ts pre-v31.spec.ts navigation.spec.ts native-thermodynamics.spec.ts native-reliability.spec.ts
