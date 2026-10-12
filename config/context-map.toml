@@ -552,3 +552,10 @@ status = "contract-frozen-local-unqualified"
 required_sections = ["docs/v3/contracts/tasks/direct-study-local-install.md"]
 code_paths = ["auto_g16/study/_local_install.py", "auto_g16/study/_installation.py", "auto_g16/study/__main__.py", "auto_g16/study/_runtime_initialization.py"]
 focused_tests = ["tests/v3/study/test_local_install.py", "tests/v3/study/test_installation.py", "tests/v3/study/test_runtime_initialization.py", "tests/v3/study/test_direct.py"]
+
+[[component]]
+id = "direct-study-project-existing-open"
+status = "contract-frozen-local-native-owner"
+required_sections = ["docs/v3/contracts/tasks/direct-study-project-existing.md"]
+code_paths = ["auto_g16/execution/_project_existing.py", "auto_g16/execution/project_provisioning.py"]
+focused_tests = ["tests/v3/execution/test_project_existing.py", "tests/v31/transport/test_project_profile_association.py", "tests/v3/study/test_runtime_initialization.py"]

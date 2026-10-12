@@ -832,15 +832,18 @@ class _ProvisioningJournal:
             raise ExecutionValueError("provisioning journal must not be a symlink")
         existed = path.exists()
         self._connection = sqlite3.connect(path, isolation_level=None)
-        self._connection.execute("PRAGMA foreign_keys=ON")
-        self._connection.execute("PRAGMA trusted_schema=OFF")
-        self._connection.execute("PRAGMA synchronous=FULL")
+        self._sql("PRAGMA foreign_keys=ON")
+        self._sql("PRAGMA trusted_schema=OFF")
+        self._sql("PRAGMA synchronous=FULL")
         if not existed:
-            self._connection.execute(f"PRAGMA application_id={_APPLICATION_ID}")
-            self._connection.execute(f"PRAGMA user_version={_USER_VERSION}")
+            self._sql(f"PRAGMA application_id={_APPLICATION_ID}")
+            self._sql(f"PRAGMA user_version={_USER_VERSION}")
             for statement in _DDL:
-                self._connection.execute(statement)
+                self._sql(statement)
         self._attest()
+
+    def _sql(self, statement, parameters=()):
+        return self._connection.execute(statement, parameters)
 
     def close(self) -> None:
         self._connection.close()
@@ -852,13 +855,13 @@ class _ProvisioningJournal:
         self.close()
 
     def _attest(self) -> None:
-        if self._connection.execute("PRAGMA application_id").fetchone()[0] != _APPLICATION_ID:
+        if self._sql("PRAGMA application_id").fetchone()[0] != _APPLICATION_ID:
             raise ExecutionValueError("provisioning journal application identity drifted")
-        if self._connection.execute("PRAGMA user_version").fetchone()[0] != _USER_VERSION:
+        if self._sql("PRAGMA user_version").fetchone()[0] != _USER_VERSION:
             raise ExecutionValueError("provisioning journal schema version drifted")
         observed = {
             row[0]: row[1]
-            for row in self._connection.execute(
+            for row in self._sql(
                 "SELECT name,sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%'"
             )
         }
@@ -884,7 +887,7 @@ class _ProvisioningJournal:
 
     def load_binding(self, project_id: str) -> ProjectPhysicalBinding | None:
         require_text(project_id, "project_id")
-        rows = self._connection.execute(
+        rows = self._sql(
             "SELECT payload_json FROM project_physical_bindings WHERE project_id=?",
             (project_id,),
         ).fetchall()
@@ -938,16 +941,18 @@ class _ProvisioningJournal:
         return value
 
     def _append(self, table: str, values: tuple[str, ...]) -> None:
+        if getattr(self, '_existing_guard', None) is not None:
+            return self._guarded_append(table, values)
         self._attest()
-        self._connection.execute("BEGIN IMMEDIATE")
+        self._sql("BEGIN IMMEDIATE")
         try:
             placeholders = ",".join("?" for _ in values)
             try:
-                self._connection.execute(
+                self._sql(
                     f"INSERT INTO {table} VALUES({placeholders})", values
                 )
             except sqlite3.IntegrityError:
-                row = self._connection.execute(
+                row = self._sql(
                     f"SELECT * FROM {table} WHERE project_physical_binding_id=?",
                     (values[0],),
                 ).fetchone()
@@ -956,9 +961,9 @@ class _ProvisioningJournal:
                         "conflicting immutable provisioning authority"
                     )
             self._attest()
-            self._connection.execute("COMMIT")
+            self._sql("COMMIT")
         except Exception:
-            self._connection.execute("ROLLBACK")
+            self._sql("ROLLBACK")
             raise
 
 
@@ -995,6 +1000,69 @@ class _ProductionProvisioningJournal(_ProvisioningJournal):
 
     def __init__(self) -> None:
         raise TypeError("use create_new/open_existing with a reviewed local root")
+
+    @classmethod
+    def open_existing_mutable(cls, database, *, approved_root, expected_parent_chain,
+                              expected_file_identity, expected_journal_identity):
+        from ._project_existing import open_existing
+        return open_existing(cls, database, approved_root=approved_root,
+            expected_parent_chain=expected_parent_chain, expected_file_identity=expected_file_identity,
+            expected_journal_identity=expected_journal_identity, application_id=_APPLICATION_ID)
+
+    def _sql(self, statement, parameters=()):
+        guard = getattr(self, '_existing_guard', None)
+        if guard is None:
+            return self._connection.execute(statement, parameters)
+        if self._closed:
+            raise ExecutionValueError('existing Project journal is closed')
+        return guard.statement(self._connection, statement, parameters)
+
+    def close(self):
+        guard = getattr(self, '_existing_guard', None)
+        if guard is None:
+            return super().close()
+        if not self._closed:
+            self._closed = True
+            from ._project_existing import close_sqlite
+            close_sqlite(guard, self._connection)
+
+    def _validate_existing_rows(self):
+        from ._project_existing import require
+        guard = self._existing_guard
+        try:
+            self._attest()
+            require(self._sql('PRAGMA integrity_check').fetchall() == [('ok',)])
+            require(not self._sql('PRAGMA foreign_key_check').fetchall())
+            require(self._sql('PRAGMA journal_mode').fetchone() == ('delete',))
+            require(self._sql('PRAGMA locking_mode').fetchone() == ('normal',))
+            meta = json.loads(self._sql('SELECT identity_json FROM provisioning_meta').fetchone()[0])
+            require(len(meta['nonce']) == 64 and all(c in '0123456789abcdef' for c in meta['nonce']))
+            intents = {}
+            for intent_id, project_id in self._sql('SELECT intent_id,project_id FROM provisioning_intents'):
+                intents[intent_id] = self.inspect_intent(project_id, intent_id=intent_id)
+            for (intent_id,) in self._sql('SELECT intent_id FROM provisioning_results'):
+                require(intent_id in intents)
+                self._load_success(intent_id, intents[intent_id])
+            for binding_id, project_id in self._sql('SELECT project_physical_binding_id,project_id FROM project_physical_bindings'):
+                binding = self.load_binding(project_id)
+                require(binding is not None and binding.project_physical_binding_id == binding_id
+                        and binding.project_id == project_id)
+            self._attest()
+        except BaseException:
+            guard.poisoned = True
+            raise
+
+    def _guarded_append(self, table, values):
+        guard = self._existing_guard
+        self._attest()
+        with guard.transaction(self):
+            try:
+                self._sql(f'INSERT INTO {table} VALUES({",".join("?" for _ in values)})', values)
+            except sqlite3.IntegrityError:
+                row = self._sql(f'SELECT * FROM {table} WHERE project_physical_binding_id=?', (values[0],)).fetchone()
+                if row is None or tuple(row) != values:
+                    raise ExecutionValueError('conflicting immutable provisioning authority')
+            self._attest()
 
     @classmethod
     def create_initialization_at(cls, database, *, approved_root, parent_chain):
@@ -1180,7 +1248,19 @@ class _ProductionProvisioningJournal(_ProvisioningJournal):
             raise
 
     def _attest(self) -> None:
-        if _journal_paths(self._path, self._root) != (self._path, self._root) or _journal_file_identity(self._path) != self._file_identity:
+        guard = getattr(self, '_existing_guard', None)
+        try:
+            self._attest_contents()
+        except BaseException:
+            if guard is not None:
+                guard.poisoned = True
+            raise
+
+    def _attest_contents(self) -> None:
+        guard = getattr(self, '_existing_guard', None)
+        if guard is not None:
+            guard.check(idle=not guard.transaction_active)
+        elif _journal_paths(self._path, self._root) != (self._path, self._root) or _journal_file_identity(self._path) != self._file_identity:
             raise ExecutionValueError("production Project journal physical identity drifted")
         if self._read_only:
             metadata = os.lstat(self._path)
@@ -1190,29 +1270,29 @@ class _ProductionProvisioningJournal(_ProvisioningJournal):
         connection = self._connection
         if type(connection) is not sqlite3.Connection or connection.isolation_level is not None:
             raise ExecutionValueError("production Project journal connection policy drifted")
-        if connection.execute("SELECT name FROM temp.sqlite_schema").fetchall():
+        if self._sql("SELECT name FROM temp.sqlite_schema").fetchall():
             raise ExecutionValueError("production Project journal contains TEMP schema objects")
-        databases = connection.execute("PRAGMA database_list").fetchall()
+        databases = self._sql("PRAGMA database_list").fetchall()
         if databases != [(0, "main", self._path), (1, "temp", "")]:
             raise ExecutionValueError("production Project journal connection database identity drifted")
         if (
-            connection.execute("PRAGMA foreign_keys").fetchone()[0] != 1
-            or connection.execute("PRAGMA trusted_schema").fetchone()[0] != 0
-            or connection.execute("PRAGMA read_uncommitted").fetchone()[0] != 0
-            or connection.execute("PRAGMA main.synchronous").fetchone()[0] != 2
-            or connection.execute("PRAGMA main.journal_mode").fetchone()[0]
+            self._sql("PRAGMA foreign_keys").fetchone()[0] != 1
+            or self._sql("PRAGMA trusted_schema").fetchone()[0] != 0
+            or self._sql("PRAGMA read_uncommitted").fetchone()[0] != 0
+            or self._sql("PRAGMA main.synchronous").fetchone()[0] != 2
+            or self._sql("PRAGMA main.journal_mode").fetchone()[0]
             not in {"delete", "truncate", "persist", "wal"}
         ):
             raise ExecutionValueError("production Project journal durability policy drifted")
-        if self._connection.execute("PRAGMA application_id").fetchone()[0] != _APPLICATION_ID or self._connection.execute("PRAGMA user_version").fetchone()[0] != self._version or self._version not in (2, 3):
+        if self._sql("PRAGMA application_id").fetchone()[0] != _APPLICATION_ID or self._sql("PRAGMA user_version").fetchone()[0] != self._version or self._version not in (2, 3):
             raise ExecutionValueError("production Project journal schema version drifted")
-        observed = dict(self._connection.execute("SELECT name,sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%'"))
-        if self._read_only and connection.execute("PRAGMA query_only").fetchone()[0] != 1:
+        observed = dict(self._sql("SELECT name,sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%'"))
+        if self._read_only and self._sql("PRAGMA query_only").fetchone()[0] != 1:
             raise ExecutionValueError("read-only Project recovery connection policy drifted")
         expected = {statement.split()[2].split("(", 1)[0]: statement for statement in (_RECOVERABLE_DDL if self._version == 3 else _PRODUCTION_DDL)}
         if observed != expected:
             raise ExecutionValueError("production Project journal schema drifted")
-        rows = self._connection.execute("SELECT singleton,identity_json FROM provisioning_meta").fetchall()
+        rows = self._sql("SELECT singleton,identity_json FROM provisioning_meta").fetchall()
         if len(rows) != 1 or rows[0][0] != 1:
             raise ExecutionValueError("production Project journal identity is missing")
         raw = rows[0][1]
@@ -1229,7 +1309,7 @@ class _ProductionProvisioningJournal(_ProvisioningJournal):
         self._attest()
         binding = super().load_binding(project_id)
         if binding is not None:
-            rows = self._connection.execute("SELECT payload_json FROM project_physical_bindings WHERE project_id=?", (project_id,)).fetchall()
+            rows = self._sql("SELECT payload_json FROM project_physical_bindings WHERE project_id=?", (project_id,)).fetchall()
             if len(rows) != 1 or rows[0][0] != _canonical_json(binding.semantic_payload()):
                 raise ExecutionValueError("persisted production Project binding is noncanonical")
             self._require_binding_intent(binding)
@@ -1243,7 +1323,7 @@ class _ProductionProvisioningJournal(_ProvisioningJournal):
         binding = self.load_binding(project_id)
         if binding is None:
             raise ExecutionValueError("association requires a durable creation binding")
-        rows = self._connection.execute(
+        rows = self._sql(
             "SELECT intent_id FROM provisioning_intents WHERE project_id=?", (project_id,)).fetchall()
         if len(rows) != 1:
             raise ExecutionValueError("association requires the original unique intent")
@@ -1264,7 +1344,7 @@ class _ProductionProvisioningJournal(_ProvisioningJournal):
         require_text(project_id, "project_id")
         require_text(intent_id, "intent_id")
         self._attest()
-        rows = self._connection.execute(
+        rows = self._sql(
             "SELECT intent_id,project_id,target_id,project_path,payload_json FROM main.provisioning_intents WHERE project_id=?",
             (project_id,),
         ).fetchall()
@@ -1286,7 +1366,7 @@ class _ProductionProvisioningJournal(_ProvisioningJournal):
         self._attest()
         if self._version == 2:
             return None
-        rows = self._connection.execute("SELECT payload_json FROM main.provisioning_results WHERE intent_id=?", (intent_id,)).fetchall()
+        rows = self._sql("SELECT payload_json FROM main.provisioning_results WHERE intent_id=?", (intent_id,)).fetchall()
         if not rows:
             return None
         raw = rows[0][0]
@@ -1302,6 +1382,22 @@ class _ProductionProvisioningJournal(_ProvisioningJournal):
         return freeze_mapping(payload, "Project creation result")
 
     def _record_success(self, intent_id: str, project_id: str, parent: str, physical: str) -> None:
+        guard = getattr(self, '_existing_guard', None)
+        if guard is not None:
+            intent = self.inspect_intent(project_id, intent_id=intent_id)
+            if parent != intent['parent_identity']:
+                raise ExecutionValueError('creation result parent differs from intent')
+            require_text(physical, 'creation result Project identity')
+            payload = dict(journal_identity=self._identity, intent_id=intent_id,
+                intent_sha256=semantic_sha256(intent), parent_identity=parent, project_identity=physical)
+            raw = _canonical_json(payload)
+            with guard.transaction(self):
+                inserted = self._sql('INSERT INTO main.provisioning_results VALUES(?,?)', (intent_id, raw))
+                if inserted.rowcount != 1 or self._load_success(intent_id, intent) != freeze_mapping(payload, 'creation result'):
+                    raise ExecutionValueError('creation result lacks exact insert/readback')
+            guard.readback(self, 'SELECT payload_json FROM main.provisioning_results WHERE intent_id=?', (intent_id,), [(raw,)])
+            self._attest()
+            return
         if self._version == 2:
             return
         if self._read_only or self._connection.in_transaction:
@@ -1314,15 +1410,15 @@ class _ProductionProvisioningJournal(_ProvisioningJournal):
                    "intent_sha256": semantic_sha256(intent), "parent_identity": parent,
                    "project_identity": physical}
         raw = _canonical_json(payload)
-        self._connection.execute("BEGIN IMMEDIATE")
+        self._sql("BEGIN IMMEDIATE")
         try:
-            inserted = self._connection.execute("INSERT INTO main.provisioning_results VALUES(?,?)", (intent_id, raw))
+            inserted = self._sql("INSERT INTO main.provisioning_results VALUES(?,?)", (intent_id, raw))
             if inserted.rowcount != 1 or self._load_success(intent_id, intent) != freeze_mapping(payload, "creation result"):
                 raise ExecutionValueError("creation result lacks exact insert/readback")
-            self._connection.execute("COMMIT")
+            self._sql("COMMIT")
         except BaseException:
             if self._connection.in_transaction:
-                self._connection.execute("ROLLBACK")
+                self._sql("ROLLBACK")
             raise
         self._attest()
         reader = sqlite3.connect(Path(self._path).as_uri() + "?mode=ro&cache=private", uri=True)
@@ -1334,7 +1430,7 @@ class _ProductionProvisioningJournal(_ProvisioningJournal):
         self._attest()
 
     def _require_binding_intent(self, binding: ProjectPhysicalBinding) -> None:
-        rows = self._connection.execute("SELECT intent_id,project_id,target_id,project_path,payload_json FROM provisioning_intents WHERE project_id=?", (binding.project_id,)).fetchall()
+        rows = self._sql("SELECT intent_id,project_id,target_id,project_path,payload_json FROM provisioning_intents WHERE project_id=?", (binding.project_id,)).fetchall()
         if len(rows) != 1:
             raise ExecutionValueError("Project binding lacks its one durable provisioning intent")
         intent_id, project_id, target_id, project_path, raw = rows[0]
@@ -1361,6 +1457,24 @@ class _ProductionProvisioningJournal(_ProvisioningJournal):
         super().append_binding(binding)
 
     def _record_intent(self, *, project_id: str, target: ResolvedServerProfile, path: str, parent_identity: str, authority_id: str) -> str:
+        guard = getattr(self, '_existing_guard', None)
+        if guard is not None:
+            self._attest()
+            payload = dict(project_id=project_id, target_id=target.resolved_server_profile_id,
+                path=path, parent_identity=parent_identity, authority_id=authority_id)
+            intent = semantic_id('project-provision-intent', payload)
+            values = (intent, project_id, target.resolved_server_profile_id, path, _canonical_json(payload))
+            query = 'SELECT intent_id,project_id,target_id,project_path,payload_json FROM main.provisioning_intents WHERE intent_id=?'
+            with guard.transaction(self):
+                try:
+                    inserted = self._sql('INSERT INTO main.provisioning_intents VALUES(?,?,?,?,?)', values)
+                except sqlite3.IntegrityError as error:
+                    raise ExecutionValueError('Project provision intent already exists; no automatic retry or adoption') from error
+                if inserted.rowcount != 1 or self._sql(query, (intent,)).fetchall() != [values]:
+                    raise ExecutionValueError('Project provision intent lacks exact insert/readback')
+            guard.readback(self, query, (intent,), [values])
+            self._attest()
+            return intent
         if self._read_only:
             raise ExecutionValueError("read-only Project journal cannot record an intent")
         if self._connection.in_transaction:
@@ -1371,20 +1485,20 @@ class _ProductionProvisioningJournal(_ProvisioningJournal):
         values = (intent, project_id, target.resolved_server_profile_id, path, _canonical_json(payload))
         query = "SELECT intent_id,project_id,target_id,project_path,payload_json FROM main.provisioning_intents WHERE intent_id=?"
         # Intentionally no idempotent success: reopening an unfinished intent is STOP.
-        self._connection.execute("BEGIN IMMEDIATE")
+        self._sql("BEGIN IMMEDIATE")
         try:
             try:
-                inserted = self._connection.execute("INSERT INTO main.provisioning_intents VALUES(?,?,?,?,?)", values)
+                inserted = self._sql("INSERT INTO main.provisioning_intents VALUES(?,?,?,?,?)", values)
             except sqlite3.IntegrityError as exc:
                 raise ExecutionValueError("Project provision intent already exists; no automatic retry or adoption") from exc
-            if inserted.rowcount != 1 or self._connection.execute(query, (intent,)).fetchall() != [values]:
+            if inserted.rowcount != 1 or self._sql(query, (intent,)).fetchall() != [values]:
                 raise ExecutionValueError("Project provision intent INSERT did not create the exact record")
             self._attest()
-            self._connection.execute("COMMIT")
+            self._sql("COMMIT")
         except Exception:
             # Only this method's transaction is owned here; never consume a caller's.
             if self._connection.in_transaction:
-                self._connection.execute("ROLLBACK")
+                self._sql("ROLLBACK")
             raise
         if self._connection.in_transaction:
             raise ExecutionValueError("Project provision intent is not committed")
