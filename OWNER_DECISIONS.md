@@ -1565,3 +1565,18 @@ On 2026-10-09 Owner requested persistence/readback development and subsequent na
 On 2026-10-09 Owner explicitly approved both publication of stage 3 and the independently reviewed [stage-4 read-only projection contract](docs/v3/contracts/tasks/native-thermochemistry-readonly-projection.md). The accepted source contract SHA-256 is `468275ff3ae413b745d2a40ee51c3a11f418104ab59b82c2cb4ac6e88a36ad45`; the linked document is its sanitized public version. NATIVE-THERMO-ADAPTATION-04 is a v3 feature, OWNER-GUIDED, non-BUS, L2, based on stage-3 commit `13a98229551df6a9baeaa9b7c830f06c713a2049` (tree `ab7a2b16f2f68386e711bf4f198211827196a3a8`). Its five required checks passed before implementation. Authorization covers separate backend/frontend workspaces, implementation, offline/synthetic validation, independent L2 review, commits, pushes, draft PRs and exact CI. Owner subsequently resumed this work and authorized the bounded frontend CI pin/spec adjustment in that repository.
 
 Only the optional fully bound startup reader and separate saved-result query/closed DTO are added to the backend. Existing list/detail DTOs remain unchanged; reads do not recompute thermochemistry or imply ScientificAcceptance. The backend draft PR is stacked on `codex/native-thermo-readback`, explicitly depending on PR #198; any retarget needs a separate exact identity check. Stage-4 completion stops further work. Merge, real registration, installation, real-material browser acceptance, new computation, cleanup and later packages remain outside this authorization.
+
+## Pre-submit UNKNOWN recovery integration continuation
+
+On 2026-10-12 Owner explicitly requested completion of the unified execution
+entry, frontend, engineering integration/deployment and fresh E2E. This
+OWNER-GUIDED, non-BUS dependency continues in its existing isolated
+`codex/presubmit-unknown-recovery` worktree at base `b4c7ccb5`. The
+[bounded recovery contract](docs/v3/presubmit-unknown-recovery.md#integration-continuation)
+is adopted for exact local pre-submit reconciliation only. Engineering
+integration and deployment follow independent review and required checks;
+this dependency implementer is delegated only local edits, offline validation
+and evidence handoff. No scientific/live execution is authorized here. The
+original consumed Attempt never resumes, and child creation/submission remains
+explicitly approved through the sole execution owner. Historical target evidence
+is reusable only with its exact source and claim binding accepted at review.

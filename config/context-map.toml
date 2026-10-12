@@ -475,3 +475,10 @@ status = "offline-candidate-unreviewed"
 required_sections = ["OWNER_DECISIONS.md#od-42-native-thermochemistry-source-adapter", "docs/v3/contracts/tasks/native-thermochemistry-source-adapter.md"]
 code_paths = ["auto_g16/conformer/_successor_thermo_source.py", "auto_g16/conformer/frequency_readonly.py", "auto_g16/thermochemistry/_successor_facts.py"]
 focused_tests = ["tests/v31/conformer/test_successor_freq.py", "tests/v31/thermochemistry/test_core.py", "tests/v3/query/test_native.py"]
+
+[[component]]
+id = "v31-presubmit-unknown-recovery"
+status = "implementation-candidate"
+required_sections = ["OWNER_DECISIONS.md#pre-submit-unknown-recovery-integration-continuation", "docs/v3/boundary-spec.md#v31-presubmit-unknown-recovery-boundary", "docs/v3/acceptance.md#v31-presubmit-unknown-recovery-acceptance", "docs/v3/presubmit-unknown-recovery.md"]
+code_paths = ["auto_g16/execution/_presubmit_recovery.py", "auto_g16/transport/program.py", "scripts/reconcile_v31_presubmit_unknown.py"]
+focused_tests = ["tests/v31/transport/test_presubmit_recovery.py", "tests/v31/transport/test_presubmit_process.py", "tests/v31/transport/test_program_completion.py", "tests/test_validation_selector.py"]
