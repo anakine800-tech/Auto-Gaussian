@@ -60,8 +60,13 @@ No CLI or browser argument selects a remote root or installation. Store creation
 requires absent destinations; never overwrite or delete even partial files.
 
 Runtime contains `core.sqlite3`, `approval.sqlite3`, `transport.sqlite3`,
-`project-journal.sqlite3`, fixed `binding.json`, `operations/`, `artifacts/`,
-`reviews/`, `public/`. Each native store uses its own schema and native creator;
+`project-journal.sqlite3`, fixed `binding.json`, `initialization/`, `operations/`,
+`prepared/`, `artifacts/`, `reviews/`, `public/`. The proposed independent local
+initialization slice and its exact inventory are in runtime §4. Its binding.json
+is explicitly local-uninstalled and never grants installation or execution
+authority. The installed binding described below is a future separate
+append-only artifact with a filename to freeze alongside installation; it must
+not overwrite the local binding.json. Each native store uses its own schema and native creator;
 Study must not create owner tables or synthesize receipts. Initial six records
 are loaded through the immutable snapshot reader then persisted with public
 Core methods, comparing every returned canonical record. Runtime Core may
@@ -69,7 +74,7 @@ subsequently change; immutable creation image may not. Bind stores by role,
 physical identity and verified owner schema, not a stale whole-file hash.
 Use stable transaction/record receipts for mutable store content claims.
 
-`binding.json` schema `auto-g16-study-runtime/1`, exactly
+Future installed binding schema `auto-g16-study-runtime/1`, exactly
 {schema,study_id,request_sha256,creation_core_sha256,creation_chain,
 runtime_chain,identities,installation_id,installation_sha256}. `identities`
 contains {root_project_id,root_workflow_run_id,crest_project_id,
@@ -105,7 +110,9 @@ populations,study. INTENT dependencies and expected identities must exactly
 match the fixed graph; their detailed values are derived from verified native
 records, never accepted as caller overrides. Domain/reason enums are in §7.
 
-Execution/derivation steps take one cross-process exclusive Study lock, then
+Execution/derivation steps take one cross-process exclusive Study lock on the
+fixed runtime/initialization/ directory inode (distinct from Transport
+database-parent runtime/ lock), then
 native locks in this order: Project, Core, Approval, Transport, scientific
 source owners in their existing prescribed order. These steps NEVER acquire
 the registry lock while holding any Study/native lock. Publication is a separate

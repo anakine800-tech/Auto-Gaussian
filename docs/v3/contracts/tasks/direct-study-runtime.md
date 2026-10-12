@@ -235,7 +235,7 @@ renewal or collection continuations are not silent replacements of PREPARED.
 They use existing exact owner continuation records, addressed by identity.
 
 Reader/session lock order: process session guard (nonblocking), registry shared
-while selecting the exact immutable entry, release registry, Study exclusive,
+while selecting the exact immutable entry, release registry, Study exclusive on runtime/initialization/,
 Project journal, Core, Approval, Transport guards in native prescribed order.
 Then verify entry/runtime/request and all native bindings before minting token.
 No registry reacquisition while Study or native locks are held. New records
@@ -247,56 +247,250 @@ A crash between runtime receipt and registry append leaves a local unregistered
 runtime; explicit publication can adopt that exact receipt without rerunning it.
 Reads never complete publication. No lock stealing or implicit process restart.
 
-## 4. Runtime initialization and four native stores
+## 4. Proposed independently implementable local initialization slice
 
-Immutable /2 creation stays unchanged. Runtime path is deterministically
-runtime_root/study_id; creation UUID slots and six initial records remain exact.
-No new Attempt/Plan identity or copy of historical results. Use an exclusive
-new directory reservation with full pinned ancestor chain and Study writer lock.
-Allowed initial children: `initialization/`, `operations/`, `prepared/`,
-`artifacts/`, `reviews/`, `public/`, `core.sqlite3`, `approval.sqlite3`,
-`transport.sqlite3`, `project-journal.sqlite3`. No arbitrary loader files.
+Status: DRAFT, awaiting independent review; not frozen by §§1/1A. Drafting
+base 1f747026a64af4e6ee9cb0d3f3a3500d9e4df775, same owned worktree/task,
+read-only development preflight PASS on 2026-10-12. This section replaces the
+previous incomplete initialization description. Only its local preparation and
+explicit adoption are candidates for the next implementation slice.
 
-First append initialization intent {schema,study_id,request_sha256,
-creation_core_sha256,creation_binding,installation_id,expected_store_names,
-expected_records}; schema=auto-g16-study-runtime-initialization/1.
-expected_records is exactly the six canonical native record receipts from /2.
-Before each constructor record an exclusive deterministic per-role intent;
-after it record {role,file_identity,schema_identity,owner_record_receipts}.
-Native store private identity fields are read back from the owner and retained,
-never fabricated from Study UUIDs. Completed startup receipt binds all four
-per-role receipts. No remote operation occurs before this receipt commits.
+### 4.1 Entry, identities and excluded effects
 
-Actual owners and required use:
+Private product module `auto_g16.study._runtime_initialization` exposes exactly
+`initialize_local(creation_directory, runtime_root)` and
+`inspect_local(creation_directory, runtime_root)`. Both arguments are canonical
+absolute local path strings, not callbacks, decoded capabilities or CLI flags.
+The caller has already selected an authorized local root; these functions do
+not grant authority over an arbitrary root. No historical source is accepted.
+Both verify the complete immutable /2 three-event/four-file creation directory
+with its existing parser, canonical request, six native records and exit pins.
+Incomplete /2, /1 reuse, foreign schema or changed creation bytes reject.
 
-| role | native creator / reader | exact restriction |
-|---|---|---|
-| Core | native memory Core + export_memory_snapshot, exclusive image publication; §1 existing mutable opener | import six /2 records through Core methods in memory; compare all canonical records and all-table counts before publication |
-| Approval | SQLiteApprovalStore(path) absent-only under held directory guard | native O_EXCL reservation, exact native schema; no approvals during initialize |
-| Transport | _ProgramTransportStore._create_completion_store(path,approved_root=runtime) | completion-capable v2; NOT v1 create_new; keep its real directory guard |
-| Project | _ProductionProvisioningJournal.create_new_recoverable(path,approved_root=runtime) | v3 recoverable creation journal; no Project effect during initialize |
+study_id is the existing /2 project_id; creation_key and all eight reserved
+slots are unchanged. Runtime destination is exactly runtime_root/study_id.
+Only the six initial xTB records are materialized. No CREST/Gaussian Project,
+Task, Attempt, approval, effect, snapshot or result is produced here.
 
-Each role initializer may be invoked only when its file is absent and no
-contradictory receipt exists. After interruption, use owner read-only existing
-validation first. Adopt an unacknowledged COMPLETE initialized store only if
-its exact native schema/identity and expected rows agree with its prior
-initialization intent, no unexpected records exist, all sidecars are absent,
-and no later effect intent exists. Core unacknowledged image additionally must
-equal the exact deterministic native memory export bound by generator identity.
-Approval/Transport/Project random native identities are accepted only from their
-fully validated one existing store; never regenerate or pick another file.
-Missing absent roles can then be initialized once. Partial, empty, wrong-schema,
-hot-journal or unknown-prefix files stay retained as initialization-unresolved;
-there is no safe native automatic repair API for those cases today. Correct
-recovery here means observing/stopping with intact evidence, not guaranteeing
-successful continuation after every possible filesystem interruption.
+This private API is locally callable and fully testable without an installed
+execution binding. It is not exposed by the production CLI, HTTP, registry or
+session factory in this slice. Existing run rejection remains before any open.
+Local initialization records explicitly say `mode=local-uninstalled` and
+contain NO installation_id/profile/qualification/approval claim. Later qualified
+installation must validate and bind this exact completed receipt by a separate
+append-only publication; it cannot rewrite these files to pretend initialization
+was qualified. §§2/3/5 onward remain blocked where their contracts are open.
 
-Opening initialized runtime never calls a creating constructor for Core.
-Approval requires the independently frozen §1A existing-only owner entry;
-a caller precheck cannot prevent the creating constructor race. Transport uses open_existing and original v2 guard. Project uses
-open_existing / open_existing_readonly as required. Do not turn a readonly
-source connection into a write handle or hold Core read_snapshot's transaction
-while invoking receipt-source owners requiring an idle connection.
+### 4.2 Physical layout, locks and bootstrap failure
+
+runtime_root must already exist, be distinct from and neither contain nor be
+contained in creation_directory, with a held no-follow full ancestor chain.
+Destination and all children are new directories mode 0700/files mode 0600,
+subject to restrictive umask; no permission broadening of existing objects.
+Physical directory binding is exactly {path,parent_chain,file_identity}, where
+path is canonical absolute, parent_chain is the ordered [device,inode] array
+from filesystem root THROUGH the target directory, and file_identity equals
+its last pair. Device is a non-bool integer >=0 and inode >=1. Symlinks,
+non-directory ancestors, aliasing identities or substitution reject.
+
+Lock order for these two entries is creation directory shared, runtime_root
+exclusive for initialize/shared for inspect, then runtime/initialization/
+exclusive for initialize/shared for inspect. All are nonblocking flock on held
+no-follow directory descriptors. After acquiring the initialization lock and
+checking its binding, release runtime_root's lock but retain its descriptors;
+never reacquire that lock inside this call. If destination is absent,
+initialize reserves it with descriptor-relative mkdir, then initialization/,
+then acquires that child's lock. inspect never creates a directory or file.
+An existing destination without a valid first initialization event is unresolved,
+even if empty; no automatic adoption of a crash before the first durable intent.
+
+All future Study runtime coordination must use this SAME initialization-directory
+lock inode. The runtime root itself is pinned but not flock-locked by Study
+while invoking Transport. Transport's native completion guard continues to lock
+the database parent runtime/, with its original process guard; these are distinct
+inodes. No native guard is skipped or borrowed. Source/registry publication lock
+ordering remains a separate entry as in §3, not nested here.
+
+The closed runtime child inventory after completion is exactly:
+`initialization/`, `operations/`, `prepared/`, `artifacts/`, `reviews/`, `public/`,
+`binding.json`, `core.sqlite3`, `approval.sqlite3`, `transport.sqlite3`,
+`project-journal.sqlite3`. At an incomplete prefix only named subsets permitted
+below exist. The five directories other than initialization/ are empty throughout
+this slice. Initialize creates them, in the listed order, after event 0001;
+existing empty real directories are adoptable only under that intent. Any content,
+unknown filename, later operation, symlink, hardlink or sidecar is unresolved.
+Directory mutations and files are fsynced with their containing directory.
+There is no temporary-file rename, overwrite, deletion or repair path.
+
+### 4.3 Closed journal and receipts
+
+Use the existing Study canonical JSON encoding: UTF-8, sorted keys, compact
+separators, no NaN, no duplicate keys; raw bytes must equal canonical encoding.
+Each file <=2 MiB, nesting <=24, no unknown fields or bool-as-integer. Digests
+are lowercase SHA256 hex; UUIDs canonical; no timestamp-derived identity.
+All creation and runtime bindings remain pinned and checked through exit.
+
+Exactly ten immutable events live in initialization/, named:
+`0001-intent.json`, `0002-core-intent.json`, `0003-core-receipt.json`,
+`0004-approval-intent.json`, `0005-approval-receipt.json`,
+`0006-transport-intent.json`, `0007-transport-receipt.json`,
+`0008-project-intent.json`, `0009-project-receipt.json`, `0010-complete.json`.
+Each envelope is exactly {schema,sequence,previous_sha256,event_id,kind,data},
+schema=`auto-g16-study-local-initialization-event/1`, sequence=1..10,
+previous_sha256=null for 1 and otherwise the immediately preceding raw digest.
+event_id=UUID5(creation_key, `auto-g16-study-local-initialization/1:event:N`),
+where N is the decimal sequence without padding. Kinds are INITIALIZATION_INTENT,
+then alternating STORE_INTENT/STORE_RECEIPT four times, then LOCAL_COMPLETE.
+Only contiguous prefixes are accepted; partial/malformed files remain evidence
+and block further writing. Exactly one publication attempt per missing filename;
+O_EXCL conflict causes revalidation/reporting, never overwrite or in-call retry.
+
+Event 1 data exactly {mode,study_id,request_sha256,creation_binding,
+creation_event_sha256,creation_core_sha256,runtime_binding,lock_binding,
+core_image_generator,expected_records,store_order}. mode=local-uninstalled;
+creation_event_sha256 is an ordered three-element array of /2 event digests;
+core_image_generator is the existing _fresh_model.generator() closed schema;
+expected_records is exactly the six existing /2 record receipts in native order;
+store_order is [core,approval,transport,project]. Binding fields follow §4.2.
+No installation claim or synthetic native store identity is inserted.
+
+Each STORE_INTENT data exactly {role,filename,initialization_intent_sha256,
+expected_schema_version,expected_state}. Role/filename map is core/core.sqlite3,
+approval/approval.sqlite3, transport/transport.sqlite3, project/project-journal.sqlite3.
+Versions are the current native Core SCHEMA_VERSION, Approval 1, Transport 2,
+Project 3. expected_state is exactly {records:expected_records} for Core and
+{empty:true} for other roles. The intent is durably committed before invoking
+any native creator or publishing the Core image. No earlier role is reopened
+for mutation; fixed order is mandatory.
+
+Each STORE_RECEIPT data exactly {role,intent_sha256,file_binding,state}.
+file_binding is {path,parent_chain,file_identity}, with parent_chain through
+runtime/ and file_identity the target regular one-link file. state is the
+owner-produced closed state below. No whole-file hash is used as a permanent
+identity for a mutable runtime store. Event 10 data exactly
+{study_id,request_sha256,binding_sha256,store_receipt_sha256}; the last field is
+an ordered four-element array of STORE_RECEIPT raw digests. The final event_id
+is the local initialization_receipt_id referenced by later integration.
+
+After all four receipts, publish binding.json once, then event 10. Its exact
+schema is `auto-g16-study-local-runtime-binding/1`, with fields
+{schema,mode,study_id,request_sha256,creation_binding,runtime_binding,lock_binding,
+initialization_intent_sha256,store_receipt_sha256}. Values must equal the proven
+prefix. An existing exact binding.json after event 9 can be adopted; any differing
+or partial bytes block. This local binding is never overwritten by the proposed
+installed binding from the broader execution draft.
+
+### 4.4 Native creators and owner-only initial-state inspection
+
+Core uses _fresh_model.records and public Core persistence methods in memory,
+then export_memory_snapshot and descriptor-relative exclusive image publication.
+No disk constructor initializes the Core destination. The initial image must
+match all six canonical records and a complete all-table inventory: the six
+record tables have exactly one row each, all other native tables have zero rows.
+For unacknowledged Core bytes additionally require the saved generator to equal
+the current generator and exact bytes equal a fresh native memory export.
+A previously acknowledged image is validated semantically, not regenerated.
+The immutable /2 creation image retains its own historical generator/hash: it
+need not match the current runtime generator after a source update and must
+never be reconstructed or replaced. Event 1 binds the current runtime image
+generator separately. An unacknowledged runtime Core image with a changed
+generator is unresolved even if its selected six records happen to match.
+
+Approval uses SQLiteApprovalStore(path) only for an absent intent-bound target.
+Transport uses _ProgramTransportStore._create_completion_store(path,
+approved_root=runtime); Project uses _ProductionProvisioningJournal.
+create_new_recoverable(path,approved_root=runtime). Preserve their native schema,
+random nonce/store identity and no-overwrite checks; no manual SQL initialization.
+Close each creator fully before running its initial-state reader. These calls
+initialize local stores only; no provisioning service/driver is constructed.
+
+Add narrowly owned classmethod `inspect_initialization(database, *,
+approved_root, expected_file_identity)` to each of the four store classes.
+Core additionally requires keyword `expected_records`, the exact six typed
+Core records from the validated /2 request. These are read-only inspectors,
+not general query APIs or writers; all reject non-initial contents. They return
+a detached state only after native checks, exit checks and handle closure.
+Study never reads private SQL tables or invents native identity fields.
+
+Each inspector requires the full no-follow path/one-link/sidecar/header checks
+from §§1/1A and the original owner schema and row validation. It cannot call a
+creating constructor, change journal mode, checkpoint, recover a hot journal,
+initialize or migrate. Only mode=ro/query_only is used; no writable connection.
+Core reuses read_snapshot and its schema checks inside retained outer pins;
+Approval reuses its held guard and ro portion of §1A plus complete row decode;
+Transport uses _open_readonly_existing and its native v2 guard; Project uses
+open_existing_readonly and its v3 attestation. Do not call Project.open_existing:
+its current non-readonly sqlite3.connect(path) still permits file creation.
+The inspector must validate expected file identity before and after native
+open, schema integrity, all-table counts, and names/sidecars through exit.
+Preserve each existing read-only owner attestation policy; no mutable handle is
+open during inspection, and never introduce a target reopen/close alongside a
+mutable SQLite handle or its transaction locks.
+
+Returned common fields exactly {schema,role,file_identity,schema_version,
+schema_sha256,owner_state}, schema=`auto-g16-native-initial-store-state/1`.
+schema_sha256 is SHA256 of canonical sorted {name:sql} for all native non-SQLite
+schema objects, compared against the owner's exact declared inventory, not a
+caller-provided inventory. owner_state is closed by role:
+
+- Core: {records,table_counts}; records are the six canonical record receipts;
+  table_counts has exactly every current native table name and its integer count,
+  constrained as above. This counting/receipt comparison remains in Core.
+- Approval: {evidence_count}; value 0 after validating every evidence row.
+- Transport: {program_transport_store_id,store_instance_id,table_counts}; IDs
+  are the native attested values. Counts exactly program_transport_meta=1,
+  program_runtime_attestation=0, program_effect_physical_authority=0.
+- Project: {journal_id,table_counts}; journal_id is the native semantic identity
+  of its validated meta. Counts exactly provisioning_meta=1,
+  project_physical_bindings=0, provisioning_intents=0, provisioning_results=0.
+
+No raw creation nonce, connection, guard, callback or capability is returned.
+Post-creation inspection failure retains all files and reports unresolved; it
+never authorizes rerunning that creator. Existing mutable openers are NOT needed
+for initialization adoption and are not called by either entry in this slice.
+
+### 4.5 Restart/adoption, output and validation
+
+inspect_local is strictly zero-write, including no acknowledgement/publication.
+If runtime destination is absent return not-found. For an existing valid prefix
+return its verified state and next_local_step; invalid prefixes are unresolved.
+initialize_local is the only explicit resumptive writer: it may publish a missing
+receipt for a COMPLETE store under its own prior intent after reinspection, then
+continue the fixed suffix. It may create an absent role only after its durable
+intent. Store present without its role intent, receipt without file, later file
+without its earlier prefix, partial/empty database, unknown native version,
+nonempty initial business table, sidecar or physical drift blocks, retaining bytes.
+On complete reentry revalidate all four initial states, binding and creation;
+return the same receipt with zero writes. Once any native runtime operation has
+started, these initialization entries cannot reset, repair or reclassify that
+runtime; a future operational reader uses a different exact contract.
+
+The returned object is exactly {schema,study_id,request_sha256,state,
+initialization_receipt_id,journal,next_local_step,execution_performed,
+installation_state}; schema=`auto-g16-study-local-initialization/1`.
+state is initializing or local-initialized; receipt_id null until event 10.
+journal is the ordered committed prefix [{sequence,kind,event_id,sha256}].
+execution_performed=false and installation_state=uninstalled. next_local_step
+is null when complete, otherwise one of create-directories, core-intent,
+core-store, core-receipt, approval-intent, approval-store, approval-receipt,
+transport-intent, transport-store, transport-receipt, project-intent,
+project-store, project-receipt, binding, complete. For an intent with an existing
+valid complete store, next step is its receipt; absent store means store.
+Existing StudyError codes only: invalid-request, not-found, busy,
+initialization-unresolved, invalid-evidence. File presence/schema/unsafe path or
+unknown prefix in a destination maps unresolved; foreign /2 input maps
+invalid-evidence. Lock contention maps busy; no retry. No exception text leaks.
+
+Required offline evidence: complete creation through all four native creators;
+real child exit before/after each intent, constructor/image publication and
+receipt, binding and completion; new-process inspection and explicit adoption
+with same IDs/native nonces, no double constructor, immutable prefix preserved;
+actual two-process Study lock competition and native Transport guard coexistence;
+all-table nonempty/malformed/sidecar/partial/header/schema/identity negatives;
+complete repeat zero-write; post-effect nonempty runtime refuses initialization;
+no default-recover writes; source and destination exit drift; closed descriptors
+and exceptions; all installed/remote/science/approval effect APIs tripwired.
+These tests do not qualify a runtime installation or claim xTB/whole-chain E2E.
 
 ## 5. xTB preparation and exact approvals
 

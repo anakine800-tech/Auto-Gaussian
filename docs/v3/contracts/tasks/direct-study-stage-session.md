@@ -18,12 +18,15 @@ reject; never choose one silently.
 The new private Execution owner is `auto_g16.execution._study_stage_session`.
 It selects only a prepared stage already published by the Study runtime owner.
 No public constructor accepts a driver, callback, port or snapshot object.
-Its externally used entry is `open_prepared_stage(study_binding, stage)`, where
-study_binding is an owner-issued runtime capability, not decoded caller JSON.
-The capability must originate from the installed Study runtime reader and hold
-the exclusive Study lock, creation/request binding and no-follow runtime pins.
-The exact capability construction belongs to the runtime-store subcontract;
-until that exists, no production study session is available.
+Its proposed external entry is `open_prepared_stage(study_id, stage)`, as narrowed
+by runtime §2: canonical UUID and first-slice stage=xtb only. It internally
+loads the qualified registration and acquires the exclusive Study lock on
+runtime/initialization/. A caller cannot supply an already-held capability,
+path, store or installation. References below to a runtime capability mean the
+private session state minted INSIDE that entry, not an external parameter.
+The other five stage names remain future extensions requiring their own exact
+predecessor contracts. Runtime §4 local-uninstalled initialization is insufficient
+to open this session; the installation loader remains DRAFT and unavailable.
 
 One session is active per process, guarded by a nonblocking process lock as well
 as a ContextVar. Nested or concurrent opens, PID change after fork, a different
@@ -43,7 +46,8 @@ preparation_receipt_id, installation_id, source_commit, source_tree,
 files, databases, code_files, scientific_approval_id,
 batch_submit_approval_id, operational_confirmation_id`.
 
-The six compute-stage names are accepted; local thermo/population stages reject.
+The first slice accepts xtb only; the other five compute stages and local
+thermo/population stages reject until their separate extension is frozen.
 IDs must match the /2 reserved Attempt and runtime's native materialization.
 source_commit/tree are exact 40-hex identities from the installed source archive.
 Approval IDs are the three exact existing native records; no booleans, approval
