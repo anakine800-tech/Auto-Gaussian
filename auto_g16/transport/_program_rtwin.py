@@ -716,6 +716,21 @@ def _parse_scheduler(value: Mapping[str, object], job_id: str) -> Mapping[str, o
     return result
 
 
+_STUDY_SESSION = ContextVar('native-transport-study-session', default=None)
+
+
+def _active_study_session():
+    # The fixed path has no new Execution dependency or expanded source inventory.
+    value = _STUDY_SESSION.get()
+    if value is None:
+        return None
+    from auto_g16.execution import _study_stage_session as native
+    if type(value) is not native._Session or native._CURRENT.get() is not value:
+        raise _publisher_failure('Study session identity differs')
+    value.assert_current()
+    return value
+
+
 class _RTWinProgramEffectDriver:
     """Seven successor operations, with ephemeral execution-owned context."""
 
@@ -736,6 +751,8 @@ class _RTWinProgramEffectDriver:
 
     @classmethod
     def _for_fixed_recovery(cls, *, snapshot, current_profile, program_transport_store):
+        if _active_study_session() is not None:
+            raise _publisher_failure("Study session has no submission recovery authority")
         value = cls.__new__(cls)
         value._initialize(snapshot, current_profile, program_transport_store)
         value._collection_only = True
@@ -761,15 +778,23 @@ class _RTWinProgramEffectDriver:
         self._store = program_transport_store
         self._lock = RLock()
         self._active: tuple[Mapping[str, object], tuple[Mapping[str, object], ...]] | None = None
+        self._study_session = _active_study_session()
+        if self._study_session is not None:
+            self._study_session.own(self, 'driver')
 
     def _open_authority(self):
         try:
             self._authority()
-        except BaseException:
-            self.close()
+        except BaseException as original:
+            if self._study_session is None:
+                self.close()
+            else:
+                self._study_session.close_resource(self, original=original)
             raise
 
     def _authority(self) -> _driver._DeploymentAuthority:
+        if self._study_session is not None:
+            self._study_session.require_action('collect' if self._collection_only else 'submit')
         self._snapshot.assert_identity_closed()
         executable = self._snapshot.program_execution_spec.invocation["executable_identity"]
         if str(executable["absolute_path"]).startswith("/opt/auto-g16-fixtures/"):
@@ -803,6 +828,11 @@ class _RTWinProgramEffectDriver:
         return authority
 
     def close(self):
+        if getattr(self, '_study_session', None) is not None:
+            return self._study_session.close_resource(self)
+        self._close_study_owned()
+
+    def _close_study_owned(self):
         if self._publisher is not None:
             self._publisher.close()
             self._publisher = None
@@ -1010,6 +1040,9 @@ class _PinnedPublisherFile:
         self.binding = binding
         self.fds = []
         self.raw = b""
+        self._study_session = _active_study_session()
+        if self._study_session is not None:
+            self._study_session.own(self, 'publisher-pin')
         try:
             path = binding.path
             if type(binding) is not _PublisherFileBinding or type(path) is not str or not path.startswith("/") or any(x in {"", ".", ".."} for x in path[1:].split("/")) or len(path.encode()) > 4096 or any(x in path for x in "\x00\r\n"):
@@ -1030,13 +1063,18 @@ class _PinnedPublisherFile:
             if not stat.S_ISREG(os.fstat(self.fds[-1]).st_mode):
                 raise _publisher_failure("installed object is not a regular file")
             self._read_and_check()
-        except BaseException:
-            self.close()
+        except BaseException as original:
+            if self._study_session is None:
+                self.close()
+            else:
+                self._study_session.close_resource(self, original=original)
             raise
 
     def _read_and_check(self):
         import os
         import stat
+        if self._study_session is not None:
+            self._study_session.assert_current()
         binding = self.binding
         parts = binding.path[1:].split("/")
         expected = (*binding.parent_chain, binding.file_identity)
@@ -1076,6 +1114,8 @@ class _PinnedPublisherFile:
 
     def close(self):
         import os
+        if getattr(self, '_study_session', None) is not None:
+            return self._study_session.close_resource(self)
         while self.fds:
             os.close(self.fds.pop())
 

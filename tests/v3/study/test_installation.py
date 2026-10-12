@@ -41,7 +41,8 @@ class Fixture:
                 names=[str(p.relative_to(ROOT)) for p in ROOT.rglob('*')
                        if p.is_file() and '__pycache__' not in p.relative_to(ROOT).parts]
             names += [name for name in ('auto_g16/study/_installation.py', 'auto_g16/study/_local_install.py',
-                      'auto_g16/study/_registered_runtime.py', 'auto_g16/transport/_program_existing.py')
+                      'auto_g16/study/_registered_runtime.py', 'auto_g16/transport/_program_existing.py',
+                      'auto_g16/execution/_study_stage_session.py', 'auto_g16/study/_xtb_files.py')
                       if (ROOT/name).is_file()]
             for name in sorted(set(names)):
                 source=ROOT/name;target=self.source/name

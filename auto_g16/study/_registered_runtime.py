@@ -1,6 +1,7 @@
 """Installed local Study registry and guarded existing owners; no execution authority."""
 from contextlib import contextmanager, ExitStack
-from dataclasses import fields
+from contextvars import ContextVar
+from dataclasses import dataclass, fields
 import fcntl
 import os
 from pathlib import Path
@@ -24,6 +25,7 @@ _SCHEMA = 'auto-g16-study-runtime-registration/1'
 _RETAINED = []
 _FILE_UNRESOLVED = {}
 _CAP = 2 << 20
+_ACTIVE_SCOPE = ContextVar('registered-study-scope', default=None)
 
 
 def _freeze(value):
@@ -270,16 +272,48 @@ def _historical(source, runtime, journal, creation, value):
     return events
 
 
+@dataclass(frozen=True, slots=True)
+class _ExecutionContext:
+    _scope: object
+    facts: object
+    inspection: object
+    directories: object
+
+    def assert_current(self):
+        self._scope._get('request')
+        _origins(self.inspection)
+        for directory in self.directories.values():
+            directory.check()
+
+
 class _Scope:
-    def __init__(self, request, registration, receipts, stores):
+    def __init__(self, request, registration, receipts, stores, facts, inspection, directories):
         self._pid, self._thread, self._closed = os.getpid(), threading.get_ident(), False
+        self._session_unresolved, self._retained_session = False, None
         self._values = dict(request=_freeze(request), registration_ref=_freeze(registration),
             initialization_receipts=_freeze(receipts), stores=MappingProxyType(stores))
+        self._context = _ExecutionContext(self, facts, inspection, MappingProxyType(directories))
 
     def _get(self, name):
-        require(not self._closed and (self._pid,self._thread) == (os.getpid(),threading.get_ident()),
+        require(_ACTIVE_SCOPE.get() is self and not self._closed and not self._session_unresolved
+                and (self._pid,self._thread) == (os.getpid(),threading.get_ident()),
                 'runtime-scope-closed')
         return self._values[name]
+
+    def _execution_context(self):
+        self._get('request')
+        self._context.assert_current()
+        return self._context
+
+    def _retain_unresolved_session(self, session):
+        # Only the native close site can issue this monotonic lifetime fact.
+        from auto_g16.execution import _study_stage_session as native
+        require(_ACTIVE_SCOPE.get() is self and not self._closed
+                and (self._pid,self._thread) == (os.getpid(),threading.get_ident())
+                and native._has_current_close_unknown(self, session), 'runtime-unresolved')
+        require(self._retained_session is None or self._retained_session is session,
+                'runtime-unresolved')
+        self._retained_session, self._session_unresolved = session, True
 
     request = property(lambda self:self._get('request'))
     registration_ref = property(lambda self:self._get('registration_ref'))
@@ -311,7 +345,8 @@ def _operate(creation_directory, study_id, *, register):
             error.add_note('installation exit failed: ' + type(cleanup).__name__)
         raise
     directories, owners = ExitStack(), ExitStack()
-    scope = registry = events = None
+    scope = registry = events = active_token = None
+    registry_locked = False
     original = None
     pid = os.getpid()
     try:
@@ -319,6 +354,7 @@ def _operate(creation_directory, study_id, *, register):
         _origins(inspection)
         roots = plain(facts.roots)
         registry = directories.enter_context(_Directory(roots['registry']['path'], write=register))
+        registry_locked = True
         require(initialization._binding(registry) == roots['registry'])
         entries = _registry(registry)
         if not register:
@@ -330,6 +366,7 @@ def _operate(creation_directory, study_id, *, register):
             registry.seen = {Path(selected['file_binding']['path']).name:
                              registry.seen[Path(selected['file_binding']['path']).name]}
             fcntl.flock(registry.fd, fcntl.LOCK_UN)
+            registry_locked = False
         installed._path(creation_directory, absolute=True)
         require(creation_directory != roots['creation']['path'] and
                 os.path.commonpath((creation_directory, roots['creation']['path'])) == roots['creation']['path'])
@@ -344,8 +381,8 @@ def _operate(creation_directory, study_id, *, register):
         require(runtime.chain[:-1] == roots['runtime']['parent_chain'])
         runtime.seal({'initialization',*initialization.DIRECTORIES,*initialization.DATABASES,'binding.json'})
         journal = directories.enter_context(_Directory(str(runtime.path/'initialization'),write=True))
-        for name in initialization.DIRECTORIES:
-            directories.enter_context(_Directory(str(runtime.path/name),lock=False))
+        business = {name: directories.enter_context(_Directory(str(runtime.path/name),lock=False))
+                    for name in initialization.DIRECTORIES}
         events = _historical(source, runtime, journal, creation, value)
         stores = {}
         for index in (3,0,1,2):
@@ -399,9 +436,13 @@ def _operate(creation_directory, study_id, *, register):
             registry.seen = {Path(selected['file_binding']['path']).name:
                              registry.seen[Path(selected['file_binding']['path']).name]}
             fcntl.flock(registry.fd,fcntl.LOCK_UN)
-        scope = _Scope(value, selected, [events[i] for i in (2,4,6,8)], stores)
+            registry_locked = False
+        scope = _Scope(value, selected, [events[i] for i in (2,4,6,8)], stores,
+                       facts, inspection, dict(source=source, runtime=runtime, **business))
+        active_token = _ACTIVE_SCOPE.set(scope)
         yield scope
-        _origins(inspection)
+        if not scope._session_unresolved:
+            _origins(inspection)
     except BaseException as error:
         original = error
         raise
@@ -409,21 +450,24 @@ def _operate(creation_directory, study_id, *, register):
         if scope is not None:
             scope._closed = True
         failure = original
-        if registry is not None and pid == os.getpid():
+        if registry is not None and registry_locked and pid == os.getpid():
             try:
                 fcntl.flock(registry.fd,fcntl.LOCK_UN)
             except BaseException as error:
                 if failure is None:failure=error
                 else:failure.add_note('registry unlock unresolved: '+type(error).__name__)
-        try:
-            owners.__exit__(type(original) if original else None,original,
-                            original.__traceback__ if original else None)
-        except BaseException as error:
-            if failure is None:failure=error
-            else:failure.add_note('runtime owner exit failed: '+type(error).__name__)
-        if pid != os.getpid() or (events is not None and _unresolved(events)):
+        session_unknown = scope is not None and scope._session_unresolved
+        if pid == os.getpid() and not session_unknown:
+            try:
+                owners.__exit__(type(original) if original else None,original,
+                                original.__traceback__ if original else None)
+            except BaseException as error:
+                if failure is None:failure=error
+                else:failure.add_note('runtime owner exit failed: '+type(error).__name__)
+        if pid != os.getpid() or session_unknown or (events is not None and _unresolved(events)):
             _RETAINED.append((scope,directories,owners,inspection,loader))
             if failure is None:failure=StudyError('runtime-unresolved')
+            elif session_unknown:failure.add_note('native session resource lifetime unresolved')
         else:
             try:
                 directories.__exit__(type(failure) if failure else None,failure,
@@ -445,6 +489,8 @@ def _operate(creation_directory, study_id, *, register):
                 except BaseException as error:
                     if failure is None:failure=error
                     else:failure.add_note('installation exit failed: '+type(error).__name__)
+        if active_token is not None and pid == os.getpid():
+            _ACTIVE_SCOPE.reset(active_token)
         if original is None and failure is not None:
             raise failure
 

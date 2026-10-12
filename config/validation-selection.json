@@ -256,7 +256,8 @@
         "docs/v3/contracts/tasks/direct-study-project-existing.md",
         "docs/v3/contracts/tasks/direct-study-transport-existing.md",
         "docs/v3/contracts/tasks/direct-study-core-approval-lifetime.md",
-        "docs/v3/contracts/tasks/direct-study-registration.md"
+        "docs/v3/contracts/tasks/direct-study-registration.md",
+        "docs/v3/contracts/tasks/direct-study-xtb-vertical.md"
       ],
       "prefixes": [
         "docs/v3/publisher-r4/"
@@ -1194,6 +1195,30 @@
         "tests.v31.conformer.test_opt_readout_registration",
         "tests.v3.query.test_native_populations",
         "tests.v3.query.test_native_thermodynamics"
+      ],
+      "required_safety": [
+        "at-most-one-submission",
+        "no-overwrite",
+        "unknown-no-automatic-retry"
+      ],
+      "fail_closed": false
+    },
+    {
+      "id": "direct-study-native-session",
+      "exact_paths": [
+        "auto_g16/execution/_study_stage_session.py"
+      ],
+      "prefixes": [],
+      "lane": "affected",
+      "tests": [
+        "tests.v3.study",
+        "tests.v3.core.test_store",
+        "tests.v3.core.test_existing_mutable",
+        "tests.v3.approval.test_existing_mutable",
+        "tests.v3.execution.test_project_existing",
+        "tests.v31.transport.test_program_existing",
+        "tests.v31.transport.test_publisher_pilot_orchestration",
+        "tests.v31.transport.test_publisher_collection_recovery"
       ],
       "required_safety": [
         "at-most-one-submission",
