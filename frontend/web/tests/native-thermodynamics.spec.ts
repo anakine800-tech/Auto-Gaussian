@@ -126,6 +126,8 @@ test('awaits old detail; abandons old thermodynamics on navigation',async({page}
  await connect(page);await expect(page.getByRole('status',{name:''})).toContainText('正在读取');
  expect(requests.some(p=>p.endsWith('/thermodynamics'))).toBe(false);releaseDetail();
  await expect(card(page).getByRole('status')).toContainText('正在读取已保存');
+ // Abandon an issued read, not a request still waiting for the page budget.
+ await expect.poll(()=>requests.filter(p=>p.endsWith('/attempts/freq-a/thermodynamics')).length).toBe(1);
  await page.evaluate(()=>{location.hash='#/native/saved/attempts/freq-b'});
  await expect(card(page)).toContainText('当前成员：member-b');releaseThermo();
  await expect(card(page)).toContainText('当前成员：member-b');
@@ -136,10 +138,14 @@ test('deadline is 120 seconds and failure never retries',async({page})=>{
  await page.clock.install();let release!:()=>void;const gate=new Promise<void>(r=>release=r);
  const requests=await setup(page);
  await page.route('**/thermodynamics',async route=>{requests.push(new URL(route.request().url()).pathname);await gate;await route.fulfill({json:saved()}).catch(()=>{});});
- await connect(page);await expect(card(page).getByRole('status')).toBeVisible();
- await page.clock.fastForward(119000);await expect(card(page).getByRole('status')).toBeVisible();
- await page.clock.fastForward(1001);await expect(card(page).getByRole('alert')).toContainText('读取超时（120 秒）');
- expect(requests.filter(p=>p.endsWith('/thermodynamics'))).toHaveLength(1);release();
+ try{
+  await connect(page);await expect(card(page).getByRole('status')).toBeVisible();
+  // Loading includes queued reads; start the clock after this transport has begun.
+  await expect.poll(()=>requests.filter(p=>p.endsWith('/attempts/freq-a/thermodynamics')).length).toBe(1);
+  await page.clock.fastForward(119000);await expect(card(page).getByRole('status')).toBeVisible();
+  await page.clock.fastForward(1001);await expect(card(page).getByRole('alert')).toContainText('读取超时（120 秒）');
+  expect(requests.filter(p=>p.endsWith('/thermodynamics'))).toHaveLength(1);
+ }finally{release();}
 });
 
 test('narrow screen wraps full identities without page overflow',async({page})=>{
