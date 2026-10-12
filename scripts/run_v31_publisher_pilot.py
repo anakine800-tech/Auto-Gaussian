@@ -165,6 +165,7 @@ def _validate_pilot_qualification_identity(run, deployment, confirmation):
     if canonical_json_bytes(rtwin._plain(attachment)) != canonical_json_bytes(expected):
         raise rtwin._publisher_failure("Confirmation differs from fixed installation")
     pin = rtwin._PinnedPublisherFile(run.reviewed_semantics, 65536)
+    original = None
     try:
         semantics = strict_canonical_json(pin.raw, "reviewed publisher semantics")
         transport._exact_keys(semantics, {"schema", "owner_exact_q", "live_gate"}, "reviewed semantics")
@@ -183,8 +184,14 @@ def _validate_pilot_qualification_identity(run, deployment, confirmation):
         if len(index_raw) > 1024*1024 or canonical_json_bytes(strict_canonical_json(index_raw, "probe evidence index")) != canonical_json_bytes(_probe_index(payload)):
             raise rtwin._publisher_failure("probe index does not exactly cover qualification")
         pin._read_and_check()
+    except BaseException as error:
+        original = error
+        raise
     finally:
-        pin.close()
+        if pin._study_session is None:
+            pin.close()
+        else:
+            pin._study_session.close_resource(pin, original=original)
 
 
 def _prepare_first_publisher_pilot_port(run, stores):

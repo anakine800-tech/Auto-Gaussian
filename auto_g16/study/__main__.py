@@ -29,11 +29,12 @@ def main(argv=None):
     command = commands.add_parser('install-local')
     command.add_argument('--request', required=True)
     command.add_argument('--sha256', required=True)
-    command = commands.add_parser('authorize-preparation')
-    command.add_argument('--directory', required=True)
-    command.add_argument('--stage', required=True)
-    command.add_argument('--request', required=True)
-    command.add_argument('--sha256', required=True)
+    for name in ('authorize-preparation', 'authorize'):
+        command = commands.add_parser(name)
+        command.add_argument('--directory', required=True)
+        command.add_argument('--stage', required=True)
+        command.add_argument('--request', required=True)
+        command.add_argument('--sha256', required=True)
     try:
         args = parser.parse_args(argv)
         if args.command == 'install-local':
@@ -61,6 +62,12 @@ def main(argv=None):
             from ._xtb_service import authorize_preparation
             with preparation(args.request, args.sha256) as captured:
                 result = authorize_preparation(args.directory, captured)
+        elif args.command == 'authorize':
+            require(args.stage == 'xtb', 'stage-not-supported')
+            from ._xtb_capture import authorization
+            from ._xtb_service import authorize
+            with authorization(args.request, args.sha256) as captured:
+                result = authorize(args.directory, captured)
         else:
             result = operate(args.command, args.directory, request_path=getattr(args, 'request', None),
                              request_sha256=getattr(args, 'sha256', None))

@@ -311,7 +311,7 @@ class _Scope:
         return self._context
 
     def _retain_unresolved_session(self, session):
-        # Only the native close site can issue this monotonic lifetime fact.
+        # Only native close/first-file-classification sites issue this lifetime fact.
         from auto_g16.execution import _study_stage_session as native
         require(_ACTIVE_SCOPE.get() is self and not self._closed
                 and (self._pid,self._thread) == (os.getpid(),threading.get_ident())

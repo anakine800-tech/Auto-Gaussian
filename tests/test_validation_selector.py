@@ -1052,6 +1052,18 @@ class ValidationSelectorTests(unittest.TestCase):
         with self.assertRaisesRegex(SELECTOR.SelectionError, 'UNMAPPED_MODERN_PATH'):
             self.select(change('A', 'auto_g16/execution/_study_preparation_future.py'))
 
+    def test_native_study_authorization_uses_exact_session_route(self) -> None:
+        current = self.select(change('A', 'auto_g16/execution/_study_authorization.py'))
+        previous = self.select(change('A', 'auto_g16/execution/_study_stage_session.py'))
+        for key in ('matched_routes', 'tests', 'safety_evidence'):
+            self.assertEqual(current[key], previous[key])
+        for path in self.manifest['self_protecting_paths']:
+            guarded = self.select(change('A', 'auto_g16/execution/_study_authorization.py'), change('M', path))
+            self.assertTrue(guarded['fail_closed'])
+            self.assertEqual(guarded['lane'], 'legacy-release')
+        with self.assertRaisesRegex(SELECTOR.SelectionError, 'UNMAPPED_MODERN_PATH'):
+            self.select(change('A', 'auto_g16/execution/_study_authorization_future.py'))
+
     def test_v31_execution_routing_preserves_unrelated_path_selection(self) -> None:
         for name in (
             "__init__.py", "_crest_seed_handoff.py", "_identity.py", "_paths.py",

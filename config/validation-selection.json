@@ -1207,7 +1207,8 @@
       "id": "direct-study-native-session",
       "exact_paths": [
         "auto_g16/execution/_study_stage_session.py",
-        "auto_g16/execution/_study_preparation.py"
+        "auto_g16/execution/_study_preparation.py",
+        "auto_g16/execution/_study_authorization.py"
       ],
       "prefixes": [],
       "lane": "affected",

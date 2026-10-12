@@ -22,11 +22,12 @@ _FILES = {
     'reviews': {'xtb-preparation.json', 'xtb-preparation-evidence'},
     'operations-root': set(),
     'prepared-root': {'input.xyz', 'xtb.pbs', 'snapshot.json', 'prepared.json'},
-    'publisher-root': {'v31-publisher-pilot-deployment.json', 'reviewed-scope.json'},
+    'publisher-root': {'v31-publisher-pilot-deployment.json', 'reviewed-scope.json',
+                       'authorization.json', 'authorization-receipt.json'},
     'collections-root': set(),
     'operation-preparation': {'intent.json', 'receipt.json',
         *(f'step-{i:02d}-{kind}.json' for i in range(1, 5) for kind in ('entered', 'capture'))},
-    'operation-authorization': {'intent.json', 'receipt.json'},
+    'operation-authorization': {'intent.json', 'receipt.json', 'expected-native-approvals.json'},
     'operation-submission': {'intent.json', 'receipt.json'},
 }
 

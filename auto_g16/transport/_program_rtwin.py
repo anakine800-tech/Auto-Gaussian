@@ -1173,7 +1173,7 @@ class _PublisherDeploymentRead:
     pins: tuple[_PinnedPublisherFile, ...]
 
     def assert_identity(self):
-        if _FIXED_PUBLISHER_INSTALLATION is not self.installation:
+        if _publisher_identity_installation() is not self.installation:
             raise _publisher_failure("fixed installation changed")
         for pin in self.pins:
             pin._read_and_check()
@@ -1199,6 +1199,18 @@ def _publisher_window(window, observation):
         raise _publisher_failure("outside exact pilot window")
 
 
+def _publisher_identity_installation():
+    session = _active_study_session()
+    if session is None:
+        return _FIXED_PUBLISHER_INSTALLATION
+    if _FIXED_PUBLISHER_INSTALLATION is not None:
+        raise _publisher_failure('conflicting Study and fixed installation')
+    if session.action == 'authorize':
+        from auto_g16.execution._study_authorization import selected_installation
+        return selected_installation(session)
+    return session.select('publisher', _FIXED_PUBLISHER_INSTALLATION)
+
+
 def _read_fixed_publisher_deployment(authority, snapshot):
     result = _read_publisher_deployment_identity(authority, snapshot)
     try:
@@ -1213,7 +1225,7 @@ def _read_publisher_deployment_identity(authority, snapshot):
     """Only mechanical identity comparisons; Approval/Core are Controller-owned."""
     import base64
     from ._canonical import strict_canonical_json
-    installation = _FIXED_PUBLISHER_INSTALLATION
+    installation = _publisher_identity_installation()
     if type(installation) is not _FixedPublisherInstallation:
         raise _publisher_failure("fixed deployment locator NOT_ACQUIRED")
     pins = []
@@ -1285,7 +1297,10 @@ def _read_publisher_deployment_identity(authority, snapshot):
         return result
     except BaseException as exc:
         for pin in reversed(pins):
-            pin.close()
+            if pin._study_session is None:
+                pin.close()
+            else:
+                pin._study_session.close_resource(pin, original=exc)
         if isinstance(exc, (KeyboardInterrupt, SystemExit)):
             raise
         raise _publisher_failure("fixed deployment ingestion rejected") from exc

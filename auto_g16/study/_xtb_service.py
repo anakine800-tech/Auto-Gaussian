@@ -137,3 +137,21 @@ def prepare(directory):
                 operation_id=loaded['receipt']['operation_id'], acknowledgement='acknowledged',
                 native_state=dict(actual_core_state=state, lifecycle=None, unavailable_reason='job-not-established')))
     return result
+
+
+def authorize(directory, captured):
+    from . import _xtb_authorization, _xtb_prepared
+    creation = operate('status', directory)
+    require(creation['schema'] == 'auto-g16-direct-study-response/2', 'stage-not-supported')
+    with registered.open_registered(creation['study_id']) as scope:
+        require(scope.registration_ref['registration']['creation_binding']['path'] == directory,
+                'runtime-unresolved')
+        with _open_study_xtb_session(scope, 'authorize') as session:
+            captured.assert_current(scope)
+            inputs = _xtb_preview.build(session)
+            decision = _stored_decision(session, inputs.preview)
+            prepared = _xtb_prepared.load(session, inputs, decision)
+            receipt = _xtb_authorization.import_approvals(session, inputs, prepared, captured)
+            result = _response(session, 'authorize', 'authorized',
+                               dict(request_sha256=digest(captured.raw), receipt=receipt))
+    return result

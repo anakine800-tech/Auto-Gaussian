@@ -85,6 +85,12 @@ class _Captured:
                         and list(root['file_identity']) not in directory.chain for root in self.roots),
                     'invalid-request')
 
+    def content(self, expected):
+        self.assert_current()
+        values = [raw for _, _, raw, observed in self.files[1:] if observed == expected]
+        require(values and all(raw == values[0] for raw in values), 'invalid-request')
+        return values[0]
+
     @property
     def raw(self):
         self.assert_current()
@@ -97,13 +103,14 @@ class _Captured:
 
 
 @contextmanager
-def preparation(request_path, request_sha256):
+def _capture(request_path, request_sha256, kind):
     """First phase of one actual -m CLI process, never a nested callable import."""
     global _ENTERED
     main = sys.modules.get('__main__')
     require(not _ENTERED and getattr(getattr(main, '__spec__', None), 'name', None)
             == 'auto_g16.study.__main__' and threading.active_count() == 1
             and registered._ACTIVE_SCOPE.get() is None, 'invalid-request')
+    require(kind in ('preparation', 'authorization'), 'invalid-request')
     _ENTERED = True
     capture = None
     with ExitStack() as parents:
@@ -127,10 +134,26 @@ def preparation(request_path, request_sha256):
             require(digest(raw) == request_sha256, 'invalid-request')
             packet = decode(raw, 'invalid-request', 2 << 20)
             require(type(packet) is dict and raw == encode(packet), 'invalid-request')
-            expected = plain(packet.get('evidence'))
-            binding(expected, 'invalid-request')
-            _, observed = read(expected['path'], 16 << 20)
-            require(observed == expected, 'invalid-request')
+            if kind == 'preparation':
+                require(packet.get('schema') == 'auto-g16-study-xtb-preparation-decision/1', 'invalid-request')
+                references = [plain(packet.get('evidence'))]
+            else:
+                require(packet.get('schema') == 'auto-g16-study-xtb-authorization/1', 'invalid-request')
+                decisions = [packet.get(role) for role in ('scientific', 'batch', 'operational')]
+                publisher = packet.get('publisher')
+                require(all(type(value) is dict for value in decisions) and type(publisher) is dict,
+                        'invalid-request')
+                evidence = publisher.get('evidence')
+                require(type(evidence) is list and 1 <= len(evidence) <= 256, 'invalid-request')
+                references = [value.get('evidence') for value in decisions] + evidence
+            seen = []
+            for expected in references:
+                binding(expected, 'invalid-request')
+                if expected in seen:
+                    continue
+                _, observed = read(expected['path'], 16 << 20)
+                require(observed == expected, 'invalid-request')
+                seen.append(expected)
             capture = _Captured(registered._installation_ref(facts), roots, files)
             capture.assert_current()
         original = None
@@ -148,3 +171,15 @@ def preparation(request_path, request_sha256):
                 original.add_note('captured input changed: ' + type(error).__name__)
             finally:
                 capture.closed = True
+
+
+@contextmanager
+def preparation(request_path, request_sha256):
+    with _capture(request_path, request_sha256, 'preparation') as captured:
+        yield captured
+
+
+@contextmanager
+def authorization(request_path, request_sha256):
+    with _capture(request_path, request_sha256, 'authorization') as captured:
+        yield captured

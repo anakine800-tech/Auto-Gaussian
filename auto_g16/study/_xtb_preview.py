@@ -25,7 +25,7 @@ class _Inputs:
 
 def build(session):
     """Build only the unallocated original xTB Attempt preview."""
-    session.require_action('review', 'authorize-preparation', 'prepare')
+    session.require_action('review', 'authorize-preparation', 'prepare', 'authorize')
     context, scope = session.context, session.scope
     facts, pins = context.facts, context.inspection.pins
 

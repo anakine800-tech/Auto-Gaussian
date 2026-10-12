@@ -585,5 +585,5 @@ focused_tests = ["tests/v3/study/test_registered_runtime.py", "tests/v3/study/te
 id = "direct-study-native-xtb-session"
 status = "contract-frozen-local-native-foundation"
 required_sections = ["docs/v3/contracts/tasks/direct-study-xtb-vertical.md"]
-code_paths = ["auto_g16/execution/_study_stage_session.py", "auto_g16/execution/_study_preparation.py", "auto_g16/study/_xtb_files.py", "auto_g16/study/_xtb_preview.py", "auto_g16/study/_xtb_capture.py", "auto_g16/study/_xtb_prepared.py", "auto_g16/study/_xtb_service.py"]
-focused_tests = ["tests/v3/study/test_stage_session.py", "tests/v3/study/test_registered_runtime.py", "tests/v3/study/test_xtb_preparation.py", "tests/v3/study/test_xtb_capture.py", "tests/v3/study/test_xtb_preparation_faults.py"]
+code_paths = ["auto_g16/execution/_study_stage_session.py", "auto_g16/execution/_study_preparation.py", "auto_g16/execution/_study_authorization.py", "auto_g16/study/_xtb_files.py", "auto_g16/study/_xtb_preview.py", "auto_g16/study/_xtb_capture.py", "auto_g16/study/_xtb_prepared.py", "auto_g16/study/_xtb_authorization.py", "auto_g16/study/_xtb_service.py"]
+focused_tests = ["tests/v3/study/test_stage_session.py", "tests/v3/study/test_registered_runtime.py", "tests/v3/study/test_xtb_preparation.py", "tests/v3/study/test_xtb_capture.py", "tests/v3/study/test_xtb_preparation_faults.py", "tests/v3/study/test_file_alias_retention.py", "tests/v3/study/test_xtb_authorization.py"]

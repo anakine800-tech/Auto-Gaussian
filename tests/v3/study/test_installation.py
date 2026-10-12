@@ -45,7 +45,8 @@ class Fixture:
                       'auto_g16/execution/_study_stage_session.py', 'auto_g16/study/_xtb_files.py',
                       'auto_g16/study/_xtb_preview.py', 'auto_g16/study/_xtb_service.py',
                       'auto_g16/study/_xtb_capture.py', 'auto_g16/study/_xtb_prepared.py',
-                      'auto_g16/execution/_study_preparation.py')
+                      'auto_g16/execution/_study_preparation.py',
+                      'auto_g16/execution/_study_authorization.py', 'auto_g16/study/_xtb_authorization.py')
                       if (ROOT/name).is_file()]
             for name in sorted(set(names)):
                 source=ROOT/name;target=self.source/name
