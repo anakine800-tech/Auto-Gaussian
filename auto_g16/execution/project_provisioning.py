@@ -1001,6 +1001,29 @@ class _ProductionProvisioningJournal(_ProvisioningJournal):
     def __init__(self) -> None:
         raise TypeError("use create_new/open_existing with a reviewed local root")
 
+    def registration_schema_facts(self):
+        """Read schema facts only through this existing guarded native handle."""
+        from hashlib import sha256
+        import json
+        guard = getattr(self, '_existing_guard', None)
+        if guard is None:
+            raise ExecutionValueError('schema facts require an existing-only guarded handle')
+        guard.check()
+        if self._closed:
+            raise ExecutionValueError('schema facts require an open connection')
+        if self._connection.in_transaction:
+            raise ExecutionValueError('schema facts require an idle connection')
+        self._attest()
+        execute = self._sql
+        definitions = dict((row[0],row[1]) for row in execute(
+            "SELECT name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'"))
+        tables = tuple(sorted(row[0] for row in execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")))
+        value = dict(schema_sha256=sha256(json.dumps(definitions,sort_keys=True,
+            separators=(',',':'),allow_nan=False).encode()).hexdigest(),table_names=tables)
+        guard.check()
+        return freeze_mapping(value, 'schema_facts')
+
     @classmethod
     def open_existing_mutable(cls, database, *, approved_root, expected_parent_chain,
                               expected_file_identity, expected_journal_identity):

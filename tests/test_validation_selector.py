@@ -1042,6 +1042,7 @@ class ValidationSelectorTests(unittest.TestCase):
             ("tests/v3/execution/test_v31_lane_a.py", "v30-execution", EXEC_TESTS),
             ("tests/v31/integration/test_v31_offline_end_to_end.py", "v31-offline-e2e", V31_OFFLINE_E2E_TESTS),
             ("auto_g16/transport/program.py", "v30-transport", TRANSPORT_TESTS),
+            ("auto_g16/transport/_program_existing.py", "v30-transport", TRANSPORT_TESTS),
             ("auto_g16/approval/service.py", "v30-approval", APPROVAL_TESTS),
             ("auto_g16/result/service.py", "v30-result", RESULT_TESTS),
             ("auto_g16/conformer/service.py", "v31-conformer", CONFORMER_TESTS),

@@ -737,6 +737,9 @@ def _assert_operational_record_closed(record: ExactOperationalConfirmation) -> N
     _assert_rebuilt_record(record, rebuilt, "operational_confirmation_id")
 
 
+_UNRESOLVED_EXISTING = {}  # Strong process-local references; no reset/retry path.
+
+
 class _ExistingMutableGuard:
     """Held descriptors; never reopen/close the database during SQLite locking."""
 
@@ -748,6 +751,9 @@ class _ExistingMutableGuard:
         self.fds = []
         self.pid = os.getpid()
         self.poisoned = False
+        self.stores = []
+        self.unresolved = False
+        self.identity = expected_file_identity
         for path in (self.path, self.root):
             if (type(path) is not str or not os.path.isabs(path) or path != os.path.abspath(path)
                     or '//' in path or path.endswith('/') or '\x00' in path):
@@ -757,6 +763,8 @@ class _ExistingMutableGuard:
                 or any(type(v) is not int for v in expected_file_identity)
                 or expected_file_identity[0] < 0 or expected_file_identity[1] < 1):
             raise ApprovalPersistenceIntegrityError('invalid existing store containment or identity')
+        if (self.pid, *expected_file_identity) in _UNRESOLVED_EXISTING:
+            raise ApprovalPersistenceIntegrityError('existing store has unresolved local handles')
         self.parts = Path(self.path).parts
         try:
             flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC
@@ -775,12 +783,13 @@ class _ExistingMutableGuard:
                     or int.from_bytes(header[68:72], 'big') != _APPLICATION_ID):
                 raise ApprovalStoreSchemaError('existing native rollback schema required')
         except BaseException as error:
-            self.close()
+            self.close(error)
             if isinstance(error, OSError) and not isinstance(error, FileNotFoundError):
                 raise ApprovalPersistenceIntegrityError("existing approval path is unsafe") from error
             raise
 
     def check(self, *, idle=False):
+        self.process()
         if self.poisoned:
             raise ApprovalPersistenceIntegrityError('existing store guard is permanently invalid')
         try:
@@ -810,9 +819,69 @@ class _ExistingMutableGuard:
                     continue
                 raise ApprovalPersistenceIntegrityError('existing store has a SQLite sidecar')
 
-    def close(self):
-        while self.fds:
-            os.close(self.fds.pop())
+    def retain(self):
+        self.poisoned = self.unresolved = True
+        _UNRESOLVED_EXISTING[(os.getpid(), *self.identity)] = self
+
+    def process(self):
+        if os.getpid() != self.pid:
+            self.retain()
+            raise ApprovalPersistenceIntegrityError('inherited existing store cannot access SQLite')
+        if self.unresolved:
+            raise ApprovalPersistenceIntegrityError('existing store has unresolved local handles')
+
+    def close_sqlite(self, store):
+        self.process()  # Before even inspecting SQLite properties.
+        if store._closed:
+            return
+        try:
+            store._connection.close()
+        except BaseException:
+            self.retain()
+            raise
+        store._closed = True
+
+    def rollback(self, store, original):
+        try:
+            self.process()
+            if not store._closed and store._connection.in_transaction:
+                store._connection.execute('ROLLBACK')
+        except BaseException as error:
+            self.retain()
+            original.add_note(f'existing store rollback unresolved: {type(error).__name__}')
+
+    def finish(self, original):
+        failure = original
+        for store in reversed(self.stores):
+            try:
+                self.close_sqlite(store)
+            except BaseException as error:
+                if failure is None:
+                    failure = error
+                else:
+                    failure.add_note(f'existing store close failed: {type(error).__name__}')
+                break  # Unknown close must never be retried.
+        self.close(failure)
+        if original is None and failure is not None:
+            raise failure
+
+    def close(self, original=None):
+        if os.getpid() != self.pid:
+            self.retain()
+        if self.unresolved:
+            return
+        descriptors, self.fds = self.fds, []  # Clear ownership before any close.
+        failure = original
+        for fd in reversed(descriptors):
+            try:
+                os.close(fd)
+            except BaseException as error:
+                if failure is None:
+                    failure = error
+                else:
+                    failure.add_note(f'existing store descriptor close failed: {type(error).__name__}')
+        if original is None and failure is not None:
+            raise failure
 
 
 class SQLiteApprovalStore:
@@ -863,6 +932,30 @@ class SQLiteApprovalStore:
                 connection.close()
             self._closed = True
             raise
+
+    def registration_schema_facts(self):
+        """Read schema facts only through this existing guarded native handle."""
+        from hashlib import sha256
+        import json
+        from .models import freeze_mapping
+        guard = getattr(self, '_existing_mutable_guard', None)
+        if guard is None:
+            raise ApprovalPersistenceIntegrityError('schema facts require an existing-only guarded handle')
+        guard.check()
+        if self._closed:
+            raise ApprovalPersistenceIntegrityError('schema facts require an open connection')
+        if self._connection.in_transaction:
+            raise ApprovalPersistenceIntegrityError('schema facts require an idle connection')
+        self._validate_open_database()
+        execute = self._db().execute
+        definitions = dict((row[0],row[1]) for row in execute(
+            "SELECT name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'"))
+        tables = tuple(sorted(row[0] for row in execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")))
+        value = dict(schema_sha256=sha256(json.dumps(definitions,sort_keys=True,
+            separators=(',',':'),allow_nan=False).encode()).hexdigest(),table_names=tables)
+        guard.check()
+        return freeze_mapping(value, 'schema_facts')
 
     @classmethod
     def create_initialization_at(cls, database, *, approved_root, parent_chain):
@@ -934,60 +1027,51 @@ class SQLiteApprovalStore:
         Held database descriptors outlive SQLite connections and their locks.
         """
         guard = _ExistingMutableGuard(database, approved_root, expected_file_identity)
-        reader = writer = None
+        failure = None
         def open_checked(mode):
             store = object.__new__(cls)
             store._closed = True
             store._database_path = Path(guard.path)
             store._file_identity = expected_file_identity
             store._existing_mutable_guard = guard
-            try:
-                store._connection = sqlite3.connect(
-                    store._database_path.as_uri() + f'?mode={mode}&cache=private',
-                    uri=True, isolation_level=None)
-                store._closed = False
-                guard.check(idle=True)
-                store._connection.execute('PRAGMA query_only=ON')
-                store._configure_connection()
-                store._validate_open_database()
-                guard.check(idle=True)
-                return store
-            except sqlite3.Error as error:
-                store.close()
-                raise ApprovalPersistenceIntegrityError('existing approval could not be opened') from error
-            except BaseException:
-                store.close()
-                raise
+            guard.stores.append(store)  # Retain even on partial startup failure.
+            store._connection = sqlite3.connect(
+                Path(guard.path).as_uri() + f'?mode={mode}&cache=private',
+                uri=True, isolation_level=None)
+            store._closed = False
+            guard.check(idle=True)
+            store._connection.execute('PRAGMA query_only=ON')
+            store._configure_connection()
+            store._validate_open_database()
+            guard.check(idle=True)
+            return store
         try:
             reader = open_checked('ro')
             reader.close()
-            reader = None
             guard.check(idle=True)
             writer = open_checked('rw')
             writer._connection.execute('PRAGMA query_only=OFF')
             try:
                 yield writer
             except BaseException as error:
+                guard.rollback(writer, error)
                 try:
-                    if not writer._closed and writer._connection.in_transaction:
-                        writer._connection.execute('ROLLBACK')
                     writer._validate_open_database()
                     guard.check(idle=True)
                 except BaseException as recheck:
-                    error.add_note(f'existing approval exit recheck failed: {type(recheck).__name__}')
+                    error.add_note(f'existing store exit recheck failed: {type(recheck).__name__}')
                 raise
             else:
+                guard.process()
                 if writer._closed or writer._connection.in_transaction:
-                    raise ApprovalPersistenceIntegrityError('existing approval exited closed or in transaction')
+                    raise ApprovalPersistenceIntegrityError('existing store exited closed or with an open transaction')
                 writer._validate_open_database()
                 guard.check(idle=True)
+        except BaseException as error:
+            failure = error
+            raise
         finally:
-            try:
-                for store in (writer, reader):
-                    if store is not None:
-                        store.close()
-            finally:
-                guard.close()
+            guard.finish(failure)
 
     @staticmethod
     def _canonical_database_path(database: str | Path) -> Path:
@@ -1061,6 +1145,7 @@ class SQLiteApprovalStore:
     def _assert_file_identity(self) -> None:
         guard = getattr(self, '_existing_mutable_guard', None)
         if guard is not None:
+            guard.check()
             guard.check(idle=not self._connection.in_transaction)
             return
         if self._database_path is None:
@@ -1076,9 +1161,22 @@ class SQLiteApprovalStore:
         return self
 
     def __exit__(self, _exc_type: object, _exc: object, _traceback: object) -> None:
+        if getattr(self, '_existing_mutable_guard', None) is not None:
+            try:
+                self.close()
+            except BaseException as error:
+                if isinstance(_exc, BaseException):
+                    _exc.add_note(f'existing store close failed: {type(error).__name__}')
+                else:
+                    raise
+            return
         self.close()
 
     def close(self) -> None:
+        guard = getattr(self, '_existing_mutable_guard', None)
+        if guard is not None:
+            guard.close_sqlite(self)
+            return
         if not self._closed:
             self._connection.close()
             self._closed = True
@@ -1108,26 +1206,18 @@ class SQLiteApprovalStore:
         connection = self._db()
         guard = getattr(self, '_existing_mutable_guard', None)
         if guard is not None:
+            # Reject foreign transactions outside our cleanup region.
+            if connection.in_transaction:
+                raise ApprovalPersistenceIntegrityError('existing store already has an active transaction')
+            guard.check(idle=True)
             try:
-                guard.check(idle=True)
                 connection.execute("BEGIN IMMEDIATE" if immediate else "BEGIN")
                 yield connection
                 guard.check()
-                connection.execute("COMMIT")
+                connection.execute('COMMIT')
                 guard.check(idle=True)
             except BaseException as error:
-                try:
-                    if connection.in_transaction:
-                        connection.execute("ROLLBACK")
-                except BaseException as cleanup_error:
-                    guard.poisoned = True
-                    error.add_note(f'approval rollback failed: {type(cleanup_error).__name__}')
-                    try:
-                        self.close()
-                    except BaseException as close_error:
-                        error.add_note(f'approval close failed: {type(close_error).__name__}')
-                if isinstance(error, sqlite3.Error):
-                    raise ApprovalPersistenceIntegrityError('guarded approval transaction failed') from error
+                guard.rollback(self, error)
                 raise
             return
         statement = "BEGIN IMMEDIATE" if immediate else "BEGIN"

@@ -219,4 +219,177 @@ with SQLiteRuntimeStore.open_existing_mutable(p,approved_root=p.parent,expected_
                 self.assertEqual(store.load_project('held').project_id, 'held')
 
 
+
+    def test_unknown_close_and_rollback_retained_in_real_processes(self):
+        script = r"""
+import importlib, os, sqlite3, sys, tempfile
+from pathlib import Path
+from unittest.mock import patch
+owner=importlib.import_module('auto_g16.'+sys.argv[1]+'.store')
+cls=getattr(owner, 'SQLiteRuntimeStore' if sys.argv[1]=='core' else 'SQLiteApprovalStore')
+mode=sys.argv[2]; root=Path(tempfile.mkdtemp()).resolve(); p=root/'owner.sqlite3'
+with cls(p): pass
+identity=(p.stat().st_dev,p.stat().st_ino); real=sqlite3.connect; calls=[]; guards=[]
+original=owner._ExistingMutableGuard.__init__
+def remember(self,*args,**kwargs):
+ original(self,*args,**kwargs);guards.append(self)
+class Fault(sqlite3.Connection):
+ def close(self):
+  calls.append('close')
+  if mode=='close-after': super().close()
+  if mode!='rollback': raise OSError('private close detail')
+  return super().close()
+ def execute(self,sql,*args,**kwargs):
+  if mode=='rollback' and sql=='ROLLBACK':raise OSError('private rollback detail')
+  return super().execute(sql,*args,**kwargs)
+def connect(*args,**kwargs):
+ if ('mode=ro' if mode=='startup' else 'mode=rw') in str(args[0]):kwargs['factory']=Fault
+ return real(*args,**kwargs)
+def opened():return cls.open_existing_mutable(p,approved_root=root,expected_file_identity=identity)
+try:
+ with patch.object(owner._ExistingMutableGuard,'__init__',remember), patch.object(owner.sqlite3,'connect',connect):
+  with opened() as store:
+   if mode=='rollback':
+    with store._transaction(**({'immediate':True} if sys.argv[1]=='approval' else {})):
+     raise KeyboardInterrupt('original body')
+   if mode=='body':raise KeyboardInterrupt('original body')
+except BaseException as error:
+ if mode in ('body','rollback'):
+  assert type(error) is KeyboardInterrupt,repr(error)
+  assert 'private' not in str(getattr(error,'__notes__',[]))
+ else:assert type(error) is OSError,repr(error)
+else:raise AssertionError('fault was lost')
+guard=guards[0];assert guard.unresolved and guard.poisoned
+assert guard.fds and all(os.fstat(fd) for fd in guard.fds)
+assert owner._UNRESOLVED_EXISTING[(os.getpid(),*identity)] is guard
+assert len(calls)==(0 if mode=='rollback' else 1),calls
+for value in guard.stores:
+ try:value.close()
+ except Exception:pass
+ else:raise AssertionError('quarantined close accepted')
+with patch.object(owner.os,'open',side_effect=AssertionError('target FD reopened')),patch.object(owner.sqlite3,'connect',side_effect=AssertionError('SQLite reopened')):
+ try:
+  with opened():pass
+ except (owner.RuntimeStoreError if sys.argv[1]=='core' else owner.ApprovalStoreError):pass
+ else:raise AssertionError('quarantined inode reopened')
+assert len(calls)==(0 if mode=='rollback' else 1)
+print('retained; no retry')
+"""
+        for mode in ('close-before', 'close-after', 'body', 'startup', 'rollback'):
+            with self.subTest(mode=mode):
+                result = subprocess.run([sys.executable, '-B', '-c', script, 'core', mode],
+                    cwd=Path(__file__).resolve().parents[3], capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout.strip(), 'retained; no retry')
+
+    def test_fork_context_unwind_never_touches_inherited_sqlite(self):
+        script = r"""
+import importlib, os, sqlite3, sys, tempfile, subprocess
+from pathlib import Path
+owner=importlib.import_module('auto_g16.'+sys.argv[1]+'.store')
+cls=getattr(owner,'SQLiteRuntimeStore' if sys.argv[1]=='core' else 'SQLiteApprovalStore')
+root=Path(tempfile.mkdtemp()).resolve();p=root/'owner.sqlite3'
+with cls(p):pass
+identity=(p.stat().st_dev,p.stat().st_ino);original_pid=os.getpid(); touched=root/'touched'
+class Forbidden:
+ def __getattribute__(self,name):
+  touched.write_text(name);raise AssertionError('child accessed SQLite')
+try:
+ with cls.open_existing_mutable(p,approved_root=root,expected_file_identity=identity) as store:
+  with store._transaction(**({'immediate':True} if sys.argv[1]=='approval' else {})):
+   child=os.fork()
+   if child==0:
+    store._connection=Forbidden()
+    raise KeyboardInterrupt('child unwind')
+   _,status=os.waitpid(child,0);assert os.waitstatus_to_exitcode(status)==0
+   assert not touched.exists()
+   # Another process cannot write until parent commits, including after child exit.
+   code="import sqlite3,sys;c=sqlite3.connect(sys.argv[1],timeout=0);\ntry:c.execute('BEGIN IMMEDIATE')\nexcept sqlite3.OperationalError:sys.exit(0)\nsys.exit(1)"
+   assert subprocess.run([sys.executable,'-c',code,str(p)]).returncode==0
+  assert not store._connection.in_transaction
+except KeyboardInterrupt:
+ if os.getpid()!=original_pid:
+  guard=store._existing_mutable_guard
+  assert guard.unresolved and guard.fds and not touched.exists()
+  os._exit(0)
+ raise
+with sqlite3.connect(p,timeout=0) as connection:connection.execute('BEGIN IMMEDIATE');connection.rollback()
+print('parent lock and commit retained')
+"""
+        result = subprocess.run([sys.executable, '-B', '-c', script, 'core'],
+            cwd=Path(__file__).resolve().parents[3], capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), 'parent lock and commit retained')
+
+    def test_preexisting_transaction_is_not_consumed(self):
+        with self.open() as store:
+            store._connection.execute('BEGIN IMMEDIATE')
+            with self.assertRaises(owner.RuntimeStoreError):
+                with store._transaction():pass
+            self.assertTrue(store._connection.in_transaction)
+            store._connection.execute('ROLLBACK')
+
+    def test_fd_close_attempts_all_once_and_preserves_body(self):
+        calls = []
+        with self.assertRaisesRegex(KeyboardInterrupt, 'original body') as caught:
+            with self.open() as store:
+                guard=store._existing_mutable_guard
+                descriptors=list(guard.fds); real_close=os.close
+                def fault(fd):
+                    calls.append(fd);real_close(fd)
+                    raise OSError('private descriptor detail')
+                with patch.object(owner.os, 'close', fault):
+                    try:raise KeyboardInterrupt('original body')
+                    finally:guard.finish(sys.exception())
+        self.assertCountEqual(calls, descriptors)
+        self.assertEqual(len(calls),len(set(calls)))
+        self.assertEqual(guard.fds, [])
+        self.assertNotIn('private descriptor',str(caught.exception.__notes__))
+
+
+    def test_native_begin_and_commit_interruptions_clean_up_before_caller_catches(self):
+        original_bytes=self.path.read_bytes()
+        for statement,after in (('BEGIN IMMEDIATE',True),('COMMIT',False),('COMMIT',True)):
+            with self.subTest(statement=statement,after=after):
+                self.path.write_bytes(original_bytes)
+                with self.open() as store:
+                    connection=store._connection
+                    class InterruptedConnection:
+                        armed=True
+                        def __getattr__(self,name):return getattr(connection,name)
+                        def execute(self,sql,*args):
+                            if self.armed and sql==statement:
+                                self.armed=False
+                                if after:connection.execute(sql,*args)
+                                raise KeyboardInterrupt('synthetic transaction interruption')
+                            return connection.execute(sql,*args)
+                    store._connection=InterruptedConnection()
+                    with self.assertRaises(KeyboardInterrupt):store.store_project(Project(project_id='interrupted'))
+                    self.assertFalse(connection.in_transaction)
+                    self.assertFalse(Path(str(self.path)+'-journal').exists())
+                    store._connection=connection
+                    self.assertEqual(len(store.list_projects()),1+int(statement=='COMMIT' and after))
+
+
+
+    def test_partial_pin_fstat_failure_closes_each_fd_once(self):
+        opened, closed = [], []
+        real_open, real_close = os.open, os.close
+        def remember(*args, **kwargs):
+            fd = real_open(*args, **kwargs)
+            opened.append(fd)
+            return fd
+        def close(fd):
+            closed.append(fd)
+            real_close(fd)
+            raise OSError('private close detail')
+        with patch.object(owner.os, 'open', remember), patch.object(owner.os, 'close', close), \
+                patch.object(owner.os, 'fstat', side_effect=KeyboardInterrupt('original fstat')):
+            with self.assertRaisesRegex(KeyboardInterrupt, 'original fstat') as caught:
+                with self.open():pass
+        self.assertTrue(opened)
+        self.assertCountEqual(closed, opened)
+        self.assertEqual(len(closed), len(set(closed)))
+        self.assertNotIn('private close detail', str(caught.exception.__notes__))
+
 if __name__ == '__main__': unittest.main()

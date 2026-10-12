@@ -12,6 +12,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from hashlib import sha256
+from functools import wraps
 import os
 from pathlib import Path
 import re
@@ -416,11 +417,63 @@ def _readonly_source_state(path, root):
             os.close(descriptor)
 
 
+def _existing_store_operation(function):
+    @wraps(function)
+    def guarded(self, *args, **kwargs):
+        if getattr(self, '_existing_guard', None) is None:
+            return function(self, *args, **kwargs)
+        with self._store_access(), self._lock:
+            return function(self, *args, **kwargs)
+    return guarded
+
+
 class _ProgramTransportStore:
     """Private append-only physical authority for successor effects only."""
 
     def __init__(self) -> None:
         raise TypeError("use _ProgramTransportStore.create_new/open_existing")
+
+    def registration_schema_facts(self):
+        """Read schema facts only through this existing guarded native handle."""
+        from hashlib import sha256
+        import json
+        from types import MappingProxyType
+        guard = getattr(self, '_existing_guard', None)
+        if guard is None:
+            raise TransportBoundaryError('schema facts require an existing-only guarded handle')
+        with self._store_access(), self._lock:
+            guard.check()
+            if self._closed:
+                raise TransportBoundaryError('schema facts require an open connection')
+            if self._connection.in_transaction:
+                raise TransportBoundaryError('schema facts require an idle connection')
+            self._attest()
+            execute = self._sql
+            definitions = dict((row[0],row[1]) for row in execute(
+                "SELECT name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'"))
+            tables = tuple(sorted(row[0] for row in execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")))
+            value = dict(schema_sha256=sha256(json.dumps(definitions,sort_keys=True,
+                separators=(',',':'),allow_nan=False).encode()).hexdigest(),table_names=tables)
+            guard.check()
+            return MappingProxyType(value)
+
+    @classmethod
+    def open_existing_mutable(cls, database, *, approved_root, expected_parent_chain,
+                              expected_file_identity, expected_store_instance_id):
+        from ._program_existing import open_existing
+        return open_existing(cls, database, approved_root=approved_root,
+            expected_parent_chain=expected_parent_chain, expected_file_identity=expected_file_identity,
+            expected_store_instance_id=expected_store_instance_id)
+
+    def _sql(self, statement, parameters=()):
+        guard = getattr(self, '_existing_guard', None)
+        if guard is not None:
+            if not guard.startup and self._completion_owner is None:
+                with self._store_access(), self._lock:
+                    return guard.statement(self._connection, statement, parameters)
+            return guard.statement(self._connection, statement, parameters)
+        return self._connection.execute(statement, parameters)
 
     @classmethod
     def create_initialization_at(cls, database, *, approved_root, parent_chain):
@@ -680,11 +733,14 @@ class _ProgramTransportStore:
 
     def _configure_connection(self):
         self._check_pid()
-        self._connection.execute("PRAGMA foreign_keys=ON")
-        self._connection.execute("PRAGMA trusted_schema=OFF")
-        self._connection.execute("PRAGMA synchronous=FULL")
+        self._sql("PRAGMA foreign_keys=ON")
+        self._sql("PRAGMA trusted_schema=OFF")
+        self._sql("PRAGMA synchronous=FULL")
 
     def _check_pid(self):
+        guard = getattr(self, '_existing_guard', None)
+        if guard is not None:
+            guard.owner()
         if self._creator_pid != os.getpid():
             raise TransportBoundaryError("inherited program store is unqualified; exec required")
 
@@ -701,6 +757,10 @@ class _ProgramTransportStore:
             return token
 
     def _check_completion_path(self):
+        guard = getattr(self, '_existing_guard', None)
+        if guard is not None:
+            guard.check()
+            return
         self._check_pid()
         if self._invalid or self._closed:
             raise TransportBoundaryError("completion store handle is invalid or closed")
@@ -717,6 +777,11 @@ class _ProgramTransportStore:
 
     @contextmanager
     def _completion_guard(self):
+        if getattr(self, '_existing_guard', None) is not None:
+            from ._program_existing import completion_guard
+            with completion_guard(self) as token:
+                yield token
+            return
         self._check_pid()
         if self._version != 2:
             raise TransportBoundaryError("completion-store-not-qualified")
@@ -790,17 +855,17 @@ class _ProgramTransportStore:
             instance_payload["completion_guard_binding_sha256"] = _digest(self._guard_binding)
         instance_id = _identity("program-transport-store-instance", instance_payload)
         with self._lock:
-            self._connection.execute(
+            self._sql(
                 f"PRAGMA application_id={_PROGRAM_STORE_APPLICATION_ID}"
             )
-            self._connection.execute(f"PRAGMA user_version={self._version}")
-            self._connection.execute("BEGIN IMMEDIATE")
+            self._sql(f"PRAGMA user_version={self._version}")
+            self._sql("BEGIN IMMEDIATE")
             try:
                 for statement in (_PROGRAM_STORE_DDL if self._version == 1 else _COMPLETION_STORE_DDL):
-                    self._connection.execute(statement)
+                    self._sql(statement)
                 for _name, statement in _PROGRAM_STORE_TRIGGERS:
-                    self._connection.execute(statement)
-                self._connection.execute(
+                    self._sql(statement)
+                self._sql(
                     "INSERT INTO program_transport_meta VALUES(1," + ",".join("?" for _ in range(8 if self._version == 1 else 9)) + ")",
                     (
                         _PROGRAM_STORE_SCHEMA_IDENTITY if self._version == 1 else _COMPLETION_STORE_SCHEMA_IDENTITY,
@@ -815,9 +880,9 @@ class _ProgramTransportStore:
                 )
                 if self._version == 2:
                     self._check_completion_path()
-                self._connection.execute("COMMIT")
+                self._sql("COMMIT")
             except Exception:
-                self._connection.execute("ROLLBACK")
+                self._sql("ROLLBACK")
                 raise
         self._attest()
         if self._version == 2:
@@ -829,6 +894,16 @@ class _ProgramTransportStore:
                 self._attest_locked()
 
     def _attest_locked(self) -> None:
+        guard = getattr(self, '_existing_guard', None)
+        if guard is None:
+            return self._attest_locked_impl()
+        try:
+            return self._attest_locked_impl()
+        except BaseException:
+            guard.poisoned = True
+            raise
+
+    def _attest_locked_impl(self) -> None:
         self._check_pid()
         if self._version == 2:
             self._check_completion_path()
@@ -837,18 +912,18 @@ class _ProgramTransportStore:
         if _store_file_identity(self._path) != self._file_identity:
             raise TransportBoundaryError("program transport store identity drifted")
         if (
-            self._connection.execute("PRAGMA application_id").fetchone()[0]
+            self._sql("PRAGMA application_id").fetchone()[0]
             != _PROGRAM_STORE_APPLICATION_ID
-            or self._connection.execute("PRAGMA user_version").fetchone()[0]
+            or self._sql("PRAGMA user_version").fetchone()[0]
             != self._version
-            or self._connection.execute("PRAGMA foreign_keys").fetchone()[0] != 1
-            or self._connection.execute("PRAGMA trusted_schema").fetchone()[0] != 0
-            or self._connection.execute("PRAGMA synchronous").fetchone()[0] != 2
+            or self._sql("PRAGMA foreign_keys").fetchone()[0] != 1
+            or self._sql("PRAGMA trusted_schema").fetchone()[0] != 0
+            or self._sql("PRAGMA synchronous").fetchone()[0] != 2
         ):
             raise TransportBoundaryError("program transport store schema drifted")
         definitions = {
             row[0]: row[1]
-            for row in self._connection.execute(
+            for row in self._sql(
                 "SELECT name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'"
             )
         }
@@ -858,7 +933,7 @@ class _ProgramTransportStore:
         }
         if definitions != expected:
             raise TransportBoundaryError("program transport store inventory drifted")
-        rows = self._connection.execute(
+        rows = self._sql(
             "SELECT * FROM program_transport_meta"
         ).fetchall()
         if len(rows) != 1:
@@ -899,10 +974,17 @@ class _ProgramTransportStore:
             or (row[7], row[8]) != self._file_identity
         ):
             raise TransportBoundaryError("program transport store meta authority drifted")
+        guard = getattr(self, '_existing_guard', None)
+        if guard is not None and row[3] != guard.instance:
+            guard.poisoned = True
+            raise TransportBoundaryError("completion original instance identity drifted")
         self.program_transport_store_id = row[2]
         self.store_instance_id = row[3]
 
     def close(self) -> None:
+        if getattr(self, '_existing_guard', None) is not None:
+            from ._program_existing import close_store
+            return close_store(self)
         self._check_pid()
         with self._lock:
             if self._completion_owner is not None:
@@ -918,18 +1000,21 @@ class _ProgramTransportStore:
         values: tuple[object, ...],
         identity: str,
     ) -> None:
+        if getattr(self, '_existing_guard', None) is not None:
+            from ._program_existing import insert
+            return insert(self, table, columns, values, identity)
         with self._store_access(), self._lock:
             self._attest()
             marks = ",".join("?" for _ in values)
-            self._connection.execute("BEGIN IMMEDIATE")
+            self._sql("BEGIN IMMEDIATE")
             try:
                 try:
-                    self._connection.execute(
+                    self._sql(
                         f"INSERT INTO {table}({','.join(columns)}) VALUES({marks})",
                         values,
                     )
                 except sqlite3.IntegrityError:
-                    existing = self._connection.execute(
+                    existing = self._sql(
                         f"SELECT {','.join(columns)} FROM {table} "
                         f"WHERE {columns[0]}=?",
                         (identity,),
@@ -938,7 +1023,7 @@ class _ProgramTransportStore:
                         raise TransportBoundaryError(
                             f"conflicting {table} authority"
                         )
-                loaded = self._connection.execute(
+                loaded = self._sql(
                     f"SELECT {','.join(columns)} FROM {table} "
                     f"WHERE {columns[0]}=?",
                     (identity,),
@@ -947,11 +1032,12 @@ class _ProgramTransportStore:
                     raise TransportBoundaryError(f"{table} append/replay failed")
                 if self._version == 2:
                     self._check_completion_path()
-                self._connection.execute("COMMIT")
+                self._sql("COMMIT")
             except Exception:
-                self._connection.execute("ROLLBACK")
+                self._sql("ROLLBACK")
                 raise
 
+    @_existing_store_operation
     def _runtime_attestation_record(
         self,
         *,
@@ -995,6 +1081,7 @@ class _ProgramTransportStore:
         )
         return identity, columns, values
 
+    @_existing_store_operation
     def attest_runtime(
         self, *, program_execution_snapshot_id: str,
         resolved_server_profile_id: str, qualification: Mapping[str, object],
@@ -1007,6 +1094,7 @@ class _ProgramTransportStore:
             self._insert_exact("program_runtime_attestation", columns, values, identity)
         return identity
 
+    @_existing_store_operation
     def _require_recorded_runtime(self, *, program_execution_snapshot_id, resolved_server_profile_id, qualification) -> str:
         """Pure all-column reclosure of the persisted historical runtime row."""
         identity, columns, values = self._runtime_attestation_record(
@@ -1014,7 +1102,7 @@ class _ProgramTransportStore:
             resolved_server_profile_id=resolved_server_profile_id, qualification=qualification)
         with self._store_access(), self._lock:
             self._attest()
-            rows = self._connection.execute(
+            rows = self._sql(
                 "SELECT " + ",".join(columns) + " FROM program_runtime_attestation WHERE runtime_attestation_id=?",
                 (identity,),
             ).fetchall()
@@ -1022,6 +1110,7 @@ class _ProgramTransportStore:
                 raise TransportBoundaryError("historical runtime attestation differs or is missing")
         return identity
 
+    @_existing_store_operation
     def _scheduler_raw_request(self, request: Mapping[str, object]) -> Mapping[str, object]:
         self._attest()
         if not isinstance(request, Mapping) or request.get("operation") != "QUERY_SCHEDULER":
@@ -1033,7 +1122,7 @@ class _ProgramTransportStore:
                 or closed["store_instance_id"] != self.store_instance_id):
             raise TransportBoundaryError("raw scheduler request names another physical store")
         with self._lock:
-            rows = self._connection.execute(
+            rows = self._sql(
                 "SELECT program_transport_store_id,store_instance_id,"
                 "program_execution_snapshot_id,resolved_server_profile_id,protocol,"
                 "operation_table_sha256 FROM program_runtime_attestation "
@@ -1060,6 +1149,7 @@ class _ProgramTransportStore:
             raw,
         )
 
+    @_existing_store_operation
     def _record_scheduler_raw(
         self, *, request: Mapping[str, object], result: Mapping[str, object],
     ) -> str:
@@ -1075,6 +1165,7 @@ class _ProgramTransportStore:
         )
         return identity
 
+    @_existing_store_operation
     def _read_scheduler_raw(
         self, identity: str, *, request: Mapping[str, object],
     ) -> Mapping[str, object]:
@@ -1083,7 +1174,7 @@ class _ProgramTransportStore:
         if type(identity) is not str or not identity.startswith(_SCHEDULER_RAW_PREFIX):
             raise TransportBoundaryError("raw scheduler identity is invalid")
         with self._lock:
-            rows = self._connection.execute(
+            rows = self._sql(
                 f"SELECT {','.join(_PHYSICAL_EFFECT_COLUMNS)} "
                 "FROM program_effect_physical_authority "
                 "WHERE physical_effect_authority_id=?", (identity,),
@@ -1101,13 +1192,14 @@ class _ProgramTransportStore:
             raise TransportBoundaryError("raw scheduler audit hash or binding differs")
         return payload
 
+    @_existing_store_operation
     def _list_scheduler_raw_ids(self, *, request: Mapping[str, object]) -> tuple[str, ...]:
         """Discover only this exact request's audit records and revalidate each."""
         self._scheduler_raw_request(request)
         # Enumerate only this physical store's prefixed audit rows. Do not trust
         # denormalized request indexes to decide which records need validation.
         with self._lock:
-            rows = self._connection.execute(
+            rows = self._sql(
                 "SELECT physical_effect_authority_id,payload "
                 "FROM program_effect_physical_authority "
                 "WHERE physical_effect_authority_id LIKE ? "
@@ -1124,6 +1216,7 @@ class _ProgramTransportStore:
                 identities.append(identity)
         return tuple(identities)
 
+    @_existing_store_operation
     def record_effect(
         self,
         *,
@@ -1221,7 +1314,7 @@ class _ProgramTransportStore:
             expected.add((identity, receipt["operation"], receipt["request_sha256"],
                           receipt["outcome"], None, None))
         with self._lock:
-            rows = self._connection.execute(
+            rows = self._sql(
                 "SELECT physical_effect_authority_id,operation,request_sha256,effect_classification,job_id,submit_once_key FROM program_effect_physical_authority "
                 "WHERE attempt_id=? OR program_execution_snapshot_id=? OR effect_intent_id=?",
                 (binding["attempt_id"], binding["program_execution_snapshot_id"], binding["effect_intent_id"]),
@@ -1229,6 +1322,7 @@ class _ProgramTransportStore:
         if len(expected) != len(receipts) or {tuple(row) for row in rows} != expected:
             raise TransportBoundaryError("physical effect history differs from complete Core prefix")
 
+    @_existing_store_operation
     def require_matching_effect(
         self,
         *,
@@ -1268,7 +1362,7 @@ class _ProgramTransportStore:
         }
         identity = _identity("program-physical-effect", payload)
         with self._lock:
-            rows = self._connection.execute(
+            rows = self._sql(
                 "SELECT payload FROM program_effect_physical_authority "
                 "WHERE physical_effect_authority_id=?",
                 (identity,),

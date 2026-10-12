@@ -331,6 +331,9 @@ def _readonly_database_state(path: str) -> tuple[object, ...]:
             os.close(descriptor)
 
 
+_UNRESOLVED_EXISTING = {}  # Strong process-local references; no reset/retry path.
+
+
 class _ExistingMutableGuard:
     """Held descriptors; never reopen/close the database during SQLite locking."""
 
@@ -339,6 +342,9 @@ class _ExistingMutableGuard:
         self.fds = []
         self.pid = os.getpid()
         self.poisoned = False
+        self.stores = []
+        self.unresolved = False
+        self.identity = expected_file_identity
         for path in (self.path, self.root):
             if (not os.path.isabs(path) or path != os.path.abspath(path)
                     or '//' in path or path.endswith('/') or '\x00' in path):
@@ -348,6 +354,8 @@ class _ExistingMutableGuard:
                 or any(type(v) is not int for v in expected_file_identity)
                 or expected_file_identity[0] < 0 or expected_file_identity[1] < 1):
             raise RuntimeStoreError('invalid existing store containment or identity')
+        if (self.pid, *expected_file_identity) in _UNRESOLVED_EXISTING:
+            raise RuntimeStoreError('existing store has unresolved local handles')
         self.parts = Path(self.path).parts
         try:
             flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC
@@ -364,11 +372,12 @@ class _ExistingMutableGuard:
                     or header[18:20] != b'\x01\x01'
                     or int.from_bytes(header[60:64], 'big') != SCHEMA_VERSION):
                 raise RuntimeStoreSchemaError('existing native rollback schema required')
-        except BaseException:
-            self.close()
+        except BaseException as error:
+            self.close(error)
             raise
 
     def check(self, *, idle=False):
+        self.process()
         if self.poisoned:
             raise RuntimeStoreError('existing store guard is permanently invalid')
         try:
@@ -398,9 +407,69 @@ class _ExistingMutableGuard:
                     continue
                 raise RuntimeStoreError('existing store has a SQLite sidecar')
 
-    def close(self):
-        while self.fds:
-            os.close(self.fds.pop())
+    def retain(self):
+        self.poisoned = self.unresolved = True
+        _UNRESOLVED_EXISTING[(os.getpid(), *self.identity)] = self
+
+    def process(self):
+        if os.getpid() != self.pid:
+            self.retain()
+            raise RuntimeStoreError('inherited existing store cannot access SQLite')
+        if self.unresolved:
+            raise RuntimeStoreError('existing store has unresolved local handles')
+
+    def close_sqlite(self, store):
+        self.process()  # Before even inspecting SQLite properties.
+        if store._closed:
+            return
+        try:
+            store._connection.close()
+        except BaseException:
+            self.retain()
+            raise
+        store._closed = True
+
+    def rollback(self, store, original):
+        try:
+            self.process()
+            if not store._closed and store._connection.in_transaction:
+                store._connection.execute('ROLLBACK')
+        except BaseException as error:
+            self.retain()
+            original.add_note(f'existing store rollback unresolved: {type(error).__name__}')
+
+    def finish(self, original):
+        failure = original
+        for store in reversed(self.stores):
+            try:
+                self.close_sqlite(store)
+            except BaseException as error:
+                if failure is None:
+                    failure = error
+                else:
+                    failure.add_note(f'existing store close failed: {type(error).__name__}')
+                break  # Unknown close must never be retried.
+        self.close(failure)
+        if original is None and failure is not None:
+            raise failure
+
+    def close(self, original=None):
+        if os.getpid() != self.pid:
+            self.retain()
+        if self.unresolved:
+            return
+        descriptors, self.fds = self.fds, []  # Clear ownership before any close.
+        failure = original
+        for fd in reversed(descriptors):
+            try:
+                os.close(fd)
+            except BaseException as error:
+                if failure is None:
+                    failure = error
+                else:
+                    failure.add_note(f'existing store descriptor close failed: {type(error).__name__}')
+        if original is None and failure is not None:
+            raise failure
 
 
 class SQLiteRuntimeStore:
@@ -408,6 +477,30 @@ class SQLiteRuntimeStore:
 
     def __init__(self, database: str | Path = ":memory:") -> None:
         self._connect(database)
+
+    def registration_schema_facts(self):
+        """Read schema facts only through this existing guarded native handle."""
+        from hashlib import sha256
+        from types import MappingProxyType
+        import json
+        guard = getattr(self, '_existing_mutable_guard', None)
+        if guard is None:
+            raise RuntimeStoreError('schema facts require an existing-only guarded handle')
+        guard.check()
+        if self._closed:
+            raise RuntimeStoreError('schema facts require an open connection')
+        if self._connection.in_transaction:
+            raise RuntimeStoreError('schema facts require an idle connection')
+        self._validate_existing_connection(guard.path)
+        execute = self._db().execute
+        definitions = dict((row[0],row[1]) for row in execute(
+            "SELECT name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'"))
+        tables = tuple(sorted(row[0] for row in execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")))
+        value = dict(schema_sha256=sha256(json.dumps(definitions,sort_keys=True,
+            separators=(',',':'),allow_nan=False).encode()).hexdigest(),table_names=tables)
+        guard.check()
+        return MappingProxyType(value)
 
     @classmethod
     def inspect_initialization(cls, database, *, approved_root, expected_file_identity, expected_records):
@@ -481,33 +574,34 @@ class SQLiteRuntimeStore:
         connections, avoiding POSIX lock release by an incidental descriptor close.
         """
         guard = _ExistingMutableGuard(database, approved_root, expected_file_identity)
-        reader = writer = None
+        failure = None
+        def open_checked(mode):
+            store = object.__new__(cls)
+            store._closed = True
+            store._created_as_memory = False
+            store._existing_mutable_guard = guard
+            guard.stores.append(store)  # Retain even on partial startup failure.
+            store._connection = sqlite3.connect(
+                Path(guard.path).as_uri() + f'?mode={mode}&cache=private',
+                uri=True, isolation_level=None)
+            store._closed = False
+            guard.check(idle=True)
+            store._connection.execute('PRAGMA query_only=ON')
+            store._connection.row_factory = sqlite3.Row
+            store._connection.execute('PRAGMA foreign_keys=ON')
+            store._validate_existing_connection(guard.path)
+            guard.check(idle=True)
+            return store
         try:
-            reader = object.__new__(cls)
-            reader._existing_mutable_guard = guard
-            reader._connect(Path(guard.path).as_uri() + '?mode=ro&cache=private', readonly=True)
-            reader._validate_existing_connection(guard.path)
-            guard.check(idle=True)
+            reader = open_checked('ro')
             reader.close()
-            reader = None
             guard.check(idle=True)
-            writer = object.__new__(cls)
-            writer._closed, writer._created_as_memory = False, False
-            writer._existing_mutable_guard = guard
-            writer._connection = sqlite3.connect(Path(guard.path).as_uri() + '?mode=rw&cache=private',
-                                                 uri=True, isolation_level=None)
-            guard.check(idle=True)
-            writer._connection.row_factory = sqlite3.Row
-            writer._connection.execute('PRAGMA query_only=ON')
-            writer._connection.execute('PRAGMA foreign_keys=ON')
-            writer._validate_existing_connection(guard.path)
-            guard.check(idle=True)
+            writer = open_checked('rw')
             writer._connection.execute('PRAGMA query_only=OFF')
             try:
                 yield writer
             except BaseException as error:
-                if not writer._closed and writer._connection.in_transaction:
-                    writer._connection.execute('ROLLBACK')
+                guard.rollback(writer, error)
                 try:
                     writer._validate_existing_connection(guard.path)
                     guard.check(idle=True)
@@ -515,18 +609,16 @@ class SQLiteRuntimeStore:
                     error.add_note(f'existing store exit recheck failed: {type(recheck).__name__}')
                 raise
             else:
+                guard.process()
                 if writer._closed or writer._connection.in_transaction:
                     raise RuntimeStoreError('existing store exited closed or with an open transaction')
                 writer._validate_existing_connection(guard.path)
                 guard.check(idle=True)
+        except BaseException as error:
+            failure = error
+            raise
         finally:
-            for store in (writer, reader):
-                if store is not None:
-                    connection = getattr(store, '_connection', None)
-                    if connection is not None:
-                        connection.close()
-                    store._closed = True
-            guard.close()
+            guard.finish(failure)
 
     def _validate_existing_connection(self, path):
         connection = self._db()
@@ -642,9 +734,22 @@ class SQLiteRuntimeStore:
         return self
 
     def __exit__(self, _exc_type: object, _exc: object, _traceback: object) -> None:
+        if getattr(self, '_existing_mutable_guard', None) is not None:
+            try:
+                self.close()
+            except BaseException as error:
+                if isinstance(_exc, BaseException):
+                    _exc.add_note(f'existing store close failed: {type(error).__name__}')
+                else:
+                    raise
+            return
         self.close()
 
     def close(self) -> None:
+        guard = getattr(self, '_existing_mutable_guard', None)
+        if guard is not None:
+            guard.close_sqlite(self)
+            return
         if not self._closed:
             self._connection.close()
             self._closed = True
@@ -654,6 +759,7 @@ class SQLiteRuntimeStore:
             raise RuntimeStoreError("runtime store is closed")
         guard = getattr(self, '_existing_mutable_guard', None)
         if guard is not None:
+            guard.check()
             guard.check(idle=not self._connection.in_transaction)
         return self._connection
 
@@ -672,15 +778,26 @@ class SQLiteRuntimeStore:
     @contextmanager
     def _transaction(self) -> Iterator[sqlite3.Connection]:
         connection = self._db()
+        guard = getattr(self, '_existing_mutable_guard', None)
+        if guard is not None:
+            # Reject foreign transactions outside our cleanup region.
+            if connection.in_transaction:
+                raise RuntimeStoreError('existing store already has an active transaction')
+            guard.check(idle=True)
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                yield connection
+                guard.check()
+                connection.execute('COMMIT')
+                guard.check(idle=True)
+            except BaseException as error:
+                guard.rollback(self, error)
+                raise
+            return
         connection.execute("BEGIN IMMEDIATE")
         try:
             yield connection
-            guard = getattr(self, '_existing_mutable_guard', None)
-            if guard is not None:
-                guard.check()
             connection.execute("COMMIT")
-            if guard is not None:
-                guard.check(idle=True)
         except Exception:
             if connection.in_transaction:
                 connection.execute("ROLLBACK")

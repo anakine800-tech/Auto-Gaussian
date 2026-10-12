@@ -253,7 +253,10 @@
         "docs/v3/presubmit-unknown-recovery.md",
         "docs/v3/contracts/tasks/direct-study-installation.md",
         "docs/v3/contracts/tasks/direct-study-local-install.md",
-        "docs/v3/contracts/tasks/direct-study-project-existing.md"
+        "docs/v3/contracts/tasks/direct-study-project-existing.md",
+        "docs/v3/contracts/tasks/direct-study-transport-existing.md",
+        "docs/v3/contracts/tasks/direct-study-core-approval-lifetime.md",
+        "docs/v3/contracts/tasks/direct-study-registration.md"
       ],
       "prefixes": [
         "docs/v3/publisher-r4/"
@@ -710,6 +713,7 @@
         "auto_g16/transport/_submission_recovery.py",
         "auto_g16/transport/models.py",
         "auto_g16/transport/program.py",
+        "auto_g16/transport/_program_existing.py",
         "auto_g16/transport/rtwin.py"
       ],
       "prefixes": [
