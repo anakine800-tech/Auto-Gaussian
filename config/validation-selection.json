@@ -250,7 +250,8 @@
         "docs/v3/contracts/tasks/direct-study-runtime.md",
         "docs/v3/contracts/tasks/direct-study-execution.md",
         "docs/v3/contracts/tasks/direct-study-stage-session.md",
-        "docs/v3/presubmit-unknown-recovery.md"
+        "docs/v3/presubmit-unknown-recovery.md",
+        "docs/v3/contracts/tasks/direct-study-installation.md"
       ],
       "prefixes": [
         "docs/v3/publisher-r4/"

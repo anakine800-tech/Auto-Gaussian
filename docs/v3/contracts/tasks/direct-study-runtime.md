@@ -162,6 +162,12 @@ execution qualification, xTB vertical completion or scientific acceptance.
 
 ## 2. Fixed installation and owner-loaded session entry
 
+The local mechanical package reader is now frozen separately in
+[installation facts](direct-study-installation.md). That exact contract supersedes
+the proposed installation-object fields below for its own zero-effect slice.
+It grants no qualification and does not activate this section's stage session.
+The remaining installation/registry/preparation/session contracts stay DRAFT.
+
 Replace the proposed external capability parameter with:
 
 `open_prepared_stage(study_id: str, stage: str)`
@@ -195,9 +201,10 @@ under source/auto_g16/study/ and reads only that fixed sibling locator through
 no-follow descriptors. No search, alternative basename, cwd, PYTHONPATH helper
 or --installation override. The locator's closed payload is the installation
 object above; a separate qualification/readback receipt binds its complete bytes
-and physical root chain along with the source-manifest hash. That receipt is
-checked through the already-qualified native installation owner, avoiding a
-self-referential manifest hash. The archive manifest binds actual loaded source
+and physical root chain along with the source-manifest hash. No general qualified native installation owner currently exists. The new
+mechanical readback validates facts only and avoids a self-referential manifest
+hash; the explicitly reviewed deployment operator and later native Controller
+checks continue to own qualification and approval semantics. The archive manifest binds actual loaded source
 files; the locator cannot select code modules, remote roots or profile overrides.
 
 On each production run/authorize/recover-with-effect CLI entry, the versioned
