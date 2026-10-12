@@ -26,6 +26,57 @@ def pins(path):
 
 class ProjectExistingTests(unittest.TestCase):
 
+    def test_creation_absence_uses_same_owner_without_new_resources(self):
+        before = self.path.read_bytes()
+        with self.open() as journal:
+            with patch.object(os, 'open', side_effect=AssertionError('new FD')), \
+                    patch.object(sqlite3, 'connect', side_effect=AssertionError('new SQLite')):
+                self.assertIsNone(journal.assert_no_creation_history(self.project.project_id))
+            self.assertFalse(journal._connection.in_transaction)
+        self.assertEqual(before, self.path.read_bytes())
+
+    def test_creation_absence_rejects_every_valid_native_prefix(self):
+        with self.open() as journal:
+            intent = self.record(journal)
+            for prefix in ('intent', 'result', 'binding'):
+                if prefix == 'result':
+                    journal._record_success(intent, self.project.project_id,
+                                            'synthetic-parent', 'synthetic-project')
+                if prefix == 'binding':
+                    journal.append_binding(self.bound(intent))
+                before = self.path.read_bytes()
+                with self.subTest(prefix=prefix), self.assertRaisesRegex(ExecutionValueError, 'creation history'):
+                    journal.assert_no_creation_history(self.project.project_id)
+                self.assertIsNone(journal.assert_no_creation_history('another-project'))
+                self.assertEqual(before, self.path.read_bytes())
+                self.assertFalse(journal._existing_guard.poisoned)
+
+    def test_creation_absence_rejects_orphan_inserted_after_open(self):
+        with self.assertRaises(ExecutionValueError):
+            with self.open() as journal:
+                # Deliberate corruption after the opening validation, test only.
+                journal._connection.execute("INSERT INTO provisioning_results VALUES('orphan','{}')").close()
+                before = self.path.read_bytes()
+                with self.assertRaises(ExecutionValueError):
+                    journal.assert_no_creation_history(self.project.project_id)
+                self.assertEqual(before, self.path.read_bytes())
+                self.assertTrue(journal._existing_guard.poisoned)
+
+    def test_creation_absence_rejects_transaction_and_foreign_process_before_rows(self):
+        with self.open() as journal:
+            journal._connection.execute('BEGIN IMMEDIATE').close()
+            try:
+                with patch.object(journal, '_validate_existing_rows', side_effect=AssertionError('row read')):
+                    with self.assertRaises(ExecutionValueError):
+                        journal.assert_no_creation_history(self.project.project_id)
+                    with patch.object(os, 'getpid', return_value=-1):
+                        with self.assertRaises(ExecutionValueError):
+                            journal.assert_no_creation_history(self.project.project_id)
+                self.assertTrue(journal._connection.in_transaction)
+                self.assertFalse(journal._existing_guard.poisoned)
+            finally:
+                journal._connection.execute('ROLLBACK').close()
+
     def test_binding_exact_immutable_and_no_new_database_resources(self):
         before=self.path.read_bytes()
         with self.open() as store:

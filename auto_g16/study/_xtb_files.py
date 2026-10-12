@@ -25,7 +25,7 @@ _FILES = {
     'publisher-root': {'v31-publisher-pilot-deployment.json', 'reviewed-scope.json'},
     'collections-root': set(),
     'operation-preparation': {'intent.json', 'receipt.json',
-        *(f'step-{i:02d}-entered.json' for i in range(1, 5))},
+        *(f'step-{i:02d}-{kind}.json' for i in range(1, 5) for kind in ('entered', 'capture'))},
     'operation-authorization': {'intent.json', 'receipt.json'},
     'operation-submission': {'intent.json', 'receipt.json'},
 }
@@ -120,6 +120,8 @@ class _BusinessDirectory:
         try:
             owned.fds.append(os.open(name, flags | os.O_NOFOLLOW | os.O_CLOEXEC,
                                      0o600, dir_fd=self.fd))
+            if flags == read_flags:
+                self.session.guard_existing_file(owned, owned.fds[-1])
             yield owned.fds[-1]
         except BaseException as error:
             original = error

@@ -33,8 +33,13 @@ def _has_current_close_unknown(scope, session):
     return (type(session) is _Session and _CURRENT.get() is session
             and session.scope is scope and session.pid == os.getpid()
             and session.thread == get_ident() and bool(session._unknown)
-            and all(any(item is row for row in session._resources)
-                    and item['attempted'] and 'error_kind' in item for item in session._unknown))
+            and all(any(item is row for row in session._resources) and (
+                item['attempted'] and 'error_kind' in item or
+                not item['attempted'] and item.get('retention_cause') in
+                    ('store-alias', 'file-identity-unclassified')
+                and item['kind'] in ('business-file', 'publisher-pin')
+                and item.get('opened_fd') in item.get('descriptors', ())
+                and 'error_kind' in item) for item in session._unknown))
 
 
 class _Session:
@@ -109,6 +114,37 @@ class _Session:
         _require(type(resource) is expected and resource._study_session is self)
         _require(not any(row['resource'] is resource for row in self._resources))
         self._resources.append(dict(resource=resource, kind=kind, attempted=False, descriptors=()))
+
+    def guard_existing_file(self, resource, descriptor):
+        """Classify a newly opened existing file before any possible close/read.
+
+        Closing any descriptor for a connected SQLite inode can release this
+        process's locks, even if the descriptor was opened through another name.
+        An unclassifiable new file descriptor must therefore remain retained.
+        """
+        self.assert_identity()
+        rows = [row for row in self._resources if row['resource'] is resource]
+        _require(len(rows) == 1 and not rows[0]['attempted']
+                 and rows[0]['kind'] in ('business-file', 'publisher-pin')
+                 and descriptor in resource.fds)
+        record = rows[0]
+        cause, failure = None, None
+        try:
+            info = os.fstat(descriptor)
+        except BaseException as error:
+            cause, failure = 'file-identity-unclassified', error
+        else:
+            if (info.st_dev, info.st_ino) in {
+                    tuple(value['file_identity']) for value in self._store_bindings.values()}:
+                cause = 'store-alias'
+                failure = ExecutionValueError('new evidence file aliases a retained native store')
+        if cause is not None:
+            record.update(retention_cause=cause, error_kind=type(failure).__name__,
+                          opened_fd=descriptor, descriptors=tuple(resource.fds))
+            self._unknown.append(record)
+            _QUARANTINE.append(self)
+            self.scope._retain_unresolved_session(self)
+            raise failure
 
     def close_resource(self, resource, *, original=None):
         _require(_CURRENT.get() is self)
@@ -193,6 +229,7 @@ def _open_study_xtb_session(scope, action, *, continuation_sha256=None):
     original = None
     try:
         session.context = scope._execution_context()
+        session.context.inspection.check()
         from auto_g16.transport import _program_rtwin as rtwin
         from scripts import run_v31_publisher_pilot as controller
         _require(rtwin._STUDY_SESSION.get() is None)
@@ -225,6 +262,7 @@ def _open_study_xtb_session(scope, action, *, continuation_sha256=None):
         yield session
         if not session._unknown:
             session.assert_current()
+            session.context.inspection.check()
     except BaseException as error:
         original = error
         raise
@@ -238,6 +276,7 @@ def _open_study_xtb_session(scope, action, *, continuation_sha256=None):
             if original is not None and not session._unknown and session.context is not None:
                 try:
                     session.assert_current()
+                    session.context.inspection.check()
                 except BaseException as error:
                     original.add_note('native session exit validation failed: ' + type(error).__name__)
             if not session._unknown:

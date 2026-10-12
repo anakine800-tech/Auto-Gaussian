@@ -165,13 +165,17 @@ def _installation_ref(facts):
         'source_manifest_sha256', 'locator_sha256', 'readback_binding')}
 
 
-def _origins(inspection):
+def _origin_paths(inspection):
     for module in (sys.modules[__name__], installed, model, fresh, initialization,
                    sys.modules[Directory.__module__], sys.modules[encode.__module__], core, approval, project,
                    _project_existing, transport, _program_existing):
         expected = inspection.source + '/' + module.__name__.replace('.', '/') + '.py'
         require(module.__file__ == expected and module.__spec__ is not None
                 and module.__spec__.origin == expected, 'runtime-source-mismatch')
+
+
+def _origins(inspection):
+    _origin_paths(inspection)
     inspection.check()
 
 
@@ -281,7 +285,8 @@ class _ExecutionContext:
 
     def assert_current(self):
         self._scope._get('request')
-        _origins(self.inspection)
+        _origin_paths(self.inspection)
+        self.inspection.assert_held_current()
         for directory in self.directories.values():
             directory.check()
 

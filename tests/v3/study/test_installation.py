@@ -42,7 +42,10 @@ class Fixture:
                        if p.is_file() and '__pycache__' not in p.relative_to(ROOT).parts]
             names += [name for name in ('auto_g16/study/_installation.py', 'auto_g16/study/_local_install.py',
                       'auto_g16/study/_registered_runtime.py', 'auto_g16/transport/_program_existing.py',
-                      'auto_g16/execution/_study_stage_session.py', 'auto_g16/study/_xtb_files.py')
+                      'auto_g16/execution/_study_stage_session.py', 'auto_g16/study/_xtb_files.py',
+                      'auto_g16/study/_xtb_preview.py', 'auto_g16/study/_xtb_service.py',
+                      'auto_g16/study/_xtb_capture.py', 'auto_g16/study/_xtb_prepared.py',
+                      'auto_g16/execution/_study_preparation.py')
                       if (ROOT/name).is_file()]
             for name in sorted(set(names)):
                 source=ROOT/name;target=self.source/name

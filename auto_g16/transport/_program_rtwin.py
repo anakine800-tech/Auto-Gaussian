@@ -526,6 +526,9 @@ class _ProjectWireUnknown(program._ProgramEffectUnknown):
 def _wire_call(scope: object, invocation: _ProgramRTWinInvocation, *, project_capture: _ProjectWireCapture | None = None) -> Mapping[str, object]:
     if project_capture is not None and (type(project_capture) is not _ProjectWireCapture or invocation.operation.name not in {"OBSERVE_PROJECT", "PROVISION_PROJECT"}):
         raise TransportBoundaryError("Project capture is only for exact Project operations")
+    study_session = _active_study_session()
+    if study_session is not None:
+        study_session.context.inspection.check()
     progress = None
     if _COLLECTION_WIRE_OWNER.get() is not None and invocation.operation.name == "FETCH_EXACT_FILE":
         try:
@@ -537,13 +540,22 @@ def _wire_call(scope: object, invocation: _ProgramRTWinInvocation, *, project_ca
     runner = _driver._SubprocessRTWinDriver()
     try:
         stdout, stderr, code, state, eofout, eoferr = runner._run(scope, invocation)
-    except BaseException:
+    except BaseException as original:
+        if study_session is not None:
+            try:
+                study_session.assert_current()
+                study_session.context.inspection.check()
+            except BaseException as error:
+                original.add_note('Study source postflight unresolved: ' + type(error).__name__)
         if progress is not None:
             progress.finish(status="interrupted", returncode=None, stdout_bytes=0, stderr_bytes=0, eof_stdout=False, eof_stderr=False)
         raise
     if project_capture is not None:
         project_capture.record(invocation, stdout, stderr, code, state, eofout, eoferr,
                                getattr(runner, "_process_diagnostic", None))
+    if study_session is not None:
+        study_session.assert_current()
+        study_session.context.inspection.check()
     if progress is not None:
         progress.finish(status=state, returncode=code, stdout_bytes=len(stdout), stderr_bytes=len(stderr), eof_stdout=eofout, eof_stderr=eoferr)
     if state != "completed" or code != 0 or stderr or not eofout or not eoferr:
@@ -587,6 +599,11 @@ class _RTWinProjectAttestor(_ProjectAttestor):
     def __init__(self, *, current_profile: ServerProfile, target: ResolvedServerProfile) -> None:
         self._profile = current_profile
         self._target = target
+        self._study_session = _active_study_session()
+        self._study_preparation = None
+        if self._study_session is not None:
+            from auto_g16.execution import _study_preparation
+            self._study_preparation = _study_preparation.current(self._study_session)
         self._authority()
 
     def _authority(self) -> _driver._DeploymentAuthority:
@@ -607,6 +624,14 @@ class _RTWinProjectAttestor(_ProjectAttestor):
         return self.authority_identity
 
     def _invoke(self, target: ResolvedServerProfile, path: str, operation: str, parent: str | None = None, intent: str | None = None, *, _association_capture=None) -> tuple[str, str, str | None]:
+        session = _active_study_session()
+        if session is not self._study_session:
+            raise TransportBoundaryError('Project attestor session changed')
+        preparation = self._study_preparation
+        if session is not None:
+            if _association_capture is not None or preparation is None:
+                raise TransportBoundaryError('Study Project preparation selection differs')
+            preparation.before(self, target, path, operation)
         from auto_g16.execution.project_provisioning import _validate_remote_target
         _validate_remote_target(target, path)
         if target != self._target:
@@ -621,11 +646,26 @@ class _RTWinProjectAttestor(_ProjectAttestor):
         from datetime import datetime, timezone
         started = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
         try:
-            result = _wire_call(target, invocation, project_capture=capture)
+            original = None
+            try:
+                result = _wire_call(target, invocation, project_capture=capture)
+            except BaseException as error:
+                original = error
+                raise
+            finally:
+                if preparation is not None and capture.evidence is not None:
+                    try:
+                        preparation.capture(capture)
+                    except BaseException as error:
+                        if original is None:
+                            raise
+                        original.add_note('Project diagnostic retention unresolved: ' + type(error).__name__)
             program._exact_keys(result, {"state", "parent_physical_identity", "project_physical_identity"}, "Project observation")
             parent_id = _directory_token(result["parent_physical_identity"], path.rsplit("/", 1)[0])
             state = result["state"]
             if state == "ABSENT" and result["project_physical_identity"] is None and operation == "OBSERVE_PROJECT":
+                if preparation is not None:
+                    preparation.after()
                 return "ABSENT", parent_id, None
             if state != "EXISTING":
                 raise TransportBoundaryError("Project operation returned invalid physical evidence")
@@ -638,6 +678,8 @@ class _RTWinProjectAttestor(_ProjectAttestor):
                 _association_capture.append((canonical_json_bytes(_plain(request)),
                     canonical_json_bytes(_plain(capture.evidence)), dict(result),
                     {"started_at": started, "finished_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")}))
+            if preparation is not None:
+                preparation.after()
             return "EXISTING", parent_id, project_id
         except Exception as exc:
             if capture.evidence is None:
@@ -1060,6 +1102,8 @@ class _PinnedPublisherFile:
             for part in parts[:-1]:
                 self.fds.append(os.open(part, flags | os.O_DIRECTORY, dir_fd=self.fds[-1]))
             self.fds.append(os.open(parts[-1], flags | os.O_NONBLOCK, dir_fd=self.fds[-1]))
+            if self._study_session is not None:
+                self._study_session.guard_existing_file(self, self.fds[-1])
             if not stat.S_ISREG(os.fstat(self.fds[-1]).st_mode):
                 raise _publisher_failure("installed object is not a regular file")
             self._read_and_check()

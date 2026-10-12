@@ -316,6 +316,8 @@ class _SourceTree:
 class _Inspection:
     def __init__(self, bundle, *, loaded):
         self.pins = _Pins()
+        self._held_verified = False
+        self._held_failed = False
         try:
             self.bundle = _path(bundle, absolute=True)
             self.source, self.installation = bundle + '/source', bundle + '/installation'
@@ -386,12 +388,32 @@ class _Inspection:
                      and module.__spec__ is not None and module.__spec__.origin == expected, 'identity-drift')
 
     def check(self):
-        self.pins.check()
-        self._layout()
-        self.source_tree.check()
-        if self.loaded:
-            self._origins()
-        self.pins.check()
+        _require(not self._held_failed, 'identity-drift')
+        try:
+            self.pins.check()
+            self._layout()
+            self.source_tree.check()
+            if self.loaded:
+                self._origins()
+            self.pins.check()
+            self._held_verified = True
+        except BaseException:
+            self._held_failed = True
+            raise
+
+    def assert_held_current(self):
+        """Internal checkpoints retain the first full hash and every open file signature."""
+        _require(self._held_verified and not self._held_failed, 'identity-drift')
+        try:
+            self.pins.check()
+            self._layout()
+            self.source_tree._inventory()
+            if self.loaded:
+                self._origins()
+            self.pins.check()
+        except BaseException:
+            self._held_failed = True
+            raise
 
 
 def _mapped(error):

@@ -1367,6 +1367,21 @@ class _ProductionProvisioningJournal(_ProvisioningJournal):
             self._require_binding_intent(binding)
         return binding
 
+    def assert_no_creation_history(self, project_id):
+        """Require an untouched Project through its retained existing native owner."""
+        self.assert_existing_binding()
+        require_text(project_id, 'project_id')
+        # Orphan results cannot establish absence for any Project. Validate the
+        # native lineage before the scoped absence read, on this same connection.
+        self._validate_existing_rows()
+        intents = self._sql('SELECT intent_id FROM provisioning_intents WHERE project_id=?',
+                            (project_id,)).fetchall()
+        bindings = self._sql('SELECT project_physical_binding_id FROM project_physical_bindings '
+                             'WHERE project_id=?', (project_id,)).fetchall()
+        self.assert_existing_binding()
+        if intents or bindings:
+            raise ExecutionValueError('Project already has native creation history')
+
     def inspect_creation_receipts(self, project_id):
         """Read successful creation lineage through the existing guarded handle."""
         self.assert_existing_binding()
