@@ -517,3 +517,10 @@ status = "offline-candidate-not-scientific-acceptance"
 required_sections = ["OWNER_DECISIONS.md#od-46-butane-lifecycle-and-restricted-study-composition", "docs/v3/contracts/tasks/direct-study-thermo-oracle.md"]
 code_paths = ["auto_g16/study/_thermo_oracle.py"]
 focused_tests = ["tests/v3/study/test_thermo_oracle.py"]
+
+[[component]]
+id = "direct-study-existing-core-open"
+status = "contract-frozen-local-implementation"
+required_sections = ["docs/v3/contracts/tasks/direct-study-runtime.md#1-first-independently-implementable-gap-core-existing-only-mutable-open"]
+code_paths = ["auto_g16/core/store.py"]
+focused_tests = ["tests/v3/core/test_existing_mutable.py", "tests/v3/core/test_store.py", "tests/v31/transport/test_readonly_source_open.py"]

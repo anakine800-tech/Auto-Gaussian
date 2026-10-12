@@ -1606,3 +1606,9 @@ versions the retained independent raw-log partition calculation as a pure
 standard-library acceptance aid. It does not replace the primary native
 thermochemistry owner, issue ScientificAcceptance, save results, or perform
 remote effects. Pair/population comparison remains a separate exact contract.
+
+The same runtime continuation freezes the narrow
+[Core existing-only opener](docs/v3/contracts/tasks/direct-study-runtime.md#1-first-independently-implementable-gap-core-existing-only-mutable-open).
+It rejects partial stores and journal recovery, uses the existing native schema
+and transactions, and adds no remote authority or automatic retry. The remaining
+runtime/session installation draft is not activated by this local interface.
