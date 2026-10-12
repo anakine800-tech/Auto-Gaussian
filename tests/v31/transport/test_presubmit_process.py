@@ -124,8 +124,9 @@ class PreSubmitProcessTests(unittest.TestCase):
                     nonlocal count
                     count += 1
                     env = dict(os.environ, TMPDIR=str(folder))
-                    run = subprocess.run([sys.executable, '-B', '-m', __name__, mode, str(path)],
-                        capture_output=True, text=True, env=env, timeout=30)
+                    run = subprocess.run([sys.executable, '-B', '-m', 'tests.v31.transport.test_presubmit_process', mode, str(path)],
+                        capture_output=True, text=True, env=env, timeout=30,
+                        cwd=Path(__file__).resolve().parents[3])
                     _write(folder / f'process-{count:02d}.json', dict(mode=mode,
                         returncode=run.returncode, stdout=run.stdout, stderr=run.stderr))
                     self.assertEqual(run.returncode, 73 if mode == phase else 0, run.stdout + run.stderr)

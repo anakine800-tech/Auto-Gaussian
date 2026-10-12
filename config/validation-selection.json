@@ -238,7 +238,8 @@
         "docs/v3/native-opt-readout.md",
         "docs/v3/proposals/gaussian-successor-result-refinement.md",
         "docs/v3/proposals/gaussian-successor-destination-addendum.md",
-        "docs/v3/proposals/gaussian-native-banner-parser-addendum.md"
+        "docs/v3/proposals/gaussian-native-banner-parser-addendum.md",
+        "docs/v3/presubmit-unknown-recovery.md"
       ],
       "prefixes": [
         "docs/v3/publisher-r4/"
