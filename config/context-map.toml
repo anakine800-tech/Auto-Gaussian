@@ -475,3 +475,38 @@ status = "offline-candidate-unreviewed"
 required_sections = ["OWNER_DECISIONS.md#od-42-native-thermochemistry-source-adapter", "docs/v3/contracts/tasks/native-thermochemistry-source-adapter.md"]
 code_paths = ["auto_g16/conformer/_successor_thermo_source.py", "auto_g16/conformer/frequency_readonly.py", "auto_g16/thermochemistry/_successor_facts.py"]
 focused_tests = ["tests/v31/conformer/test_successor_freq.py", "tests/v31/thermochemistry/test_core.py", "tests/v3/query/test_native.py"]
+
+[[component]]
+id = "butane-lifecycle-readonly"
+status = "offline-candidate"
+required_sections = ["OWNER_DECISIONS.md#od-46-butane-lifecycle-and-restricted-study-composition", "docs/v3/contracts/tasks/butane-reliability-e2e.md#lifecycle-projection-boundary", "docs/v3/contracts/tasks/butane-reliability-e2e.md#lifecycle-acceptance"]
+code_paths = ["auto_g16/execution/readonly.py", "auto_g16/query/native.py"]
+focused_tests = ["tests/v3/query/test_native_lifecycle.py", "tests/v3/query/test_execution_readonly.py", "tests/v3/query/test_native.py"]
+
+[[component]]
+id = "butane-gaussian-process-faults"
+status = "offline-candidate"
+required_sections = ["docs/v3/contracts/tasks/butane-reliability-e2e.md#gaussian-process-fault-appendix"]
+code_paths = ["auto_g16/execution/program_runtime.py", "tests/v31/transport/_gaussian_recovery_fixture.py", "tests/v31/transport/test_gaussian_collection_faults.py", "tests/v31/transport/test_complete_read_frame.py"]
+focused_tests = ["tests/v31/transport/test_gaussian_collection_faults.py", "tests/v31/transport/test_complete_read_frame.py", "tests/v31/transport/test_publisher_collection_recovery.py", "tests/v31/transport/test_project_profile_association.py"]
+
+[[component]]
+id = "native-dual-populations"
+status = "offline-candidate"
+required_sections = ["docs/v3/contracts/tasks/butane-reliability-e2e.md#dual-scheme-saved-population-appendix"]
+code_paths = ["auto_g16/thermochemistry/native_populations.py", "auto_g16/conformer/populations_readonly.py", "auto_g16/conformer/thermochemistry_readonly.py", "auto_g16/query/native.py"]
+focused_tests = ["tests/v31/conformer/test_native_populations.py", "tests/v31/conformer/test_thermochemistry_readonly.py", "tests/v3/query/test_native_populations.py", "tests/v3/query/test_native_thermodynamics.py"]
+
+[[component]]
+id = "direct-study-historical-reuse"
+status = "offline-candidate"
+required_sections = ["OWNER_DECISIONS.md#od-46-butane-lifecycle-and-restricted-study-composition", "docs/v3/contracts/tasks/direct-study-reuse.md"]
+code_paths = ["auto_g16/study/", "auto_g16/core/store.py", "auto_g16/execution/_receipt_source.py", "auto_g16/execution/_crest_seed_handoff.py"]
+focused_tests = ["tests/v3/study/test_direct.py", "tests/v3/study/test_sources.py", "tests/v3/core/test_store.py", "tests/v31/transport/test_receipt_source.py", "tests/v31/conformer/test_crest_receipt_handoff.py"]
+
+[[component]]
+id = "direct-study-fresh-intake"
+status = "offline-candidate-execution-not-activated"
+required_sections = ["docs/v3/contracts/tasks/butane-reliability-e2e.md#four-part-continuation-authorization-2026-10-12", "docs/v3/contracts/tasks/direct-study-fresh.md"]
+code_paths = ["auto_g16/study/_fresh_model.py", "auto_g16/study/_fresh_service.py", "auto_g16/study/service.py"]
+focused_tests = ["tests/v3/study/test_fresh.py", "tests/v3/study/test_direct.py", "tests/v3/core/test_store.py"]

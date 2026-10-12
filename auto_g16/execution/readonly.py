@@ -192,8 +192,19 @@ class ProgramReadQuery:
             declared_bases.add(tuple(bound[k] for k in ("program_transport_store_id", "store_instance_id", "runtime_attestation_id")))
         _check(len(declared_bases) <= 1)
         if not results:
-            # An existing assessment without its referenced bundle is not a clean absence.
-            _check(not any(o.observation_type == runtime._COMPLETION_ASSESSMENT for o in observations))
+            # An active collection assessment is not a missing terminal bundle.
+            # Still reclose every assessment, including its exact history prefix.
+            job = _historical_job(receipts)
+            assessments = [o for o in observations if o.observation_type == runtime._COMPLETION_ASSESSMENT]
+            if assessments:
+                _check(job is not None)
+                _verify_read_assessments(observations, snapshot, job)
+                for item in assessments:
+                    data = item.data
+                    _check(data['verdict'] == 'UNKNOWN' and all(data[key] is None for key in
+                        ('evidence_result_id', 'capture_authority_id', 'receipt_sha256')))
+                    summary['assessments'].append({'id': item.observation_id,
+                        'recorded_verdict': data['verdict'], 'recorded_diagnostic': data['diagnostic']})
             return summary
         record = results[0]
         data = completion._closed(record.data, frozenset({"schema", *runtime._COMPLETION_BINDING_KEYS, "epoch_id", "inputs", "captured_files"}), "historical completion")
@@ -299,3 +310,82 @@ class ProgramReadQuery:
         summary["capture"] = {"result_id": record.result_id, "epoch_id": data["epoch_id"],
                               "job_id": job_id, "integrity": "persisted-content-associations"}
         return summary
+
+    def get_lifecycle(self, registration: ProgramReadSnapshot):
+        """Three historical evidence axes; no acquisition, wall clock or science."""
+        summary = self.get_summary(registration)
+        snapshot = _snapshot(registration)
+        observations = self._reader.observations_for_attempt(snapshot.attempt_id)
+        receipts = runtime._load_receipts(self._reader, snapshot)
+        job = _historical_job(receipts)
+        _check(job is not None, 'historical-job-not-established')
+        program = _axis('missing', 'program-completion-not-captured', state='unknown',
+                        completed_at=None, exit_code=None, signal=None)
+        scheduler = _axis('missing', 'scheduler-not-observed', state=None,
+                          presence='unknown', raw_state=None,
+                          raw_state_reason='raw-pbs-state-not-retained')
+        collection = _axis('missing', 'collection-not-recorded', state='pending',
+                           condition='not_recorded', result_id=None)
+        for receipt in receipts:
+            if receipt.data['operation'] != 'QUERY_SCHEDULER':
+                continue
+            known = receipt.data['outcome'] == 'SUCCEEDED' and receipt.data['response']['state'] != 'unknown'
+            state = receipt.data['response']['state'] if known else 'unknown'
+            scheduler = _axis('available' if known else 'unavailable',
+                'observation-time-not-recorded' if known else 'scheduler-read-unknown',
+                evidence_refs=[receipt.observation_id], state=state,
+                presence='absent' if state == 'absent' else 'present' if known else 'unknown',
+                raw_state=None, raw_state_reason='raw-pbs-state-not-retained')
+        if summary['assessments']:
+            last = summary['assessments'][-1]
+            diagnostic = last['recorded_diagnostic']
+            unknown = diagnostic == 'acquisition-unknown'
+            waiting = diagnostic in {'scheduler-active', 'awaiting-absence'}
+            collection = _axis('unavailable' if unknown else 'available',
+                'collection-acquisition-unknown' if unknown else
+                'observation-time-not-recorded' if waiting else 'collection-evidence-incomplete',
+                evidence_refs=[last['id']], state='unknown' if unknown else 'pending',
+                condition='reconciliation_required' if unknown else
+                'awaiting_scheduler_absence' if waiting else 'evidence_incomplete', result_id=None)
+        if summary['capture'] is not None:
+            result_id = summary['capture']['result_id']
+            record = next(r for r in self._reader.results_for_attempt(snapshot.attempt_id) if r.result_id == result_id)
+            metadata = record.data['captured_files'][0]
+            value = completion._decode_receipt(completion._unbase64(metadata['content_base64'], 64 * 1024 * 1024))
+            term = value['termination']
+            refs = [metadata['stat_observation_id'], metadata['fetch_observation_id'], metadata['restat_observation_id']]
+            program = _axis('available', 'observation-time-not-recorded', evidence_refs=refs,
+                state='completed' if term['kind'] == 'exited' and term['returncode'] == 0 else 'failed',
+                completed_at=value['finished_at'], exit_code=term['returncode'], signal=term['signal'])
+            collection = _axis('available', 'observation-time-not-recorded', evidence_refs=[*refs, result_id],
+                state='collected', condition='none', result_id=result_id)
+        return dict(schema='auto-g16-program-lifecycle/1', attempt_id=snapshot.attempt_id,
+            snapshot_id=snapshot.program_execution_snapshot_id,
+            core_state=self._reader.attempt_state(snapshot.attempt_id).value,
+            job_id=job['job_id'], projection_as_of_observation_id=observations[-1].observation_id if observations else None,
+            program=program, scheduler=scheduler, collection=collection)
+
+
+def _axis(availability, reason, *, evidence_refs=None, **fields):
+    return dict(availability=availability, reason=reason, observed_at=None,
+                evidence_refs=[] if evidence_refs is None else list(evidence_refs), **fields)
+
+
+def _historical_job(receipts):
+    """Content associations only; never manufactures live transport authority."""
+    establishing = [r for r in receipts if runtime._receipt_job_id(r.data) is not None]
+    _check(len(establishing) <= 1)
+    if not establishing:
+        return None
+    job_id = runtime._receipt_job_id(establishing[0].data)
+    established_at = receipts.index(establishing[0])
+    identities = set()
+    for index, receipt in enumerate(receipts):
+        request = receipt.data['request']
+        if 'job_authority_id' in request['binding']:
+            _check(index > established_at, 'historical job read precedes establishment')
+            identities.add(request['binding']['job_authority_id'])
+        if receipt.data['operation'] == 'QUERY_SCHEDULER':
+            _check(request['payload']['job_id'] == job_id, 'historical scheduler job differs')
+    _check(len(identities) <= 1)
+    return dict(job_id=job_id, job_authority_id=next(iter(identities), None))

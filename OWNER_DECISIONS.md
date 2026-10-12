@@ -1565,3 +1565,37 @@ On 2026-10-09 Owner requested persistence/readback development and subsequent na
 On 2026-10-09 Owner explicitly approved both publication of stage 3 and the independently reviewed [stage-4 read-only projection contract](docs/v3/contracts/tasks/native-thermochemistry-readonly-projection.md). The accepted source contract SHA-256 is `468275ff3ae413b745d2a40ee51c3a11f418104ab59b82c2cb4ac6e88a36ad45`; the linked document is its sanitized public version. NATIVE-THERMO-ADAPTATION-04 is a v3 feature, OWNER-GUIDED, non-BUS, L2, based on stage-3 commit `13a98229551df6a9baeaa9b7c830f06c713a2049` (tree `ab7a2b16f2f68386e711bf4f198211827196a3a8`). Its five required checks passed before implementation. Authorization covers separate backend/frontend workspaces, implementation, offline/synthetic validation, independent L2 review, commits, pushes, draft PRs and exact CI. Owner subsequently resumed this work and authorized the bounded frontend CI pin/spec adjustment in that repository.
 
 Only the optional fully bound startup reader and separate saved-result query/closed DTO are added to the backend. Existing list/detail DTOs remain unchanged; reads do not recompute thermochemistry or imply ScientificAcceptance. The backend draft PR is stacked on `codex/native-thermo-readback`, explicitly depending on PR #198; any retarget needs a separate exact identity check. Stage-4 completion stops further work. Merge, real registration, installation, real-material browser acceptance, new computation, cleanup and later packages remain outside this authorization.
+
+## OD-46: Butane lifecycle and restricted study composition
+
+The Owner-approved [butane contract](docs/v3/contracts/tasks/butane-reliability-e2e.md)
+adds a separate historical Execution lifecycle projection with independent
+program, scheduler and collection axes. Known historical evidence is not
+converted to UNKNOWN by time; execution completion is not scientific success.
+Its exact frozen slice and still-open acquisition/scientific appendices are
+explicit in that contract. No production activation is implied.
+
+As a narrow successor to OD-17's package restriction, the approved direct-study
+coordinator may use `auto_g16.study` after its accurate command/journal contract
+is frozen and independently reviewed. It remains a composition role; current
+Approval PLANNED replay and the single `execute_once` effect/claim owner remain
+mandatory. OD-11's offline Workflow contract, at-most-one submission and all
+scientific/live gates remain unchanged. This does not authorize an alternate
+transport, arbitrary handlers, automatically approved inputs or UNKNOWN retry.
+
+The [direct-study historical-reuse contract](docs/v3/contracts/tasks/direct-study-reuse.md)
+freezes the local-only create/review/status/query/audit/recover slice. It creates
+one PLANNED native Core Attempt and retains original historical source identities.
+Its `run` command is disabled; historical reuse does not establish fresh execution
+E2E or scientific acceptance. The Owner's 2026-10-12 continuation authorizes
+same-scope repairs through validation, with no duplicate scientific submission.
+
+The Owner's subsequent instruction to complete all four remaining items is
+recorded in the [continuation authorization](docs/v3/contracts/tasks/butane-reliability-e2e.md#four-part-continuation-authorization-2026-10-12).
+The independently reviewed [fresh /2 intake](docs/v3/contracts/tasks/direct-study-fresh.md)
+creates a new native Project and initial PLANNED Attempt without requiring a
+historical catalogue. This local intake is not the actual-run coordinator.
+It retains zero remote effects and no approval manufacturing; the runtime and
+active-acquisition contracts, qualification and exact scientific/live gates
+remain prerequisites. Authorized engineering integration/deployment proceeds
+only after its distinct review, CI and target evidence requirements.

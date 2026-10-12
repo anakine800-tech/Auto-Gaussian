@@ -313,8 +313,12 @@ class _Directory:
         raise FileExistsError('native thermochemistry destination already exists')
 
     def write(self, raw, digest):
+        return self._write_prefixed(raw, digest, 'native-thermochemistry')
+
+    def _write_prefixed(self, raw, digest, prefix):
+        _require(prefix in {'native-thermochemistry', 'native-populations'}, 'invalid fixed prefix')
         self.check()
-        name = 'native-thermochemistry-' + digest + '.json'
+        name = prefix + '-' + digest + '.json'
         flags = os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | getattr(os, 'O_CLOEXEC', 0)
         fd = os.open(name, flags, 0o600, dir_fd=self.fds[-1])
         try:
@@ -382,18 +386,26 @@ class NativeThermodynamicReadout:
                  'invalid thermodynamic startup registration')
 
     def read(self):
-        with _locked(self.readout), _pinned(self.artifact) as pin:
-            data = _closed(_decode(pin.raw, _CAP), {
-                'schema', 'request', 'qualified_conformer_ensemble', 'thermodynamic_ensemble'}, 'saved pair')
-            _require(data['schema'] == _SCHEMA, 'unsupported pair schema')
-            request = _request_from_json(data['request'])
-            with _replay(self.readout) as (profile, source, facts):
-                qualified = _restore(data['qualified_conformer_ensemble'], ConformerEnsemble, 'conformer-ensemble', profile)
-                thermo = _restore(data['thermodynamic_ensemble'], ThermodynamicEnsemble, 'thermodynamic-ensemble')
-                pair = (qualified, thermo)
-                _validate_pair(pair, request, profile, source, facts)
-                _require(encode_native_thermodynamic_pair(pair) == pin.raw, 'restored pair bytes differ')
-        return pair
+        with _replayed_native_pair(self) as pair:
+            result = pair
+        return result
+
+
+@contextmanager
+def _replayed_native_pair(reader):
+    _require(type(reader) is NativeThermodynamicReadout, 'requires exact thermodynamic readout')
+    with _locked(reader.readout), _pinned(reader.artifact) as pin:
+        data = _closed(_decode(pin.raw, _CAP), {
+            'schema', 'request', 'qualified_conformer_ensemble', 'thermodynamic_ensemble'}, 'saved pair')
+        _require(data['schema'] == _SCHEMA, 'unsupported pair schema')
+        request = _request_from_json(data['request'])
+        with _replay(reader.readout) as (profile, source, facts):
+            qualified = _restore(data['qualified_conformer_ensemble'], ConformerEnsemble, 'conformer-ensemble', profile)
+            thermo = _restore(data['thermodynamic_ensemble'], ThermodynamicEnsemble, 'thermodynamic-ensemble')
+            pair = (qualified, thermo)
+            _validate_pair(pair, request, profile, source, facts)
+            _require(encode_native_thermodynamic_pair(pair) == pin.raw, 'restored pair bytes differ')
+            yield pair
 
 
 def load_native_thermodynamic_readout(content: bytes, digest: str):

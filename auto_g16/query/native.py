@@ -14,6 +14,7 @@ from typing import Callable
 from auto_g16.conformer.readonly import OptReadout, OptReadBusy
 from auto_g16.conformer.frequency_readonly import FreqReadout
 from auto_g16.conformer.thermochemistry_readonly import NativeThermodynamicReadout
+from auto_g16.conformer.populations_readonly import NativePopulationReadout
 from auto_g16.core import RecordNotFoundError, RuntimeStoreError, RuntimeStoreSchemaError
 from auto_g16.transport import TransportBoundaryError
 from auto_g16.execution.readonly import ProgramReadSnapshot, ProgramReadQuery
@@ -182,6 +183,52 @@ def _thermodynamics_result(reader, pair, selected_member):
         population_normalization=normalization, coverage_scope=coverage, scientific_acceptance='unavailable')
 
 
+def _populations_result(reader, artifact, selected_member):
+    p = artifact['payload']
+    ids = tuple(p['source_member_ids'])
+    _thermo_require(len(ids) == 2 and len(set(ids)) == 2 and selected_member in ids)
+    freq = reader.thermodynamic_readout.readout
+    stages = []
+    for sources in (freq.optimization_sources, freq.frequency_sources):
+        mapping = {s.member_id: s.snapshot.attempt_id for s in sources}
+        _thermo_require(len(mapping) == len(sources) and set(mapping) == set(ids))
+        stages.append(mapping)
+    members = []
+    for row in p['members']:
+        mid = _evidence_id(row['member_id'])
+        minimum = row['source_provenance']['minimum_authority']
+        source = dict(optimization_attempt_id=_evidence_id(stages[0][mid]),
+            frequency_attempt_id=_evidence_id(stages[1][mid]),
+            two_stage_minimum_authority_id=_evidence_id(minimum['two_stage_minimum_authority_id']))
+        for stage in ('optimization', 'frequency'):
+            source[stage + '_parsed_result'] = _thermo_source_ref(minimum[stage]['parsed_result'], 'result_id')
+            source[stage + '_result_source'] = _thermo_source_ref(minimum[stage]['result_source'], 'observation_id')
+        schemes = {}
+        for scheme in ('rrho', 'qrrho'):
+            values = _thermo_closed(row[scheme], ('gibbs_free_energy_hartree', 'delta_g_hartree',
+                'delta_g_kcal_per_mol', 'log_relative_weight', 'normalized_population'))
+            schemes[scheme] = {k: _thermo_number(v) for k, v in values.items()}
+        members.append(dict(member_id=mid, is_selected=mid == selected_member,
+            degeneracy=_thermo_integer(row['degeneracy']), degeneracy_rationale=_thermo_text(row['degeneracy_rationale']),
+            symmetry_rationale=_thermo_text(row['symmetry_rationale']),
+            reported_rotational_symmetry_number=_thermo_integer(row['reported_rotational_symmetry_number']),
+            **schemes, source=source))
+    parameters = {k: p[k] for k in ('temperature_k', 'standard_state', 'hartree_to_kcal_per_mol',
+        'thermochemistry_policy_id', 'thermochemistry_policy_payload_sha256', 'functional_kernel_implementation_id',
+        'population_implementation_id', 'degeneracy_excludes_rotational_symmetry')}
+    parameters['gas_constant_binding'] = _thermo_closed(p['gas_constant_binding'], (
+        'gas_constant_j_per_mol_k', 'joule_per_hartree_mol', 'gas_constant_hartree_per_mol_k', 'unit_convention'))
+    normalization = {scheme: _thermo_closed(p['normalization'][scheme],
+        ('population_sum', 'absolute_error', 'numeric_tolerance')) for scheme in ('rrho', 'qrrho')}
+    return dict(artifact_id=_evidence_id(artifact['artifact_id']), payload_sha256=_thermo_digest(artifact['payload_sha256']),
+        artifact_sha256=_thermo_digest(reader.artifact.sha256), source_pair_sha256=_thermo_digest(p['source_pair_sha256']),
+        qualified_ensemble=_thermo_ref(p['conformer_ensemble_id'], p['conformer_ensemble_payload_sha256']),
+        thermodynamic_ensemble=_thermo_ref(p['thermodynamic_ensemble_id'], p['thermodynamic_ensemble_payload_sha256']),
+        reference_member_id=_evidence_id(p['reference_member_id']), parameters=parameters, members=members,
+        normalization=normalization, coverage_scope=_thermo_closed(p['coverage_scope'], ('kind', 'rationale')),
+        scientific_acceptance='unavailable')
+
+
 # These exact reasons belong to the pinned existing owners. No substring or
 # traceback inference; ambiguous or future transport failures remain internal.
 _THERMO_TRANSPORT_EVIDENCE = frozenset({
@@ -333,6 +380,7 @@ class NativeSource:
 
     freq_readout: FreqReadout | None = field(default=None, repr=False)
     thermodynamic_readout: NativeThermodynamicReadout | None = field(default=None, repr=False)
+    population_readout: NativePopulationReadout | None = field(default=None, repr=False)
 
     def __post_init__(self):
         if type(self.snapshots) is not tuple or any(type(s) is not ProgramReadSnapshot for s in self.snapshots):
@@ -364,6 +412,13 @@ class NativeSource:
                     or type(self.freq_readout) is not FreqReadout
                     or not _same_registration(self.thermodynamic_readout.readout, self.freq_readout)):
                 raise QueryError("invalid-thermodynamic-registration")
+
+        if self.population_readout is not None:
+            if (type(self.population_readout) is not NativePopulationReadout
+                    or self.thermodynamic_readout is None
+                    or not _same_registration(self.population_readout.thermodynamic_readout,
+                                              self.thermodynamic_readout)):
+                raise QueryError('invalid-population-registration')
 
 
 class NativeQueryService:
@@ -579,3 +634,57 @@ class NativeQueryService:
         except Exception as error:
             raise QueryError(_thermodynamics_error(error)) from None
         return dict(schema=NATIVE_THERMODYNAMICS_SCHEMA, kind='thermodynamics', data=data)
+
+    def get_populations(self, source_id, attempt_id):
+        """Read saved dual-scheme populations; no computation or remote work."""
+        _identifier(attempt_id)
+        _identifier(source_id)
+        if source_id not in self._sources:
+            raise QueryError('not-found')
+        source = self._sources[source_id]
+        reader = source.population_readout
+        data = dict(availability='unavailable', reason='not-registered', source_id=source_id,
+                    attempt_id=attempt_id, selected_member_id=None, result=None)
+        try:
+            if reader is None:
+                self._read(source_id, lambda store: store.load_attempt(attempt_id))
+            else:
+                if len(source.snapshots) != 1 or source.snapshots[0].attempt_id != attempt_id:
+                    raise QueryError('not-found')
+                selected = reader.thermodynamic_readout.readout.source_for(attempt_id)
+                artifact = reader.read()
+                result = _populations_result(reader, artifact, selected.member_id)
+                data.update(availability='available', reason=None,
+                            selected_member_id=_evidence_id(selected.member_id), result=result)
+        except Exception as error:
+            raise QueryError(_thermodynamics_error(error)) from None
+        return dict(schema='auto-g16-native-populations-query/1', kind='populations', data=data)
+
+    def get_lifecycle(self, source_id, attempt_id):
+        """Detached lifecycle only; never trigger collection or scientific reads."""
+        _identifier(attempt_id)
+        _identifier(source_id)
+        if source_id not in self._sources:
+            raise QueryError('not-found')
+        source = self._sources[source_id]
+
+        def read(store):
+            store.load_attempt(attempt_id)
+            data = dict(source_id=source_id, attempt_id=attempt_id,
+                        availability='unavailable', reason='not-registered', result=None)
+            matches = [s for s in source.snapshots if s.attempt_id == attempt_id]
+            if not matches:
+                return data
+            if len(matches) != 1:
+                raise QueryError('invalid-evidence')
+            if store.attempt_state(attempt_id).value in {'PLANNED', 'SUBMISSION_INTENT_RECORDED', 'UNKNOWN'}:
+                data['reason'] = 'lifecycle-job-not-established'
+                return data
+            try:
+                result = ProgramReadQuery(store).get_lifecycle(matches[0])
+            except (ValueError, TransportBoundaryError, KeyError, StopIteration, TypeError):
+                raise QueryError('invalid-evidence') from None
+            return dict(data, availability='available', reason=None, result=result)
+
+        return dict(schema='auto-g16-native-lifecycle-query/1', kind='lifecycle',
+                    data=self._read(source_id, read))

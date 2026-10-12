@@ -11,6 +11,37 @@ from .xtb_crest_handoff import _close_capture_to_snapshot, _profile_identity
 _SCHEMA = "v31-xtb-crest-seed-handoff/2"
 
 
+def _restore_receipt_seed_handoff(content, digest):
+    """Restore a saved value; consumers must still replay its native proof."""
+    import json
+    keys = {"schema", "xtb_snapshot_id", "xtb_effect_intent_id", "xtb_project_id",
+            "xtb_project_physical_binding_id", "xtb_project_physical_binding",
+            "xtb_terminal_success_authority", "optimized_geometry_sha256",
+            "optimized_geometry_size_bytes", "crest_spec_id", "crest_spec_payload_sha256",
+            "sampling_profile_id", "sampling_profile_payload_sha256"}
+    def pairs(items):
+        result = {}
+        for key, value in items:
+            if key in result:
+                raise ExecutionValueError("duplicate saved handoff key")
+            result[key] = value
+        return result
+    def constant(value):
+        raise ExecutionValueError("nonfinite saved handoff")
+    if type(content) is not bytes or len(content) > 1024 * 1024 or sha256(content).hexdigest() != digest:
+        raise ExecutionValueError("saved handoff digest differs")
+    raw = json.loads(content, object_pairs_hook=pairs, parse_constant=constant)
+    if type(raw) is not dict or set(raw) != keys:
+        raise ExecutionValueError("saved handoff fields differ")
+    value = object.__new__(_ReceiptSeedHandoff)
+    payload = freeze_mapping(raw, "saved receipt seed handoff")
+    object.__setattr__(value, "payload", payload)
+    object.__setattr__(value, "payload_sha256", semantic_sha256(payload))
+    object.__setattr__(value, "handoff_authority_id", semantic_id("xtb-crest-receipt-seed-handoff", payload))
+    value.assert_identity_closed()
+    return value
+
+
 @dataclass(frozen=True, slots=True, init=False)
 class _ReceiptSeedHandoff:
     handoff_authority_id: str

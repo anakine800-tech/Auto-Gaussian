@@ -90,7 +90,8 @@
       "lane": "affected",
       "tests": [
         "tests.v3.core.test_models",
-        "tests.v3.core.test_store"
+        "tests.v3.core.test_store",
+        "tests.v3.study.test_direct.MemoryExportTests"
       ],
       "required_safety": [
         "at-most-one-submission",
@@ -238,7 +239,10 @@
         "docs/v3/native-opt-readout.md",
         "docs/v3/proposals/gaussian-successor-result-refinement.md",
         "docs/v3/proposals/gaussian-successor-destination-addendum.md",
-        "docs/v3/proposals/gaussian-native-banner-parser-addendum.md"
+        "docs/v3/proposals/gaussian-native-banner-parser-addendum.md",
+        "docs/v3/contracts/tasks/butane-reliability-e2e.md",
+        "docs/v3/contracts/tasks/direct-study-reuse.md",
+        "docs/v3/contracts/tasks/direct-study-fresh.md"
       ],
       "prefixes": [
         "docs/v3/publisher-r4/"
@@ -1052,11 +1056,14 @@
       "id": "native-thermodynamics-projection",
       "exact_paths": [
         "auto_g16/query/native.py",
-        "tests/v3/query/test_native_thermodynamics.py"
+        "tests/v3/query/test_native_thermodynamics.py",
+        "tests/v3/query/test_native_populations.py"
       ],
       "prefixes": [],
       "lane": "affected",
       "tests": [
+        "tests.v3.query.test_native_populations",
+        "tests.v3.query.test_native_lifecycle",
         "tests.v3.query.test_native",
         "tests.v3.query.test_native_thermodynamics",
         "tests.v3.query.test_execution_readonly",
@@ -1079,11 +1086,13 @@
         "auto_g16/execution/readonly.py",
         "tests/v3/query/__init__.py",
         "tests/v3/query/test_native.py",
-        "tests/v3/query/test_execution_readonly.py"
+        "tests/v3/query/test_execution_readonly.py",
+        "tests/v3/query/test_native_lifecycle.py"
       ],
       "prefixes": [],
       "lane": "affected",
       "tests": [
+        "tests.v3.query.test_native_lifecycle",
         "tests.v3.query.test_native",
         "tests.v3.query.test_execution_readonly",
         "tests.v3.core.test_store",
@@ -1115,6 +1124,30 @@
         "tests.v31.thermochemistry"
       ],
       "required_safety": [
+        "no-overwrite",
+        "unknown-no-automatic-retry"
+      ],
+      "fail_closed": false
+    },
+    {
+      "id": "direct-study-historical-reuse",
+      "exact_paths": [],
+      "prefixes": [
+        "auto_g16/study/",
+        "tests/v3/study/"
+      ],
+      "lane": "affected",
+      "tests": [
+        "tests.v3.study",
+        "tests.v3.core.test_store",
+        "tests.v31.transport.test_receipt_source",
+        "tests.v31.conformer.test_crest_receipt_handoff",
+        "tests.v31.conformer.test_opt_readout_registration",
+        "tests.v3.query.test_native_populations",
+        "tests.v3.query.test_native_thermodynamics"
+      ],
+      "required_safety": [
+        "at-most-one-submission",
         "no-overwrite",
         "unknown-no-automatic-retry"
       ],

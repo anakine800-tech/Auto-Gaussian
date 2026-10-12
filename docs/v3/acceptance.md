@@ -1,5 +1,11 @@
 # Auto-G16 v3 Acceptance Cases
 
+## Butane reliability candidate
+
+Follow the [bounded lifecycle and study contract](contracts/tasks/butane-reliability-e2e.md).
+Only its explicitly frozen surface is implementation authority; open appendices
+and live/installation gates remain separate.
+
 ## Managed native Direct candidate acceptance
 
 Follow the [bounded offline matrix](contracts/mac-direct-managed-native-v1.md#validation-and-acceptance).

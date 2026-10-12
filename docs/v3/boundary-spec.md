@@ -1,5 +1,11 @@
 # Auto-G16 v3 Boundary Specification
 
+## Butane reliability candidate
+
+Follow the [bounded lifecycle and study contract](contracts/tasks/butane-reliability-e2e.md).
+Only its explicitly frozen surface is implementation authority; open appendices
+and live/installation gates remain separate.
+
 ## Managed native Direct candidate boundary
 
 The private [MAC-DIRECT-MANAGED-NATIVE-V1 contract](contracts/mac-direct-managed-native-v1.md#boundary)

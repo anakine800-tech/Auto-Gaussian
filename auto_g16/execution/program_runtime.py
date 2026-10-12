@@ -1844,6 +1844,92 @@ def _completion_file_effect(store, snapshot, program_transport_store, driver, ba
     return observation, content
 
 
+def _complete_abandoned_read_frame(snapshot, observations, receipts, job_authority):
+    """Recognize one complete old read epoch, never authorize or reuse its bytes.
+
+    Inputs have already passed native receipt/physical/audit validation. Empty
+    audit-only epochs may surround the frame; no evidence may cross an audit.
+    """
+    starts = [i for i, row in enumerate(observations)
+              if row.observation_type == _COLLECTION_START]
+    if len(starts) < 2 or job_authority is None:
+        return False
+    segments = [observations[a + 1:b] for a, b in
+                zip(starts, (*starts[1:], len(observations)))]
+    nonempty = [segment for segment in segments if segment]
+    # The current continuation's start must follow the old closing QUERY.
+    if len(nonempty) != 1 or segments[-1]:
+        return False
+    frame = nonempty[0]
+    verified = {row.observation_id: row for row in receipts}
+    ids = [row.observation_id for row in frame]
+    if len(set(ids)) != len(ids) or any(
+        row.observation_type != _transport._RECEIPT_TYPE
+        or verified.get(row.observation_id) != row for row in frame
+    ):
+        return False
+    try:
+        binding = frame[0].data['request']['binding']
+        if binding['job_authority_id'] != job_authority:
+            return False
+        cursor = 0
+
+        def take(operation):
+            nonlocal cursor
+            row = frame[cursor]
+            cursor += 1
+            data = row.data
+            if (data['operation'] != operation or data['outcome'] != 'SUCCEEDED'
+                    or data['request']['operation'] != operation
+                    or data['request']['binding'] != binding):
+                raise ValueError('read frame operation/binding differs')
+            return row
+
+        opening = take('QUERY_SCHEDULER')
+        job_id = opening.data['request']['payload']['job_id']
+        if opening.data['response'] != {'job_id': job_id, 'state': 'absent'}:
+            return False
+        spec = snapshot.program_execution_spec
+        declarations = (_completion._METADATA_DECLARATION,
+                        *spec.required_outputs, *spec.optional_outputs)
+        initial = []
+        for index, declaration in enumerate(declarations):
+            stat = take('STAT_EXACT_FILE')
+            payload = {key: declaration[key] for key in ('logical_role', 'portable_name', 'format')}
+            if stat.data['request']['payload'] != payload:
+                return False
+            response, size = _transport._stat_response(stat.data['response'],
+                name=declaration['portable_name'], max_size_bytes=declaration['max_size_bytes'])
+            initial.append(stat)
+            if size is None:
+                if index <= len(spec.required_outputs):
+                    return False
+                continue
+            fetch = take('FETCH_EXACT_FILE')
+            if fetch.data['request']['payload'] != {**payload,
+                    'expected_size_bytes': size,
+                    'expected_file_physical_token': response['file_physical_token'],
+                    'stat_receipt_id': stat.observation_id}:
+                return False
+            received = fetch.data['response']
+            _completion.require_sha256(received['sha256'], 'read frame FETCH digest')
+            if received != {'portable_name': declaration['portable_name'],
+                    'sha256': received['sha256'], 'size_bytes': size,
+                    'file_physical_token': response['file_physical_token']}:
+                return False
+        for stat in initial:
+            restat = take('STAT_EXACT_FILE')
+            if (restat.data['request']['payload'] != stat.data['request']['payload']
+                    or restat.data['response'] != stat.data['response']):
+                return False
+        closing = take('QUERY_SCHEDULER')
+        return (cursor == len(frame)
+                and closing.data['request']['payload'] == opening.data['request']['payload']
+                and closing.data['response'] == opening.data['response'])
+    except (KeyError, IndexError, TypeError, ValueError, TransportBoundaryError):
+        return False
+
+
 def _interrupted_present_stat(
     snapshot, observations, receipts, expected_job_authority_id=None
 ):
@@ -1855,6 +1941,8 @@ def _interrupted_present_stat(
         if item.observation_type == _COLLECTION_START
     ]
     if not starts:
+        return None
+    if _complete_abandoned_read_frame(snapshot, observations, receipts, expected_job_authority_id):
         return None
     first_start = min(starts)
     consumed = set()

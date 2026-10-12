@@ -854,7 +854,7 @@ class ValidationSelectorTests(unittest.TestCase):
                 "core store",
                 change("M", "auto_g16/core/store.py"),
                 ["core-store", "v30-transport"],
-                sorted({*TRANSPORT_TESTS, "tests.v3.core.test_models"}),
+                sorted({*TRANSPORT_TESTS, "tests.v3.core.test_models", "tests.v3.study.test_direct.MemoryExportTests"}),
             ),
             (
                 "approval",
@@ -1260,7 +1260,7 @@ class ValidationSelectorTests(unittest.TestCase):
         self.assertEqual(forward["matched_routes"], ["core-store", "v30-workflow"])
         self.assertEqual(
             forward["tests"],
-            sorted({*WORKFLOW_TESTS, "tests.v3.core.test_models"}),
+            sorted({*WORKFLOW_TESTS, "tests.v3.core.test_models", "tests.v3.study.test_direct.MemoryExportTests"}),
         )
         self.assertEqual(
             forward["safety_evidence"],
@@ -1367,7 +1367,7 @@ class ValidationSelectorTests(unittest.TestCase):
         self.assertEqual(forward["matched_routes"], ["core-store", "v30-observe"])
         self.assertEqual(
             forward["tests"],
-            sorted({*OBSERVE_TESTS, "tests.v3.core.test_models"}),
+            sorted({*OBSERVE_TESTS, "tests.v3.core.test_models", "tests.v3.study.test_direct.MemoryExportTests"}),
         )
         self.assertEqual(
             forward["safety_evidence"],
@@ -1386,6 +1386,7 @@ class ValidationSelectorTests(unittest.TestCase):
         observe = change("M", "auto_g16/observe/service.py")
         query_tests = sorted({
             "tests.v3.query.test_native", "tests.v3.query.test_execution_readonly",
+            "tests.v3.query.test_native_lifecycle",
             "tests.v3.core.test_store", "tests.v3.result", "tests.v3.observe",
         })
         self.assertEqual(self.select(query)["tests"], query_tests)
@@ -1502,7 +1503,7 @@ class ValidationSelectorTests(unittest.TestCase):
                 "core store",
                 change("M", "auto_g16/core/store.py"),
                 ["core-store", "v30-review"],
-                sorted({*REVIEW_TESTS, "tests.v3.core.test_models"}),
+                sorted({*REVIEW_TESTS, "tests.v3.core.test_models", "tests.v3.study.test_direct.MemoryExportTests"}),
                 [
                     "at-most-one-submission",
                     "no-overwrite",
@@ -1981,7 +1982,7 @@ class ValidationSelectorTests(unittest.TestCase):
         self.assertEqual(forward["matched_routes"], ["core-store", "v30-approval"])
         self.assertEqual(
             forward["tests"],
-            sorted({*APPROVAL_TESTS, "tests.v3.core.test_models"}),
+            sorted({*APPROVAL_TESTS, "tests.v3.core.test_models", "tests.v3.study.test_direct.MemoryExportTests"}),
         )
         self.assertEqual(
             forward["safety_evidence"],
@@ -2238,7 +2239,7 @@ class ValidationSelectorTests(unittest.TestCase):
         )
         self.assertEqual(
             result["tests"],
-            ["tests.v3.core.test_models", "tests.v3.core.test_store"],
+            ["tests.v3.core.test_models", "tests.v3.core.test_store", "tests.v3.study.test_direct.MemoryExportTests"],
         )
 
     def test_every_declared_safety_evidence_name_resolves(self) -> None:
@@ -2414,7 +2415,7 @@ class ValidationSelectorTests(unittest.TestCase):
         self.assertEqual(decision["lane"], "affected")
         self.assertEqual(
             decision["tests"],
-            ["tests.v3.core.test_models", "tests.v3.core.test_store"],
+            ["tests.v3.core.test_models", "tests.v3.core.test_store", "tests.v3.study.test_direct.MemoryExportTests"],
         )
         self.assertEqual(
             decision["safety_evidence"],

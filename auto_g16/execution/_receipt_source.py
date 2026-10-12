@@ -24,6 +24,27 @@ _FIXED_RECEIPT_SOURCE: _FixedReceiptSource | None = None
 _FIXED_CREST_RECEIPT_SOURCE: _FixedReceiptSource | None = None
 _FIXED_GAUSSIAN_RECEIPT_SOURCE: _FixedReceiptSource | None = None
 _GAUSSIAN_SOURCES = ContextVar("gaussian_historical_sources", default=None)
+_HISTORICAL_SOURCES = ContextVar("xtb_crest_historical_sources", default=None)
+
+
+@contextmanager
+def _historical_receipt_sources(sources):
+    """Bound read-only xTB/CREST originals; never a live installation."""
+    if (type(sources) is not dict or set(sources) != {"xtb", "crest"}
+            or any(type(v) is not _FixedReceiptSource or v.project_association is not None
+                   for v in sources.values())
+            or sources["xtb"].snapshot_id == sources["crest"].snapshot_id
+            or _HISTORICAL_SOURCES.get() is not None):
+        raise TransportBoundaryError("invalid historical xTB/CREST catalogue")
+    from types import MappingProxyType
+    fixed = MappingProxyType(dict(sources))
+    token = _HISTORICAL_SOURCES.set(fixed)
+    try:
+        yield
+        if _HISTORICAL_SOURCES.get() is not fixed:
+            raise TransportBoundaryError("historical xTB/CREST catalogue changed")
+    finally:
+        _HISTORICAL_SOURCES.reset(token)
 
 
 @contextmanager
@@ -72,6 +93,9 @@ def _source_qualification_original(store, snapshot, transport_store, driver):
     from . import _crest_completion, _crest_startup
     kind = snapshot.program_execution_spec.program_kind
     def selected_source():
+        historical = _HISTORICAL_SOURCES.get()
+        if kind in {"xtb", "crest"} and historical is not None:
+            return historical.get(kind)
         catalogue = _GAUSSIAN_SOURCES.get()
         if kind == "gaussian" and catalogue is not None:
             return next((item for item in catalogue

@@ -411,6 +411,7 @@ class SQLiteRuntimeStore:
 
     def _connect(self, database: str | Path, *, readonly: bool = False) -> None:
         self._closed = False
+        self._created_as_memory = type(database) is str and database == ":memory:"
         try:
             if readonly:
                 self._connection = sqlite3.connect(str(database), isolation_level=None, uri=True)
@@ -450,6 +451,18 @@ class SQLiteRuntimeStore:
         if self._closed:
             raise RuntimeStoreError("runtime store is closed")
         return self._connection
+
+    def export_memory_snapshot(self) -> bytes:
+        """Export an idle native memory store, without opening a disk writer."""
+        connection = self._db()
+        databases = tuple(tuple(row) for row in connection.execute("PRAGMA database_list"))
+        if (not self._created_as_memory or connection.in_transaction
+                or databases != ((0, "main", ""),)):
+            raise RuntimeStoreError("snapshot export requires the original isolated memory store")
+        self._validate_schema_identity()
+        if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
+            raise RuntimeStoreSchemaError("snapshot export has broken foreign keys")
+        return connection.serialize()
 
     @contextmanager
     def _transaction(self) -> Iterator[sqlite3.Connection]:
