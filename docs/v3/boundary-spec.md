@@ -474,3 +474,7 @@ complete contract text; this list contains no replacement policy.
 <a id="v31-project-profile-association"></a>
 
 - [Bounded Project Q7-to-Q8 profile association](contracts/tasks/project-profile-association.md): Owner-accepted offline implementation boundary. Original recoverable creation journal remains read-only; a separate registered proof binds the effective Project identity. Installation, native OBSERVE qualification and scientific execution remain separate. Acceptance requires full loader/receipt and two-stage source replay in addition to focused owner checks.
+
+<a id="v31-presubmit-unknown-recovery-boundary"></a>
+
+- [V31 pre-submit UNKNOWN recovery](presubmit-unknown-recovery.md#exact-recovery-boundary): Execution owns complete Core/Transport prefix proof under the native completion guard. Only a successful allocation followed by an ordered staging prefix ending UNKNOWN can reconcile NOT_SUBMITTED. No remote probe, overwrite, implicit child, automatic retry or reopening a consumed Attempt is admitted.

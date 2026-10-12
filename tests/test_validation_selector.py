@@ -1005,6 +1005,26 @@ class ValidationSelectorTests(unittest.TestCase):
             self.assertIn(identifier, identifiers)
         self.assertFalse(any(".SchedulerTextParserTests." in name for name in identifiers))
 
+    def test_presubmit_recovery_owns_native_and_controller_without_weakening_routes(self) -> None:
+        paths = ("auto_g16/execution/_presubmit_recovery.py",
+                 "scripts/reconcile_v31_presubmit_unknown.py")
+        for path in paths:
+            result = self.select(change("A", path))
+            self.assertEqual(result["matched_routes"], ["v31-presubmit-recovery"])
+            self.assertEqual(result["tests"], sorted({*EXEC_TESTS, "tests.v31.transport"}))
+            self.assertEqual(result["safety_evidence"], EXEC_SAFETY)
+            self.assertEqual(result["lane"], "affected")
+            self.assertFalse(result["fail_closed"])
+        for path in ("tests/v31/transport/test_presubmit_recovery.py",
+                     "tests/v31/transport/test_presubmit_process.py"):
+            self.assertIn("tests.v31.transport", self.select(change("A", path))["tests"])
+        for path in self.manifest["self_protecting_paths"]:
+            result = self.select(change("A", paths[0]), change("M", path))
+            self.assertEqual(result["lane"], "legacy-release")
+            self.assertTrue(result["fail_closed"])
+        with self.assertRaisesRegex(SELECTOR.SelectionError, "UNMAPPED_MODERN_PATH"):
+            self.select(change("A", "auto_g16/execution/_presubmit_future.py"))
+
     def test_v31_execution_routing_preserves_unrelated_path_selection(self) -> None:
         for name in (
             "__init__.py", "_crest_seed_handoff.py", "_identity.py", "_paths.py",
