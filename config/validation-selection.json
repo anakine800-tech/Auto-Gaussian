@@ -242,7 +242,8 @@
         "docs/v3/proposals/gaussian-native-banner-parser-addendum.md",
         "docs/v3/contracts/tasks/butane-reliability-e2e.md",
         "docs/v3/contracts/tasks/direct-study-reuse.md",
-        "docs/v3/contracts/tasks/direct-study-fresh.md"
+        "docs/v3/contracts/tasks/direct-study-fresh.md",
+        "docs/v3/contracts/tasks/direct-study-thermo-oracle.md"
       ],
       "prefixes": [
         "docs/v3/publisher-r4/"

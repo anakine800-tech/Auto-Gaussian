@@ -1599,3 +1599,10 @@ It retains zero remote effects and no approval manufacturing; the runtime and
 active-acquisition contracts, qualification and exact scientific/live gates
 remain prerequisites. Authorized engineering integration/deployment proceeds
 only after its distinct review, CI and target evidence requirements.
+
+Within that same continuation, the independently reviewed
+[butane thermochemistry oracle](docs/v3/contracts/tasks/direct-study-thermo-oracle.md)
+versions the retained independent raw-log partition calculation as a pure
+standard-library acceptance aid. It does not replace the primary native
+thermochemistry owner, issue ScientificAcceptance, save results, or perform
+remote effects. Pair/population comparison remains a separate exact contract.

@@ -510,3 +510,10 @@ status = "offline-candidate-execution-not-activated"
 required_sections = ["docs/v3/contracts/tasks/butane-reliability-e2e.md#four-part-continuation-authorization-2026-10-12", "docs/v3/contracts/tasks/direct-study-fresh.md"]
 code_paths = ["auto_g16/study/_fresh_model.py", "auto_g16/study/_fresh_service.py", "auto_g16/study/service.py"]
 focused_tests = ["tests/v3/study/test_fresh.py", "tests/v3/study/test_direct.py", "tests/v3/core/test_store.py"]
+
+[[component]]
+id = "direct-study-independent-thermo-oracle"
+status = "offline-candidate-not-scientific-acceptance"
+required_sections = ["OWNER_DECISIONS.md#od-46-butane-lifecycle-and-restricted-study-composition", "docs/v3/contracts/tasks/direct-study-thermo-oracle.md"]
+code_paths = ["auto_g16/study/_thermo_oracle.py"]
+focused_tests = ["tests/v3/study/test_thermo_oracle.py"]
