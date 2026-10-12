@@ -9,6 +9,7 @@ from pathlib import Path
 _TEST_PATTERN = "test*.py"
 _OWNED_MODULES = (
     "test_contract_inventory",
+    "test_existing_mutable",
     "test_models",
     "test_store",
 )

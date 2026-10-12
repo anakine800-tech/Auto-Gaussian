@@ -737,6 +737,84 @@ def _assert_operational_record_closed(record: ExactOperationalConfirmation) -> N
     _assert_rebuilt_record(record, rebuilt, "operational_confirmation_id")
 
 
+class _ExistingMutableGuard:
+    """Held descriptors; never reopen/close the database during SQLite locking."""
+
+    def __init__(self, database, approved_root, expected_file_identity):
+        try:
+            self.path, self.root = os.fspath(database), os.fspath(approved_root)
+        except TypeError as error:
+            raise ApprovalPersistenceIntegrityError('invalid existing approval paths') from error
+        self.fds = []
+        self.pid = os.getpid()
+        self.poisoned = False
+        for path in (self.path, self.root):
+            if (type(path) is not str or not os.path.isabs(path) or path != os.path.abspath(path)
+                    or '//' in path or path.endswith('/') or '\x00' in path):
+                raise ApprovalPersistenceIntegrityError('existing store paths must be canonical')
+        if (self.path == self.root or os.path.commonpath((self.path, self.root)) != self.root
+                or type(expected_file_identity) is not tuple or len(expected_file_identity) != 2
+                or any(type(v) is not int for v in expected_file_identity)
+                or expected_file_identity[0] < 0 or expected_file_identity[1] < 1):
+            raise ApprovalPersistenceIntegrityError('invalid existing store containment or identity')
+        self.parts = Path(self.path).parts
+        try:
+            flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC
+            for part in self.parts[:-1]:
+                self.fds.append(os.open(part, flags | os.O_DIRECTORY,
+                    dir_fd=self.fds[-1] if self.fds else None))
+            self.fds.append(os.open(self.parts[-1], flags | os.O_NONBLOCK, dir_fd=self.fds[-1]))
+            self.identities = tuple((os.fstat(fd).st_dev, os.fstat(fd).st_ino) for fd in self.fds)
+            if self.identities[-1] != expected_file_identity:
+                raise ApprovalPersistenceIntegrityError('existing store identity differs')
+            self.check(idle=True)
+            header = os.pread(self.fds[-1], 100, 0)
+            if (len(header) != 100 or header[:16] != b'SQLite format 3\x00'
+                    or header[18:20] != b'\x01\x01'
+                    or int.from_bytes(header[60:64], 'big') != _USER_VERSION
+                    or int.from_bytes(header[68:72], 'big') != _APPLICATION_ID):
+                raise ApprovalStoreSchemaError('existing native rollback schema required')
+        except BaseException as error:
+            self.close()
+            if isinstance(error, OSError) and not isinstance(error, FileNotFoundError):
+                raise ApprovalPersistenceIntegrityError("existing approval path is unsafe") from error
+            raise
+
+    def check(self, *, idle=False):
+        if self.poisoned:
+            raise ApprovalPersistenceIntegrityError('existing store guard is permanently invalid')
+        try:
+            self._check(idle=idle)
+        except BaseException:
+            self.poisoned = True
+            raise
+
+    def _check(self, *, idle=False):
+        if os.getpid() != self.pid or len(self.fds) != len(self.parts):
+            raise ApprovalPersistenceIntegrityError('existing store guard is closed or belongs to another process')
+        for i, (part, fd, identity) in enumerate(zip(self.parts, self.fds, self.identities)):
+            opened = os.fstat(fd)
+            named = os.stat(part, dir_fd=self.fds[i - 1] if i else None, follow_symlinks=False)
+            final = i == len(self.fds) - 1
+            valid_type = (stat.S_ISREG(named.st_mode) and stat.S_ISREG(opened.st_mode)
+                          and named.st_nlink == opened.st_nlink == 1) if final else (
+                          stat.S_ISDIR(named.st_mode) and stat.S_ISDIR(opened.st_mode))
+            if ((opened.st_dev, opened.st_ino) != identity or (named.st_dev, named.st_ino) != identity
+                    or not valid_type):
+                raise ApprovalPersistenceIntegrityError('existing store path identity changed')
+        if idle:
+            for suffix in ('-journal', '-wal', '-shm'):
+                try:
+                    os.stat(self.parts[-1] + suffix, dir_fd=self.fds[-2], follow_symlinks=False)
+                except FileNotFoundError:
+                    continue
+                raise ApprovalPersistenceIntegrityError('existing store has a SQLite sidecar')
+
+    def close(self):
+        while self.fds:
+            os.close(self.fds.pop())
+
+
 class SQLiteApprovalStore:
     """Approval-owned exact SQLite v1 store with no effect authority."""
 
@@ -785,6 +863,70 @@ class SQLiteApprovalStore:
                 connection.close()
             self._closed = True
             raise
+
+    @classmethod
+    @contextmanager
+    def open_existing_mutable(cls, database, *, approved_root, expected_file_identity):
+        """Open a pinned existing Approval store without creation or recovery.
+
+        The caller owns the Study writer lock; this entry grants no approval.
+        Held database descriptors outlive SQLite connections and their locks.
+        """
+        guard = _ExistingMutableGuard(database, approved_root, expected_file_identity)
+        reader = writer = None
+        def open_checked(mode):
+            store = object.__new__(cls)
+            store._closed = True
+            store._database_path = Path(guard.path)
+            store._file_identity = expected_file_identity
+            store._existing_mutable_guard = guard
+            try:
+                store._connection = sqlite3.connect(
+                    store._database_path.as_uri() + f'?mode={mode}&cache=private',
+                    uri=True, isolation_level=None)
+                store._closed = False
+                guard.check(idle=True)
+                store._connection.execute('PRAGMA query_only=ON')
+                store._configure_connection()
+                store._validate_open_database()
+                guard.check(idle=True)
+                return store
+            except sqlite3.Error as error:
+                store.close()
+                raise ApprovalPersistenceIntegrityError('existing approval could not be opened') from error
+            except BaseException:
+                store.close()
+                raise
+        try:
+            reader = open_checked('ro')
+            reader.close()
+            reader = None
+            guard.check(idle=True)
+            writer = open_checked('rw')
+            writer._connection.execute('PRAGMA query_only=OFF')
+            try:
+                yield writer
+            except BaseException as error:
+                try:
+                    if not writer._closed and writer._connection.in_transaction:
+                        writer._connection.execute('ROLLBACK')
+                    writer._validate_open_database()
+                    guard.check(idle=True)
+                except BaseException as recheck:
+                    error.add_note(f'existing approval exit recheck failed: {type(recheck).__name__}')
+                raise
+            else:
+                if writer._closed or writer._connection.in_transaction:
+                    raise ApprovalPersistenceIntegrityError('existing approval exited closed or in transaction')
+                writer._validate_open_database()
+                guard.check(idle=True)
+        finally:
+            try:
+                for store in (writer, reader):
+                    if store is not None:
+                        store.close()
+            finally:
+                guard.close()
 
     @staticmethod
     def _canonical_database_path(database: str | Path) -> Path:
@@ -856,6 +998,10 @@ class SQLiteApprovalStore:
             ) from exc
 
     def _assert_file_identity(self) -> None:
+        guard = getattr(self, '_existing_mutable_guard', None)
+        if guard is not None:
+            guard.check(idle=not self._connection.in_transaction)
+            return
         if self._database_path is None:
             return
         observed = self._existing_file_identity(self._database_path)
@@ -879,6 +1025,8 @@ class SQLiteApprovalStore:
     def _db(self) -> sqlite3.Connection:
         if self._closed:
             raise ApprovalStoreError("approval store is closed")
+        if getattr(self, '_existing_mutable_guard', None) is not None:
+            self._assert_file_identity()
         return self._connection
 
     def _rollback_after_failure(self, connection: sqlite3.Connection) -> None:
@@ -897,6 +1045,30 @@ class SQLiteApprovalStore:
         self, *, immediate: bool
     ) -> Iterator[sqlite3.Connection]:
         connection = self._db()
+        guard = getattr(self, '_existing_mutable_guard', None)
+        if guard is not None:
+            try:
+                guard.check(idle=True)
+                connection.execute("BEGIN IMMEDIATE" if immediate else "BEGIN")
+                yield connection
+                guard.check()
+                connection.execute("COMMIT")
+                guard.check(idle=True)
+            except BaseException as error:
+                try:
+                    if connection.in_transaction:
+                        connection.execute("ROLLBACK")
+                except BaseException as cleanup_error:
+                    guard.poisoned = True
+                    error.add_note(f'approval rollback failed: {type(cleanup_error).__name__}')
+                    try:
+                        self.close()
+                    except BaseException as close_error:
+                        error.add_note(f'approval close failed: {type(close_error).__name__}')
+                if isinstance(error, sqlite3.Error):
+                    raise ApprovalPersistenceIntegrityError('guarded approval transaction failed') from error
+                raise
+            return
         statement = "BEGIN IMMEDIATE" if immediate else "BEGIN"
         try:
             connection.execute(statement)

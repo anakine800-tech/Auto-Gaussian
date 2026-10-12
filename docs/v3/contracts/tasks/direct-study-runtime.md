@@ -1,7 +1,8 @@
 # Auto-G16 xTB runtime and stage-session composition
 
 Status: section 1 independently reviewed and frozen for local Core implementation
-on 2026-10-12; sections 2 onward remain DRAFT. No live activation authority.
+on 2026-10-12; section 1A is independently reviewed and frozen for local Approval implementation;
+sections 2 onward remain DRAFT. No live activation authority.
 Within BUTANE-RELIABILITY-UNIFIED-E2E-01 and its four-part continuation. This
 subcontract closes the smallest xTB vertical path, not the six-stage Study.
 Only this new document is edited by its author. Owner/boundary authority and
@@ -107,6 +108,56 @@ no create on missing; rejected-byte hash preservation; disk export refusal.
 Preserve existing Core read_snapshot and constructor behavior/tests. This narrow
 Core implementation may be independently reviewed before the remaining draft
 is frozen; it does not activate run or authorize use against historical stores.
+
+## 1A. Approval existing-only mutable open
+
+This narrow Approval owner boundary continues the authorized same-scope work;
+independent review confirmed it is required, not an optional wrapper. It does
+not freeze §§2–8 or activate a runtime. Add only
+`SQLiteApprovalStore.open_existing_mutable(database, *, approved_root, expected_file_identity)`
+as a context manager yielding that native store under the caller's existing
+Study writer lock. No new approval model, lock protocol or Core/Transport effect.
+
+Never call the creating constructor, reserve, initialization, migration or
+repair. Require strict absolute canonical paths, containment, every ancestor
+opened no-follow, regular target with nlink=1 and exact non-bool device/inode
+pair, matching §1. Hold the complete descriptor chain until all SQLite
+connections close. Reject inherited/forked or permanently poisoned handles.
+Before SQLite opens, use the held target descriptor to check the SQLite header,
+rollback journal format, Approval application_id and user_version. Reject all
+journal/WAL/SHM sidecars including empty files. Recheck retained descriptors and
+names, without reopening/closing the live SQLite inode for attestation.
+
+First open mode=ro&cache=private, query_only=ON, and apply Approval's connection
+policy and `_validate_open_database`: exact schema, integrity_check and complete
+row decoding/canonical evidence identity remain mandatory. Close the validation
+connection and recheck identities/sidecar absence before opening mode=rw with
+query_only=ON. Repeat the same owner validation, then disable query_only and
+yield. Empty but valid initialized Approval databases are accepted; missing or
+zero-byte databases are not. Mode=rw alone is not a no-recovery guarantee.
+
+The optional guard is checked on `_db`, at BEGIN, before COMMIT and after COMMIT.
+No sidecars at idle/close; SQLite's own rollback journal within an active native
+transaction is permitted. Any identity/sidecar/fork check failure permanently
+poisons that handle even if names are restored. On interruption/exception,
+rollback any uncommitted transaction, preserve the original exception, report
+exit validation failures as sanitized exception notes, close SQLite and then
+release descriptors. A successful committed approval remains a fact if later
+exit validation fails. Existing constructor/read/write semantics are unchanged
+outside this guarded entry. Public callers use only existing owner methods,
+not the raw SQL connection. The three evidence domains, current snapshot checks,
+idempotence and conflict rejection remain exactly the native contract.
+
+Use existing Approval errors; missing file may remain FileNotFoundError.
+Rejected files and sidecars stay unchanged. No approval or default APPROVED is
+created by opening. Test all three evidence domains across a real process
+restart and repeated writes, missing/empty/foreign/header/schema/record failures,
+real hot journal retention, aliases/hardlinks/ancestor or target replacement,
+permanent poisoning after restoration, precommit rollback, committed-fact
+retention after interruption, startup query-only ordering and held-FD lifetime.
+Tripwire the creating constructor, reservation and initialization; retain all
+existing Approval tests. This local API success is not installation, native
+execution qualification, xTB vertical completion or scientific acceptance.
 
 ## 2. Fixed installation and owner-loaded session entry
 
@@ -241,10 +292,8 @@ recovery here means observing/stopping with intact evidence, not guaranteeing
 successful continuation after every possible filesystem interruption.
 
 Opening initialized runtime never calls a creating constructor for Core.
-Approval uses its existing-file validation branch only after its file identity
-is pinned and absence has already been excluded; a narrow existing-only owner
-wrapper is required if absence could fall through to its constructor creation
-branch. Transport uses open_existing and original v2 guard. Project uses
+Approval requires the independently frozen §1A existing-only owner entry;
+a caller precheck cannot prevent the creating constructor race. Transport uses open_existing and original v2 guard. Project uses
 open_existing / open_existing_readonly as required. Do not turn a readonly
 source connection into a write handle or hold Core read_snapshot's transaction
 while invoking receipt-source owners requiring an idle connection.
@@ -387,8 +436,8 @@ before the product can run xTB; do not call an always-disabled scaffold closure:
   no new general approval hierarchy.
 - Native per-snapshot Publisher basis publication and collection-continuation
   installation/read selectors, bound to the same fixed archive/registry.
-- Existing-only Approval open guard (if needed to prevent constructor fallback),
-  and local completion repair with an enforced no-wire capability.
+- Required §1A existing-only Approval owner entry, and local completion repair
+  with an enforced no-wire capability.
 
 These must be specified against their actual native owner code by the main
 contract reviewer. They are not authority to guess missing fields. No new
