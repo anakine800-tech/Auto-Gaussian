@@ -485,8 +485,9 @@ private keys, machine paths, private data, Gaussian runtime artifacts, and
 checkpoints before committing.
 
 [`config/required-checks.json`](../config/required-checks.json) freezes the
-expected required contexts observed from a successful main run and maps them
-to the local workflow/job/matrix declarations. Run:
+declared required contexts and maps them to local workflow/job/matrix
+declarations. Its dated historical run and protection evidence are recorded
+separately; newly declared contexts still require their own remote evidence. Run:
 
 ```bash
 ./scripts/python core scripts/audit_ci_contract.py
@@ -502,10 +503,14 @@ YAML, which fails closed. The script cannot prove current GitHub branch
 protection, permissions, required contexts, or actual CI success.
 
 Before merge, independently verify current GitHub settings and successful
-checks. The expected stable contexts are `python-compatibility (3.11)`,
+checks. The joint candidate requires `python-compatibility (3.11)`,
 `python-compatibility (3.12)`, `python-compatibility (3.13)`,
-`source-archive-release`, and `chemistry-dependencies`. The contract's
-2026-07-21 remote snapshot is historical evidence only. CI permission failure
+`source-archive-release`, `chemistry-dependencies`, `frontend-python`, and
+`frontend-web`. The first five retain their existing definitions and strength.
+The historical source run and 2026-07-21 remote snapshot cover only those five;
+they do not prove the added frontend checks. Exact seven-check candidate success
+and current protection are separate PR evidence, not a self-referential update
+to the candidate's historical run ID. CI permission failure
 is a blocker/limitation to report, never a reason to claim green status.
 
 Change-aware routing may vary the evidence executed inside these jobs, but it

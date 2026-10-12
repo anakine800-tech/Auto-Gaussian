@@ -160,7 +160,19 @@ class ReleaseHygieneTests(unittest.TestCase):
             r"(?m)^\s*- uses: (actions/(?:checkout|setup-python))@([^\s]+)$",
             workflow,
         )
-        self.assertEqual(len(action_uses), 6)
+        job_blocks = re.split(r"(?m)^  ([A-Za-z0-9_-]+):\s*$", workflow.split("\njobs:\n", 1)[1])[1:]
+        expected_jobs = {"python-compatibility", "source-archive-release",
+                         "chemistry-dependencies", "frontend-python", "frontend-web"}
+        observed_jobs = set()
+        for job, block in zip(job_blocks[::2], job_blocks[1::2]):
+            observed_jobs.add(job)
+            actions = re.findall(r"(?m)^\s*- uses: (actions/[^@\s]+)@[^\s]+$", block)
+            expected = ["actions/checkout", "actions/setup-python"]
+            if job == "frontend-web":
+                expected.append("actions/setup-node")
+            self.assertEqual(actions, expected, job)
+        self.assertEqual(observed_jobs, expected_jobs)
+        self.assertEqual(len(action_uses), 10)
         audited_revisions = {
             "actions/checkout": "08c6903cd8c0fde910a37f88322edcfb5dd907a8",
             "actions/setup-python": "e797f83bcb11b83ae66e0230d6156d7c80228e7c",
@@ -173,6 +185,35 @@ class ReleaseHygieneTests(unittest.TestCase):
         self.assertEqual(workflow.count("git archive HEAD"), 1)
         self.assertEqual(workflow.count("python scripts/audit_python_contract.py"), 2)
         self.assertIn("scripts/static_quality.py", workflow)
+
+    def test_joint_frontend_ci_uses_same_checkout_and_installed_browser_package(self) -> None:
+        workflow = (ROOT / ".github/workflows/offline-tests.yml").read_text()
+        blocks = re.split(r"(?m)^  ([A-Za-z0-9_-]+):\s*$", workflow.split("\njobs:\n", 1)[1])[1:]
+        jobs = dict(zip(blocks[::2], blocks[1::2]))
+        for name in ("frontend-python", "frontend-web"):
+            block = jobs[name]
+            self.assertEqual(block.count("- uses: actions/checkout@"), 1)
+            self.assertNotIn("repository:", block)
+            self.assertNotIn(".ci/backend", block)
+            self.assertIn("github.event.pull_request.head.sha || github.sha", block)
+            self.assertIn("AUTOG_TEST_BACKEND_CHECKOUT: ${{ github.workspace }}", block)
+            self.assertIn("working-directory: frontend\n", block)
+            self.assertIn("python-version: '3.13.13'", block)
+            self.assertIn("python -m pip install --no-deps --no-build-isolation ..", block)
+            self.assertIn("python -m pip install -r requirements.lock.txt", block)
+        self.assertIn("python -B -m unittest discover -s tests -t . -q", jobs["frontend-python"])
+        web = jobs["frontend-web"]
+        self.assertIn("actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020", web)
+        self.assertIn("node-version: '24.19.0'", web)
+        self.assertIn("npm install --global pnpm@11.19.0", web)
+        self.assertIn("pnpm --dir web install --frozen-lockfile", web)
+        self.assertIn("node node_modules/typescript/bin/tsc --noEmit", web)
+        self.assertIn("node node_modules/vite/bin/vite.js build", web)
+        self.assertIn("node --test unit/request-deadline.test.mjs", web)
+        self.assertIn('python scripts/build_frontend_wheel.py --output-dir "$RUNNER_TEMP/frontend-wheel"', web)
+        self.assertIn('export AUTOG_TEST_PYTHON="$(command -v python)"', web)
+        self.assertIn("native-frequency.spec.ts native-navigation.spec.ts pre-v31.spec.ts navigation.spec.ts native-thermodynamics.spec.ts native-reliability.spec.ts", web)
+        self.assertFalse((ROOT / "frontend/.github/workflows/frontend-offline.yml").exists())
 
     def test_chemistry_ci_resolution_is_constrained(self) -> None:
         workflow = (

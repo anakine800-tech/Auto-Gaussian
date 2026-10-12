@@ -406,3 +406,87 @@ commands `review`, `status`, `query`, `audit`, `recover` take `--directory` only
 missing local journal suffix. Partial files stay unresolved and are retained.
 The `run` command rejects before opening any study. Fresh execution E2E remains
 unavailable under this no-new-calculation scope.
+
+## Joint repository integration
+
+The Owner selected the existing backend GitHub repository for the frontend.
+This is the same four-part continuation, not a second root repository push.
+The exact reviewed frontend history is imported non-squashed under `frontend/`;
+the import retains both parent ancestries and exact frontend subtree bytes.
+Path, packaging and CI adaptation follows as a separate commit. Final GitHub
+integration uses a merge commit preserving that ancestry, not squash/rebase.
+
+The existing Offline tests workflow retains its original three jobs/five
+contexts byte-for-byte and appends `frontend-python` and `frontend-web`.
+Both use one joint checkout, the existing pinned dependency/action versions,
+and frontend-specific working directories. Python tests use the explicit
+test-only backend fixture path. Browser tests exercise the installed frontend
+wheel with bundled Vite assets and the backend built from the same checkout.
+Keep the complete former synthetic browser list, including reliability, all
+Python tests, TypeScript/build and five deadline checks. The nested standalone
+workflow is removed. Existing main-push/PR triggers remain; a pre-PR codex branch
+push no longer triggers frontend CI. No path filter or weaker validation route
+is introduced. Full-route evidence follows the pre-change handbook/selector;
+new frontend paths are not a low-risk documentation exception.
+
+The required-check contract appends precisely these two contexts. Its historical
+successful run covers only the original five; preserve its ID/date and describe
+this limit explicitly. Preserve the real five-context historical protection
+snapshot as `known_mismatch` relative to seven, not as current aligned evidence.
+New candidate run/job results and current protection readback live in the PR
+and external acceptance packet, avoiding a commit that claims its own future
+CI success. Static auditing proves neither actual CI nor remote settings.
+
+Integrate dependency PR 201 under its current five-check contract first. After
+all seven checks pass for the final joint candidate and independent review
+closes blockers, read current remote protection and append only the two new
+contexts. This exact strengthening is within the authorized CI/merge scope;
+preserve every other observed protection setting and any additional context.
+Read back and independently compare before merge. Drift requiring a different
+change is outside that precise delta. No force push, deletion or protection
+weakening is authorized. Source integration, reviewed deployment and a fresh
+scientific run remain distinct acceptance stages.
+
+## Transient pipe adaptation under the existing source contract
+
+Owner explicitly authorized adapting historical b43690b and caa1533 into this
+same E2E task, not merging their branch. Preserve the current Q8/Freq7 and
+association code. Transplant only bounded communication/retirement methods and
+focused tests; historical installation windows and empty-journal continuation
+permissions are not imported. Same-scope repairs continue to passing validation.
+
+EAGAIN/EINTR resumes pipe I/O on the same child, with the same byte offset and
+absolute deadline. No new Popen, full-request replay or submission retry.
+Retirement requests termination at most once, observes already-reaped children,
+and allows at most one additional one-second wait. Ambiguous cleanup stays
+explicit; no automatic child restart. Preserve existing /1 failure returncode
+semantics; actual known child returncode is diagnostic only.
+
+`_ProjectWireCapture.evidence` retains exactly `project-wire-diagnostic/1`.
+For identical wire arguments, all fields, values and canonical bytes are
+identical with or without optional process diagnostics. Its separate private
+`process_evidence` is null or an immutable `project-process-diagnostic/1` object
+with exactly schema, capture_sha256 and process. The hash binds canonical /1
+bytes. Process has exactly the 19 historical driver scalar fields, explicit
+phase/exception/status enums, strict bool/int/null types, and
+0 <= input_written <= input_size <= stdin_cap. No arbitrary nested data,
+exception message or command is accepted. Invalid optional diagnostics simply
+omit the companion; they never change /1, success/UNKNOWN classification or
+original exceptions. KeyboardInterrupt/SystemExit are not swallowed.
+
+The Unknown exception retains transport_evidence and adds only the companion
+attribute. Association publication/readback continues to consume /1 only; no
+reader weakening or extra persistent store is introduced. A companion grants
+no receipt, source, acceptance or effect authority. This slice exposes detached
+diagnostics for retention by the owning caller; it does not claim native
+persistence of every interrupted diagnostic. Tests retain both byte objects;
+interruptions before a return may have no companion.
+
+Independent contract review accepted this boundary. Validate real local pipes
+at 513-byte and larger boundaries, read/write EAGAIN/EINTR, backpressure,
+incomplete input, retirement timeout/interruption and already-reaped children;
+prove /1 byte equality, closed sanitized immutable companion and digest binding.
+Exercise native association capture/publication and fresh-process replay, with
+wrong-version/extra-field/modified-response rejection even when a companion is
+present. Preserve current Opt/Freq recovery invariants and one submission per
+Attempt; synthetic tests do not qualify live SSH or repeat a calculation.

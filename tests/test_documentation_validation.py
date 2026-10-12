@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 import tempfile
@@ -187,7 +188,10 @@ class DocumentationValidationTests(unittest.TestCase):
         self.assertEqual(selected["lane"], "affected")
         self.assertIn("tests.test_documentation_validation", selected["tests"])
         workflow = (ROOT / ".github/workflows/offline-tests.yml").read_text()
-        chemistry = workflow.split("  chemistry-dependencies:\n", 1)[1]
+        chemistry = re.split(
+            r"(?m)^  [A-Za-z0-9_-]+:\s*$",
+            workflow.split("  chemistry-dependencies:\n", 1)[1], maxsplit=1,
+        )[0]
         self.assertIn("if: needs.source-archive-release.result == 'success'", chemistry)
         steps = chemistry.split("      - name: ")[1:]
         by_name = {step.splitlines()[0]: step for step in steps}

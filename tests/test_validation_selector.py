@@ -854,7 +854,7 @@ class ValidationSelectorTests(unittest.TestCase):
                 "core store",
                 change("M", "auto_g16/core/store.py"),
                 ["core-store", "v30-transport"],
-                sorted({*TRANSPORT_TESTS, "tests.v3.core.test_models", "tests.v3.study.test_direct.MemoryExportTests"}),
+                sorted({*TRANSPORT_TESTS, "tests.v3.core.test_existing_mutable", "tests.v3.core.test_models", "tests.v3.study.test_direct.MemoryExportTests"}),
             ),
             (
                 "approval",
@@ -1260,7 +1260,7 @@ class ValidationSelectorTests(unittest.TestCase):
         self.assertEqual(forward["matched_routes"], ["core-store", "v30-workflow"])
         self.assertEqual(
             forward["tests"],
-            sorted({*WORKFLOW_TESTS, "tests.v3.core.test_models", "tests.v3.study.test_direct.MemoryExportTests"}),
+            sorted({*WORKFLOW_TESTS, "tests.v3.core.test_existing_mutable", "tests.v3.core.test_models", "tests.v3.study.test_direct.MemoryExportTests"}),
         )
         self.assertEqual(
             forward["safety_evidence"],
@@ -1367,7 +1367,7 @@ class ValidationSelectorTests(unittest.TestCase):
         self.assertEqual(forward["matched_routes"], ["core-store", "v30-observe"])
         self.assertEqual(
             forward["tests"],
-            sorted({*OBSERVE_TESTS, "tests.v3.core.test_models", "tests.v3.study.test_direct.MemoryExportTests"}),
+            sorted({*OBSERVE_TESTS, "tests.v3.core.test_existing_mutable", "tests.v3.core.test_models", "tests.v3.study.test_direct.MemoryExportTests"}),
         )
         self.assertEqual(
             forward["safety_evidence"],
@@ -1503,7 +1503,7 @@ class ValidationSelectorTests(unittest.TestCase):
                 "core store",
                 change("M", "auto_g16/core/store.py"),
                 ["core-store", "v30-review"],
-                sorted({*REVIEW_TESTS, "tests.v3.core.test_models", "tests.v3.study.test_direct.MemoryExportTests"}),
+                sorted({*REVIEW_TESTS, "tests.v3.core.test_existing_mutable", "tests.v3.core.test_models", "tests.v3.study.test_direct.MemoryExportTests"}),
                 [
                     "at-most-one-submission",
                     "no-overwrite",
@@ -1982,7 +1982,7 @@ class ValidationSelectorTests(unittest.TestCase):
         self.assertEqual(forward["matched_routes"], ["core-store", "v30-approval"])
         self.assertEqual(
             forward["tests"],
-            sorted({*APPROVAL_TESTS, "tests.v3.core.test_models", "tests.v3.study.test_direct.MemoryExportTests"}),
+            sorted({*APPROVAL_TESTS, "tests.v3.core.test_existing_mutable", "tests.v3.core.test_models", "tests.v3.study.test_direct.MemoryExportTests"}),
         )
         self.assertEqual(
             forward["safety_evidence"],
@@ -2239,8 +2239,19 @@ class ValidationSelectorTests(unittest.TestCase):
         )
         self.assertEqual(
             result["tests"],
-            ["tests.v3.core.test_models", "tests.v3.core.test_store", "tests.v3.study.test_direct.MemoryExportTests"],
+            ["tests.v3.core.test_existing_mutable", "tests.v3.core.test_models", "tests.v3.core.test_store", "tests.v3.study.test_direct.MemoryExportTests"],
         )
+
+    def test_existing_mutable_test_changes_keep_full_safety_route(self) -> None:
+        for status in ('A', 'M', 'D'):
+            with self.subTest(status=status):
+                result = self.select(change(status, 'tests/v3/core/test_existing_mutable.py'))
+                self.assertEqual(result['lane'], 'v3-full')
+                self.assertEqual(result['matched_routes'], ['core-safety-tests'])
+                self.assertIn('tests.v3.core.test_existing_mutable', result['tests'])
+                self.assertEqual(result['safety_evidence'], [
+                    'at-most-one-submission', 'no-overwrite', 'reconciliation',
+                    'unknown-no-automatic-retry'])
 
     def test_every_declared_safety_evidence_name_resolves(self) -> None:
         loader = unittest.TestLoader()
@@ -2415,7 +2426,7 @@ class ValidationSelectorTests(unittest.TestCase):
         self.assertEqual(decision["lane"], "affected")
         self.assertEqual(
             decision["tests"],
-            ["tests.v3.core.test_models", "tests.v3.core.test_store", "tests.v3.study.test_direct.MemoryExportTests"],
+            ["tests.v3.core.test_existing_mutable", "tests.v3.core.test_models", "tests.v3.core.test_store", "tests.v3.study.test_direct.MemoryExportTests"],
         )
         self.assertEqual(
             decision["safety_evidence"],

@@ -175,7 +175,7 @@ class Option1ProxyJumpContractTests(TransportFixture):
             request={"binding": {}, "operation": "ALLOCATE_WORKSPACE", "payload": {}, "protocol": "auto-g16-v3-rtwin-bootstrap/2"},
             authority=authority,
         )
-        process = type("Process", (), {"pid": 999_999_999, "poll": lambda self: 0})()
+        process = type("Process", (), {"pid": 999_999_999, "returncode": 0, "poll": lambda self: 0, "wait": lambda self, **kwargs: 0})()
         captured: dict[str, object] = {}
 
         def communicate(_process, request, operation):
@@ -190,8 +190,12 @@ class Option1ProxyJumpContractTests(TransportFixture):
             patch("auto_g16.transport._driver._attest_identity_reference", return_value=(5, 6, 7, 8)),
             patch("subprocess.Popen", return_value=process) as popen,
             patch.object(driver, "_communicate_bounded", side_effect=communicate),
+            patch.object(driver, "_kill") as kill,
+            patch.object(process, "wait") as wait,
         ):
             result = driver._run(snapshot, invocation)
+        kill.assert_not_called()
+        wait.assert_not_called()
         self.assertEqual(result, (b"response", b"", 0, "completed", True, True))
         command = popen.call_args.args[0]
         self.assertEqual(command, _build_mac_proxyjump_command(snapshot, authority))

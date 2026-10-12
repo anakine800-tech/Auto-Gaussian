@@ -32,7 +32,7 @@ For each run provide command, interpreter/profile, commit/tree, date/time, exit 
 
 - Findings by severity (P0/P1/P2/P3) and disposition:
 - [ ] `scripts/audit_ci_contract.py` passes local declaration audit.
-- [ ] Current remote branch protection and the five expected required contexts were separately verified, or the exact blocker is reported.
+- [ ] Current remote branch protection and every declared required context were separately verified, or the exact blocker is reported.
 - [ ] CI permission limitations and run state are reported without claiming success.
 
 ## Rollback, incident, and compatibility

@@ -449,13 +449,56 @@ def _gaussian_submit_operation(file_carrier: bool = False, *, resource_adapter: 
     )
 
 
+def _process_companion(evidence, diagnostic, stdin_cap):
+    """Optional sanitized diagnostics, never part of the authoritative /1 frame."""
+    if diagnostic is None:
+        return None
+    enums = {
+        "phase": {"pipe-setup", "select", "write-stdin", "read-stdout", "read-stderr",
+                  "output-cap", "wait-exit", "incomplete-stdin", "completed",
+                  "process-launch", "postflight-attestation"},
+        "postflight_state": {"not-started", "checking", "identity-drift", "passed", "failed"},
+    }
+    exceptions = {None, "OSError", "ValueError", "TransportBoundaryError", "TimeoutExpired",
+                  "BrokenPipeError", "BlockingIOError", "InterruptedError", "PermissionError",
+                  "FileNotFoundError", "ProcessLookupError", "IsADirectoryError", "NotADirectoryError"}
+    bools = {"process_started", "stdin_complete", "eof_stdout", "eof_stderr",
+             "termination_requested", "reaped", "wait_started", "retirement_started"}
+    counters = {"input_size", "input_written", "transient_events"}
+    nullable_ints = {"errno", "returncode", "postflight_errno"}
+    exception_fields = {"exception_type", "cleanup_error_type", "postflight_exception_type"}
+    keys = set(enums) | bools | counters | nullable_ints | exception_fields
+    # Reject arbitrary mappings and nested values before any copy or hashing.
+    if type(diagnostic) is not dict or set(diagnostic) != keys:
+        return None
+    for key, value in diagnostic.items():
+        if key in bools and type(value) is not bool:
+            return None
+        if key in counters and (type(value) is not int or value < 0):
+            return None
+        if key in nullable_ints and value is not None and type(value) is not int:
+            return None
+        if key in enums and (type(value) is not str or value not in enums[key]):
+            return None
+        if key in exception_fields and value is not None and (type(value) is not str or value not in exceptions):
+            return None
+    if not 0 <= diagnostic["input_written"] <= diagnostic["input_size"] <= stdin_cap:
+        return None
+    return MappingProxyType({
+        "schema": "project-process-diagnostic/1",
+        "capture_sha256": sha256(canonical_json_bytes(_plain(evidence))).hexdigest(),
+        "process": MappingProxyType(dict(diagnostic)),
+    })
+
+
 class _ProjectWireCapture:
     """Private bounded diagnostics, explicitly not a creation receipt."""
 
     def __init__(self) -> None:
         self.evidence = None
+        self.process_evidence = None
 
-    def record(self, invocation, stdout, stderr, code, state, eofout, eoferr):
+    def record(self, invocation, stdout, stderr, code, state, eofout, eoferr, process_diagnostic=None):
         operation = invocation.operation
         out, err = stdout[:operation.stdout_cap], stderr[:operation.stderr_cap]
         self.evidence = MappingProxyType({
@@ -470,12 +513,14 @@ class _ProjectWireCapture:
             "returncode": code, "transport_state": state,
             "eof_stdout": eofout, "eof_stderr": eoferr,
         })
+        self.process_evidence = _process_companion(self.evidence, process_diagnostic, operation.stdin_cap)
 
 
 class _ProjectWireUnknown(program._ProgramEffectUnknown):
-    def __init__(self, evidence):
+    def __init__(self, evidence, process_evidence=None):
         super().__init__("Project transport completion is ambiguous; bounded diagnostic retained")
         self.transport_evidence = evidence
+        self.process_evidence = process_evidence
 
 
 def _wire_call(scope: object, invocation: _ProgramRTWinInvocation, *, project_capture: _ProjectWireCapture | None = None) -> Mapping[str, object]:
@@ -489,14 +534,16 @@ def _wire_call(scope: object, invocation: _ProgramRTWinInvocation, *, project_ca
             # Reporter construction is fail-open because it is diagnostic and
             # must not change the pre-existing exact transport effect.
             progress = None
+    runner = _driver._SubprocessRTWinDriver()
     try:
-        stdout, stderr, code, state, eofout, eoferr = _driver._SubprocessRTWinDriver()._run(scope, invocation)
+        stdout, stderr, code, state, eofout, eoferr = runner._run(scope, invocation)
     except BaseException:
         if progress is not None:
             progress.finish(status="interrupted", returncode=None, stdout_bytes=0, stderr_bytes=0, eof_stdout=False, eof_stderr=False)
         raise
     if project_capture is not None:
-        project_capture.record(invocation, stdout, stderr, code, state, eofout, eoferr)
+        project_capture.record(invocation, stdout, stderr, code, state, eofout, eoferr,
+                               getattr(runner, "_process_diagnostic", None))
     if progress is not None:
         progress.finish(status=state, returncode=code, stdout_bytes=len(stdout), stderr_bytes=len(stderr), eof_stdout=eofout, eof_stderr=eoferr)
     if state != "completed" or code != 0 or stderr or not eofout or not eoferr:
@@ -595,7 +642,7 @@ class _RTWinProjectAttestor(_ProjectAttestor):
         except Exception as exc:
             if capture.evidence is None:
                 raise
-            raise _ProjectWireUnknown(capture.evidence) from exc
+            raise _ProjectWireUnknown(capture.evidence, capture.process_evidence) from exc
 
     def _observe_association(self, target, path):
         """Retain exactly this production invocation, never caller-supplied bytes."""

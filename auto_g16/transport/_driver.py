@@ -541,56 +541,126 @@ class _SubprocessRTWinDriver:
             try: process.kill()
             except OSError: pass
 
+    def _retire(self, process: subprocess.Popen[bytes]) -> None:
+        """One termination request and one bounded reap; never relaunch."""
+        diagnostic = self._process_diagnostic
+        if diagnostic.get("retirement_started"):
+            return
+        diagnostic["retirement_started"] = True
+        code = getattr(process, "returncode", None)
+        if type(code) is int:
+            diagnostic.update(returncode=code, reaped=True)
+            return
+        try:
+            # wait may have reaped before Python receives an interruption.
+            # Only a definite timeout makes it safe to request a signal again.
+            if not diagnostic.get("wait_started", False):
+                diagnostic["termination_requested"] = True
+                self._kill(process)
+        finally:
+            try:
+                code = process.wait(timeout=1.0)
+                diagnostic.update(returncode=code, reaped=True)
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                diagnostic.update(reaped=False, cleanup_error_type=type(exc).__name__)
+
     def _communicate_bounded(self,process:subprocess.Popen[bytes],request:bytes,operation:_Operation)->tuple[bytes,bytes,int|None,str,bool,bool]:
-        if process.stdin is None or process.stdout is None or process.stderr is None:
-            self._kill(process); process.wait(); return b"",b"",None,"transport-error",False,False
+        detail = self._process_diagnostic = {
+            "phase": "pipe-setup", "exception_type": None, "errno": None,
+            "input_size": len(request), "input_written": 0,
+            "process_started": True, "stdin_complete": False,
+            "eof_stdout": False, "eof_stderr": False, "returncode": None,
+            "termination_requested": False, "reaped": False,
+            "cleanup_error_type": None, "transient_events": 0,
+            "wait_started": False, "retirement_started": False,
+            "postflight_state": "not-started", "postflight_exception_type": None, "postflight_errno": None,
+        }
         streams={"stdin":process.stdin,"stdout":process.stdout,"stderr":process.stderr}
-        selector=selectors.DefaultSelector(); output={"stdout":bytearray(),"stderr":bytearray()}; offset=0
+        selector=None; output={"stdout":bytearray(),"stderr":bytearray()}; offset=0
+        deadline=time.monotonic()+operation.timeout_seconds
         def diagnostic(status):
             if operation.name in {"OBSERVE_PROJECT", "PROVISION_PROJECT"}:
                 return bytes(output["stdout"][:operation.stdout_cap]),bytes(output["stderr"][:operation.stderr_cap]),None,status,False,False
             return b"",b"",None,status,False,False
         try:
+            if any(stream is None for stream in streams.values()):
+                raise ValueError("missing subprocess pipe")
+            selector=selectors.DefaultSelector()
             for stream in streams.values(): os.set_blocking(stream.fileno(),False)
-            selector.register(process.stdin,selectors.EVENT_WRITE,"stdin")
+            if request:
+                selector.register(process.stdin,selectors.EVENT_WRITE,"stdin")
+            else:
+                process.stdin.close(); detail["stdin_complete"] = True
             selector.register(process.stdout,selectors.EVENT_READ,"stdout")
             selector.register(process.stderr,selectors.EVENT_READ,"stderr")
-            deadline=time.monotonic()+operation.timeout_seconds
             while selector.get_map():
                 remaining=deadline-time.monotonic()
                 if remaining<=0:
-                    self._kill(process); process.wait(); return diagnostic("timeout")
-                events=selector.select(remaining)
-                if not events:
-                    self._kill(process); process.wait(); return diagnostic("timeout")
+                    self._retire(process); return diagnostic("timeout")
+                detail["phase"] = "select"
+                try:
+                    events=selector.select(remaining)
+                except InterruptedError:
+                    events=[]
+                transient = not events
                 for key,_mask in events:
                     name=key.data; stream=key.fileobj
-                    if name=="stdin":
-                        try: written=os.write(stream.fileno(),request[offset:offset+65536])
-                        except BrokenPipeError: written=0
-                        offset+=written
-                        if offset==len(request) or written==0:
-                            selector.unregister(stream); stream.close()
+                    detail["phase"] = "write-stdin" if name == "stdin" else "read-" + name
+                    try:
+                        if name=="stdin":
+                            try: written=os.write(stream.fileno(),request[offset:offset+65536])
+                            except BrokenPipeError:
+                                written=0
+                            offset+=written; detail["input_written"] = offset
+                            if offset==len(request) or written==0:
+                                detail["stdin_complete"] = offset == len(request)
+                                selector.unregister(stream); stream.close()
+                            continue
+                        cap=operation.stdout_cap if name=="stdout" else operation.stderr_cap
+                        chunk=os.read(stream.fileno(),min(65536,cap+1-len(output[name])))
+                    except (BlockingIOError, InterruptedError):
+                        detail["transient_events"] += 1; transient = True
                         continue
-                    cap=operation.stdout_cap if name=="stdout" else operation.stderr_cap
-                    chunk=os.read(stream.fileno(),min(65536,cap+1-len(output[name])))
                     if not chunk:
+                        detail["eof_" + name] = True
                         selector.unregister(stream); stream.close(); continue
                     output[name].extend(chunk)
                     if len(output[name])>cap:
-                        self._kill(process); process.wait(); return diagnostic("transport-error")
-            remaining=max(0.0,deadline-time.monotonic())
-            try: returncode=process.wait(timeout=remaining)
+                        detail["phase"] = "output-cap"
+                        self._retire(process); return diagnostic("transport-error")
+                if transient:
+                    # Readiness can stay asserted while a nonblocking write
+                    # still returns EAGAIN. Yield once per batch, without
+                    # resetting the deadline or starving other ready streams.
+                    time.sleep(min(.005, max(0.0, deadline-time.monotonic())))
+            detail["phase"] = "wait-exit"
+            detail["wait_started"] = True
+            try: returncode=process.wait(timeout=max(0.0,deadline-time.monotonic()))
             except subprocess.TimeoutExpired:
-                self._kill(process); process.wait(); return diagnostic("timeout")
+                detail["wait_started"] = False
+                self._retire(process); return diagnostic("timeout")
+            detail.update(returncode=returncode, reaped=True)
+            if not detail["stdin_complete"]:
+                detail["phase"] = "incomplete-stdin"
+                return diagnostic("transport-error")
+            detail["phase"] = "completed"
             return bytes(output["stdout"]),bytes(output["stderr"]),returncode,"completed",True,True
-        except (OSError,ValueError):
-            self._kill(process); process.wait(); return diagnostic("transport-error")
+        except (OSError,ValueError) as exc:
+            detail.update(exception_type=type(exc).__name__, errno=getattr(exc,"errno",None))
+            self._retire(process); return diagnostic("transport-error")
         finally:
-            selector.close()
-            for stream in streams.values():
-                try: stream.close()
-                except OSError: pass
+            try:
+                if not detail["reaped"] and not detail["retirement_started"]:
+                    self._retire(process)
+            finally:
+                try:
+                    if selector is not None:
+                        selector.close()
+                finally:
+                    for stream in streams.values():
+                        if stream is not None:
+                            try: stream.close()
+                            except OSError: pass
     def _run(self,snapshot:ExecutionSnapshot,invocation:_Invocation)->tuple[bytes,bytes,int|None,str,bool,bool]:
         from ._program_rtwin import _ProgramRTWinInvocation, _prepare_program_invocation
         successor=type(invocation) is _ProgramRTWinInvocation
@@ -617,25 +687,56 @@ class _SubprocessRTWinDriver:
         before.update({f"identity-{index}":_attest_identity_reference(path,expected) for index,(path,expected) in enumerate(identity_paths)})
         if not successor: request=_encode_request_frame(invocation.request,cap=invocation.operation.stdin_cap)
         process=None
+        self._process_diagnostic = {
+            "phase": "process-launch", "exception_type": None, "errno": None,
+            "input_size": len(request), "input_written": 0,
+            "process_started": False, "stdin_complete": False,
+            "eof_stdout": False, "eof_stderr": False, "returncode": None,
+            "termination_requested": False, "reaped": False,
+            "cleanup_error_type": None, "transient_events": 0,
+            "wait_started": False, "retirement_started": False,
+            "postflight_state": "not-started", "postflight_exception_type": None, "postflight_errno": None,
+        }
         stdout,stderr=b"",b""
         try:
             process=subprocess.Popen(command,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=dict(_FIXED_ENV),shell=False,start_new_session=True)
+            self._process_diagnostic["process_started"] = True
             stdout,stderr,returncode,status,eofout,eoferr=self._communicate_bounded(process,request,invocation.operation)
+            self._process_diagnostic["postflight_state"] = "checking"
             after={name:_attest_local(roots[name]) for name in root_names}
             after.update({bound.name:_attest_local_effect_file(bound) for bound in local_files})
             after.update({f"identity-{index}":_attest_identity_reference(path,expected) for index,(path,expected) in enumerate(identity_paths)})
             if before!=after:
+                self._process_diagnostic["postflight_state"] = "identity-drift"
+                if status == "completed": self._process_diagnostic["phase"] = "postflight-attestation"
                 if invocation.operation.name in {"OBSERVE_PROJECT", "PROVISION_PROJECT"}: return stdout,stderr,None,"transport-error",False,False
                 return b"",b"",None,"transport-error",False,False
+            self._process_diagnostic["postflight_state"] = "passed"
             if status!="completed": return stdout,stderr,returncode,status,eofout,eoferr
             return stdout,stderr,returncode,"completed",True,True
-        except (OSError,TransportBoundaryError):
-            if process is not None:
-                try: active=process.poll() is None
-                except (AttributeError,OSError): active=True
-                if active: self._kill(process)
+        except (OSError,TransportBoundaryError) as exc:
+            detail = self._process_diagnostic
+            if detail["postflight_state"] == "checking":
+                detail.update(postflight_state="failed", postflight_exception_type=type(exc).__name__, postflight_errno=getattr(exc,"errno",None))
+                if detail["phase"] == "completed": detail["phase"] = "postflight-attestation"
+            else:
+                detail.update(exception_type=type(exc).__name__, errno=getattr(exc,"errno",None))
+            if process is not None and not detail["reaped"] and not detail["retirement_started"]:
+                self._retire(process)
             if invocation.operation.name in {"OBSERVE_PROJECT", "PROVISION_PROJECT"}: return stdout,stderr,None,"transport-error",False,False
             return b"",b"",None,"transport-error",False,False
+        finally:
+            if process is not None:
+                try:
+                    detail = self._process_diagnostic
+                    if not detail["reaped"] and not detail["retirement_started"]:
+                        self._retire(process)
+                finally:
+                    for name in ("stdin", "stdout", "stderr"):
+                        stream = getattr(process, name, None)
+                        if stream is not None:
+                            try: stream.close()
+                            except OSError: pass
     def invoke_text(self,snapshot:ExecutionSnapshot,invocation:_Invocation)->_TextResult:
         stdout,stderr,code,status,eofout,eoferr=self._run(snapshot,invocation)
         if status!="completed" or code!=0 or stderr: return _TextResult(stdout=stdout,stderr=stderr,returncode=code,eof_stdout=eofout,eof_stderr=eoferr,completion_status=status)

@@ -1,7 +1,7 @@
 # Test-only backend fixture checkout
 
 The native HTTP integration test accepts `AUTOG_TEST_BACKEND_CHECKOUT` as an
-absolute backend source checkout root. In the future joint repository, set it
+absolute backend source checkout root. In the joint repository, CI sets it
 to the repository root while running frontend tests from `frontend/`.
 The checkout must be the exact source used to build the installed backend wheel.
 
@@ -33,6 +33,6 @@ HTTP integration test must also run using actual installed backend/frontend
 wheels and the explicit source checkout. Fixtures use disposable stores and
 fake scientific kernels, not operational calculation data.
 
-This is preparatory test-path support only. Final joint workflow paths,
-required-check declarations, public study interfaces and deployment remain
-separate integration work. No workflow or product runtime is changed here.
+The root joint workflow uses this test-only input. Public study interfaces and
+deployment remain separate acceptance requirements; the fixture override does
+not configure product runtime.

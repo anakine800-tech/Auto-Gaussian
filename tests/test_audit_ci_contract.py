@@ -143,6 +143,39 @@ class CIContractAuditTests(unittest.TestCase):
             ["chemistry-dependencies", "python-compatibility (3.13)", "source-archive-release"],
         )
 
+    def test_joint_frontend_checks_preserve_historical_five_context_evidence(self) -> None:
+        value = contract()
+        for name in ("frontend-python", "frontend-web"):
+            value["required_checks"].append({
+                "context": name, "workflow_file": ".github/workflows/offline-tests.yml",
+                "workflow_name": "Offline tests", "job_id": name, "matrix": {},
+            })
+        value["remote_branch_protection_snapshot"]["status"] = "known_mismatch"
+        self.workflow.write_text(WORKFLOW + """
+  frontend-python:
+    name: frontend-python
+    runs-on: ubuntu-latest
+    steps:
+      - run: python -m unittest
+  frontend-web:
+    name: frontend-web
+    runs-on: ubuntu-latest
+    steps:
+      - run: pnpm test
+""", encoding="utf-8")
+        self.write_contract(value)
+        report = AUDIT.audit(self.root, AUDIT.load_contract(self.config))
+        self.assertEqual(report["status"], "pass_with_warnings")
+        self.assertEqual(report["snapshot_difference"]["missing_expected_contexts"],
+                         ["frontend-python", "frontend-web"])
+        self.assertFalse(report["actual_ci_success_verified"])
+        self.assertFalse(report["remote_branch_protection_verified"])
+        value["remote_branch_protection_snapshot"]["status"] = "aligned"
+        self.assertEqual(AUDIT.audit(self.root, value)["status"], "fail")
+        value["remote_branch_protection_snapshot"]["status"] = "known_mismatch"
+        value["required_checks"].pop()
+        self.assertEqual(AUDIT.audit(self.root, value)["status"], "fail")
+
     def test_duplicate_required_context_is_rejected(self) -> None:
         value = contract()
         value["required_checks"].append(copy.deepcopy(value["required_checks"][0]))  # type: ignore[union-attr,index]

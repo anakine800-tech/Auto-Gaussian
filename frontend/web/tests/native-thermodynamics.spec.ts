@@ -179,8 +179,10 @@ test('abandoned reads retain the two-request page budget until drained',async({p
   active--;await route.fulfill({json:thermo?saved(id):path.includes('/projects/')?{schema:'auto-g16-native-query/1',kind:'attempts',data:{items:[attempt()]}}:{schema:'auto-g16-native-query/1',kind:'attempt',data:attempt(id)}});
  });
  await connect(page);await expect(card(page).getByRole('status')).toBeVisible();
+ // Loading includes queued reads; navigation must abandon an already issued A request.
+ await expect.poll(()=>requests.filter(p=>p.endsWith('/attempts/freq-a/thermodynamics')).length).toBe(1);
  await page.evaluate(()=>{location.hash='#/native/saved/attempts/freq-b'});await expect(card(page).getByRole('status')).toBeVisible();
- await expect.poll(()=>requests.filter(p=>p.endsWith('/thermodynamics')).length).toBe(2);
+ await expect.poll(()=>requests.filter(p=>p.endsWith('/attempts/freq-b/thermodynamics')).length).toBe(1);
  await page.evaluate(()=>{location.hash='#/native/saved/projects/project'});await expect(card(page)).toHaveCount(0);
  expect(requests.some(p=>p.includes('/projects/'))).toBe(false);
  releaseA();await expect(page.locator('.native-thermochemistry')).toContainText('-157.9987654321');

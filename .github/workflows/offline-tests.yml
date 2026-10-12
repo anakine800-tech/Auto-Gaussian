@@ -404,3 +404,74 @@ jobs:
           else:
               print("V31 E2E package absent by design in this candidate; integration not run.", flush=True)
           PY
+  frontend-python:
+    name: frontend-python
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      AUTOG_TEST_BACKEND_CHECKOUT: ${{ github.workspace }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c
+        with:
+          python-version: '3.13.13'
+      - name: Verify source identity and install exact dependency versions
+        run: |
+          python -m pip install setuptools==82.0.1
+          python -m pip install -r requirements.lock.txt
+          python -m pip install --no-deps --no-build-isolation ..
+      - name: Synthetic HTTP and Python tests
+        run: python -B -m unittest discover -s tests -t . -q
+  frontend-web:
+    name: frontend-web
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      AUTOG_TEST_BACKEND_CHECKOUT: ${{ github.workspace }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c
+        with:
+          python-version: '3.13.13'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24.19.0'
+      - name: Provision exact dependency versions
+        run: |
+          python -m pip install setuptools==82.0.1
+          python -m pip install -r requirements.lock.txt
+          python -m pip install --no-deps --no-build-isolation ..
+          npm install --global pnpm@11.19.0
+          pnpm --dir web install --frozen-lockfile
+      - name: Typecheck, build and transport deadline checks
+        working-directory: frontend/web
+        run: |
+          node node_modules/typescript/bin/tsc --noEmit
+          node node_modules/vite/bin/vite.js build
+          node --test unit/request-deadline.test.mjs
+      - name: Build and install the frontend wheel from the joint candidate
+        run: |
+          python scripts/build_frontend_wheel.py --output-dir "$RUNNER_TEMP/frontend-wheel"
+          python -m pip install --no-deps "$RUNNER_TEMP"/frontend-wheel/*.whl
+          python -I -c "import auto_g16, autog_frontend; assert 'site-packages' in auto_g16.__file__; assert 'site-packages' in autog_frontend.__file__"
+      - name: Install Chrome test dependency
+        working-directory: frontend/web
+        run: node node_modules/@playwright/test/cli.js install --with-deps chrome
+      - name: Synthetic native and navigation browser checks
+        working-directory: frontend/web
+        run: |
+          export AUTOG_TEST_PYTHON="$(command -v python)"
+          export AUTOG_TEST_OPERATIONS=1
+          node node_modules/@playwright/test/cli.js test native-frequency.spec.ts native-navigation.spec.ts pre-v31.spec.ts navigation.spec.ts native-thermodynamics.spec.ts native-reliability.spec.ts

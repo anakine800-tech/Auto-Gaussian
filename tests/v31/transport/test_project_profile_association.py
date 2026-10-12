@@ -118,6 +118,65 @@ class AssociationTests(unittest.TestCase):
             self.service._assert_owned_binding(binding=self.original, project=self.project, target=self.target,
                                                 remote_project_dir=binding.remote_project_dir)
 
+    def test_process_companion_keeps_v1_publication_and_fresh_process_replay(self):
+        captured = []
+        record = rtwin._ProjectWireCapture.record
+        def record_and_retain(capture, *args, **kwargs):
+            record(capture, *args, **kwargs)
+            captured.append(capture)
+        def observed(driver, scope, invocation):
+            result = self.b.wire.run(scope, invocation)
+            driver._process_diagnostic = dict(
+                phase='completed', exception_type=None, errno=None, input_size=0, input_written=0,
+                process_started=True, stdin_complete=True, eof_stdout=True, eof_stderr=True,
+                returncode=0, termination_requested=False, reaped=True, cleanup_error_type=None,
+                transient_events=0, wait_started=True, retirement_started=False,
+                postflight_state='passed', postflight_exception_type=None, postflight_errno=None)
+            return result
+        with patch.object(_driver._SubprocessRTWinDriver, '_run', new=observed), \
+                patch.object(rtwin._ProjectWireCapture, 'record', record_and_retain):
+            binding, source = self.issue()
+        self.assertEqual(len(captured), 1)
+        capture = captured[0]
+        raw = Path(source.capture.path).read_bytes()
+        self.assertEqual(raw, owner._raw(capture.evidence))
+        self.assertEqual(capture.evidence['schema'], 'project-wire-diagnostic/1')
+        self.assertEqual(capture.process_evidence['capture_sha256'], sha256(raw).hexdigest())
+        (self.root/'process-companion.json').write_bytes(owner._raw(capture.process_evidence))
+        request = Path(source.request.path).read_bytes()
+        for extra in ({'schema':'project-wire-diagnostic/2'},
+                      {'process_diagnostic': owner._plain(capture.process_evidence)},
+                      {'stdout_sha256':'0'*64}, {'returncode':1}):
+            with self.subTest(extra=extra), self.assertRaises(ValueError):
+                owner._replay_observation(request, owner._raw({**owner._plain(capture.evidence), **extra}),
+                                          self.target, self.original)
+        before = len(self.b.wire.calls)
+        packet = self.root/'readback.json'
+        packet.write_bytes(owner._raw({'binding':binding.semantic_payload(), 'source':asdict(source)}))
+        script = """
+import sys,json,os
+from auto_g16.execution import _project_association as identity, _project_association_source as owner
+def audit(event,args):
+    if event.startswith(('socket.','subprocess.','os.exec','os.spawn','os.posix_spawn')):
+        raise AssertionError('replay attempted effect')
+    if event=='open' and args[2] & (os.O_WRONLY|os.O_RDWR|os.O_CREAT|os.O_TRUNC|os.O_APPEND):
+        raise AssertionError('replay attempted write')
+sys.addaudithook(audit)
+with open(sys.argv[1]) as stream: packet=json.load(stream)
+binding=identity.decode_binding(packet['binding'])
+source=owner.decode_source(packet['source'])
+with owner.replay(binding, source) as original:
+    print(owner._raw(original.semantic_payload()).decode())
+"""
+        with patch.object(subprocess, 'Popen', _LOCAL_POPEN):
+            child = subprocess.run([sys.executable, '-B', '-c', script, str(packet)],
+                cwd=Path(__file__).resolve().parents[3], capture_output=True, text=True, timeout=120)
+        self.assertEqual(child.returncode, 0, child.stderr)
+        self.assertEqual(json.loads(child.stdout), owner._plain(self.original.semantic_payload()))
+        self.assertEqual(len(self.b.wire.calls), before)
+        self.assertEqual(Path(source.capture.path).read_bytes(), raw)
+        self.assertEqual(Path(self.journal._path).read_bytes(), self.journal_bytes)
+
     def test_new_snapshot_roundtrip_and_collection_restore_without_observation(self):
         binding, source = self.issue()
         _, target, _, _, spec, _, _, material, previous = self.rows

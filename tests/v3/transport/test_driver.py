@@ -503,9 +503,10 @@ class DriverBoundaryTests(TransportFixture):
                 os.close(stdout_write)
                 os.close(stderr_write)
                 self.pid = 999_999_999
-                self.returncode = 0
+                self.returncode = None
                 self.killed = False
             def wait(self, timeout=None):
+                self.returncode = 0
                 return self.returncode
             def kill(self) -> None:
                 self.killed = True
@@ -554,11 +555,51 @@ class DriverBoundaryTests(TransportFixture):
         def communicate(_process,_request,_operation):
             self.mac_ssh_config.write_bytes(self.mac_ssh_config.read_bytes()+b"# replaced after launch\n")
             return b"",b"",0,"completed",True,True
-        process=type("Process",(),{"pid":999_999_999,"kill":lambda self:None,"poll":lambda self:0})()
+        process=type("Process",(),{"pid":999_999_999,"kill":lambda self:None,"poll":lambda self:0,"wait":lambda self,timeout=None:0})()
         with patch("subprocess.Popen",return_value=process) as popen,patch.object(driver,"_communicate_bounded",side_effect=communicate):
             result=driver.invoke_text(snapshot,invocation)
         popen.assert_called_once()
         self.assertEqual(result.completion_status,"transport-error")
+        self.assertEqual(driver._process_diagnostic["postflight_state"],"failed")
+        self.assertEqual(driver._process_diagnostic["postflight_exception_type"],"TransportBoundaryError")
+
+    def test_run_preserves_io_failure_phase_through_postflight(self) -> None:
+        profile=self.profile(resource_descriptor=TORQUE_RESOURCE_DESCRIPTOR_BYTES)
+        snapshot,_=self.transport_snapshot(profile=profile,queue="batch")
+        authority=_resolve_deployment_authority(snapshot,profile)
+        invocation=_Invocation(operation=_operation("ALLOCATE_WORKSPACE"),argv=(),
+            cwd=snapshot.workspace_binding.remote_attempt_dir,
+            request={"binding":{},"operation":"ALLOCATE_WORKSPACE","payload":{},"protocol":"auto-g16-v3-rtwin-bootstrap/2"},authority=authority)
+        driver=_SubprocessRTWinDriver()
+        def failed_io(*_):
+            driver._process_diagnostic.update(phase="write-stdin",exception_type="OSError",errno=5,reaped=True)
+            return b"",b"",-9,"transport-error",False,False
+        with patch("subprocess.Popen"),patch.object(driver,"_communicate_bounded",side_effect=failed_io):
+            result=driver._run(snapshot,invocation)
+        self.assertEqual(result[3],"transport-error")
+        self.assertEqual(driver._process_diagnostic["phase"],"write-stdin")
+        self.assertEqual(driver._process_diagnostic["postflight_state"],"passed")
+        self.assertEqual(driver._process_diagnostic["errno"],5)
+
+    def test_communication_entry_interruption_retires_and_closes(self) -> None:
+        from unittest.mock import Mock
+        profile=self.profile(resource_descriptor=TORQUE_RESOURCE_DESCRIPTOR_BYTES)
+        snapshot,_=self.transport_snapshot(profile=profile,queue="batch")
+        authority=_resolve_deployment_authority(snapshot,profile)
+        invocation=_Invocation(operation=_operation("ALLOCATE_WORKSPACE"),argv=(),
+            cwd=snapshot.workspace_binding.remote_attempt_dir,
+            request={"binding":{},"operation":"ALLOCATE_WORKSPACE","payload":{},"protocol":"auto-g16-v3-rtwin-bootstrap/2"},authority=authority)
+        driver=_SubprocessRTWinDriver()
+        child=Mock(returncode=None)
+        child.wait.return_value=-9
+        with patch("subprocess.Popen",return_value=child),patch.object(
+                driver,"_communicate_bounded",side_effect=KeyboardInterrupt),patch.object(driver,"_kill") as kill:
+            with self.assertRaises(KeyboardInterrupt):
+                driver._run(snapshot,invocation)
+        kill.assert_called_once_with(child)
+        child.wait.assert_called_once_with(timeout=1.0)
+        for stream in (child.stdin,child.stdout,child.stderr):
+            stream.close.assert_called_once()
 
     def test_synthetic_resource_dialect_rejects_before_process_creation(self) -> None:
         profile = self.profile()
@@ -578,3 +619,213 @@ class DriverBoundaryTests(TransportFixture):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BoundedPipeProcessTests(unittest.TestCase):
+    """Native local pipes only: these fixtures never start SSH or Gaussian."""
+
+    def child(self, code):
+        import subprocess
+        import sys
+        process = subprocess.Popen(
+            [sys.executable, "-I", "-S", "-B", "-c", code],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            start_new_session=True,
+        )
+        def close():
+            if process.poll() is None:
+                process.kill()
+            process.wait(timeout=2)
+            for stream in (process.stdin, process.stdout, process.stderr):
+                stream.close()
+        self.addCleanup(close)
+        return process
+
+    def operation(self, timeout=2):
+        from types import SimpleNamespace
+        return SimpleNamespace(name="OBSERVE_PROJECT", timeout_seconds=timeout,
+                               stdout_cap=262144, stderr_cap=65536, stdin_cap=262144)
+
+    def test_partial_write_boundary_and_large_request_are_exact(self):
+        for size in (0, 511, 512, 513, 131072):
+            with self.subTest(size=size):
+                child = self.child("import sys; x=sys.stdin.buffer.read(); sys.stdout.buffer.write(x)")
+                driver = _SubprocessRTWinDriver()
+                result = driver._communicate_bounded(child, b"x" * size, self.operation())
+                self.assertEqual(result, (b"x" * size, b"", 0, "completed", True, True))
+                self.assertEqual(driver._process_diagnostic["input_written"], size)
+                self.assertTrue(driver._process_diagnostic["reaped"])
+
+    def test_read_and_write_eagain_and_eintr_preserve_bytes(self):
+        import errno
+        child = self.child("import sys; x=sys.stdin.buffer.read(); sys.stdout.buffer.write(x)")
+        write, read = os.write, os.read
+        pending = {child.stdin.fileno(): [BlockingIOError(errno.EAGAIN, "transient"), InterruptedError()],
+                   child.stdout.fileno(): [BlockingIOError(errno.EAGAIN, "transient"), InterruptedError()]}
+        def invoke(original, fd, value):
+            if pending.get(fd):
+                raise pending[fd].pop(0)
+            return original(fd, value)
+        driver = _SubprocessRTWinDriver()
+        with patch.object(os, "write", side_effect=lambda fd, data: invoke(write, fd, data)), patch.object(
+                os, "read", side_effect=lambda fd, size: invoke(read, fd, size)):
+            result = driver._communicate_bounded(child, b"exact" * 103, self.operation())
+        self.assertEqual(result, (b"exact" * 103, b"", 0, "completed", True, True))
+        self.assertGreaterEqual(driver._process_diagnostic["transient_events"], 4)
+
+    def test_transients_after_512_written_resume_same_child_at_exact_offset(self):
+        import errno
+        import subprocess
+        child = self.child("import sys; x=sys.stdin.buffer.read(); sys.stdout.buffer.write(x)")
+        request = bytes(range(256)) * 2 + b"!"
+        descriptor, write = child.stdin.fileno(), os.write
+        supplied = []
+        def interrupted_after_prefix(fd, data):
+            if fd != descriptor:
+                return write(fd, data)
+            supplied.append(bytes(data))
+            if len(supplied) == 1:
+                written = write(fd, data[:512])
+                self.assertEqual(written, 512)
+                return written
+            if len(supplied) == 2:
+                raise BlockingIOError(errno.EAGAIN, "transient")
+            if len(supplied) == 3:
+                raise InterruptedError(errno.EINTR, "transient")
+            return write(fd, data)
+        driver = _SubprocessRTWinDriver()
+        with patch.object(os, "write", side_effect=interrupted_after_prefix), patch.object(
+                subprocess, "Popen", side_effect=AssertionError("must keep original child")):
+            result = driver._communicate_bounded(child, request, self.operation())
+        self.assertEqual(supplied, [request, b"!", b"!", b"!"])
+        self.assertEqual(result, (request, b"", 0, "completed", True, True))
+        self.assertEqual(driver._process_diagnostic["input_written"], 513)
+        self.assertEqual(driver._process_diagnostic["transient_events"], 2)
+        self.assertTrue(driver._process_diagnostic["reaped"])
+
+    def test_continuous_backpressure_has_deadline_and_no_busy_spin(self):
+        import errno
+        import time
+        child = self.child("import time; time.sleep(5)")
+        driver = _SubprocessRTWinDriver()
+        start = time.monotonic()
+        with patch.object(os, "write", side_effect=BlockingIOError(errno.EAGAIN, "transient")) as writer:
+            result = driver._communicate_bounded(child, b"x" * 513, self.operation(.1))
+        self.assertEqual(result[3], "timeout")
+        self.assertLess(writer.call_count, 40)
+        self.assertLess(time.monotonic() - start, 1.5)
+        self.assertTrue(driver._process_diagnostic["termination_requested"])
+        self.assertTrue(driver._process_diagnostic["reaped"])
+
+    def test_fatal_io_retains_sanitized_exception_and_reaps(self):
+        import errno
+        child = self.child("import time; time.sleep(5)")
+        driver = _SubprocessRTWinDriver()
+        with patch.object(os, "write", side_effect=OSError(errno.EIO, "SECRET must not escape")):
+            result = driver._communicate_bounded(child, b"input", self.operation())
+        self.assertEqual(result[3], "transport-error")
+        self.assertEqual(driver._process_diagnostic["phase"], "write-stdin")
+        self.assertEqual(driver._process_diagnostic["errno"], errno.EIO)
+        self.assertNotIn("SECRET", repr(driver._process_diagnostic))
+        self.assertTrue(driver._process_diagnostic["reaped"])
+        self.assertIsNone(result[2])
+        self.assertIsNotNone(driver._process_diagnostic["returncode"])
+
+    def test_reaping_timeout_is_bounded_and_not_retried(self):
+        import subprocess
+        from unittest.mock import Mock
+        process = Mock(returncode=None)
+        process.wait.side_effect = subprocess.TimeoutExpired("fixture", 1)
+        driver = _SubprocessRTWinDriver()
+        driver._process_diagnostic = {}
+        with patch.object(driver, "_kill") as kill:
+            driver._retire(process)
+        kill.assert_called_once_with(process)
+        process.wait.assert_called_once_with(timeout=1.0)
+        self.assertFalse(driver._process_diagnostic["reaped"])
+        self.assertEqual(driver._process_diagnostic["cleanup_error_type"], "TimeoutExpired")
+
+    def test_early_exit_retains_stderr_but_rejects_incomplete_input(self):
+        child = self.child("import sys; sys.stderr.write('fixture failure'); sys.exit(7)")
+        driver = _SubprocessRTWinDriver()
+        result = driver._communicate_bounded(child, b"x" * 131072, self.operation())
+        self.assertEqual(result[0:4], (b"", b"fixture failure", None, "transport-error"))
+        self.assertEqual(driver._process_diagnostic["phase"], "incomplete-stdin")
+        self.assertEqual(driver._process_diagnostic["returncode"], 7)
+        self.assertTrue(driver._process_diagnostic["eof_stderr"])
+
+    def test_wait_reaped_then_interrupted_never_signals_recycled_pid(self):
+        child = self.child("pass")
+        driver = _SubprocessRTWinDriver()
+        real_wait = child.wait
+        def interrupted_wait(timeout=None):
+            real_wait(timeout=timeout)
+            raise KeyboardInterrupt()
+        with patch.object(child, "wait", side_effect=interrupted_wait), patch.object(driver, "_kill") as kill:
+            with self.assertRaises(KeyboardInterrupt):
+                driver._communicate_bounded(child, b"", self.operation())
+        kill.assert_not_called()
+        self.assertTrue(driver._process_diagnostic["reaped"])
+        self.assertTrue(all(stream.closed for stream in (child.stdin, child.stdout, child.stderr)))
+
+    def test_kill_exception_still_waits_and_closes_all_pipes(self):
+        child = self.child("import time; time.sleep(5)")
+        driver = _SubprocessRTWinDriver()
+        real_kill = driver._kill
+        def interrupted_kill(process):
+            real_kill(process)
+            raise KeyboardInterrupt()
+        with patch.object(driver, "_kill", side_effect=interrupted_kill) as kill, patch.object(
+                child, "wait", wraps=child.wait) as waiter:
+            with self.assertRaises(KeyboardInterrupt):
+                driver._communicate_bounded(child, b"request", self.operation(.03))
+        kill.assert_called_once()
+        waiter.assert_called_once_with(timeout=1.0)
+        self.assertTrue(driver._process_diagnostic["reaped"])
+        self.assertTrue(all(stream.closed for stream in (child.stdin, child.stdout, child.stderr)))
+
+    def test_repeated_retirement_and_already_reaped_child_never_signal(self):
+        from unittest.mock import Mock
+        child = Mock(returncode=0)
+        driver = _SubprocessRTWinDriver()
+        driver._process_diagnostic = {}
+        with patch.object(driver, "_kill") as kill:
+            driver._retire(child)
+            driver._retire(child)
+        kill.assert_not_called()
+        child.wait.assert_not_called()
+        self.assertTrue(driver._process_diagnostic["reaped"])
+
+    def test_companion_preserves_exact_v1_and_is_closed_immutable_and_optional(self):
+        from types import SimpleNamespace
+        from hashlib import sha256
+        from auto_g16.transport import _program_rtwin as rtwin
+        child = self.child("import sys; sys.stdout.buffer.write(sys.stdin.buffer.read())")
+        driver = _SubprocessRTWinDriver()
+        args = driver._communicate_bounded(child, b"request", self.operation())
+        invocation = SimpleNamespace(operation=self.operation(), request={})
+        old, new = rtwin._ProjectWireCapture(), rtwin._ProjectWireCapture()
+        old.record(invocation, *args)
+        new.record(invocation, *args, driver._process_diagnostic)
+        raw = rtwin.canonical_json_bytes(rtwin._plain(old.evidence))
+        self.assertEqual(rtwin.canonical_json_bytes(rtwin._plain(new.evidence)), raw)
+        self.assertEqual(new.evidence['schema'], 'project-wire-diagnostic/1')
+        self.assertIsNone(old.process_evidence)
+        self.assertEqual(new.process_evidence['capture_sha256'], sha256(raw).hexdigest())
+        self.assertEqual(set(new.process_evidence), {'schema','capture_sha256','process'})
+        saved = dict(driver._process_diagnostic)
+        driver._process_diagnostic['phase'] = 'SECRET'
+        self.assertEqual(new.process_evidence['process']['phase'], 'completed')
+        with self.assertRaises(TypeError): new.process_evidence['process']['phase'] = 'bad'
+        bad = [[], {'phase': 'completed'}, {**saved, 'command': 'SECRET'},
+               {**saved, 'phase': ['completed']}, {**saved, 'returncode': True},
+               {**saved, 'exception_type': 'SECRET'}, {**saved, 'input_written': 999999},
+               {**saved, 'reaped': 1}, {**saved, 'input_size': -1}]
+        for value in bad:
+            with self.subTest(value=value):
+                new.record(invocation, *args, value)
+                self.assertIsNone(new.process_evidence)
+                self.assertEqual(rtwin.canonical_json_bytes(rtwin._plain(new.evidence)), raw)
+        unknown = rtwin._ProjectWireUnknown(old.evidence, old.process_evidence)
+        self.assertIs(unknown.transport_evidence, old.evidence)
+        self.assertIsNone(unknown.process_evidence)

@@ -9,6 +9,7 @@
   ],
   "fallback_lane": "legacy-release",
   "v3_full_tests": [
+    "tests.v3.core.test_existing_mutable",
     "tests.v3.core.test_models",
     "tests.v3.core.test_store",
     "tests.test_validation_selector",
@@ -89,6 +90,7 @@
       "prefixes": [],
       "lane": "affected",
       "tests": [
+        "tests.v3.core.test_existing_mutable",
         "tests.v3.core.test_models",
         "tests.v3.core.test_store",
         "tests.v3.study.test_direct.MemoryExportTests"
@@ -117,7 +119,8 @@
     {
       "id": "core-safety-tests",
       "exact_paths": [
-        "tests/v3/core/test_store.py"
+        "tests/v3/core/test_store.py",
+        "tests/v3/core/test_existing_mutable.py"
       ],
       "prefixes": [],
       "lane": "v3-full",
@@ -244,7 +247,9 @@
         "docs/v3/contracts/tasks/direct-study-reuse.md",
         "docs/v3/contracts/tasks/direct-study-fresh.md",
         "docs/v3/contracts/tasks/direct-study-thermo-oracle.md",
-        "docs/v3/contracts/tasks/direct-study-runtime.md"
+        "docs/v3/contracts/tasks/direct-study-runtime.md",
+        "docs/v3/contracts/tasks/direct-study-execution.md",
+        "docs/v3/contracts/tasks/direct-study-stage-session.md"
       ],
       "prefixes": [
         "docs/v3/publisher-r4/"
