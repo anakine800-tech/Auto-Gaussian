@@ -137,4 +137,3 @@ class ReparseTests(unittest.TestCase):
         self.assertEqual(preserved,{name:Path(name).read_bytes() for name in preserved})
         self.assertEqual(self.manager.current_profile(),previous)
         with self.assertRaises(ValueError):reparse(previous,dest)
-
