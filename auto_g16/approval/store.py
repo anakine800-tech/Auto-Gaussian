@@ -865,6 +865,67 @@ class SQLiteApprovalStore:
             raise
 
     @classmethod
+    def create_initialization_at(cls, database, *, approved_root, parent_chain):
+        """Publish a pristine native image only through a newly reserved FD."""
+        from auto_g16._initialization_file import reserve, serialize_initial
+        with reserve(database, approved_root=approved_root, parent_chain=parent_chain,
+                     filename='approval.sqlite3') as target:
+            connection = sqlite3.connect(':memory:', isolation_level=None)
+            try:
+                connection.execute('PRAGMA foreign_keys=ON')
+                connection.execute(f'PRAGMA application_id={_APPLICATION_ID}')
+                connection.execute(f'PRAGMA user_version={_USER_VERSION}')
+                connection.execute(_SCHEMA)
+                raw = serialize_initial(connection, application_id=_APPLICATION_ID, version=_USER_VERSION,
+                    definitions={'approval_evidence': _SCHEMA}, counts={'approval_evidence': 0})
+            finally:
+                connection.close()
+            return target.publish(raw)
+
+    @classmethod
+    def inspect_initialization(cls, database, *, approved_root, expected_file_identity):
+        """Inspect a pristine native Approval database without creating evidence."""
+        from hashlib import sha256
+        guard = _ExistingMutableGuard(database, approved_root, expected_file_identity)
+        store = object.__new__(cls)
+        store._closed = True
+        store._database_path = Path(guard.path)
+        store._file_identity = expected_file_identity
+        store._existing_mutable_guard = guard
+        metadata = os.fstat(guard.fds[-1])
+        version = (metadata.st_size, metadata.st_mtime_ns, metadata.st_ctime_ns)
+        try:
+            store._connection = sqlite3.connect(store._database_path.as_uri() + '?mode=ro&cache=private',
+                                               uri=True, isolation_level=None)
+            store._closed = False
+            guard.check(idle=True)
+            store._connection.execute('PRAGMA query_only=ON')
+            store._configure_connection()
+            store._validate_open_database()
+            store._connection.execute('BEGIN')
+            if store._connection.execute('SELECT count(*) FROM approval_evidence').fetchone()[0] != 0:
+                raise ApprovalPersistenceIntegrityError('approval store is not initial')
+            definitions = dict(store._connection.execute(
+                "SELECT name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'"))
+            state = dict(schema='auto-g16-native-initial-store-state/1', role='approval',
+                file_identity=list(expected_file_identity), schema_version=_USER_VERSION,
+                schema_sha256=sha256(json.dumps(definitions, sort_keys=True,
+                    separators=(',', ':'), allow_nan=False).encode()).hexdigest(),
+                owner_state=dict(evidence_count=0))
+            guard.check(idle=True)
+            store.close()
+            guard.check(idle=True)
+            metadata = os.fstat(guard.fds[-1])
+            if (metadata.st_size, metadata.st_mtime_ns, metadata.st_ctime_ns) != version:
+                raise ApprovalPersistenceIntegrityError('initial approval changed during inspection')
+            return state
+        finally:
+            try:
+                store.close()
+            finally:
+                guard.close()
+
+    @classmethod
     @contextmanager
     def open_existing_mutable(cls, database, *, approved_root, expected_file_identity):
         """Open a pinned existing Approval store without creation or recovery.

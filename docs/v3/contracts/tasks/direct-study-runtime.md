@@ -2,7 +2,8 @@
 
 Status: section 1 independently reviewed and frozen for local Core implementation
 on 2026-10-12; section 1A is independently reviewed and frozen for local Approval implementation;
-sections 2 onward remain DRAFT. No live activation authority.
+section 4 is frozen for local initialization after independent author/reviewer
+inspection on 2026-10-12; sections 2, 3 and 5 onward remain DRAFT. No live activation authority.
 Within BUTANE-RELIABILITY-UNIFIED-E2E-01 and its four-part continuation. This
 subcontract closes the smallest xTB vertical path, not the six-stage Study.
 Only this new document is edited by its author. Owner/boundary authority and
@@ -247,13 +248,15 @@ A crash between runtime receipt and registry append leaves a local unregistered
 runtime; explicit publication can adopt that exact receipt without rerunning it.
 Reads never complete publication. No lock stealing or implicit process restart.
 
-## 4. Proposed independently implementable local initialization slice
+## 4. Independently implementable local initialization slice
 
-Status: DRAFT, awaiting independent review; not frozen by §§1/1A. Drafting
-base 1f747026a64af4e6ee9cb0d3f3a3500d9e4df775, same owned worktree/task,
-read-only development preflight PASS on 2026-10-12. This section replaces the
-previous incomplete initialization description. Only its local preparation and
-explicit adoption are candidates for the next implementation slice.
+Status: frozen for the local-only implementation described here, independently
+reviewed against native owners on 2026-10-12 after drafting at
+1f747026a64af4e6ee9cb0d3f3a3500d9e4df775. Implementation starts from
+be7c353a9a9310d4d90f8a4826b81c4567fcd92b with read-only preflight PASS.
+This same-scope Owner continuation retains commit/publication/review authority,
+requires the stated fault matrix, and leaves every installation/live gate intact.
+Only local initialization and explicit adoption are frozen here.
 
 ### 4.1 Entry, identities and excluded effects
 
@@ -396,13 +399,44 @@ never be reconstructed or replaced. Event 1 binds the current runtime image
 generator separately. An unacknowledged runtime Core image with a changed
 generator is unresolved even if its selected six records happen to match.
 
-Approval uses SQLiteApprovalStore(path) only for an absent intent-bound target.
-Transport uses _ProgramTransportStore._create_completion_store(path,
-approved_root=runtime); Project uses _ProductionProvisioningJournal.
-create_new_recoverable(path,approved_root=runtime). Preserve their native schema,
-random nonce/store identity and no-overwrite checks; no manual SQL initialization.
-Close each creator fully before running its initial-state reader. These calls
-initialize local stores only; no provisioning service/driver is constructed.
+Approval, Transport and Project each add the narrow native entry
+`create_initialization_at(database, *, approved_root, parent_chain)`. It accepts
+only its fixed runtime basename, immediately under approved_root. parent_chain
+is the exact full root-through-parent ordered [device,inode] sequence already
+held by Study, with non-bool integers. A private mechanical helper in
+`auto_g16/_initialization_file.py` may implement retained descriptor reservation
+and byte publication; schema generation/validation remains in each native owner.
+This is not a general database export or caller-supplied builder API.
+
+Before reserving anything, the owner walks/holds the full no-follow chain and
+compares it with parent_chain. Transport additionally acquires its original
+native directory guard and verifies its component identities. Reserve exactly
+once through the held parent FD using O_RDWR|O_CREAT|O_EXCL|O_NOFOLLOW, mode 0600.
+Hold the target FD through exit. No disk SQLite connect, path reopen for writing,
+truncate, rename, overwrite or fallback is permitted. Build the original native
+schema in SQLite memory, retaining native application/version, exact DDL and
+triggers. Approval has zero evidence; Transport v2 uses its actual 32-byte nonce,
+native store/instance algorithms and original guard binding; Project v3 has its
+actual random nonce/meta. Paths/root and dev/inode in metadata bind this reserved
+file. Do not fake disk connection policy to reuse disk-only attestations.
+
+Commit and validate the memory image's exact schema, full initial rows,
+integrity and foreign keys before serialize. Publish at most 16 MiB solely
+through the retained target FD with short-write handling, fsync it and its
+original parent, verify length/hash, and recheck the entire named/held chain.
+Any drift or interruption fails; never write a replacement object or delete
+original residual bytes. Only {file_identity,size_bytes,sha256} may be returned,
+not a store handle, approval or initialization-completion claim. Study then uses
+the separate native inspector. A missing receipt never allows truncating or
+rewriting an existing reserved file. This necessary descriptor-bound correction
+was independently reviewed on 2026-10-12; it supersedes the earlier path-only
+creator plan without enabling production execution.
+
+Required additional negatives: parent replacement after entering creator,
+target replacement after reservation, serialization/short-write/interruption/
+fsync/exit failures, repeated creation and zero writes to replacement objects.
+Existing native readers must accept each complete image unchanged. Existing
+production creators and their validators keep their behavior.
 
 Add narrowly owned classmethod `inspect_initialization(database, *,
 approved_root, expected_file_identity)` to each of the four store classes.

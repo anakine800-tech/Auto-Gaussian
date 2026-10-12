@@ -423,6 +423,101 @@ class _ProgramTransportStore:
         raise TypeError("use _ProgramTransportStore.create_new/open_existing")
 
     @classmethod
+    def create_initialization_at(cls, database, *, approved_root, parent_chain):
+        """Create local v2 metadata in memory; never issue disk SQLite DDL."""
+        from auto_g16._initialization_file import reserve, serialize_initial
+        _require_store_process()
+        path, root = os.fspath(database), os.fspath(approved_root)
+        with _directory_guard(path, root) as (binding, _fd, _lock):
+            if binding['component_identities'] != parent_chain:
+                raise TransportBoundaryError('initial parent binding differs')
+            with reserve(path, approved_root=root, parent_chain=parent_chain,
+                         filename='transport.sqlite3') as target:
+                nonce = secrets.token_bytes(32)
+                payload = dict(schema=_COMPLETION_STORE_SCHEMA, approved_store_root=root, approved_store_path=path)
+                store_id = _identity('program-transport-store', payload)
+                instance_id = _identity('program-transport-store-instance', {
+                    **payload, 'program_transport_store_id': store_id,
+                    'creation_nonce_sha256': sha256(nonce).hexdigest(),
+                    'store_device': target.physical[0], 'store_inode': target.physical[1],
+                    'completion_guard_binding_sha256': _digest(binding)})
+                connection = sqlite3.connect(':memory:', isolation_level=None)
+                try:
+                    connection.execute('PRAGMA foreign_keys=ON')
+                    connection.execute(f'PRAGMA application_id={_PROGRAM_STORE_APPLICATION_ID}')
+                    connection.execute('PRAGMA user_version=2')
+                    connection.execute('BEGIN')
+                    for statement in (*_COMPLETION_STORE_DDL, *(s for _n, s in _PROGRAM_STORE_TRIGGERS)):
+                        connection.execute(statement)
+                    values = (_COMPLETION_STORE_SCHEMA_IDENTITY, store_id, instance_id, nonce,
+                              root, path, *target.physical, canonical_bytes(binding))
+                    connection.execute('INSERT INTO program_transport_meta VALUES(1,?,?,?,?,?,?,?,?,?)', values)
+                    connection.execute('COMMIT')
+                    if connection.execute('SELECT * FROM program_transport_meta').fetchall() != [(1, *values)]:
+                        raise TransportBoundaryError('initial metadata differs')
+                    raw = serialize_initial(connection, application_id=_PROGRAM_STORE_APPLICATION_ID, version=2,
+                        definitions={**dict(zip(_PROGRAM_STORE_TABLES, _COMPLETION_STORE_DDL)), **dict(_PROGRAM_STORE_TRIGGERS)},
+                        counts=dict(program_transport_meta=1, program_runtime_attestation=0, program_effect_physical_authority=0))
+                finally:
+                    connection.close()
+                return target.publish(raw)
+
+    @classmethod
+    def inspect_initialization(cls, database, *, approved_root, expected_file_identity):
+        """Inspect only a quiescent, empty completion-capable native store."""
+        import json
+        path, root = os.fspath(database), os.fspath(approved_root)
+        if (type(expected_file_identity) is not tuple or len(expected_file_identity) != 2
+                or any(type(v) is not int for v in expected_file_identity)
+                or expected_file_identity[0] < 0 or expected_file_identity[1] < 1):
+            raise TransportBoundaryError('invalid initial store identity')
+        with _directory_walk(path, root) as (binding, parent_fd):
+            before = _readonly_source_state(path, root)
+            if before[0] != binding or before[1:3] != expected_file_identity:
+                raise TransportBoundaryError('initial store identity differs')
+            fd = os.open(Path(path).name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent_fd)
+            store = None
+            try:
+                if (os.fstat(fd).st_dev, os.fstat(fd).st_ino) != expected_file_identity:
+                    raise TransportBoundaryError('initial store changed before open')
+                store = cls._open_readonly_existing(path, approved_root=root)
+                with store._store_access(), store._lock:
+                    store._attest_locked()
+                    if store._version != 2:
+                        raise TransportBoundaryError('initial completion store requires v2')
+                    connection = store._connection
+                    connection.execute('BEGIN')
+                    if (connection.execute('PRAGMA integrity_check').fetchall() != [('ok',)]
+                            or connection.execute('PRAGMA foreign_key_check').fetchall()):
+                        raise TransportBoundaryError('initial store integrity failed')
+                    definitions = dict(connection.execute(
+                        "SELECT name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'"))
+                    counts = {name: connection.execute(f'SELECT count(*) FROM "{name}"').fetchone()[0]
+                              for name in _PROGRAM_STORE_TABLES}
+                    if counts != dict(program_transport_meta=1, program_runtime_attestation=0,
+                                      program_effect_physical_authority=0):
+                        raise TransportBoundaryError('transport store is not initial')
+                    state = dict(schema='auto-g16-native-initial-store-state/1', role='transport',
+                        file_identity=list(expected_file_identity), schema_version=2,
+                        schema_sha256=sha256(json.dumps(definitions, sort_keys=True,
+                            separators=(',', ':'), allow_nan=False).encode()).hexdigest(),
+                        owner_state=dict(program_transport_store_id=store.program_transport_store_id,
+                            store_instance_id=store.store_instance_id, table_counts=counts))
+                    connection.execute('ROLLBACK')
+                    store._attest_locked()
+                store.close()
+                if (_readonly_source_state(path, root) != before
+                        or (os.fstat(fd).st_dev, os.fstat(fd).st_ino) != expected_file_identity):
+                    raise TransportBoundaryError('initial store changed during inspection')
+                return state
+            finally:
+                try:
+                    if store is not None:
+                        store.close()
+                finally:
+                    os.close(fd)
+
+    @classmethod
     def create_new(
         cls,
         path: str | os.PathLike[str],

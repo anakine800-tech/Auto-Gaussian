@@ -997,6 +997,115 @@ class _ProductionProvisioningJournal(_ProvisioningJournal):
         raise TypeError("use create_new/open_existing with a reviewed local root")
 
     @classmethod
+    def create_initialization_at(cls, database, *, approved_root, parent_chain):
+        """Create the original v3 journal image through its retained target FD."""
+        from auto_g16._initialization_file import reserve, serialize_initial
+        path, root = os.fspath(database), os.fspath(approved_root)
+        with reserve(path, approved_root=root, parent_chain=parent_chain,
+                     filename='project-journal.sqlite3') as target:
+            connection = sqlite3.connect(':memory:', isolation_level=None)
+            try:
+                connection.execute('PRAGMA foreign_keys=ON')
+                connection.execute(f'PRAGMA application_id={_APPLICATION_ID}')
+                connection.execute('PRAGMA user_version=3')
+                connection.execute('BEGIN')
+                for statement in _RECOVERABLE_DDL:
+                    connection.execute(statement)
+                meta = _canonical_json(dict(nonce=secrets.token_hex(32), root=root, path=path,
+                                            device=target.physical[0], inode=target.physical[1]))
+                connection.execute('INSERT INTO provisioning_meta VALUES(1,?)', (meta,))
+                connection.execute('COMMIT')
+                if connection.execute('SELECT * FROM provisioning_meta').fetchall() != [(1, meta)]:
+                    raise ExecutionValueError('initial journal metadata differs')
+                raw = serialize_initial(connection, application_id=_APPLICATION_ID, version=3,
+                    definitions={s.split()[2].split('(', 1)[0]: s for s in _RECOVERABLE_DDL},
+                    counts=dict(provisioning_meta=1, project_physical_bindings=0, provisioning_intents=0, provisioning_results=0))
+            finally:
+                connection.close()
+            return target.publish(raw)
+
+    @classmethod
+    def inspect_initialization(cls, database, *, approved_root, expected_file_identity):
+        """Read an empty v3 creation journal under retained local physical pins."""
+        from hashlib import sha256
+        path, root = os.fspath(database), os.fspath(approved_root)
+        for value in (path, root):
+            if (type(value) is not str or not os.path.isabs(value) or value != os.path.abspath(value)
+                    or '//' in value or value.endswith('/') or '\x00' in value):
+                raise ExecutionValueError('initial journal path is not canonical')
+        if (path == root or os.path.commonpath((path, root)) != root
+                or type(expected_file_identity) is not tuple or len(expected_file_identity) != 2
+                or any(type(v) is not int for v in expected_file_identity)
+                or expected_file_identity[0] < 0 or expected_file_identity[1] < 1):
+            raise ExecutionValueError('invalid initial journal containment or identity')
+        parts, fds, store = Path(path).parts, [], None
+        def check():
+            for i, (part, fd, physical) in enumerate(zip(parts, fds, identities)):
+                opened = os.fstat(fd)
+                named = os.stat(part, dir_fd=fds[i-1] if i else None, follow_symlinks=False)
+                final = i == len(parts) - 1
+                valid = (stat.S_ISREG(named.st_mode) and stat.S_ISREG(opened.st_mode)
+                         and named.st_nlink == opened.st_nlink == 1) if final else (
+                         stat.S_ISDIR(named.st_mode) and stat.S_ISDIR(opened.st_mode))
+                if not valid or (named.st_dev, named.st_ino) != physical or (opened.st_dev, opened.st_ino) != physical:
+                    raise ExecutionValueError('initial journal physical identity changed')
+            for suffix in ('-wal', '-shm', '-journal'):
+                try:
+                    os.stat(parts[-1] + suffix, dir_fd=fds[-2], follow_symlinks=False)
+                except FileNotFoundError:
+                    continue
+                raise ExecutionValueError('initial journal has a sidecar')
+        try:
+            flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC
+            for part in parts[:-1]:
+                fds.append(os.open(part, flags | os.O_DIRECTORY, dir_fd=fds[-1] if fds else None))
+            fds.append(os.open(parts[-1], flags | os.O_NONBLOCK, dir_fd=fds[-1]))
+            identities = tuple((os.fstat(fd).st_dev, os.fstat(fd).st_ino) for fd in fds)
+            if identities[-1] != expected_file_identity:
+                raise ExecutionValueError('initial journal identity differs')
+            metadata = os.fstat(fds[-1])
+            version = (metadata.st_size, metadata.st_mtime_ns, metadata.st_ctime_ns)
+            check()
+            header = os.pread(fds[-1], 100, 0)
+            if (len(header) != 100 or header[:16] != b'SQLite format 3\x00'
+                    or header[18:20] != b'\x01\x01' or int.from_bytes(header[60:64], 'big') != 3
+                    or int.from_bytes(header[68:72], 'big') != _APPLICATION_ID):
+                raise ExecutionValueError('initial journal requires recoverable rollback schema')
+            store = cls.open_existing_readonly(Path(path), approved_root=Path(root))
+            check()
+            store._connection.execute('BEGIN')
+            store._attest()
+            if (store._connection.execute('PRAGMA integrity_check').fetchall() != [('ok',)]
+                    or store._connection.execute('PRAGMA foreign_key_check').fetchall()):
+                raise ExecutionValueError('initial journal integrity failed')
+            definitions = dict(store._connection.execute(
+                "SELECT name,sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%'"))
+            counts = {name: store._connection.execute(f'SELECT count(*) FROM "{name}"').fetchone()[0] for name in (
+                'provisioning_meta', 'project_physical_bindings', 'provisioning_intents', 'provisioning_results')}
+            if counts != dict(provisioning_meta=1, project_physical_bindings=0, provisioning_intents=0, provisioning_results=0):
+                raise ExecutionValueError('Project journal is not initial')
+            state = dict(schema='auto-g16-native-initial-store-state/1', role='project',
+                file_identity=list(expected_file_identity), schema_version=3,
+                schema_sha256=sha256(json.dumps(definitions, sort_keys=True,
+                    separators=(',', ':'), allow_nan=False).encode()).hexdigest(),
+                owner_state=dict(journal_id=store._identity, table_counts=counts))
+            store._attest()
+            check()
+            store.close()
+            check()
+            metadata = os.fstat(fds[-1])
+            if (metadata.st_size, metadata.st_mtime_ns, metadata.st_ctime_ns) != version:
+                raise ExecutionValueError('initial journal changed during inspection')
+            return state
+        finally:
+            try:
+                if store is not None:
+                    store.close()
+            finally:
+                for fd in reversed(fds):
+                    os.close(fd)
+
+    @classmethod
     def create_new(cls, path: Path, *, approved_root: Path) -> _ProductionProvisioningJournal:
         return cls._open(path, approved_root=approved_root, create=True)
 

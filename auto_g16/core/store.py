@@ -410,6 +410,68 @@ class SQLiteRuntimeStore:
         self._connect(database)
 
     @classmethod
+    def inspect_initialization(cls, database, *, approved_root, expected_file_identity, expected_records):
+        """Return only an exact six-record initial state, without a writable open."""
+        from dataclasses import fields, is_dataclass
+        from hashlib import sha256
+
+        def plain(value):
+            if is_dataclass(value):
+                return {f.name: plain(getattr(value, f.name)) for f in fields(value)}
+            if isinstance(value, Mapping):
+                return {k: plain(v) for k, v in value.items()}
+            if isinstance(value, (tuple, list)):
+                return [plain(v) for v in value]
+            return value
+
+        def encoded(value):
+            return json.dumps(plain(value), sort_keys=True, separators=(',', ':'), allow_nan=False).encode()
+
+        kinds = (Project, WorkflowRun, Task, CalculationPlan, ResourceSpec, Attempt)
+        if (type(expected_records) is not tuple or len(expected_records) != len(kinds)
+                or any(type(r) is not k for r, k in zip(expected_records, kinds))):
+            raise RuntimeStoreError('six typed initial records required')
+        guard = _ExistingMutableGuard(database, approved_root, expected_file_identity)
+        info = os.fstat(guard.fds[-1])
+        version = (info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+        try:
+            with cls.read_snapshot(guard.path) as store:
+                connection = store._db()
+                if [r[0] for r in connection.execute('PRAGMA integrity_check')] != ['ok']:
+                    raise RuntimeStoreSchemaError('initial store integrity failed')
+                loaders = (store.load_project, store.load_workflow_run, store.load_task,
+                           store.load_calculation_plan, store.load_resource_spec, store.load_attempt)
+                actual = tuple(load(getattr(r, fields(r)[0].name)) for load, r in zip(loaders, expected_records))
+                if encoded(actual) != encoded(expected_records):
+                    raise RuntimeStoreError('initial records differ')
+                definitions = dict((r[0], r[1]) for r in connection.execute(
+                    "SELECT name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'"))
+                tables = [r[0] for r in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")]
+                counts = {name: connection.execute(f'SELECT count(*) FROM "{name}"').fetchone()[0]
+                          for name in tables}
+                if {name: n for name, n in counts.items() if n} != {name: 1 for name in (
+                        'projects', 'workflow_runs', 'tasks', 'calculation_plans', 'resource_specs', 'attempts')}:
+                    raise RuntimeStoreError('initial store contains other records')
+                attempt = expected_records[-1]
+                if (store.attempt_state(attempt.attempt_id) != AttemptState.PLANNED
+                        or store.load_submission_intent(attempt.attempt_id) is not None):
+                    raise RuntimeStoreError('initial Attempt is no longer planned')
+                state = dict(schema='auto-g16-native-initial-store-state/1', role='core',
+                    file_identity=list(expected_file_identity), schema_version=SCHEMA_VERSION,
+                    schema_sha256=sha256(encoded(definitions)).hexdigest(), owner_state=dict(
+                        table_counts=counts, records=[dict(kind=type(r).__name__,
+                            id=getattr(r, fields(r)[0].name), sha256=sha256(encoded(r)).hexdigest()) for r in actual]))
+                guard.check(idle=True)
+            guard.check(idle=True)
+            info = os.fstat(guard.fds[-1])
+            if (info.st_size, info.st_mtime_ns, info.st_ctime_ns) != version:
+                raise RuntimeStoreError('initial store changed during inspection')
+            return state
+        finally:
+            guard.close()
+
+    @classmethod
     @contextmanager
     def open_existing_mutable(cls, database, *, approved_root, expected_file_identity):
         """Open a quiescent existing native store under the caller's Study lock.
