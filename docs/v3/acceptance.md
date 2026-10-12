@@ -198,3 +198,7 @@ complete contract text; this list contains no replacement policy.
 <a id="v31-project-profile-association"></a>
 
 - [Bounded Project Q7-to-Q8 profile association](contracts/tasks/project-profile-association.md): Owner-accepted offline implementation boundary. Original recoverable creation journal remains read-only; a separate registered proof binds the effective Project identity. Installation, native OBSERVE qualification and scientific execution remain separate. Acceptance requires full loader/receipt and two-stage source replay in addition to focused owner checks.
+
+<a id="v31-presubmit-unknown-recovery-acceptance"></a>
+
+- [V31 pre-submit UNKNOWN recovery acceptance](presubmit-unknown-recovery.md#integration-acceptance): retain original receipts and physical effects, reject uncertain allocation/qsub and incomplete histories, prove actual process interruption and fresh-process replay with zero effect calls, then bind candidate checks and independently accepted historical target evidence. This does not qualify a new Study execution coordinator.

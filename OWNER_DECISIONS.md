@@ -1612,3 +1612,18 @@ The same runtime continuation freezes the narrow
 It rejects partial stores and journal recovery, uses the existing native schema
 and transactions, and adds no remote authority or automatic retry. The remaining
 runtime/session installation draft is not activated by this local interface.
+
+## Pre-submit UNKNOWN recovery integration continuation
+
+On 2026-10-12 Owner explicitly requested completion of the unified execution
+entry, frontend, engineering integration/deployment and fresh E2E. This
+OWNER-GUIDED, non-BUS dependency continues in its existing isolated
+`codex/presubmit-unknown-recovery` worktree at base `b4c7ccb5`. The
+[bounded recovery contract](docs/v3/presubmit-unknown-recovery.md#integration-continuation)
+is adopted for exact local pre-submit reconciliation only. Engineering
+integration and deployment follow independent review and required checks;
+this dependency implementer is delegated only local edits, offline validation
+and evidence handoff. No scientific/live execution is authorized here. The
+original consumed Attempt never resumes, and child creation/submission remains
+explicitly approved through the sole execution owner. Historical target evidence
+is reusable only with its exact source and claim binding accepted at review.

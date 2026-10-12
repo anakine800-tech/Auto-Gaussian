@@ -1209,6 +1209,26 @@ class _ProgramTransportStore:
         )
         return identity
 
+    def _require_complete_effect_history(self, binding, receipts):
+        """Read-only exact set closure; reject physical effects missing in Core."""
+        self._require_current_completion_owner()
+        expected = set()
+        for receipt in receipts:
+            identity = self.require_matching_effect(
+                binding=receipt["request"]["binding"], request=receipt["request"],
+                classification=receipt["outcome"], response=receipt["response"],
+                job_id=receipt["response"].get("job_id"))
+            expected.add((identity, receipt["operation"], receipt["request_sha256"],
+                          receipt["outcome"], None, None))
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT physical_effect_authority_id,operation,request_sha256,effect_classification,job_id,submit_once_key FROM program_effect_physical_authority "
+                "WHERE attempt_id=? OR program_execution_snapshot_id=? OR effect_intent_id=?",
+                (binding["attempt_id"], binding["program_execution_snapshot_id"], binding["effect_intent_id"]),
+            ).fetchall()
+        if len(expected) != len(receipts) or {tuple(row) for row in rows} != expected:
+            raise TransportBoundaryError("physical effect history differs from complete Core prefix")
+
     def require_matching_effect(
         self,
         *,
