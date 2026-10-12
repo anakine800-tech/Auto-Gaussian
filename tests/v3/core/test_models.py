@@ -103,6 +103,7 @@ class PublicInterfaceTests(unittest.TestCase):
             "contextlib",
             "dataclasses",
             "enum",
+            "hashlib",
             "json",
             "math",
             "os",
