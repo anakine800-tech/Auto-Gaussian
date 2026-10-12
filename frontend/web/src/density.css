@@ -1,0 +1,110 @@
+/* Compact evidence workspace. Molecular display, animation and measurement
+   controls retain their original sizing; only surrounding information contracts. */
+header { height:54px; padding-inline:24px; }
+main { padding:16px 24px 32px; }
+.read-time { margin-bottom:8px; }
+.page-heading { padding:0; margin:4px 0 14px; }
+.page-heading h1 { font-size:26px; margin:4px 0 6px; }
+.page-heading p { margin:4px 0; }
+.back { margin-bottom:6px; }
+.panel,.project-card { padding:16px 18px; margin-bottom:12px; border-radius:10px; }
+.panel>h2,.project-card h2 { margin:2px 0 6px; }
+.panel>p,.project-card>p { margin:6px 0; font-size:12px; }
+.notice { padding:8px 12px; margin:10px 0 14px; }
+.field { padding:6px 0; gap:10px; }
+.field dd small { margin-top:2px; }
+.section-heading:not(.molecule-section *) { margin:16px 0 10px; }
+.panel .section-heading:not(.molecule-section *) { margin:0 0 8px; }
+.card-top { gap:12px; }
+.card-top h2 { font-size:18px; margin:2px 0 4px; }
+.stats { padding:10px 0; margin:12px 0; align-items:center; }
+.project-card .stats { margin:12px 0 6px; }
+.stats>div { padding:0 18px; min-width:110px; }
+.stats strong { font-size:24px; }
+.stats .state-summary { grid-template-columns:repeat(4,minmax(85px,1fr)); gap:4px 18px; }
+.state-summary span { min-width:0; overflow-wrap:anywhere; gap:8px; }
+.state-summary b { flex-shrink:0; min-width:12px; text-align:right; }
+.browse-controls { padding:10px 12px; gap:10px; margin:10px 0; border-radius:8px; }
+.browse-controls label,.project-selector label { gap:3px; }
+.browse-controls input,.browse-controls select,.project-selector select { padding:6px 10px; font-size:12px; }
+.project-selector { margin:12px 0; gap:12px; }
+.pagination { margin:10px 0 14px; gap:8px; }
+.pagination button { padding:4px 12px; }
+.view-switch { padding:3px; gap:3px; margin:4px 0 10px; border-radius:8px; }
+.view-switch button { padding:6px 16px; }
+.section-nav { gap:4px; margin-bottom:12px; padding-bottom:8px; }
+.table-scroll { margin-top:12px; }
+table { font-size:12px; }
+th { padding:7px 10px; }
+td,.science-tables td { padding:8px 10px; }
+td small,td code { margin-top:2px; }
+td code { font-size:10px; }
+.detail-grid { gap:12px; margin-bottom:12px; }
+.detail-grid>.panel { min-height:0; }
+.detail-grid h2 { margin-bottom:8px; }
+.detail-evidence { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin-bottom:12px; align-items:start; }
+.detail-evidence>.panel { min-width:0; margin:0; }
+.detail-evidence>.panel:first-child,.detail-evidence>#raw-log-section { grid-column:1/-1; }
+.result-panel [data-testid=result-facts],[data-testid=archive-facts] { grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; margin:10px 0; }
+.result-panel [data-testid=result-facts] .field,[data-testid=archive-facts] .field { padding:8px 10px; border-radius:6px; }
+.result-panel [data-testid=result-facts] dd,[data-testid=archive-facts] dd { margin-top:2px; font-size:14px; }
+.science-tables { gap:20px; padding:14px 0; }
+.science-tables h3 { margin:6px 0; }
+.science-tables .field { gap:10px; }
+.science-tables dd { font-size:13px; }
+.review-verdict { padding:10px 12px; gap:10px; border-radius:7px; }
+.resource-cards { grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; margin:10px 0; }
+.resource-cards>div { padding:8px 10px; border-radius:6px; }
+.resource-cards strong { font-size:18px; }
+.receipt-timeline { padding:4px 0; }
+.receipt-timeline li { padding-bottom:12px; }
+.log { padding:10px 0; }
+.provenance-card { margin:12px 0 16px; padding:12px 14px; border-radius:8px; }
+.provenance-card>p { margin:6px 0; font-size:12px; }
+.provenance-grid { grid-template-columns:repeat(3,minmax(0,1fr)); gap:0 20px; }
+.provenance-grid dd { margin:3px 0 0; }
+.provenance-grid code { font-size:11px; }
+.evidence-levels { gap:14px; margin:10px 0 6px; }
+.evidence-levels>div { padding:6px 0; border-top-width:2px; }
+.evidence-levels strong { font-size:12px; }
+.evidence-levels p { margin:3px 0; }
+.empty { padding:32px 18px; margin:12px 0; }
+.empty.compact { padding:14px; }
+footer { padding:12px 24px; }
+@media(min-width:1101px) {
+  aside { width:210px; padding:24px 18px; }
+  .workspace { margin-left:210px; width:calc(100% - 210px); }
+  .nav-label { margin:32px 12px 12px; }
+}
+@media(max-width:1100px) {
+  .stats .state-summary { grid-template-columns:repeat(2,minmax(85px,1fr)); gap:3px 14px; }
+  .provenance-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .detail-evidence { grid-template-columns:minmax(0,1fr); }
+  .result-panel [data-testid=result-facts],[data-testid=archive-facts] { grid-template-columns:repeat(3,minmax(0,1fr)); }
+}
+@media(max-width:740px) {
+  aside { padding:12px 14px; gap:10px; }
+  header { height:48px; padding-inline:14px; }
+  main { padding:12px 12px 24px; }
+  .read-time { margin-bottom:8px; }
+  .page-heading h1 { font-size:24px; }
+  .panel,.project-card { padding:14px; }
+  .stats { row-gap:10px; }
+  .stats>div { padding:0 12px; }
+  .stats .state-summary { padding-top:10px; }
+  .provenance-card { padding:10px; }
+  .provenance-grid { grid-template-columns:minmax(0,1fr); }
+  .provenance-grid .field { display:grid; grid-template-columns:90px minmax(0,1fr); gap:8px; }
+  .provenance-grid dd { margin:0; }
+  .evidence-levels { grid-template-columns:minmax(0,1fr); gap:6px; }
+  .evidence-levels>div { display:grid; grid-template-columns:90px minmax(0,1fr); gap:8px; }
+  .evidence-levels p { margin:0; }
+  .result-panel [data-testid=result-facts],[data-testid=archive-facts] { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .result-panel [data-testid=result-facts] .field,[data-testid=archive-facts] .field { padding:8px; font-size:11px; }
+  .result-panel [data-testid=result-facts] dd,[data-testid=archive-facts] dd { font-size:12px; }
+  .browse-controls { padding:10px; gap:8px; }
+  .browse-controls input,.browse-controls select,.project-selector select { min-height:36px; }
+  .pagination button { min-height:36px; }
+  .view-switch button { padding:7px 12px; }
+  footer { padding:12px 14px; }
+}

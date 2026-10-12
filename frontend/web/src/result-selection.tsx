@@ -1,0 +1,10 @@
+import {useEffect,useState} from 'react';
+import {routeLink} from './navigation';
+export type SelectedResult={kind:'archive'|'attempt';id:string;title:string;project?:string};
+const key='autog-result-selection/1',event='autog-selection-changed';
+export function parseSelection(raw:string|null):SelectedResult[]{try{const v=JSON.parse(raw??'[]');return Array.isArray(v)&&v.length<=100&&v.every(r=>r&&['archive','attempt'].includes(r.kind)&&typeof r.id==='string'&&r.id.length<=512&&typeof r.title==='string'&&r.title.length<=1024&&(r.project===undefined||typeof r.project==='string'))?v:[];}catch{return [];}}
+const read=()=>{try{return parseSelection(sessionStorage.getItem(key));}catch{return [];}};
+function write(value:SelectedResult[]){try{sessionStorage.setItem(key,JSON.stringify(value));dispatchEvent(new Event(event));}catch{/* Local selection can be unavailable without changing any results. */}}
+function useSelection(){const [value,setValue]=useState(read);useEffect(()=>{const update=()=>setValue(read());addEventListener(event,update);return()=>removeEventListener(event,update);},[]);return value;}
+export function SelectResult({item}:{item:SelectedResult}){const selected=useSelection();const checked=selected.some(r=>r.kind===item.kind&&r.id===item.id);return <input type="checkbox" aria-label={'选择结果 '+item.title} checked={checked} onChange={e=>write(e.target.checked?[...selected.filter(r=>r.kind!==item.kind||r.id!==item.id),item].slice(-100):selected.filter(r=>r.kind!==item.kind||r.id!==item.id))}/>;}
+export function SelectionActions(){const items=useSelection();if(!items.length)return null;const project=items.every(r=>r.project===items[0].project)?items[0].project:undefined;return <div className="selection-actions" aria-label="已选结果"><strong>已选 {items.length} 条结果</strong><a href={routeLink('#/analysis',{tab:'compare',project,selection:JSON.stringify(items)})}>比较选中结果 →</a><a href={routeLink('#/analysis',{tab:'thermo',project,selection:JSON.stringify(items)})}>热化学工具 →</a><button onClick={()=>write([])}>清除选择</button><small>仅记录浏览选择，不修改结果</small></div>;}

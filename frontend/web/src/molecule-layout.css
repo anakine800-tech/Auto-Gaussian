@@ -1,0 +1,84 @@
+/* Keep the model separate from controls so scrolling the page stays predictable. */
+.molecule-viewer { display:grid; grid-template-columns:minmax(0,1.15fr) minmax(300px,1fr); align-items:start; gap:20px; }
+.molecule-viewport,.molecule-tools { min-width:0; }
+.molecule-stage svg { max-width:520px; touch-action:pan-y pinch-zoom; }
+.molecule-stage svg.touch-interaction { touch-action:none; }
+.molecule-tools { border-left:1px solid #e0d5e8; padding-left:20px; }
+.molecule-tools .molecule-toolbar { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; padding-bottom:10px; }
+.molecule-tools .molecule-toolbar select { width:100%; padding:6px 8px; font-size:12px; }
+.molecule-tools .molecule-toolbar .check-control { padding:0; }
+.molecule-tools .molecule-toolbar button { margin:0; grid-column:1/-1; justify-self:start; }
+.molecule-tools .molecule-controls { gap:6px; margin:10px 0; }
+.molecule-tools .molecule-controls button { padding:6px 10px; }
+.molecule-tools .molecule-controls>label { flex-basis:100%; }
+.molecule-tools .measurement { gap:10px; padding:10px 12px; margin-top:10px; }
+.molecule-tools .measurement>label { width:100%; }
+.molecule-tools .measurement>label select { display:block; width:100%; margin-top:4px; }
+.molecule-tools .measurement>div { width:100%; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+.molecule-tools .measurement output { margin:0; font-size:17px; }
+.molecule-tools .measurement button { margin-left:auto; }
+.molecule-tools .vibration-controls { padding:10px; gap:8px; }
+.molecule-tools .vibration-controls label { flex-basis:140px; }
+.touch-toggle { display:flex; flex-wrap:wrap; gap:6px; align-items:center; font-size:11px; color:#715e7b; }
+.touch-toggle input { accent-color:#702879; }
+.touch-toggle span { color:#83758b; }
+.molecule-viewport .model-hint { margin:10px 0 0; }
+.expanded-view { grid-template-columns:minmax(0,2fr) minmax(280px,1fr); }
+.expanded-view .molecule-stage svg { max-width:800px; }
+@media(max-width:1100px) {
+  .molecule-viewer,.molecule-viewer.expanded-view { grid-template-columns:minmax(0,1fr); gap:14px; }
+  .molecule-tools { border-left:0; border-top:1px solid #e0d5e8; padding:14px 0 0; }
+}
+@media(max-width:740px) {
+  .molecule-tools .molecule-toolbar>label { min-width:0; }
+  .molecule-tools .molecule-toolbar button { width:auto; }
+  .molecule-tools .molecule-controls>label { min-width:0; }
+  .molecule-tools .measurement select { max-width:100%; }
+}
+
+/* Compact viewer workbench: scientific review is a separate disclosure below. */
+.science-detail .molecule-section { margin:10px 0 6px; }
+.molecule-section .section-heading { margin:0 0 6px; gap:8px; align-items:center; }
+.molecule-section .section-heading h3 { margin:2px 0; font-size:16px; }
+.molecule-section .section-heading .eyebrow { display:none; }
+.molecule-section .section-heading>label { display:flex; align-items:center; gap:8px; font-size:11px; }
+.molecule-section .section-heading select { padding:5px 8px; }
+.molecule-section>p.muted { margin:4px 0 8px; font-size:11px; }
+.molecule-viewer { padding:10px; gap:12px; grid-template-columns:minmax(0,1fr) minmax(320px,1fr); border-radius:8px; }
+.molecule-tools { padding-left:12px; }
+.molecule-tools .molecule-toolbar { gap:6px 8px; padding-bottom:6px; grid-template-columns:repeat(2,minmax(0,1fr)); }
+.molecule-tools .molecule-toolbar>label { gap:3px; }
+.molecule-tools .molecule-toolbar button { grid-column:auto; }
+.molecule-tools .molecule-toolbar button,.molecule-tools .molecule-controls button { padding:5px 8px; }
+.molecule-tools .touch-toggle { margin:2px 0; font-size:10px; }
+.molecule-tools .touch-toggle span { display:none; }
+.molecule-tools .molecule-controls { gap:5px; margin:6px 0; }
+.molecule-tools .molecule-controls>label { flex-basis:auto; flex:1; min-width:110px; gap:2px; }
+.molecule-tools .measurement { display:grid; grid-template-columns:minmax(120px,.8fr) minmax(0,1.2fr); gap:6px 8px; margin:6px 0; padding:8px; border-radius:6px; }
+.molecule-tools .measurement>label { width:auto; }
+.molecule-tools .measurement>label select { margin-top:0; }
+.molecule-tools .measurement>div { gap:4px; }
+.molecule-tools .measurement select { min-width:0; width:100%; padding:5px; }
+.molecule-tools .measurement output { font-size:14px; }
+.molecule-tools .measurement button { justify-self:end; }
+.molecule-tools>details { margin:5px 0; font-size:11px; }
+.molecule-viewport .model-hint { margin:6px 0 0; line-height:1.5; font-size:10px; }
+.interaction-help { margin:5px 0 0; font-size:10px; color:#715e7b; }
+.interaction-help p { line-height:1.5; }
+.molecule-section .geometry-source { padding:5px 0; gap:4px; font-size:10px; }
+.molecule-tools .vibration-controls { padding:8px; gap:5px; margin-bottom:6px; }
+.molecule-tools .vibration-controls p { font-size:10px; line-height:1.4; margin:3px 0; }
+.molecule-tools .vibration-controls label { flex-basis:120px; }
+.molecule-viewer.expanded-view { grid-template-columns:minmax(0,2fr) minmax(320px,1fr); }
+@media(max-width:900px) {
+ .molecule-viewer,.molecule-viewer.expanded-view { grid-template-columns:minmax(0,1fr); gap:8px; }
+ .molecule-tools { padding:8px 0 0; border-left:0; border-top:1px solid #e0d5e8; }
+ .molecule-stage svg { max-width:440px; }
+}
+@media(min-width:901px) {
+ .molecule-tools { border-top:0; border-left:1px solid #e0d5e8; }
+}
+@media(max-width:740px) {
+ .molecule-section .section-heading>label { width:100%; justify-content:space-between; }
+ .molecule-tools .molecule-toolbar button,.molecule-tools .molecule-controls button,.molecule-tools .measurement button { min-height:34px; }
+}

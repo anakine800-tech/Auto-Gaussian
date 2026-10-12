@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools==82.0.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "autog-frontend-readonly"
+version = "0.28.0+native.opt.1"
+description = "Local read-only HTTP adapter over Auto-Gaussian QueryService"
+requires-python = ">=3.11,<3.14"
+dependencies = ["auto-g16==2.7.0", "fastapi==0.141.1", "uvicorn==0.53.0"]
+
+[project.scripts]
+autog-readonly = "autog_frontend.__main__:main"
+
+[project.optional-dependencies]
+test = ["httpx==0.28.1"]
+
+[tool.setuptools.packages.find]
+include = ["autog_frontend*"]
+
+[tool.setuptools.package-data]
+autog_frontend = ["ui/index.html", "ui/assets/*"]

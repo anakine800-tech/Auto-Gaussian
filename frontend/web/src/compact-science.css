@@ -1,0 +1,65 @@
+/* One scientific reading surface: facts, conditions, then structure and modes. */
+.archive-overview h2{font-size:19px;margin:0 0 4px;overflow-wrap:anywhere}
+.archive-overview{margin-bottom:0;border-bottom:0;border-radius:7px 7px 0 0}
+.compact-result-summary{margin-bottom:0;padding-block:6px;border-bottom:0;border-radius:7px 7px 0 0}
+.compact-result-summary>h2,.compact-result-summary>p.micro,.science-detail>h2.visually-quiet{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.detail-evidence>.science-detail{border-radius:0 0 7px 7px;padding:8px 12px}
+.archive-overview [data-testid=archive-facts],.compact-result-summary [data-testid=result-facts]{margin:2px 0;gap:5px}
+.archive-overview .field,.compact-result-summary .field{background:#f8f5fa}
+.archive-conditions{margin:0;padding-bottom:5px;border-bottom:1px solid #e5dbe9}
+.conditions-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0}
+.conditions-heading h3{font-size:13px;margin:0;white-space:nowrap}
+.conditions-heading h3 small{font-size:10px;font-weight:400;color:#796684}
+.conditions-heading>label{display:flex;align-items:center;gap:6px;font-size:10px;min-width:0;max-width:62%}
+.conditions-heading select{width:auto;max-width:400px;min-width:0;margin:0;padding:3px 5px;font-size:11px;flex:1}
+.condition-overview{display:grid;grid-template-columns:1.2fr 1.3fr 1.5fr .7fr .45fr .5fr .65fr .65fr;gap:0;margin:6px 0}
+.condition-overview>div{min-width:0;padding:3px 8px;border-left:1px solid #e5dbe9}
+.condition-overview>div:first-child{border:0;padding-left:0}
+.condition-overview dt{font-size:10px;color:#796684}.condition-overview dd{font-size:12px;margin:3px 0 0;font-weight:600;overflow-wrap:anywhere}
+.condition-evidence,.archive-conditions>.input-conditions{margin:0;padding:0;border:0;font-size:10px;display:inline-block;vertical-align:top;margin-right:18px}
+.condition-evidence[open],.archive-conditions>.input-conditions[open]{display:block;width:100%;margin:8px 0}
+.condition-strip{margin:0;padding-bottom:5px}.condition-strip dl{grid-template-columns:repeat(8,minmax(0,1fr));gap:4px}.condition-strip .section-heading{margin-bottom:4px!important}
+.thermo-overview{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:7px 0;border-bottom:1px solid #e5dbe9;margin-bottom:5px;font-variant-numeric:tabular-nums}
+.thermo-overview>span{font-size:10px;color:#796684}.thermo-overview>div{display:flex;flex-direction:column;border-left:1px solid #e5dbe9;padding-left:12px}.thermo-overview small{font-size:10px;color:#796684}.thermo-overview strong{font-size:13px}.thermo-overview>small{margin-left:auto;max-width:150px}
+.science-detail .molecule-section{margin:6px 0 0}.molecule-section>p.muted{margin:2px 0 5px;font-size:10px}
+.science-detail .molecule-viewer{grid-template-columns:minmax(0,1.15fr) minmax(310px,1fr);align-items:start;padding:8px;gap:12px}
+.science-detail .molecule-stage svg{height:auto;width:100%;max-width:454px}
+.science-detail .molecule-viewer.expanded-view{grid-template-columns:minmax(0,1.6fr) minmax(310px,1fr)}
+.science-detail .expanded-view .molecule-stage svg{max-width:730px}
+.molecule-tools{min-width:0}.molecule-tools .frequency-dock{min-width:0;margin:0}
+.frequency-heading{display:flex;align-items:center;justify-content:space-between;gap:8px}.frequency-heading h4{font-size:13px;margin:0}.frequency-heading small,.frequency-heading>span{font-size:10px;color:#796684;font-weight:400}
+.frequency-dock .vibration-loader{display:flex;align-items:center;gap:6px;margin:4px 0;padding:0}.frequency-dock .vibration-loader p{margin:2px 0;font-size:11px}.frequency-dock button{padding:3px 7px;font-size:11px}
+.frequency-scroll{max-height:148px;overflow:auto;overscroll-behavior:contain;margin:4px 0;border:1px solid #e5dbe9;border-radius:5px}.frequency-scroll table{margin:0;width:100%;font-variant-numeric:tabular-nums}.frequency-scroll th{position:sticky;top:0;z-index:1;background:#f5eff8}.frequency-scroll th,.frequency-scroll td{padding:4px 6px;font-size:11px;white-space:nowrap}.frequency-scroll .source-location{margin:0}.frequency-scroll .source-link{font-size:10px;padding:3px}.frequency-scroll .active-mode{background:#efe1f4}.frequency-note{margin:4px 0!important;font-size:10px!important}
+.molecule-tools .structure-tools{margin:6px 0 0;padding-top:5px;border-top:1px solid #e5dbe9;font-size:11px}.structure-tools>summary{font-weight:600;color:#702879}.structure-tools[open]>.molecule-toolbar{margin-top:8px}
+.molecule-tools .vibration-controls{margin:5px 0 0;padding:6px;gap:4px}.vibration-controls>div{width:100%}.molecule-tools .vibration-controls p{font-size:9px;line-height:1.3}.molecule-tools .vibration-controls strong{font-size:11px}.molecule-tools .vibration-controls button{font-size:10px;padding:4px 6px}.molecule-tools .vibration-controls label{font-size:10px;flex:1;min-width:100px}.molecule-tools .vibration-controls input{max-width:100%}
+.supplementary-results{display:grid;grid-template-columns:1fr 1fr;gap:8px}.supplementary-results>details{font-size:11px;margin:5px 0 0;padding:5px 8px;background:#faf7fc;border:1px solid #e5dbe9;border-radius:5px;min-width:0}.supplementary-results>details[open]{grid-column:1/-1}.supplementary-results dl{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.supplementary-results dl small{display:none}
+@media(max-width:1100px){.condition-overview{grid-template-columns:repeat(4,minmax(0,1fr));row-gap:5px}.condition-strip dl{grid-template-columns:repeat(4,minmax(0,1fr))}.conditions-heading>label{max-width:60%}.thermo-overview>small{max-width:none;margin:0}.science-detail .molecule-stage svg{max-width:405px}}
+@media(max-width:900px){.science-detail .molecule-viewer,.science-detail .molecule-viewer.expanded-view{grid-template-columns:minmax(0,1fr)}.science-detail .molecule-stage svg{max-width:422px}.science-detail .expanded-view .molecule-stage svg{max-width:616px}.conditions-heading{align-items:flex-start;flex-direction:column;gap:4px}.conditions-heading>label{max-width:100%;width:100%}.condition-overview{grid-template-columns:repeat(2,minmax(0,1fr))}.condition-strip dl{grid-template-columns:repeat(2,minmax(0,1fr))}.thermo-overview{gap:7px}.thermo-overview>span,.thermo-overview>small{width:100%}.thermo-overview>div{padding-left:6px}.supplementary-results{grid-template-columns:1fr}.supplementary-results dl{grid-template-columns:repeat(2,minmax(0,1fr))}.frequency-scroll{max-height:180px}.frequency-dock button,.molecule-tools .vibration-controls button,.structure-tools>summary{min-height:32px}.frequency-heading{flex-wrap:wrap}.condition-evidence,.archive-conditions>.input-conditions{display:block;margin-top:5px}.archive-overview h2{font-size:16px}}
+/* Remove repeated vertical framing without reducing scientific text size. */
+@media(min-width:1101px){
+ main:has(.archive-overview){padding-top:6px;padding-bottom:10px}
+ main:has(.archive-overview)>.back{margin:0 0 2px;line-height:1.3}
+ main:has(.archive-overview) .detail-view-switch{margin:4px 0;padding:2px}
+ main:has(.archive-overview) .detail-view-switch button{padding:5px 14px}
+ .archive-overview{display:grid;grid-template-columns:minmax(200px,.85fr) minmax(0,2fr);gap:12px;align-items:center;padding:8px 12px}
+ .archive-overview h2{font-size:17px;line-height:1.3;margin:0}
+ .archive-overview>[data-view=evidence]{grid-column:1/-1}
+ .archive-overview [data-testid=archive-facts] .field{padding:3px 6px}
+ .archive-overview [data-testid=archive-facts] dt{font-size:10px}
+ .archive-overview [data-testid=archive-facts] dd{margin:2px 0}
+ .science-detail .condition-evidence>summary,.science-detail .input-conditions>summary{padding:3px 0}
+ .conditions-heading{margin-bottom:2px}.condition-overview{margin:3px 0}
+ .thermo-overview{padding:5px 0;gap:9px}
+ .science-detail .molecule-section>p.muted{display:none}
+ .science-detail .molecule-section .section-heading{margin-bottom:4px}
+ .molecule-viewport .model-hint{margin:3px 0;line-height:1.2;font-size:10px}
+ .interaction-help{margin:2px 0}.interaction-help>summary{padding:2px 0}
+ .science-detail .molecule-section .geometry-source{padding:2px 0}
+ .science-detail .validation-summary{padding:6px 8px}
+ .supplementary-results>details{padding:2px 6px}.supplementary-results>details>summary{padding:3px 0}
+ .molecule-tools .structure-tools>summary{padding:3px 0}
+ .molecule-tools .vibration-controls{display:grid;grid-template-columns:repeat(3,auto) 1fr 1fr auto;align-items:center}
+ .molecule-tools .vibration-controls>div{grid-column:1/-1}.molecule-tools .vibration-controls label{min-width:0;display:grid;grid-template-columns:1fr auto;gap:3px}
+ .molecule-tools .vibration-controls label input{grid-column:1;min-width:0;width:100%}.molecule-tools .vibration-controls label output{grid-column:2;font-size:9px}
+ .molecule-tools .vibration-controls p{margin:1px 0}
+}

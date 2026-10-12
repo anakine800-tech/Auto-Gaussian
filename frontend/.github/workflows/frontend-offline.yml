@@ -1,0 +1,77 @@
+name: Frontend offline validation
+on:
+  push:
+    branches: [main, 'codex/**']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  frontend-python:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          repository: anakine800-tech/Auto-Gaussian
+          ref: afffc8c578fa541c8af1d9af39e861146e399b4d
+          path: .ci/backend
+          persist-credentials: false
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c
+        with:
+          python-version: '3.13.13'
+      - name: Verify source identity and install exact dependency versions
+        run: |
+          test "$(git -C .ci/backend rev-parse HEAD)" = afffc8c578fa541c8af1d9af39e861146e399b4d
+          python -m pip install setuptools==82.0.1
+          python -m pip install -r requirements.lock.txt
+          python -m pip install --no-deps --no-build-isolation ./.ci/backend
+      - name: Synthetic HTTP and Python tests
+        run: python -B -m unittest discover -s tests -t . -q
+  frontend-web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          repository: anakine800-tech/Auto-Gaussian
+          ref: afffc8c578fa541c8af1d9af39e861146e399b4d
+          path: .ci/backend
+          persist-credentials: false
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c
+        with:
+          python-version: '3.13.13'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24.19.0'
+      - name: Provision exact dependency versions
+        run: |
+          test "$(git -C .ci/backend rev-parse HEAD)" = afffc8c578fa541c8af1d9af39e861146e399b4d
+          python -m pip install setuptools==82.0.1
+          python -m pip install -r requirements.lock.txt
+          python -m pip install --no-deps --no-build-isolation ./.ci/backend
+          npm install --global pnpm@11.19.0
+          pnpm --dir web install --frozen-lockfile
+      - name: Typecheck, build and transport deadline checks
+        working-directory: web
+        run: |
+          node node_modules/typescript/bin/tsc --noEmit
+          node node_modules/vite/bin/vite.js build
+          node --test unit/request-deadline.test.mjs
+      - name: Install Chrome test dependency
+        working-directory: web
+        run: node node_modules/@playwright/test/cli.js install --with-deps chrome
+      - name: Synthetic native and navigation browser checks
+        working-directory: web
+        run: |
+          export AUTOG_SOURCE_PYTHON="$(command -v python)"
+          export AUTOG_TEST_OPERATIONS=1
+          node node_modules/@playwright/test/cli.js test native-frequency.spec.ts native-navigation.spec.ts pre-v31.spec.ts navigation.spec.ts native-thermodynamics.spec.ts native-reliability.spec.ts

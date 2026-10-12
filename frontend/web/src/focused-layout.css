@@ -1,0 +1,72 @@
+/* Scientific reading and process evidence occupy distinct, persistent views. */
+[hidden] { display:none !important; }
+main { padding:12px 20px 24px; }
+header { height:46px; padding-inline:20px; }
+.page-heading { margin:2px 0 9px; }
+.page-heading h1 { font-size:23px; margin:2px 0; }
+.page-heading p,.read-time { font-size:11px; }
+.panel,.project-card { padding:12px 14px; margin-bottom:8px; border-radius:7px; }
+.panel>h2,.project-card h2 { font-size:16px; margin:0 0 5px; }
+.notice { margin:6px 0 8px; padding:6px 10px; font-size:11px; }
+.field { padding:4px 0; }
+.detail-view-switch { display:flex; align-items:center; flex-wrap:wrap; margin:8px 0; padding:4px; border:1px solid #d9c7e0; background:#f5eff8; }
+.detail-view-switch button { padding:7px 18px; font-weight:600; }
+.detail-view-switch>span { margin-left:auto; padding-inline:8px; font-size:11px; color:#796684; }
+.detail-evidence { display:block; margin:0; }
+.detail-evidence>.science-detail { margin:0 0 8px; padding:10px 12px; }
+.visually-quiet { font-size:12px !important; color:#80658e; }
+.evidence-panels { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; align-items:start; }
+.evidence-panels>.panel { margin:0; min-width:0; }
+.evidence-panels>.evidence-provenance,.evidence-panels>#raw-log-section { grid-column:1/-1; }
+.condition-strip { margin-bottom:12px; border-bottom:1px solid #ddcce5; padding-bottom:10px; }
+.condition-strip h3 { margin:0; font-size:14px; }
+.condition-strip h3 small { font-size:10px; font-weight:400; color:#80658e; margin-left:6px; }
+.condition-strip .section-heading { margin:0 0 6px !important; align-items:baseline; flex-wrap:wrap; gap:4px; }
+.condition-strip dl { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:5px; margin:0; }
+.condition-strip dl>div { padding:5px 8px; background:#f6f1f9; border-radius:4px; min-width:0; }
+.condition-strip dt { font-size:10px; color:#7b6c82; }
+.condition-strip dd { margin:2px 0 0; font-size:13px; font-weight:600; overflow-wrap:anywhere; }
+.result-panel [data-testid=result-facts],[data-testid=archive-facts] { grid-template-columns:repeat(4,minmax(0,1fr)); gap:4px; margin:6px 0 0; }
+.result-panel [data-testid=result-facts] .field,[data-testid=archive-facts] .field { padding:5px 8px; }
+.result-panel [data-testid=result-facts] dd,[data-testid=archive-facts] dd { font-size:13px; }
+.science-detail .science-tables { padding:10px 0; gap:16px; }
+.science-detail .source-location>span { display:none; }
+.science-detail .source-location { margin-top:2px; }
+.science-detail .source-link { font-size:10px; }
+.science-detail .source-missing { font-size:10px; }
+.science-detail .scientific-validation { padding:10px; margin-top:10px; }
+.science-detail .scientific-validation h3 { font-size:14px; margin-bottom:8px; }
+.science-detail .scientific-validation h4 { margin:9px 0 4px; }
+.science-detail .scientific-validation .field { padding:3px 0; }
+.validation-explanation { font-size:10px; color:#796684; margin:6px 0; }
+.science-detail .candidate-assessment { padding:8px; margin-top:8px; }
+.science-detail .candidate-assessment p { margin:3px 0; }
+.evidence-panels .result-context { margin:0 0 8px; }
+.evidence-panels .provenance-card { margin:8px 0; }
+.detail-grid { gap:8px; margin:0; }
+.project-card .stats { margin:5px 0; padding:7px 0; }
+.stats strong { font-size:20px; }
+.stats>div { min-width:90px; padding-inline:12px; }
+.browse-controls { padding:7px 9px; margin:7px 0; }
+.table-scroll { margin-top:6px; }
+th { padding:6px 8px; }
+td,.science-tables td { padding:6px 8px; }
+footer { padding:8px 20px; font-size:10px; }
+@media(min-width:1101px) { aside { width:184px; padding:18px 12px; } .workspace { margin-left:184px; width:calc(100% - 184px); } .nav-item { padding:10px 8px; } }
+@media(max-width:740px) { main { padding:10px; } header { padding-inline:12px; } .panel,.project-card { padding:10px; } .detail-view-switch>span { margin-left:0; flex-basis:100%; padding:5px 2px 0; } .condition-strip dl { grid-template-columns:repeat(2,minmax(0,1fr)); } .result-panel [data-testid=result-facts],[data-testid=archive-facts] { grid-template-columns:repeat(2,minmax(0,1fr)); } .evidence-panels { grid-template-columns:minmax(0,1fr); } .detail-view-switch button { min-height:36px; } }
+.detail-view-switch { position:sticky; top:0; z-index:6; box-shadow:0 2px 5px #4926540a; }
+#raw-log-section,#scientific-review,#workflow-evidence { scroll-margin-top:92px; }
+.inline-record { margin:0; font-size:11px; }
+.inline-record summary { color:#702879; }
+
+.science-detail details.scientific-validation { margin-top:6px; padding:0; }
+.validation-summary { padding:9px 10px; cursor:pointer; font-size:12px; }
+.validation-summary strong { margin-right:12px; }
+.validation-summary>span { font-size:11px; color:#70557f; }
+.validation-summary small { float:right; font-size:10px; color:#796684; }
+.validation-body { padding:0 12px 12px; border-top:1px solid #e0d5e8; }
+@media(max-width:740px) { .validation-summary>span { display:block; margin-top:4px; } .validation-summary small { float:none; display:block; margin-top:4px; } }
+
+.archive-conditions{margin-bottom:1rem}.archive-conditions select{max-width:100%;width:100%;margin:.4rem 0}.condition-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.4rem}.condition-grid>div{background:#f6f1f8;padding:.55rem;border-radius:6px;min-width:0}.condition-grid dt{font-size:.75rem;color:#705c7c}.condition-grid dd{margin:0;overflow-wrap:anywhere}.condition-grid dd small{display:block;font-size:.7rem;color:#796b80}.condition-step pre{max-height:240px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}.condition-step details{margin:.4rem 0}.input-conditions{border-top:1px solid #dac9e1;padding-top:.6rem;margin-top:.6rem}@media(max-width:700px){.condition-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+.calc-status{white-space:normal}.calc-normal{color:#24663b;background:#e9f5ec}.calc-abnormal{color:#a12936;background:#fcecef}.calc-unparsed{color:#82540c;background:#fff3d7}.calc-submission,.state-unknown{color:#694189;background:#f0e7f9}.calc-incomplete,.calc-unsupported{color:#536276;background:#eaf0f5}.state-failed{color:#a12936;background:#fcecef}.state-not_submitted{color:#536276;background:#eaf0f5}.state-submission_intent_recorded{color:#82540c;background:#fff3d7}.status-legend{display:flex;flex-wrap:wrap;gap:.5rem;font-size:.75rem;margin:.65rem 0}.status-legend span{padding:.2rem .4rem;border-radius:4px}

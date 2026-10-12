@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.env
+.env.*
+.local/
+*.sqlite*
+*.db
+# Private local review/data-source notes; never publish operational identities.
+FRONTEND-PHASE0-*.md
+web/node_modules
+web/dist/
+web/test-results/
+web/playwright-report/
