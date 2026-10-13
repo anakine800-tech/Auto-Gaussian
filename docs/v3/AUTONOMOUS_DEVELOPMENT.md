@@ -56,32 +56,41 @@ for the separate operational and scientific gates.
 
 ### Ordinary offline repair budget
 
-For new ordinary offline repairs whose intended behavior is already defined
-by the approved task contract, record a default budget of **four repair cycles
-or 30 minutes of active diagnosis/editing, whichever is reached first**.
-A cycle states one hypothesis,
-makes its bounded repair and runs the relevant check; record the evidence and
-remaining budget. Stop further diagnosis/editing at the active-time limit and
-do not start another cycle after the recorded count is exhausted if the
-problem remains unresolved. An Owner may explicitly set a different finite
-budget at intake or approve an extension after reviewing the evidence.
+For new ordinary **non-BUS** offline repairs whose intended behavior is already
+defined by the approved task contract, use **four repair cycles or 30 minutes
+of active diagnosis/editing, whichever is reached first**, as a progress
+checkpoint. A cycle states one hypothesis, makes its bounded repair and runs
+the relevant check. Record the evidence and cumulative cycles/active time.
+
+At each checkpoint, report what was learned, the remaining failure, the next
+falsifiable hypothesis, and a finite next window (at most four cycles or
+30 active minutes). Continue within the existing development authorization
+without another approval only when new evidence has narrowed the cause or
+verified part of the repair, the next check can distinguish a remaining cause,
+and scope, identity, authority and safety boundaries are unchanged. A new
+error label, speculative rewrite, or elapsed effort alone is not progress.
+If these conditions fail, stop diagnosis/editing and request the missing Owner
+decision. Two consecutive same-class repair failures with no new evidence or
+discriminating hypothesis also stop immediately; do not wait for a checkpoint.
 
 Waiting for an already-running test, CI, or Owner reply does not consume active
 diagnosis time. This is not a test timeout: let a running check finish under
 its existing policy, and reuse its result. Successful repair proceeds to the
-required validation/review; required checks are not skipped to fit the budget.
-Do not repeat a failed approach without new evidence or a changed hypothesis.
-Missing authority, contract conflict, identity drift or scope expansion stops
-immediately, even with budget remaining.
+required validation/review; required checks are not skipped to fit a window.
+Missing authority, contract conflict, identity drift, scope/dependency expansion,
+or a scientific/operational boundary change stops immediately. Report only the
+missing decision, preserving development steps already authorized under the
+[handbook](../development-handbook.md#development-authorization).
 
-Count across the task's related failures, turns and handoffs; record consumed
-cycles/time rather than resetting them for a new error label or process.
-Exhaustion requires an Owner decision before further repair. This replaces
-only the general two-failure rule for these new tasks: explicit two-failure
-stops in frozen Task Contracts remain until separately superseded. It grants
-no automatic BUS restart/FIX, remote-operation retry, additional submission
-or scientific-method change. Real `UNKNOWN` remains reconciliation-only with
-no automatic retry; no diagnostic budget can reopen a consumed Attempt.
+Count across related failures, turns and handoffs; never reset cumulative time
+or cycles for another process. This checkpoint policy applies to new ordinary
+tasks after integration. Explicit finite budgets, two-failure stops and other
+stricter frozen Task Contracts remain until separately revised by their Owner.
+BUS work retains its canonical CTRL, finite actions, FIX requiring a new CTRL,
+and terminal-task rules; this policy cannot restart, resume or extend a BUS
+execution. Real `UNKNOWN` remains reconciliation-only with no automatic retry;
+no diagnostic window can reopen a consumed Attempt or authorize another
+submission, live operation, scientific-method change or result acceptance.
 
 ## Frozen Post-Core Task Contracts
 

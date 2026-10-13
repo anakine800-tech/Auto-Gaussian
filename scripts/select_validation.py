@@ -981,6 +981,62 @@ def validate_result(value: Any, *, require_authority: bool = True) -> dict[str, 
     return value
 
 
+def _contract_registration_only(
+    root: Path, base: str, merge_base: str, head: str,
+    manifest: dict[str, Any], changes: list[dict[str, Any]], git_executable: str,
+) -> bool:
+    """Prove a monotone exact-path addition, only inside canonical Git selection.
+
+    This is deliberately narrower than documentation routing: no mixed edits,
+    existing-document registration, copies, renames, or changed route policy.
+    A failed Git read is an error, never a reason to authorize tests.
+    """
+    manifest_change = {"status": "M", "paths": [MANIFEST_RELATIVE]}
+    if manifest_change not in changes:
+        return False
+    documents = [item for item in changes if item != manifest_change]
+    if not documents or any(
+        item["status"] != "A" or len(item["paths"]) != 1
+        or not re.fullmatch(r"docs/v3/contracts/tasks/[a-z0-9][a-z0-9-]*\.md", item["paths"][0])
+        for item in documents
+    ):
+        return False
+    added = {item["paths"][0] for item in documents}
+    previous, previous_blob = _candidate_manifest(root, merge_base, git_executable)
+    _, base_blob = _candidate_manifest(root, base, git_executable)
+    if previous_blob != base_blob:
+        return False
+    # JSON comparison preserves scalar types (Python's True == 1 must not
+    # conceal a policy rewrite). Route/list order also remains unchanged.
+    reduced = json.loads(json.dumps(manifest))
+    owners = [route for route in reduced["routes"] if route["id"] == "v3-control-docs"]
+    if len(owners) != 1:
+        return False
+    owner = owners[0]
+    if owner["lane"] != "v3-full" or owner["fail_closed"]:
+        return False
+    if not added.issubset(owner["exact_paths"]):
+        return False
+    if any(_route_for_path(previous, path) is not None for path in added):
+        return False
+    owner["exact_paths"] = [path for path in owner["exact_paths"] if path not in added]
+    if json.dumps(reduced, sort_keys=True) != json.dumps(previous, sort_keys=True):
+        return False
+    for path in sorted(added):
+        for revision in {base, merge_base, head}:
+            entry = _git(git_executable, root, "ls-tree", "-z", revision, "--", path)
+            if entry.returncode != 0:
+                raise SelectionError("contract registration exact tree is unavailable")
+            if revision != head:
+                if entry.stdout:
+                    return False
+            elif not re.fullmatch(
+                b"100644 blob [0-9a-f]{40}\t" + re.escape(path.encode()) + b"\0", entry.stdout,
+            ):
+                return False
+    return True
+
+
 def compute_selection(repository: Path, base: str, head: str) -> dict[str, Any]:
     """Reconstruct one canonical decision from an exact clean candidate checkout."""
     git_executable, git_version = resolve_git()
@@ -996,10 +1052,20 @@ def compute_selection(repository: Path, base: str, head: str) -> dict[str, Any]:
     changes, merge_base, head_tree = inspect_git_range(
         root, base, head, git_executable=git_executable,
     )
+    registration_only = _contract_registration_only(
+        root, base, merge_base, head, manifest, changes, git_executable,
+    )
+    routed_changes = [
+        item for item in changes if item["paths"] != [MANIFEST_RELATIVE]
+    ] if registration_only else changes
     result = select_changes(
-        manifest, changes, base=base, head=head,
+        manifest, routed_changes, base=base, head=head,
         merge_base=merge_base, head_tree=head_tree,
     )
+    if registration_only:
+        result["changes"] = changes
+        result["changed_paths"] = sorted({path for item in changes for path in item["paths"]})
+        result["reasons"].append("exact Git proof: only new contract paths registered; existing policy unchanged")
     result.update(
         {
             "repository_root": str(root),

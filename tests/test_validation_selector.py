@@ -395,6 +395,206 @@ def run_workflow_route(
     return result, metadata
 
 
+class ContractRegistrationTests(unittest.TestCase):
+    DOCUMENT = "docs/v3/contracts/tasks/synthetic-registration.md"
+
+    def registration(self, root, *, baseline_files=None, mutate=None, extra=None):
+        base = initialize_repository(root, baseline_files or {})
+        manifest = json.loads(MANIFEST.read_text())
+        owner = next(route for route in manifest["routes"] if route["id"] == "v3-control-docs")
+        owner["exact_paths"].append(self.DOCUMENT)
+        if mutate:
+            mutate(manifest, owner)
+        head = commit_files(root, {
+            self.DOCUMENT: "# Synthetic new contract\n\nA unique offline contract fixture.\n",
+            SELECTOR.MANIFEST_RELATIVE: json.dumps(manifest),
+            **(extra or {}),
+        })
+        return base, head, manifest
+
+    def test_exact_registration_is_bounded_and_keeps_complete_change_authority(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            base, head, manifest = self.registration(root)
+            selected = SELECTOR.compute_selection(root, base, head)
+            self.assertEqual(selected, SELECTOR.compute_selection(root, base, head))
+            self.assertEqual(selected["lane"], "v3-full")
+            self.assertEqual(selected["tests"], manifest["v3_full_tests"])
+            self.assertEqual(selected["matched_routes"], ["v3-control-docs"])
+            self.assertEqual(selected["changed_paths"], sorted([SELECTOR.MANIFEST_RELATIVE, self.DOCUMENT]))
+            self.assertEqual(selected["base"], base)
+            self.assertEqual(selected["head"], head)
+            self.assertIn("exact Git proof", selected["reasons"][-1])
+            # A caller-supplied change list never receives the exception.
+            unbound = SELECTOR.select_changes(manifest, selected["changes"])
+            self.assertEqual(unbound["lane"], "legacy-release")
+            with self.assertRaises(SELECTOR.SelectionError):
+                SELECTOR.validate_result(unbound)
+
+    def test_multiple_new_contracts_are_allowed_but_not_generic_markdown(self):
+        for path, lane in (
+            ("docs/v3/contracts/tasks/second-contract.md", "v3-full"),
+            ("docs/v3/new-contract.md", "legacy-release"),
+            ("docs/v3/contracts/tasks/nested/contract.md", "legacy-release"),
+            ("docs/v3/contracts/tasks/script.py", "legacy-release"),
+        ):
+            with self.subTest(path=path), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                base, head, _ = self.registration(root,
+                    mutate=lambda manifest, owner: owner["exact_paths"].append(path),
+                    extra={path: "Unique second fixture\n"})
+                self.assertEqual(SELECTOR.compute_selection(root, base, head)["lane"], lane)
+
+    def test_any_existing_policy_rewrite_stays_conservative(self):
+        mutations = {
+            "remove ownership": lambda m, o: o["exact_paths"].remove("AGENTS.md"),
+            "reorder ownership": lambda m, o: o["exact_paths"].reverse(),
+            "downgrade lane": lambda m, o: o.update(lane="affected", tests=["tests.test_release_hygiene"]),
+            "route tests": lambda m, o: o["tests"].append("tests.test_release_hygiene"),
+            "required safety": lambda m, o: o["required_safety"].append("no-overwrite"),
+            "fail closed": lambda m, o: o.update(fail_closed=True),
+            "full tests": lambda m, o: m["v3_full_tests"].pop(),
+            "safety mapping": lambda m, o: m["safety_evidence"]["no-overwrite"].append("tests.test_release_hygiene"),
+            "self protection": lambda m, o: m["self_protecting_paths"].pop(),
+            "generated": lambda m, o: m["generated_prefixes"].append("other/"),
+            "scalar type": lambda m, o: m.update(version=True),
+            "other route": lambda m, o: m["routes"][0].update(lane="v3-full"),
+            "missing document": lambda m, o: o["exact_paths"].append("docs/v3/contracts/tasks/absent.md"),
+        }
+        for label, mutate in mutations.items():
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                base, head, _ = self.registration(root, mutate=mutate)
+                self.assertEqual(SELECTOR.compute_selection(root, base, head)["lane"], "legacy-release")
+
+    def test_mixed_edits_and_existing_document_registration_stay_conservative(self):
+        for path in ("scripts/select_validation.py", "README.md", "auto_g16/core/models.py"):
+            with self.subTest(path=path), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                base, head, _ = self.registration(root, extra={path: "mixed edit\n"})
+                self.assertEqual(SELECTOR.compute_selection(root, base, head)["lane"], "legacy-release")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            base, head, _ = self.registration(root, baseline_files={self.DOCUMENT: "Existing document\n"})
+            self.assertEqual(SELECTOR.compute_selection(root, base, head)["lane"], "legacy-release")
+
+    def test_symlink_executable_copy_and_rename_are_not_new_contract_proof(self):
+        for kind in ("symlink", "executable", "copy", "rename"):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                source = "README.md"
+                content = "# Synthetic new contract\n\nA unique offline contract fixture.\n"
+                base, head, _ = self.registration(root, baseline_files={source: content} if kind in {"copy", "rename"} else {})
+                target = root / self.DOCUMENT
+                if kind == "symlink":
+                    target.unlink()
+                    target.symlink_to("../../../../README.md")
+                elif kind == "executable":
+                    target.chmod(0o755)
+                elif kind == "rename":
+                    (root / source).unlink()
+                if kind != "copy":
+                    git(root, "add", "--", self.DOCUMENT, *([source] if kind == "rename" else []))
+                    git(root, "commit", "-qm", kind)
+                    head = git(root, "rev-parse", "HEAD")
+                self.assertEqual(SELECTOR.compute_selection(root, base, head)["lane"], "legacy-release")
+
+    def test_advanced_base_policy_and_existing_path_cannot_be_ignored(self):
+        for drift in ("manifest", "document", "unrelated"):
+            with self.subTest(drift=drift), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                base, head, _ = self.registration(root)
+                git(root, "checkout", "-q", "--detach", base)
+                path = {"manifest": SELECTOR.MANIFEST_RELATIVE, "document": self.DOCUMENT, "unrelated": "README.md"}[drift]
+                content = (MANIFEST.read_text() + "\n") if drift == "manifest" else "base advanced\n"
+                advanced = commit_change(root, path, content)
+                git(root, "checkout", "-q", "--detach", head)
+                selected = SELECTOR.compute_selection(root, advanced, head)
+                self.assertEqual(selected["merge_base"], base)
+                self.assertEqual(selected["base"], advanced)
+                self.assertEqual(selected["lane"], "v3-full" if drift == "unrelated" else "legacy-release")
+
+    def test_invalid_or_unknown_inputs_never_authorize_runner_discovery(self):
+        from tests.test_test_runner import TEST_RUNNER
+        for invalid in ("short base", "wrong head", "dirty", "unknown modern", "forged evidence"):
+            with self.subTest(invalid=invalid), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary) / "repo"
+                root.mkdir()
+                base, head, _ = self.registration(root)
+                selected = SELECTOR.compute_selection(root, base, head)
+                if invalid == "short base":
+                    base = base[:8]
+                elif invalid == "wrong head":
+                    head = base
+                elif invalid == "dirty":
+                    (root / self.DOCUMENT).write_text("uncommitted\n")
+                elif invalid == "unknown modern":
+                    head = commit_change(root, "auto_g16/unowned/module.py", "raise AssertionError\n")
+                else:
+                    selected["tests"] = ["tests.test_release_hygiene"]
+                evidence = Path(temporary) / "selection.json"
+                evidence.write_text(json.dumps(selected))
+                with mock.patch.object(TEST_RUNNER, "ROOT", root), mock.patch.object(TEST_RUNNER, "build_suite") as build:
+                    with redirect_stdout(StringIO()), mock.patch("sys.stderr", new=StringIO()), self.assertRaises(SystemExit):
+                        TEST_RUNNER.main(["--selection", str(evidence), "--base", base, "--head", head])
+                    build.assert_not_called()
+
+    def test_missing_or_malformed_exact_proof_stops_before_discovery(self):
+        from tests.test_test_runner import TEST_RUNNER
+        for invalid in ("tree read", "malformed manifest"):
+            with self.subTest(invalid=invalid), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary) / "repo"
+                root.mkdir()
+                base, head, _ = self.registration(root)
+                selected = TEST_RUNNER.SELECTOR.compute_selection(root, base, head)
+                evidence = Path(temporary) / "selection.json"
+                evidence.write_text(json.dumps(selected))
+                if invalid == "malformed manifest":
+                    head = commit_change(root, SELECTOR.MANIFEST_RELATIVE, '{"schema": 1, "schema": 2}')
+                original_git = TEST_RUNNER.SELECTOR._git
+
+                def fail_tree(executable, repository, *args, **kwargs):
+                    if invalid == "tree read" and args == ("ls-tree", "-z", head, "--", self.DOCUMENT):
+                        return subprocess.CompletedProcess(args, 1, b"", b"synthetic unavailable proof")
+                    return original_git(executable, repository, *args, **kwargs)
+
+                with mock.patch.object(TEST_RUNNER, "ROOT", root), mock.patch.object(TEST_RUNNER, "build_suite") as build:
+                    with mock.patch.object(TEST_RUNNER.SELECTOR, "_git", side_effect=fail_tree):
+                        with mock.patch("sys.stderr", new=StringIO()), self.assertRaises(SystemExit):
+                            TEST_RUNNER.main(["--selection", str(evidence), "--base", base, "--head", head])
+                    build.assert_not_called()
+
+    def test_existing_route_reassignment_and_document_deletion_stay_conservative(self):
+        def reassign(manifest, owner):
+            owner["exact_paths"].remove("AGENTS.md")
+            manifest["routes"][0]["exact_paths"].append("AGENTS.md")
+
+        for kind in ("reassign", "delete"):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                base, head, _ = self.registration(root, baseline_files={"AGENTS.md": "original rules\n"},
+                    mutate=reassign if kind == "reassign" else None)
+                if kind == "delete":
+                    (root / "AGENTS.md").unlink()
+                    git(root, "add", "--", "AGENTS.md")
+                    git(root, "commit", "-qm", "delete old rules")
+                    head = git(root, "rev-parse", "HEAD")
+                self.assertEqual(SELECTOR.compute_selection(root, base, head)["lane"], "legacy-release")
+
+    def test_valid_registration_is_recomputed_by_runner(self):
+        from tests.test_test_runner import TEST_RUNNER
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "repo"
+            root.mkdir()
+            base, head, manifest = self.registration(root)
+            selected = SELECTOR.compute_selection(root, base, head)
+            evidence = Path(temporary) / "selection.json"
+            evidence.write_text(json.dumps(selected))
+            lane, tests = TEST_RUNNER.resolve_authoritative_selection(evidence, base=base, head=head, repository=root)
+            self.assertEqual(lane, "v3-full")
+            self.assertEqual(tests, manifest["v3_full_tests"])
+
+
 class ValidationSelectorTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
