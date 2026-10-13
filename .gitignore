@@ -6,6 +6,9 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .venv/
+/ag/build/
+/ag/dist/
+/ag/src/*.egg-info/
 /.venv-schema-validation/
 
 # Historical one-off Skill build directories; skills/ is the source of truth.

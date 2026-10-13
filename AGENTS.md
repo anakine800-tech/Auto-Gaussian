@@ -1,157 +1,57 @@
-# Repository operating rules
+# Auto-Gaussian 仓库规则（新架构，2026-10 起生效）
 
-These rules apply to the entire repository.
+本文件替换旧版 AGENTS.md。旧版规则、`OWNER_DECISIONS.md`、`docs/v3/**`、BUS/CTRL/GATE 流程和 ag-dev-relay 全部停用，仅作为历史保留在 tag `v3-frozen`。旧文档中的任何“authority”“Owner Gate”“frozen contract”对新工作都不再有约束力，也不要去读它们来决定怎么做新工作。
 
-## Version and authority routing
+开工前必须读：本文件 → `docs/REDESIGN-PLAN.md` → 你被分配的任务单 `docs/redesign-tasks/Tn-*.md`。
 
-- Treat this file as the repository-wide entry and safety router. Classify a
-  task as v3 or legacy/v2 before selecting implementation authority; this file
-  does not duplicate the exact fields of a versioned product contract.
-- For v3 work, apply authority in this order: `OWNER_DECISIONS.md`,
-  `docs/v3/boundary-spec.md`, `docs/v3/acceptance.md`,
-  `config/context-map.toml`, `docs/v3/AUTONOMOUS_DEVELOPMENT.md`, then the
-  current explicit Owner Gate. A lower-priority source must not override a
-  higher-priority scientific, safety, permission, or compatibility boundary.
-- Treat `legacy_rtwin_pbs`, `scripts/direct_*`, `scripts/protected_*`, and
-  legacy/v2 or v2.7 owner, receipt, capability, and hash-lineage mechanisms as
-  reuse and history sources. They are not v3 implementation requirements
-  unless a frozen v3 contract explicitly adopts the behavior.
-- Preserve repository-wide safety semantics across versions: no overwrite or
-  deletion, reviewed root containment and no-follow handling, at most one
-  submission per Attempt, `UNKNOWN` without automatic retry, explicit live
-  authority, and secrets isolation.
+## 1. 方向（一句话）
 
-## Source of truth
+代码只做确定性、不可逆、有副作用的事；科学判断交给 LLM + Skills + 人。新功能优先写成 Skill 里的任务卡片（markdown），只有新的确定性操作或新的计算程序才写代码。
 
-- Treat `skills/` as the version-controlled source of truth only for
-  repository-owned Skills. For v3 runtime and product work, `auto_g16/**` plus
-  the frozen v3 authority documents above are the version-controlled source of
-  truth.
-- Treat `~/.codex/skills/<name>` as a deployed copy. Do not edit a deployed copy and a repository copy independently.
-- Before deploying a Skill, validate the repository copy, compare the planned diff, then synchronize only that named Skill.
-- Keep experimental workflow code on a feature branch. Before merge, complete
-  the required offline validation and review, and classify live-evidence needs
-  under `docs/development-handbook.md#live-evidence-and-merge-scope`.
-  Pure documentation or offline maintenance does not require a live smoke
-  solely because it is being merged. Production-reachable changes whose
-  safety depends on native execution, transport, scheduler, filesystem or
-  process behavior require the applicable explicitly approved target evidence
-  before merge. Preserve stricter frozen task gates; code integration never
-  authorizes deployment, a live test or scientific acceptance.
+## 2. 目录
 
-## Auto-G16 Skill naming
+| 路径 | 状态 |
+|---|---|
+| `ag/` | 新 CLI、本地工具、程序模板（`ag/templates/`）、测试 |
+| `skills-next/` | 新 Skills 和任务卡片 |
+| `docs/REDESIGN-PLAN.md`、`docs/redesign-tasks/` | 当前方案和任务单 |
+| `auto_g16/`、`skills/`、`scripts/`、`tests/`（旧）、`contracts/`、`docs/v3/`、`docs/v2*` 等 | **冻结**。不修改、不扩展、不从新代码 import。需要旧代码里的知识时，复制或改写到新目录，并在提交说明里注明来源文件 |
 
-- Name every repository-owned Skill in this project with the machine prefix `auto-g16-` and make its folder name exactly match the `name` in `SKILL.md`.
-- Use `Auto-G16` at the beginning of each human-facing Skill display name and document title.
-- Apply the same prefix to every future project Skill, including literature, mechanism-network, TS-seed, reaction-analysis, and transition-metal extensions.
-- Do not rename versioned scientific artifact schemas, historical immutable records, Gaussian program terminology, or external dependency Skills solely because a Skill is renamed. Preserve their compatibility and provenance.
+## 3. 硬内核（任何情况下都不能违反）
 
-## Server safety boundary
+1. 每个 Attempt 至多提交一次。提交前用本地原子文件创建（`O_EXCL`）声明，声明存在就拒绝再次提交。
+2. 服务器上不覆盖、不删除、不截断任何文件。禁止 `rm`、`rmdir`、`mv` 覆盖、`>` 截断、递归复制覆盖、清理脚本。每个 Attempt 一个新的远程目录，已存在就失败。
+3. 提交结果不确定（`UNKNOWN`）时，只做只读核对，绝不自动重新提交。计算失败也不自动重提，由 LLM 提出新 Attempt，经人确认后再提交。
+4. 提交和取消（`ag submit`、`ag cancel`）必须经过人在 Mac 上亲手点击系统对话框确认。不得提供任何绕过确认的参数、环境变量或配置项。
+5. 提交出去的文件字节必须与人确认时看到的哈希一致，上传后在远程再校验一次。
+6. `qdel` 只能针对 `status.json` 中记录的确切作业号，每次都要确认。
+7. 只运行 `ag/templates/` 中经过审阅的程序模板，模板参数只接受白名单内的取值。不得让 LLM 拼接或执行任意远程命令。
+8. 远程只允许在配置的根目录（本地配置里 SDL 根目录下的 `ag/` 子目录）内操作；拒绝符号链接和越界路径。
+9. 同时占用的核数不超过配置上限（当前 44 核），统计时包括该用户在集群上的全部作业。
+10. 不提交任何密钥、私钥、密码、IP、主机名、用户名、本机或服务器绝对路径、未发表的研究数据、Gaussian 输出或 checkpoint。公开仓库中的测试日志只允许脱敏后的小分子（如正丁烷、水）结果。
 
-The safety outcomes in this section apply repository-wide. The root-approval,
-stable-evidence, receipt, owner, and single-use capability mechanics below are
-the existing legacy/v2 implementation contract; they do not require a new
-`auto_g16.execution` implementation to reproduce that governance architecture.
+## 4. 防止回到旧模式的三条规则
 
-- Keep every legacy backend, including `legacy_rtwin_pbs`, permanently fixed
-  below `/home/user100/SDL`.
-- A legacy/v2 backend may use a different server root only when that root is a
-  mandatory field owned by the backend's closed profile contract, has received
-  repository-owner and server-safety review, and is covered by the profile
-  hash. A CLI flag, environment variable, local runtime setting, caller
-  argument, or other override must never select or replace it.
-- Before approval of that legacy/v2 backend, resolve the allowed root policy
-  and identity canonically into backend-owner-issued stable evidence that
-  excludes observation time and expiry. The exact approval must bind both the
-  profile hash and that stable evidence hash.
-- Immediately before its first remote mutation, the same legacy/v2 owner must
-  issue a fresh, time-bounded no-follow observation receipt that references the
-  stable evidence hash and must give the mutation owner a single-use
-  descriptor- or capability-bound handle to the same verified component
-  identities. The mutation must consume that handle atomically or by
-  descriptor-relative operations without reopening a path. Any symlink,
-  reparse point, root escape, identity drift, expired receipt, replacement, or
-  capability failure stops with zero remote effect and requires a new review or
-  observation as applicable.
-- For legacy/v2 backends, preserve their reviewed non-empty server
-  project-directory restrictions. For v3, a Project may be reused; the
-  fresh/no-overwrite boundary is the Attempt-specific workspace. An existing
-  Attempt target, symlink or reparse point, replacement, containment escape,
-  or implicit overwrite fails closed.
-- Never issue `rm`, `rmdir`, truncation, recursive replacement, or a server-data cleanup command.
-- Treat active-job cancellation and terminal scheduler-zombie cleanup as different `qdel` operations. Require explicit authorization for the exact PBS job ID before cancelling a queued or running job. Permit one automatic exact `qdel` only after results are fetched and repeated stable evidence proves a terminal scheduler zombie; never retry it automatically. Neither operation authorizes file deletion.
-- Do not access PBS scheduler spool directories.
+1. **进度只按完成的 study 衡量**，不按合同、门控、测试数量或文档数量衡量。
+2. **加任何新约束、新检查、新抽象之前，先写明它防的是哪个真实发生过或很可能发生的事故。** 写不出来就不加。禁止新增 OD、合同文档、schema 合同、authority 链、BUS/CTRL 包、资格认证流程。
+3. **每周删一次没用的东西**：卡片、工具、文档、测试都算。删代码和删文档是正常工作，不需要特别审批（服务器数据除外，见硬内核第 2 条）。
 
-## Scientific approval gates
+## 5. 开发流程
 
-- Do not submit a Gaussian job unless structure, stereochemistry, charge, multiplicity, route, resources, server directory, and input hash have been shown and approved.
-- Do not infer a research method, basis, solvent, TS algorithm, IRC settings, or low-frequency correction from the molecule.
-- Do not change chemistry or retry a failed job automatically.
-- For a transition state, never accept frequency count alone: require exactly one imaginary frequency and explicit review that its normal mode follows the intended reaction coordinate.
-- Do not claim IRC validation until both directions terminate and their endpoints are structurally identified.
+- 一张任务单 = 一个 `codex/<任务名>` 分支 = 一个 PR。PR 描述第一行写 `Task: Tn`。
+- 只改任务单允许的路径。需要越界时停下来，在 PR 里说明，等人决定。
+- 停下来问人的情形：要改范围外文件；想新增约束或抽象但说不清防哪个事故；同一个问题修了两次还没好；真实环境里出现任何意外（`UNKNOWN`、哈希不一致、SSH 报错、作业异常结束）。
+- 提交前做敏感信息扫描。测试：`ag/` 下的单元测试必须通过；涉及真实集群的验证按任务单里的“真实环境验证”一节执行，并把结果写进 PR 描述（不含主机信息）。
+- 审阅：监督方（Claude）会在 PR 对话区留评论，第一行是 `<!-- ag-review head=... -->`。用 `gh pr view <编号> --comments` 读取并逐条处理，处理完在 PR 里回复。
+- 合并只由人来做。Codex 不合并、不直接推 main、不改分支保护。
 
-## Development and testing
+## 6. 科学工作的基本规则（细节在 Skills 的任务卡片里）
 
-- Route post-Core autonomy and Task Contract questions on demand through `docs/v3/AUTONOMOUS_DEVELOPMENT.md`; planning completion does not authorize implementation.
-- Use `docs/development-handbook.md` as the mandatory operation-order entry
-  point for task classification, preflight, validation, review, CI, integration,
-  cleanup and release handoff; it does not override any rule in this file.
-- Record the authorized development steps once for the exact task and scope
-  under the handbook's development-authorization section. Continue already
-  authorized steps after their prerequisites pass; do not request the same
-  permission again. This creates no authority for an unlisted action, scope
-  expansion or operational effect, and does not replace BUS CTRL requirements.
-- For a BUS-managed task, the Relay-created Control Issue is the canonical
-  development-control ledger. A pull request remains the diff, commit, CI, and
-  review evidence surface and does not replace that ledger.
-- AG-DEV-BUS packets may only narrow authority; they cannot override this file,
-  versioned contracts, or an Owner Gate. Before mutation, publication, or
-  repair, the Executor must have the latest valid CTRL and verify repository,
-  task, lane, base, branch, and scope.
-- Stop on a malformed, ambiguous, stale, or edited packet or on identity drift.
-  GATE, EXEC, REVIEW, or PASS alone does not authorize merge, live operation,
-  deployment, scientific execution, release, SSH, RTwin, PBS, or Gaussian.
-- A terminal integration GATE records an independently verified disposition
-  under the handbook and grants no action authority. Once canonical, it makes
-  later CTRL, EXEC, and REVIEW packets for that task invalid; continuation
-  requires a new explicit Owner Gate establishing a new task.
-- GitHub Issue open/closed state is non-authoritative lifecycle metadata and
-  cannot change BUS authority. Close a Control Issue only after its terminal
-  GATE is canonical; worktree and branch cleanup remain explicit local actions.
-- Before feature edits, run the read-only `scripts/dev_preflight.py`; before PR
-  or release handoff, run `scripts/audit_ci_contract.py`. Treat either nonzero
-  result as a blocker, and never claim that static CI audit proves remote
-  branch protection or a successful run.
-- Prefer offline builders, parsers, fixtures, and dry runs before any live PBS test.
-- Use the `simple` resource tier (12 GB, 8 cores) for approved smoke tests unless a smaller custom test is explicitly approved. Use `general` (50 GB, 22 cores) and `complex` (120 GB, 44 cores) only under the established resource policy.
-- Never run live SSH, PBS, Gaussian, cancellation, or deployment tests merely because a unit test is being executed.
-- Keep live tests opt-in and require the same confirmation gates as normal operations.
-- Preserve manifests, input hashes, logs, checkpoints, job IDs, and structured result files.
+- 提交前必须向人展示：结构、电荷与多重度、立体化学警告、方法与依据（文献 DOI 或“兜底方法”声明）、完整 route、资源档位与 walltime、远程目录、输入哈希。
+- 过渡态必须恰好一个虚频，并且要审核振动方向与目标反应坐标一致；IRC 必须两个方向都走完并识别端点后才能声称验证。
+- 一个 study 的“完成”：目标中列出的量都已算出；结构、代表构象集合、最终结果三个里程碑都有人签字；`study.md` 写有结论。
 
-## Codex thread and worktree isolation
+## 7. Git 与机密
 
-- Treat one independently developed task as one linked worktree and one unique
-  `codex/` feature branch. The default is a Codex app task; only a separately
-  qualified development Executor may use the conditional CLI route in
-  `docs/development-handbook.md`, with a real, persistent Executor task/run ID.
-- When the user asks in conversation to create a new isolated task, chat, thread, or work area, use the Codex thread-creation capability with a `worktree` environment. Do not switch the branch of the current shared checkout.
-- Create a fresh worktree task when the new work does not need the current conversation history. Fork the current task into a worktree when the user wants to preserve the completed conversation context.
-- Start from the project's default branch unless the user explicitly names an existing branch or asks to include the current working tree and its uncommitted changes. Never include uncommitted changes implicitly.
-- Keep the original repository checkout stable for inspection, integration, and release work. Do not manually reuse one feature branch across multiple active worktrees.
-- Recognize requests such as `新建隔离任务：<工作内容>` and `把当前对话分叉到独立 worktree` as explicit authorization to create the corresponding Codex task and worktree.
-- If the Codex thread/worktree capability is unavailable for a conversational
-  request, report that limitation instead of changing the current checkout or
-  treating the conditional Executor route as a fallback.
-- The Executor route requires the latest canonical CTRL, unique physical
-  ownership, durable launch state, isolation of model commands and candidate
-  tests/hooks, and separately qualified required hooks, signing, and Git
-  configuration. This documentation grants no host qualification or production
-  activation; existing EXEC, terminal state, or UNKNOWN never permits an
-  automatic restart. All development, scientific, and live gates still apply.
-
-## Git and secrets
-
-- Do not commit passwords, private keys, host credentials, local SSH configuration, Gaussian outputs, checkpoints, or server scratch data.
-- Inspect staged files and run a sensitive-string/private-key scan before every commit.
-- Stage only files intended for the current change; do not use broad staging when unrelated untracked files exist.
-- Use `codex/` as the branch prefix for feature work.
+- 只暂存本次改动相关的文件，不用 `git add -A` 处理有无关未跟踪文件的工作区。
+- 计算数据、study 目录、`~/.config/ag/` 配置、ssh 配置永远不进仓库。
