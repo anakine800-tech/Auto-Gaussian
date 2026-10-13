@@ -171,7 +171,7 @@ def test_cancel_submission(cfg, prepared, monkeypatch):
     monkeypatch.setattr(confirm, 'confirm', lambda *args: False)
     with pytest.raises(submit.UserCancelled):
         submit.submit(cfg, [p.name], fake)
-    assert fake.operations() == ['identity', 'jobs']
+    assert fake.operations() == ['identity', 'jobs', 'nodes']
     assert not (p / '.submit-claim').exists()
     assert state.read(p)['state'] == 'prepared'
 
@@ -430,7 +430,8 @@ def write_config(cfg):
 
 
 def test_config_complete_and_private(cfg):
-    assert config.load_config(write_config(cfg)) == cfg
+    assert config.load_config(write_config(cfg)) == {
+        **cfg, 'resources': {**cfg['resources'], 'max_committed_cores': 44}}
     cfg['remote']['ag_root'] += '-wrong'
     with pytest.raises(ValueError): config.load_config(write_config(cfg))
 
@@ -525,7 +526,7 @@ def test_batch_one_confirmation(cfg, prepared, tmp_path, monkeypatch):
     monkeypatch.setattr(confirm, 'confirm', lambda text: seen.append(text) or True)
     fake = Fake(cfg)
     assert len(submit.submit(cfg, [p.name, other['attempt_id']], fake)) == 2
-    assert len(seen) == 1 and '16 / 44' in seen[0]
+    assert len(seen) == 1 and '16 / 上限 44 核' in seen[0]
     assert p.name in seen[0] and other['attempt_id'] in seen[0]
 
 

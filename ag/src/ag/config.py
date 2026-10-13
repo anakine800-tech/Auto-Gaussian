@@ -41,6 +41,10 @@ def load_config(path=None):
         limit = cfg['resources']['max_cores']
         if type(limit) is not int or not 1 <= limit <= 44:
             raise ConfigError('max_cores must be between 1 and 44')
+        committed = cfg['resources'].get('max_committed_cores', limit)
+        if type(committed) is not int or not limit <= committed <= 4 * limit:
+            raise ConfigError('max_committed_cores must be an integer between max_cores and 4 * max_cores')
+        cfg['resources']['max_committed_cores'] = committed
         for name in ('mini', 'simple', 'general', 'complex'):
             tier = cfg['resources']['tiers'][name]
             if (type(tier['cores']) is not int or not 1 <= tier['cores'] <= 44

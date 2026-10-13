@@ -52,6 +52,13 @@ def occupied(jobs, username):
     return total
 
 
+def core_breakdown(jobs, username):
+    """Use occupied's accounting; every non-C state outside R/E is queued."""
+    total = occupied(jobs, username)
+    running = occupied([job for job in jobs if job.get('job_state') in ('R', 'E')], username)
+    return running, total - running
+
+
 def inventory(transport):
     username = require_ok(transport.run(remote.identity()), 'identity').strip()
     if not re.fullmatch(r'[A-Za-z0-9_.-]+', username):
