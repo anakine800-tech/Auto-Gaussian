@@ -161,14 +161,16 @@ def test_legacy_completion_then_fetch_and_scheduler_cleanup(cfg, prepared, monke
         with pytest.raises(ValueError): cancel.cancel(cfg, p, fake)
 
 
-def test_interrupted_without_saved_session_cannot_guess_completion(cfg, prepared, monkeypatch):
+def test_absent_legacy_job_finishes_without_saved_session_after_stable_marker(cfg, prepared, monkeypatch):
     p, _, fake = submitted(prepared, cfg, legacy=True)
     fake.job = Result(153, '', 'qstat: Unknown Job Id')
     fake.marker = 'present\n'
     clock = [1000]; monkeypatch.setattr(status.time, 'time', lambda: clock[0])
     assert status.check(cfg, p, fake)['state'] == 'interrupted'
     clock[0] += 60
-    assert status.check(cfg, p, fake)['state'] == 'interrupted'
+    result = status.check(cfg, p, fake)
+    assert result['state'] == 'finished'
+    assert result['completion_source'] == 'legacy-marker-stable-scheduler-absent'
     assert 'session_processes' not in fake.operations()
 
 
