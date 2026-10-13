@@ -1,551 +1,189 @@
-# Auto-G16 — Auto-Gaussian 2.7.0
+# Auto-Gaussian — ag + Skills
 
-Auto-Gaussian is the repository and release brand for a guarded family of
-Gaussian automation Skills. Every Skill machine name uses `auto-g16-*`, and
-every human-facing Skill name begins with `Auto-G16`.
+Auto-Gaussian 是人在回路中的计算化学助手：人在 Codex 中与 LLM 对话推进研究，
+`skills-next/` 提供科学任务卡片，`ag/` 负责确定性操作和有副作用操作的安全控制。
+当前研究范围以主族、闭壳层单分子为主；方法选择、结果判断和下一步决策由
+Skills、LLM 和人共同完成，不做无人值守计算或自动重提交。
 
-This repository is the version-controlled source of truth. Installed copies
-under `~/.codex/skills` are deployment targets and must not be edited
-independently.
+开始前阅读 [AGENTS.md](AGENTS.md)、[改造方案](docs/REDESIGN-PLAN.md) 和
+[对应任务单](docs/redesign-tasks/)。开发时以任务单允许的路径为范围，一个任务一个
+`codex/` 分支和一个 PR，合并由人完成。
 
-The 2.4.0 open-shell input-receipt bridge preserves generic receipt `/1`
-unchanged and adds offline-only `gaussian-input-approval-receipt/2` for a
-reviewed main-group open-shell minimum. `/2` replays the accepted electronic
-state, exact minimum Opt/Freq handoff and passed input audit in addition to the
-selected protocol, mapping, resources and exact input SHA-256. It recognizes
-`optimization`/`frequency` with composite `opt_freq` owner stages, counts only
-top-level Gaussian route keywords (so `Stable=Opt` is not a duplicate Opt),
-and retains all specialist syntax blockers. It grants no live authority. A
-separate closed `auto-g16-live-submission-approval/4` can now bind a fully
-owner-replayed `/2` receipt for one exact main-group open-shell minimum only;
-`/3` remains restricted to receipt `/1` and is unchanged. Direct and wrapper
-dry runs emit only the required schema and exact scope proposal, never an
-approved live record. This bridge has been implemented and tested offline only.
+## 当前架构
 
-Gaussian 16 A.03 open-shell minima that need both Opt/Freq and wavefunction
-stability now use a separate versioned two-stage family. Stage 1 contains
-Opt/Freq but no `Stable`; only its accepted final checkpoint may feed a
-coordinate-free `Stable=Opt Geom=AllCheck Guess=Read` stage 2. Each stage has
-its own non-authorizing receipt `/3` and prospective live approval `/5`.
-Receipt `/2` and live `/4` retain their single-input meaning. See
-`docs/main-group-open-shell-minimum-two-stage-family.md`.
-
-The 2.4.0 release also adds a prospective scientific-maturity
-overlay and minima-first TS hard gate. It preserves all historical `/1`
-records, requires two accepted Gaussian Opt/Freq zero-imaginary minima before
-formal TS input or submission, limits no-direct-precedent work to one reviewed
-`simple` pilot, and keeps scientific maturity, input review, and live approval
-as three independent gates. Minimum acceptance replays the exact raw log
-through the existing Gaussian owner parser; protected submissions additionally
-require an offline exact-scope binding for the DAG node, input hash, project,
-resource tier and task/core-hour/concurrency budget. That binding explicitly is
-not live approval. This checkout has not deployed or exercised that
-gate against SSH, PBS, Gaussian, or any live job.
-
-An additional compatibility-preserving owner-evidence `/2` overlay now binds
-one exact validated maturity gate `/1` and replays the public calculation-plan,
-mechanism-support, TS-precedent, conformer-handoff, applicable main-group
-open-shell, and manual-evidence validators. It blocks artifact-presence,
-hand-filled conformer provenance, and missing open-shell acceptance bypasses;
-manual receipts remain supporting-only. Its exact-scope science actions cover
-TS input/submission, IRC input, and formal barrier reporting while retaining
-separate input and live gates. No historical `/1` semantics or consumers are
-changed. Current owner artifacts do not bind a selected conformer through exact
-input approval to the accepted minimum result/log, so `/2` records that explicit
-lineage blocker and grants no passed action. IRC and formal reporting remain
-fixed fail-closed until exact owner TS-mode and complete thermochemistry/energy
-artifacts are added. Complete owner-chain relocation is also unsupported because
-historical conformer paths may be absolute and open-shell paths may be
-working-directory-relative.
-
-The 2.5.0 release adds explicit human scientific
-decisions, evidence-only method briefs, bounded TS-seed portfolios, practical
-closure-priority planning, and persistent ten-task execution-batch governance.
-`gaussian-v25-integration-review/1` replays those owner contracts and binds the
-selected closure nodes to the exact batch review and ledger. The overlay and
-every component remain non-executable and non-authorizing; exact input review,
-stage dependency evidence, and a fresh live approval per physical attempt are
-still independent requirements. See `docs/v2.5-integration-approval.md`.
-
-`gaussian_auto prepare` is intentionally limited to non-authorizing input and
-scientific preflight and never proposes a usable live approval. Generate an
-exact live `/9`–`/11` scope only with resource-bound `gaussian_auto auto
---dry-run`; its complete execution/resource arguments are replayed again before
-any protected submit.
-
-New TS/IRC qualification requires `gaussian-ts-irc-path-acceptance/2` built
-from two owner-replayed `gaussian-endpoint-structure-review/2` artifacts. Both
-directions must bind the same accepted TS checkpoint/audit lineage and exact
-IRC plan, AllCheck input, attempt, terminal receipt and fetch snapshot.
-Historical endpoint review or path acceptance `/1` remains readable for
-display/replay only and cannot open maturity, thermochemistry, asymmetric
-comparison or any live gate.
-
-## 2.7.0 offline-only release candidate
-
-Auto-Gaussian 2.7.0 is the current local offline-only source candidate. It
-packages the collected `direct_ssh_pbs` interfaces, closed Schema and state
-contracts, synthetic root and transaction models, offline onboarding,
-migration guidance, and support matrix. The repository package collection also
-contains the separately reviewed W1 backend-owned POSIX no-follow observer, W2
-durable journal owner, W3 exact resource/live replay ingress, and W4
-process-isolated fixed descriptor-relative mutation helper. Their presence is
-not a composed production adapter. Its exact direct statuses are `offline_synthetic`,
-`production_blocked`, and `live_not_ready`; it does not claim
-`backend_supported`, production readiness, transport authority, or live
-readiness.
-
-The existing `legacy_rtwin_pbs` production backend remains permanently fixed
-below `/home/user100/SDL`. Version 2.7.0 does not relocate or generalize that
-legacy path. The direct profile's mandatory backend-owned root contract is an
-offline safety interface only and does not grant filesystem or server
-authority.
-
-W4B fixed trusted server-local session composition is present in the local
-collection. It joins the W1-W4 owners and descriptor identities in one
-clean-exec process. W5 fixed one-hop transport code consumes its typed
-child-local seam and implements immutable upload and at-most-once `qsub` under
-offline-only validation. W6L supplies only the server-local existing-job
-lineage observer and single-use read-capability foundation. W6C0 supplies only
-a provisional non-authorizing qstat evidence core. W6Q1 adds a
-production-shaped, offline-validated exact qstat acquisition and final
-scheduler-only `gaussian-job-inspection/3`; it authorizes no live SSH/PBS/qstat
-and does not prove Gaussian completion or scientific acceptance. Real W6 live
-query, fetch, materialization and advanced inspection remain
-blocked, and W7 is not present.
-Separately authorized live-smoke evidence therefore remains blocked. This candidate has not been
-tagged or published as 2.7.0 and grants no deployment, SSH, RTwin, PBS, Gaussian,
-submission, retry, `qdel`, cleanup, deletion, live, or scientific authority.
-
-## 2.6.1 published release
-
-Auto-Gaussian 2.6.1 is the latest published release. It preserves the
-independently reviewed v2.6 offline foundation and adds the minimum B1 legacy
-RTwin/PBS production path through the existing single transaction and effect
-owner. That path binds exact project, input hash, resource, walltime and
-one-shot approval evidence; fixes the server root at `/home/user100/SDL`;
-refuses existing project directories; permits at most one `qsub`; and keeps
-uncertain submission, monitoring, fetching and analysis read-only and
-non-retrying.
-
-The exact B1 integration candidate passed practical independent L3 and one
-frozen offline full suite. A separately approved H2 smoke then completed one
-normal Gaussian run plus allowlist-bound fetch and local analysis with per-hop
-hashes verified. Its machine-local evidence does not authorize another live
-operation or a production research submission.
-
-The v2.6.1 release has been tagged, pushed, merged into `main`, published as a
-GitHub Release, and formally released. PR6 direct
-SSH/PBS, non-SDL roots, multi-backend support, interpreter-tamper hardening and
-unrelated architecture are deferred beyond 2.6.1.
-
-## 2.5.4 historical published release
-
-Auto-Gaussian 2.5.4 is the immediately previous published release. Its annotated `v2.5.4`
-tag identifies the exact reviewed, green post-merge `main` commit recorded by
-the GitHub Release. The release was published on 2026-07-22.
-
-The 2.5.4 increment is a documentation and release-hygiene maintenance patch.
-PR #48 reconciles the public 2.5.3 status after publication, isolates root
-`reports/` from Git and source releases, and adds regression coverage for that
-boundary. The 2.5.4 metadata adds one cross-file version contract so the
-package version, changelog, README, status page, checklist, compare links, tag
-and GitHub Release cannot silently describe different current versions.
-
-Publication makes no deployment, SSH, RTwin, PBS, Gaussian, live-smoke or
-scientific-success claim. It grants no submission, retry, qdel, cleanup,
-result-acceptance or scientific authority.
-
-## 2.5.3 historical release
-
-Auto-Gaussian 2.5.3 was published on
-2026-07-22 from `main` commit
-`bc67fded270ee5fc52efecfafdfc817073430b7a`; annotated tag object
-`20cea7e040ef6649f9f695381c802abc8aa7aba0` resolves to that exact commit.
-
-The 2.5.3 increment contains only three first-parent merges after 2.5.2:
-PR #45 adds the development handbook, isolated-worktree preflight, exact
-Python/CI declarations and their offline audits; PR #46 hardens RTwin terminal
-snapshot and staged fetch handling for finite timeouts, sanitized failure
-evidence, PBS `qstat` return code 153, and no automatic retry; PR #47 freezes
-the 2.5.3 release metadata and checklist. Historical schemas and release
-records retain their original meaning. Local static audits do not prove
-current GitHub branch protection or a successful CI run.
-
-## 2.5.2 historical release
-
-Auto-Gaussian 2.5.2 was published on 2026-07-20. Its annotated tag permanently
-identifies the release commit above. The release contains compatibility-
-preserving runtime evidence, immutable fetch, execution/cancellation,
-resource, monitoring, TS/Freq/IRC and minimum-result lineage, configuration,
-private-migration and release-validation hardening. Publication did not grant
-deployment or live/scientific authority.
-
-## 2.5.0 historical release
-
-Auto-Gaussian 2.5.0 is the preceding published release. The annotated
-`v2.5.0` tag permanently identifies exact release commit
-`18d7f62af3b24cdd0fbe5687f4c0e779f243d572`. This engineering-maintenance
-slice started from the then-matching `main` baseline; later `main` development
-does not move the release tag. Immutable earlier release history remains
-preserved.
-
-The 2.5.0 scope is the offline human-AI decision, method-evidence, bounded
-TS-seed, closure-priority, execution-batch, and cross-Skill integration layer.
-Every planning and review artifact remains `calculation_ready: false`, every
-calculation node remains `executable: false`, and none grants submission
-authority. This release does not claim a successful real reaction study,
-accepted TS/IRC closure, or real PBS/Gaussian validation. Future execution
-still requires exact structure, method, input, resource, server-directory, and
-live approvals.
-
-## 2.4.0 historical release
-
-Auto-Gaussian 2.4.0 release metadata was prepared on 2026-07-18 from confirmed
-`origin/main` commit `69222eb40fc4485392c753b240989719fcec56a4`. The immutable
-2.3.0 release history is preserved. This is historical source evidence only;
-it grants no current Skill deployment or live-smoke authority.
-
-The 2.4.0 source adds offline transition-metal P0–P5 readiness and candidate
-closure, dual-route conformer discovery and cross-validation, reviewed
-main-group open-shell state/minimum/result contracts, multiplicity families,
-same-spin open-shell TS/Freq/IRC contracts, open-shell reaction networks, and
-scientific-maturity owner gates. It also adds compatibility-preserving input
-receipts `/2` and `/3` and distinct prospective live approvals `/4` and `/5`
-for single-stage and two-stage open-shell minimum paths. All remain fail-closed
-and preserve separate scientific, input-review, and live-action authority.
-
-## 2.3.0 historical release
-
-Auto-Gaussian 2.3.0 release metadata was prepared on 2026-07-16 from reviewed
-`main` commit `1d730218048c52a395b379cbe4653c9e2b8def97`. The immutable
-`v2.2.0` release remains historical evidence. This section does not describe
-the current release state or authorize deployment or live work.
-
-As of 2026-07-16, the 2.3.0 candidate source includes the guarded RTwin/PBS
-workflow, audited main-group TS–Freq–IRC workflow, offline asymmetric-catalysis
-planning/audit module, W1 reaction-intake/reaction-literature foundations, W2
-immutable knowledge records and reviewed store/import/export foundation, and
-the W3 offline mechanism-network slice. The candidate adds the
-offline mechanism-support two-gate, separate mechanism-support matrix view,
-TS-precedent/de novo-planning stages, and the smallest deterministic
-calculation-plan DAG and read-only reaction-study index over exact immutable
-upstream artifacts. It also includes
-transition-metal M1/M2 observation and review contracts while preserving the
-unconditional metal runtime refusal. Every layer retains its individual
-scientific and live-action approval gates.
-
-The 2.3.0 candidate also contains the first offline calculation-
-artifact adapter slice: immutable candidate-target imports, exact reviewed
-closed-shell main-group TS/Freq input handoffs, blocked/electronic-only energy
-lineage, and observation-only attempt links that bind the exact handoff, job
-observation, terminal intake, parsed result, mode review, and scientific
-decision. Standalone validation reconstructs derived facts rather than trusting
-a newly rehashed document. It does not implement or mutate a calculation DAG
-and grants no staging, submission, retry, cleanup, deployment, or live-smoke
-authority.
-
-`main` is the stable release branch. Feature work uses short-lived `codex/`
-branches and reaches `main` only through reviewed pull requests with the
-required offline checks passing.
-
-See `docs/repository-status.md` for the evidence, limitations, and next gates.
-See `docs/end-to-end-reaction-computation-workflow.md` for the project target:
-an auditable workflow from a ChemDraw reaction and experimental conditions to
-reviewed reusable structure/method/literature knowledge, reproducible literature
-evidence and TS precedents, reviewed mechanism networks, calculation evidence,
-thermochemistry, kinetics/selectivity, uncertainty, and bounded conclusions.
-
-All repository-owned Skill machine names and folders use the `auto-g16-`
-prefix; their human-facing display names begin with `Auto-G16`. The same rule
-applies to every future project Skill. Versioned scientific artifact schemas
-retain their existing names for compatibility and provenance.
-
-## Baseline Skills
-
-- `skills/auto-g16-gaussian-learning-library`: self-contained beginner-facing
-  Gaussian and computational-chemistry teaching library with 72 searchable
-  knowledge cards. It explains concepts and evidence boundaries but does not
-  select production protocols or authorize calculations.
-- `skills/auto-g16-chemdraw-structures`: quick or strict ChemDraw-compatible structure and complete reaction-scheme reconstruction, including native round-trip validation.
-- `skills/auto-g16-chemdraw-pipeline`: audited ChemDraw-to-Cartesian conversion.
-- `skills/auto-g16-main-group-open-shell`: offline, hash-bound electronic-state
-  review and result acceptance for explicitly reviewed single-reference
-  main-group doublet and high-spin triplet minima, plus the immutable
-  `main_group_open_shell_minimum_opt_freq_v1` input-handoff, input-audit, and
-  result-continuity closure. It blocks open-shell singlets, multireference
-  states, metals, TS/IRC, server-directory creation, and all live actions.
-- `skills/auto-g16-view-rt-win`: stereochemistry-preserving structure/conformer preparation and RTwin GaussView review.
-- `skills/auto-g16-conformer-search`: offline, hash-bound A/A1/A2 and B/B1/B2 conformer/complex discovery planning, supplied-candidate legality auditing, composite structural cross-validation, negative-evidence preservation, clustering, medoids, and candidate-only handoff. It never executes xTB, CREST, Gaussian, PBS, or SSH.
-- `skills/auto-g16-rtwin-pbs`: guarded RTwin/PBS submission, monitoring,
-  retrieval, Opt–Freq–SP analysis, scheduler-state handling, and locked
-  ten-task execution-batch governance with separate task/attempt/core-hour
-  accounting.
-- `skills/auto-g16-ts-irc`: offline TS/Freq audit, QST atom-order checks,
-  minima-gated prospective `/2` family creation, imaginary-mode review
-  artifacts, explicit mode promotion, and hash-bound forward/reverse IRC
-  plans. It intentionally performs no network, PBS, or G16 execution.
-- `skills/auto-g16-reaction-workflow`: offline, hash-bound reaction intake,
-  species registry, balance review, condition-to-model decisions, reviewed
-  mechanism-network hypotheses, edge/channel mechanism-support classification,
-  independent exploration and claim-support gates, a separate immutable
-  row-by-evidence comparison matrix, TS-precedent/de novo seed planning, the
-  2.3.0 calculation-plan/study-index slice, and a
-  narrow exact-reviewed calculation-artifact adapter. The
-  planning layer binds the exact W1/network chain and calls owner validators
-  before clearing only matching precedent-coverage blockers. Because the DAG
-  review currently carries edge IDs but no reviewed stereochemical-channel
-  mapping, even owner-validated mechanism support remains explicitly blocked.
-  The adapter exports only external targets and immutable specialist
-  handoffs; it does not own DAG node identities. A separate DAG-owned reviewed
-  mapping can attach one exact external target to one `ts_candidate` through
-  an append-only, non-promoting node update. Every calculation node remains
-  non-executable. The scientific-maturity overlay adds explicit literature,
-  edge/channel, accepted-minimum, pilot/budget, TS/IRC, common-reference and
-  stop-condition gates and projects their blockers onto the exact DAG without
-  mutating it; these artifacts grant no calculation or live authorization.
-- `skills/auto-g16-reaction-literature`: offline-first query planning,
-  Crossref/OpenAlex metadata retrieval, DOI deduplication, transparent
-  screening, evidence templates and fail-closed source-review validation. It
-  does not infer a mechanism, choose a computational protocol, or authorize a
-  calculation.
-- `skills/auto-g16-knowledge-base`: offline validation and deterministic
-  finalization for immutable structure identity/state/geometry, computational
-  method, literature/book source, typed-link and per-study snapshot records.
-  W2B-2 adds immutable record/object-store verification, deterministic SQLite
-  rebuild, exact permission-filtered queries, reviewed import with lawful
-  object ingestion, redacted JSON export and snapshot verification; it has no
-  method selection, input generation or live action.
-
-## W2 knowledge modules
-
-- `auto-g16-knowledge-base` W2A is implemented with five closed contracts,
-  canonical SHA-256 validation, review/access/provenance rules, frozen
-  identity/state/geometry, method, article/book, link and snapshot fixtures,
-  and fail-closed duplicate/conflict auditing without automatic merge.
-- W2B-1 implements the immutable record/object layout, content-addressed object
-  checks, deterministic SQLite migration/rebuild, stale-index refusal, exact
-  offline principal-filtered queries and snapshot dependency verification.
-- W2B-2 implements hash-bound plan-review-apply import, exact lawful-object
-  ingestion, full/metadata-redacted JSON export, `no_export` exclusion and
-  dependency-aware downgrade. Binary objects are never exported.
-- W2 still requires authentication, signatures, durable audit logging,
-  chemical search and multi-user enforcement.
-- strict edge/channel mechanism-support and source-to-target TS-precedent
-  review are implemented in `auto-g16-reaction-workflow`. A reviewed novel
-  hypothesis may be exploration-eligible without a direct precedent while its
-  mechanism claim remains unsupported and unvalidated. Seed-geometry
-  construction remains a future extension.
-- `gaussian-reaction-mechanism-support-matrix/1` is a downstream view over the
-  unchanged `gaussian-reaction-mechanism-support/1` owner gate. It provides
-  complete cross-evidence cells and explicit row dispositions but cannot
-  weaken an owner blocker, validate a mechanism, or create an executable DAG
-  node. Experimental PR #19 artifacts are not aliases for the merged gate and
-  require an explicit new matrix build if migrated.
-
-## Offline planning/audit module
-
-- `skills/auto-g16-asymmetric-catalysis`: literature-grounded planning and
-  audit workflow for metal–chiral-ligand and chiral-boron catalytic TS
-  ensembles, stereochemical-channel coverage, candidate ledgers, TS-result
-  ingestion, and selectivity aggregation. It contains no Gaussian execution
-  builder or live handoff. Its current development priority is the
-  refusal-preserving transition-metal TS state/search design and candidate-
-  bound result-audit templates; chiral-boron
-  expansion follows that milestone. Its design and
-  versioned data contracts are in `docs/asymmetric-catalysis-design.md` and
-  `docs/asymmetric-catalysis-offline-contract.md`.
-- `studies/wang_2024_bf3_ts`: hash-bound, non-runnable literature coordinates
-  and expected-result ledger for BF3-TS1 followed by BF3-TS2-B1/B2.
-- `studies/wang_2024_cat2_alpha_alkylation`: real-reaction offline forward
-  study for the reported CAT2 asymmetric reaction. It records the experimental
-  identity and selectivity while refusing to invent the unresolved active
-  state, atom maps, candidate geometries, or comparison protocol.
-
-## Safety boundary
-
-All Skill-managed server data and scratch must remain below `/home/user100/SDL`.
-That root is fixed and has no runtime override. The repository contains no
-password, private key, local SSH configuration, Gaussian checkpoint, or
-calculation output.
-
-This repository is public and accepts only publication-backed studies,
-synthetic fixtures, and release-cleared material. Keep all unpublished research
-in the external owner-only directory defined by
-`docs/data-confidentiality.md`; never add that directory as a worktree,
-submodule, symlink, or remote.
-
-## Installation and local configuration
-
-The repository has two explicit local profiles. `core` is the default and is
-fixed to Miniforge Python 3.13.13; it runs the standard-library-only planning,
-parsing, audit, deployment and test flows. `chem` is fixed to Python 3.11.15
-and is reserved for RDKit, NumPy and Pillow workflows. `.python-version`,
-`pyproject.toml`, `environment.yml`, `environment-chem.yml` and
-`config/python-environments.json` record this contract. The exact optional
-package versions live in `requirements/chemistry.lock.txt`.
-
-Use the repository launcher for both execution and installation. It resolves
-an absolute interpreter from an environment variable, the ignored runtime
-configuration, or the reviewed Miniforge fallback; validates the exact Python
-version; and then replaces itself with that interpreter. It never chooses
-`python3` from `PATH`:
-
-```bash
-./scripts/python core scripts/run_tests.py --full
-./scripts/python chem -m pip install --requirement requirements/chemistry.txt
-./scripts/python chem path/to/rdkit_script.py --help
+```text
+人：目标、结构确认、提交/取消确认、科学结果签字
+  ↓
+Codex + skills-next：研究编排、任务卡片、结构处理、文献依据
+  ↓
+ag：prepare / submit / status / fetch / cancel，以及确定性本地工具
+  ├─ 本地 study 目录：输入、文件状态、事实、科学审阅和结论
+  └─ Mac 直连 SSH → Torque → Gaussian / xTB / CREST
 ```
 
-The timed runner preserves normal `unittest` pass/fail behavior and prints a
-readable slow-test table. Local full runs include the 1101-node/128-level DAG
-pressure test. CI runs ordinary compatibility coverage on Python 3.11, 3.12,
-and 3.13, then runs the complete pressure and source-archive replay once on
-Python 3.13. The chemistry job separately executes a real RDKit structure,
-3D-conformer, and 2D-depiction smoke.
+| 路径 | 职责 |
+| --- | --- |
+| `ag/` | 独立 Python CLI、日志解析、热化学、构象去重/聚类和测试 |
+| `ag/templates/` | 经审阅的程序模板及参数白名单 |
+| `skills-next/auto-g16-study/` | 研究编排、进度记录和三个里程碑签字 |
+| `skills-next/auto-g16-recipes/` | Opt+Freq、单点、初筛、热化学和失败诊断卡片 |
+| `skills-next/auto-g16-structures/` | ChemDraw/SMILES 处理、立体检查和 RDKit 初筛 |
+| `skills-next/auto-g16-literature/` | 计算方法先例、DOI 和适用边界 |
 
-Real local Draft 2020-12 validation uses a separate existing test-only virtual
-environment; it is not part of either runtime profile. See
-[`docs/local-draft-validation.md`](docs/local-draft-validation.md) for the
-fail-closed local command. Missing `jsonschema` in `core` or `chem`, or a
-skipped Draft test in the ordinary suite, is not Schema-validation evidence.
+新功能优先写成任务卡片；新的确定性操作或计算程序才增加代码。
+状态存文件，不使用数据库或守护进程。每个 study 包含 `study.md`、只追加的
+`journal.jsonl`、`structures/`、`attempts/`、`analyses/` 和 `lessons/`。
+每个 Attempt 保留不可变的 `manifest.json`、派生状态 `status.json`、输入、输出和
+`facts.json`；LLM 按卡片写 `review.md`。
 
-The Python-file shebangs remain portable compatibility metadata. Repository
-and deployed Skill commands must invoke scripts with the selected interpreter
-instead of executing those files directly.
+研究完成意味着目标中的量都已算出，结构、代表构象集合、最终结果三个里程碑均有人
+签字，且 `study.md` 写有结论。作业结束或解析成功本身不是科学验收。
+实际阻塞写在 `study.md` 的“当前阻塞”中，说明属于结构、提交、解析、科学审阅还是环境问题。
 
-ChemDraw, GaussView, Gaussian and PBS remain separately licensed external
-software and are not distributed here.
+## 硬内核规则
 
-Copy `config/*.example` to the corresponding ignored local files and configure
-SSH aliases locally. For desktop use, copy `config/runtime.example.json` to
-`~/.config/auto-g16/runtime.json`; set `AUTO_G16_RUNTIME_CONFIG` only when a
-different local path is needed. Environment variables override the JSON keys:
+完整规则以 [AGENTS.md](AGENTS.md) 为准：
 
-- `AUTO_G16_CORE_PYTHON`
-- `AUTO_G16_RDKIT_PYTHON`
-- `AUTO_G16_BOOTSTRAP_PYTHON` (launcher bootstrap only; normally unnecessary)
-- `AUTO_G16_RTWIN_SSH_CONFIG`
-- `AUTO_G16_WINDOWS_TARGET`
-- `AUTO_G16_WINDOWS_HOST` (connection probe only)
-- `AUTO_G16_WINDOWS_CONTROL_SOCKET` (optional)
-- `AUTO_G16_WINDOWS_PROJECT_ROOT`
-- `AUTO_G16_WINDOWS_SERVER_CONFIG`
-- `AUTO_G16_GAUSSVIEW_EXE`
-- `AUTO_G16_PIPELINE_SCRIPTS`
+1. 每个 Attempt 至多提交一次；提交前用 `O_EXCL` 原子创建声明，存在即拒绝再次提交。
+2. 服务器文件不得覆盖、删除或截断；每个 Attempt 使用新的远程目录，已存在就失败。
+3. `UNKNOWN`（状态文件中的 `unknown`）只做只读核对，不重新提交。失败后由 LLM
+   提出新 Attempt，经人确认后才提交。
+4. `ag submit` 和 `ag cancel` 必须由人在 Mac 系统对话框中亲手点击确认；没有绕过参数、
+   环境变量或配置项，非 macOS 环境拒绝提交和取消。
+5. 提交字节必须与人确认时看到的哈希一致；上传后再次校验远程哈希。
+6. `qdel` 只能使用 `status.json` 记录的确切作业号，每次都需确认。
+7. 仅运行 `ag/templates/` 中经审阅的模板，参数必须在白名单内；不执行 LLM 拼接的任意远程命令。
+8. 远程操作限定在本地配置的 SDL 根目录下的 `ag/` 子目录内，拒绝符号链接和越界路径。
+9. 统计该用户在集群上的全部作业，包含非 `ag` 作业；提交后总核数不得超过配置上限（最高 44 核）。
+10. 密钥、密码、真实主机信息、用户名、机器绝对路径、配置、study、未发表数据、Gaussian
+    输出及 checkpoint 不进仓库；公开测试日志仅使用脱敏小分子结果。
 
-Do not commit the resolved values. Inspect both environments, including the
-selected executable, exact Python version, pip module path and the installed
-RDKit, NumPy and Pillow versions, with:
+提交前须向人展示结构、电荷与多重度、立体化学警告、方法与依据（DOI 或“兜底方法”声明）、
+完整 route、资源档位、walltime、远程目录及输入哈希。人同意提交后再调用 `ag submit`，
+系统对话框仍须人亲手确认。出现真实环境意外时停下来报告，不自行扩大操作范围。
 
-```bash
-./scripts/python check
-```
+## 安装
 
-Validate the ignored runtime file offline before any operational command. The
-closed-schema validator rejects duplicate keys, unknown fields, path-type
-mismatches, parent traversal, relative interpreter/config paths, and config
-leaf or ancestor symlinks. The loader opens each component with
-`O_DIRECTORY|O_NOFOLLOW` and the leaf with `O_NOFOLLOW`; paths intentionally
-routed through symlinked configuration directories must be changed to their
-canonical absolute path. Validation performs no SSH, Windows, Gaussian, or PBS
-access:
+本地使用 Python 3.11 或更新版本，推荐已有 RDKit 的 `chem` conda 环境。
+以下命令在仓库根目录、所选环境中运行；安装入口是独立项目 `ag/`：
 
 ```bash
-./scripts/python core scripts/runtime_config.py ~/.config/auto-g16/runtime.json
+conda activate chem
+python -m pip install -e 'ag[test,chem]'
+# 若所选环境尚无 RDKit：
+python -m pip install rdkit
+ag --version
+ag --help
 ```
 
-Add `--skill-sync` to compare every repository Skill deployment package with
-its installed `~/.codex/skills/<name>` copy using the same reviewed core
-interpreter:
+`chem` 可选依赖包含 cclib、NumPy 和固定为 4.3.0 的 GoodVibes；`test` 包含 pytest。
+Gaussian、xTB、CREST、Torque 和本机 OpenSSH 需单独准备，Python 安装不会部署远程程序。
+Gaussian、GaussView、ChemDraw 等外部软件遵循各自许可。
+
+## 本地配置
+
+将 [ag/config.example.toml](ag/config.example.toml) 复制到本机
+`~/.config/ag/config.toml`（已有文件则先检查，不覆盖），把占位符替换为本机实际值。
+CLI 从这个固定位置加载配置；study 目录必须放在 Git 仓库之外。
+
+| 配置项 | 含义 |
+| --- | --- |
+| `ssh.config_file` / `ssh.host` | 专用 OpenSSH 配置文件的绝对路径 / 其中的 `Host` 别名 |
+| `remote.allowed_root` / `remote.ag_root` | 远程 SDL 根目录 / 同一根目录下的 `ag` 子目录 |
+| `scheduler.queue` | 实际可用的 Torque 队列 |
+| `resources.max_cores` / `resources.tiers.*` | 总核数上限及资源档位 |
+| `programs.gaussian.g16root` | 直接包含 `g16` 可执行文件的目录；不要填高一层目录 |
+| `programs.xtb.root` | 包含 `bin/xtb`、`bin/crest` 和 `share/xtb` 的安装根目录 |
+| `local.python` / `local.studies_root` | 所选化学环境的 Python 绝对路径 / 仓库外 studies 根目录 |
+
+样例资源档位为 `mini`（4 核 / 10 GB）、`simple`（8 核 / 12 GB）、
+`general`（22 核 / 50 GB）和 `complex`（44 核 / 120 GB）；总上限为 44 核。
+Gaussian 输入的 `%nprocshared` 必须与所选档位一致，`%mem` 不得超过该档内存的 85%。
+
+新机器重建 SSH 配置、主机密钥准备及验证步骤见 [ag/README.md](ag/README.md)。
+填好配置后运行 `ag doctor --json` 做只读环境检查。
+
+## 常用命令
+
+尖括号均表示需替换的占位符，不是可直接执行的输入。`<STUDY_ID>` 是
+`local.studies_root` 的直接子目录名，只使用小写字母、数字和连字符。
+`<STUDY_DIR>` 表示该 study 的完整本地目录。
+
+| 命令 | 作用 |
+| --- | --- |
+| `ag doctor --json` | 只读检查 SSH、身份、调度器、远程根和程序可执行性 |
+| `ag init '<STUDY_ID>'` | 创建本地 study 骨架 |
+| `ag list --study '<STUDY_ID>' --json` | 列出本地 Attempt 与状态 |
+| `ag status '<ATTEMPT_ID>' --json` | 只读查询；不确定时保持 `unknown` 并报告 |
+| `ag status --study '<STUDY_ID>'` | 查看整个 study 的作业状态 |
+| `ag fetch '<ATTEMPT_ID>'` | 取回模板声明的输出，不覆盖已有本地结果 |
+| `ag facts '<ATTEMPT_ID>' --study '<STUDY_ID>' --json` | 解析已取回的输出，生成事实和最终坐标 |
+| `ag thermo '<ATTEMPT_A>' '<ATTEMPT_B>' --study '<STUDY_ID>' --json` | 对已审阅的频率结果计算 qRRHO 与有限构象集合的 Boltzmann 布居 |
+| `ag dedup '<XYZ_FILE>' --charge 0 --out '<ANALYSES_DIR>' --json` | 按已确认电荷做构象去重；示例为中性体系 |
+| `ag cluster '<DEDUP_JSON>' --max 20 --json` | 从去重结果选取代表构象 |
+| `ag graph --study '<STUDY_DIR>' --json` | 展示 manifest 中的 parents/relation 关系 |
+
+准备一个 Gaussian Attempt（仅本地操作；输入、方法和资源须先审阅）：
 
 ```bash
-./scripts/python check --skill-sync
+ag prepare --study '<STUDY_ID>' --template gaussian \
+  --input '<GAUSSIAN_INPUT_FILE>' --tier simple --walltime 01:00:00 \
+  --label optfreq --method-basis '<DOI_OR_FALLBACK_STATEMENT>'
 ```
 
-The sync check is read-only. Deployment remains a separate, review-gated
-`scripts/sync_named_skill.py` dry-run/plan-hash/apply workflow. Neither Python
-environment setup nor Skill synchronization changes the RTwin, Windows,
-Gaussian or PBS approval boundaries.
+`--template` 还支持 `xtb` 和 `crest`；参数经 `--param` 传入，例如
+`--param=--gfn=2` 或 `--param=--quick`，以各模板白名单为准。
+每条 `--parent '<ATTEMPT_ID>'` 需对应一条 `--relation '<RELATION>'`。
+使用 `ag <命令> --help` 查看完整参数。
 
-## Development sequence
+以下两条会产生远程副作用，分别按需调用，每次都需要人在 Mac 对话框中确认：
 
-Start with the [`Auto-G16 development handbook`](docs/development-handbook.md).
-It defines the mandatory task/worktree/branch mapping, read-only preflight,
-offline validation ladder, review and CI contract, integration cleanup, and
-separate deployment/live approvals. `AGENTS.md` remains the binding safety
-policy; versioned release checklists retain release-specific details.
+```bash
+ag submit '<ATTEMPT_ID>'
+ag cancel '<ATTEMPT_ID>'
+```
 
-1. Keep `main` stable and integrate changes through reviewed pull requests.
-2. Develop each workflow slice on a separate short-lived `codex/` feature
-   branch, run offline validation first, and merge only after the applicable
-   explicitly approved smoke gate.
-3. Continue W2 from the implemented W2B-2 store/import/export foundation with
-   authenticated enforcement, durable audit logging, chemical search and
-   later independent evidence revisions for mechanism claims.
-4. Continue the implemented W3 mechanism-network/support/TS-planning and
-   offline calculation-plan/study-index foundation with the implemented first
-   specialist adapter slice and a future reaction-level evidence index.
-   Existing Skills remain
-   specialist components rather than a monolithic automatic mechanism
-   generator.
-5. Extend the implemented first candidate/protocol/input and electronic-only
-   result/energy adapter slice only through reviewed contracts; then validate a
-   small closed-shell main-group reaction from ChemDraw through minima, TS,
-   path, and common-reference energy evidence. DAG node binding remains owned
-   by the implemented DAG's narrow reviewed mapping and append-only update
-   bridge; the calculation-artifact adapter does not acquire DAG ownership.
-6. Continue the refusal-preserving transition-metal M1–M3 design; the existing
-   `auto-g16-ts-irc` transition-metal refusal must not be bypassed.
-7. BF3-TS2-B1 has an accepted hash-bound C13–C21 mode decision. Its first IRC
-   pair remains incomplete, and the later matched recalculation pair was
-   stopped by the user for time constraints with no terminal results retained.
-   BF3-TS2-B2 exhausted its 100-cycle optimization limit before frequency
-   analysis and is not accepted. A separate BF3-TS1/DIPEA candidate completed
-   Opt/Freq with 150 modes and one raw imaginary frequency, but its formal
-   terminal intake is blocked by a template-hash mismatch and manual
-   C13–H14–N22 mode review is still pending. None of these histories authorizes
-   a retry, replacement, IRC, cancellation or cleanup.
+所有子命令支持 `--json`。作业命令的退出码：0 成功，1 取消或校验不通过，
+2 环境/连接错误，3 提交或状态不确定。程序失败或 `unknown` 不能作为重提同一 Attempt 的理由。
 
-See `docs/ts-freq-irc-design.md` for the implemented TS–Freq–IRC design history.
-Repository-wide operational rules are in `AGENTS.md`.
+## Skill 部署
 
-## Repository helpers
+将下列四个 Skill 软链接到 `~/.codex/skills/`，源码保持在长期保留的仓库目录中：
 
-- `config/*.example` contains placeholders only; real SSH/server configuration stays ignored.
-- `scripts/python` is the only documented repository Python entry point;
-  `scripts/python_environment.py` resolves absolute interpreters and rejects
-  version, chemistry-package, or strict runtime-config drift before normal
-  execution.
-- `scripts/run_tests.py` preserves `unittest` semantics and reports the slowest
-  offline tests; `scripts/static_quality.py` applies a small dependency-free
-  AST rule set only to the explicitly listed high-risk modules in
-  `config/static-quality.json`, avoiding repository-wide formatting churn.
-- `scripts/private_study_migration.py` implements an operational
-  plan-review-apply copy migration into the owner-only external private-study
-  root. Plans are private artifacts and are refused inside this checkout;
-  apply requires the exact reviewed plan hash, completes full source/conflict
-  preflight, incrementally validates and scans UTF-8 files of any size for
-  source-path rewrites, explicitly classifies binary files, binds actual I/O
-  to no-follow directory descriptors, and never overwrites or deletes the
-  source. See `docs/private-data-migration.md`.
-- `scripts/check_skill_sync.py` compares the exact named-Skill deployment
-  package, including manifest-mapped authoritative contracts, with installed
-  copies.
-- `scripts/sync_named_skill.py` prints a no-write named-Skill deployment plan
-  by default and applies it only with `--apply --confirmed --plan-sha256
-  <REVIEWED_HASH>`; it refuses symlinks, path escape and implicit deletion of
-  unexpected installed files.
-- Every repository Skill directory is deployable by that synchronizer. An
-  optional `deployment-package.json` is required only when the installed Skill
-  must also receive authoritative files outside its own directory; its absence
-  does not authorize ad-hoc copying or imply that the Skill is undeployable.
-- Cross-Skill changes must be dry-run and smoke-tested as one reviewed set.
-  Deploy owner Skills before consumers, retain every per-Skill plan hash, and
-  stop on the first mismatch instead of widening the deployment scope.
-- `templates/g16_job.pbs.template` preserves the SDL-only work/scratch guard for review and testing.
+- `auto-g16-study`
+- `auto-g16-recipes`
+- `auto-g16-structures`
+- `auto-g16-literature`
 
-## License
+部署前检查已有 `auto-g16-*` 副本和软链接。将旧部署移到
+`~/.codex/skills-disabled/` 的新备份子目录，保留可恢复副本，避免加载旧卡片。
+不要覆盖现有条目，也不要把新链接指向以后会删除的临时 worktree。
 
-Auto-Gaussian is released under the [MIT License](LICENSE). Gaussian,
-GaussView, ChemDraw and other external tools retain their own licenses.
+在确认目标名称空闲后，对四个名称分别执行以下命令（先替换两个占位符）：
+
+```bash
+mkdir -p "$HOME/.codex/skills"
+ln -s '<REPO_ROOT>/skills-next/<SKILL_NAME>' "$HOME/.codex/skills/<SKILL_NAME>"
+```
+
+检查软链接指向的 `SKILL.md`，在 Codex 的新会话中确认四个 Skill 可见。
+后续改动直接进入 `skills-next/` 并通过 Git 审阅，不另行编辑部署副本。
+部署步骤仅安装卡片，不代表授权提交计算。
+
+## 开发检查
+
+在选定的 Python 环境中运行：
+
+```bash
+python -m pytest ag/tests
+python -m pytest skills-next
+# 只暂存本任务文件后，提交前扫描：
+python ag/tools/scan_sensitive.py --staged
+```
+
+单元测试使用离线替身，不连接真实集群。真实验证按任务单执行并在 PR 描述中记录；
+PR 首行写 `Task: Tn`，不放机器信息或研究数据。
+
+2.7.0 及以前的旧架构见 tag v3-frozen
+
+Auto-Gaussian 使用 [MIT License](LICENSE)。
