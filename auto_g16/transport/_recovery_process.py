@@ -80,15 +80,23 @@ class _RecoveryProcessOwner(_driver._SubprocessRTWinDriver):
         if type(effect) is _driver._MacDirectEffectAuthority:
             from auto_g16._managed_native.service import run_direct
             return run_direct(snapshot, invocation)
-        if type(effect) is not _driver._MacProxyJumpEffectAuthority:
+        if type(effect) is _driver._MacUnmanagedDirectEffectAuthority:
+            # OD-46: identical bounded reconciliation process; Direct attestation.
+            from ._direct import _attest_direct_local
+            authority = invocation.authority
+
+            def local_identity():
+                return _attest_direct_local(authority)
+        elif type(effect) is not _driver._MacProxyJumpEffectAuthority:
             raise TransportBoundaryError("recovery process requires fixed ProxyJump")
-        def local_identity():
-            result = {"mac_ssh": _driver._attest_local(roots["mac_ssh"])}
-            for bound in (effect.config, effect.rtwin_known_hosts, effect.final_known_hosts, effect.final_public_key):
-                result[bound.name] = _driver._attest_local_effect_file(bound)
-            for index, (path, expected) in enumerate(((effect.rtwin_target.identity_file, None), (effect.final_target.identity_file, effect.final_identity_file_identity))):
-                result[f"identity-{index}"] = _driver._attest_identity_reference(path, expected)
-            return result
+        else:
+            def local_identity():
+                result = {"mac_ssh": _driver._attest_local(roots["mac_ssh"])}
+                for bound in (effect.config, effect.rtwin_known_hosts, effect.final_known_hosts, effect.final_public_key):
+                    result[bound.name] = _driver._attest_local_effect_file(bound)
+                for index, (path, expected) in enumerate(((effect.rtwin_target.identity_file, None), (effect.final_target.identity_file, effect.final_identity_file_identity))):
+                    result[f"identity-{index}"] = _driver._attest_identity_reference(path, expected)
+                return result
         before = local_identity()
         raw = (b"", b"", None, "transport-error", False, False)
         process = None

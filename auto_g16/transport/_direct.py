@@ -20,6 +20,15 @@ _DIRECT_CONFIG_PATHS = {
     "mac-direct-known-hosts": "mac_direct_known_hosts_path",
     "mac-direct-public-key": "mac_direct_public_key_path",
 }
+# OD-46 unmanaged route: its own exact inventory, never mixed with the managed
+# names above, and never a fallback for or to any other route.
+_UNMANAGED_DIRECT_CONFIG_PATHS = {
+    "mac-unmanaged-direct-ssh-config": "mac_unmanaged_direct_ssh_config_path",
+    "mac-unmanaged-direct-known-hosts": "mac_unmanaged_direct_known_hosts_path",
+    "mac-unmanaged-direct-public-key": "mac_unmanaged_direct_public_key_path",
+}
+_MANAGED_DIRECT_ROUTE = "mac-openssh-direct-v1"
+_UNMANAGED_DIRECT_ROUTE = "mac-openssh-direct-unmanaged-v1"
 # Candidate executable binding, not a claim of direct-route qualification.
 _DIRECT_MAC_SSH = (
     "/usr/bin/ssh", 1_584_576,
@@ -47,6 +56,25 @@ class _MacDirectEffectAuthority:
     final_identity_fingerprint: str
     final_identity_file_identity: tuple[int, int, int, int, int]
     final_target: _SSHConfigTarget
+
+
+@dataclass(frozen=True, slots=True)
+class _MacUnmanagedDirectEffectAuthority:
+    """OD-46 route: same closed config grammar, Option-1 process owner.
+
+    Deliberately a distinct type, not a subclass: every managed-only check uses
+    exact type identity and must never admit or route this authority.
+    """
+    route: str
+    config: _BoundEffectFile
+    final_known_hosts: _BoundEffectFile
+    final_public_key: _BoundEffectFile
+    final_identity_fingerprint: str
+    final_identity_file_identity: tuple[int, int, int, int, int]
+    final_target: _SSHConfigTarget
+
+
+_DIRECT_AUTHORITY_TYPES = (_MacDirectEffectAuthority, _MacUnmanagedDirectEffectAuthority)
 
 
 def _component_identity(value):
@@ -134,7 +162,7 @@ def _attest_direct_executable(root, protected):
 def _attest_direct_local(authority):
     """One Direct-only ordering for normal and reconciliation process owners."""
     effect = authority.ssh_effect
-    if type(effect) is not _MacDirectEffectAuthority:
+    if type(effect) not in _DIRECT_AUTHORITY_TYPES:
         raise TransportBoundaryError("Direct local attestation requires exact authority")
     private = _direct_private_identity(effect)
     protected = private[1][:2]
@@ -157,20 +185,31 @@ def _attest_direct_local(authority):
 
 
 def _resolve_mac_direct(profile, current) -> _MacDirectEffectAuthority:
+    return _resolve_direct_route(profile, current, unmanaged=False)
+
+
+def _resolve_mac_unmanaged_direct(profile, current) -> _MacUnmanagedDirectEffectAuthority:
+    return _resolve_direct_route(profile, current, unmanaged=True)
+
+
+def _resolve_direct_route(profile, current, *, unmanaged):
     from ._driver import _BoundEffectFile, _closed_effect_path
 
+    inventory, other = ((_UNMANAGED_DIRECT_CONFIG_PATHS, _DIRECT_CONFIG_PATHS) if unmanaged
+                        else (_DIRECT_CONFIG_PATHS, _UNMANAGED_DIRECT_CONFIG_PATHS))
     names = [name for name, _ in profile.config_files]
-    if len(names) != 3 or set(names) != set(_DIRECT_CONFIG_PATHS):
+    if len(names) != 3 or set(names) != set(inventory):
         raise TransportBoundaryError("Mac direct config inventory must be exact")
     paths = current.platform_paths
     # Program executable/data paths are independent; route-specific paths cannot mix.
     foreign = {"mac_ssh_config_path", "mac_known_hosts_path", "mac_proxyjump_ssh_config_path",
-               "mac_rtwin_known_hosts_path", "mac_final_known_hosts_path", "mac_final_public_key_path"}
+               "mac_rtwin_known_hosts_path", "mac_final_known_hosts_path", "mac_final_public_key_path",
+               *other.values()}
     if foreign.intersection(paths) or any(key.startswith("rtwin_") for key in paths):
         raise TransportBoundaryError("Mac direct profile contains another route's paths")
     contents = dict(profile.config_files)
     bound = {}
-    for name, key in _DIRECT_CONFIG_PATHS.items():
+    for name, key in inventory.items():
         try:
             path = _closed_effect_path(paths[key], "macos", key)
         except KeyError as exc:
@@ -183,11 +222,13 @@ def _resolve_mac_direct(profile, current) -> _MacDirectEffectAuthority:
         bound[name] = _BoundEffectFile(name, path, "macos", sha256(raw).hexdigest(), len(raw))
     if len({item.path for item in bound.values()}) != 3:
         raise TransportBoundaryError("Mac direct artifact paths must be distinct")
-    return _parse_mac_direct_config(contents["mac-direct-ssh-config"], bound=bound,
-                                    public_key=contents["mac-direct-public-key"], current=current)
+    prefix = "mac-unmanaged-direct-" if unmanaged else "mac-direct-"
+    return _parse_mac_direct_config(contents[prefix + "ssh-config"], bound=bound,
+                                    public_key=contents[prefix + "public-key"], current=current,
+                                    unmanaged=unmanaged)
 
 
-def _parse_mac_direct_config(raw: bytes, *, bound, public_key: bytes, current) -> _MacDirectEffectAuthority:
+def _parse_mac_direct_config(raw: bytes, *, bound, public_key: bytes, current, unmanaged: bool = False):
     from ._driver import _SSHConfigTarget, _closed_effect_path, _parse_openssh_ed25519_public_identity
 
     if (type(raw) is not bytes or not raw or raw.startswith(b"\xef\xbb\xbf")
@@ -223,16 +264,19 @@ def _parse_mac_direct_config(raw: bytes, *, bound, public_key: bytes, current) -
     if (fields["HostName"], fields["Port"], fields["User"]) != (
             target["destination_host"], str(target["destination_port"]), current.remote_user):
         raise TransportBoundaryError("Mac direct target differs from profile")
-    if fields["UserKnownHostsFile"] != bound["mac-direct-known-hosts"].path:
+    prefix = "mac-unmanaged-direct-" if unmanaged else "mac-direct-"
+    if fields["UserKnownHostsFile"] != bound[prefix + "known-hosts"].path:
         raise TransportBoundaryError("Mac direct known-hosts differs from profile")
     private_path = _closed_effect_path(fields["IdentityFile"], "macos", "Mac direct IdentityFile")
     if any(c in private_path for c in '\\"\' #'):
         raise TransportBoundaryError("Mac direct identity path contains SSH quoting syntax")
     if private_path in {item.path for item in bound.values()}:
         raise TransportBoundaryError("Mac direct private reference aliases a readable artifact")
-    return _MacDirectEffectAuthority(
-        "mac-openssh-direct-v1", bound["mac-direct-ssh-config"], bound["mac-direct-known-hosts"],
-        bound["mac-direct-public-key"], fingerprint, identity,
+    authority_type, route = ((_MacUnmanagedDirectEffectAuthority, _UNMANAGED_DIRECT_ROUTE) if unmanaged
+                             else (_MacDirectEffectAuthority, _MANAGED_DIRECT_ROUTE))
+    return authority_type(
+        route, bound[prefix + "ssh-config"], bound[prefix + "known-hosts"],
+        bound[prefix + "public-key"], fingerprint, identity,
         _SSHConfigTarget(fields["Host"], fields["HostName"], int(fields["Port"]), fields["User"], private_path),
     )
 

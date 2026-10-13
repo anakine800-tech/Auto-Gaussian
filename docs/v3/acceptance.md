@@ -12,6 +12,15 @@ NOT RUN. A process-completed result never establishes business completion.
 
 These are feature-expansion stop conditions, not authority for a live run.
 
+## Unmanaged Mac Direct route acceptance
+
+Follow the [offline matrix](contracts/mac-direct-unmanaged-v1.md#validation-and-acceptance):
+exact route selection and rejection, Option-1-shaped argv with identical server
+command, one fixed `Popen` with before/after Direct attestation, and the
+production Program chain with an offline wire peer including zero-effect
+replay and `UNKNOWN` without a second `qsub`. Profile-specific publisher
+qualification and any live smoke are NOT RUN and need a separate Owner gate.
+
 
 ## Component reading map
 

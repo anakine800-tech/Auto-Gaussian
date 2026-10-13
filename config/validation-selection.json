@@ -232,6 +232,7 @@
         "docs/v3/contracts/tasks/workflow.md",
         "docs/v3/contracts/mac-direct-managed-offline-v1.md",
         "docs/v3/contracts/mac-direct-managed-native-v1.md",
+        "docs/v3/contracts/mac-direct-unmanaged-v1.md",
         "docs/v3/gaussian-qsub-file-carrier-contract.md",
         "docs/v3/gaussian-short-entry-contract.md",
         "docs/v3/native-readonly-query-contract.md",

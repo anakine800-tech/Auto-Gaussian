@@ -20,7 +20,7 @@ from auto_g16.execution import ExecutionSnapshot, ServerProfile, assert_executio
 
 from ._bridge import _BOOTSTRAP_PROTOCOL, _BOOTSTRAP_SOURCE_BYTES, _BOOTSTRAP_SOURCE_NAME, _RTWIN_LAUNCHER_SHA256, _RTWIN_LAUNCHER_SIZE, _build_mac_proxyjump_command, _build_rtwin_command, _decode_response_frame, _encode_request_frame
 from ._canonical import TransportBoundaryError, canonical_json_bytes, strict_canonical_json
-from ._direct import _DIRECT_CONFIG_PATHS, _DIRECT_MAC_SSH, _MacDirectEffectAuthority, _resolve_mac_direct, _attest_direct_local
+from ._direct import _DIRECT_CONFIG_PATHS, _DIRECT_MAC_SSH, _MacDirectEffectAuthority, _MacUnmanagedDirectEffectAuthority, _UNMANAGED_DIRECT_CONFIG_PATHS, _resolve_mac_direct, _resolve_mac_unmanaged_direct, _attest_direct_local
 
 _FIXED_ENV: Final = {"LANG":"C","LC_ALL":"C","PYTHONNOUSERSITE":"1","PYTHONUTF8":"1"}
 _MANIFEST_NAME: Final = "transport-deployment-manifest-v2.json"
@@ -108,7 +108,7 @@ class _MacProxyJumpEffectAuthority:
     route:str; config:_BoundEffectFile; rtwin_known_hosts:_BoundEffectFile; final_known_hosts:_BoundEffectFile; final_public_key:_BoundEffectFile; final_identity_fingerprint:str; final_identity_file_identity:tuple[int,int,int,int,int]; rtwin_target:_SSHConfigTarget; final_target:_SSHConfigTarget
 @dataclass(frozen=True,slots=True)
 class _DeploymentAuthority:
-    manifest:_DeploymentManifest; resource_dialect:_ResourceDialect; ssh_effect:_SSHEffectAuthority|_MacProxyJumpEffectAuthority|_MacDirectEffectAuthority; resolved_server_profile_id:str; effective_config_sha256:str; execution_snapshot_id:str; bootstrap_source_sha256:str; bootstrap_source_size_bytes:int; bootstrap_source_path:str|None; manifest_path:str|None
+    manifest:_DeploymentManifest; resource_dialect:_ResourceDialect; ssh_effect:_SSHEffectAuthority|_MacProxyJumpEffectAuthority|_MacDirectEffectAuthority|_MacUnmanagedDirectEffectAuthority; resolved_server_profile_id:str; effective_config_sha256:str; execution_snapshot_id:str; bootstrap_source_sha256:str; bootstrap_source_size_bytes:int; bootstrap_source_path:str|None; manifest_path:str|None
 @dataclass(frozen=True,slots=True,kw_only=True)
 class _Invocation:
     operation:_Operation; argv:tuple[str,...]; cwd:str; request:Mapping[str,object]; authority:_DeploymentAuthority
@@ -344,8 +344,12 @@ def _parse_mac_proxyjump_config(raw:bytes,*,config_path:str,rtwin_known_hosts_pa
         _SSHConfigTarget(final["Host"],final["HostName"],int(final["Port"]),final["User"],final_identity),
     )
 
-def _resolve_ssh_effect(profile:ServerProfile,current:object)->_SSHEffectAuthority|_MacProxyJumpEffectAuthority|_MacDirectEffectAuthority:
+def _resolve_ssh_effect(profile:ServerProfile,current:object)->_SSHEffectAuthority|_MacProxyJumpEffectAuthority|_MacDirectEffectAuthority|_MacUnmanagedDirectEffectAuthority:
     names=tuple(name for name,_content in profile.config_files)
+    # OD-46: any unmanaged Direct artifact or path selects only that resolver,
+    # whose exact inventory/foreign-path checks reject every mixed profile.
+    if set(names).intersection(_UNMANAGED_DIRECT_CONFIG_PATHS) or set(_UNMANAGED_DIRECT_CONFIG_PATHS.values()).intersection(getattr(current,"platform_paths")):
+        return _resolve_mac_unmanaged_direct(profile,current)
     if set(names).intersection(_DIRECT_CONFIG_PATHS) or set(_DIRECT_CONFIG_PATHS.values()).intersection(getattr(current,"platform_paths")):
         return _resolve_mac_direct(profile,current)
     if len(names)==len(_PROXYJUMP_CONFIG_NAMES) and set(names)==set(_PROXYJUMP_CONFIG_NAMES):
@@ -424,6 +428,11 @@ def _resolve_closed_profile_authority(frozen:object,current_profile:ServerProfil
         if not successor: raise TransportBoundaryError("Mac direct requires the Program successor manifest")
         mac_ssh=manifest.trust_roots["mac_ssh"]
         if (mac_ssh.path,mac_ssh.expected_size_bytes,mac_ssh.expected_sha256)!=_DIRECT_MAC_SSH: raise TransportBoundaryError("Mac direct OpenSSH candidate identity differs")
+        bootstrap_path=manifest_path=None
+    elif type(ssh_effect) is _MacUnmanagedDirectEffectAuthority:
+        if not successor: raise TransportBoundaryError("unmanaged Mac direct requires the Program successor manifest")
+        mac_ssh=manifest.trust_roots["mac_ssh"]
+        if (mac_ssh.path,mac_ssh.expected_size_bytes,mac_ssh.expected_sha256)!=_OPTION1_MAC_SSH: raise TransportBoundaryError("unmanaged Mac direct requires the Option-1 qualified OpenSSH identity")
         bootstrap_path=manifest_path=None
     elif isinstance(ssh_effect,_MacProxyJumpEffectAuthority):
         mac_ssh=manifest.trust_roots["mac_ssh"]
@@ -605,25 +614,33 @@ class _SubprocessRTWinDriver:
         if type(effect) is _MacDirectEffectAuthority:
             from auto_g16._managed_native.service import run_direct
             return run_direct(snapshot, invocation)
-        if isinstance(effect,_MacProxyJumpEffectAuthority):
+        if type(effect) is _MacUnmanagedDirectEffectAuthority:
+            # OD-46: same Popen owner as Option-1; Direct no-follow attestation
+            # replaces the per-file checks below, before and after the process.
+            if not successor: raise TransportBoundaryError("unmanaged Mac direct requires a Program successor invocation")
+            authority=invocation.authority
+            def attest()->object: return _attest_direct_local(authority)
+        elif isinstance(effect,_MacProxyJumpEffectAuthority):
             local_files=(effect.config,effect.rtwin_known_hosts,effect.final_known_hosts,effect.final_public_key); root_names=("mac_ssh",)
             identity_paths=((effect.rtwin_target.identity_file,None),(effect.final_target.identity_file,effect.final_identity_file_identity))
             if not successor: command=_build_mac_proxyjump_command(snapshot,invocation.authority)
         else:
             local_files=(effect.mac_to_rtwin.config,effect.mac_to_rtwin.known_hosts); root_names=("mac_ssh","mac_scp")
             identity_paths=(); command=_build_rtwin_command(snapshot,invocation.authority)
-        before={name:_attest_local(roots[name]) for name in root_names}
-        before.update({bound.name:_attest_local_effect_file(bound) for bound in local_files})
-        before.update({f"identity-{index}":_attest_identity_reference(path,expected) for index,(path,expected) in enumerate(identity_paths)})
+        if type(effect) is not _MacUnmanagedDirectEffectAuthority:
+            def attest()->object:
+                result:dict[str,object]={name:_attest_local(roots[name]) for name in root_names}
+                result.update({bound.name:_attest_local_effect_file(bound) for bound in local_files})
+                result.update({f"identity-{index}":_attest_identity_reference(path,expected) for index,(path,expected) in enumerate(identity_paths)})
+                return result
+        before=attest()
         if not successor: request=_encode_request_frame(invocation.request,cap=invocation.operation.stdin_cap)
         process=None
         stdout,stderr=b"",b""
         try:
             process=subprocess.Popen(command,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=dict(_FIXED_ENV),shell=False,start_new_session=True)
             stdout,stderr,returncode,status,eofout,eoferr=self._communicate_bounded(process,request,invocation.operation)
-            after={name:_attest_local(roots[name]) for name in root_names}
-            after.update({bound.name:_attest_local_effect_file(bound) for bound in local_files})
-            after.update({f"identity-{index}":_attest_identity_reference(path,expected) for index,(path,expected) in enumerate(identity_paths)})
+            after=attest()
             if before!=after:
                 if invocation.operation.name in {"OBSERVE_PROJECT", "PROVISION_PROJECT"}: return stdout,stderr,None,"transport-error",False,False
                 return b"",b"",None,"transport-error",False,False
@@ -673,4 +690,4 @@ def _is_fetch_result_closed(value:object)->bool:
     if value.status!="found": return not value.content and all(item is None for item in values)
     return type(value.before_identity) is str and type(value.after_identity) is str and type(value.before_size) is int and type(value.after_size) is int and type(value.before_sha256) is str and type(value.after_sha256) is str and (value.transport_stdout,value.transport_stderr,value.transport_returncode,value.transport_eof_stdout,value.transport_eof_stderr,value.transport_completion_status)==(b"",b"",None,None,None,None)
 
-__all__=["_BOOTSTRAP_PROTOCOL","_DeploymentAuthority","_DeploymentManifest","_FIXED_ENV","_FetchResult","_Invocation","_MANIFEST_NAME","_MacProxyJumpEffectAuthority","_OPERATION_TABLE_BYTES","_OPERATION_TABLE_SHA256","_OPTION1_MAC_SSH","_RESOURCE_DESCRIPTOR_NAME","_RTWinDriver","_SubprocessRTWinDriver","_SYNTHETIC_RESOURCE_DIALECT","_TORQUE_RESOURCE_DIALECT","_TextResult","_assert_deployment_snapshot","_attest_identity_reference","_attest_local_effect_file","_is_fetch_result_closed","_is_text_result_closed","_operation","_parse_deployment_manifest","_parse_openssh_ed25519_public_identity","_parse_resource_descriptor","_render_qsub_argv","_resolve_deployment_authority","_resource_enactment"]
+__all__=["_BOOTSTRAP_PROTOCOL","_DeploymentAuthority","_DeploymentManifest","_FIXED_ENV","_FetchResult","_Invocation","_MANIFEST_NAME","_MacProxyJumpEffectAuthority","_MacUnmanagedDirectEffectAuthority","_OPERATION_TABLE_BYTES","_OPERATION_TABLE_SHA256","_OPTION1_MAC_SSH","_RESOURCE_DESCRIPTOR_NAME","_RTWinDriver","_SubprocessRTWinDriver","_SYNTHETIC_RESOURCE_DIALECT","_TORQUE_RESOURCE_DIALECT","_TextResult","_assert_deployment_snapshot","_attest_identity_reference","_attest_local_effect_file","_is_fetch_result_closed","_is_text_result_closed","_operation","_parse_deployment_manifest","_parse_openssh_ed25519_public_identity","_parse_resource_descriptor","_render_qsub_argv","_resolve_deployment_authority","_resource_enactment"]

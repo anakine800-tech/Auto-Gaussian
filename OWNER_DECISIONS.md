@@ -1566,6 +1566,30 @@ On 2026-10-09 Owner explicitly approved both publication of stage 3 and the inde
 
 Only the optional fully bound startup reader and separate saved-result query/closed DTO are added to the backend. Existing list/detail DTOs remain unchanged; reads do not recompute thermochemistry or imply ScientificAcceptance. The backend draft PR is stacked on `codex/native-thermo-readback`, explicitly depending on PR #198; any retarget needs a separate exact identity check. Stage-4 completion stops further work. Merge, real registration, installation, real-material browser acceptance, new computation, cleanup and later packages remain outside this authorization.
 
+## OD-46: Unmanaged Mac Direct reuses the Option-1 process owner
+
+On 2026-10-13 the Owner chose to reach the final server from the Mac
+controller without the RTwin hop by reusing the qualified Option-1 process
+owner, rather than waiting for MAC-DIRECT-MANAGED-NATIVE-V1 qualification.
+The bounded [MAC-DIRECT-UNMANAGED-V1 contract](docs/v3/contracts/mac-direct-unmanaged-v1.md)
+adds route `mac-openssh-direct-unmanaged-v1`, selected only by its own exact
+three-artifact inventory with an empty jump topology. It is not the
+"direct-Mac fallback" OD-28 forbids: no profile can fall from one route to
+another, and Option-1 profiles are unchanged.
+
+The Owner explicitly accepts that this route has no single native child owner,
+no separate executor UID or LaunchDaemon, no IPC peer authentication and no
+durable lifecycle veto; the desktop UID holds the final-server key, as it
+already does for Option-1. Approval separation, one WINNER and at most one
+`qsub` per Attempt, `UNKNOWN` without retry, zero-effect `REPLAY`,
+no-overwrite and Direct local attestation remain mandatory.
+
+OD-06's long-term managed Direct target and the closed
+MAC-DIRECT-MANAGED-NATIVE-V1 entry are unchanged and remain inactive. This
+decision authorizes offline implementation and validation only. Live use needs
+a later explicit gate with fresh profile-specific publisher qualification and
+an approved xTB smoke; Option-1 qualification evidence does not transfer.
+
 ## Pre-submit UNKNOWN recovery integration continuation
 
 On 2026-10-12 Owner explicitly requested completion of the unified execution

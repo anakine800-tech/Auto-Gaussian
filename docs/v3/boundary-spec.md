@@ -8,6 +8,17 @@ closed and native qualification is absent. Its single native child owner does
 not redefine business completion, Core observations or Transport physical
 authority. Original Option-1 process behavior and Gaussian science are unchanged.
 
+## Unmanaged Mac Direct route boundary
+
+The [MAC-DIRECT-UNMANAGED-V1 contract](contracts/mac-direct-unmanaged-v1.md#route)
+adds route `mac-openssh-direct-unmanaged-v1` under
+[OD-46](../../OWNER_DECISIONS.md#od-46-unmanaged-mac-direct-reuses-the-option-1-process-owner).
+Only its exact three-artifact inventory with empty jump topology selects it.
+It reuses the Option-1 normal and recovery process owners and Program
+bootstrap rendering unchanged, with Direct local attestation before and after
+each process. It is never a fallback for, or to, any other route, and the
+managed `mac-openssh-direct-v1` entry stays closed.
+
 This document fixes stable dependency and data boundaries only. It does not
 select implementation techniques.
 

@@ -84,6 +84,15 @@ def _consume_direct_wire(driver, scope, invocation):
     return handoff.consume(driver, scope, invocation)
 
 
+def _is_option1_process_route(authority) -> bool:
+    """Routes owned by the Option-1 Popen process owners (OD-28, OD-46).
+
+    Exact type identity: the managed Direct authority is never admitted here.
+    """
+    return type(authority.ssh_effect) in (_driver._MacProxyJumpEffectAuthority,
+                                          _driver._MacUnmanagedDirectEffectAuthority)
+
+
 def _gaussian_derived_stages(snapshot):
     """Recheck fixed transport declarations; Execution owns payload rendering."""
     if snapshot.program_execution_spec.adapter_contract_version == 7:
@@ -252,7 +261,7 @@ def _prepare_program_invocation(
     if type(authority.ssh_effect) is _driver._MacDirectEffectAuthority:
         if type(scope) is ProgramExecutionSnapshot and scope.program_execution_spec.program_kind != "xtb":
             raise TransportBoundaryError("managed Direct first version is xTB only")
-    elif not authority.resource_dialect.live_capable or type(authority.ssh_effect) is not _driver._MacProxyJumpEffectAuthority:
+    elif not authority.resource_dialect.live_capable or not _is_option1_process_route(authority):
         raise TransportBoundaryError("successor requires the qualified RTwin ProxyJump deployment")
     if type(scope) is ProgramExecutionSnapshot and scope.program_execution_spec.adapter_contract_version in (3, 4, 5, 6, 7):
         collection = _COLLECTION_WIRE_OWNER.get()
@@ -544,7 +553,7 @@ class _RTWinProjectAttestor(_ProjectAttestor):
 
     def _authority(self) -> _driver._DeploymentAuthority:
         authority = _driver._resolve_closed_profile_authority(self._target, self._profile, self._target.resolved_server_profile_id, successor=True)
-        if not authority.resource_dialect.live_capable or type(authority.ssh_effect) is not _driver._MacProxyJumpEffectAuthority:
+        if not authority.resource_dialect.live_capable or not _is_option1_process_route(authority):
             raise TransportBoundaryError("production Project authority requires qualified ProxyJump")
         return authority
 
@@ -733,7 +742,7 @@ class _RTWinProgramEffectDriver:
             _require_managed_driver(self)
             if not authority.resource_dialect.live_capable or self._snapshot.program_execution_spec.program_kind != "xtb":
                 raise TransportBoundaryError("managed Direct requires qualified xTB resources")
-        elif not authority.resource_dialect.live_capable or type(authority.ssh_effect) is not _driver._MacProxyJumpEffectAuthority:
+        elif not authority.resource_dialect.live_capable or not _is_option1_process_route(authority):
             raise TransportBoundaryError("production successor requires qualified ProxyJump")
         if self._snapshot.program_execution_spec.adapter_contract_version in (3, 4, 5, 6, 7):
             if self._publisher is None:
