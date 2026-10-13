@@ -16,7 +16,10 @@ SKILLS = tuple(ROOT / f"auto-g16-{name}" for name in (
     "study", "recipes", "literature", "structures",
     "chemdraw-structures", "gaussian-learning-library",
 ))
-CARDS = ("opt-freq", "sp", "rdkit-screen", "crest-screen", "thermo", "failure-diagnosis")
+CARDS = (
+    "opt-freq", "sp", "rdkit-screen", "crest-screen", "thermo", "failure-diagnosis",
+    "reaction-plan", "ts", "irc",
+)
 SECTIONS = (
     "适用范围", "前置条件", "输入模板", "资源建议", "提交前检查清单",
     "结果判据清单", "常见失败与处理", "常见坑",

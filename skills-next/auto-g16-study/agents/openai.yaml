@@ -1,3 +1,3 @@
 interface:
   display_name: "Auto-G16 Study"
-  short_description: "用 ag 推进单分子研究、审阅结果并记录人的三个里程碑签字"
+  short_description: "用 ag 推进研究、审阅结果并记录里程碑与机理假设签字"

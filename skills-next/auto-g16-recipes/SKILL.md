@@ -1,14 +1,17 @@
 ---
 name: auto-g16-recipes
-description: 为 ag 新架构提供 Opt+Freq、单点、RDKit 或 CREST 初筛、qRRHO 热化学及失败诊断卡片；准备输入或审阅主族闭壳层单分子结果时使用。
+description: 为 ag 新架构提供 Opt+Freq、单点、RDKit 或 CREST 初筛、qRRHO 热化学、机理计划、TS/IRC 及失败诊断卡片；准备输入或审阅主族闭壳层结果时使用。
 ---
 
 # Auto-G16 Recipes
 
-先匹配适用范围和前置条件，再打开一张卡片。编排和人的签字由 `auto-g16-study` 负责；无适用卡片就停下说明缺口，首版没有 TS/IRC、金属或双分子初筛卡片。
+先匹配适用范围和前置条件，再打开一张卡片。编排和人的签字由 `auto-g16-study` 负责；无适用卡片就停下说明缺口，金属、开壳层及双分子初筛仍不在本组卡片的执行范围。TS/IRC 卡片中的能力缺口标注“待 T13”，不能用旧 Skill 或自造命令绕过。
 
 | 卡片 | 适用范围 | 前置条件 |
 |---|---|---|
+| [reaction-plan](cards/reaction-plan.md) | 主族闭壳层同面机理假设与修正 | 明确科学问题；假设需人签字后才能推进依赖计算 |
+| [ts](cards/ts.md) | 已审阅单结构初猜的 TS 优化与振动审核 | 已签机理假设、结构与代表构象集合 |
+| [irc](cards/irc.md) | 双向路径与端点极小点识别 | 已接受 TS 与振动方向；缺能力时待 T13 |
 | [opt-freq](cards/opt-freq.md) | 主族闭壳层单分子极小点 | 已签结构与代表构象集合、已定方法 |
 | [sp](cards/sp.md) | 同一物种极小点的电子能精化 | 已接受的 Opt+Freq 最终几何 |
 | [rdkit-screen](cards/rdkit-screen.md) | 力场可参数化的主族单分子初筛 | 已签结构，structures Skill 可用 |

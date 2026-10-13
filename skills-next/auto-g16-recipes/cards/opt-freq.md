@@ -52,6 +52,19 @@ ag prepare --study <study_id> --template gaussian --input <conformer.gjf> --tier
 - 对低于 50 cm⁻¹ 的正频逐项记录并检查软扭转 / 数值敏感性；任何负频都不能直接置零。热化学按 thermo 卡片的 100 cm⁻¹ qRRHO 处理，但 qRRHO 不会修复非极小点。
 - 记录 SCF、ZPE、热修正及 Gaussian 原始 G 的单位和来源；与后续 qRRHO 结果区分。优化后调用 `ag dedup` / `ag cluster` 检查不同初猜是否落到同一极小点。
 
+### 静默失败检查清单
+
+为防止把程序正常退出误当科学成功，借鉴 [QUASAR，arXiv:2602.00185v2](https://arxiv.org/html/2602.00185v2) §2.3 “Long Simulation Handling”（完成状态不保证收敛）及 §4 “Discussion”（貌似合理的结果仍需物理核验）。下面六项是面向 Gaussian 和本项目的具体化，并非论文给出的 Gaussian 清单；不采用其自动终止/重启操作。
+
+- **正常终止但不在驻点**：分别检查 `opt_converged` 和 `freq_step_converged`。尤其 `freq_step_converged=false` 时即便零虚频也暂停接受；`null` 是缺证据，查末次频率阶段的收敛表和 `Non-Optimized Parameters`，不能用别的阶段替代。
+- **连接关系或立体构型改变**：按相同原子映射比较输入与最终几何中的成键、断键、质子转移及立体中心。用 `ag graph --study <study_dir>` 核对来源；当前 ag graph 是 Attempt 来源图，不做分子连接关系/立体化学比对，该自动能力待 T13。人工逐项记录差异，无法判定就暂停纳入原构象集合，不能用来源图声明结构一致。
+- **小虚频**：当负频的绝对值 < 50 cm⁻¹ 时，检查完整位移，区分软扭转、片段运动、真实反应方向与数值误差；不能直接置零。可提出更严格优化/积分网格或沿该模式小扰动后同方法重新优化，重新核对完整 Freq；提出新 Attempt，等人确认。100 cm⁻¹ qRRHO 截断不负责消除虚频。
+- **实际方法、电荷或多重度不符**：核对最终计算对应的 Gaussian archive 行（展开折行），与输入、manifest 摘要及 `facts.json` 的 route/charge/multiplicity 对照；色散、溶剂等再对照输出回显。当前 facts 不提供完整 archive 审计字段，须查原日志，缺 archive/信息不全写缺证据，不能默认为一致。
+- **能量离群**：仅在同一组成、电荷、多重度、方法、溶剂和能量类型/单位下比较同组构象；区分 SCF 与 G/qRRHO。显著偏离时先检查结构是否改变、解析是否选错步骤和收敛情况，写出差值与依据；不设无来源的通用阈值，也不因更低就自动选中或因离群就删除。
+- **开壳层自旋污染**：本卡不开放开壳层执行；若输入/输出实际为开壳层，先报告超范围并停止接受。已有结果可读取 `s2`，以 S=(多重度−1)/2 的 S(S+1) 为参照，并查原日志湮灭前/后的值及目标态；缺值不当零，不凭湮灭后接近理想值就认定波函数正确。方法选择交给人判断。
+
+每项在 review 写“通过 / 不通过 / 依据”；需补算时转 [失败诊断](failure-diagnosis.md)，不自动重提。
+
 ## 7. 常见失败与处理
 
 真实计算异常先停下报告，再按 failure-diagnosis 卡片审阅已有输出。未收敛、SCF 失败、超时或虚频分别提出针对性的修改，保留原输入和结果；提出新 Attempt，等人确认。
@@ -60,8 +73,8 @@ ag prepare --study <study_id> --template gaussian --input <conformer.gjf> --tier
 
 ## 8. 常见坑
 
-- 正常终止并不足以证明优化和频率均完成，要核对驻点与完整频率证据。来源：`skills/auto-g16-rtwin-pbs/references/environment-and-failures.md`、`skills/auto-g16-rtwin-pbs/references/scientific-workflows.md`。
-- 多个初猜可能收敛为同一极小点，直接逐作业计数会重复加权。来源：`skills/auto-g16-view-rt-win/references/conformer-workflow.md`。
-- 增加核数不会使不适用的方法变得可靠；方法和资源分别说明。来源：`skills/auto-g16-rtwin-pbs/references/protocols.md`。
+- 正常终止并不足以证明优化和频率均完成，要核对驻点与完整频率证据。来源：`archive/skills/auto-g16-rtwin-pbs/references/environment-and-failures.md`、`skills/auto-g16-rtwin-pbs/references/scientific-workflows.md`。
+- 多个初猜可能收敛为同一极小点，直接逐作业计数会重复加权。来源：`archive/skills/auto-g16-view-rt-win/references/conformer-workflow.md`。
+- 增加核数不会使不适用的方法变得可靠；方法和资源分别说明。来源：`archive/skills/auto-g16-rtwin-pbs/references/protocols.md`。
 
 - 正常终止、`opt_converged=true`、零虚频仍可能伴随频率阶段位移检查 NO；在频率阶段收敛复核通过前暂停热化学接受。来源：study `butane-l1-20261013`，`lessons/04-frequency-stage-convergence.md`。
