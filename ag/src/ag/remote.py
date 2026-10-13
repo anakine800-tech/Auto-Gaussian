@@ -52,6 +52,10 @@ def queues():
     return Command('queues', 'qstat -Q')
 
 
+def nodes():
+    return Command('nodes', 'pbsnodes -a')
+
+
 def jobs(job=None):
     return Command('jobs', 'qstat -f' + (' ' + quote(job_id(job)) if job else ''))
 
