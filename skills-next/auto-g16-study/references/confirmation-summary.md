@@ -16,4 +16,6 @@ CREST / xTB 没有 Gaussian route，明确写“不适用”并列完整程序�
 
 同一卡片、同一方法才合并为一张批量摘要；每个 Attempt 一行。若总核数超过上限，拆成可容纳的批次，待先前作业完成后再展示并确认下一批。
 
+3D 预览：http://localhost:<端口>/#/<study>/<attempt>（查看器启动方式见前端 README）
+
 回复‘提交’后我会运行 `ag submit`，届时 Mac 上会弹出确认框，需要你亲手点击。
