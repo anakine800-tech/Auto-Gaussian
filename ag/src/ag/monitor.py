@@ -214,17 +214,39 @@ def publish(root, snapshot):
 def sample(cfg, transport, interval=None):
     root = cache_dir(cfg)
     previous_path = root / 'latest.json'
-    previous = json.loads(previous_path.read_text(encoding='utf-8')) if previous_path.exists() else {}
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
     snapshot = dict(schema='ag-monitor/1', sampled_at=now, interval_seconds=interval,
-                    ok=False, error=None, last_ok_at=previous.get('last_ok_at'),
-                    own=previous.get('own', dict(cores_in_use=0, core_cap=cfg['resources']['max_cores'], jobs=[])),
-                    cluster=previous.get('cluster', dict(nodes=[], queues=[], cores_total=0, cores_used=0)),
-                    warnings=previous.get('warnings', []))
+                    ok=False, error=None, last_ok_at=None,
+                    own=dict(cores_in_use=0, core_cap=cfg['resources']['max_cores'], jobs=[]),
+                    cluster=dict(nodes=[], queues=[], cores_total=0, cores_used=0), warnings=[])
+    operation = 'Read previous monitor snapshot'
     try:
+        if previous_path.exists():
+            previous = json.loads(previous_path.read_text(encoding='utf-8'))
+            # A damaged cache must not escape the sampling error handler or
+            # leave invalid containers for publish() to crash on afterwards.
+            retained = {key: previous[key] for key in ('last_ok_at', 'own', 'cluster', 'warnings')}
+            for section, counters, lists in (
+                ('own', ('cores_in_use', 'core_cap'), ('jobs',)),
+                ('cluster', ('cores_total', 'cores_used'), ('nodes', 'queues')),
+            ):
+                value = retained[section]
+                if (not isinstance(value, dict)
+                        or any(type(value[key]) is not int for key in counters)
+                        or any(not isinstance(value[key], list) for key in lists)):
+                    raise ValueError('Invalid cached monitor data')
+            if not isinstance(retained['warnings'], list):
+                raise ValueError('Invalid cached monitor warnings')
+            if retained['last_ok_at'] is not None:
+                stamp = datetime.fromisoformat(retained['last_ok_at'])
+                if stamp.tzinfo is None:
+                    raise ValueError('Cached last_ok_at lacks a timezone')
+                retained['last_ok_at'] = stamp.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+            snapshot.update(retained)
+        operation = 'Collect monitor sample'
         snapshot.update(observation(cfg, transport, login_user(cfg)))
-    except (OSError, ValueError, KeyError, subprocess.TimeoutExpired) as exc:
-        snapshot['error'] = redact_stderr(str(exc), cfg)
+    except (OSError, ValueError, KeyError, AttributeError, TypeError, subprocess.TimeoutExpired) as exc:
+        snapshot['error'] = redact_stderr(f'{operation}: {exc}', cfg)
     else:
         snapshot.update(ok=True, last_ok_at=now)
     publish(root, snapshot)

@@ -1,6 +1,7 @@
 """Synthetic scheduler observations only; no cluster connections or study writes."""
 import json
 from pathlib import Path
+import re
 import subprocess
 
 import pytest
@@ -117,7 +118,7 @@ def test_snapshot_exact_association_and_no_study_mutation(cfg, identity):
     result = monitor.sample(cfg, fake, 120)
     assert fake.calls == ['qstat -f', 'qstat -Q', 'pbsnodes -a']
     assert result['schema'] == 'ag-monitor/1'
-    assert result['sampled_at'].endswith('+00:00')
+    assert re.fullmatch(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z', result['sampled_at'])
     assert result['sampled_at'] == result['last_ok_at']
     assert result['ok'] is True and result['error'] is None
     assert result['interval_seconds'] == 120
@@ -341,3 +342,84 @@ def test_malformed_output_keeps_success(cfg, identity, operation, text):
     assert not result['ok']
     assert result['last_ok_at'] == previous['last_ok_at']
     assert result['cluster'] == previous['cluster']
+
+
+def test_legacy_timestamp_normalized_even_when_sampling_fails(cfg, identity):
+    root = monitor.cache_dir(cfg)
+    previous = monitor.sample(cfg, Fake())
+    previous['last_ok_at'] = '2026-10-14T02:05:00.123456+00:00'
+    (root / 'latest.json').write_text(json.dumps(previous))
+    fake = Fake()
+    fake.replies['jobs'] = Result(255)
+    result = monitor.sample(cfg, fake)
+    assert not result['ok']
+    assert result['last_ok_at'] == '2026-10-14T02:05:00Z'
+    assert re.fullmatch(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z', result['sampled_at'])
+    history = [json.loads(line) for line in (root / 'history.jsonl').read_text().splitlines()]
+    assert history[-1]['last_ok_at'] == result['last_ok_at']
+    assert history[-1]['sampled_at'] == result['sampled_at']
+
+
+@pytest.mark.parametrize('damage', [b'{', b'\xff', b'null', b'[]', b'42', b'{}',
+                                  'own', 'cluster', 'warnings', 'last_ok_at', 'jobs'])
+def test_corrupt_snapshot_records_one_failure_then_watch_recovers(cfg, identity, monkeypatch, capsys, damage):
+    root = monitor.cache_dir(cfg)
+    previous = monitor.sample(cfg, Fake())
+    if isinstance(damage, bytes):
+        (root / 'latest.json').write_bytes(damage)
+    else:
+        if damage == 'jobs':
+            previous['own']['jobs'] = None
+        else:
+            previous[damage] = 'invalid'
+        (root / 'latest.json').write_text(json.dumps(previous))
+    fake = Fake()
+    monkeypatch.setattr(monitor, 'SSHTransport', lambda cfg, *, read_only: fake)
+    sleeps = []
+    def sleep(seconds):
+        sleeps.append(seconds)
+        if len(sleeps) == 2:
+            raise KeyboardInterrupt
+    monkeypatch.setattr(monitor.time, 'sleep', sleep)
+    assert monitor.run(cfg, 60) == 0
+    failed, recovered = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert not failed['ok'] and failed['last_ok_at'] is None
+    assert 'Read previous monitor snapshot' in failed['error']
+    assert failed['own']['jobs'] == []
+    assert failed['cluster']['nodes'] == []
+    assert recovered['ok'] and recovered['error'] is None
+    assert recovered['last_ok_at'] == recovered['sampled_at']
+    assert fake.calls == ['qstat -f', 'qstat -Q', 'pbsnodes -a']
+    history = [json.loads(line) for line in (root / 'history.jsonl').read_text().splitlines()]
+    assert [row['ok'] for row in history] == [True, False, True]
+
+
+@pytest.mark.parametrize('damage', [b'{', b'\xff', b'null', b'[]', b'42', b'"text"',
+                                  b'{"job_id":"101.fixture"}'])
+def test_malformed_status_keeps_data_and_watch_running(cfg, identity, monkeypatch, capsys, damage):
+    path = attempt(cfg, 'water-001-sp', '101.fixture', 'submitted')
+    valid = path.read_bytes()
+    previous = monitor.sample(cfg, Fake())
+    path.write_bytes(damage)
+    fake = Fake()
+    monkeypatch.setattr(monitor, 'SSHTransport', lambda cfg, *, read_only: fake)
+    sleeps = []
+    def sleep(seconds):
+        sleeps.append(seconds)
+        assert path.read_bytes() == (damage if len(sleeps) <= 2 else valid)
+        if len(sleeps) == 2:
+            path.write_bytes(valid)  # Simulate a human repairing the fixture.
+        elif len(sleeps) == 3:
+            raise KeyboardInterrupt
+    monkeypatch.setattr(monitor.time, 'sleep', sleep)
+    assert monitor.run(cfg, 60) == 0
+    first, second, recovered = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    for failed in (first, second):
+        assert not failed['ok'] and failed['error']
+        assert failed['last_ok_at'] == previous['last_ok_at']
+        for key in ('own', 'cluster', 'warnings'):
+            assert failed[key] == previous[key]
+    assert recovered['ok'] and recovered['error'] is None
+    assert len(fake.calls) == 9
+    history = [json.loads(line) for line in (monitor.cache_dir(cfg) / 'history.jsonl').read_text().splitlines()]
+    assert [row['ok'] for row in history] == [True, False, False, True]
