@@ -1,0 +1,8 @@
+outputs = ["xtb.out", "xtbopt.xyz", "xtbopt.log"]
+completion = "normal termination of xtb"
+[parameters]
+"--gfn" = ["2"]
+"--opt" = ["", "crude", "sloppy", "loose", "normal", "tight", "verytight", "extreme"]
+"--alpb" = ["water", "methanol", "ethanol", "acetone", "acetonitrile", "benzene", "toluene", "ch2cl2", "chloroform", "thf", "dmso", "ether", "hexane"]
+"--chrg" = "integer"
+"--uhf" = "nonnegative_integer"

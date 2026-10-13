@@ -1,0 +1,7 @@
+export g16root=$g16root
+export GAUSS_EXEDIR="$$g16root"
+export PATH="$$GAUSS_EXEDIR:$$PATH"
+export LD_LIBRARY_PATH="$$GAUSS_EXEDIR:$${LD_LIBRARY_PATH:-}"
+test ! -e $log_name
+test ! -L $log_name
+g16 $input_name
