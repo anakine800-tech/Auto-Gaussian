@@ -10,13 +10,15 @@
 
 ## 3. 输入模板
 
-运行 `ag thermo <id>...`，输入为所选代表的 Attempt。参数值固定按 D21：**GoodVibes 4.3.0、Grimme qRRHO、截止频率 100 cm⁻¹、温度 298.15 K、浓度 1 mol/L**。从当前命令帮助确认设置方式及默认值，保存实际报告的熵 / 焓处理；不杜撰诸如温度、简并度或单点配对的选项名。工具不能表达所需设置时，列出缺口并停下，不以手写结果冒充 `ag thermo` 输出。
+运行 `ag thermo <id>...`，输入为所选代表的 Attempt。参数值按 D21 及仓库所有者 2026-10-13 确认的设置：**GoodVibes 4.3.0、Grimme 准谐振子熵修正 + Head-Gordon 准谐振子焓修正，两个截断频率均为 100 cm⁻¹、温度 298.15 K、浓度 1 mol/L**。从当前命令帮助确认设置方式及默认值，核对并保存实际报告的两种修正及各自截断频率；不杜撰诸如温度、简并度或单点配对的选项名。工具不能表达所需设置时，列出缺口并停下，不以手写结果冒充 `ag thermo` 输出。
 
 简并度从最终 `ag cluster` 输出逐项抄写到代表表，保留构象、簇、简并度和来源对应关系。工具输出若只是样本成员数，不能直接当物理简并度；请人说明等价性依据并确认其用途。不要把已经逐个列出的 gauche 等价极小点又乘一次简并度。
 
 非手性分子（如正丁烷）使用 `ag cluster --mirror` 合并镜像构象：anti 的简并度为 1，两个 gauche 合并为一个代表、简并度为 2；gauche 只需一个 Opt+Freq，热化学中对该代表计入权重 2。保留初筛聚类的镜像成员对应关系，不能因为最终只计算了一个代表就丢掉其简并度，也不能再另列其镜像重复计权。手性分子不要使用 `--mirror`。
 
 无 SP 时用频率层级 qRRHO G；复合方案为 `E_SP + (G_qRRHO,low − E_elec,low)`，核实工具的配对和标准态处理避免重复修正。布居满足 `p_i = d_i exp(−ΔG_i/RT) / Σ_j d_j exp(−ΔG_j/RT)`，G 与 RT 必须使用一致单位。
+
+计算反应能、能垒等需要比较不同物种时，分别汇总各物种的构象集合，使用 `ag thermo` 输出的 **`ensemble_G`（构象系综自由能）** 按相应化学计量进行能量比较。`weighted_mean_G` 只用于描述构象分布，不用于能量比较，不能替代 `ensemble_G`。若研究选用“最低构象”的做法，须在 `study.md` 说明所用构象、选用依据和比较口径。
 
 ## 4. 资源建议
 
@@ -34,6 +36,7 @@
 - 原始 RRHO 与最终 qRRHO G 分清，记录低频处理及每个代表的简并度。< 50 cm⁻¹ 的频率结合 opt-freq 审阅，不用 qRRHO 掩盖虚频。
 - 相对能量零点明确，单位换算明确；布居均非负且总和在数值舍入误差内为 1（百分数为 100%）。
 - 将输出表写入 `study.md`：`代表 | Attempt | 简并度 | qRRHO G (Hartree) | ΔG (kcal/mol) | 布居 (%)`；复合方案另列 E_SP 与低层级修正。
+- 跨物种能量比较记录各物种的 `ensemble_G`、单位及化学计量，不使用 `weighted_mean_G`；采用“最低构象”时，核对 `study.md` 已说明该选择。
 - 正丁烷报告 anti / gauche 的构象与分组定义，再给 ΔG 和布居。只计算有限集合时明确为该集合内归一化结果，不宣称完整平衡布居；达到目标后请求人签最终结果。
 
 ## 7. 常见失败与处理
@@ -43,5 +46,5 @@
 ## 8. 常见坑
 
 - 力场 / xTB 排序不是最终 Gibbs 布居；必须在同一化学身份与方法栈内比较。来源：`skills/auto-g16-rtwin-pbs/references/scientific-workflows.md`、`skills/auto-g16-view-rt-win/references/conformer-workflow.md`。
-- 标准态修正按独立物种计数，不能对整个反应只加一次；本卡只比较同一物种。来源：`skills/auto-g16-rtwin-pbs/references/scientific-workflows.md`。
+- 标准态修正按独立物种计数，不能对整个反应只加一次；各物种的构象集合分别汇总，再比较系综自由能。来源：`skills/auto-g16-rtwin-pbs/references/scientific-workflows.md`。
 - 旧文档要求另议低频处理，新方案已选定 D21 qRRHO；保留“报告低频”的经验，不沿用其未选定处理的旧流程。来源：`skills/auto-g16-rtwin-pbs/references/scientific-workflows.md`。
