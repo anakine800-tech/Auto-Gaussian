@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CDXML><page id="1"><fragment id="2">
+<n id="3" p="0 0"/><n id="4" p="-20 10"/><n id="5" p="20 10"/><n id="6" p="40 0"/>
+<n id="7" p="0 -20" Element="8"/><n id="8" p="0 20" Element="1"/>
+<b id="9" B="3" E="4" Order="1"/><b id="10" B="3" E="5" Order="1"/>
+<b id="11" B="5" E="6" Order="1"/><b id="12" B="3" E="7" Order="1"/>
+<b id="13" B="3" E="8" Order="1" Display="WedgeBegin"/>
+</fragment></page></CDXML>
