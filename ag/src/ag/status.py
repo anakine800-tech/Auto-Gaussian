@@ -125,6 +125,19 @@ def processes(transport, session):
     return {'session_id': session, 'absent': False, 'rows': rows}
 
 
+def scheduler_absent(result):
+    """Normalize Torque's missing-job status without treating SSH failure as absence.
+
+    The live Torque response included ``Unknown Job Id Error`` and exit 153;
+    the old one-token suffix matcher rejected that valid missing-job result.
+    """
+    if result.returncode <= 0 or result.returncode == 255:
+        return False
+    return result.returncode == 153 or bool(re.fullmatch(
+        r'(?:qstat:\s*)?Unknown Job Id(?:\s+Error)?(?:\s+\S+)?',
+        result.stderr.strip() or result.stdout.strip(), flags=re.IGNORECASE))
+
+
 def check(cfg, path, transport):
     if hasattr(transport, 'record_to'):
         transport.record_to([path])
@@ -155,8 +168,7 @@ def check(cfg, path, transport):
         job = jobs[0]
         if not job.get('job_state'):
             raise ValueError('Scheduler state missing')
-    elif result.returncode == 255 or not re.fullmatch(
-            r'qstat: Unknown Job Id(?:\s+\S+)?\s*', result.stderr.strip()):
+    elif not scheduler_absent(result):
         require_ok(result, 'qstat')
     scheduler = job.get('job_state') if job else None
     details = {'scheduler_state': scheduler, 'scheduler_residue': False,
@@ -190,30 +202,34 @@ def check(cfg, path, transport):
         note = 'No exit receipt; job absent from active scheduler (interrupted)'
     if stable and scheduler == 'R':
         target, note = 'stalled', 'Declared outputs unchanged for at least 60 seconds; human review required'
-    # Legacy fallback adapted from the PBS zombie guidance in
-    # skills/auto-g16-rtwin-pbs/references/environment-and-failures.md.
-    # Missing session evidence must never be treated as an empty process list.
-    if stable and session is not None and scheduler in ('R', 'C', None):
+    # When Torque no longer has the job, its session ID may be unavailable.
+    # T1d permits legacy completion from a marker plus two stable observations
+    # in that case. A remaining PBS R/C record still uses T1c's process check.
+    legacy_candidate = stable and scheduler is None
+    if stable and session is not None and scheduler in ('R', 'C'):
         ps = processes(transport, session)
         details['session_processes'] = ps
-        if not m.get('completion_receipts') and start is None and ps['absent']:
-            marker = require_ok(transport.run(remote.completion_marker(cfg, m)), 'program completion marker')
-            if marker not in ('present\n', 'absent\n'):
-                raise ValueError('Invalid completion-marker observation')
-            if marker == 'present\n':
-                # Recheck after ps/marker so a writer that resumes during these
-                # reads cannot pass the legacy completion test on a stale stat.
-                after = outputs(cfg, m, transport)
-                if after == observed:
-                    details['scheduler_residue'] = scheduler == 'R'
-                    return state.write(path, 'finished', note='Legacy completion evidence verified' +
-                                       ('; 调度器残留 (PBS R)' if scheduler == 'R' else ''),
-                                       completion_source='legacy-marker-stable-session-absent', **details)
-                details.update(observation={'at': time.time(), 'outputs': after,
-                                            'session_id': session, 'job_id': job_id},
-                               unchanged_since=time.time(), outputs_unchanged_60s=False)
-                target = 'running' if scheduler == 'R' else 'interrupted'
-                note = 'Outputs changed during legacy completion check; completion unverified'
+        legacy_candidate = ps['absent']
     elif stable and scheduler == 'R':
         note += '; PBS session ID unavailable, process absence cannot be checked'
+    if legacy_candidate and not m.get('completion_receipts') and start is None:
+        marker = require_ok(transport.run(remote.completion_marker(cfg, m)), 'program completion marker')
+        if marker not in ('present\n', 'absent\n'):
+            raise ValueError('Invalid completion-marker observation')
+        if marker == 'present\n':
+            # Recheck after reading the marker: a resumed writer must not pass
+            # using a stale size/mtime observation.
+            after = outputs(cfg, m, transport)
+            if after == observed:
+                details['scheduler_residue'] = scheduler == 'R'
+                source = ('legacy-marker-stable-scheduler-absent' if scheduler is None
+                          else 'legacy-marker-stable-session-absent')
+                return state.write(path, 'finished', note='Legacy completion evidence verified' +
+                                   ('; 调度器残留 (PBS R)' if scheduler == 'R' else ''),
+                                   completion_source=source, **details)
+            details.update(observation={'at': time.time(), 'outputs': after,
+                                        'session_id': session, 'job_id': job_id},
+                           unchanged_since=time.time(), outputs_unchanged_60s=False)
+            target = 'running' if scheduler == 'R' else 'interrupted'
+            note = 'Outputs changed during legacy completion check; completion unverified'
     return state.write(path, target, note=note, **details)
