@@ -94,6 +94,10 @@ ag_root = "<ABS_REMOTE_SDL_ROOT>/ag"
 [scheduler]
 queue = "<TORQUE_QUEUE>"
 
+[resources]
+max_cores = <MAX_CORES_INTEGER>
+max_committed_cores = <MAX_COMMITTED_CORES_INTEGER>
+
 [programs.gaussian]
 g16root = "<ABS_GAUSSIAN_EXECUTABLE_DIRECTORY>"
 
@@ -117,6 +121,15 @@ studies_root = "<ABS_LOCAL_STUDIES_ROOT_OUTSIDE_GIT>"
   解释器。该字段不会自动切换当前 shell 的 Python，运行 `ag` 前仍需激活正确环境。
 - 样例中的 `resources.max_cores` 为 44；保留 `mini`、`simple`、`general`、`complex`
   四档定义。`queue` 填管理员确认可用的队列。
+- `resources.max_committed_cores` 是运行加排队的总额度，必须为整数，介于
+  `max_cores` 和 `4 × max_cores` 之间；省略时等于 `max_cores`，保持原有额度。
+  上面两个整数占位符替换后不要保留尖括号。单个作业仍受 `max_cores` 限制。
+- 每次提交前通过已有的 `pbsnodes -a` 核验集群总核数；不超过 `max_cores`
+  时允许排队并使用总额度，否则（含核验失败）回退到 `max_cores` 严格检查并说明原因。
+  `qstat -f` 无法统计时拒绝提交。确认对话框及终端摘要会列出运行、排队和提交后总数。
+- `ag monitor` 的 `ag-monitor/1` 输出在 `own` 中增量提供 `cores_running`、
+  `cores_queued`、`committed_cap`；`core_cap` 保留运行上限含义，`over-cap`
+  按 `committed_cap` 判断。旧缓存可以缺少这些增量字段。
 
 ### 4. 用 ag doctor 验证
 

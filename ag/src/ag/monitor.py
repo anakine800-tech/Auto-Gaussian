@@ -10,6 +10,7 @@ import tempfile
 import time
 
 from ag import remote, status
+from ag.pbs import parse_nodes
 from ag.transport import SSHTransport, redact_stderr, require_ok
 
 
@@ -64,62 +65,6 @@ def parse_queues(text):
     return rows
 
 
-def slot_count(value):
-    if re.fullmatch(r'\d+', value):
-        return 1
-    if re.fullmatch(r'\d+-\d+', value):
-        start, end = map(int, value.split('-'))
-        if end >= start:
-            return end - start + 1
-    if re.fullmatch(r'\d+\*[1-9]\d*', value):
-        return int(value.split('*')[1])
-    raise ValueError('Unrecognized scheduler CPU slot')
-
-
-def parse_nodes(text, jobs):
-    records, current, key = [], None, None
-    for line in text.splitlines():
-        if not line.strip():
-            continue
-        if not line[:1].isspace():
-            current, key = {'name': line.strip()}, None
-            records.append(current)
-        elif current is not None and ' = ' in line:
-            key, value = line.strip().split(' = ', 1)
-            if key in current:
-                raise ValueError('Duplicate node attribute')
-            current[key] = value
-        elif current is not None and key:
-            current[key] += line.strip()
-        else:
-            raise ValueError('Unrecognized pbsnodes output')
-    allocated = {}
-    for job in jobs:
-        if job.get('job_state') == 'C':
-            continue
-        for host in filter(None, job.get('exec_host', '').split('+')):
-            name, sep, slot = host.partition('/')
-            if not sep:
-                raise ValueError('Unrecognized exec_host allocation')
-            allocated[name] = allocated.get(name, 0) + slot_count(slot)
-    nodes = []
-    for record in records:
-        cores = record.get('np', record.get('resources_available.ncpus', ''))
-        if not cores.isdigit() or not record.get('state'):
-            raise ValueError('Node lacks CPU capacity or state')
-        used = allocated.get(record['name'], 0)
-        if 'jobs' in record:
-            used = 0
-            for assignment in filter(None, (s.strip() for s in record['jobs'].split(','))):
-                slot, sep, job_id = assignment.partition('/')
-                if not sep or not job_id:
-                    raise ValueError('Unrecognized node allocation')
-                used += slot_count(slot)
-        nodes.append(dict(name=record['name'], state=record['state'],
-                          cores_total=int(cores), cores_used=used))
-    return nodes
-
-
 def local_attempts(root):
     records = []
     for path in sorted(root.glob('*/attempts/*/status.json')):
@@ -167,10 +112,13 @@ def observation(cfg, transport, username):
             warnings.append(dict(kind=kind, job_id=item['job_id'], study=item['study'],
                                  attempt=item['attempt'], detail=detail))
     cap = cfg['resources']['max_cores']
-    if used > cap:
+    committed_cap = cfg['resources'].get('max_committed_cores', cap)
+    running, queued = status.core_breakdown(jobs, username)
+    if used > committed_cap:
         warnings.append(dict(kind='over-cap', job_id=None, study=None, attempt=None,
-                             detail=f'本人占用 {used} 核，超过上限 {cap} 核'))
-    return dict(own=dict(cores_in_use=used, core_cap=cap, jobs=own),
+                             detail=f'本人占用 {used} 核，超过上限 {committed_cap} 核'))
+    return dict(own=dict(cores_in_use=used, core_cap=cap, jobs=own,
+                         cores_running=running, cores_queued=queued, committed_cap=committed_cap),
                 cluster=dict(nodes=nodes, queues=queues,
                              cores_total=sum(n['cores_total'] for n in nodes),
                              cores_used=sum(n['cores_used'] for n in nodes)), warnings=warnings)

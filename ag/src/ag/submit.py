@@ -2,8 +2,10 @@
 from hashlib import sha256
 from pathlib import Path
 import tempfile
+import sys
 from ag import attempt, confirm, journal, remote, state, status
 from ag.locks import claim, submission_lock
+from ag.pbs import parse_nodes
 from ag.transport import require_ok, TransportError
 
 
@@ -27,6 +29,35 @@ def metadata(transport, cfg, manifest, name):
     return int(lines[0]), digest
 
 
+def capacity(cfg, transport, submitted=None):
+    """Fall back to the strict cap when hardware capacity cannot be verified."""
+    username, jobs, used = status.inventory(transport)
+    running, queued = status.core_breakdown(jobs, username)
+    # qstat can lag behind successful qsub. Reserve each earlier batch job
+    # until it appears in this snapshot; never count a visible job twice.
+    # A visible C record is complete and no longer reserves cores.
+    visible = {job['job_id'] for job in jobs
+               if job['Job_Owner'].split('@')[0] == username}
+    pending = sum(cores for job_id, cores in (submitted or {}).items() if job_id not in visible)
+    used += pending
+    queued += pending
+    limit = cfg['resources']['max_cores']
+    reason = None
+    try:
+        nodes = parse_nodes(require_ok(transport.run(remote.nodes()), 'pbsnodes'), jobs)
+        if not nodes or any(node['cores_total'] <= 0 for node in nodes):
+            raise ValueError('No positive node capacity')
+        total = sum(node['cores_total'] for node in nodes)
+        if total > limit:
+            reason = f'集群总核数 {total} 超过 max_cores={limit}'
+    except (ValueError, TransportError):
+        reason = 'pbsnodes 核验失败或无法解析节点核数'
+    cap = limit if reason else cfg['resources'].get('max_committed_cores', limit)
+    if reason:
+        print(f'严格模式：{reason}；排队也计入 {cap} 核上限', file=sys.stderr, flush=True)
+    return used, running, queued, cap, reason
+
+
 def submit(cfg, ids, transport):
     if not ids or len(ids) != len(set(ids)):
         raise ValueError('Expected unique Attempt IDs')
@@ -39,23 +70,31 @@ def submit(cfg, ids, transport):
             m = attempt.read_manifest(path)
             if state.read(path)['state'] != 'prepared' or (path / '.submit-claim').exists():
                 raise ValueError('Attempt already consumed or not prepared; submission refused locally')
+            if m['cores'] > cfg['resources']['max_cores']:
+                raise ValueError('Single job exceeds max_cores')
             files = attempt.verified_files(cfg, path, m)
             prepared.append((path, m, files))
         # Batch confirmation is for a single template and scientific method/card.
         if len({(m['template'], m['science']['route'], m['science']['method_basis']) for _, m, _ in prepared}) != 1:
             raise ValueError('Batch requires the same template, route and method basis')
-        _, _, used = status.inventory(transport)
+        used, running, queued, cap, reason = capacity(cfg, transport)
         requested = sum(m['cores'] for _, m, _ in prepared)
-        if used + requested > cfg['resources']['max_cores']:
-            raise ValueError(f'Core limit exceeded: {used} occupied + {requested} requested')
+        if used + requested > cap:
+            raise ValueError(f'Core limit exceeded: {used} occupied + {requested} requested / {cap} cap')
         text = '\n'.join(f"{m['attempt_id']} | {m['template']} | {m['tier']} {m['cores']} cores | "
                          f"{m['walltime']} | SHA256 {m['bundle_sha256'][:12]}" for _, m, _ in prepared)
-        text += f'\n提交后总核数：{used + requested} / {cfg["resources"]["max_cores"]}'
+        text += (f'\n当前占用 {used} 核（运行 {running}、排队 {queued}），'
+                 f'提交后合计 {used + requested} / 上限 {cap} 核；集群空闲不足时作业将在 PBS 中排队')
+        if reason:
+            text += f'\n严格模式：{reason}；排队也计入上限'
+        # Keep stdout machine-readable for ag submit --json.
+        print(text, file=sys.stderr, flush=True)
         if not confirm.confirm(text):
             for path, m, _ in prepared:
                 journal.append(path.parent.parent, 'submit', path.name, 'user_cancelled')
             raise UserCancelled('Submission cancelled; Attempts remain prepared')
         results = []
+        submitted = {}
         for path, m, files in prepared:
             # Detect changes while the human was reading the dialog. Upload a private
             # snapshot of the exact bytes already hashed, never mutable source paths.
@@ -66,8 +105,8 @@ def submit(cfg, ids, transport):
             qsub_started = False
             try:
                 # Other scheduler clients can submit during the confirmation window.
-                _, _, fresh_used = status.inventory(transport)
-                if fresh_used + m['cores'] > cfg['resources']['max_cores']:
+                fresh_used, _, _, fresh_cap, _ = capacity(cfg, transport, submitted)
+                if fresh_used + m['cores'] > fresh_cap:
                     raise ValueError('Core limit changed during confirmation; stop')
                 require_ok(transport.run(remote.create_attempt(cfg, m)), 'new remote Attempt directory')
                 with tempfile.TemporaryDirectory(prefix='ag-submit-') as temp:
@@ -90,6 +129,7 @@ def submit(cfg, ids, transport):
                 except ValueError as exc:
                     raise UnknownSubmission('Unparseable qsub response; stop and use read-only status') from exc
                 results.append(dict(attempt_id=path.name, **state.write(path, 'submitted', job_id=job)))
+                submitted[job] = m['cores']
             except BaseException as exc:
                 target = 'unknown' if qsub_started else 'failed_presubmit'
                 state.write(path, target, note=str(exc) if isinstance(exc, (ValueError, TransportError, UnknownSubmission)) else 'Submission interrupted')
