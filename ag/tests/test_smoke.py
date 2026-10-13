@@ -32,6 +32,7 @@ def test_registered_command_runs(monkeypatch):
         raise ModuleNotFoundError(name=name)
 
     monkeypatch.setattr(cli, "import_module", load)
+    monkeypatch.setattr(cli, "load_config", lambda: {})
     assert cli.main(["facts"]) == 7
     assert seen == ["ag.facts", "ag.thermo", "ag.dedup", "ag.cluster", "ag.graph"]
 

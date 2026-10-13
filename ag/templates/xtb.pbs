@@ -1,0 +1,4 @@
+export XTBPATH=$xtb_share
+export PATH=$xtb_bin:"$$PATH"
+export OMP_NUM_THREADS=$cores
+xtb $input_name $parameters > xtb.out

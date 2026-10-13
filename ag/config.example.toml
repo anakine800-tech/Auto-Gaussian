@@ -1,0 +1,27 @@
+# Replace placeholders locally; never commit the populated configuration.
+[ssh]
+config_file = "<absolute SSH configuration file>"
+host = "<SSH host alias>"
+[remote]
+allowed_root = "<absolute SDL root>"
+ag_root = "<absolute SDL root>/ag"
+[scheduler]
+queue = "<queue>"
+[resources]
+max_cores = 44
+[resources.tiers.simple]
+cores = 8
+mem_gb = 12
+[resources.tiers.general]
+cores = 22
+mem_gb = 50
+[resources.tiers.complex]
+cores = 44
+mem_gb = 120
+[programs.gaussian]
+g16root = "<absolute Gaussian executable directory>"
+[programs.xtb]
+root = "<absolute xtb and crest installation root>"
+[local]
+python = "<absolute chem Python executable>"
+studies_root = "<absolute local studies directory outside Git>"
