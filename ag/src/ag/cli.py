@@ -50,7 +50,10 @@ def core_command(args):
             result = fetch.fetch(cfg, attempt.find(cfg, args.id), transport)
         else:
             result = cancel.cancel(cfg, attempt.find(cfg, args.id), transport)
-    print(json.dumps(result, ensure_ascii=False, indent=2))
+    if command == 'status' and not args.json:
+        print(status.format_status(result))
+    else:
+        print(json.dumps(result, ensure_ascii=False, indent=2))
     if command == 'status' and any(r['state'] == 'unknown' for r in result):
         return 3
     return 0

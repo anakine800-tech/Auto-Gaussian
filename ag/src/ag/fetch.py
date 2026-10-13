@@ -34,4 +34,9 @@ def fetch(cfg, path, transport):
         os.link(stage / name, output / name)
     result = state.write(path, 'fetched', exit_status=state.read(path).get('exit_status'))
     journal.append(path.parent.parent, 'fetch', path.name, detail={'files': names})
-    return dict(attempt_id=path.name, files=names, **result)
+    reminder = None
+    if result.get('scheduler_residue'):
+        reminder = (f'结果已取回；最近状态观察仍有 PBS 调度器残留。先用 ag status {path.name} 核查；'
+                    f'若仍残留，可以用 ag cancel {path.name} 清理。'
+                    '需人明确授权并亲手点击 Mac 系统对话框，只取消 status.json 中记录的确切作业号；不会自动取消。')
+    return dict(attempt_id=path.name, files=names, cleanup_hint=reminder, **result)

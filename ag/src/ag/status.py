@@ -2,7 +2,7 @@
 import re
 import json
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from ag import attempt, journal, remote, state
 from ag.transport import require_ok, TransportError
 
@@ -154,7 +154,7 @@ def check(cfg, path, transport):
         require_ok(transport.run(remote.listing(cfg, m)), 'unknown directory inspection')
         journal.append(path.parent.parent, 'status', path.name, 'unknown', 'No unique scheduler evidence; human review required')
         return {**current, 'note': 'No unique scheduler evidence; remains unknown. Human review required.'}
-    if current['state'] not in ('submitted', 'running', 'stalled', 'interrupted', 'finished', 'fetched'):
+    if current['state'] not in ('submitted', 'running', 'stalled', 'interrupted', 'awaiting_second_observation', 'finished', 'fetched'):
         return current
     job_id = remote.job_id(current['job_id'])
     start = read_receipt(cfg, m, transport, 'ag-start.json', job_id)
@@ -173,6 +173,18 @@ def check(cfg, path, transport):
     scheduler = job.get('job_state') if job else None
     details = {'scheduler_state': scheduler, 'scheduler_residue': False,
                'receipts': {'start': start, 'exit': end}, 'cput': job.get('resources_used.cput') if job else None}
+    observed = outputs(cfg, m, transport)
+    now = time.time()
+    previous = current.get('observation') or {}
+    session = job.get('session_id') if job else previous.get('session_id')
+    if session is not None:
+        remote.session_processes(session)  # validate before retaining or executing
+    details.update(scheduler_observed_at=now,
+                   observation={'at': now, 'outputs': observed, 'session_id': session, 'job_id': job_id},
+                   wait_seconds=None, next_observation_at=None)
+    if end is not None or current['state'] in ('finished', 'fetched'):
+        # These fields describe the latest observation, not historical completion evidence.
+        details.update(unchanged_since=None, outputs_unchanged_60s=None, session_processes=None)
     if end is not None:
         details['scheduler_residue'] = scheduler == 'R'
         note = 'Program exited; 调度器残留 (PBS R)' if scheduler == 'R' else 'Program exit receipt verified'
@@ -183,13 +195,9 @@ def check(cfg, path, transport):
     if current['state'] in ('finished', 'fetched'):
         details['scheduler_residue'] = scheduler == 'R'
         return state.write(path, current['state'], exit_status=current.get('exit_status'),
-                           note=current.get('note'), **details)
-    observed = outputs(cfg, m, transport)
-    now = time.time()
-    previous = current.get('observation') or {}
-    session = job.get('session_id') if job else previous.get('session_id')
-    if session is not None:
-        remote.session_processes(session)  # validate before retaining or executing
+                           note=('调度器残留 (PBS R); previous completion evidence retained'
+                                 if scheduler == 'R' else 'Previous completion evidence retained; no PBS R residue'),
+                           **details)
     same = (previous.get('outputs') == observed and previous.get('session_id') == session
             and previous.get('job_id') == job_id and previous.get('at', now + 1) <= now)
     since = current.get('unchanged_since', previous.get('at', now)) if same else now
@@ -198,8 +206,17 @@ def check(cfg, path, transport):
                    unchanged_since=since, outputs_unchanged_60s=stable, session_processes=None)
     target = 'running' if scheduler == 'R' else ('interrupted' if scheduler in (None, 'C') else 'submitted')
     note = 'No exit receipt; awaiting program evidence'
+    scheduler_failed = (scheduler == 'C' and
+                        job.get('Exit_status', job.get('exit_status')) not in (None, '0'))
     if scheduler in (None, 'C'):
         note = 'No exit receipt; job absent from active scheduler (interrupted)'
+        if not stable and not scheduler_failed:
+            target = 'awaiting_second_observation'
+            details.update(wait_seconds=max(0, now - since), next_observation_at=since + 60)
+            note = '等待第二次观察；需相隔至少 60 秒的稳定输出及完整完成证据'
+        elif scheduler_failed:
+            note = 'Scheduler reports nonzero exit status; program exit receipt unavailable (interrupted)'
+
     if stable and scheduler == 'R':
         target, note = 'stalled', 'Declared outputs unchanged for at least 60 seconds; human review required'
     # When Torque no longer has the job, its session ID may be unavailable.
@@ -212,7 +229,7 @@ def check(cfg, path, transport):
         legacy_candidate = ps['absent']
     elif stable and scheduler == 'R':
         note += '; PBS session ID unavailable, process absence cannot be checked'
-    if legacy_candidate and not m.get('completion_receipts') and start is None:
+    if legacy_candidate and not scheduler_failed and not m.get('completion_receipts') and start is None:
         marker = require_ok(transport.run(remote.completion_marker(cfg, m)), 'program completion marker')
         if marker not in ('present\n', 'absent\n'):
             raise ValueError('Invalid completion-marker observation')
@@ -230,6 +247,34 @@ def check(cfg, path, transport):
             details.update(observation={'at': time.time(), 'outputs': after,
                                         'session_id': session, 'job_id': job_id},
                            unchanged_since=time.time(), outputs_unchanged_60s=False)
-            target = 'running' if scheduler == 'R' else 'interrupted'
-            note = 'Outputs changed during legacy completion check; completion unverified'
+            target = 'running' if scheduler == 'R' else 'awaiting_second_observation'
+            if target == 'awaiting_second_observation':
+                details.update(wait_seconds=0, next_observation_at=details['unchanged_since'] + 60)
+            note = 'Outputs changed during legacy completion check; 等待第二次观察，completion unverified'
     return state.write(path, target, note=note, **details)
+
+
+def format_status(results):
+    """Human report with observation times; missing CPU time is never zero."""
+    def stamp(value):
+        return datetime.fromtimestamp(value, timezone.utc).isoformat() if value is not None else '未知'
+
+    lines = []
+    for result in results:
+        lines.append(f"{result['attempt_id']}: {result['state']}")
+        if result.get('note'):
+            lines.append(f"  {result['note']}")
+        lines.append(f"  PBS: {result.get('scheduler_state') or '未知/无记录'}; "
+                     f"resources_used.cput: {result.get('cput') or '未知'} "
+                     f"(查询时间 {stamp(result.get('scheduler_observed_at'))})")
+        observation = result.get('observation') or {}
+        at = observation.get('at')
+        age = f"{max(0, time.time() - at):.0f} 秒前" if at is not None else '未知'
+        lines.append(f"  输出观察时间: {stamp(at)} ({age})")
+        for name, info in observation.get('outputs', {}).items():
+            lines.append(f"    {name}: size={info['size']} bytes; mtime={info['mtime']}"
+                         if info is not None else f"    {name}: 未发现；size/mtime 未知")
+        if result.get('next_observation_at') is not None:
+            lines.append(f"  已等待 {result['wait_seconds']:.0f} 秒；最早再次观察: "
+                         f"{stamp(result['next_observation_at'])}")
+    return '\n'.join(lines)

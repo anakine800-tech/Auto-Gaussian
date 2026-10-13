@@ -10,7 +10,7 @@
 
 ## 3. 输入模板
 
-按 `facts.json` 的 `termination`、`error_hint`、`opt_converged`、`n_imag` 和已有输出分类；大小写归一理解 `l9999` / `L9999` 等提示，不把终止链接号当唯一病因。阅读最后 80–120 行并结合更早的收敛记录，在 review 写：现象、证据、原因或假设、建议改变的具体参数、预期代价、剩余不确定性。
+按 `facts.json` 的 `termination`、`error_hint`、`opt_converged`、`freq_step_converged`、`n_imag` 和已有输出分类；大小写归一理解 `l9999` / `L9999` 等提示，不把终止链接号当唯一病因。阅读最后 80–120 行并结合更早的收敛记录，在 review 写：现象、证据、原因或假设、建议改变的具体参数、预期代价、剩余不确定性。
 
 本卡没有可运行的通用重启 route。人决定继续后才根据对应计算卡片创建新的输入和 `ag prepare`，可用 `--parent <failed_id> --relation retry_of` 记录来源；原 Attempt 保留。逐项展示与原输入的变化，然后走完整提交摘要。
 
@@ -36,6 +36,7 @@
 - **l9999**：结合优化轨迹识别超步数或停滞；从上一步可用几何建立显式坐标输入，提出调整优化参数（如合理增加 MaxCycles、考虑 CalcFC）的具体方案，不盲用需要父 checkpoint 的 Restart。提出新 Attempt，等人确认
 - **l502 / SCF 不收敛**：核对电荷、多重度与近接触，再按日志提出 SCF 选项（如 XQC 或调整 MaxCycle）；这会改变数值设置，必须在摘要列明。提出新 Attempt，等人确认
 - **walltime**：根据已完成进度和规模提出增加时长或提高档位，资源仍受并发上限限制，不能因超时同时复制多个作业。提出新 Attempt，等人确认
+- **频率阶段收敛未通过**：核对末次频率阶段表、`Non-Optimized Parameters` 及最终几何；若身份不变且问题确为该阶段收敛，提出同方法、从最终几何显式坐标用 `Opt=CalcFC Freq` 重新优化的新 Attempt，`--parent <原attempt_id> --relation reoptimized_from`。起点力常数可能改善位移估计是本例的假设，会增加计算成本，不是任意虚频或身份变化的通用修复。保留旧输出；人同意方案并确认提交后，重新审阅 Opt 和 Freq 两阶段，未通过的旧结果不进入热化学构象集合。提出新 Attempt，等人确认
 - **极小点有虚频**：检查对应位移，沿虚频方向做小扰动并审阅结构后重新优化；软模也不能直接置零，必要时提出更合适收敛 / 积分设置。提出新 Attempt，等人确认
 - **内存不足**：核查实际内存错误与 Link0，提出合理档位和不超过 85% 的 `%mem`，不超过配置容量。提出新 Attempt，等人确认
 - **End of file in ZSymb**：检查空行、标题、电荷多重度和坐标分段；修正有证据的格式错误，不对不支持的输入语法反复试跑。提出新 Attempt，等人确认
@@ -45,3 +46,5 @@
 - 排队不是启动失败；日志正常终止与优化驻点仍须分别核对。来源：`skills/auto-g16-rtwin-pbs/references/environment-and-failures.md`。
 - 未完整取回的输出不能当作频率已完成；单个负频还需振动方向审核，TS 还需双向 IRC 与端点识别，本卡不开展这些后续计算。来源：`skills/auto-g16-ts-irc/SKILL.md`。
 - 断开片段的近自由平移 / 转动可能导致优化困难，不能默认以一个超分子作普通单分子极小点；回到体系定义。来源：`skills/auto-g16-ts-irc/SKILL.md`。
+
+- 从最终几何加 `Opt=CalcFC Freq` 在本例解决了频率阶段位移未收敛；新旧 Attempt 用 `reoptimized_from` 关联，不能自动重提，也不能把一次成功当普适修复。来源：study `butane-l1-20261013`，`lessons/05-calcfc-reoptimization.md`。
