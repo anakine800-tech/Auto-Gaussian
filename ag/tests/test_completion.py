@@ -166,7 +166,7 @@ def test_absent_legacy_job_finishes_without_saved_session_after_stable_marker(cf
     fake.job = Result(153, '', 'qstat: Unknown Job Id')
     fake.marker = 'present\n'
     clock = [1000]; monkeypatch.setattr(status.time, 'time', lambda: clock[0])
-    assert status.check(cfg, p, fake)['state'] == 'interrupted'
+    assert status.check(cfg, p, fake)['state'] == 'awaiting_second_observation'
     clock[0] += 60
     result = status.check(cfg, p, fake)
     assert result['state'] == 'finished'

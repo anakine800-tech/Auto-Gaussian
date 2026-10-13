@@ -273,13 +273,13 @@ def test_unknown_reconcile_read_only(cfg, prepared):
     assert state.read(p)['job_id'] == '123.fixture'
 
 
-def test_status_absent_is_interrupted_without_receipt(cfg, prepared):
+def test_status_absent_awaits_second_observation_without_receipt(cfg, prepared):
     p, m = prepared
     state.write(p, 'submitting'); state.write(p, 'submitted', job_id='123.fixture')
     fake = Fake(cfg)
-    assert status.check(cfg, p, fake)['state'] == 'interrupted'
+    assert status.check(cfg, p, fake)['state'] == 'awaiting_second_observation'
     fake.files['job.pbs.out'] = b'output'
-    assert status.check(cfg, p, fake)['state'] == 'interrupted'
+    assert status.check(cfg, p, fake)['state'] == 'awaiting_second_observation'
 
 
 def test_status_error_does_not_infer_completion(cfg, prepared):

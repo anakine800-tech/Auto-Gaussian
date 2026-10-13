@@ -44,6 +44,8 @@ def test_real_small_molecule_facts(tmp_path, fixture, n_atoms):
     assert json.loads((directory / 'facts.json').read_text()) == facts
     assert int((directory / 'final.xyz').read_text().splitlines()[0]) == n_atoms
     assert facts['opt_converged'] is True
+    assert facts['freq_step_converged'] is True
+    assert len(facts['freq_step_convergence']['criteria']) == 4
 
 
 @pytest.mark.parametrize('filename,state,hint', [

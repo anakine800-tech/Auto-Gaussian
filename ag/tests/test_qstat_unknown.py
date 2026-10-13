@@ -35,9 +35,9 @@ def test_torque_absence_receipt_or_stable_legacy(cfg, prepared, monkeypatch, rep
     if receipt:
         assert first['state'] == 'finished' and first['exit_status'] == 9
     else:
-        assert first['state'] == 'interrupted'
+        assert first['state'] == 'awaiting_second_observation'
         clock[0] += 59
-        assert status.check(cfg, p, fake)['state'] == 'interrupted'
+        assert status.check(cfg, p, fake)['state'] == 'awaiting_second_observation'
         clock[0] += 1
         result = status.check(cfg, p, fake)
         assert result['state'] == 'finished' and result['exit_status'] is None
@@ -56,11 +56,12 @@ def test_absent_job_without_required_evidence_remains_interrupted(cfg, prepared,
     if reason == 'has_start_receipt':
         fake.receipts['ag-start.json'] = '{"PBS_JOBID":"123.fixture","started_at":"2026-01-01T00:00:00Z"}'
     clock = [1000]; monkeypatch.setattr(status.time, 'time', lambda: clock[0])
-    assert status.check(cfg, p, fake)['state'] == 'interrupted'
+    assert status.check(cfg, p, fake)['state'] == 'awaiting_second_observation'
     clock[0] += 60
     if reason == 'changed_size': fake.sizes['water.log'] += 1
     if reason == 'changed_mtime': fake.mtime = fake.mtime.replace('000000001', '000000002')
-    assert status.check(cfg, p, fake)['state'] == 'interrupted'
+    expected = 'awaiting_second_observation' if reason in ('changed_size', 'changed_mtime') else 'interrupted'
+    assert status.check(cfg, p, fake)['state'] == expected
     with pytest.raises(ValueError): fetch.fetch(cfg, p, fake)
     assert not {'session_processes', 'download', 'submit', 'cancel'} & set(fake.operations())
 
@@ -96,4 +97,4 @@ def test_output_drift_after_marker_cannot_finish_absent_legacy(cfg, prepared, mo
         return original(command)
     fake.run = run
     result = status.check(cfg, p, fake)
-    assert result['state'] == 'interrupted' and not result['outputs_unchanged_60s']
+    assert result['state'] == 'awaiting_second_observation' and not result['outputs_unchanged_60s']

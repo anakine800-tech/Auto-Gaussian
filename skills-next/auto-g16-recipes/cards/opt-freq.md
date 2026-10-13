@@ -46,6 +46,7 @@ ag prepare --study <study_id> --template gaussian --input <conformer.gjf> --tier
 ## 6. 结果判据清单
 
 - `termination = normal`，`opt_converged = true`，输出含完整 Opt 和 Freq，而非只完成前半段。
+- `freq_step_converged = true`：单独核对末次频率阶段的四项收敛表及 `Non-Optimized Parameters`。`freq_step_convergence` 给出各项值、阈值、YES/NO 和日志行号；`false` 不通过，`null` 表示缺失或无法确认，须查原日志，不能按通过处理。不能用优化阶段早期的 NO 代替末次频率阶段判据。
 - 最终结构保持目标身份、连通性与立体化学；结构改变时不能仍计入原构象集合。
 - 极小点要求 `n_imag = 0`；核对完整频率，非线性分子有 3N−6 个、线性分子有 3N−5 个振动模式，不能把截断输出当零虚频。
 - 对低于 50 cm⁻¹ 的正频逐项记录并检查软扭转 / 数值敏感性；任何负频都不能直接置零。热化学按 thermo 卡片的 100 cm⁻¹ qRRHO 处理，但 qRRHO 不会修复非极小点。
@@ -55,8 +56,12 @@ ag prepare --study <study_id> --template gaussian --input <conformer.gjf> --tier
 
 真实计算异常先停下报告，再按 failure-diagnosis 卡片审阅已有输出。未收敛、SCF 失败、超时或虚频分别提出针对性的修改，保留原输入和结果；提出新 Attempt，等人确认。
 
+频率阶段收敛未通过时，按 failure-diagnosis 第 7 节提出从最终几何用 `Opt=CalcFC Freq` 重新优化的新 Attempt，relation 为 `reoptimized_from`；等人确认。
+
 ## 8. 常见坑
 
 - 正常终止并不足以证明优化和频率均完成，要核对驻点与完整频率证据。来源：`skills/auto-g16-rtwin-pbs/references/environment-and-failures.md`、`skills/auto-g16-rtwin-pbs/references/scientific-workflows.md`。
 - 多个初猜可能收敛为同一极小点，直接逐作业计数会重复加权。来源：`skills/auto-g16-view-rt-win/references/conformer-workflow.md`。
 - 增加核数不会使不适用的方法变得可靠；方法和资源分别说明。来源：`skills/auto-g16-rtwin-pbs/references/protocols.md`。
+
+- 正常终止、`opt_converged=true`、零虚频仍可能伴随频率阶段位移检查 NO；在频率阶段收敛复核通过前暂停热化学接受。来源：study `butane-l1-20261013`，`lessons/04-frequency-stage-convergence.md`。

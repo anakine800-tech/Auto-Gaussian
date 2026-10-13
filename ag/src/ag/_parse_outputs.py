@@ -61,6 +61,61 @@ def xyz_text(elements, coordinates):
         for element, (x, y, z) in zip(elements, coordinates)))
 
 
+
+def frequency_convergence(text):
+    """Last post-frequency convergence check, scoped to its Gaussian job step.
+
+    L1 showed that Opt convergence and positive frequencies can coexist with
+    a failed displacement check. Never reuse an earlier Opt table or a table
+    from another Link1 step when the frequency check is absent/truncated.
+    """
+    lines = text.splitlines()
+    row_pattern = re.compile(
+        r'^\s*(Maximum|RMS)\s+(Force|Displacement)\s+(' + NUMBER +
+        r')\s+(' + NUMBER + r')\s+(YES|NO)\s*$', re.I)
+    routes = {match.start(): match.group() for match in re.finditer(
+        r'(?m)^[ \t]*#[^\n]*(?:\n(?!\s*-{5,})[^\n]+)*', text)}
+    # Line numbers are local log evidence, never copies of paths or raw headers.
+    route_lines = {text.count('\n', 0, start) + 1: route for start, route in routes.items()}
+    check = None
+    active = False
+    for index, line in enumerate(lines, 1):
+        if index in route_lines:
+            active = False
+            if re.search(r'\bfreq\b', route_lines[index], re.I):
+                check = None
+        if re.search(r'Normal termination of Gaussian|Error termination|'
+                     r'Link1:.*Proceeding|Entering Gaussian System|^\s*--Link1--', line, re.I):
+            active = False
+        if re.search(r'^\s*Harmonic frequencies\s*\(', line, re.I):
+            active = True
+            check = {'frequency_line': index, 'table_line': None,
+                     'criteria': {}, 'non_optimized_parameters_line': None}
+        if not active:
+            continue
+        if re.search(r'Item\s+Value\s+Threshold\s+Converged\?', line, re.I):
+            check.update(table_line=index, criteria={}, non_optimized_parameters_line=None)
+            for row_index in range(index, min(index + 4, len(lines))):
+                match = row_pattern.fullmatch(lines[row_index])
+                if match is None:
+                    break
+                kind, quantity, value, threshold, passed = match.groups()
+                check['criteria'][f'{kind}_{quantity}'.lower()] = {
+                    'value': number(value), 'threshold': number(threshold),
+                    'converged': passed.upper() == 'YES', 'line': row_index + 1}
+        if 'Non-Optimized Parameters' in line:
+            check['non_optimized_parameters_line'] = index
+    converged = None
+    if check is not None:
+        criteria = check['criteria']
+        if check['non_optimized_parameters_line'] is not None or any(
+                not row['converged'] for row in criteria.values()):
+            converged = False
+        elif len(criteria) == 4:
+            converged = True
+    return {'freq_step_converged': converged, 'freq_step_convergence': check}
+
+
 def parse_gaussian(path, pbs_path=None):
     from cclib.io import ccread
     from cclib.parser.utils import PeriodicTable, convertor
@@ -81,6 +136,7 @@ def parse_gaussian(path, pbs_path=None):
     facts['n_atoms'] = int(data.natom) if data is not None and hasattr(data, 'natom') else None
     facts['charge'] = int(data.charge) if data is not None and hasattr(data, 'charge') else None
     facts['multiplicity'] = int(data.mult) if data is not None and hasattr(data, 'mult') else None
+    facts.update(frequency_convergence(text))
     facts['opt_converged'] = (True if 'Optimization completed.' in text else
                               False if 'Optimization stopped.' in text else None)
     scf = float(convertor(data.scfenergies[-1], 'eV', 'hartree')) if data is not None and hasattr(data, 'scfenergies') else None
