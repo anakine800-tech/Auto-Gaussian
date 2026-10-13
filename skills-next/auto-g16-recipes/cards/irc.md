@@ -18,7 +18,7 @@ Gaussian 路线形式为 `irc=(calcfc,maxpoints=<点数>,stepsize=<步长>,forwa
 %chk=irc-forward.chk
 %nprocshared=8
 %mem=10GB
-#p B3LYP/def2SVP EmpiricalDispersion=GD3BJ irc=(calcfc,maxpoints=50,stepsize=10,forward)
+#p wB97XD/6-31G(d) irc=(calcfc,maxpoints=50,stepsize=10,forward)
 
 <TS 编号与 forward 方向>
 
@@ -27,7 +27,10 @@ Gaussian 路线形式为 `irc=(calcfc,maxpoints=<点数>,stepsize=<步长>,forwa
 
 ```
 
-方法、色散和溶剂必须替换为该 TS 的实际设置。另建 reverse 输入、标签和 Attempt；每个方向完整展示输入摘要并经人确认。已有准备接口如下（反方向相应换输入和标签）：
+此处为[拟定方法](../../auto-g16-study/references/acceptance-methods.md)的中性骨架，
+并非重选 IRC 方法。阴离子或负电荷明显离域的 TS/IRC/端点优化使用
+`wB97XD/6-31+G(d)` 等已选定的弥散基组；wB97XD 不叠加 GD3BJ。
+方法、色散和溶剂（溶液相含 SMD）必须替换为该 TS 的实际设置。另建 reverse 输入、标签和 Attempt；每个方向完整展示输入摘要并经人确认。已有准备接口如下（反方向相应换输入和标签）：
 
 ```text
 ag prepare --study <study_id> --template gaussian --input <irc-forward.gjf> --tier simple --walltime 24:00:00 --label irc-forward --parent <ts_id> --relation irc_from --method-basis <与TS相同的方法依据>
