@@ -1,0 +1,157 @@
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+
+import pytest
+
+from ag.facts import build_facts, resolve_attempt
+from ag._parse_outputs import imaginary_modes, parse_gaussian, parse_crest, parse_xtb
+
+FIXTURES = Path(__file__).parent / 'fixtures'
+
+
+def attempt(tmp_path, name='water', fixture='water_opt_freq.log', template='gaussian'):
+    directory = tmp_path / 'attempts' / name
+    (directory / 'outputs').mkdir(parents=True)
+    (directory / 'manifest.json').write_text(json.dumps({
+        'template': template, 'inputs': [{'name': 'input.gjf'}]}))
+    if fixture:
+        shutil.copyfile(FIXTURES / fixture, directory / 'outputs' / 'input.log')
+    return directory
+
+
+@pytest.mark.parametrize('fixture,n_atoms', [('water_opt_freq.log', 3),
+    ('butane_anti_freq.log', 14), ('butane_gauche_freq.log', 14)])
+def test_real_small_molecule_facts(tmp_path, fixture, n_atoms):
+    directory = attempt(tmp_path, fixture=fixture)
+    facts = build_facts(directory)
+    text = (FIXTURES / fixture).read_text()
+    expected_scf = float(re.findall(r'SCF Done:.*?=\s*([-\d.]+)', text)[-1])
+    assert abs(facts['energies']['scf'] - expected_scf) < 1e-6
+    for key, label in [('e_thermal', 'Energies'), ('h', 'Enthalpies'), ('g', 'Free Energies')]:
+        expected = float(re.findall(r'Sum of electronic and thermal ' + label + r'=\s*([-\d.]+)', text)[-1])
+        assert abs(facts['energies'][key]-expected) < 1e-6
+    assert facts['n_atoms'] == n_atoms
+    assert facts['n_imag'] == 0 and facts['imag_modes'] == []
+    assert facts['termination'] == 'normal'
+    assert facts['charge'] == 0 and facts['multiplicity'] == 1
+    assert facts['route'].startswith('#')
+    assert json.loads((directory / 'facts.json').read_text()) == facts
+    assert int((directory / 'final.xyz').read_text().splitlines()[0]) == n_atoms
+    assert facts['opt_converged'] is True
+
+
+@pytest.mark.parametrize('filename,state,hint', [
+    ('error_l9999.log', 'error', 'L9999'), ('error_l502.log', 'error', 'L502'),
+    ('incomplete.log', 'incomplete', None)])
+def test_fragments(filename, state, hint):
+    facts, _ = parse_gaussian(FIXTURES / filename)
+    assert facts['termination'] == state
+    assert hint in facts['error_hint'] if hint else facts['error_hint'] is None
+
+
+def test_walltime_and_error_precedence(tmp_path):
+    log = tmp_path / 'partial.log'
+    pbs = tmp_path / 'job.pbs.out'
+    log.write_text('Partial calculation\n')
+    pbs.write_text('PBS: job killed: walltime exceeded limit\n')
+    assert parse_gaussian(log, pbs)[0]['error_hint'] == 'walltime'
+    log.write_text('Normal termination of Gaussian\nError termination via Lnk1e in PATH/l123.exe\n')
+    facts, _ = parse_gaussian(log)
+    assert facts['termination'] == 'error' and facts['error_hint'] == 'L123'
+
+
+def test_imaginary_mode_distance_derivative():
+    result = imaginary_modes([-100, 20], [[[1,0,0],[-1,0,0],[0,0,0]], [[0,0,0]]*3],
+                             [[0,0,0],[1,0,0],[5,0,0]], ['C','H','H'])
+    assert len(result) == 1
+    pair = result[0]['pairs'][0]
+    assert pair == {'atoms': [1,2], 'elements': ['C','H'], 'distance': 1.0,
+                    'distance_change_rate': -2.0}
+    # A rigid translation does not change pair distances.
+    result = imaginary_modes([-1], [[[1,2,3]]*3], [[0,0,0],[1,0,0],[0,1,0]], ['H']*3)
+    assert all(p['distance_change_rate'] == 0 for p in result[0]['pairs'])
+
+
+def test_synthetic_crest_relative_units(tmp_path):
+    (tmp_path/'crest.out').write_text('CREST terminated normally.\n')
+    (tmp_path/'crest.energies').write_text('1 0.000\n2 0.628\n')
+    (tmp_path/'crest_conformers.xyz').write_text('1\n-1.000\nH 0 0 0\n1\n-0.999\nH 1 0 0\n')
+    facts, xyz = parse_crest(tmp_path)
+    assert facts['relative_energies_kcal'] == [0, 0.628]
+    assert facts['best_energy'] == -1 and facts['n_conformers'] == 2
+    assert facts['termination'] == 'normal' and xyz.startswith('1\n')
+    (tmp_path/'crest.energies').write_text('1 0.000\n')
+    with pytest.raises(ValueError, match='counts differ'):
+        parse_crest(tmp_path)
+
+
+def test_xtb(tmp_path):
+    (tmp_path/'xtb.out').write_text('| TOTAL ENERGY -5.123D+00 Eh |\nGEOMETRY OPTIMIZATION CONVERGED\nnormal termination of xtb\n')
+    (tmp_path/'xtbopt.xyz').write_text('1\nenergy\nH 0 0 0\n')
+    facts, xyz = parse_xtb(tmp_path)
+    assert facts['total_energy'] == -5.123 and facts['converged']
+    assert facts['termination'] == 'normal' and xyz.startswith('1\n')
+
+
+def test_cli_and_resolution(tmp_path, capsys):
+    from ag.cli import main
+    directory = attempt(tmp_path)
+    assert resolve_attempt('water', str(tmp_path)) == directory.resolve()
+    assert main(['facts', 'water', '--study', str(tmp_path), '--json']) == 0
+    assert json.loads(capsys.readouterr().out)['n_imag'] == 0
+
+
+def test_cli_registration_does_not_import_chemistry():
+    script = '''
+import sys
+class BlockChem:
+ def find_spec(self, fullname, *args):
+  if fullname.split('.')[0] in {'cclib','goodvibes','numpy','rdkit'}:
+   raise AssertionError('eager chemistry import: ' + fullname)
+sys.meta_path.insert(0, BlockChem())
+from ag.cli import main
+try:
+ main(['--help'])
+except SystemExit as exc:
+ assert exc.code == 0
+'''
+    subprocess.run([sys.executable, '-c', script], check=True, capture_output=True)
+
+
+@pytest.mark.skipif(not os.getenv('AG_LOCAL_FIXTURES'), reason='Private local logs are opt-in')
+def test_private_ts_and_optional_irc():
+    root = Path(os.environ['AG_LOCAL_FIXTURES'])
+    logs = sorted(root.glob('ts*.log'))
+    assert len(logs) == 3, 'Provide exactly three ts*.log files in AG_LOCAL_FIXTURES'
+    for path in logs:
+        facts, geometry = parse_gaussian(path)
+        assert facts['termination'] == 'normal'
+        assert facts['n_imag'] == 1 and len(facts['imag_modes']) == 1
+        assert geometry and facts['imag_modes'][0]['pairs']
+        assert isinstance(facts['imag_modes'][0]['pairs'][0]['distance_change_rate'], float)
+        review_path = path.with_suffix('.review.json')
+        if review_path.exists():
+            review = json.loads(review_path.read_text())
+            assert review['confirmed'] is True
+            assert hashlib.sha256(path.read_bytes()).hexdigest() == review['source_sha256']
+            expected = {tuple(sorted(pair)) for pair in review['expected_pairs']}
+            observed = {tuple(pair['atoms']) for pair in facts['imag_modes'][0]['pairs'][:len(expected)]}
+            assert expected and observed == expected
+    for path in root.glob('irc*.log'):
+        facts, geometry = parse_gaussian(path)
+        assert facts['termination'] in {'normal', 'error', 'incomplete'}
+        assert isinstance(facts['energies'], dict) and geometry
+
+
+@pytest.mark.parametrize('text,expected', [('<S**2> = 0.7501', 0.7501),
+    ('S**2 before annihilation     0.7510, after     0.7500', 0.751)])
+def test_spin_expectation(tmp_path, text, expected):
+    path = tmp_path/'spin.log'
+    path.write_text(text)
+    assert parse_gaussian(path)[0]['s2'] == expected
