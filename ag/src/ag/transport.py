@@ -1,6 +1,8 @@
 """Bounded SSH/scp transport, replaceable with an inert test implementation."""
 from dataclasses import dataclass
 import os
+import re
+import shlex
 from pathlib import Path
 import subprocess
 import sys
@@ -33,20 +35,51 @@ class SSHConnectionError(TransportError):
 
 def require_ok(result, operation):
     if result.returncode:
-        raise TransportError(f'{operation} failed (exit {result.returncode}); stop and inspect locally')
+        raise TransportError(f'{operation} failed (exit {result.returncode}); stop and inspect locally'
+                             + (': ' + result.stderr.strip() if result.stderr.strip() else ''))
     return result.stdout
+
+
+def redact_stderr(value, cfg):
+    """Remove SSH endpoint/user identifiers before errors reach disk or CLI."""
+    if isinstance(value, bytes):
+        value = value.decode('utf-8', errors='replace')
+    value = str(value)
+    secrets = {cfg['ssh']['host'], str(Path.home()), Path.home().name}
+    for section in ('remote', 'local', 'ssh'):
+        secrets.update(v for v in cfg.get(section, {}).values() if isinstance(v, str) and v.startswith('/'))
+    try:
+        for line in Path(cfg['ssh']['config_file']).read_text().splitlines():
+            parts = shlex.split(re.sub(r'^([ \t]*[A-Za-z]+)[ \t]*=[ \t]*', r'\1 ', line), comments=True)
+            if parts and parts[0].lower() in ('host', 'hostname', 'user', 'identityfile', 'hostkeyalias'):
+                secrets.update(p for p in parts[1:] if p not in ('*', '?'))
+    except (OSError, ValueError):
+        pass
+    for secret in sorted(secrets, key=len, reverse=True):
+        if secret:
+            value = value.replace(secret, '[redacted]')
+    value = re.sub(r'(?i)\b[\w.-]+@[\w.:-]+', '[redacted]', value)
+    value = re.sub(r'(?i)(hostname |connecting to |connection to |connection (?:closed|reset) by |host [\'"]?)([^\s\'"]+)',
+                   r'\1[redacted]', value)
+    value = re.sub(r'(?i)(?:[a-z0-9_-]+\.)+[a-z0-9_-]+', '[redacted]', value)
+    value = re.sub(r'(?i)\b[0-9a-f]*:[0-9a-f:]+(?:%[a-z0-9]+)?', '[redacted]', value)
+    value = re.sub(r'(?i)(?:user(?:name)?[ =:]+)[^\s,;]+', 'user [redacted]', value)
+    value = re.sub(r'/[^\s\'"]+', '[path]', value)
+    return value[:4096]
 
 
 # The live T1 SSH-255 incident motivated one bounded retry for observations.
 # Submit/cancel retain the original single-attempt transport, including reads.
 READ_OPERATIONS = frozenset({'identity', 'queues', 'jobs', 'root_check', 'executable',
-                            'metadata', 'output_exists', 'listing'})
+                            'metadata', 'output_exists', 'listing', 'receipt',
+                            'output_observation', 'completion_marker', 'session_processes'})
 
 
 class SSHTransport:
     def __init__(self, cfg, *, read_only=False):
         self.cfg = cfg
         self.read_only = read_only
+        self.error_paths = []
         self.options = ['-F', cfg['ssh']['config_file'], '-o', 'BatchMode=yes',
                         '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=15']
 
@@ -54,19 +87,39 @@ class SSHTransport:
         try:
             p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
         except subprocess.TimeoutExpired as exc:
-            raise SSHConnectionError('Remote operation timed out') from exc
+            detail = redact_stderr(exc.stderr or '', self.cfg)
+            raise SSHConnectionError('Remote operation timed out' + (': ' + detail if detail else '')) from exc
         except OSError as exc:
             raise TransportError('Could not start SSH/scp locally') from exc
-        return Result(p.returncode, p.stdout, p.stderr)
+        return Result(p.returncode, p.stdout, redact_stderr(p.stderr, self.cfg))
+
+    def record_to(self, paths):
+        self.error_paths = list(paths)
+
+    def _record_failure(self, detail):
+        # Preserve even a recovered first SSH failure; never infer a new job
+        # state or reissue a side effect because observation failed.
+        from ag import journal, state
+        safe = redact_stderr(detail, self.cfg)
+        for path in self.error_paths:
+            current = state.read(path)
+            error = {'at': journal.now(), 'stderr': safe}
+            state.write(path, current['state'], exit_status=current.get('exit_status'),
+                        note=current.get('note'), ssh_error=error)
+            journal.append(path.parent.parent, 'ssh_error', path.name, 'error', error)
 
     def _perform(self, operation):
         for index in range(2 if self.read_only else 1):
             try:
                 result = operation()
-            except SSHConnectionError:
+            except SSHConnectionError as exc:
+                self._record_failure(str(exc))
                 if not self.read_only or index == 1:
                     raise
             else:
+                if result.returncode == 255:
+                    result.stderr = redact_stderr(result.stderr, self.cfg)
+                    self._record_failure(result.stderr or 'SSH failed (exit 255; no stderr)')
                 if result.returncode != 255 or not self.read_only or index == 1:
                     return result
             print('Read-only SSH connection failed; retrying once in 15 seconds.', file=sys.stderr)
@@ -86,7 +139,8 @@ class SSHTransport:
             raise ValueError('Read-only transport refuses uploads')
         require_ok(self.run(remote.upload_check(self.cfg, manifest, name)), 'upload precheck')
         dest = remote.attempt_dir(self.cfg, manifest) + '/' + remote.filename(name)
-        require_ok(self._execute(['scp', *self.options, str(local), self.cfg['ssh']['host'] + ':' + dest], 60), 'upload')
+        require_ok(self._perform(lambda: self._execute(
+            ['scp', *self.options, str(local), self.cfg['ssh']['host'] + ':' + dest], 60)), 'upload')
 
     def download(self, manifest, name, local):
         local = Path(local)

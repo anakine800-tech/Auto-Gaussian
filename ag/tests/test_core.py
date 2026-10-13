@@ -62,6 +62,10 @@ class Fake:
             return Result(stdout='fixture\n')
         if command.operation == 'jobs':
             return self.qstat if command.text == 'qstat -f' else self.job
+        if command.operation == 'receipt':
+            return Result(stdout='absent\n')
+        if command.operation == 'output_observation':
+            return Result(stdout='water.log absent\njob.pbs.out absent\n')
         if command.operation == 'metadata':
             import shlex
             name = Path(shlex.split(command.text)[-1]).name
@@ -269,13 +273,13 @@ def test_unknown_reconcile_read_only(cfg, prepared):
     assert state.read(p)['job_id'] == '123.fixture'
 
 
-def test_status_absent_retains_without_output(cfg, prepared):
+def test_status_absent_is_interrupted_without_receipt(cfg, prepared):
     p, m = prepared
     state.write(p, 'submitting'); state.write(p, 'submitted', job_id='123.fixture')
     fake = Fake(cfg)
-    assert status.check(cfg, p, fake)['state'] == 'submitted'
+    assert status.check(cfg, p, fake)['state'] == 'interrupted'
     fake.files['job.pbs.out'] = b'output'
-    assert status.check(cfg, p, fake)['state'] == 'finished'
+    assert status.check(cfg, p, fake)['state'] == 'interrupted'
 
 
 def test_status_error_does_not_infer_completion(cfg, prepared):
@@ -470,12 +474,12 @@ def test_crash_in_submitting_reconciles_only_read_only(cfg, prepared):
     assert set(fake.operations()) <= {'identity', 'jobs', 'listing'}
 
 
-def test_completed_scheduler_records_exit(cfg, prepared):
+def test_scheduler_completion_alone_is_not_program_receipt(cfg, prepared):
     p, m = prepared
     state.write(p, 'submitting'); state.write(p, 'submitted', job_id='123.fixture')
     fake = Fake(cfg); fake.job = Result(stdout=job_text(m, state_='C').replace('exit_status = 0', 'exit_status = 9'))
     result = status.check(cfg, p, fake)
-    assert result['state'] == 'finished' and result['exit_status'] == 9
+    assert result['state'] == 'interrupted' and result['exit_status'] is None
 
 
 def test_cancel_failure_records_no_retry(cfg, prepared, monkeypatch):

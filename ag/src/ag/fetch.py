@@ -8,6 +8,8 @@ from ag.submit import metadata
 
 
 def fetch(cfg, path, transport):
+    if hasattr(transport, 'record_to'):
+        transport.record_to([path])
     m = attempt.read_manifest(path)
     journal.append(path.parent.parent, 'fetch', path.name, 'requested')
     if state.read(path)['state'] != 'finished':

@@ -30,6 +30,8 @@ def metadata(transport, cfg, manifest, name):
 def submit(cfg, ids, transport):
     if not ids or len(ids) != len(set(ids)):
         raise ValueError('Expected unique Attempt IDs')
+    if hasattr(transport, 'record_to'):
+        transport.record_to([attempt.find(cfg, id_) for id_ in ids])
     with submission_lock(cfg):
         prepared = []
         for id_ in ids:

@@ -17,3 +17,23 @@ test ! -e "$$scratch"
 test ! -L "$$scratch"
 mkdir -- "$$scratch"
 export GAUSS_SCRDIR="$$scratch"
+# Completion receipts adapted from the idea in
+# auto_g16/execution/_program_completion_wrapper.py; no legacy imports.
+# Noclobber prevents a second launch from replacing either receipt.
+ag_run() {
+    case "$${PBS_JOBID:-}" in ''|*[!A-Za-z0-9_.-]*) exit 42 ;; esac
+    test ! -e ag-start.json
+    test ! -L ag-start.json
+    test ! -e ag-exit.json
+    test ! -L ag-exit.json
+    printf '{"started_at":"%s","PBS_JOBID":"%s"}\n' "$$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$$PBS_JOBID" > ag-start.json
+    if "$$@"; then
+        ag_code=0
+    else
+        ag_code=$$?
+    fi
+    test ! -e ag-exit.json
+    test ! -L ag-exit.json
+    printf '{"returncode":%s,"finished_at":"%s","PBS_JOBID":"%s"}\n' "$$ag_code" "$$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$$PBS_JOBID" > ag-exit.json
+    exit "$$ag_code"
+}

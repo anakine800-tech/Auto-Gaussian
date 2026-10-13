@@ -105,3 +105,54 @@ def submit(cfg, manifest):
 
 def cancel(job):
     return Command('cancel', 'qdel ' + quote(job_id(job)))
+
+
+def receipt(cfg, manifest, name):
+    """Read only the two small receipts; an oversized/racing file is rejected."""
+    if name not in ('ag-start.json', 'ag-exit.json'):
+        raise ValueError('Only start/exit receipts may be read')
+    p = attempt_dir(cfg, manifest) + '/' + name
+    q = quote(p)
+    return Command('receipt', f'{path_checks(p)} && if test ! -e {q}; then '
+                   f"printf 'absent\\n'; else test -f {q} && "
+                   f'test "$(stat -c %s -- {q})" -le 4096 && head -c 4096 -- {q} && test "$(stat -c %s -- {q})" -le 4096; fi')
+
+
+def output_names(manifest):
+    from ag.render import declaration
+    stem = PurePosixPath(next(r['name'] for r in manifest['inputs'] if r['name'] != 'job.pbs')).stem
+    return [filename(n.format(stem=stem)) for n in declaration(manifest['template'])['outputs']]
+
+
+def output_observation(cfg, manifest):
+    # Query exactly the declared files, including absent ones. Nanosecond mtime
+    # detects writes within the same second; no directory traversal or globbing.
+    commands = []
+    for name in output_names(manifest):
+        p = attempt_dir(cfg, manifest) + '/' + name
+        q = quote(p)
+        commands.append(f'{path_checks(p)} && if test ! -e {q}; then '
+                        f"printf '%s absent\\n' {quote(name)}; else test -f {q} && "
+                        f"printf '%s ' {quote(name)} && stat -c '%s %y' -- {q}; fi")
+    return Command('output_observation', ' && '.join(f'{{ {c}; }}' for c in commands))
+
+
+def completion_marker(cfg, manifest):
+    from ag.render import declaration
+    name = output_names(manifest)[0]
+    marker = declaration(manifest['template'])['completion']
+    p = attempt_dir(cfg, manifest) + '/' + name
+    # grep's no-match code is distinct from command/SSH failure. Never execute
+    # a caller-supplied pattern or inspect an undeclared program output.
+    return Command('completion_marker', f'{path_checks(p)} && if test ! -e {quote(p)}; then '
+                   "printf 'absent\\n'; else "
+                   f'test -f {quote(p)} && {{ if grep -F -q -- {quote(marker)} {quote(p)}; '
+                   "then printf 'present\\n'; else ag_rc=$?; test \"$ag_rc\" -eq 1 && "
+                   "printf 'absent\\n'; fi; }; fi")
+
+
+def session_processes(session):
+    # Only a positive PBS session ID, never a command/selector supplied by a log.
+    if not isinstance(session, str) or not re.fullmatch(r'[1-9][0-9]{0,9}', session):
+        raise ValueError('Invalid PBS session ID')
+    return Command('session_processes', f'ps -s {session} -o pid=,sid=,stat=,comm=')
