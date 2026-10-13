@@ -100,7 +100,7 @@ def prepare(cfg, *, study_name, template, input_path, tier, walltime, label, par
              template=template, template_params=params, tier=tier, **resource, walltime=walltime,
              pbs_job_name='ag' + sha256(attempt_id.encode()).hexdigest()[:12],
              remote_dir=f'{s.name}/{attempt_id}', parents=parents, created_at=journal.now(),
-             ag_version=__version__, science={**science, 'method_basis': method_basis})
+             ag_version=__version__, completion_receipts=True, science={**science, 'method_basis': method_basis})
     files = {name: data, 'job.pbs': render.render(cfg, m, name).encode()}
     m['inputs'], m['bundle_sha256'] = bundle(files)
     path = s / 'attempts' / attempt_id
