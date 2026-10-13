@@ -59,10 +59,11 @@ def redact_stderr(value, cfg):
         if secret:
             value = value.replace(secret, '[redacted]')
     value = re.sub(r'(?i)\b[\w.-]+@[\w.:-]+', '[redacted]', value)
-    value = re.sub(r'(?i)(hostname |connecting to |connection to |connection (?:closed|reset) by |host [\'"]?)([^\s\'"]+)',
+    value = re.sub(r'(?i)(hostname |connecting to |authenticating to |connection to |connection (?:closed|reset) by |host [\'"]?)([^\s\'"]+)',
                    r'\1[redacted]', value)
     value = re.sub(r'(?i)(?:[a-z0-9_-]+\.)+[a-z0-9_-]+', '[redacted]', value)
-    value = re.sub(r'(?i)\b[0-9a-f]*:[0-9a-f:]+(?:%[a-z0-9]+)?', '[redacted]', value)
+    value = re.sub(r'(?i)(?<![\w])(?:[0-9a-f]{0,4}:){2,}[0-9a-f:.]*(?:%[a-z0-9]+)?', '[redacted]', value)
+    value = re.sub(r"(?i)(as )['\"][^'\"]+['\"]", r'\1[redacted]', value)
     value = re.sub(r'(?i)(?:user(?:name)?[ =:]+)[^\s,;]+', 'user [redacted]', value)
     value = re.sub(r'/[^\s\'"]+', '[path]', value)
     return value[:4096]

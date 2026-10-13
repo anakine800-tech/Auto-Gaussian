@@ -385,3 +385,13 @@ def test_ps_flags_and_positive_session_rows():
     class Process:
         def run(self, command): return Result(stdout='42 321 Ssl+ crest\n')
     assert not status.processes(Process(), '321')['absent']
+
+
+@pytest.mark.parametrize('address', [':'.join(['', '', '1']), ':'.join(['2001', 'db8', '', '1']),
+                                     ':'.join(['fe80', '', '1234']) + '%eth0'])
+def test_ipv6_ssh_diagnostics_do_not_leak_endpoint(cfg, address):
+    stderr = f"debug1: Authenticating to unlisted-node [{address}] as 'unlisted-user'"
+    safe = redact_stderr(stderr, cfg)
+    for secret in (address, 'unlisted-node', 'unlisted-user'):
+        assert secret not in safe
+    assert 'Authenticating to' in safe
