@@ -1,0 +1,3 @@
+interface:
+  display_name: "Auto-G16 Recipes"
+  short_description: "为主族闭壳层计算提供输入建议、结果判据和失败诊断任务卡片"
