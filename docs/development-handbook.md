@@ -329,8 +329,19 @@ local full run merely because CI is running or the validation policy is under
 discussion. A frozen contract that explicitly requires local full validation
 still requires it until explicitly revised under the applicable authority.
 
-This allocation does not change the selector, selected inventory, workflow,
-full-run triggers or five required contexts. Compute authoritative selection
+For a new task, record one complete-full executor at intake: for an authoritative
+`legacy-release` PR, use CI `source-archive-release`; for a bounded route, no
+complete full is implied. Name any separately contracted local-full duty and
+its exact source. "Validation code changed" is not itself a local-full clause.
+Local supplements must state a concrete gap (for example a target-platform
+behavior or a dependency/profile absent from CI), the smallest check covering
+it, and its authority. An unavailable CI result is a pending CI obligation,
+not a reason to duplicate complete discovery locally. Current required checks
+still run on the exact PR candidate.
+
+This allocation does not change the selected inventory, workflow or five
+required contexts. The narrow contract-registration classification below is
+the only new manifest self-protection exception. Compute authoritative selection
 from clean exact base/head identities; execute every check required by that
 route and the applicable contract. Conservative routes remain conservative,
 and invalid selection still starts zero tests. Required CI evidence cannot be
@@ -368,10 +379,18 @@ requires explicit `--full` for complete discovery (including a legacy
 selection); `--compatibility --selection ... --base ... --head ...` selects
 the bounded compatibility inventory for a legacy candidate. Unsupported CI
 events or missing exact identities fail fast without running tests. Once release metadata and the
-candidate bytes are frozen, run the versioned checklist's **final complete
-release validation exactly once**. If bytes change afterward, that evidence is
-invalidated: review the delta and schedule one new final run for the new frozen
-candidate, rather than repeatedly running the heavy ladder while editing.
+candidate bytes are frozen, satisfy the versioned checklist's **final complete
+release validation exactly once**. A completed PR full may satisfy that same
+obligation only if the release owner verifies that it ran after the release
+freeze, binds the exact release candidate bytes and baseline, covers the entire
+checklist inventory, pressure/modifier and environment requirements, and the
+checklist does not explicitly require a separate local or release-stage run.
+Record the reused job and that review. A pre-freeze PR pass, tree match alone,
+or bounded compatibility run is insufficient. Otherwise schedule the one final
+release run after freeze. Release/tag/publication authority remains separate.
+If candidate bytes change afterward, the final full evidence is invalidated:
+review the delta and schedule one new final run for the new frozen candidate,
+rather than repeatedly running the heavy ladder while editing.
 
 For every run record exact command, interpreter/profile, commit or tree hash,
 start time, exit code, test total/skip/failure counts, wall time, and coverage
@@ -387,7 +406,14 @@ environment and validation route. Record the delta, what remains applicable,
 what does not, and the review accepting that judgment. A matching tree or old
 passing record alone cannot satisfy current baseline requirements, current
 required checks or a stricter frozen contract. Missing, failed, running or
-unbound evidence is not a pass.
+unbound evidence is not a pass. A change to base/head, route, covered code/test
+inventory, dependencies, environment or coverage modifiers requires an explicit
+applicability reassessment; do not copy an old required-check status to a new
+HEAD. Rerun affected checks when their claim is invalidated or their binding
+cannot be proved, and the designated full owner when the current route or
+final release rule requires it. A failure may be repaired under retained
+development authority, but neither failure nor delay justifies concurrent
+duplicate full runs or cancellation of an already-running check.
 
 A change triggers reassessment of affected evidence, not an unexplained repeat
 of every full suite. Close the identified gaps and run the checks required for
@@ -409,6 +435,31 @@ under that task's authorization, inspect the resulting diff/conflicts and
 reassess evidence. CI may evaluate the updated candidate again. This rule
 does not authorize a baseline update, bypass required checks, or prevent a
 later update required by a new reviewed dependency or integration condition.
+
+### New contract path registration
+
+An authoritative selector may classify a manifest change as additive contract
+registration only from a clean exact Git base/head and its resolved merge base.
+The entire diff must contain only the manifest modification and newly added
+regular, non-executable files directly under `docs/v3/contracts/tasks/`, with
+simple lowercase letter/digit/hyphen names ending in `.md`. These path limits
+are necessary, never sufficient: each path must be absent at both base and
+merge base, previously unowned, and added only to the existing `v3-control-docs`
+exact-path list. Removing those additions must reproduce every existing
+manifest value and list order, including routes, lane/risk, tests,
+`required_safety`, safety carriers and self-protecting paths. Base and merge-base
+manifest blobs must match. The route must remain bounded `v3-full`.
+
+The selector then retains the full changed-path/manifest identities and selects
+the existing contract-document inventory; the runner independently recomputes
+that proof. This does not place contracts in the low-risk documentation list
+or establish semantic approval: their actual permissions and technical meaning
+still receive the applicable independent/Owner review. Existing-file
+registration, removal/reassignment, mixed code/policy edits, other self-protected
+changes, copies/renames, or insufficient classification proof retain conservative
+selection. Invalid Git/manifest/authority evidence and unknown modern ownership
+still stop before tests. No caller-provided flag or Markdown suffix grants the
+exception. Changes to this classifier itself remain self-protected.
 
 ### Reviewed documentation validation
 

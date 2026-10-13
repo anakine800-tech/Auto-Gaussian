@@ -24,8 +24,14 @@ The selector error-stop contract below is the reviewed successor to the old
 expand-on-error clause in [V3-MAINT-TEST-01](#v3-maint-test-01), consistent with
 [OD-08](../../../../OWNER_DECISIONS.md#od-08-runtime-and-change-aware-ci) and
 [handbook section 6](../../../development-handbook.md#6-validation-ladder-and-deduplication).
-Its branch-opening and publication steps are historical task instructions,
-not a new authorization. This annotation changes no selector semantics.
+Its branch-opening, local-full-before-push sequence and publication steps are
+instructions for that named historical task, not a default for new tasks or a
+new authorization. The local-full clause is retained below without rewriting
+its evidence or retroactively waiving it. Any still-active task that explicitly
+adopted it needs its own authorized revision. Modern ownership, error-stop,
+discovery completeness, safety coverage and required-context obligations
+remain current technical requirements. New tasks allocate full ownership under
+the handbook. This annotation changes no selector error semantics.
 
 - **Owner opening gate:** Continue the xTB runtime-data authority branch from
   `7a624e8db9f5adcf9436a5abc88145ddd68089bd`; do not publish that parent alone.
@@ -131,3 +137,37 @@ scope, safety, review and stop requirements below remain binding.
 - **Handoff:** Report the exact inventory and proposed moves, retained/rebuilt
   safety map, unchanged or proposed check topology, timings, findings, blockers,
   and the next Owner decision. A proposal is not permission to edit CI.
+
+### Validation governance refinement — 2026-10-13
+
+This is a new v3 feature task, non-BUS, overall L3 because release-evidence
+policy is touched: independent L2 technical review plus Owner review before
+any merge. Default branch/base was verified as
+`fe28c26aa373b3a3237e1eb80ab24c2372f62380`; the app-created isolated worktree
+uses unique branch `codex/validation-governance-refinement`. The Owner explicitly
+authorized implementation, offline validation, independent review, local
+commits, push and PR creation/update. Continue those steps after their
+prerequisites; merge remains the Owner's decision after the result handoff.
+
+Scope is the exact contract-registration classifier and its adversarial tests,
+ordinary offline repair checkpoints, and full-validation allocation/reuse rules
+in this page, the handbook and autonomy entry. No broad documentation whitelist,
+workflow/required-context change, external BUS implementation or ledger repair
+is included. No runtime/scientific behavior, schema migration, deployment,
+release, SSH/RTwin/PBS/Gaussian, cancellation or server cleanup is authorized.
+The server/scientific gates in AGENTS and higher-priority v3 contracts remain.
+
+Acceptance uses the **pre-edit** base rules retained at that commit: preflight,
+focused selector/runner adversarial tests, affected safety and adjacent CI/docs
+checks, static CI audit, independent compatibility review and exact candidate
+CI. Selector and selector-test edits require `legacy-release` under both old
+and new selection. Under existing OD-08/handbook ownership, the PR
+`source-archive-release` job supplies complete full; all five contexts remain
+required. This new task has no separately frozen local-full obligation and
+cannot waive such obligations in other tasks. Its repair budget remains the
+pre-edit budget. No live-only evidence is needed for these offline control and
+documentation changes. Report the base/head/tree, commands/counts/timing,
+review findings, CI links and residual risks in the PR; retain raw local logs
+outside versioned source. Any rollback is a separately authorized reviewed
+revert; keep the feature worktree/branch until integration or abandonment and
+explicit cleanup authority.
