@@ -161,6 +161,15 @@ def parse_gaussian(path, pbs_path=None):
         geometry = xyz_text(elements, coords)
         if hasattr(data, 'vibdisps'):
             facts['imag_modes'] = imaginary_modes(frequencies, data.vibdisps, coords, elements)
+    from ag._irc import parse_irc
+    irc, endpoint = parse_irc(text)
+    if irc is not None:
+        facts['irc'] = irc
+        if endpoint and facts['n_atoms'] is None:
+            facts['n_atoms'] = int(endpoint.splitlines()[0])
+        state = re.findall(r'Charge\s*=\s*(-?\d+)\s+Multiplicity\s*=\s*(\d+)', text)
+        if state and facts['charge'] is None:
+            facts['charge'], facts['multiplicity'] = map(int, state[-1])
     return facts, geometry
 
 

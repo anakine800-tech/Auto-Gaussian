@@ -40,7 +40,7 @@ def test_registered_command_runs_without_loading_config(monkeypatch, command):
     monkeypatch.setattr(cli, "import_module", load)
     monkeypatch.setattr(cli, "load_config", unexpected_config_load)
     assert cli.main([command]) == 7
-    assert seen == ["ag.facts", "ag.thermo", "ag.dedup", "ag.cluster", "ag.graph"]
+    assert seen == ["ag.facts", "ag.thermo", "ag.dedup", "ag.cluster", "ag.graph", "ag.irc_compare"]
 
 
 def test_dedup_help_and_run_without_config(monkeypatch, tmp_path, capsys):

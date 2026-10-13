@@ -44,7 +44,17 @@ def build_facts(attempt_dir):
     program = manifest['template']
     outputs = attempt_dir / 'outputs'
     if program == 'gaussian':
-        facts, geometry = parse_gaussian(gaussian_log(attempt_dir), outputs / 'job.pbs.out')
+        log = gaussian_log(attempt_dir)
+        facts, geometry = parse_gaussian(log, outputs / 'job.pbs.out')
+        if 'irc' in facts:
+            from ag._irc import parse_irc
+            _, endpoint = parse_irc(log.read_text(errors='replace'))
+            if endpoint:
+                # Exclusive creation prevents a later parse from replacing a
+                # geometry that may already have been reviewed or optimized.
+                with (attempt_dir / 'irc_end.xyz').open('x') as handle:
+                    handle.write(endpoint)
+                facts['irc']['end_geometry'] = 'irc_end.xyz'
     elif program == 'crest':
         facts, geometry = parse_crest(outputs)
     elif program == 'xtb':
