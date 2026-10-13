@@ -1,11 +1,9 @@
 """T3 publishing checks: discovery, usable links, complete cards and no private data.
 
-The three T3 entrypoints use JSON flow mappings, a valid YAML subset. Parsing
-that subset with the standard library validates these headers without adding
-a YAML dependency to ag or imposing a header style on the separate T4 skill.
+The three T3 entrypoints use two plain-scalar YAML fields. Check that small
+subset without adding a YAML dependency to ag.
 """
 
-import json
 from pathlib import Path
 import re
 from urllib.parse import unquote, urlsplit
@@ -32,11 +30,13 @@ def test_skill_frontmatter(skill):
     text = (skill / "SKILL.md").read_text(encoding="utf-8")
     match = re.match(r"\A---\n(.*?)\n---(?:\n|$)", text, re.S)
     assert match, f"Missing YAML header: {skill.name}"
-    metadata = json.loads(match.group(1))  # YAML flow mapping authored as JSON.
-    assert isinstance(metadata, dict)
-    assert metadata.get("name") == skill.name
-    assert isinstance(metadata.get("description"), str)
-    assert metadata["description"].strip()
+    lines = match.group(1).splitlines()
+    assert len(lines) == 2, f"Expected name and description block fields: {skill.name}"
+    name = re.fullmatch(r"name: ([a-z][a-z0-9-]*)", lines[0])
+    description = re.fullmatch(r"description: (\w[^\n]*)", lines[1])
+    assert name and name.group(1) == skill.name
+    assert description, f"Missing plain-text description: {skill.name}"
+    assert ": " not in description.group(1) and " #" not in description.group(1)
 
 
 @pytest.mark.parametrize("skill", SKILLS, ids=lambda p: p.name)

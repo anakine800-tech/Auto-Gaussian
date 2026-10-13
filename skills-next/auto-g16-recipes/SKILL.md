@@ -1,8 +1,6 @@
 ---
-{
-  "name": "auto-g16-recipes",
-  "description": "为 ag 新架构提供 Opt+Freq、单点、RDKit 或 CREST 初筛、qRRHO 热化学及失败诊断卡片；准备输入或审阅主族闭壳层单分子结果时使用。"
-}
+name: auto-g16-recipes
+description: 为 ag 新架构提供 Opt+Freq、单点、RDKit 或 CREST 初筛、qRRHO 热化学及失败诊断卡片；准备输入或审阅主族闭壳层单分子结果时使用。
 ---
 
 # Auto-G16 Recipes

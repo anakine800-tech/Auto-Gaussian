@@ -1,8 +1,6 @@
 ---
-{
-  "name": "auto-g16-literature",
-  "description": "为 ag 主族单分子研究查找计算方法先例，优先人提供的本组论文和 SI，区分直接先例与类比并记录 DOI、页码、方法适用边界。"
-}
+name: auto-g16-literature
+description: 为 ag 主族单分子研究查找计算方法先例，优先人提供的本组论文和 SI，区分直接先例与类比并记录 DOI、页码、方法适用边界。
 ---
 
 # Auto-G16 Literature
