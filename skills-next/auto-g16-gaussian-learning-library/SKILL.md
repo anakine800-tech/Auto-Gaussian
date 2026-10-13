@@ -15,12 +15,14 @@ Use this skill as a self-contained teaching and lookup library. It is designed f
 - Label version-dependent Gaussian/GaussView behavior and ask for the installed version when syntax or GUI details matter.
 - State uncertainty and missing inputs. Never silently infer charge, multiplicity, connectivity, stereochemistry, active catalyst state, transition structure, solvent participation, or a production method/basis protocol.
 - Treat `Normal termination` as program completion only. Verify the evidence required by the actual job type.
-- Keep learning separate from execution. When the user wants to submit or operate a calculation, hand the reviewed plan to an appropriate Gaussian execution skill.
+- Keep learning separate from execution. This skill may explain or prepare a reviewable plan, but must not connect to RTwin, use SSH/SCP or PBS commands, submit or cancel calculations, or invoke legacy Auto-G16 execution scripts, directly or through another skill. Execution belongs to a separately requested workflow outside this skill.
 
 ## Workflow
 
 1. Identify the question category with `references/knowledge-map.md`.
 2. Read only the relevant reference file or search the library:
+
+   Resolve `scripts/` relative to this skill's directory, never the project's legacy `scripts/` directory.
 
    ```bash
    "${AUTO_G16_CORE_PYTHON:-$HOME/miniforge3/bin/python3}" scripts/search_knowledge.py --query "频率计算为什么要做"

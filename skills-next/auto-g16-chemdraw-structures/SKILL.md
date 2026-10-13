@@ -11,6 +11,8 @@ Produce editable, chemically defensible ChemDraw structures and consolidated rea
 
 ## Environment and outputs
 
+This skill is limited to structure preparation and drawing. Do not connect to RTwin, use SSH/SCP or PBS commands, submit or cancel calculations, or invoke legacy Auto-G16 execution scripts, directly or through another skill. Resolve every `scripts/` command below relative to this skill's directory, never the project's legacy `scripts/` directory.
+
 Resolve a Python interpreter with RDKit and Pillow once per task and refer to it as `$CHEM_PYTHON`. Prefer an active environment; otherwise locate a compatible Conda or virtual environment. Never hand-write MOL blocks for chiral or complex structures.
 
 Save user-facing deliverables under the current workspace `outputs/` directory:

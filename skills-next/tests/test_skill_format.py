@@ -1,6 +1,6 @@
-"""T3 publishing checks: discovery, usable links, complete cards and no private data.
+"""Maintained Skill publishing checks: discovery, usable links, complete cards and no private data.
 
-The three T3 entrypoints use two plain-scalar YAML fields. Check that small
+The maintained entrypoints use two plain-scalar YAML fields. Check that small
 subset without adding a YAML dependency to ag.
 """
 
@@ -12,7 +12,10 @@ import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SKILLS = tuple(ROOT / f"auto-g16-{name}" for name in ("study", "recipes", "literature"))
+SKILLS = tuple(ROOT / f"auto-g16-{name}" for name in (
+    "study", "recipes", "literature", "structures",
+    "chemdraw-structures", "gaussian-learning-library",
+))
 CARDS = ("opt-freq", "sp", "rdkit-screen", "crest-screen", "thermo", "failure-diagnosis")
 SECTIONS = (
     "适用范围", "前置条件", "输入模板", "资源建议", "提交前检查清单",
@@ -68,7 +71,12 @@ def test_card_has_eight_sections(card):
 def test_files_have_no_private_addresses_or_user_paths():
     paths = [Path(__file__)]
     for skill in SKILLS:
-        paths.extend(path for path in skill.rglob("*") if path.is_file())
+        paths.extend(
+            path for path in skill.rglob("*")
+            if path.is_file() and "__pycache__" not in path.parts
+            and ".pytest_cache" not in path.parts
+            and path.suffix not in {".pyc", ".pyo"}
+        )
     for path in paths:
         text = path.read_bytes().decode("utf-8", errors="replace")
         for label, pattern in PRIVATE_PATTERNS.items():
