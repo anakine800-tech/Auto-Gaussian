@@ -7,7 +7,7 @@ from ag import __version__
 from ag.config import load_config
 
 
-CONFIG_COMMANDS = ('init', 'prepare', 'submit', 'status', 'fetch', 'cancel', 'list', 'doctor')
+CONFIG_COMMANDS = ('init', 'prepare', 'submit', 'status', 'fetch', 'cancel', 'list', 'doctor', 'monitor')
 
 
 def core_command(args):
@@ -15,6 +15,9 @@ def core_command(args):
     from ag.transport import SSHTransport
     cfg = args.config
     command = args.command
+    if command == 'monitor':
+        from ag.monitor import run
+        return run(cfg, args.watch)
     if command == 'init':
         result = study.init(cfg, args.directory)
     elif command == 'prepare':
@@ -66,6 +69,10 @@ def register(subparsers):
         p.set_defaults(func=core_command)
         if name == 'init':
             p.add_argument('directory')
+        elif name == 'monitor':
+            from ag.monitor import watch_seconds
+            p.add_argument('--watch', type=watch_seconds, metavar='SECONDS',
+                           help='Sample in the foreground every 60–600 seconds; Ctrl-C exits')
         elif name == 'prepare':
             p.add_argument('--study', required=True)
             p.add_argument('--template', choices=('gaussian', 'xtb', 'crest'), required=True)

@@ -71,7 +71,7 @@ def redact_stderr(value, cfg):
 
 # The live T1 SSH-255 incident motivated one bounded retry for observations.
 # Submit/cancel retain the original single-attempt transport, including reads.
-READ_OPERATIONS = frozenset({'identity', 'queues', 'jobs', 'root_check', 'executable',
+READ_OPERATIONS = frozenset({'identity', 'queues', 'nodes', 'jobs', 'root_check', 'executable',
                             'metadata', 'output_exists', 'listing', 'receipt',
                             'output_observation', 'completion_marker', 'session_processes'})
 

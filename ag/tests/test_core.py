@@ -389,12 +389,12 @@ def test_doctor_is_read_only(cfg):
 
 def test_remote_allowlist_and_paths(cfg, prepared):
     _, m = prepared
-    commands = [remote.identity(), remote.queues(), remote.jobs(), remote.jobs('123.fixture'), remote.root_check(cfg),
+    commands = [remote.identity(), remote.queues(), remote.nodes(), remote.jobs(), remote.jobs('123.fixture'), remote.root_check(cfg),
                 remote.executable(cfg['programs']['gaussian']['g16root'] + '/g16'), remote.create_attempt(cfg, m),
                 remote.metadata(cfg, m, 'water.gjf'), remote.upload_check(cfg, m, 'water.gjf'),
                 remote.output_exists(cfg, m, 'job.pbs.out'), remote.listing(cfg, m), remote.submit(cfg, m), remote.cancel('123.fixture')]
     import shlex
-    allowed = {'id', 'qstat', 'test', 'mkdir', 'stat', 'sha256sum', 'ls', 'cd', 'qsub', 'qdel'}
+    allowed = {'id', 'qstat', 'pbsnodes', 'test', 'mkdir', 'stat', 'sha256sum', 'ls', 'cd', 'qsub', 'qdel'}
     for c in commands:
         assert not any(token in shlex.split(c.text) for token in ('rm', 'rmdir', 'mv', 'cp', '>', '>>'))
         assert subprocess.run(['sh', '-n'], input=c.text, text=True).returncode == 0
@@ -545,7 +545,7 @@ def test_dialog_timeouts_and_errors(monkeypatch):
     with pytest.raises(OSError): confirm.confirm('test')
 
 
-@pytest.mark.parametrize('operation', [remote.identity, remote.queues, remote.jobs])
+@pytest.mark.parametrize('operation', [remote.identity, remote.queues, remote.jobs, remote.nodes])
 def test_read_connection_retry_once_after_15_seconds(cfg, monkeypatch, operation):
     events = []
     replies = iter([Result(255, '', 'connection closed'), Result(stdout='ok')])
