@@ -7,6 +7,9 @@ from ag import __version__
 from ag.config import load_config
 
 
+CONFIG_COMMANDS = ('init', 'prepare', 'submit', 'status', 'fetch', 'cancel', 'list', 'doctor')
+
+
 def core_command(args):
     from ag import attempt, cancel, doctor, fetch, status, study, submit
     from ag.transport import SSHTransport
@@ -54,7 +57,7 @@ def core_command(args):
 
 
 def register(subparsers):
-    for name in ('init', 'prepare', 'submit', 'status', 'fetch', 'cancel', 'list', 'doctor'):
+    for name in CONFIG_COMMANDS:
         p = subparsers.add_parser(name)
         p.add_argument('--json', action='store_true')
         p.set_defaults(func=core_command)
@@ -101,7 +104,8 @@ def main(argv=None):
         return 0
     from ag.submit import UnknownSubmission
     try:
-        args.config = load_config()
+        if args.command in CONFIG_COMMANDS:
+            args.config = load_config()
         return args.func(args)
     except UnknownSubmission as exc:
         code = 3
