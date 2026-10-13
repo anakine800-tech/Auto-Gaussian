@@ -1,0 +1,77 @@
+# TS 优化与频率
+
+## 1. 适用范围
+
+主族闭壳层、同一势能面的过渡态候选优化与频率审核。适用于人提供并审阅过的单结构初猜；不做自动反应发现、金属、开壳层或跨自旋面搜索。通过本卡只得到方向经审阅的一阶鞍点候选，路径验证还需 [IRC](irc.md)。
+
+## 2. 前置条件
+
+[机理假设](reaction-plan.md)已由人签字，目标步骤、反应物/产物身份和原子对应明确；结构与代表构象集合已确认。预先列出正在形成、断裂或迁移的原子对（按输入行号，从 1 开始），并说明方法依据、溶剂、电荷、多重度。初猜来源可选：
+
+- 沿反应坐标扫描：记录扫描坐标、范围及选点依据，能量最高点仅是初猜。当前 ModRedundant 扫描需要额外输入段，待 T13；可审阅已有扫描结构，不拼装不支持的输入。
+- QST2/QST3：端点须有相同原子组成、实际行顺序与对应；QST3 还需 TS 初猜。多结构输入待 T13，不提供虚构 CLI。
+- 类比已知 TS：记录 DOI/结构来源、映射及差异；类比几何不意味着该方法或机理已获验证。
+- 自动初猜工具：待 T13；工具给的结构仍需人工审阅。
+
+柔性 TS 应比较反应中心附近及远端可转键构象；普通极小点初筛不能证明 TS 构象覆盖充分。
+
+## 3. 输入模板
+
+单结构 route 示例 `opt=(ts,calcfc,noeigentest) freq`。以下仅为兜底方法的输入骨架，填入已审阅的显式坐标，保留空行；正式方法须另有文献依据或明确兜底声明。
+
+```text
+%chk=ts.chk
+%nprocshared=8
+%mem=10GB
+#p B3LYP/def2SVP EmpiricalDispersion=GD3BJ opt=(ts,calcfc,noeigentest) freq
+
+<TS 步骤与构象编号>
+
+<charge> <multiplicity>
+<element> <x> <y> <z>
+
+```
+
+按体系加入已核实的溶剂设置，并展示最终完整 route。`NoEigenTest` 仅关闭优化中的曲率检查，不免除最终 Hessian、虚频数量和方向审阅。
+
+```text
+ag prepare --study <study_id> --template gaussian --input <ts.gjf> --tier simple --walltime 24:00:00 --label ts-c01 --method-basis <DOI及位置或兜底方法说明>
+```
+
+有真实上游 Attempt 才使用已有 `--parent` / `--relation` 参数；人提供的外部结构在 study 记录来源，不虚构 parent。跨 Attempt 复用 chk 待 T13，不用 `%oldchk`、`Guess=Read` 或 `Geom=AllCheck` 绕过当前输入限制。
+
+## 4. 资源建议
+
+小体系首先提出 simple（8 核 / 12 GB，`%mem=10GB`），24:00:00；规模或已有耗时支持时提出 general（22 核 / 50 GB，`%mem=42GB`），48:00:00。complex（44 核 / 120 GB，`%mem=100GB`）需具体资源理由。CalcFC 与 Freq 均有 Hessian 成本；每个 TS 构象分别估计，不把加核当作收敛修复。
+
+## 5. 提交前检查清单
+
+- 假设签字、初猜来源、目标成键/断键原子对、构象覆盖与原子映射均明确，结构无未解释近接触。
+- 身份、电荷、多重度、立体化学与目标一致；route 的方法、色散、溶剂与比较物种一致。
+- 坐标和占位符已替换；核数匹配档位，内存不超过 85%，chk 仅文件名；当前输入不依赖尚未支持的额外段或父 chk。
+- 按 [确认摘要](../../auto-g16-study/references/confirmation-summary.md)展示结构、立体警告、方法依据、完整 route、资源、walltime、远程目录、输入哈希；等人确认并亲手点击提交对话框。
+
+## 6. 结果判据清单
+
+- `termination=normal`、`opt_converged=true`、`freq_step_converged=true`；缺失/不通过则读原日志，不能推定通过。Opt 和 Freq 都已完成，完整模式数应为非线性 3N−6 / 线性 3N−5。
+- **恰好一个虚频**：`n_imag=1`，按原始负频计数，小负频也不能删掉凑数。零或多个虚频均不满足 TS 判据。
+- **振动方向对应目标键变化**：逐项核对 `facts.json` 的 `imag_modes[].pairs[].atoms`、`elements`、`distance`、`distance_change_rate` 与目标原子对。全局振动正负号任意，须查看同一方向上成键缩短/断键伸长等协调变化，不能仅靠频率大小或单个符号判断。
+- 当前 `imag_modes` 只列距离小于 3.5 Å 的原子对中变化率绝对值最大的五对；缺目标对并不证明它不动。结合原日志完整位移与几何人工审核（必要时看动画/正负位移），缺证据写不通过并停下，不杜撰模式查看命令。
+- 确認最终身份与预期一致；柔性 TS 列出审阅过的构象和未覆盖部分，不将单个 TS 的能量直接当作唯一反应能垒。
+- `review.md` 写清判据、事实位置与人的方向审核意见；更新 study 假设。通过后只提出双向 IRC，未完成端点识别不能写“已验证 TS/机理”。
+
+## 7. 常见失败与处理
+
+零虚频说明落到极小点或尚缺完整证据；多虚频可能是高阶鞍点或软模问题；方向错误可能是另一步反应。分别核对完整输出和结构，重审初猜/构象或假设，转 [失败诊断](failure-diagnosis.md)；提出新 Attempt，等人确认。
+
+QST、扫描额外段、自动初猜或父 chk 必不可少时，写明“待 T13”并暂停该步骤。真实作业异常先停止报告；不在原 Attempt 重跑，不用旧 Skill 执行。
+
+## 8. 常见坑
+
+以下科学经验改写自 [archive/skills/auto-g16-ts-irc/SKILL.md](../../../archive/skills/auto-g16-ts-irc/SKILL.md) 的 Safety and scope、Workflow、Interpretation gates；仅追溯经验，不恢复其历史流程：
+
+- Opt 结束时抓到的截断日志不能当作完整 Freq；须查完整模式数及位移。
+- 一个负频只是候选，键变化方向审核和双向 IRC 端点识别不可省略。
+- QST 同元素原子交换也可能改变反应映射；外部映射表不能修复实际输入行顺序。`End of file in ZSymb` 后不要反复试换空行提交。
+- 父 chk、几何和原子顺序不一致会把 IRC 引向错误起点；跨 Attempt chk 复用在新 ag 中仍待 T13。
+- 解离片段的近自由平移/转动可能导致优化困难，不默认把多个孤立片段当普通单分子极小点。
