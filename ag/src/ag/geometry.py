@@ -91,12 +91,18 @@ def infer_molecule(frame, charge, chem, determine_bonds):
     if mol is None:
         raise ValueError("RDKit could not read the XYZ geometry")
     determine_bonds.DetermineBonds(mol, charge=charge, embedChiral=False)
+    # CREST/MTD frames can invert a stereocenter or change double-bond geometry.
+    chem.AssignStereochemistryFrom3D(mol, replaceExistingTags=True)
     return mol
 
 
 def graph_key(mol, chem):
     # Preserve bond order, hydrogen counts and formal charge, ignore stereo.
     return chem.MolToSmiles(chem.RemoveHs(mol), isomericSmiles=False)
+
+
+def stereo_key(mol, chem):
+    return chem.MolToSmiles(chem.RemoveHs(mol), isomericSmiles=True)
 
 
 def heavy_molecule(mol, chem):

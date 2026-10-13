@@ -16,6 +16,12 @@ def select(frames, records, charge, maximum, rmsd, mirror, chem, bonds, align):
     molecules = [geo.infer_molecule(frame, charge, chem, bonds) for frame in frames]
     if len({geo.graph_key(mol, chem) for mol in molecules}) != 1:
         raise ValueError("Dedup XYZ contains different molecular graphs")
+    # An enantiomer of a molecule with a specified stereocenter is not a
+    # degenerate conformer of the same stereoisomer.
+    if mirror and any(chem.FindMolChiralCenters(mol, includeUnassigned=False,
+                                               useLegacyImplementation=False)
+                      for mol in molecules):
+        raise ValueError("镜像简并只适用于非手性分子 (--mirror found a specified chiral center)")
     molecules = [geo.heavy_molecule(mol, chem) for mol in molecules]
     minimum = min(frame.energy for frame in frames)
     relative = geo.relative_energies(frames, minimum)

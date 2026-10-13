@@ -12,6 +12,7 @@ def deduplicate(frames, charge, rmsd, de, window, chem, bonds, align):
     molecules, rejected = {}, []
     first = geo.infer_molecule(frames[0], charge, chem, bonds)
     key = geo.graph_key(first, chem)
+    stereo = geo.stereo_key(first, chem)
     for index, frame in enumerate(frames):
         try:
             mol = first if index == 0 else geo.infer_molecule(frame, charge, chem, bonds)
@@ -20,6 +21,8 @@ def deduplicate(frames, charge, rmsd, de, window, chem, bonds, align):
             continue
         if geo.graph_key(mol, chem) != key:
             rejected.append({**geo.record(frame, index, None), "reason": "graph_changed"})
+        elif geo.stereo_key(mol, chem) != stereo:
+            rejected.append({**geo.record(frame, index, None), "reason": "stereo_changed"})
         else:
             molecules[index] = geo.heavy_molecule(mol, chem)
     minimum = min(frames[index].energy for index in molecules)
@@ -85,6 +88,7 @@ def register(subparsers):
     parser.add_argument("--rmsd", type=float, default=0.125, help="Heavy-atom RMSD in angstrom")
     parser.add_argument("--de", type=float, default=0.05, help="Duplicate energy tolerance in kcal/mol")
     parser.add_argument("--window", type=float, default=3.0, help="Energy window in kcal/mol")
-    parser.add_argument("--out", type=Path, default=Path("analyses"))
+    parser.add_argument("--out", type=Path, required=True,
+                        help="Output directory: point to the study's analyses/ outside the repository")
     parser.add_argument("--json", action="store_true")
     parser.set_defaults(func=run)

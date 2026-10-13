@@ -69,3 +69,23 @@ def test_stale_dedup_energy_rejected(tmp_path, capsys):
     path.write_text(json.dumps(payload))
     assert main(["cluster", str(path), "--mirror"]) == 1
     assert "do not agree" in capsys.readouterr().err
+
+
+def test_chiral_mirror_rejected_without_output(tmp_path, capsys):
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+
+    mol = Chem.AddHs(Chem.MolFromSmiles("C[C@H](O)CC"))
+    assert AllChem.EmbedMolecule(mol, randomSeed=31) == 0
+    path = tmp_path / "butanol.xyz"
+    lines = Chem.MolToXYZBlock(mol).splitlines()
+    lines[1] = "-10.0"
+    path.write_text("\n".join(lines) + "\n")
+    assert main(["dedup", str(path), "--charge", "0", "--out", str(tmp_path), "--json"]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert main(["cluster", result["output"], "--mirror"]) == 1
+    assert "镜像简并只适用于非手性分子" in capsys.readouterr().err
+    assert not list(tmp_path.glob("cluster-*"))
+    # Ordinary selection of a chiral molecule is still supported.
+    assert main(["cluster", result["output"], "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["representatives"][0]["degeneracy"] == 1

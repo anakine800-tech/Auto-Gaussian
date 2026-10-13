@@ -79,6 +79,49 @@ def test_missing_energy_is_error(tmp_path, capsys):
     assert not list(tmp_path.glob("dedup-*"))
 
 
+@pytest.mark.parametrize("smiles_pair", [("C[C@H](O)CC", None), ("C/C=C/C", "C/C=C\\C")])
+def test_stereo_changes_are_excluded_before_energy_window(tmp_path, smiles_pair):
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+
+    def frame_from_smiles(smiles, name):
+        mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
+        assert AllChem.EmbedMolecule(mol, randomSeed=31) == 0
+        path = tmp_path / name
+        path.write_text(Chem.MolToXYZBlock(mol))
+        return replace(g.read_xyz(path)[0], energy=-10.0)
+
+    first = frame_from_smiles(smiles_pair[0], "reference.xyz")
+    changed = (frame_from_smiles(smiles_pair[1], "changed.xyz") if smiles_pair[1]
+               else replace(first, coordinates=tuple((-x, -y, -z) for x, y, z in first.coordinates)))
+    changed = replace(changed, energy=-11.0, source_frame=2)
+    # An atom permutation and proper rotation preserve the stereoisomer.
+    same = replace(first, symbols=first.symbols[::-1],
+                   coordinates=tuple((y + 3, -x + 2, z + 1) for x, y, z in first.coordinates[::-1]),
+                   energy=-9.999, source_frame=3)
+    kept, excluded, _ = dedup([first, changed, same])
+    assert [row["index"] for row in kept] == [1, 3]
+    assert kept[0]["relative_energy_kcal"] == 0
+    assert len(excluded) == 1
+    assert excluded[0]["index"] == 2
+    assert excluded[0]["source_frame"] == 2
+    assert excluded[0]["reason"] == "stereo_changed"
+
+
+def test_out_is_required_and_missing_out_writes_nothing(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit) as exc:
+        main(["dedup", str(DATA), "--charge", "0"])
+    assert exc.value.code == 2
+    assert "--out" in capsys.readouterr().err
+    assert not list(tmp_path.iterdir())
+    with pytest.raises(SystemExit) as exc:
+        main(["dedup", "--help"])
+    assert exc.value.code == 0
+    help_text = capsys.readouterr().out
+    assert "study's analyses/" in help_text
+
+
 def test_charged_structure_uses_supplied_charge(tmp_path):
     from rdkit import Chem
     from rdkit.Chem import AllChem
