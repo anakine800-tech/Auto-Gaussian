@@ -1,0 +1,4 @@
+interface:
+  display_name: "Auto-G16 Structures"
+  short_description: "Review structures and prepare local conformer ensembles"
+  default_prompt: "Use auto-g16-structures to review the source structure, request milestone 1 confirmation, and prepare local force-field conformers in the study directory."
