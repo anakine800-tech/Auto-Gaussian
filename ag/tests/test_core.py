@@ -27,7 +27,7 @@ def cfg(tmp_path):
     return {'ssh': {'config_file': str(ssh), 'host': 'fixture'},
             'remote': {'allowed_root': str(root), 'ag_root': str(root / 'ag')},
             'scheduler': {'queue': 'batch'},
-            'resources': {'max_cores': 44, 'tiers': {'simple': {'cores': 8, 'mem_gb': 12},
+            'resources': {'max_cores': 44, 'tiers': {'mini': {'cores': 4, 'mem_gb': 10}, 'simple': {'cores': 8, 'mem_gb': 12},
                           'general': {'cores': 22, 'mem_gb': 50}, 'complex': {'cores': 44, 'mem_gb': 120}}},
             'programs': {'gaussian': {'g16root': str(tmp_path / 'g16')}, 'xtb': {'root': str(tmp_path / 'chem')}},
             'local': {'studies_root': str(local)}, '_config_dir': str(conf)}
@@ -539,3 +539,166 @@ def test_dialog_timeouts_and_errors(monkeypatch):
     assert confirm.confirm('test') is False
     monkeypatch.setattr(subprocess, 'run', lambda *a, **k: Result(1, '', 'dialog failed'))
     with pytest.raises(OSError): confirm.confirm('test')
+
+
+@pytest.mark.parametrize('operation', [remote.identity, remote.queues, remote.jobs])
+def test_read_connection_retry_once_after_15_seconds(cfg, monkeypatch, operation):
+    events = []
+    replies = iter([Result(255, '', 'connection closed'), Result(stdout='ok')])
+    def execute(*args):
+        events.append('execute')
+        return next(replies)
+    monkeypatch.setattr('ag.transport.time.sleep', lambda seconds: events.append(seconds))
+    transport = SSHTransport(cfg, read_only=True)
+    monkeypatch.setattr(transport, '_execute', execute)
+    assert transport.run(operation()).stdout == 'ok'
+    assert events == ['execute', 15, 'execute']
+
+
+def test_second_connection_failure_stops(cfg, monkeypatch):
+    calls = []
+    transport = SSHTransport(cfg, read_only=True)
+    monkeypatch.setattr(transport, '_execute', lambda *a: calls.append('execute') or Result(255))
+    monkeypatch.setattr('ag.transport.time.sleep', lambda s: calls.append(s))
+    result = transport.run(remote.jobs())
+    assert result.returncode == 255
+    assert calls == ['execute', 15, 'execute']
+
+
+@pytest.mark.parametrize('read_only,expected', [(False, ['execute']), (True, ['execute', 15, 'execute'])])
+def test_connection_timeout_retry_policy(cfg, monkeypatch, read_only, expected):
+    from ag.transport import SSHConnectionError
+    calls = []
+    def timeout(*args, **kwargs):
+        calls.append('execute')
+        raise subprocess.TimeoutExpired('ssh', 60)
+    monkeypatch.setattr(subprocess, 'run', timeout)
+    monkeypatch.setattr('ag.transport.time.sleep', lambda s: calls.append(s))
+    with pytest.raises(SSHConnectionError): SSHTransport(cfg, read_only=read_only).run(remote.jobs())
+    assert calls == expected
+
+
+def test_missing_ssh_executable_is_not_a_retryable_connection_error(cfg, monkeypatch):
+    calls = []
+    def missing(*args, **kwargs):
+        calls.append('execute')
+        raise FileNotFoundError('ssh')
+    monkeypatch.setattr(subprocess, 'run', missing)
+    monkeypatch.setattr('ag.transport.time.sleep', lambda s: pytest.fail('must not retry local failures'))
+    with pytest.raises(TransportError): SSHTransport(cfg, read_only=True).run(remote.jobs())
+    assert calls == ['execute']
+
+
+@pytest.mark.parametrize('code', [1, 2, 153])
+def test_read_command_errors_are_not_retried(cfg, monkeypatch, code):
+    calls = []
+    t = SSHTransport(cfg, read_only=True)
+    monkeypatch.setattr(t, '_execute', lambda *a: calls.append('execute') or Result(code))
+    monkeypatch.setattr('ag.transport.time.sleep', lambda s: pytest.fail('must not retry command errors'))
+    assert t.run(remote.jobs()).returncode == code
+    assert calls == ['execute']
+
+
+@pytest.mark.parametrize('operation', ['identity', 'mkdir', 'qsub', 'qdel'])
+def test_submit_cancel_transport_never_retries_even_reads(cfg, prepared, monkeypatch, operation):
+    _, m = prepared
+    command = {'identity': remote.identity(), 'mkdir': remote.create_attempt(cfg, m),
+               'qsub': remote.submit(cfg, m), 'qdel': remote.cancel('123.fixture')}[operation]
+    calls = []
+    t = SSHTransport(cfg)
+    monkeypatch.setattr(t, '_execute', lambda *a: calls.append('execute') or Result(255))
+    monkeypatch.setattr('ag.transport.time.sleep', lambda s: pytest.fail('write CLI must never retry'))
+    assert t.run(command).returncode == 255
+    assert calls == ['execute']
+
+
+def test_upload_never_retries(cfg, prepared, monkeypatch):
+    p, m = prepared
+    calls = []
+    t = SSHTransport(cfg)
+    monkeypatch.setattr(t, 'run', lambda *a: Result())
+    monkeypatch.setattr(t, '_execute', lambda *a: calls.append('upload') or Result(255))
+    monkeypatch.setattr('ag.transport.time.sleep', lambda s: pytest.fail('must not retry upload'))
+    with pytest.raises(TransportError): t.upload(p / 'inputs/water.gjf', m, 'water.gjf')
+    assert calls == ['upload']
+
+
+def test_read_only_transport_refuses_writes(cfg, prepared, monkeypatch):
+    p, m = prepared
+    t = SSHTransport(cfg, read_only=True)
+    monkeypatch.setattr(t, '_execute', lambda *a: pytest.fail('must not launch'))
+    for command in (remote.submit(cfg, m), remote.cancel('123.fixture'), remote.create_attempt(cfg, m)):
+        with pytest.raises(ValueError): t.run(command)
+    with pytest.raises(ValueError): t.upload(p / 'inputs/water.gjf', m, 'water.gjf')
+
+
+def test_fetch_retry_preserves_failed_partial_and_never_overwrites(cfg, prepared, monkeypatch, tmp_path):
+    _, m = prepared
+    calls, sleeps = [], []
+    t = SSHTransport(cfg, read_only=True)
+    target = tmp_path / 'downloaded.log'
+    def execute(argv, timeout):
+        partial = Path(argv[-1])
+        calls.append(partial)
+        partial.write_bytes(b'partial' if len(calls) == 1 else b'complete')
+        return Result(255 if len(calls) == 1 else 0)
+    monkeypatch.setattr(t, '_execute', execute)
+    monkeypatch.setattr('ag.transport.time.sleep', sleeps.append)
+    t.download(m, 'water.log', target)
+    assert target.read_bytes() == b'complete'
+    assert calls[0] != calls[1] and calls[0].read_bytes() == b'partial'
+    assert sleeps == [15]
+    with pytest.raises(ValueError): t.download(m, 'water.log', target)
+    assert len(calls) == 2
+
+
+def test_second_failed_download_is_not_published(cfg, prepared, monkeypatch, tmp_path):
+    _, m = prepared
+    calls = []
+    t = SSHTransport(cfg, read_only=True)
+    def execute(argv, timeout):
+        calls.append(Path(argv[-1])); calls[-1].write_bytes(b'partial')
+        return Result(255)
+    monkeypatch.setattr(t, '_execute', execute)
+    monkeypatch.setattr('ag.transport.time.sleep', lambda s: None)
+    target = tmp_path / 'unpublished.log'
+    with pytest.raises(TransportError): t.download(m, 'water.log', target)
+    assert len(calls) == 2 and not target.exists()
+    assert all(p.read_bytes() == b'partial' for p in calls)
+
+
+def test_mini_prepare_and_memory_limit(cfg, prepared, tmp_path):
+    source = tmp_path / 'mini.gjf'
+    source.write_text(INPUT.replace('nprocshared=8', 'nprocshared=4').replace('mem=10GB', 'mem=8GB'))
+    m = attempt.prepare(cfg, study_name='smoke', template='gaussian', input_path=source,
+                        tier='mini', walltime='00:30:00', label='mini')
+    assert (m['tier'], m['cores'], m['mem_gb']) == ('mini', 4, 10)
+    script = attempt.verified_files(cfg, attempt.find(cfg, m['attempt_id']), m)['job.pbs'].decode()
+    assert 'nodes=1:ppn=4' in script and 'mem=10gb' in script
+    source.write_text(source.read_text().replace('mem=8GB', 'mem=10GB'))
+    with pytest.raises(ValueError):
+        attempt.prepare(cfg, study_name='smoke', template='gaussian', input_path=source,
+                        tier='mini', walltime='00:30:00', label='too-much-memory')
+    assert cfg['resources']['tiers']['simple'] == {'cores': 8, 'mem_gb': 12}
+
+
+@pytest.mark.parametrize('name', ['doctor', 'status', 'fetch', 'submit', 'cancel'])
+def test_cli_selects_retry_only_for_read_only_commands(cfg, prepared, monkeypatch, name):
+    from types import SimpleNamespace
+    p, _ = prepared
+    selected = []
+    monkeypatch.setattr('ag.transport.SSHTransport', lambda conf, **kwargs: selected.append(kwargs['read_only']))
+    monkeypatch.setattr(doctor, 'doctor', lambda *a: {})
+    monkeypatch.setattr(status, 'check', lambda *a: {'state': 'prepared'})
+    monkeypatch.setattr(fetch, 'fetch', lambda *a: {})
+    monkeypatch.setattr(submit, 'submit', lambda *a: {})
+    monkeypatch.setattr(cancel, 'cancel', lambda *a: {})
+    args = SimpleNamespace(config=cfg, command=name, id=p.name, ids=[p.name], study=None, json=True)
+    assert cli.core_command(args) == 0
+    assert selected == [name in ('doctor', 'status', 'fetch')]
+
+
+def test_list_has_no_ssh_operations(cfg, monkeypatch):
+    from types import SimpleNamespace
+    monkeypatch.setattr('ag.transport.SSHTransport', lambda *a, **k: pytest.fail('list is local-only'))
+    assert cli.core_command(SimpleNamespace(config=cfg, command='list', study=None, json=True)) == 0

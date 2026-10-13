@@ -55,7 +55,7 @@ def prepare(cfg, *, study_name, template, input_path, tier, walltime, label, par
     if not (s / 'study.md').is_file() or not (s / 'attempts').is_dir():
         raise ValueError('Initialize the study first')
     study.identifier(label)
-    if tier not in ('simple', 'general', 'complex'):
+    if tier not in ('mini', 'simple', 'general', 'complex'):
         raise ValueError('Invalid resource tier')
     resource = cfg['resources']['tiers'][tier]
     source = Path(input_path)

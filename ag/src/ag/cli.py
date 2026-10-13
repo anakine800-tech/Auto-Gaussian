@@ -33,7 +33,7 @@ def core_command(args):
     elif command == 'list':
         result = attempt.all_attempts(cfg, args.study)
     else:
-        transport = SSHTransport(cfg)
+        transport = SSHTransport(cfg, read_only=command in ('doctor', 'status', 'fetch'))
         if command == 'doctor':
             result = doctor.doctor(cfg, transport)
         elif command == 'submit':
@@ -64,7 +64,7 @@ def register(subparsers):
             p.add_argument('--study', required=True)
             p.add_argument('--template', choices=('gaussian', 'xtb', 'crest'), required=True)
             p.add_argument('--input', required=True)
-            p.add_argument('--tier', choices=('simple', 'general', 'complex'), required=True)
+            p.add_argument('--tier', choices=('mini', 'simple', 'general', 'complex'), required=True)
             p.add_argument('--walltime', required=True)
             p.add_argument('--label', required=True)
             p.add_argument('--method-basis', default='兜底方法')

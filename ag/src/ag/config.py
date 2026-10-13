@@ -41,7 +41,7 @@ def load_config(path=None):
         limit = cfg['resources']['max_cores']
         if type(limit) is not int or not 1 <= limit <= 44:
             raise ConfigError('max_cores must be between 1 and 44')
-        for name in ('simple', 'general', 'complex'):
+        for name in ('mini', 'simple', 'general', 'complex'):
             tier = cfg['resources']['tiers'][name]
             if (type(tier['cores']) is not int or not 1 <= tier['cores'] <= 44
                     or type(tier['mem_gb']) is not int or not 1 <= tier['mem_gb'] <= 120):
