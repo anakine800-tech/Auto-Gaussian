@@ -14,7 +14,7 @@ R_HARTREE = 8.3144621 / (HARTREE_TO_KCAL * 4184)
 
 
 def boltzmann(energies, degeneracies, temperature):
-    """Return populations and arithmetic mean G (not ensemble free energy)."""
+    """Return populations, arithmetic mean G and ensemble G in Hartree."""
     if (not energies or len(energies) != len(degeneracies)
             or not math.isfinite(temperature) or temperature <= 0
             or any(not math.isfinite(g) for g in energies)
@@ -27,7 +27,9 @@ def boltzmann(energies, degeneracies, temperature):
     weights = [math.exp(w-offset) for w in logs]
     total = math.fsum(weights)
     populations = [w/total for w in weights]
-    return populations, math.fsum(p*g for p, g in zip(populations, energies))
+    # Reuse shifted log weights: exponentiating absolute molecular G overflows.
+    ensemble = minimum - R_HARTREE*temperature*(offset + math.log(total))
+    return populations, math.fsum(p*g for p, g in zip(populations, energies)), ensemble
 
 
 def _positive(value, name):
@@ -111,7 +113,8 @@ def calculate_thermo(attempts, *, study=None, temp=298.15, conc=1.0, qs='grimme'
                      'qh_H': result.qh_enthalpy + delta,
                      'qh_G': result.qh_gibbs_free_energy + delta,
                      'spc_attempt_id': sp_id, 'spc_correction': delta})
-    populations, average = boltzmann([r['qh_G'] for r in rows], [r['degeneracy'] for r in rows], temp)
+    populations, average, ensemble = boltzmann(
+        [r['qh_G'] for r in rows], [r['degeneracy'] for r in rows], temp)
     minimum = min(r['qh_G'] for r in rows)
     for row, population in zip(rows, populations):
         row.update(relative_G_kcal=(row['qh_G']-minimum)*HARTREE_TO_KCAL, population=population)
@@ -121,9 +124,11 @@ def calculate_thermo(attempts, *, study=None, temp=298.15, conc=1.0, qs='grimme'
                          'frequency_scale': 1.0, 'zpe_scale': 1.0,
                          'rotational_symmetry': 'from_output', 'inertia': 'global'},
             'units': {'energy': 'Hartree', 'relative_G': 'kcal/mol', 'population': 'fraction'},
-            'rows': rows, 'weighted_mean_G': average,
+            'rows': rows, 'weighted_mean_G': average, 'ensemble_G': ensemble,
             'note': 'Populations are normalized only over the supplied conformers. '
-                    'weighted_mean_G is sum(p_i * qh_G_i), not the ensemble free energy.'}
+                    'weighted_mean_G = sum(p_i * qh_G_i) is the arithmetic population-weighted mean. '
+                    'ensemble_G = -RT ln sum(d_i * exp(-qh_G_i / RT)) is the conformer ensemble '
+                    'free energy, including conformational mixing and degeneracy. Both are in Hartree.'}
 
 
 def write_analysis(result, study_dir):
@@ -144,7 +149,9 @@ def write_analysis(result, study_dir):
         lines.append(f"| {row['attempt_id']} | {row['degeneracy']} | {row['E']:.10f} | "
                      f"{row['ZPE']:.10f} | {row['H']:.10f} | {row['qh_G']:.10f} | "
                      f"{row['relative_G_kcal']:.6f} | {row['population']:.6%} | {row['spc_attempt_id'] or '—'} |")
-    lines += ['', f"Weighted mean G: {result['weighted_mean_G']:.10f} Hartree.", '', result['note'], '']
+    lines += ['', f"Weighted mean G (weighted_mean_G): {result['weighted_mean_G']:.10f} Hartree.",
+              '', f"Conformer ensemble free energy (ensemble_G): {result['ensemble_G']:.10f} Hartree.",
+              '', result['note'], '']
     with md_path.open('x') as stream:
         stream.write('\n'.join(lines))
     return json_path, md_path

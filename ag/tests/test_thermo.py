@@ -30,17 +30,50 @@ def test_butane_table_against_goodvibes(tmp_path):
     assert g['population']/a['population'] == pytest.approx(ratio)
     assert sum(r['population'] for r in result['rows']) == pytest.approx(1)
     assert result['weighted_mean_G'] == pytest.approx(sum(r['population']*r['qh_G'] for r in result['rows']))
+    rt = R_HARTREE*298.15
+    expected = a['qh_G'] - rt*math.log1p(2*math.exp(-(g['qh_G']-a['qh_G'])/rt))
+    assert result['ensemble_G'] == pytest.approx(expected, rel=0, abs=1e-12)
     paths = write_analysis(result, tmp_path)
     assert json.loads(paths[0].read_text()) == result
     assert 'Population' in paths[1].read_text() and 'gauche' in paths[1].read_text()
+    assert f"ensemble_G): {result['ensemble_G']:.10f} Hartree" in paths[1].read_text()
+    assert 'weighted_mean_G' in paths[1].read_text()
     assert write_analysis(result, tmp_path)[0] != paths[0]
 
 
 def test_boltzmann_stability_and_degeneracy():
-    population, mean = boltzmann([-100, -100], [1, 2], 298.15)
+    population, mean, _ = boltzmann([-100, -100], [1, 2], 298.15)
     assert population == pytest.approx([1/3, 2/3]) and mean == pytest.approx(-100)
-    population, _ = boltzmann([-1000, 0], [1, 2], 1)
+    population, _, ensemble = boltzmann([-1000, 0], [1, 2], 1)
     assert population == [1, 0]
+    assert ensemble == -1000
+
+
+def test_single_conformer_ensemble_equals_its_g():
+    energy = -158.1887510934
+    _, mean, ensemble = boltzmann([energy], [1], 298.15)
+    assert ensemble == mean == energy
+
+
+def test_two_conformer_ensemble_matches_analytic_formula():
+    temperature = 310.0
+    rt = R_HARTREE*temperature
+    # Moderate energies allow the unshifted analytical expression as an oracle.
+    energies = [-0.01, -0.008]
+    expected = -rt*math.log(math.exp(-energies[0]/rt) + math.exp(-energies[1]/rt))
+    _, _, ensemble = boltzmann(energies, [1, 1], temperature)
+    assert ensemble == pytest.approx(expected, rel=0, abs=1e-14)
+    _, _, shifted = boltzmann([g-1000 for g in energies], [1, 1], temperature)
+    assert shifted == pytest.approx(expected-1000, rel=0, abs=1e-12)
+
+
+def test_degeneracy_two_equals_two_identical_conformers():
+    energy, temperature = -158.1887510934, 298.15
+    _, _, degenerate = boltzmann([energy], [2], temperature)
+    _, _, repeated = boltzmann([energy, energy], [1, 1], temperature)
+    assert degenerate == pytest.approx(repeated, rel=0, abs=1e-12)
+    assert degenerate == pytest.approx(
+        energy - R_HARTREE*temperature*math.log(2), rel=0, abs=1e-12)
 
 
 @pytest.mark.parametrize('energies,deg,temp', [([],[],298), ([0],[0],298),

@@ -30,8 +30,14 @@ numbers or molecule identities.
 Thermochemistry uses GoodVibes 4.3.0 with explicit unit frequency/ZPE scaling,
 Grimme entropy and Head-Gordon enthalpy correction (100 cm^-1 defaults), 298.15 K
 and 1 mol/L. Populations cover only the supplied inputs; degeneracy is explicit.
-The reported weighted mean G is the arithmetic population-weighted mean, not
-`-RT ln Z`. SPC adds `E_SP - E_frequency` to H, qh-H and qh-G, leaving ZPE intact.
+`weighted_mean_G = sum(p_i * qh_G_i)` is the arithmetic population-weighted
+mean. `ensemble_G = -RT ln sum(d_i * exp(-qh_G_i / RT))` is the conformer
+ensemble free energy, including conformational mixing and degeneracy. Both
+are reported in Hartree in JSON and Markdown, for the supplied conformers only.
+The ensemble value uses shifted log-sum-exp to avoid overflow from absolute
+molecular energies. A single conformer with degeneracy 1 has `ensemble_G = G`;
+degeneracy d contributes `-RT ln d`. SPC adds `E_SP - E_frequency` to H, qh-H
+and qh-G, leaving ZPE intact; both aggregate G values use the corrected qh-G.
 
 The GoodVibes integration was informed by the old
 `auto_g16/thermochemistry/_goodvibes.py`, then rewritten using the installed
