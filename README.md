@@ -29,6 +29,8 @@ ag：prepare / submit / status / fetch / cancel，以及确定性本地工具
 | `skills-next/auto-g16-recipes/` | Opt+Freq、单点、初筛、热化学和失败诊断卡片 |
 | `skills-next/auto-g16-structures/` | ChemDraw/SMILES 处理、立体检查和 RDKit 初筛 |
 | `skills-next/auto-g16-literature/` | 计算方法先例、DOI 和适用边界 |
+| `skills-next/auto-g16-chemdraw-structures/` | 继续维护的 ChemDraw 结构与反应式绘制辅助 |
+| `skills-next/auto-g16-gaussian-learning-library/` | 继续维护的 Gaussian 知识库与学习辅助 |
 
 新功能优先写成任务卡片；新的确定性操作或计算程序才增加代码。
 状态存文件，不使用数据库或守护进程。每个 study 包含 `study.md`、只追加的
@@ -148,25 +150,27 @@ ag cancel '<ATTEMPT_ID>'
 
 ## Skill 部署
 
-将下列四个 Skill 软链接到 `~/.codex/skills/`，源码保持在长期保留的仓库目录中：
+将下列六个 Skill 软链接到 `~/.codex/skills/`，源码保持在长期保留的仓库目录中：
 
 - `auto-g16-study`
 - `auto-g16-recipes`
 - `auto-g16-structures`
 - `auto-g16-literature`
+- `auto-g16-chemdraw-structures`
+- `auto-g16-gaussian-learning-library`
 
 部署前检查已有 `auto-g16-*` 副本和软链接。将旧部署移到
 `~/.codex/skills-disabled/` 的新备份子目录，保留可恢复副本，避免加载旧卡片。
 不要覆盖现有条目，也不要把新链接指向以后会删除的临时 worktree。
 
-在确认目标名称空闲后，对四个名称分别执行以下命令（先替换两个占位符）：
+在确认目标名称空闲后，对六个名称分别执行以下命令（先替换两个占位符）：
 
 ```bash
 mkdir -p "$HOME/.codex/skills"
 ln -s '<REPO_ROOT>/skills-next/<SKILL_NAME>' "$HOME/.codex/skills/<SKILL_NAME>"
 ```
 
-检查软链接指向的 `SKILL.md`，在 Codex 的新会话中确认四个 Skill 可见。
+检查软链接指向的 `SKILL.md`，在 Codex 的新会话中确认六个 Skill 可见。
 后续改动直接进入 `skills-next/` 并通过 Git 审阅，不另行编辑部署副本。
 部署步骤仅安装卡片，不代表授权提交计算。
 
@@ -184,6 +188,17 @@ python ag/tools/scan_sensitive.py --staged
 单元测试使用离线替身，不连接真实集群。真实验证按任务单执行并在 PR 描述中记录；
 PR 首行写 `Task: Tn`，不放机器信息或研究数据。
 
-2.7.0 及以前的旧架构见 tag v3-frozen
+## 旧架构归档
+
+2.7.0 及以前的旧架构已移至 [archive/](archive/README.md)，冻结内容仅供参考，不再维护；原始状态见 tag `v3-frozen`。
+
+- [旧代码](archive/auto_g16/)、[旧脚本](archive/scripts/)、[旧 Skills](archive/skills/)、[旧测试](archive/tests/)
+- [旧文档](archive/docs/)、[旧 contracts](archive/contracts/)、[旧配置](archive/config/)
+- [旧 studies](archive/studies/)、[旧模板](archive/templates/)、[旧 requirements](archive/requirements/)
+- [OWNER_DECISIONS.md](archive/OWNER_DECISIONS.md)、[CHANGELOG.md](archive/CHANGELOG.md)、[旧 pyproject.toml](archive/pyproject.toml)
+- [environment.yml](archive/environment.yml)、[environment-chem.yml](archive/environment-chem.yml)
+
+上列两个继续维护的辅助 Skill 已迁入 `skills-next/`。停用的 `offline-tests.yml` 已移除；
+[ag-tests](.github/workflows/ag-tests.yml) 继续检查新架构。
 
 Auto-Gaussian 使用 [MIT License](LICENSE)。

@@ -25,8 +25,10 @@ def main():
                       for ref in (args.base, args.head)]
         revisions = [base, head]
         prefix = f"{head}:"
-    paths = git("diff", "--name-only", "-z", "--no-renames",
-                "--diff-filter=ACMRT", *revisions, "--").split(b"\0")
+    # Only byte-identical renames are classified as R and omitted. A rename
+    # with any content change remains an addition and is scanned in full.
+    paths = git("diff", "--name-only", "-z", "--find-renames=100%",
+                "--diff-filter=ACMT", *revisions, "--").split(b"\0")
     octet = rb"(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])"
     patterns = {
         "private key": rb"-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----",
