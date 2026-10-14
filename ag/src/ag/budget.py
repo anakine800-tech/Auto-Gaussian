@@ -11,7 +11,7 @@ import os
 from pathlib import Path
 import re
 import tempfile
-from ag.config import cluster_name
+from ag.config import cluster_name, scheduler_kind
 
 
 def seconds(value):
@@ -57,6 +57,20 @@ def totals(cfg, *, ledger=None):
     ledger = read(cfg) if ledger is None else ledger
     return (sum(v['used'] for v in ledger['attempts'].values()),
             sum(v['reserved'] for v in ledger['attempts'].values()))
+
+
+def public_summary(cfg):
+    """Read local totals in core-hours, without exposing ledger identities."""
+    maximum = cfg['resources'].get('budget_core_hours')
+    if scheduler_kind(cfg) != 'slurm' or maximum is None:
+        return None
+    try:
+        used, reserved = totals(cfg)
+    except (OSError, ValueError, KeyError, AttributeError, TypeError) as exc:
+        # Filesystem/JSON exceptions can contain private paths or values. A
+        # broken ledger must not be displayed as zero available/spent credit.
+        raise ValueError('Cannot read local cluster budget; human reconciliation required') from exc
+    return dict(core_hours=maximum, used=used / 3600, reserved=reserved / 3600)
 
 
 def check(cfg, amount, *, ledger=None):

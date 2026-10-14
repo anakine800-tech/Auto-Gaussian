@@ -7,7 +7,7 @@ from ag import __version__
 from ag.config import load_config, select_cluster, for_manifest
 
 
-CONFIG_COMMANDS = ('init', 'prepare', 'submit', 'status', 'fetch', 'cancel', 'list', 'doctor', 'monitor', 'review')
+CONFIG_COMMANDS = ('init', 'prepare', 'submit', 'status', 'fetch', 'cancel', 'list', 'doctor', 'monitor', 'review', 'clusters')
 
 
 def core_command(args):
@@ -23,7 +23,10 @@ def core_command(args):
         result = review.run(cfg, args.action, args.id)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return int(args.action == 'check' and (not result['complete'] or result['stale']))
-    if command == 'init':
+    if command == 'clusters':
+        from ag.clusters import describe
+        result = describe(cfg, verify_studies_root=args.verify_studies_root)
+    elif command == 'init':
         result = study.init(cfg, args.directory)
     elif command == 'prepare':
         if len(args.parent) != len(args.relation):
@@ -95,6 +98,9 @@ def register(subparsers):
             p.add_argument('--cluster', default='default')
         if name == 'init':
             p.add_argument('directory')
+        elif name == 'clusters':
+            p.add_argument('--verify-studies-root', metavar='PATH',
+                           help='Compare resolved study roots; return only a boolean, never paths')
         elif name == 'review':
             actions = p.add_subparsers(dest='action', required=True)
             for action in ('init', 'check'):
@@ -161,6 +167,10 @@ def main(argv=None):
     except (OSError, KeyError) as exc:
         code = 2
         message = str(exc)
+    if args.command == 'clusters':
+        # This discovery endpoint must not leak paths or config values through
+        # exception text, even when loading the configuration itself fails.
+        message = 'Cannot read local cluster configuration or budget; check local files'
     if getattr(args, 'json', False):
         print(json.dumps({'error': message, 'exit_code': code}, ensure_ascii=False))
     else:
