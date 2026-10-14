@@ -34,7 +34,7 @@ CREST/RDKit 极小点搜索冒充该步骤，也不强套极小点的窗口剪�
 
 ## 3. 输入模板
 
-单结构 route 示例 `opt=(ts,calcfc,noeigentest) freq`。以下仅为[拟定研究方法](../../auto-g16-study/references/acceptance-methods.md)的输入骨架，填入已审阅的显式坐标，保留空行；正式方法须另有文献依据或明确兜底声明。
+单结构 route 示例 `opt=(ts,calcfc,noeigentest) freq`。以下仅为[研究方法](../../auto-g16-study/references/acceptance-methods.md)的输入骨架，填入已审阅的显式坐标，保留空行；正式方法须另有文献依据或明确兜底声明。
 
 ```text
 %chk=ts.chk
@@ -49,7 +49,7 @@ CREST/RDKit 极小点搜索冒充该步骤，也不强套极小点的窗口剪�
 
 ```
 
-上述中性基组示例待确认；阴离子或负电荷明显离域者改为 `wB97XD/6-31+G(d)`，
+上述为已确认方法的中性基组骨架；阴离子或负电荷明显离域者改为 `wB97XD/6-31+G(d)`，
 后续单点采用弥散基组。溶液相加入 `SCRF=(SMD,Solvent=<已核实关键词>)`，
 不向 wB97XD 叠加 GD3BJ；展示最终完整 route。决定结论的关键能垒按方法表
 做不同类型泛函的单点敏感性，包含 TS 和完整参考物种；连接到 [profile](profile.md)。`NoEigenTest` 仅关闭优化中的曲率检查，不免除最终 Hessian、虚频数量和方向审阅。

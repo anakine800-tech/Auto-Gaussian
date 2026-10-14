@@ -12,17 +12,19 @@
 
 方案允许的 CREST 程序参数是：`--gfn2`、`--gfnff`、`--alpb <溶剂>`、`--chrg <整数>`、`--uhf <整数>`、`--ewin <数>`、`--quick`、`--squick`、`--mquick`。只用当前模板声明实际接受的组合和值，不自行追加参数。
 
-以下窗口按 T12b **拟定，待人确认**。首选 GFN2-xTB；正丁烷气相验收的拟定参数为 `--gfn2 --chrg 0 --uhf 0 --ewin 6 --quick`。溶液相加经过模板验证的 ALPB 溶剂。快速模式选一种；GFN-FF 是另一个方法选项，不能把其能量当 GFN2 能量。
+以下窗口已由负责人于 2026-10-14 确认。首选 GFN2-xTB；正丁烷气相验收参数为 `--gfn2 --chrg 0 --uhf 0 --ewin 6 --quick`。溶液相加经过模板验证的 ALPB 溶剂。快速模式选一种；GFN-FF 是另一个方法选项，不能把其能量当 GFN2 能量。
 
 ```text
 ag prepare --study <study_id> --template crest --input <reviewed.xyz> --tier simple --walltime 04:00:00 --label crest
 ```
 
 上述是通用 prepare 参数，还须按当前 `ag prepare --help` 将完整 CREST 参数交给模板；它们不是随意透传的 shell 命令。准备后走确认摘要及 `ag submit`。完成后 status → fetch → facts，读取 `crest_conformers.xyz` 等声明输出，调用 `ag dedup` / `ag cluster`。保留 xTB 相对能量 ≤ 6 kcal/mol 的候选并去重；对这些候选先按
-[SP](sp.md) 做 DFT 单点重排，不能按 xTB 排序先截成 20 个。
+[SP](sp.md) 做优化层级 DFT 单点重排：研究用 ωB97X-D/6-31G(d)
+加 SMD，阴离子或负电荷明显离域用 ωB97X-D/6-31+G(d) 加 SMD；
+不能按 xTB 排序先截成 20 个。
 再将相对最低 DFT 单点能 ≤ 3 kcal/mol 的候选送入 Opt+Freq，研究最多
 20 个、验收最多 10 个；优化后重新去重，再算研究所需最终单点及热化学；验收不增设高精度单点。
-具体研究/验收的筛选单点层级见[拟定方法表](../../auto-g16-study/references/acceptance-methods.md)。
+具体研究/验收的筛选单点层级见[方法表](../../auto-g16-study/references/acceptance-methods.md)。
 若候选量超预算，记录未完成的 DFT 重排及覆盖限制，不称为完整筛选。
 
 非手性分子（如正丁烷）聚类时使用 `ag cluster` 的 `--mirror`：将互为镜像的 gauche+ / gauche− 合并为一个代表，简并度为 2，在 DFT 重排后只需对选中的该代表做一个 Opt+Freq。手性分子不要使用 `--mirror`，避免把不同立体异构体混入同一代表；运行前仍核对当前接口支持。

@@ -30,12 +30,12 @@ separately. Pass the XYZ and its energy units to `ag dedup`; review the resultin
 representative set with the researcher. Multiple representatives can proceed;
 there is no single-conformer selection step.
 
-For the T12b proposed research workflow, retain enough force-field candidates
+For the T12b research workflow confirmed on 2026-10-14, retain enough force-field candidates
 for DFT single-point reranking before applying the optimization count limit.
 The script's legacy `--max-keep 10` is not that research limit; deliberately
 choose and record candidate coverage. The force-field window is not an xTB
 window. See the [screening card](../../auto-g16-recipes/cards/rdkit-screen.md)
-and [proposed methods](../../auto-g16-study/references/acceptance-methods.md).
+and [confirmed methods](../../auto-g16-study/references/acceptance-methods.md).
 Refine relevant representatives with the same selected DFT protocol. Reject
 failed optimizations and inappropriate imaginary frequencies when modeling
 minima. Check whether different starting conformers converge to the same

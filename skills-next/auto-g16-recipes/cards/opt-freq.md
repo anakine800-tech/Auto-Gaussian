@@ -25,12 +25,12 @@
 
 ```
 
-`Opt Freq` 合在一个作业。研究无直接先例的**拟定**骨架为
+`Opt Freq` 合在一个作业。研究无直接先例的骨架为
 `#p wB97XD/6-31G(d) Opt Freq`；阴离子或负电荷明显离域时改用
 `#p wB97XD/6-31+G(d) Opt Freq`，后续单点也带弥散函数。
 溶液相加 `SCRF=(SMD,Solvent=<已核实的溶剂关键词>)`，wB97XD 不叠加 GD3BJ。
-方法、依据和待确认状态见[方法表](../../auto-g16-study/references/acceptance-methods.md)；
-阴离子流程验收则保留 B3LYP-D3(BJ)，但拟将优化及筛选单点基组都换成
+方法、依据和负责人确认记录见[方法表](../../auto-g16-study/references/acceptance-methods.md)；
+阴离子流程验收则保留 B3LYP-D3(BJ)，但将优化及筛选单点基组都换成
 `6-31+G(d)`；最终摘要必须展示替换后的完整 route。
 
 ```text
@@ -66,7 +66,7 @@ ag prepare --study <study_id> --template gaussian --input <conformer.gjf> --tier
 变化为另一种化学态时另行标记，不纳入原物种系综。多个起点坍缩为相同
 优化结构时重新去重，保留起点到终态映射，避免重复计权。
 
-按[拟定筛选方法](../../auto-g16-study/references/acceptance-methods.md)先完成
+按[筛选方法](../../auto-g16-study/references/acceptance-methods.md)先完成
 xTB 6 kcal/mol → DFT 单点重排 → 3 kcal/mol 内进入优化（研究最多 20 个）。
 之后每个化学盆地分别用一致 Opt/Freq/SP 与热修正建立系综；使用
 [thermo](thermo.md) 的可比自由能及 `ensemble_G`，不能用力场排序或平均 G

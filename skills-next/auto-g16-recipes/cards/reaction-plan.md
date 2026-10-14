@@ -69,7 +69,7 @@ R04/R07 的科学部分：文献分清直接先例与类比，逐项记录可用
 方向和 IRC 证据及缺失项；从示意图不能捏造精确坐标。方法须覆盖基组、
 色散、溶剂、SCF/网格、温度、低频、标准态与单点组合，参见
 [本组文献](../../auto-g16-literature/references/group-literature.md)和
-[拟定方法表](../../auto-g16-study/references/acceptance-methods.md)。
+[方法表](../../auto-g16-study/references/acceptance-methods.md)。
 R08 的科学部分：依次考虑孤立组分、构象、活性态、结合/离子对/显式溶剂
 排布与各通道 TS 接近方式；只在化学身份兼容的集合内去重。
 R11/R12 的科学部分：参考极小点 → TS/Freq 与方向 → 双向 IRC 与端点
