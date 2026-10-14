@@ -2,7 +2,7 @@
 
 ## 1. 适用范围
 
-主族闭壳层单分子的构象搜索，可中性或带电；不包括金属、开壳层、双分子结合或反应路径。
+主族闭壳层单分子的构象搜索，可中性或带电；也可从已审阅的 TS 初猜进行下述约束构象搜索。不包括金属、开壳层、双分子结合或反应路径搜索。
 
 ## 2. 前置条件
 
@@ -28,6 +28,25 @@ ag prepare --study <study_id> --template crest --input <reviewed.xyz> --tier sim
 若候选量超预算，记录未完成的 DFT 重排及覆盖限制，不称为完整筛选。
 
 非手性分子（如正丁烷）聚类时使用 `ag cluster` 的 `--mirror`：将互为镜像的 gauche+ / gauche− 合并为一个代表，简并度为 2，在 DFT 重排后只需对选中的该代表做一个 Opt+Freq。手性分子不要使用 `--mirror`，避免把不同立体异构体混入同一代表；运行前仍核对当前接口支持。
+
+### 约束构象搜索
+
+做 TS 构象搜索时，固定正在形成或断裂的键的距离，以免搜索离开目标反应区域。先与人核对 TS 初猜、XYZ 原子编号和目标距离，再用 `--constraints <文件>` 交给 `ag prepare --template crest`。例如将以下内容保存为本地约束文件（编号和值须按实际结构修改）：
+
+```text
+$constrain
+  force constant=0.5
+  distance: 1, 2, auto
+$end
+```
+
+`auto` 采用输入结构中的距离，也可填目标距离（Å）；angle、dihedral 的值以度为单位。这里的“固定”是约束势，搜索后仍需检查实际键长。[xTB 约束语法说明](https://xtb-docs.readthedocs.io/en/latest/xcontrol.html#constraining-potentials)。
+
+文件只接受单个 `$constrain` / `$end` 块，以及 `force constant=<数>`、`atoms:`（逗号分隔的编号或递增范围，如 `1-3,5`）、`distance:`（2 个编号）、`angle:`（3 个编号）、`dihedral:`（4 个编号）；后三者末项为有限数值或 `auto`。编号从 1 开始且不得超过 XYZ 原子数。其他指令、注释和附加内容均拒绝，包括 `$write`、`$external`、`$set`。
+
+prepare 将原文件字节作为 `constraints.inp` 纳入 bundle 和逐文件 SHA-256 摘要，模板自动加 `--cinp constraints.inp`；不要通过 `--param` 直接传 `--cinp`。提交前同时审阅约束内容、输入结构、完整参数和摘要中的文件哈希。
+
+搜到的结构只是 TS 候选，仍需用 DFT 重新优化为 TS，并逐个按 [TS 卡片](ts.md) 审阅：恰好一个虚频，且振动方向与目标成键/断键坐标一致。需要 IRC 验证时，必须双向完成并识别端点，才能声称验证；CREST 正常终止不能代替 TS 验证。
 
 ## 4. 资源建议
 

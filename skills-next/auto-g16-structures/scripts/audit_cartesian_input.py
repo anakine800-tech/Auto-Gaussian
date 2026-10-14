@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Source: skills/auto-g16-chemdraw-pipeline/scripts/audit_cartesian_input.py (T4 migration).
+# Source: archive/skills/auto-g16-chemdraw-pipeline/scripts/audit_cartesian_input.py (T4 migration).
 """Audit Cartesian coordinates in a Gaussian input or XYZ file."""
 
 from __future__ import annotations

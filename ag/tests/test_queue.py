@@ -75,7 +75,7 @@ def test_queue_admits_40_plus_32_and_shows_summary(cfg, tmp_path, monkeypatch, c
     assert line in dialogs[0]
     output = capsys.readouterr()
     assert line in output.err and output.out == ''
-    assert fake.operations().count('nodes') == 2
+    assert fake.operations().count('nodes') == 1
     # The submission adds only T10's already-whitelisted read.
     assert {c.operation for c in fake.calls} == {
         'identity', 'jobs', 'nodes', 'create_attempt', 'upload', 'metadata', 'submit'}
@@ -188,15 +188,52 @@ def test_batch_counts_missing_qsub_and_new_external_jobs(cfg, tmp_path, monkeypa
         'submitted', 'failed_presubmit', 'prepared']
 
 
-def test_rechecks_nodes_after_confirmation(cfg, prepared, monkeypatch, capsys):
+def test_batch_reuses_confirmed_hardware_result(cfg, tmp_path, monkeypatch, capsys):
     cfg['resources']['max_committed_cores'] = 88
+    ids = prepare_batch(cfg, tmp_path, 16, 3)
     fake = QueueFake(cfg)
-    fake.node_snapshots = [fake.nodes, Result(1)]
+    fake.node_snapshots = [fake.nodes, TransportError('must not query nodes again')]
+    monkeypatch.setattr(confirm, 'confirm', lambda text: True)
+    assert len(submit.submit(cfg, ids, fake)) == 3
+    assert fake.operations().count('nodes') == 1
+    assert fake.operations().count('identity') == 1
+    assert fake.operations().count('jobs') == 4
+    assert '严格模式' not in capsys.readouterr().err
+
+
+@pytest.mark.parametrize('nodes', [Result(1), Result(stdout='node-a\n    state = free\n    np = 88\n')])
+def test_batch_retains_confirmed_strict_cap(cfg, tmp_path, monkeypatch, nodes):
+    cfg['resources']['max_committed_cores'] = 88
+    ids = prepare_batch(cfg, tmp_path, 8, 2)
+    fake = QueueFake(cfg, occupied=24)
+    fake.node_snapshots = [nodes, fake.nodes]
+    # First job is still invisible, and another client adds 8 cores.
+    fake.job_snapshots = [job_text(cores=n) for n in (24, 24, 32)]
     monkeypatch.setattr(confirm, 'confirm', lambda text: True)
     with pytest.raises(ValueError, match='Core limit changed'):
+        submit.submit(cfg, ids, fake)
+    assert fake.operations().count('nodes') == 1
+    assert fake.submitted_count == 1
+    assert [state.read(attempt.find(cfg, id_))['state'] for id_ in ids] == [
+        'submitted', 'failed_presubmit']
+
+
+@pytest.mark.parametrize('reply', [Result(1), Result(stdout='broken qstat'),
+                                  Result(stdout=job_text().replace('1:ppn=8', 'bad'))])
+def test_unreadable_qstat_after_confirmation_stops(cfg, prepared, monkeypatch, reply):
+    cfg['resources']['max_committed_cores'] = 88
+    fake = QueueFake(cfg)
+
+    def accept(text):
+        fake.qstat = reply
+        return True
+
+    monkeypatch.setattr(confirm, 'confirm', accept)
+    with pytest.raises((ValueError, TransportError)):
         submit.submit(cfg, [prepared[0].name], fake)
     assert 'create_attempt' not in fake.operations()
-    assert '严格模式' in capsys.readouterr().err
+    assert state.read(prepared[0])['state'] == 'failed_presubmit'
+    assert fake.operations().count('nodes') == 1
 
 
 @pytest.mark.parametrize('scheduler_state', ['R', 'E', 'Q', 'H', 'W', 'T', 'S', 'C'])
@@ -213,14 +250,21 @@ def test_breakdown_monitor_and_submit_match(cfg, scheduler_state):
     assert own['core_cap'] == 44 and own['committed_cap'] == 88
 
 
-@pytest.mark.parametrize('cores,warning', [(72, False), (88, False), (96, True)])
-def test_monitor_warns_at_committed_cap(cfg, cores, warning):
+@pytest.mark.parametrize('nodes,cap', [
+    ('node-a\n    state = free\n    np = 44\n', 88),
+    ('node-a\n    state = free\n    np = 88\n', 44),
+    ('node-a\n    state = free\n    np = 44\nnode-b\n    state = down\n    np = 8\n', 44),
+])
+@pytest.mark.parametrize('cores', [44, 45, 72, 88, 96])
+def test_monitor_warns_at_effective_cap(cfg, cores, nodes, cap):
     cfg['resources']['max_committed_cores'] = 88
-    result = monitor.observation(cfg, MonitorFake(jobs=job(cores=f'1:ppn={cores}')), 'fixture')
-    assert bool(result['warnings']) == warning
-    if warning:
+    raw = job(cores='1:ppn=40') + job('102.fixture', state='Q', cores=f'1:ppn={cores - 40}')
+    result = monitor.observation(cfg, MonitorFake(jobs=raw, nodes=nodes), 'fixture')
+    assert result['own']['committed_cap'] == 88  # Configured allowance remains visible.
+    assert bool(result['warnings']) == (cores > cap)
+    if cores > cap:
         assert result['warnings'][0]['kind'] == 'over-cap'
-        assert '88' in result['warnings'][0]['detail']
+        assert f'超过上限 {cap} 核' in result['warnings'][0]['detail']
 
 
 def test_old_monitor_cache_allows_incremental_fields(cfg, monkeypatch):

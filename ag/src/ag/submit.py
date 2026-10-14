@@ -29,18 +29,8 @@ def metadata(transport, cfg, manifest, name):
     return int(lines[0]), digest
 
 
-def capacity(cfg, transport, submitted=None):
+def capacity(cfg, transport, jobs):
     """Fall back to the strict cap when hardware capacity cannot be verified."""
-    username, jobs, used = status.inventory(transport)
-    running, queued = status.core_breakdown(jobs, username)
-    # qstat can lag behind successful qsub. Reserve each earlier batch job
-    # until it appears in this snapshot; never count a visible job twice.
-    # A visible C record is complete and no longer reserves cores.
-    visible = {job['job_id'] for job in jobs
-               if job['Job_Owner'].split('@')[0] == username}
-    pending = sum(cores for job_id, cores in (submitted or {}).items() if job_id not in visible)
-    used += pending
-    queued += pending
     limit = cfg['resources']['max_cores']
     reason = None
     try:
@@ -55,7 +45,7 @@ def capacity(cfg, transport, submitted=None):
     cap = limit if reason else cfg['resources'].get('max_committed_cores', limit)
     if reason:
         print(f'严格模式：{reason}；排队也计入 {cap} 核上限', file=sys.stderr, flush=True)
-    return used, running, queued, cap, reason
+    return cap, reason
 
 
 def submit(cfg, ids, transport):
@@ -77,7 +67,9 @@ def submit(cfg, ids, transport):
         # Batch confirmation is for a single template and scientific method/card.
         if len({(m['template'], m['science']['route'], m['science']['method_basis']) for _, m, _ in prepared}) != 1:
             raise ValueError('Batch requires the same template, route and method basis')
-        used, running, queued, cap, reason = capacity(cfg, transport)
+        username, jobs, used = status.inventory(transport)
+        running, queued = status.core_breakdown(jobs, username)
+        cap, reason = capacity(cfg, transport, jobs)
         requested = sum(m['cores'] for _, m, _ in prepared)
         if used + requested > cap:
             raise ValueError(f'Core limit exceeded: {used} occupied + {requested} requested / {cap} cap')
@@ -105,8 +97,16 @@ def submit(cfg, ids, transport):
             qsub_started = False
             try:
                 # Other scheduler clients can submit during the confirmation window.
-                fresh_used, _, _, fresh_cap, _ = capacity(cfg, transport, submitted)
-                if fresh_used + m['cores'] > fresh_cap:
+                # Keep the confirmed hardware result for this batch: an intermittent
+                # pbsnodes failure must not consume an otherwise valid Attempt.
+                jobs = status.parse_jobs(require_ok(transport.run(remote.jobs()), 'qstat'))
+                fresh_used = status.occupied(jobs, username)
+                # qstat can lag behind successful qsub. Reserve earlier batch jobs
+                # until visible; do not double count them or reserve visible C jobs.
+                visible = {job['job_id'] for job in jobs
+                           if job['Job_Owner'].split('@')[0] == username}
+                fresh_used += sum(cores for job_id, cores in submitted.items() if job_id not in visible)
+                if fresh_used + m['cores'] > cap:
                     raise ValueError('Core limit changed during confirmation; stop')
                 require_ok(transport.run(remote.create_attempt(cfg, m)), 'new remote Attempt directory')
                 with tempfile.TemporaryDirectory(prefix='ag-submit-') as temp:
