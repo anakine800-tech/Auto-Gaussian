@@ -178,9 +178,11 @@ def test_generic_final_geometry_is_preserved(tmp_path, monkeypatch):
     assert '5.0000000000' in (directory / 'final.xyz').read_text()
     assert '0.0200000000' in (directory / 'irc_end.xyz').read_text()
     assert facts['irc']['point_count'] == 2
-    (directory / 'final.xyz').write_text('Stale final geometry\n')
     assert build_facts(directory) == facts
-    assert '5.0000000000' in (directory / 'final.xyz').read_text()
+    (directory / 'final.xyz').write_text('Stale final geometry\n')
+    with pytest.raises(ValueError, match='final.xyz 与当前日志解析结果不一致'):
+        build_facts(directory)
+    assert (directory / 'final.xyz').read_text() == 'Stale final geometry\n'
 
 
 def source(frame, *, kind='optimized', charge=0):

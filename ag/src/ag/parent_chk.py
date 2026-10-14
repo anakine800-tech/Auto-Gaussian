@@ -1,5 +1,6 @@
 """Local parent declaration and submit-time checks for the single chk attachment."""
 from hashlib import sha256
+import math
 import re
 from ag import attempt, remote, state, submission
 from ag.config import for_manifest
@@ -49,6 +50,54 @@ def declare(cfg, study, template, parents, value):
         raise ValueError('Parent must belong to this study')
     return dict(attempt_id=parent_id, source_name=name, target_name='parent.chk',
                 cluster=parent.get('cluster', 'default'))
+
+
+def validate_force_constant_frame(cfg, attachment, science):
+    """L3: a rotated equivalent structure does not match the stored Hessian frame."""
+    if not re.search(r'\b(?:rcfc|readfc|readcartesianfc)\b', science['route'], re.I):
+        return
+    from ag.geometry import read_xyz, finite_number
+    from cclib.parser.utils import PeriodicTable
+
+    hint = 'rcfc 读到的力常数是父作业输入取向下的，请改用 final_input.xyz 的坐标，或者改用 calcfc'
+    # XYZ is in angstrom; do not silently compare Bohr coordinates as angstrom.
+    if re.search(r'\bunits?\b', science['route'], re.I):
+        raise ValueError('rcfc 坐标比较要求默认 Å 单位，请移除 Units 选项；' + hint)
+    path = attempt.find(cfg, attachment['attempt_id'])
+    manifest = attempt.read_manifest(path)
+    # declare() already checked these input bytes against the parent manifest.
+    record = next(r for r in manifest['inputs'] if r['name'] not in ('job.pbs', 'job.slurm'))
+    text = (path / 'inputs' / record['name']).read_text()
+    route = re.search(r'(?ms)^[ \t]*(#.*?)\n\s*\n', text)
+    nosymm = route is not None and re.search(r'\bnosymm(?:etry)?\b', route[1], re.I)
+    names = ['final_input.xyz', 'final.xyz'] if nosymm else ['final_input.xyz']
+    references = []
+    for name in names:
+        target = path / name
+        if target.is_symlink():
+            raise ValueError(f'父作业 {name} 不能是符号链接')
+        if not target.exists():
+            continue
+        frames = read_xyz(target)
+        if len(frames) != 1:
+            raise ValueError(f'父作业 {name} 必须只有一个几何')
+        references.append(frames[0])
+    if not references:
+        raise ValueError('缺少父作业取向坐标，请先运行 ag facts；' + hint)
+    table = PeriodicTable().element
+    for structure in science.get('structures', [science]):
+        symbols, coordinates = [], []
+        for row in structure['geometry'].splitlines():
+            symbol, *xyz = row.split()
+            if symbol.isdigit() and 0 < int(symbol) < len(table):
+                symbol = table[int(symbol)]
+            symbols.append(symbol)
+            coordinates.append(tuple(finite_number(x) for x in xyz))
+        # Fixed atom rows, no rotation, translation, permutation or RMSD dilution.
+        if not any(tuple(symbols) == frame.symbols and all(
+                math.dist(a, b) <= 1e-4 for a, b in zip(coordinates, frame.coordinates))
+                   for frame in references):
+            raise ValueError(hint)
 
 
 def resolve(cfg, child, jobs=None):
