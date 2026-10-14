@@ -115,14 +115,19 @@ def test_prepare_and_facts_cli(cfg, tmp_path, capsys, keyword):
     log.write_text(HEADER.replace('Stable', keyword) + INTERNAL + '\n' + STABLE + NORMAL)
     # facts may be regenerated, but input/manifest/status/output bytes stay unchanged.
     before = {p.relative_to(path): p.read_bytes() for p in path.rglob('*') if p.is_file()}
+    first_facts = None
     for _ in range(2):
         assert main(['facts', str(path), '--json']) == 0
         facts = json.loads(capsys.readouterr().out)
         assert facts['wavefunction_stability'] == 'stable'
         assert facts['wavefunction_stability_line'] == STABLE
         assert json.loads((path / 'facts.json').read_text()) == facts
+        current_facts = ((path / 'facts.json').read_bytes(), (path / 'facts.json').stat().st_mtime_ns)
+        if first_facts is not None:
+            assert current_facts == first_facts
+        first_facts = current_facts
     after = {p.relative_to(path): p.read_bytes() for p in path.rglob('*')
-             if p.is_file() and p.name != 'facts.json'}
+             if p.is_file() and p.name not in ('facts.json', '.facts.lock')}
     assert after == before
     assert not (path / '.submit-claim').exists()
 
@@ -149,10 +154,10 @@ def test_stable_prepare_preserves_rejections(cfg, tmp_path, keyword, old, new, e
                         tier='simple', walltime='00:05:00', label='stable')
 
 
-# Gaussian build_facts keys from main 8abb588, before T30. A literal baseline
+# Gaussian build_facts keys from main a426ca9 (including T32), before T30. A literal baseline
 # keeps this regression runnable in source archives without Git or a remote.
 MAIN_GAUSSIAN_FACT_KEYS = {
-    'schema', 'program', 'units', 'final_geometry', 'final_input_geometry',
+    'schema', 'program', 'units', 'ag_provenance', 'final_geometry', 'final_input_geometry',
     'final_input_geometry_orientation', 'charge', 'energies', 'error_hint',
     'expected_vibrational_modes', 'final_geometry_orientation', 'freq_step_converged',
     'freq_step_convergence', 'frequencies_low', 'frequency_note', 'imag_modes',
