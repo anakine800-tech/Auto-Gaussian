@@ -134,11 +134,19 @@ def prepare(cfg, *, study_name, template, input_path, tier, walltime, label, par
         if source.suffix.lower() != '.xyz':
             raise ValueError('xTB/CREST input must have .xyz extension')
         rows = data.decode().splitlines()
+        mdopt = template == 'crest' and '--mdopt' in params
+        if mdopt:
+            if name in render.declaration('crest')['mdopt_outputs']:
+                raise ValueError('CREST --mdopt input must not collide with an output filename')
+            frames = crest_input.xyz_ensemble(data.decode())
+            rows = [str(len(frames[0][0])), ''] + frames[0][1]
         if not rows or not rows[0].isdigit() or int(rows[0]) < 1 or len(rows) != int(rows[0]) + 2:
             raise ValueError('Invalid XYZ atom count')
         # The same Cartesian grammar prevents malformed input from becoming a shell option.
         synthetic = f'%nprocshared={resource["cores"]}\n%mem=1GB\n# HF/STO-3G\n\nxyz\n\n{params.get("--chrg", "0")} {int(params.get("--uhf", "0")) + 1}\n' + '\n'.join(rows[2:]) + '\n\n'
         science = gaussian_input.validate(synthetic, **resource)
+        if mdopt:
+            science['n_frames'] = len(frames)
         science['route'] = render.parameters(template, params)
     constraint_data = None
     if constraints is not None:
@@ -228,6 +236,12 @@ def verified_files(cfg, path, manifest):
     name = next(iter(names))
     if constrained:
         rows = files[name].decode().splitlines()
+        mdopt = m['template'] == 'crest' and '--mdopt' in m['template_params']
+        if mdopt:
+            if name in render.declaration('crest')['mdopt_outputs']:
+                raise ValueError('CREST --mdopt input must not collide with an output filename')
+            frames = crest_input.xyz_ensemble(files[name].decode())
+            rows = [str(len(frames[0][0])), ''] + frames[0][1]
         if not rows or not rows[0].isdigit() or int(rows[0]) < 1 or len(rows) != int(rows[0]) + 2:
             raise ValueError('Invalid XYZ atom count')
         scan = crest_input.validate(files['constraints.inp'].decode(), int(rows[0]),
@@ -257,6 +271,9 @@ def summary(cfg, m):
     from ag import budget
     budget_line = budget.summary(cfg, budget.requested(m)) if m.get('scheduler') == 'slurm' else ''
     geometry = f"```text\n{science['geometry']}\n```\n\n"
+    if science.get('n_frames'):
+        geometry = (f"CREST mdopt ensemble: {science['n_frames']} frames; first frame preview below. "
+                    "Review every frame in the hashed input XYZ before submission.\n\n" + geometry)
     if science.get('qst_mode'):
         geometry = f"{science['qst_mode']} structures (input atom order):\n\n"
         for i, structure in enumerate(science['structures'], 1):

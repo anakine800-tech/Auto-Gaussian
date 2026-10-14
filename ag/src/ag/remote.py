@@ -169,6 +169,8 @@ def output_names(manifest):
     declared = declaration(manifest['template'])
     # Scan output selection only; keep existing commands and non-scan files unchanged.
     key = 'scan_outputs' if manifest['template'] == 'xtb' and manifest.get('science', {}).get('scan') else 'outputs'
+    if manifest['template'] == 'crest' and '--mdopt' in manifest.get('template_params', {}):
+        key = 'mdopt_outputs'
     names = [filename(n.format(stem=stem)) for n in declared[key]]
     if manifest.get('scheduler') == 'slurm':
         names = [n.replace('job.pbs.out', 'job.slurm.out') for n in names] + ['job.slurm.err']

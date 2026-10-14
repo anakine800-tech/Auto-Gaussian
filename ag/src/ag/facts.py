@@ -72,7 +72,21 @@ def build_facts(attempt_dir):
                 _write_geometry(attempt_dir / 'irc_end.xyz', endpoint)
                 facts['irc']['end_geometry'] = 'irc_end.xyz'
     elif program == 'crest':
-        facts, geometry = parse_crest(outputs)
+        if '--mdopt' in manifest.get('template_params', {}):
+            from ag._parse_outputs import parse_crest_mdopt
+            facts, geometry, ensemble = parse_crest_mdopt(outputs, manifest.get('science', {}).get('n_frames'))
+            target = attempt_dir / 'mdopt.xyz'
+            content = ensemble.encode('utf-8')
+            # Never silently replace an ensemble already used for downstream selection.
+            try:
+                with target.open('xb') as handle:
+                    handle.write(content)
+            except FileExistsError:
+                if target.is_symlink() or not target.is_file() or target.read_bytes() != content:
+                    raise ValueError('mdopt.xyz differs from current parsed output; manual review required') from None
+            facts.update(ensemble_geometry='mdopt.xyz', ensemble_sha256=sha256(content).hexdigest())
+        else:
+            facts, geometry = parse_crest(outputs)
     elif program == 'xtb':
         facts, geometry = parse_xtb(outputs)
     else:
