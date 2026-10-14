@@ -59,6 +59,8 @@ TS 族、关键中间体、复合物必须双路线；可旋转键较多的分�
 
 ## 8. 常见坑
 
+知识衔接：[GKB-0420：局部极小点与构象覆盖](../../auto-g16-gaussian-learning-library/references/core-job-types.md)。
+
 - ChemDraw 显式氢和楔形键丢失会改变立体化学；ETKDG 的手性保持不能修复输入时已丢失的信息。来源：`skills/auto-g16-view-rt-win/references/conformer-workflow.md`。
 - 无四面体手性中心不代表没有轴手性；自动几何仅是初猜。来源：`skills/auto-g16-view-rt-win/references/chemistry-boundaries.md`。
 - 力场能量不能与 Gaussian 电子能或自由能混排。来源：`skills/auto-g16-view-rt-win/references/conformer-workflow.md`。

@@ -12,7 +12,7 @@ description: 在 ag 新架构中创建、恢复和推进主族闭壳层计算研
 ## 每次调用的固定流程
 
 1. **恢复上下文。** 先核对“主会话”：同一 study 同时仅主会话推进，其他会话只读；接手时记录交接。再读目标目录 `study.md` 的“当前阻塞”，再读其余内容和 `ag list --study <study_id> --json`；核对目标、未完成的量、签字和 Attempt 状态。新研究尚无目录时，用 `ag init <study_dir>` 建骨架，按[研究模板](references/study-md-template.md)与人补齐目标和体系，再读取清单。缺电荷、多重度、溶剂或温度时询问，不从旧研究推断。
-2. **判断阶段并选卡。** 按下表打开 `auto-g16-recipes` 的对应卡片。极小点/初筛覆盖主族闭壳层单分子；机理研究可用 reaction-plan、ts、irc 卡片，仍不开放双分子初筛、开壳层或金属计算。没有适用卡片或所需能力标注“待 T13”时说明缺口并暂停依赖步骤，不借用旧 Skill 执行。真实环境出现异常时先停下报告。
+2. **判断阶段并选卡。** 按下表打开 `auto-g16-recipes` 的对应卡片。极小点/初筛覆盖主族闭壳层单分子；机理研究可用 reaction-plan、ts、irc 卡片，仍不开放双分子初筛、开壳层或金属计算。没有适用卡片或所需能力仍有缺口时说明缺口并暂停依赖步骤，不借用旧 Skill 执行。真实环境出现异常时先停下报告。
 3. **确定方法与机理假设。** 使用 `auto-g16-literature`，优先人提供的本组论文和 SI，记录 DOI 与位置、直接先例或类比；无先例才使用[兜底方法](references/acceptance-methods.md)，在摘要声明。验收用最快的验收方法，不宣称研究精度。涉及机理时先按 [reaction-plan](../auto-g16-recipes/cards/reaction-plan.md) 在 study.md 写出各步骤、待算物种与 TS、竞争假设及可推翻条件，请人签字后才能推进依赖该假设的计算。这个签字用于防止把未经同意的机理猜想变成计算计划，不替代提交确认。
 4. **准备与提交。** 核查卡片输入、资源和前置结果，调用 `ag prepare --card <卡片名>`，按[确认摘要](references/confirmation-summary.md)展示每个 Attempt。同一卡片、同一方法的多个 Attempt 可以一次批量确认。等人明确说“提交”后运行 `ag submit <id>...`，仍由人亲手点击 Mac 系统对话框；不代点、不提供跳过方式。`ag` 负责单次提交、文件一致性、路径检查和全用户作业核数统计，无法核实就不提交。
 5. **接收并解释结果。** 用 `ag status <id>` 查询；`awaiting_second_observation` 表示证据不足，按显示的最早时间再次只读观察，不视为失败或允许取回。结合 `resources_used.cput`、声明输出的大小/mtime 和观察时间判断活动，缺值记未知。完成后 `ag fetch <id>`、`ag facts <id>`，取回后若 `scheduler_residue=true`，提醒人先用 `ag status` 核查残留；仍残留且人明确授权后才调用 `ag cancel`，由人亲手点击确认，只针对 status.json 的确切 job_id，之后只读核查。不自动 qdel，不重试已声明的取消；qdel 返回不等于最终离队。审阅时先运行 `ag review init <id>`，从 manifest 保存的卡片第 6 节生成 `review.md`；已存在时不覆盖，直接读已有 review。阅读事实和原判据，逐行填写“判据 | 依据 | 结论（通过 / 不通过 / 无法判断）”，依据指向 facts 字段、日志行号或文件；自动预填的字段核对不替代完整科学判据。写完后运行 `ag review check <id>`，补齐漏项，出现“review 可能过期”时重新核对新 facts 并更新审阅记录，不把提示当成科学失败或自动重算授权。作业离开队列不等于科学成功；缺失事实不能填成零。更新 `study.md` 进度和剩余问题，每次结束前更新“当前阻塞”和“待你决定”（无则写“无”）；后者集中列出所有待人决定事项、所需信息与证据、选项及影响。
@@ -34,8 +34,8 @@ prepare 在 manifest 的 `card` 中记录 `name`、`git_commit`、`dirty` 和原
 | 已有初筛集合 | 去重、聚类、展示代表与简并度，请人签字 | 所选初筛卡片 |
 | 已签代表集合，目标是极小点 | 同一方法逐个准备 Opt+Freq | `opt-freq` |
 | 已接受极小点且计划有单点 | 对最终几何准备单点 | `sp` |
-| 已签机理假设与代表集合，有 TS 初猜 | 审阅成键/断键原子对，准备单结构 TS；缺支持则待 T13 | [ts](../auto-g16-recipes/cards/ts.md) |
-| TS 恰好一个虚频且方向审核通过 | 提出双向 IRC；缺支持则待 T13 | [irc](../auto-g16-recipes/cards/irc.md) |
+| 已签机理假设与代表集合，有 TS 初猜 | 审阅成键/断键原子对，准备单结构 TS；缺能力或证据则记录具体阻塞 | [ts](../auto-g16-recipes/cards/ts.md) |
+| TS 恰好一个虚频且方向审核通过 | 提出双向 IRC；缺能力或证据则记录具体阻塞 | [irc](../auto-g16-recipes/cards/irc.md) |
 | 双向 IRC 已走完 | 两侧端点 Opt+Freq、身份与连接关系比对；缺证据不称验证 | [irc](../auto-g16-recipes/cards/irc.md) / `opt-freq` |
 | 刚完成里程碑或得到关键机理证据 | 更新假设；改变时重新请人签字 | [reaction-plan](../auto-g16-recipes/cards/reaction-plan.md) |
 | 作业已提交 | status → fetch → facts → review | 当前计算卡片 |

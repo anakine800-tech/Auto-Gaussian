@@ -31,13 +31,9 @@ TS 族、关键中间体、复合物必须双路线，可旋转键较多也建�
 
 ```
 
-`Opt Freq` 合在一个作业。研究无直接先例的骨架为
-`#p wB97XD/6-31G(d) Opt Freq`；阴离子或负电荷明显离域时改用
-`#p wB97XD/6-31+G(d) Opt Freq`，后续单点也带弥散函数。
-溶液相加 `SCRF=(SMD,Solvent=<已核实的溶剂关键词>)`，wB97XD 不叠加 GD3BJ。
-方法、依据和负责人确认记录见[方法表](../../auto-g16-study/references/acceptance-methods.md)；
-阴离子流程验收则保留 B3LYP-D3(BJ)，但将优化及筛选单点基组都换成
-`6-31+G(d)`；最终摘要必须展示替换后的完整 route。
+`Opt Freq` 合在一个作业。方法/基组：见 [acceptance-methods.md](../../auto-g16-study/references/acceptance-methods.md)。
+研究骨架为 `#p <方法/基组> Opt Freq`；阴离子弥散、色散及溶剂按方法表选择，
+最终摘要必须展示替换后的完整 route。上面的中性流程验收示例不能直接用于阴离子或正式研究。
 
 ```text
 ag prepare --study <study_id> --template gaussian --input <conformer.gjf> --tier simple --walltime 24:00:00 --label optfreq-c01
@@ -85,7 +81,7 @@ xTB 6 kcal/mol → DFT 单点重排 → 3 kcal/mol 内进入优化（研究最�
 为防止把程序正常退出误当科学成功，借鉴 [QUASAR，arXiv:2602.00185v2](https://arxiv.org/html/2602.00185v2) §2.3 “Long Simulation Handling”（完成状态不保证收敛）及 §4 “Discussion”（貌似合理的结果仍需物理核验）。下面六项是面向 Gaussian 和本项目的具体化，并非论文给出的 Gaussian 清单；不采用其自动终止/重启操作。
 
 - **正常终止但不在驻点**：分别检查 `opt_converged` 和 `freq_step_converged`。尤其 `freq_step_converged=false` 时即便零虚频也暂停接受；`null` 是缺证据，查末次频率阶段的收敛表和 `Non-Optimized Parameters`，不能用别的阶段替代。
-- **连接关系或立体构型改变**：按相同原子映射比较输入与最终几何中的成键、断键、质子转移及立体中心。用 `ag graph --study <study_dir>` 核对来源；当前 ag graph 是 Attempt 来源图，不做分子连接关系/立体化学比对，该自动能力待 T13。人工逐项记录差异，无法判定就暂停纳入原构象集合，不能用来源图声明结构一致。
+- **连接关系或立体构型改变**：按相同原子映射比较输入与最终几何中的成键、断键、质子转移及立体中心。用 `ag graph --study <study_dir>` 核对来源；当前 ag graph 是 Attempt 来源图，不做分子连接关系/立体化学比对，不能把它当结构比较工具。人工逐项记录差异，无法判定就暂停纳入原构象集合，不能用来源图声明结构一致。
 - **小虚频**：当负频的绝对值 < 50 cm⁻¹ 时，检查完整位移，区分软扭转、片段运动、真实反应方向与数值误差；不能直接置零。可提出更严格优化/积分网格或沿该模式小扰动后同方法重新优化，重新核对完整 Freq；提出新 Attempt，等人确认。100 cm⁻¹ qRRHO 截断不负责消除虚频。
 - **实际方法、电荷或多重度不符**：核对最终计算对应的 Gaussian archive 行（展开折行），与输入、manifest 摘要及 `facts.json` 的 route/charge/multiplicity 对照；色散、溶剂等再对照输出回显。当前 facts 不提供完整 archive 审计字段，须查原日志，缺 archive/信息不全写缺证据，不能默认为一致。
 - **能量离群**：仅在同一组成、电荷、多重度、方法、溶剂和能量类型/单位下比较同组构象；区分 SCF 与 G/qRRHO。显著偏离时先检查结构是否改变、解析是否选错步骤和收敛情况，写出差值与依据；不设无来源的通用阈值，也不因更低就自动选中或因离群就删除。
@@ -100,6 +96,8 @@ xTB 6 kcal/mol → DFT 单点重排 → 3 kcal/mol 内进入优化（研究最�
 频率阶段收敛未通过时，按 failure-diagnosis 第 7 节提出从最终几何用 `Opt=CalcFC Freq` 重新优化的新 Attempt，relation 为 `reoptimized_from`；等人确认。
 
 ## 8. 常见坑
+
+知识衔接：[GKB-0422、GKB-0451：优化与虚频排障](../../auto-g16-gaussian-learning-library/references/core-job-types.md)。
 
 - 正常终止并不足以证明优化和频率均完成，要核对驻点与完整频率证据。来源：`archive/skills/auto-g16-rtwin-pbs/references/environment-and-failures.md`、`skills/auto-g16-rtwin-pbs/references/scientific-workflows.md`。
 - 多个初猜可能收敛为同一极小点，直接逐作业计数会重复加权。来源：`archive/skills/auto-g16-view-rt-win/references/conformer-workflow.md`。

@@ -54,6 +54,7 @@ Do not add a source or references section.
 - Scans, single points, optimization, TS, IRC, frequency, and troubleshooting: `references/core-job-types.md`
 - Solvation, thermochemistry, interactions, NMR, excited states, relativity, and fields: `references/advanced-properties.md`
 - Mechanisms, catalysis, energetic span, data tables, and research writing: `references/research-workflow.md`
+- Bibliographic metadata only: [参考书目](references/bibliography.md). No book text or excerpts are bundled.
 
 For broad or ambiguous questions, search first and combine only the relevant cards. Use `GKB-xxxx` identifiers internally to prevent duplicate or conflicting notes; never expose them as citations.
 

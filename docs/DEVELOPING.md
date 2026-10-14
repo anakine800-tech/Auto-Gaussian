@@ -142,6 +142,11 @@ Slurm 从 squeue 消失仅触发 sacct 核对；终态中非零退出/信号以�
 8. 常见坑
 
 每卡最多 **285 行**，“常见坑”最多 **10 条**；超限先合并或删除，不随最长卡片重新抬高上限。
+为防止已实现工具仍被卡片写成缺功能、复制的方法骨架继续漂移，CI 的
+`skills-next/tests/test_card_consistency.py` 从实际 CLI 注册核对子命令和选项。
+“待 Tn”只能引用 `docs/redesign-tasks/open-tasks.txt` 中的任务，完成时同 PR 移除记录与标记。
+方法/基组只在 `acceptance-methods.md` 定义；骨架使用占位符，具体 route 仅限逐例标明的“流程验收示例”，且组合仍须在方法表中。
+
 第 6 节写可逐项审阅的判据；prepare 保存实际卡片快照，review 使用保存的判据，不能追着最新版改旧 Attempt。
 旧 manifest 可在 review init 时用 --card 补指定，明确标注审阅时来源，不补写 manifest；见 [#228](https://github.com/anakine800-tech/Auto-Gaussian/pull/228)。
 
@@ -178,3 +183,14 @@ git diff --cached --check
 发布任务同步 `ag/pyproject.toml` 与 `ag/src/ag/__init__.py` 的版本号，并在新架构 `CHANGELOG.md` 写变更、兼容性和验证。
 版本取发布任务指定值，核对包元数据与 `ag --version` 一致；若尚无新架构 CHANGELOG，在发布任务中创建，不改 `archive/CHANGELOG.md`。
 版本/CHANGELOG 经 PR 审阅、测试、人工合并后，由人在 GitHub 网页创建对应 tag 和 release；文档 PR 不顺带发版。
+
+## 合并后同步本机运行版本
+
+每次合并后，本机的后端 main 检出和前端 main 检出都执行 `git pull --ff-only`。
+先确认分支是 main、工作区干净；若快进失败，报告本地分叉/改动，不强制重置。
+后端在该 main 检出的 `.venv` 中维护依赖；真实计算只调用该检出的 `.venv/bin/ag`，
+并核对版本和 Python 导入位置。清除临时 `PYTHONPATH`，不能用开发 worktree 或 PATH 中的旧 ag 执行真实计算。
+Skills 软链接指向后端 main 的 `skills-next`；合并 PR 本身不会更新本机检出。
+前端始终从本机约定的固定 main 检出目录运行，停止旧实例后从该目录重启，
+核对其调用的后端也是上述 `.venv/bin/ag`；不从临时 worktree 启动日常前端。
+固定目录的具体值只记在本机配置，不写进公开仓库；同步检出不授权提交或取消计算。

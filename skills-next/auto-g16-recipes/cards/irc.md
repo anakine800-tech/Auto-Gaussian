@@ -12,13 +12,16 @@
 
 ## 3. 输入模板
 
+方法/基组：见 [acceptance-methods.md](../../auto-g16-study/references/acceptance-methods.md)。
+骨架中的 `<方法/基组>` 必须按已审阅方案替换，并补齐适用的色散与溶剂设置。
+
 Gaussian 路线形式为 `irc=(calcfc,maxpoints=<点数>,stepsize=<步长>,forward)`，反方向将 `forward` 改为 `reverse`。例如以下单结构骨架在起点重新算力常数，不读取父 chk；50 和 10 仅是待审阅示例值，不保证走到极小点。使用前核对安装版本对步长的单位/约定。
 
 ```text
 %chk=irc-forward.chk
 %nprocshared=8
 %mem=10GB
-#p wB97XD/6-31G(d) irc=(calcfc,maxpoints=50,stepsize=10,forward)
+#p <方法/基组> irc=(calcfc,maxpoints=50,stepsize=10,forward)
 
 <TS 编号与 forward 方向>
 
@@ -27,9 +30,7 @@ Gaussian 路线形式为 `irc=(calcfc,maxpoints=<点数>,stepsize=<步长>,forwa
 
 ```
 
-此处为[方法](../../auto-g16-study/references/acceptance-methods.md)的中性骨架，
-并非重选 IRC 方法。阴离子或负电荷明显离域的 TS/IRC/端点优化使用
-`wB97XD/6-31+G(d)` 等已选定的弥散基组；wB97XD 不叠加 GD3BJ。
+这里不重选 IRC 方法；阴离子的弥散方案也必须与 TS 一致。
 方法、色散和溶剂（溶液相含 SMD）必须替换为该 TS 的实际设置。另建 reverse 输入、标签和 Attempt；每个方向完整展示输入摘要并经人确认。已有准备接口如下（反方向相应换输入和标签）：
 
 ```text
@@ -43,7 +44,7 @@ ag prepare --study <study_id> --template gaussian --input <irc-forward.gjf> --ti
 %chk=irc-forward.chk
 %nprocshared=8
 %mem=10GB
-#p wB97XD/6-31G(d) guess=read irc=(rcfc,maxpoints=50,stepsize=10,forward)
+#p <方法/基组> guess=read irc=(rcfc,maxpoints=50,stepsize=10,forward)
 
 <TS 编号与 forward 方向>
 
@@ -56,7 +57,7 @@ ag prepare --study <study_id> --template gaussian --input <irc-forward.gjf> --ti
 
 prepare 纯本地；submit 在 Mac 确认弹窗展示父 ID、来源文件名、大小、SHA256 前 12 位和固定目标 parent.chk。确认后只在新 Attempt 目录独占创建副本，源与目标哈希都等于确认值才继续上传/qsub，父文件只读。固定复制助手需要远端 Python ≥ 3.6 和 Linux /proc；缺少时停止；先运行 `ag doctor --cluster <cluster>` 查看 Python 版本和 /proc 支持。复制失败、SSH 255、超时或哈希变化均为 failed_presubmit，保留副本、不重试、不 qsub。
 
-两侧端点经人工确认坐标后，要各自再按 [Opt+Freq](opt-freq.md)优化为极小点；可用现有 parent/relation 参数记录 `endpoint_of` 来源。端点自动提取和比对待 T13，不发明端点命令。
+两侧端点经人工确认坐标后，要各自再按 [Opt+Freq](opt-freq.md)优化为极小点；可用现有 parent/relation 参数记录 `endpoint_of` 来源。`ag facts <irc_id>` 提取 `irc` 字段及 `irc_end.xyz`；后者只是最后报告路径点，不是已验证的端点。
 
 ## 4. 资源建议
 
@@ -67,23 +68,25 @@ prepare 纯本地；submit 在 Mac 确认弹窗展示父 ID、来源文件名、
 - 起点是通过 TS 及振动方向审核的同一个几何；两份输入元素和原子行号一致，方向关键词明确且不重复。
 - 方法、电荷、多重度、溶剂与 TS 一致，CalcFC 的来源和代价已说明；采用 RCFC 时核对父力常数的适用性、附件声明和确认哈希。
 - 结构、立体警告、方法依据、完整 route、资源档位、walltime、远程目录和输入哈希均已展示，提交仍由人点击 Mac 对话框。
-- 端点获取和人工审阅路径已说明；缺解析/比对能力就记录待 T13，不把通用 facts 字段当成 IRC 专用完成标志。
+- 端点获取和人工审阅路径已说明；解析或比对证据缺失就记录具体缺口，不把通用终止字段当成 IRC 专用完成标志。
 
 ## 6. 结果判据清单
 
-- 每个方向分别核对完整原日志、路径点、校正器收敛、终止原因和最终几何；当前 `facts.json` 不提供专门的方向完成/端点判据，不能只看 `termination=normal`。仅达到 MaxPoints、校正器失败或输出截断不能写“走完”。
+- 每个方向分别核对完整原日志、路径点、校正器收敛、终止原因和最终几何；核对 `facts.json` 的 `irc.direction`、`point_count`、`path_complete_reported`、`reached_max_points` 和 `corrector_failed`，并回查日志，不能只看 `termination=normal`。仅达到 MaxPoints、校正器失败或输出截断不能写“走完”。
 - 两个方向均走完，并保留与同一 TS 的原子映射和来源；缺一侧就写“IRC 未完成”。
 - 两侧最后路径点分别再优化并做 Freq：满足极小点收敛、频率阶段收敛、完整模式数和零虚频。最后路径点不是自动接受的极小点。
-- 用 `ag graph --study <study_dir> --json` 核对 TS → 两个方向 → 端点优化的 Attempt 来源。**当前 ag graph 仅为来源图，IRC 端点与反应物/产物的连接关系自动比对待 T13**。现阶段需人工按相同原子映射核对键连接、身份和立体化学，在 review 写出对应证据；来源图不能替代此比较。缺少可审阅的几何或匹配证据就保持未验证。
+- 用 `ag graph --study <study_dir> --json` 核对 TS → 两个方向 → 端点优化的 Attempt 来源。`ag graph` 仅为来源图；另用 `ag irc-compare --ts <ts_id> --forward <forward_id> --reverse <reverse_id> --reactant <reactant_id> --product <product_id> --out <新报告.json>` 获取保留原子编号的连接、质子和立体差异。工具的“匹配 / 不匹配 / 无法确定”仍须人工审阅，写入 review；来源图不能替代此比较。缺少可审阅的几何或匹配证据就保持未验证。
 - 两侧确实连接目标反应物与产物后才赋予化学标签；连接其他物种则如实记录并更新机理假设，不强改标签。任何“验证”结论均须具备双向完成和已识别极小点证据。
 
 ## 7. 常见失败与处理
 
 `Maximum number of corrector steps exceded`、仅到 MaxPoints 或一侧失败时，保留结果，停止报告，审阅起点/方法和积分设置；不能把增加 MaxCycle 或 `ReCorrect=Never` 当通用修复。需要改变 StepSize、MaxPoints 或积分算法时说明理由、代价和方法变化；提出新 Attempt，等人确认。
 
-端点仍有虚频或优化不收敛，转 [失败诊断](failure-diagnosis.md)；出现断开的片段时先请人确认每个片段身份、电荷与多重度，不能直接当普通单分子超分子优化，也不能把片段电子能之和叫反应自由能。缺支持能力记待 T13，停止依赖它的工作。
+端点仍有虚频或优化不收敛，转 [失败诊断](failure-diagnosis.md)；出现断开的片段时先请人确认每个片段身份、电荷与多重度，不能直接当普通单分子超分子优化，也不能把片段电子能之和叫反应自由能。缺所需能力或证据时写具体阻塞，停止依赖它的工作。
 
 ## 8. 常见坑
+
+知识衔接：[GKB-0441：IRC 完成证据与 RCFC 取向陷阱](../../auto-g16-gaussian-learning-library/references/core-job-types.md)。
 
 以下改写自 [archive/skills/auto-g16-ts-irc/SKILL.md](../../../archive/skills/auto-g16-ts-irc/SKILL.md) 的 Safety and scope、Workflow 和 Interpretation gates，仅保留科学经验：
 
