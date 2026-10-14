@@ -102,20 +102,68 @@ def test_link1_does_not_contaminate_irc_end():
     assert '5.0000000000' not in xyz
 
 
-def test_facts_writes_endpoint_exclusively(tmp_path):
+def irc_attempt(tmp_path):
     directory = tmp_path / 'water-irc'
     (directory / 'outputs').mkdir(parents=True)
     (directory / 'manifest.json').write_text(json.dumps({'template': 'gaussian', 'inputs': [{'name': 'water.gjf'}]}))
     (directory / 'outputs/water.log').write_text(irc_log('failure'))
+    return directory
+
+
+def test_facts_reuses_identical_endpoint_and_regenerates_facts(tmp_path):
+    directory = irc_attempt(tmp_path)
     facts = build_facts(directory)
     assert facts['termination'] == 'error'
     assert facts['irc']['corrector_failed'] is True
     assert facts['irc']['end_geometry'] == 'irc_end.xyz'
     assert facts['charge'] == 0 and facts['n_atoms'] == 3
     before = {p.name: p.read_bytes() for p in directory.iterdir() if p.is_file()}
-    with pytest.raises(FileExistsError):
-        build_facts(directory)
+    endpoint = directory / 'irc_end.xyz'
+    stat = endpoint.stat()
+    (directory / 'facts.json').write_text('{"stale": true}')
+    assert build_facts(directory) == facts
+    assert (endpoint.stat().st_ino, endpoint.stat().st_mtime_ns) == (stat.st_ino, stat.st_mtime_ns)
     assert before == {p.name: p.read_bytes() for p in directory.iterdir() if p.is_file()}
+
+
+@pytest.mark.parametrize('change', ['endpoint', 'line_endings', 'log'])
+def test_facts_rejects_endpoint_mismatch_without_updating_files(tmp_path, capsys, change):
+    directory = irc_attempt(tmp_path)
+    build_facts(directory)
+    endpoint = directory / 'irc_end.xyz'
+    if change == 'endpoint':
+        endpoint.write_bytes(b'Existing reviewed geometry\n')
+    elif change == 'line_endings':
+        endpoint.write_bytes(endpoint.read_bytes().replace(b'\n', b'\r\n'))
+    else:
+        log = directory / 'outputs/water.log'
+        log.write_text(log.read_text().replace('0.020000', '0.030000'))
+    (directory / 'final.xyz').write_text('Existing final geometry\n')
+    before = snapshot(directory)
+    assert main(['facts', str(directory), '--json']) == 1
+    assert 'irc_end.xyz 与当前日志解析结果不一致，需人工核对' in capsys.readouterr().err
+    assert snapshot(directory) == before
+
+
+@pytest.mark.parametrize('kind', ['symlink', 'dangling_symlink', 'directory'])
+def test_facts_does_not_reuse_nonregular_endpoint(tmp_path, kind):
+    directory = irc_attempt(tmp_path)
+    endpoint = directory / 'irc_end.xyz'
+    if kind == 'directory':
+        endpoint.mkdir()
+    else:
+        target = tmp_path / 'target.xyz'
+        if kind == 'symlink':
+            target.write_text(parse_irc(irc_log('failure'))[1])
+        endpoint.symlink_to(target)
+    with pytest.raises(ValueError, match='必须是普通文件'):
+        build_facts(directory)
+    assert not (directory / 'facts.json').exists()
+    assert not (directory / 'final.xyz').exists()
+    if kind == 'symlink':
+        assert target.read_text() == parse_irc(irc_log('failure'))[1]
+    elif kind == 'dangling_symlink':
+        assert not target.exists()
 
 
 def test_generic_final_geometry_is_preserved(tmp_path, monkeypatch):
@@ -130,6 +178,9 @@ def test_generic_final_geometry_is_preserved(tmp_path, monkeypatch):
     assert '5.0000000000' in (directory / 'final.xyz').read_text()
     assert '0.0200000000' in (directory / 'irc_end.xyz').read_text()
     assert facts['irc']['point_count'] == 2
+    (directory / 'final.xyz').write_text('Stale final geometry\n')
+    assert build_facts(directory) == facts
+    assert '5.0000000000' in (directory / 'final.xyz').read_text()
 
 
 def source(frame, *, kind='optimized', charge=0):

@@ -50,10 +50,18 @@ def build_facts(attempt_dir):
             from ag._irc import parse_irc
             _, endpoint = parse_irc(log.read_text(errors='replace'))
             if endpoint:
-                # Exclusive creation prevents a later parse from replacing a
+                # Reuse identical bytes on regeneration, but never replace a
                 # geometry that may already have been reviewed or optimized.
-                with (attempt_dir / 'irc_end.xyz').open('x') as handle:
-                    handle.write(endpoint)
+                endpoint_path = attempt_dir / 'irc_end.xyz'
+                endpoint_bytes = endpoint.encode('utf-8')
+                try:
+                    with endpoint_path.open('xb') as handle:
+                        handle.write(endpoint_bytes)
+                except FileExistsError:
+                    if endpoint_path.is_symlink() or not endpoint_path.is_file():
+                        raise ValueError('irc_end.xyz 必须是普通文件，不能是符号链接') from None
+                    if endpoint_path.read_bytes() != endpoint_bytes:
+                        raise ValueError('irc_end.xyz 与当前日志解析结果不一致，需人工核对') from None
                 facts['irc']['end_geometry'] = 'irc_end.xyz'
     elif program == 'crest':
         facts, geometry = parse_crest(outputs)
