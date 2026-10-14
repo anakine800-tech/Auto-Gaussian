@@ -115,13 +115,13 @@ TS 族必须双路线：约束 CREST 与按特定相互作用/进攻方向假设
 方法/基组：见 [acceptance-methods.md](../../auto-g16-study/references/acceptance-methods.md)。
 骨架中的 `<方法/基组>` 必须按已审阅方案替换，并补齐适用的色散与溶剂设置。
 
-单结构 route 示例 `opt=(ts,calcfc,noeigentest) freq`。以下仅为[研究方法](../../auto-g16-study/references/acceptance-methods.md)的输入骨架，填入已审阅的显式坐标，保留空行；正式方法须另有文献依据或明确兜底声明。
+单结构基础 route 为 `opt=(ts,calcfc) freq`。以下仅为[研究方法](../../auto-g16-study/references/acceptance-methods.md)的输入骨架，填入已审阅的显式坐标，保留空行；正式方法须另有文献依据或明确兜底声明。
 
 ```text
 %chk=ts.chk
 %nprocshared=8
 %mem=10GB
-#p <方法/基组> opt=(ts,calcfc,noeigentest) freq
+#p <方法/基组> opt=(ts,calcfc) freq
 
 <TS 步骤与构象编号>
 
@@ -131,7 +131,7 @@ TS 族必须双路线：约束 CREST 与按特定相互作用/进攻方向假设
 ```
 
 阴离子弥散、色散和溶剂按方法表及已签方案填写，展示最终完整 route。决定结论的关键能垒按方法表
-做不同类型泛函的单点敏感性，包含 TS 和完整参考物种；连接到 [profile](profile.md)。`NoEigenTest` 仅关闭优化中的曲率检查，不免除最终 Hessian、虚频数量和方向审阅。
+做不同类型泛函的单点敏感性，包含 TS 和完整参考物种；连接到 [profile](profile.md)。`NoEigenTest` 仅在有具体曲率或初猜诊断依据时使用，在 review 和提交摘要写明理由；它关闭优化中的曲率检查，不免除最终 Hessian、虚频数量和方向审阅，不能作为常规默认。
 
 ```text
 ag prepare --study <study_id> --template gaussian --input <ts.gjf> --tier simple --walltime 24:00:00 --label ts-c01 --method-basis <DOI及位置或兜底方法说明>
@@ -146,7 +146,7 @@ ag prepare --study <study_id> --template gaussian --input <ts.gjf> --tier simple
 %chk=ts-reuse.chk
 %nprocshared=8
 %mem=10GB
-#p <方法/基组> guess=read opt=(ts,rcfc,noeigentest) freq
+#p <方法/基组> guess=read opt=(ts,rcfc) freq
 ```
 
 RCFC 需要父 chk 中确有适用的力常数；仅复用波函数可用 `guess=read opt=(ts,calcfc) freq`。核对父 chk 的方法、几何、原子顺序、电荷与多重度是否适用；哈希相同不代表科学上适用。`Geom=Check` 和 `Geom=AllCheck` 继续拒绝，`%chk` 必须不同于固定的 `%oldchk=parent.chk`。
@@ -180,12 +180,15 @@ prepare 只做本地声明；submit 在 Mac 弹窗前只读取得父 chk 大小�
 - **恰好一个虚频**：`n_imag=1`，按原始负频计数，小负频也不能删掉凑数。零或多个虚频均不满足 TS 判据。
 - **振动方向对应目标键变化**：逐项核对 `facts.json` 的 `imag_modes[].pairs[].atoms`、`elements`、`distance`、`distance_change_rate` 与目标原子对。全局振动正负号任意，须查看同一方向上成键缩短/断键伸长等协调变化，不能仅靠频率大小或单个符号判断。
 - 当前 `imag_modes` 只列距离小于 3.5 Å 的原子对中变化率绝对值最大的五对；缺目标对并不证明它不动。结合原日志完整位移与几何人工审核（必要时看动画/正负位移），缺证据写不通过并停下，不杜撰模式查看命令。
+- 出现长键、断键、强电荷转移、SCF 多个解或近简并迹象时，审查电子态并提出独立 Stable 诊断，按 [失败诊断](failure-diagnosis.md#电子态与-stable-诊断) 审阅 T30 的 `wavefunction_stability` 及原文行；未诊断不算稳定，稳定也不证明闭壳层方法足够。需要非限制性或多参考方法时明确超出本卡范围。
 - 确認最终身份与预期一致；柔性 TS 列出审阅过的构象和未覆盖部分，不将单个 TS 的能量直接当作唯一反应能垒。
 - `review.md` 写清判据、事实位置与人的方向审核意见；更新 study 假设。通过后只提出双向 IRC，未完成端点识别不能写“已验证 TS/机理”。
 
 ## 7. 常见失败与处理
 
 零虚频说明落到极小点或尚缺完整证据；多虚频可能是高阶鞍点或软模问题；方向错误可能是另一步反应。分别核对完整输出和结构，重审初猜/构象或假设，转 [失败诊断](failure-diagnosis.md)；提出新 Attempt，等人确认。
+
+不得将 `Stable=Opt` 机械地加到所有计算里；它可能改变电子态，不能以较低能量自动接受新态。
 
 需要多维扫描、白名单外输入段或尚未支持的自动初猜时，写明具体缺口并暂停该步骤。真实作业异常先停止报告；不在原 Attempt 重跑，不用旧 Skill 执行。
 

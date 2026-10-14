@@ -34,6 +34,15 @@ TS 族、关键中间体、复合物必须双路线，可旋转键较多也建�
 `Opt Freq` 合在一个作业。方法/基组：见 [acceptance-methods.md](../../auto-g16-study/references/acceptance-methods.md)。
 研究骨架为 `#p <方法/基组> Opt Freq`；阴离子弥散、色散及溶剂按方法表选择，
 最终摘要必须展示替换后的完整 route。上面的中性流程验收示例不能直接用于阴离子或正式研究。
+记录 Gaussian 修订版、优化阈值（含末次四项数值/阈值）、积分网格及 SCF 设置。
+未显式指定的逐项写“程序默认”；积分网格注明“程序默认，G16 为 UltraFine”，
+并核对输出及环境默认覆盖，不能从 route 省略就猜出实际值；缺证据写未知。
+当结论依赖很小的能差时，再针对相关构象、TS 和完整参考物种比较更严格的
+优化阈值、网格和 SCF 收敛设置，记录能差/结论是否改变，不无差别升级所有作业。
+量级参考：298.15 K、相同 TST 前因子/传输系数时，能垒差 1 kcal/mol
+对应速率比 exp(1/RT) ≈ 5.4；这不是误差条或可靠性保证。
+频率和 ZPE 缩放因子均取 1.0，低频截断取 100 cm⁻¹ 的依据及局限见
+[方法表](../../auto-g16-study/references/acceptance-methods.md#数值设置与热化学依据)，并随实际结果记录。
 
 ```text
 ag prepare --study <study_id> --template gaussian --input <conformer.gjf> --tier simple --walltime 24:00:00 --label optfreq-c01
@@ -58,6 +67,7 @@ ag prepare --study <study_id> --template gaussian --input <conformer.gjf> --tier
 - 最终结构保持目标身份、连通性与立体化学；结构改变时不能仍计入原构象集合。
 - 极小点要求 `n_imag = 0`；核对完整频率，非线性分子有 3N−6 个、线性分子有 3N−5 个振动模式，不能把截断输出当零虚频。
 - 对低于 50 cm⁻¹ 的正频逐项记录并检查软扭转 / 数值敏感性；任何负频都不能直接置零。热化学按 thermo 卡片的 100 cm⁻¹ qRRHO 处理，但 qRRHO 不会修复非极小点。
+- Gaussian 修订版、优化阈值、网格与 SCF 设置有实际依据或明确默认/未知标记；小能差结论附针对性数值检查及窗口放宽的最低构象、系综 G、关键能垒比较。
 - 记录 SCF、ZPE、热修正及 Gaussian 原始 G 的单位和来源；与后续 qRRHO 结果区分。优化后调用 `ag dedup` / `ag cluster` 检查不同初猜是否落到同一极小点。
 
 ### 极小点系综（R09）
@@ -70,6 +80,15 @@ ag prepare --study <study_id> --template gaussian --input <conformer.gjf> --tier
 
 按[筛选方法](../../auto-g16-study/references/acceptance-methods.md)先完成
 xTB 6 kcal/mol → DFT 单点重排 → 3 kcal/mol 内进入优化（研究最多 20 个）。
+在 xTB 几何上做 DFT 单点、按 3 kcal/mol 筛选只是控制预算，不能证明窗口外
+候选可以忽略；几何松弛及热修正可能改变排序。每个来源、每种氢键模式中，
+窗口外但结构独特的候选各保留 1–2 个作为验证对象（不足则全留，缺项注明），
+记录来源、氢键模式和保留理由；xTB 预筛也保留相应窗外候选，避免先被丢失。
+它们经同一 DFT Opt+Freq、最终去重及适用的精化单点后参加敏感性比较。
+关键结论须检查窗口放宽前后最低构象、系综 G 和关键能垒是否变化，记录
+实际窗口、集合与差值；预算不足则写验证未完成，不把缺算当作可忽略。
+研究 20 个、验收 10 个的预算上限照旧；先为验证对象预留名额，超额时
+列明未覆盖候选与成本，由人决定调整集合或预算，不能自行绕过上限。TS 通道不能照搬极小点的剪枝规则，逐通道审阅覆盖。
 之后每个化学盆地分别用一致 Opt/Freq/SP 与热修正建立系综；使用
 [thermo](thermo.md) 的可比自由能及 `ensemble_G`，不能用力场排序或平均 G
 代替系综自由能。筛选单点在初始几何上，研究需要最终精化时，优化后须重新做单点；流程验收不增设高精度单点。

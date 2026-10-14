@@ -15,7 +15,7 @@
 方法/基组：见 [acceptance-methods.md](../../auto-g16-study/references/acceptance-methods.md)。
 骨架中的 `<方法/基组>` 必须按已审阅方案替换，并补齐适用的色散与溶剂设置。
 
-Gaussian 路线形式为 `irc=(calcfc,maxpoints=<点数>,stepsize=<步长>,forward)`，反方向将 `forward` 改为 `reverse`。例如以下单结构骨架在起点重新算力常数，不读取父 chk；50 和 10 仅是待审阅示例值，不保证走到极小点。使用前核对安装版本对步长的单位/约定。
+Gaussian 路线形式为 `irc=(calcfc,maxpoints=<点数>,stepsize=<步长>,forward)`，反方向将 `forward` 改为 `reverse`。例如以下单结构骨架在起点重新算力常数，不读取父 chk；50 和 10 仅是待审阅示例值，不保证走到极小点。G16 中正整数 `StepSize=N` 表示 N×0.01 Bohr（如 10 为 0.10 Bohr）；默认在质量加权笛卡尔坐标下跟随路径，不能把步长数值直接当作某根键的 Å 增量。手册另规定 N<0 时按 |N|×0.01 amu½·Bohr 指定质量加权步长，不能与正值单位混用。见 [G16 IRC 手册转载](https://conflex.co.jp/gaussian_support/irc.php)。
 
 ```text
 %chk=irc-forward.chk
@@ -53,7 +53,7 @@ ag prepare --study <study_id> --template gaussian --input <irc-forward.gjf> --ti
 
 ```
 
-反方向另建 Attempt，改为 `reverse` 和 `%chk=irc-reverse.chk`，引用同一父 chk。**坐标仍须显式写在输入中**；`Geom=Check`/`Geom=AllCheck` 不允许。父 chk 必须确有适用的力常数；Guess=Read 也须核对方法、电荷、多重度、原子顺序和几何。
+反方向另建 Attempt，改为 `reverse` 和 `%chk=irc-reverse.chk`，引用同一父 chk。**坐标仍须显式写在输入中**；`Geom=Check`/`Geom=AllCheck` 不允许。RCFC 读取先前完整频率计算得到并保存在父 chk 中的笛卡尔 Hessian，不能用优化更新的近似 Hessian 冒充；取向要求沿用下面 T25 检查。Guess=Read 也须核对方法、电荷、多重度、原子顺序和几何。
 
 使用 RCFC/ReadFC 前，对父 TS 运行 `ag facts`，坐标取其 `final_input.xyz`
 （最终几何的 Input orientation，去掉 XYZ 前两行），保持原子顺序；
@@ -83,6 +83,7 @@ prepare 纯本地；submit 在 Mac 确认弹窗展示父 ID、来源文件名、
 ## 6. 结果判据清单
 
 - 每个方向分别核对完整原日志、路径点、校正器收敛、终止原因和最终几何；核对 `facts.json` 的 `irc.direction`、`point_count`、`path_complete_reported`、`reached_max_points` 和 `corrector_failed`，并回查日志，不能只看 `termination=normal`。仅达到 MaxPoints、校正器失败或输出截断不能写“走完”。
+- 两个方向分别审阅能量随反应坐标的曲线、目标成断键的关键键长变化及结构连续性；结合逐点几何、SCF/电子态记录排查跳跃、折返和电子态变化。缺曲线或逐点结构证据写无法判断；有疑点转失败诊断，不以平滑能量或正常退出自动接受。
 - 两个方向均走完，并保留与同一 TS 的原子映射和来源；缺一侧就写“IRC 未完成”。
 - 两侧最后路径点分别再优化并做 Freq：满足极小点收敛、频率阶段收敛、完整模式数和零虚频。最后路径点不是自动接受的极小点。
 - 用 `ag graph --study <study_dir> --json` 核对 TS → 两个方向 → 端点优化的 Attempt 来源。`ag graph` 仅为来源图；另用 `ag irc-compare --ts <ts_id> --forward <forward_id> --reverse <reverse_id> --reactant <reactant_id> --product <product_id> --out <新报告.json>` 获取保留原子编号的连接、质子和立体差异。工具的“匹配 / 不匹配 / 无法确定”仍须人工审阅，写入 review；来源图不能替代此比较。缺少可审阅的几何或匹配证据就保持未验证。

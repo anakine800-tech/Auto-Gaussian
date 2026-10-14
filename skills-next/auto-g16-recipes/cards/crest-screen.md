@@ -26,6 +26,7 @@ ag prepare --study <study_id> --template crest --input <reviewed.xyz> --tier sim
 不能按 xTB 排序先截成 20 个。
 再将相对最低 DFT 单点能 ≤ 3 kcal/mol 的候选送入 Opt+Freq，研究最多
 20 个、验收最多 10 个；优化后重新去重，再算研究所需最终单点及热化学；验收不增设高精度单点。
+上述是普通极小点的预算筛选；按 [SP 卡片](sp.md) 为每个来源、每种氢键模式保留 1–2 个窗外独特验证对象，并检查窗口放宽后的结论。TS 通道不套用此剪枝规则。
 具体研究/验收的筛选单点层级见[方法表](../../auto-g16-study/references/acceptance-methods.md)。
 若候选量超预算，记录未完成的 DFT 重排及覆盖限制，不称为完整筛选。
 
@@ -88,11 +89,19 @@ $end
 
 `auto` 采用输入结构中的距离，也可填目标距离（Å）；angle、dihedral 的值以度为单位。这里的“固定”是约束势，搜索后仍需检查实际键长。[xTB 约束语法说明](https://xtb-docs.readthedocs.io/en/latest/xcontrol.html#constraining-potentials)。
 
+`--cinp` 传入的约束会贯穿 MD、MTD、优化和单点各阶段，不只是采样时生效；
+与 NCI 在优化阶段移除的壁势分清。见 [CREST 约束说明](https://crest-lab.github.io/crest-docs/page/examples/example_4.html)。
+记录程序版本、力常数及单位（此 xTB 输入约定为 Eh/Bohr²，示例 0.5 不是通用推荐）、
+原子编号、目标值与输出/几何测得的实际值及偏差；`auto` 也须记下数值。
+距离记 Å、角/二面角记度；不能把约束当成严格冻结，角约束按程序定义解释，
+不自行将力常数换成每平方度。不同约束方案下的搜索能量不能混排；如需统一比较，
+须在同一已审阅设置下另算可比能量，保留原搜索来源和偏置，不靠单位一致判断。
+
 文件只接受单个 `$constrain` / `$end` 块，以及 `force constant=<数>`、`atoms:`（逗号分隔的编号或递增范围，如 `1-3,5`）、`distance:`（2 个编号）、`angle:`（3 个编号）、`dihedral:`（4 个编号）；后三者末项为有限数值或 `auto`。编号从 1 开始且不得超过 XYZ 原子数。其他指令、注释和附加内容均拒绝，包括 `$write`、`$external`、`$set`。
 
 prepare 将原文件字节作为 `constraints.inp` 纳入 bundle 和逐文件 SHA-256 摘要，模板自动加 `--cinp constraints.inp`；不要通过 `--param` 直接传 `--cinp`。提交前同时审阅约束内容、输入结构、完整参数和摘要中的文件哈希。
 
-搜到的结构只是 TS 候选，仍需用 DFT 重新优化为 TS，并逐个按 [TS 卡片](ts.md) 审阅：恰好一个虚频，且振动方向与目标成键/断键坐标一致。需要 IRC 验证时，必须双向完成并识别端点，才能声称验证；CREST 正常终止不能代替 TS 验证。
+搜到的结构只是 TS 候选；正式 DFT TS 优化前释放采样约束、移除冻结段，重新优化为 TS，并逐个按 [TS 卡片](ts.md) 审阅：恰好一个虚频，且振动方向与目标成键/断键坐标一致。需要 IRC 验证时，必须双向完成并识别端点，才能声称验证；CREST 正常终止不能代替 TS 验证。
 
 ### 合并与覆盖报告
 
@@ -105,7 +114,7 @@ ag dedup --source crest=crest.xyz --source etkdg=attempts/ETKDG_MDOPT/mdopt.xyz 
 
 CREST 来源使用 `crest_conformers.xyz` 的绝对 Hartree 注释，不用相对能量表混排。
 有定向路线再加 `--source directed=directed.xyz`，但必须先审阅它是否具有相同
-Hamiltonian、溶剂、电荷、自旋及约束能量口径；不同约束不自动保证能量可比。
+Hamiltonian、溶剂、电荷、自旋及约束能量口径；不同约束方案的搜索能量不得混排；相同约束下的偏置能也不能当作无约束能。
 `--representative lowest` 是使用者对同层级能量的显式声明，代码只核验有限
 Hartree 能量，不从单位猜方法；合并还要求能差小于 `--de`（默认 0.05 kcal/mol）。代表保留实际合并成员的来源和逐帧溯源，再做 DFT 单点。
 无法统一口径时，省略 lowest 和窗口，沿用仅几何合并，不得混排能量。
@@ -140,6 +149,8 @@ DFT 单点后运行
 - dedup / cluster 输出能追溯代表、成员、相对能量、氢模式、两种 RMSD、阈值和筛选原因；确认氢键或反应相关氢未被忽略，截断时写明覆盖局限。
 - 先运行 `ag review manifest --study <dir>` 生成证据清单，再把代表构象及其简并度展示给人签字，并记录清单路径及 SHA-256。聚类样本数可能含重复采样，不等于物理简并度；复制工具输出时保留这一含义，未确认则不用于最终布居。
 - 双路线来源与覆盖报告已审阅，未匹配项、低能独有项和警告已明确记录，覆盖报告不能证明采样已经完备。
+- 约束搜索记录力常数/单位、目标值、实际值与偏差；核对 MD/MTD/优化/单点均受影响，不混排不同约束搜索能量，TS 后续释放采样约束。
+- 普通极小点、非共价复合物、受约束 TS 候选按 [分类后续路线](reaction-plan.md#候选分类与路径边界)分别处理。
 - 分列 xTB 能量、筛选 DFT 单点能、优化后去重与最终电子能；快速搜索完成不代表已穷尽全构象空间。
 
 ## 7. 常见失败与处理
