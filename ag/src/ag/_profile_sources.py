@@ -85,7 +85,11 @@ def protocol(route):
     keywords (Opt/Freq/SP) do not distinguish the electronic method layers.
     """
     route = nonempty(route, 'Gaussian route').lower()
-    route = re.sub(r'\s*([=,/()])\s*', r'\1', route)
+    route = re.sub(r'\s*([=,/])\s*', r'\1', route)
+    # Preserve whitespace outside parentheses: dropping it joins a basis like
+    # 6-31+G(d) to the following Opt/Freq keyword and falsely changes protocol.
+    route = re.sub(r'\(\s*', '(', route)
+    route = re.sub(r'\s*\)', ')', route)
     pairs = re.findall(r'(?<!\S)([a-z0-9+_()\-]+)/([^\s]+)', route)
     require(len(pairs) == 1, 'Expected one explicit method/basis in Gaussian route')
     method, basis = pairs[0]

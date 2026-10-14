@@ -285,6 +285,27 @@ def test_formula_and_route_parser():
             protocol(route)
 
 
+@pytest.mark.parametrize('keywords', ['Opt Freq', 'Freq'])
+@pytest.mark.parametrize('route', [
+    '#p B3LYP/6-31+G(d) {keywords} EmpiricalDispersion=GD3BJ SCRF=(SMD,Solvent=Water)',
+    '#p B3LYP / 6-31+G( d ) {keywords} EmpiricalDispersion = GD3BJ scrf = ( smd , solvent = water )',
+    '#p B3LYP/6-31+G(d) scrf = ( smd , solvent = water ) EmpiricalDispersion=GD3BJ {keywords}',
+])
+def test_protocol_whitespace_preserves_keyword_boundaries(route, keywords):
+    assert protocol(route.format(keywords=keywords)) == {
+        'method': 'b3lyp', 'basis': '6-31+g(d)', 'dispersion': 'gd3bj',
+        'solvent_model': 'smd', 'solvent': 'water',
+    }
+
+
+def test_protocol_whitespace_does_not_erase_basis_differences():
+    small = protocol('#p B3LYP/6-31+G(d) Opt Freq')
+    assert small == protocol('#p B3LYP / 6-31+G( d ) Freq')
+    large = protocol('#p B3LYP / 6-311++G( d , p ) Freq')
+    assert large['basis'] == '6-311++g(d,p)'
+    assert small != large
+
+
 def test_direct_attempts_real_local_minimum_and_ts_logs(tmp_path):
     from test_facts import attempt
     from goodvibes.thermo import calc_bbe, ThermoOptions
@@ -386,8 +407,8 @@ def test_profile_with_monatomic_species(tmp_path, capsys, cached_atom):
                           ('F', 'fluoride_freq_synthetic.log'), ('F_shift', 'fluoride_freq_synthetic.log')]:
         directory = attempt(tmp_path, name, fixture)
         log = directory / 'outputs/input.log'
-        text = log.read_text().replace('#p B3LYP/STO-3G Opt Freq SCF=Tight Integral=UltraFine',
-                                       '#p B3LYP/6-31+G(d) Freq')
+        # Keep molecular Opt Freq versus atomic Freq, as in the L3 inputs.
+        text = log.read_text().replace('B3LYP/STO-3G', 'B3LYP/6-31+G(d)')
         if name == 'ts':
             text = text.replace('2017.6012', '-2017.6012')
             (directory / 'review.md').write_text(
