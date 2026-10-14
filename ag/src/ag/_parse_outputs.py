@@ -212,7 +212,10 @@ def parse_gaussian(path, pbs_path=None):
     facts['charge'] = int(data.charge) if data is not None and hasattr(data, 'charge') else None
     facts['multiplicity'] = int(data.mult) if data is not None and hasattr(data, 'mult') else None
     facts.update(frequency_convergence(text))
-    facts.update(wavefunction_stability(text))
+    # Ordinary jobs must keep their facts keys (and signed evidence) unchanged.
+    if (any(re.search(r'\bstable\b', route, re.I) for route in routes)
+            or re.search(r'(?m)^[ \t]*The wavefunction\b', text, re.I)):
+        facts.update(wavefunction_stability(text))
     facts['opt_converged'] = (True if 'Optimization completed.' in text else
                               False if 'Optimization stopped.' in text else None)
     scf = float(convertor(data.scfenergies[-1], 'eV', 'hartree')) if data is not None and hasattr(data, 'scfenergies') else None

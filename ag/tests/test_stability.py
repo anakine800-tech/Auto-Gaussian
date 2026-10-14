@@ -147,3 +147,52 @@ def test_stable_prepare_preserves_rejections(cfg, tmp_path, keyword, old, new, e
     with pytest.raises(ValueError, match=error):
         attempt.prepare(cfg, study_name='smoke', template='gaussian', input_path=source,
                         tier='simple', walltime='00:05:00', label='stable')
+
+
+# Gaussian build_facts keys from main 8abb588, before T30. A literal baseline
+# keeps this regression runnable in source archives without Git or a remote.
+MAIN_GAUSSIAN_FACT_KEYS = {
+    'schema', 'program', 'units', 'final_geometry', 'final_input_geometry',
+    'final_input_geometry_orientation', 'charge', 'energies', 'error_hint',
+    'expected_vibrational_modes', 'final_geometry_orientation', 'freq_step_converged',
+    'freq_step_convergence', 'frequencies_low', 'frequency_note', 'imag_modes',
+    'monatomic', 'multiplicity', 'n_atoms', 'n_imag', 'n_vibrational_modes',
+    'opt_converged', 'parser_warning', 'program_version', 'program_version_warning',
+    'program_versions', 'route', 's2', 'termination', 'vibrational_modes_complete',
+}
+
+
+@pytest.mark.parametrize('route', ['Opt', 'Freq', 'Opt Freq', 'SP'])
+@pytest.mark.parametrize('body', ['', ' Title: stable=opt\n',
+    ' The wavefunctionish is stable.\n',
+    ' Title: The wavefunction is stable under the perturbations considered.\n'])
+def test_ordinary_facts_keys_match_main(tmp_path, route, body):
+    from ag.facts import build_facts
+    from test_facts import attempt as synthetic_attempt
+
+    directory = synthetic_attempt(tmp_path, fixture=None)
+    (directory / 'outputs' / 'input.log').write_text(
+        HEADER.replace('Stable', route) + body + NORMAL)
+    facts = build_facts(directory)
+    assert set(facts) == MAIN_GAUSSIAN_FACT_KEYS
+    assert set(json.loads((directory / 'facts.json').read_text())) == MAIN_GAUSSIAN_FACT_KEYS
+
+
+@pytest.mark.parametrize('route', ['stable', 'stable=opt', 'sTaBlE=OpT', 'SP\n stable=opt'])
+def test_stable_route_without_diagnostic_keeps_unknown_fields(tmp_path, route):
+    path = tmp_path / 'synthetic.log'
+    path.write_text(HEADER.replace('Stable', route) + NORMAL)
+    facts = parse_gaussian(path)[0]
+    assert facts['wavefunction_stability'] == 'unknown'
+    assert facts['wavefunction_stability_line'] is None
+
+
+@pytest.mark.parametrize('header', ['', HEADER.replace('Stable', 'SP')])
+@pytest.mark.parametrize('line,expected', [(STABLE, 'stable'), (INTERNAL, 'internal_instability'),
+    (RHF_UHF, 'rhf_to_uhf'), (' The wavefunction has an unrecognized instability.', 'unknown')])
+def test_diagnostic_without_stable_route_keeps_fields(tmp_path, header, line, expected):
+    path = tmp_path / 'synthetic.log'
+    path.write_text(header + line + NORMAL)
+    facts = parse_gaussian(path)[0]
+    assert facts['wavefunction_stability'] == expected
+    assert facts['wavefunction_stability_line'] == line
