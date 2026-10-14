@@ -1,6 +1,8 @@
 outputs = ["crest.out", "crest_conformers.xyz", "crest.energies", "crest_best.xyz"]
 completion = "CREST terminated normally."
 [parameters]
+# Set by prepare --constraints after content validation, never an arbitrary path.
+"--cinp" = ["constraints.inp"]
 "--gfn2" = "flag"
 "--gfnff" = "flag"
 "--quick" = "flag"

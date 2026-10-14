@@ -3,7 +3,7 @@ from hashlib import sha256
 import json
 from pathlib import Path
 import re
-from ag import __version__, gaussian_input, journal, render, state, study
+from ag import __version__, crest_input, gaussian_input, journal, render, state, study
 from ag.locks import claim
 from ag.remote import filename
 
@@ -50,7 +50,7 @@ def all_attempts(cfg, name=None):
     return result
 
 
-def prepare(cfg, *, study_name, template, input_path, tier, walltime, label, params=None, parents=None, method_basis='兜底方法'):
+def prepare(cfg, *, study_name, template, input_path, tier, walltime, label, params=None, parents=None, method_basis='兜底方法', constraints=None):
     s = study.locate(cfg, study_name)
     if not (s / 'study.md').is_file() or not (s / 'attempts').is_dir():
         raise ValueError('Initialize the study first')
@@ -61,7 +61,11 @@ def prepare(cfg, *, study_name, template, input_path, tier, walltime, label, par
     source = Path(input_path)
     name = filename(source.name)
     data = source.read_bytes()
-    params = params or {}
+    params = dict(params or {})
+    if constraints is not None and template != 'crest':
+        raise ValueError('--constraints is only supported for the crest template')
+    if '--cinp' in params:
+        raise ValueError('Use --constraints to supply a validated CREST constraint file')
     render.parameters(template, params)
     if template == 'gaussian':
         if source.suffix.lower() != '.gjf':
@@ -76,6 +80,12 @@ def prepare(cfg, *, study_name, template, input_path, tier, walltime, label, par
         # The same Cartesian grammar prevents malformed input from becoming a shell option.
         synthetic = f'%nprocshared={resource["cores"]}\n%mem=1GB\n# HF/STO-3G\n\nxyz\n\n{params.get("--chrg", "0")} {int(params.get("--uhf", "0")) + 1}\n' + '\n'.join(rows[2:]) + '\n\n'
         science = gaussian_input.validate(synthetic, **resource)
+        science['route'] = render.parameters(template, params)
+    constraint_data = None
+    if constraints is not None:
+        constraint_data = Path(constraints).read_bytes()
+        crest_input.validate(constraint_data.decode(), science['n_atoms'])
+        params['--cinp'] = 'constraints.inp'
         science['route'] = render.parameters(template, params)
     if not isinstance(method_basis, str) or not method_basis.strip():
         raise ValueError('Method basis must be a DOI/reference or fallback declaration')
@@ -102,6 +112,8 @@ def prepare(cfg, *, study_name, template, input_path, tier, walltime, label, par
              remote_dir=f'{s.name}/{attempt_id}', parents=parents, created_at=journal.now(),
              ag_version=__version__, completion_receipts=True, science={**science, 'method_basis': method_basis})
     files = {name: data, 'job.pbs': render.render(cfg, m, name).encode()}
+    if constraint_data is not None:
+        files['constraints.inp'] = constraint_data
     m['inputs'], m['bundle_sha256'] = bundle(files)
     path = s / 'attempts' / attempt_id
     path.mkdir()
@@ -133,9 +145,19 @@ def verified_files(cfg, path, manifest):
     if records != m['inputs'] or digest != m['bundle_sha256']:
         raise ValueError('Input bundle differs from confirmed manifest')
     names = set(files) - {'job.pbs'}
+    constrained = m['template'] == 'crest' and m['template_params'].get('--cinp') == 'constraints.inp'
+    if constrained:
+        if 'constraints.inp' not in names:
+            raise ValueError('Missing CREST constraints.inp input')
+        names.remove('constraints.inp')
     if len(names) != 1:
-        raise ValueError('Expected one program input and job.pbs')
+        raise ValueError('Expected one program input, job.pbs and optional declared CREST constraints')
     name = next(iter(names))
+    if constrained:
+        rows = files[name].decode().splitlines()
+        if not rows or not rows[0].isdigit() or int(rows[0]) < 1 or len(rows) != int(rows[0]) + 2:
+            raise ValueError('Invalid XYZ atom count')
+        crest_input.validate(files['constraints.inp'].decode(), int(rows[0]))
     if files['job.pbs'] != render.render(cfg, m, name).encode():
         raise ValueError('Prepared script differs from current reviewed template/configuration')
     if m['template'] == 'gaussian':
