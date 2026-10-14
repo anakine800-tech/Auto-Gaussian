@@ -54,6 +54,11 @@ def render(cfg, manifest, input_name):
     if not re.fullmatch(r'\d{2,4}:[0-5]\d:[0-5]\d', m['walltime']) or not int(m['walltime'].replace(':', '')):
         raise ValueError('walltime must be positive HH:MM:SS')
     p = parameters(m['template'], m['template_params'])
+    # CREST consumes the token immediately after --mdopt as its ensemble file.
+    # Keep the public parameter a flag and bind it only to the validated input.
+    mdopt = m['template'] == 'crest' and '--mdopt' in m['template_params']
+    if mdopt:
+        p = parameters('crest', {k: v for k, v in m['template_params'].items() if k != '--mdopt'})
     work = attempt_dir(cfg, m)
     values = {key: shlex.quote(str(value)) for key, value in dict(
         allowed_root=cfg['remote']['ag_root'], work_dir=work,
@@ -62,6 +67,8 @@ def render(cfg, manifest, input_name):
         xtb_share=cfg['programs']['xtb']['root'] + '/share/xtb',
         cores=m['cores'], input_name=input_name,
         log_name=Path(input_name).stem + '.log').items()}
+    if mdopt:
+        values['input_name'] = '--mdopt ' + shlex.quote(input_name)
     values.update(parameters=p, path_checks=path_checks(work))
     header = (f"#!/bin/sh\n#PBS -N {m['pbs_job_name']}\n#PBS -q {(cfg['scheduler']['queue'] if isinstance(cfg['scheduler'], dict) else '')}\n"
               f"#PBS -l nodes=1:ppn={m['cores']}\n#PBS -l mem={m['mem_gb']}gb\n"

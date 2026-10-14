@@ -83,3 +83,39 @@ def validate(text, n_atoms, *, allow_scan=False):
     return dict(coordinate=definitions[int(match[1]) - 1], constraint_index=int(match[1]),
                 start=start, end=end, steps=steps, expected_points=steps,
                 step_size=step_size)
+
+
+def xyz_ensemble(text):
+    """Validate mdopt frames before CREST reuses one atom array for all frames."""
+    from ag.geometry import finite_number
+    rows = text.splitlines()
+    cursor, frames = 0, []
+    while cursor < len(rows):
+        if not rows[cursor].strip():
+            cursor += 1
+            continue
+        if len(frames) == 1000:
+            raise ValueError('CREST --mdopt accepts at most 1000 XYZ frames')
+        if not rows[cursor].strip().isdigit():
+            raise ValueError('Invalid XYZ atom count')
+        count = int(rows[cursor])
+        if count < 1 or cursor + count + 2 > len(rows):
+            raise ValueError('Empty or truncated XYZ frame')
+        atoms = rows[cursor + 2:cursor + count + 2]
+        symbols = []
+        for atom in atoms:
+            fields = atom.split()
+            if len(fields) != 4 or not re.fullmatch(r'[A-Z][a-z]?', fields[0]):
+                raise ValueError('XYZ requires an element and three finite coordinates')
+            symbols.append(fields[0])
+            for value in fields[1:]:
+                if not re.fullmatch(r'[-+]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][-+]?[0-9]+)?', value):
+                    raise ValueError('XYZ requires finite Cartesian coordinates')
+                finite_number(value)
+        if frames and symbols != frames[0][0]:
+            raise ValueError('XYZ frames must have identical atom counts and element sequences')
+        frames.append((symbols, atoms))
+        cursor += count + 2
+    if not frames:
+        raise ValueError('XYZ contains no frames')
+    return frames

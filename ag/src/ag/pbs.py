@@ -1,17 +1,33 @@
 """Shared PBS node parsing for monitoring and submission capacity checks."""
 import re
 
+from ag.remote import job_id as validate_job_id
+
 
 def slot_count(value):
-    if re.fullmatch(r'\d+', value):
-        return 1
-    if re.fullmatch(r'\d+-\d+', value):
-        start, end = map(int, value.split('-'))
-        if end >= start:
-            return end - start + 1
-    if re.fullmatch(r'\d+\*[1-9]\d*', value):
-        return int(value.split('*')[1])
-    raise ValueError('Unrecognized scheduler CPU slot')
+    """Count comma-separated slots, rejecting overlapping slot identifiers."""
+    intervals = []
+    total = 0
+    for part in value.split(','):
+        if re.fullmatch(r'\d+', part):
+            start = end = int(part)
+            count = 1
+        elif re.fullmatch(r'\d+-\d+', part):
+            start, end = map(int, part.split('-'))
+            if end < start:
+                raise ValueError('Unrecognized scheduler CPU slot')
+            count = end - start + 1
+        elif re.fullmatch(r'\d+\*[1-9]\d*', part):
+            start, count = map(int, part.split('*'))
+            end = start  # Multiplicity applies to this slot, not a range.
+        else:
+            raise ValueError('Unrecognized scheduler CPU slot')
+        intervals.append((start, end))
+        total += count
+    intervals.sort()
+    if any(right[0] <= left[1] for left, right in zip(intervals, intervals[1:])):
+        raise ValueError('Overlapping scheduler CPU slots')
+    return total
 
 
 def parse_nodes(text, jobs):
@@ -48,11 +64,16 @@ def parse_nodes(text, jobs):
         used = allocated.get(record['name'], 0)
         if 'jobs' in record:
             used = 0
-            for assignment in filter(None, (s.strip() for s in record['jobs'].split(','))):
-                slot, sep, job_id = assignment.partition('/')
-                if not sep or not job_id:
-                    raise ValueError('Unrecognized node allocation')
-                used += slot_count(slot)
+            slots = []
+            for fragment in record['jobs'].split(','):
+                slot, sep, job_id = fragment.strip().partition('/')
+                slots.append(slot)
+                if sep:
+                    validate_job_id(job_id)
+                    used += slot_count(','.join(slots))
+                    slots = []
+            if slots:
+                raise ValueError('Unrecognized node allocation')
         nodes.append(dict(name=record['name'], state=record['state'],
                           cores_total=int(cores), cores_used=used))
     return nodes

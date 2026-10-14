@@ -26,12 +26,14 @@ is disclosed even when minimization converges.
 
 Inspect identity, CIP centers, source atom count, formula, explicit-H count,
 force-field fallback, convergence and 3D geometry. Inspect axial configuration
-separately. Pass the XYZ and its energy units to `ag dedup`; review the resulting
-representative set with the researcher. Multiple representatives can proceed;
+separately. For the combined CREST/ETKDG route, optimize the reviewed ensemble
+with CREST `--mdopt` at the same xTB level before merging and energy filtering;
+review the resulting representative set with the researcher. Multiple representatives can proceed;
 there is no single-conformer selection step.
 
 For the T12b research workflow confirmed on 2026-10-14, retain enough force-field candidates
-for DFT single-point reranking before applying the optimization count limit.
+for same-method CREST `--mdopt` optimization, merged xTB filtering, and DFT
+single-point reranking before applying the DFT optimization count limit.
 The script's legacy `--max-keep 10` is not that research limit; deliberately
 choose and record candidate coverage. The force-field window is not an xTB
 window. See the [screening card](../../auto-g16-recipes/cards/rdkit-screen.md)
@@ -50,20 +52,33 @@ TS 族、关键中间体、复合物必须走双路线；可旋转键较多的�
 CREST (`directed`) 交叉核对。这两条路线仍共享 CREST 引擎，报告此局限。
 采样引擎仍是 CREST/RDKit，不自写 MD 或退火引擎。
 
-每条路线先独立审核身份、收敛和方法内能量窗口，保留足够候选供 DFT 重排。
+每条路线先独立审核身份、立体化学和收敛，保留足够候选。
+ETKDG 的多帧 XYZ 必须先按 [CREST 卡片](../../auto-g16-recipes/cards/crest-screen.md)
+用 `--param=--mdopt` 做逐帧优化；与 CREST 路线使用相同 GFN2-xTB、溶剂、
+电荷及自旋。prepare 校验 1–1000 帧、原子数/元素序列一致、有限坐标。
+经人确认提交，status → fetch → facts 后取得 Attempt 下的 `mdopt.xyz`，
+每帧注释为优化后的 Hartree 能量。力场预筛窗口不是 xTB 的 6 kcal/mol 窗口，
+不要用旧默认 `--max-keep 10` 提前截断研究候选；记录预筛造成的覆盖局限。
+审阅结果后先合并两路线，再相对共同最低 xTB 能量开 6 kcal/mol 窗口并去重，
+保留足够候选供 DFT 单点重排。
 相同方法多种子可以反复使用同一个路线名，不把多个 ETKDG 种子伪装成多条路线。
 把审阅过的多帧 XYZ 合并（以下路径均为 study 内占位符）：
 
 ```text
-ag dedup --source crest=crest.xyz --source etkdg=etkdg.xyz --source directed=directed.xyz --charge 0 --out analyses --json
+ag dedup --source crest=crest.xyz --source etkdg=attempts/ETKDG_MDOPT/mdopt.xyz --representative lowest --window 6 --charge 0 --out analyses --json
 ag coverage --merged analyses/dedup-TIMESTAMP.json --energies attempts/SP_A attempts/SP_B --window 3 --out analyses/coverage-01.md
 ```
 
 `--source` 按身份与重原子 RMSD 合并，重复构象的 `sources` 保留全部路线，
-`members` 保留原始文件、帧号、路线与原能量。代表按输入次序选取，
-不跨方法比较能量或套统一预筛窗口；该模式不接受 `--de`、`--window`、
-`--energies`、`--energy-unit` 或位置输入。旧位置输入的能量去重用法不变。
-要比较不同方法的样本，不能把力场 kcal/mol 与 xTB Hartree 转单位后混排。
+`members` 保留原始文件、帧号、路线与原能量。显式 `--representative lowest`
+表示人已确认各来源能量可比，要求所有帧为有限 Hartree 能量，按最低能选代表，
+并接受 `--window 6`。CREST 来源取 `crest_conformers.xyz` 的绝对能量注释。
+代码不能从 Hartree 单位验证相同方法，GFN-FF 与 GFN2-xTB 不能混排；
+定向约束路线只有在确认约束及能量口径一致后才加入此窗口。
+
+省略 lowest 时保留原来的几何合并行为：代表按输入次序，允许不同方法/单位，
+不接受 `--window`；合并来源始终不接受 `--de`、`--energies`、`--energy-unit`
+或位置输入。旧位置输入能量去重不变；不能靠转换单位比较力场与 xTB 能量。
 
 对合并后的每个候选原样制作 DFT 单点输入，使用一致方法、基组、溶剂、
 电荷与多重度。`ag coverage` 读取已有 facts，不运行 DFT、不重写 facts。
@@ -115,6 +130,7 @@ walltime（只加 walltime 不会自动增加已正常结束的采样）；增�
 平局按能量、输入顺序，使用 `--mirror` 时同原有镜像能差条件取更小镜像 RMSD。
 聚类分组仍由原算法生成；输出 `representative_method`、medoid RMSD 总和，
 成员中的 reason/rmsd 是相对原簇种子的归属证据，`cluster_seed_index` 标识该种子。
-来源合并集合没有统一能量口径，只允许 medoid 且不启用镜像能差判断；其平局
-按输入顺序。要用 lowest，应先建立同一层级的能量集合。medoid 是几何中心
+未经能量统一的来源合并集合只允许 medoid 且不启用镜像能差判断，平局按输入顺序。
+ETKDG 经 `--mdopt` 且按上述 lowest 模式合并后，已建立同层级能量集合，
+可继续用 `ag cluster --representative lowest`。medoid 是几何中心
 代表，不保证低能，也不能在覆盖报告之前靠聚类数量上限截掉 DFT 候选。
