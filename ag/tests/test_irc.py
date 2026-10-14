@@ -121,9 +121,11 @@ def test_facts_reuses_identical_endpoint_and_regenerates_facts(tmp_path):
     endpoint = directory / 'irc_end.xyz'
     stat = endpoint.stat()
     (directory / 'facts.json').write_text('{"stale": true}')
-    assert build_facts(directory) == facts
+    assert build_facts(directory, refresh=True) == facts
     assert (endpoint.stat().st_ino, endpoint.stat().st_mtime_ns) == (stat.st_ino, stat.st_mtime_ns)
-    assert before == {p.name: p.read_bytes() for p in directory.iterdir() if p.is_file()}
+    archive, = directory.glob('facts.*.json')
+    assert archive.read_bytes() == b'{"stale": true}'
+    assert before == {p.name: p.read_bytes() for p in directory.iterdir() if p.is_file() and p != archive}
 
 
 @pytest.mark.parametrize('change', ['endpoint', 'line_endings', 'log'])

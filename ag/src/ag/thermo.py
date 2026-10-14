@@ -9,7 +9,7 @@ import re
 from pathlib import Path
 import sys
 
-from ag.facts import build_facts, gaussian_log, resolve_attempt
+from ag.facts import parse_facts, gaussian_log, resolve_attempt
 
 HARTREE_TO_KCAL = 627.509541
 R_HARTREE = 8.3144621 / (HARTREE_TO_KCAL * 4184)
@@ -59,10 +59,10 @@ def _geometry_sha256(frame):
                              allow_nan=False).encode('utf-8')).hexdigest()
 
 
-def _pairing_evidence(directory, facts, sp_directory, sp_facts):
+def _pairing_evidence(directory, facts, sp_directory, sp_facts, geometry):
     import numpy as np
     from ag.gaussian_input import validate
-    from ag.geometry import Frame, read_xyz
+    from ag.geometry import Frame
     from ag._scan import input_geometry
 
     # Read the manifest-bound SP input: its final output could belong to a
@@ -89,12 +89,12 @@ def _pairing_evidence(directory, facts, sp_directory, sp_facts):
             raise ValueError(f'{sp_directory.name}: SPC {key} differs from frequency geometry/state')
     symbols, coordinates = input_geometry(science['geometry'])
     moving = Frame(tuple(symbols), tuple(tuple(x) for x in coordinates))
-    if facts.get('final_geometry') != 'final.xyz':
+    if not geometry:
         raise ValueError(f'{directory.name}: frequency final geometry is missing')
-    frames = read_xyz(directory / 'final.xyz')
-    if len(frames) != 1 or len(frames[0].symbols) != facts['n_atoms']:
+    symbols, coordinates = input_geometry('\n'.join(geometry.splitlines()[2:]))
+    reference = Frame(tuple(symbols), tuple(tuple(x) for x in coordinates))
+    if len(reference.symbols) != facts['n_atoms']:
         raise ValueError(f'{directory.name}: requires one complete frequency final geometry')
-    reference = frames[0]
     if moving.symbols != reference.symbols:
         raise ValueError(f'{sp_directory.name}: SPC element sequence differs; atom reordering is forbidden')
     try:
@@ -113,7 +113,8 @@ def _pairing_evidence(directory, facts, sp_directory, sp_facts):
             'alignment': 'proper Kabsch; all atoms; fixed row order; no reflection or permutation',
             'sp_input_geometry_sha256': _geometry_sha256(moving),
             'frequency_final_geometry_sha256': _geometry_sha256(reference),
-            'sp_input_file': item['name'], 'frequency_final_geometry_file': 'final.xyz',
+            'sp_input_file': item['name'], 'frequency_final_geometry_file': gaussian_log(directory).name,
+            'frequency_final_geometry_source': 'parsed in memory from frequency log',
             'geometry_hash_format': 'SHA-256 of UTF-8 compact sorted-key JSON: '
                                     '{coordinates_angstrom: [[x,y,z],...], elements: [symbol,...]}; '
                                     'parsed floating-point coordinates before alignment'}
@@ -161,7 +162,7 @@ def calculate_thermo(attempts, *, study=None, temp=298.15, conc=1.0, qs='grimme'
                             freq_scale_factor=1.0, zpe_scale_factor=1.0)
     rows = []
     for directory in directories:
-        facts = build_facts(directory)
+        facts, geometries = parse_facts(directory)
         if facts['termination'] != 'normal' or facts.get('n_imag') != 0:
             raise ValueError(f'{directory.name}: requires normal termination and frequencies with n_imag = 0')
         if facts['program'] != 'gaussian':
@@ -180,13 +181,14 @@ def calculate_thermo(attempts, *, study=None, temp=298.15, conc=1.0, qs='grimme'
         sp_id = None
         pairing = None
         if directory in sp:
-            sp_facts = build_facts(sp[directory])
+            sp_facts, _ = parse_facts(sp[directory])
             if sp_facts['termination'] != 'normal' or sp_facts.get('n_imag') not in (0, None):
                 raise ValueError(f'{sp[directory].name}: SPC requires normal termination and no imaginary frequencies')
             electronic = sp_facts.get('energies', {}).get('scf')
             if electronic is None:
                 raise ValueError(f'{sp[directory].name}: SPC electronic energy is missing')
-            pairing = _pairing_evidence(directory, facts, sp[directory], sp_facts)
+            pairing = _pairing_evidence(directory, facts, sp[directory], sp_facts,
+                                        geometries.get('final.xyz'))
             delta = electronic - result.scf_energy
             sp_id = sp[directory].name
         # GoodVibes already applies the requested concentration in translation.

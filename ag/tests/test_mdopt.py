@@ -111,7 +111,7 @@ def test_mdopt_facts_export_and_dedup(cfg, tmp_path, capsys):
     assert merged['energy_basis'] == 'shared_hartree'
     (path / 'outputs' / 'crest_ensemble.xyz').write_text(
         (path / 'outputs' / 'crest_ensemble.xyz').read_text().replace('-5.00100000', '-5.00200000'))
-    with pytest.raises(ValueError, match='differs'):
+    with pytest.raises(ValueError, match='facts.json 内容不同'):
         facts.build_facts(path)
 
 

@@ -129,7 +129,7 @@ def attempt_facts(study, attempt_id, *, cached):
     require(isinstance(attempt_id, str) and re.fullmatch(r'[A-Za-z0-9_-]+', attempt_id),
             'Expected a local Attempt ID')
     directory = local_path(study, study / 'attempts', attempt_id)
-    if cached:
+    if cached and (directory / 'facts.json').is_file():
         facts = read_json(directory / 'facts.json')
         geometry = local_path(study, directory, facts.get('final_geometry'))
         frames = read_xyz(geometry)

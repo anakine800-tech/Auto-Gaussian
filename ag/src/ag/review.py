@@ -74,7 +74,10 @@ def facts_snapshot(path):
     facts = json.loads(data)
     if not isinstance(facts, dict):
         raise ValueError('facts.json must be an object')
-    return facts, dict(sha256=sha256(data).hexdigest(), mtime_ns=stamp)
+    fingerprint = dict(sha256=sha256(data).hexdigest(), mtime_ns=stamp)
+    if isinstance(facts.get('ag_provenance'), dict):
+        fingerprint['ag_provenance'] = facts['ag_provenance']
+    return facts, fingerprint
 
 
 def init(path, card=None):
@@ -163,6 +166,26 @@ def check(path):
              (current is not None and current['mtime_ns'] > destination.stat().st_mtime_ns))
     warnings = ['review 可能过期：facts.json 已重新生成、改变或缺少原始快照；请重新核对依据'] if stale else []
     result = dict(attempt_id=path.name, complete=not issues, stale=stale, issues=issues, warnings=warnings)
+    if isinstance(original, dict) and original.get('sha256') != (current or {}).get('sha256'):
+        # Use the provenance bound to the reviewed bytes, never today's HEAD or
+        # the Skills commit (which identifies criteria, not the facts parser).
+        provenance = original.get('ag_provenance') or {}
+        commit = provenance.get('git_commit') if isinstance(provenance, dict) else None
+        dirty = provenance.get('dirty') if isinstance(provenance, dict) else None
+        if not isinstance(commit, str) or not re.fullmatch(r'[0-9a-f]{40}', commit):
+            commit = None
+        result['bound_ag_commit'] = commit
+        result['bound_ag_dirty'] = dirty
+        message = '证据文件已变化：facts.json 与签字/审阅绑定的 SHA-256 不符。'
+        if commit:
+            message += f'绑定版本的 ag 提交号：{commit}。'
+            if dirty is not False:
+                message += '生成时工作区不干净或状态未知，仅该提交不能保证复现。'
+            else:
+                message += '可用该提交及原始日志、相同依赖复现并核对绑定哈希。'
+        else:
+            message += '历史记录未保存 ag 提交号，无法确定可复现的代码版本。'
+        warnings.insert(0, message)
     if stale:
         result['current_facts'] = current
     return result
