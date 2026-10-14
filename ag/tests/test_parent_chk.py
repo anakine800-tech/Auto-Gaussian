@@ -435,7 +435,7 @@ def test_remote_script_uses_python36_syntax_and_subprocess_api():
 @pytest.mark.parametrize('cluster', ['default', 'batch'])
 @pytest.mark.parametrize('version,proc,expected', [('3.6.8', 'yes', True), ('3.11.15', 'yes', True),
                                                 ('3.5.10', 'yes', False), ('3.6.8', 'no', False)])
-def test_doctor_reports_checkpoint_environment(multi, cluster, version, proc, expected):
+def test_doctor_reports_checkpoint_environment(multi, cluster, version, proc, expected, capsys):
     from test_slurm import SlurmFake
     selected = config.select_cluster(multi, cluster)
     fake = SlurmFake(selected)
@@ -447,14 +447,53 @@ def test_doctor_reports_checkpoint_environment(multi, cluster, version, proc, ex
         return original(command)
     fake.run = run
     result = doctor.doctor(selected, fake)
-    assert result['ok'] == expected
+    assert result['ok'] is True
+    assert result['parent_chk']['ok'] == expected
     assert result['parent_chk']['python_version'] == version
     assert result['parent_chk']['proc_fd'] == (proc == 'yes')
     assert bool(result['parent_chk']['note']) == (not expected)
+    assert ('父 chk 功能不可用' in capsys.readouterr().err) == (not expected)
     assert set(fake.operations()) <= READ_OPERATIONS
 
 
-@pytest.mark.parametrize('response', [Result(127, stderr='python3 unavailable'),
+@pytest.mark.parametrize('cluster', ['default', 'batch'])
+def test_doctor_without_python_warns_and_cli_succeeds(multi, cluster, monkeypatch, capsys):
+    from test_slurm import SlurmFake
+    from test_core import write_config
+    selected = config.select_cluster(multi, cluster)
+    fake = SlurmFake(selected)
+    original = fake.run
+    fake.run = lambda command: (Result(127) if command.operation == 'parent_chk_environment'
+                                else original(command))
+    monkeypatch.setattr('ag.transport.SSHTransport', lambda *a, **kw: fake)
+    loaded = config.load_config(write_config(multi))
+    monkeypatch.setattr(cli, 'load_config', lambda: loaded)
+    assert cli.main(['doctor', '--cluster', cluster, '--json']) == 0
+    output = capsys.readouterr()
+    result = json.loads(output.out)
+    assert result['ok'] and not result['parent_chk']['ok']
+    assert '父 chk 功能不可用' in output.err
+
+
+@pytest.mark.parametrize('response', [Result(127), Result(1)])
+def test_parent_chk_unavailable_refuses_before_confirmation(cfg, parent, tmp_path, monkeypatch, response):
+    p, m = child(cfg, tmp_path, parent)
+    fake = CheckpointFake(cfg, parent[1])
+    original = fake.run
+    def run(command):
+        if command.operation == 'parent_chk_metadata':
+            fake.calls.append(command)
+            return response
+        return original(command)
+    fake.run = run
+    monkeypatch.setattr('ag.confirm.confirm', lambda *a: pytest.fail('unavailable parent chk must refuse'))
+    with pytest.raises(TransportError):
+        submit.submit(cfg, [p.name], fake)
+    assert state.read(p)['state'] == 'prepared' and not (p / '.submit-claim').exists()
+    assert 'submit' not in fake.operations() and 'copy_parent_chk' not in fake.operations()
+
+
+@pytest.mark.parametrize('response', [Result(255), Result(1),
                                       Result(stdout='unexpected'), Result(stdout='Python 3.6.8\n')])
 def test_doctor_environment_failures(cfg, response):
     fake = Fake(cfg)

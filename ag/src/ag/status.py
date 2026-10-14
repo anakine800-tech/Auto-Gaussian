@@ -306,6 +306,7 @@ def format_status(results):
 
 
 def check_slurm(cfg, path, transport, m):
+    username = None
     if hasattr(transport, 'record_to'):
         transport.record_to([path])
     current = state.read(path)
@@ -318,11 +319,7 @@ def check_slurm(cfg, path, transport, m):
         # Explicit start date avoids sacct's default midnight window hiding a
         # submission whose reply was lost before the next day's reconciliation.
         text = require_ok(transport.run(remote.slurm_find(username, m['attempt_id'], m['created_at'][:10])), 'sacct name reconciliation')
-        for line in text.splitlines():
-            fields = line.split('|')
-            if len(fields) != 7 or fields[1] != m['attempt_id'] or fields[2] != username:
-                raise ValueError('sacct name/owner identity mismatch')
-            row = slurm.parse_accounting('|'.join([fields[0], *fields[3:]]))[0]
+        for row in slurm.parse_accounting(text, name=m['attempt_id'], username=username):
             matches.add(row['job_id'])
         if len(matches) != 1:
             return state.write(path, 'unknown', note='No unique Slurm job evidence; human review required')
@@ -332,6 +329,9 @@ def check_slurm(cfg, path, transport, m):
     if current['state'] not in ('submitted', 'running', 'unknown', 'interrupted', 'finished', 'fetched', 'cancelled'):
         return current
     job = submission.verified_job(path, m, current)
+    if username is None:
+        username = require_ok(transport.run(remote.identity()), 'identity').strip()
+        remote.slurm_token(username)
     result = transport.run(remote.slurm_jobs(job))
     # Some versions return an explicit invalid-job diagnostic after purging;
     # it only triggers accounting lookup, never an inference of completion.
@@ -339,7 +339,8 @@ def check_slurm(cfg, path, transport, m):
         active = []
     else:
         active = slurm.parse_queue(require_ok(result, 'squeue exact job'))
-    if len(active) > 1 or any(j['job_id'] != job or j['name'] != m['attempt_id'] for j in active):
+    if len(active) > 1 or any(j['job_id'] != job or j['name'] != m['attempt_id']
+                              or j['owner'] != username for j in active):
         raise ValueError('squeue exact-job identity mismatch')
     details = dict(scheduler='slurm', cluster=m['cluster'], scheduler_residue=False,
                    scheduler_observed_at=time.time())
@@ -351,7 +352,8 @@ def check_slurm(cfg, path, transport, m):
             details['scheduler_residue'] = True
         return state.write(path, target, exit_status=current.get('exit_status'),
                            scheduler_state=scheduler, note='Active Slurm scheduler observation', **details)
-    rows = slurm.parse_accounting(require_ok(transport.run(remote.slurm_accounting(job)), 'sacct exact job'), job)
+    rows = slurm.parse_accounting(require_ok(transport.run(remote.slurm_accounting(job)), 'sacct exact job'),
+                                  job, name=m['attempt_id'], username=username)
     if not rows:
         if current['state'] in ('finished', 'fetched'):
             return state.write(path, current['state'], exit_status=current.get('exit_status'),

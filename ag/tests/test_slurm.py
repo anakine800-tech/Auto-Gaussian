@@ -40,9 +40,9 @@ class SlurmFake(Fake):
         self.qsub = Result(stdout='123;fixture\n')
         self.queue = Result()
         self.exact = Result()
-        self.accounting = Result(stdout='123|COMPLETED|0:0|00:01:00|8\n')
+        self.accounting = Result(stdout='123|water-001-sp|fixture|COMPLETED|0:0|00:01:00|8\n')
         self.find = Result()
-        self.history = Result(stdout='123|COMPLETED|0:0|00:01:00|8\n')
+        self.history = Result(stdout='123|water-001-sp|fixture|COMPLETED|0:0|00:01:00|8\n')
         self.partitions = Result(stdout='fixture*\n')
 
     def run(self, command):
@@ -124,12 +124,12 @@ def test_sbatch_lost_never_retries(multi, tmp_path, monkeypatch, outcome):
 @pytest.mark.parametrize('terminal', ['COMPLETED', 'FAILED', 'CANCELLED', 'TIMEOUT', 'OUT_OF_MEMORY', 'NODE_FAIL'])
 def test_terminal_from_accounting(multi, tmp_path, monkeypatch, terminal):
     p, _, fake = submitted(multi, tmp_path, monkeypatch)
-    fake.accounting = Result(stdout=f'123|{terminal}|1:9|00:05:00|8\n')
+    fake.accounting = Result(stdout=f'123|water-001-sp|fixture|{terminal}|1:9|00:05:00|8\n')
     result = status.check(multi, p, fake)
     assert result['state'] == 'finished' and result['scheduler_state'] == terminal
     assert result['exit_code'] == 1 and result['exit_signal'] == 9 and result['exit_status'] == 1
     assert result['completion_source'] == 'sacct'
-    assert fake.operations() == ['slurm_jobs', 'slurm_accounting']
+    assert fake.operations() == ['identity', 'slurm_jobs', 'slurm_accounting']
 
 
 def test_no_queue_or_accounting_is_unknown(multi, tmp_path, monkeypatch):
@@ -138,7 +138,7 @@ def test_no_queue_or_accounting_is_unknown(multi, tmp_path, monkeypatch):
     assert status.check(multi, p, fake)['state'] == 'unknown'
     assert state.read(p)['job_id'] == 'batch:123'
     with pytest.raises(ValueError): submit.submit(multi, [p.name], fake)
-    fake.accounting = Result(stdout='123|COMPLETED|0:0|00:01:00|8\n')
+    fake.accounting = Result(stdout='123|water-001-sp|fixture|COMPLETED|0:0|00:01:00|8\n')
     assert status.check(multi, p, fake)['state'] == 'finished'
 
 
@@ -232,6 +232,74 @@ def test_slurm_fixed_commands(multi, tmp_path):
             assert c.operation in READ_OPERATIONS
 
 
+def test_slurm_output_widths_and_history_window():
+    for command in (remote.slurm_jobs('123'), remote.slurm_jobs(user='fixture')):
+        assert shlex.split(command.text)[-1] == '%i|%.200j|%.64u|%T|%C|%M|%P'
+    for command in (remote.slurm_accounting('123'),
+                    remote.slurm_find('fixture', 'water-001-optfreq', '2026-01-01'),
+                    remote.slurm_history('fixture')):
+        assert shlex.split(command.text)[-1] == (
+            '--format=JobID%64,JobName%200,User%64,State%64,ExitCode%32,Elapsed%32,AllocCPUS%20')
+    history = shlex.split(remote.slurm_history('fixture').text)
+    assert '--starttime=now-30days' in history and '--endtime=now' in history
+    assert '--starttime=2026-01-01' in remote.slurm_find('fixture', 'water-001-optfreq', '2026-01-01').text
+
+
+def test_squeue_synthetic_diagnostic_shape():
+    # Synthetic values only. Observed shape: 14-character truncated name,
+    # 10-character user + 4 right spaces, 8-character partition + 6 right spaces.
+    raw = '123|water-001-optf|sampleuser    |RUNNING|8|0:16|sampleqp      \n'
+    fields = raw.rstrip('\n').split('|')
+    assert len(fields[1]) == 14
+    assert len(fields[2]) == 14 and len(fields[2].strip()) == 10
+    assert fields[2].endswith(' ' * 4) and fields[6].endswith(' ' * 6)
+    row = slurm.parse_queue(raw)[0]
+    assert row['owner'] == 'sampleuser' and row['partition'] == 'sampleqp'
+    assert slurm.core_breakdown([row], 'sampleuser') == (8, 0)
+    with pytest.raises(ValueError, match='different owner'):
+        slurm.core_breakdown([row], 'sampleuser2')
+
+
+@pytest.mark.parametrize('source', ['queue', 'accounting', 'find'])
+@pytest.mark.parametrize('identity', ['exact', 'truncated', 'suffix', 'wrong_owner'])
+def test_padded_slurm_identity_is_exact(multi, tmp_path, monkeypatch, source, identity):
+    p, m, fake = submitted(multi, tmp_path, monkeypatch, label='optfreq-long-label')
+    assert len(m['attempt_id']) > 14
+    name = m['attempt_id']
+    owner = 'fixture'
+    if identity == 'truncated':
+        name = name[:14]
+    elif identity == 'suffix':
+        name += '-other'
+    elif identity == 'wrong_owner':
+        owner += '2'
+    if source == 'queue':
+        fake.exact = Result(stdout=f' 123 | {name:>200} | {owner:<64} | RUNNING | 8 | 0:16 | sampleqp \n')
+    else:
+        row = f' 123 | {name:>200} | {owner:<64} | COMPLETED | 0:0 | 00:01:00 | 8 \n'
+        fake.accounting = Result(stdout=row)
+        if source == 'find':
+            state.write(p, 'unknown', job_id=None)
+            fake.find = Result(stdout=row)
+    if identity == 'exact':
+        assert status.check(multi, p, fake)['state'] == ('running' if source == 'queue' else 'finished')
+    else:
+        with pytest.raises(ValueError, match='identity mismatch'):
+            status.check(multi, p, fake)
+        assert budget.totals(fake.cfg)[1] == 12 * 3600
+    assert 'submit' not in fake.operations()
+
+
+def test_doctor_padded_history_checks_owner(multi):
+    cfg = config.select_cluster(multi, 'batch')
+    fake = SlurmFake(cfg)
+    fake.history = Result(stdout=' 123_1 | web-job-longer-than-fourteen | fixture   | CANCELLED by 42 | 0:15 | 00:01:00 | 8 \n')
+    assert doctor.doctor(cfg, fake)['ok']
+    fake.history.stdout = fake.history.stdout.replace('fixture   ', 'fixture2  ')
+    with pytest.raises(ValueError, match='name/owner identity mismatch'):
+        doctor.doctor(cfg, fake)
+
+
 def test_budget_reserves_settles_and_refuses(multi, tmp_path, monkeypatch):
     multi['clusters']['batch']['resources']['budget_core_hours'] = 20
     p, _, fake = submitted(multi, tmp_path, monkeypatch)
@@ -241,7 +309,7 @@ def test_budget_reserves_settles_and_refuses(multi, tmp_path, monkeypatch):
     monkeypatch.setattr('ag.confirm.confirm', lambda *a: seen.append(a) or True)
     with pytest.raises(ValueError, match='budget exceeded'): submit.submit(multi, [p2.name], fake)
     assert not seen and not (p2 / '.submit-claim').exists()
-    fake.accounting = Result(stdout='123|COMPLETED|0:0|00:30:00|8\n')
+    fake.accounting = Result(stdout='123|water-001-sp|fixture|COMPLETED|0:0|00:30:00|8\n')
     status.check(multi, p, fake)
     assert budget.totals(fake.cfg) == (4 * 3600, 0)
     status.check(multi, p, fake)
@@ -256,7 +324,7 @@ def test_budget_unknown_keeps_reservation_and_cancel_settles(multi, tmp_path, mo
     p, _, fake = submitted(multi, tmp_path, monkeypatch)
     cancel.cancel(multi, p, fake)
     assert budget.totals(fake.cfg) == (0, 12 * 3600)
-    fake.accounting = Result(stdout='123|CANCELLED by 42|0:15|00:10:00|8\n')
+    fake.accounting = Result(stdout='123|water-001-sp|fixture|CANCELLED by 42|0:15|00:10:00|8\n')
     assert status.check(multi, p, fake)['state'] == 'finished'
     assert budget.totals(fake.cfg) == (4800, 0)
 
@@ -413,7 +481,7 @@ def test_squeue_malformed_cannot_free_cores():
 
 def test_sacct_wrong_id_and_ambiguous_name_refuse(multi, tmp_path, monkeypatch):
     p, m, fake = submitted(multi, tmp_path, monkeypatch)
-    fake.accounting = Result(stdout='124|COMPLETED|0:0|00:01:00|8\n')
+    fake.accounting = Result(stdout='124|water-001-sp|fixture|COMPLETED|0:0|00:01:00|8\n')
     with pytest.raises(ValueError): status.check(multi, p, fake)
     assert budget.totals(fake.cfg)[1] == 12 * 3600
 

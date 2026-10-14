@@ -224,12 +224,12 @@ def slurm_jobs(job=None, *, user=None):
     if (job is None) == (user is None):
         raise ValueError('Expected one exact job or user selector')
     selector = '-j ' + slurm_job_id(job) if job is not None else '-u ' + quote(slurm_token(user))
-    return Command('slurm_jobs', f"squeue -h {selector} -r --local -o '%i|%j|%u|%T|%C|%M|%P'")
+    return Command('slurm_jobs', f"squeue -h {selector} -r --local -o '%i|%.200j|%.64u|%T|%C|%M|%P'")
 
 
 def slurm_accounting(job):
     return Command('slurm_accounting', 'sacct -X -n -P -j ' + slurm_job_id(job)
-                   + ' --format=JobID,State,ExitCode,Elapsed,AllocCPUS')
+                   + ' --format=JobID%64,JobName%200,User%64,State%64,ExitCode%32,Elapsed%32,AllocCPUS%20')
 
 
 def slurm_find(user, name, since):
@@ -238,13 +238,13 @@ def slurm_find(user, name, since):
         raise ValueError('Invalid accounting start date')
     return Command('slurm_find', f'sacct -X -n -P -u {quote(slurm_token(user))} '
                    f'--name={quote(name)} --starttime={since} '
-                   '--format=JobID,JobName%128,User%128,State%64,ExitCode,Elapsed,AllocCPUS')
+                   '--format=JobID%64,JobName%200,User%64,State%64,ExitCode%32,Elapsed%32,AllocCPUS%20')
 
 
 def slurm_history(user):
     return Command('slurm_history', f'sacct -X -n -P -u {quote(slurm_token(user))} '
-                   '--starttime=1970-01-01 --endtime=now --state=CD,F,CA,TO,OOM,NF '
-                   '--format=JobID,State,ExitCode,Elapsed,AllocCPUS')
+                   '--starttime=now-30days --endtime=now --state=CD,F,CA,TO,OOM,NF '
+                   '--format=JobID%64,JobName%200,User%64,State%64,ExitCode%32,Elapsed%32,AllocCPUS%20')
 
 
 def slurm_partitions(partition=None):
