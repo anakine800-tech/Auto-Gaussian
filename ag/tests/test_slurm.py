@@ -429,20 +429,28 @@ def test_fetch_slurm_outputs_on_bound_cluster(multi, tmp_path, monkeypatch):
     assert (p / 'outputs/job.slurm.err').read_bytes() == b'stderr'
 
 
-def test_slurm_local_guard_runs_once(multi, tmp_path):
+@pytest.mark.parametrize('environment', [None, 'scnet-a03'])
+def test_slurm_local_guard_runs_once(multi, tmp_path, environment):
     # Execute the reviewed script only against a disposable local fake program.
     batch = multi['clusters']['batch']
     root = (tmp_path / 'remote').resolve(); root.mkdir()
     batch['remote'] = {'allowed_root': str(root), 'ag_root': str(root / 'ag')}
     binary = (tmp_path / 'bin').resolve(); binary.mkdir()
     batch['programs']['gaussian']['g16root'] = str(binary)
+    if environment:
+        batch['programs']['gaussian']['environment'] = environment
     if sys.platform != 'linux':
         realpath = binary / 'realpath'
         realpath.write_text(f'#!{sys.executable}\nimport pathlib, sys\nprint(pathlib.Path(sys.argv[-1]).resolve(strict=True))\n')
         realpath.chmod(0o700)
     program = binary / 'g16'
-    program.write_text(f'#!{sys.executable}\nimport json, pathlib\n'
+    program.write_text(f'#!{sys.executable}\nimport json, pathlib, os\n'
                        "assert json.loads(pathlib.Path('ag-start.json').read_text())['job_id'] == '123'\n"
+                       "assert pathlib.Path(os.environ['GAUSS_SCRDIR']) == pathlib.Path.cwd() / 'scratch'\n"
+                       + (f"assert os.environ['g16root'] == {str(binary.parent)!r}\n"
+                          f"assert os.environ['GAUSS_EXEDIR'] == {str(binary / 'bsd') + ':' + str(binary)!r}\n"
+                          "assert os.environ['PGI_FASTMATH_CPU'] == 'sandybridge'\n"
+                          "assert os.environ['OMP_THREAD_LIMIT'] == '8'\n" if environment else '') +
                        "pathlib.Path('program-ran').write_text('once')\n")
     program.chmod(0o700)
     p, m = prepare(multi, tmp_path)
@@ -456,6 +464,45 @@ def test_slurm_local_guard_runs_once(multi, tmp_path):
     assert second.returncode != 0
     assert before == {f.name: f.read_bytes() for f in work.glob('ag-*.json')}
     assert json.loads((work / 'ag-exit.json').read_text())['returncode'] == 0
+
+
+def test_padded_squeue_long_names_and_all_user_cores(multi, tmp_path, monkeypatch):
+    p, m, fake = submitted(multi, tmp_path, monkeypatch, label='long-name-smoke')
+    owner = 'fixture'
+    def row(job, name, state_name, cores):
+        return f'{job:<128}|{name:<256}|{owner:<128}|{state_name:<64}|{cores:<32}|{"00:01":<32}|{"fixture":<128}\n'
+    fake.exact = Result(stdout=row('123', m['attempt_id'], 'RUNNING', 8))
+    assert status.check(multi, p, fake)['state'] == 'running'
+    fake.queue = Result(stdout=fake.exact.stdout + row('456_1', 'external array', 'PENDING', 4)
+                        + row('456_2', 'external array', 'PENDING', 4))
+    username, jobs, used = status.inventory(fake, fake.cfg)
+    assert username == owner and used == 16
+    assert jobs[0]['name'] == m['attempt_id']
+    assert slurm.core_breakdown(jobs, owner) == (8, 8)
+    with pytest.raises(ValueError):
+        slurm.parse_queue(row('123', m['attempt_id'], 'UNKNOWN_NEW_STATE', 8))
+    with pytest.raises(ValueError):
+        slurm.parse_queue(fake.queue.stdout.replace('456_2', '456_1'))
+
+
+@pytest.mark.parametrize('extra', [
+    {'environment': 'anything'},
+    {'environment': 'scnet-a03', 'modules': ['fixture']},
+    {'environment': 'scnet-a03', 'module_init': '/fixture/env.sh'},
+])
+def test_scnet_environment_rejects_unreviewed_or_vendor_setup(multi, extra):
+    multi['clusters']['batch']['programs']['gaussian'].update(extra)
+    with pytest.raises(ValueError):
+        config.load_config(write_config(multi))
+
+
+def test_scnet_environment_preserves_pbs_script(multi, tmp_path):
+    _, m = prepare(multi, tmp_path, cluster='default')
+    before = render.render(multi, m, 'water.gjf')
+    multi['clusters']['default']['programs']['gaussian']['environment'] = 'scnet-a03'
+    assert render.render(multi, m, 'water.gjf') == before
+    multi['clusters']['batch']['programs']['gaussian']['environment'] = 'scnet-a03'
+    config.load_config(write_config(multi))
 
 
 def test_legacy_pbs_status_and_cancel_without_submission_manifest(cfg, tmp_path, monkeypatch):
