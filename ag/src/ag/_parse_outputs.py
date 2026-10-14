@@ -116,6 +116,29 @@ def frequency_convergence(text):
     return {'freq_step_converged': converged, 'freq_step_convergence': check}
 
 
+def expected_vibrational_modes(n_atoms, coordinates):
+    """Classify geometry; missing/degenerate coordinates do not imply nonlinear.
+
+    A 1e-5 angstrom perpendicular tolerance allows Gaussian's printed-coordinate
+    rounding without treating a visibly bent molecule as linear.
+    """
+    if n_atoms == 1:
+        return 0
+    if n_atoms is None or n_atoms < 2 or coordinates is None or len(coordinates) != n_atoms:
+        return None
+    import numpy as np
+
+    centered = np.asarray(coordinates, dtype=float) - np.mean(coordinates, axis=0)
+    if centered.shape != (n_atoms, 3) or not np.isfinite(centered).all():
+        return None
+    _, singular, axes = np.linalg.svd(centered, full_matrices=False)
+    if singular[0] <= 1e-5:
+        return None
+    perpendicular = centered - np.outer(centered @ axes[0], axes[0])
+    linear = np.max(np.linalg.norm(perpendicular, axis=1)) <= 1e-5
+    return 3 * n_atoms - (5 if linear else 6)
+
+
 def parse_gaussian(path, pbs_path=None):
     from cclib.io import ccread
     from cclib.parser.utils import PeriodicTable, convertor
@@ -156,12 +179,31 @@ def parse_gaussian(path, pbs_path=None):
     facts['frequencies_low'] = sorted(float(f) for f in frequencies)[:10]
     facts['imag_modes'] = []
     geometry = None
+    coords = None
     if data is not None and hasattr(data, 'atomcoords') and hasattr(data, 'atomnos'):
         coords = data.atomcoords[-1]
         elements = [PeriodicTable().element[int(n)] for n in data.atomnos]
         geometry = xyz_text(elements, coords)
         if hasattr(data, 'vibdisps'):
             facts['imag_modes'] = imaginary_modes(frequencies, data.vibdisps, coords, elements)
+    facts['monatomic'] = facts['n_atoms'] == 1
+    expected_modes = expected_vibrational_modes(facts['n_atoms'], coords)
+    frequency_job = bool(re.search(r'\bfreq\b', facts['route'] or '', re.I))
+    # L3: a completed atomic Freq has thermochemistry but no Frequencies lines.
+    # Do not extend this inference to SP, failed jobs, or missing polyatomic data.
+    atomic_frequency = (facts['monatomic'] and frequency_job
+                        and facts['termination'] == 'normal'
+                        and all(facts['energies'][key] is not None
+                                for key in ('zpe', 'e_thermal', 'h', 'g'))
+                        and not frequencies)
+    if atomic_frequency:
+        facts['n_imag'] = 0
+    facts['n_vibrational_modes'] = len(frequencies) if frequencies or atomic_frequency else None
+    facts['expected_vibrational_modes'] = expected_modes
+    facts['vibrational_modes_complete'] = (
+        facts['n_vibrational_modes'] == expected_modes
+        if expected_modes is not None and (frequency_job or frequencies) else None)
+    facts['frequency_note'] = '单原子无振动模式' if atomic_frequency else None
     from ag._irc import parse_irc
     irc, endpoint = parse_irc(text)
     if irc is not None:

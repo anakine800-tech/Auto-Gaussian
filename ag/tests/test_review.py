@@ -154,6 +154,22 @@ def test_ts_count_does_not_approve_direction(cfg, tmp_path, repository):
     assert not review.check(path)['complete']
 
 
+@pytest.mark.parametrize('card', ['opt-freq', 'ts'])
+@pytest.mark.parametrize('n_imag,conclusion', [(0, '通过'), (None, '无法判断')])
+def test_monatomic_expected_count_and_basis(cfg, tmp_path, repository, card, n_imag, conclusion):
+    path, m = prepare_card(cfg, tmp_path, card)
+    facts(path, m, n_atoms=1, monatomic=True, n_imag=n_imag, freq_step_converged=None)
+    review.init(path)
+    text = (path / 'review.md').read_text()
+    line = next(line for line in text.splitlines() if '| facts 核对：n_imag' in line)
+    assert 'n_imag = 0' in line and '期望值依据：monatomic=true，单原子无振动模式' in line
+    assert line.endswith('| ' + conclusion + ' |')
+    assert not review.check(path)['complete']
+    complete(path)
+    assert review.check(path)['complete']
+    assert not review.check(path)['stale']
+
+
 def test_missing_facts_stays_unknown(cfg, tmp_path, repository):
     path, _ = prepare_card(cfg, tmp_path)
     review.init(path)
