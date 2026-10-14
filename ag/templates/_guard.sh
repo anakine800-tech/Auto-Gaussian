@@ -1,4 +1,4 @@
-# Adapted from templates/g16_job.pbs.template; no legacy imports.
+# Adapted from archive/templates/g16_job.pbs.template; no legacy imports.
 set -eu
 # Reject existing output files rather than truncate a previous execution.
 set -C
@@ -18,7 +18,7 @@ test ! -L "$$scratch"
 mkdir -- "$$scratch"
 export GAUSS_SCRDIR="$$scratch"
 # Completion receipts adapted from the idea in
-# auto_g16/execution/_program_completion_wrapper.py; no legacy imports.
+# archive/auto_g16/execution/_program_completion_wrapper.py; no legacy imports.
 # Noclobber prevents a second launch from replacing either receipt.
 ag_run() {
     case "$${PBS_JOBID:-}" in ''|*[!A-Za-z0-9_.-]*) exit 42 ;; esac
