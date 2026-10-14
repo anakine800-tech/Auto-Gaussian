@@ -67,3 +67,16 @@ T14 合入 main 后在其实现上增加检查，不复制 T14 功能。
 真实环境（SSH、Slurm、计费、模块环境、实际程序运行）均未验证；合并后另行授权。不得把离线测试当作 SCNet 可用或科学验收证据。
 
 Slurm 字段语义参考官方 [squeue](https://slurm.schedmd.com/squeue.html)、[sacct](https://slurm.schedmd.com/sacct.html)、[sbatch](https://slurm.schedmd.com/sbatch.html)。
+
+## 2026-10-14 SCNet Gaussian 现场问题修复
+
+负责人在本次会话批准扩展到 `ag/`，修复后继续正丁烷单点验证；同时授权修改 study Skill 和模板中的平台许可记录。
+
+- 已发生的故障：squeue 返回填充空白的用户名以及截断的 Attempt 名，导致严格解析拒绝。复用已合并的 T16b（#232）修复，本次不再修改 Slurm 查询或解析实现；保留全用户核数回归验证。
+- 已观察到的平台脚本行为：env.sh 把 Gaussian scratch 改到安装目录，并向 ag_root 外共享文件追加记录。`programs.gaussian.environment = "scnet-a03"` 选择固定的 `gaussian-scnet-a03.sh`，只设置运行需要的环境，保留 Attempt 私有 scratch，不 source 平台脚本。此模式不同时使用 module_init/modules；不新增任意环境变量或 shell 配置接口。
+- 配置中的 g16root 仍是直接包含 g16 可执行文件的目录；SCNet 模板中的 Gaussian g16root 环境变量取其父目录。OMP_THREAD_LIMIT 绑定实际档位核数。
+- 离线验证包含填充队列中的长名/数组/非 ag 作业计数与身份匹配，以及本地假 Gaussian 对 scratch、环境和单次运行的检查；现场通过 prepare、人工确认、submit、status、fetch、facts 验证，不把离线通过当作已完成。
+
+现场结果（2026-10-14）：基于 T16b 的运行提交 `b6708a7`，完整回归 915 passed、2 skipped；只读 doctor 通过。正丁烷 B3LYP/6-31G(d) SP 经 Mac 系统对话框确认后只提交一次，Slurm COMPLETED、退出码/信号 0/0，8 核运行 11 秒（0.024444444 核时）。ag fetch 对全部声明输出完成大小/哈希校验，facts 确认 Gaussian 16 Rev A.03 正常终止；电子能 −158.456098690 Hartree，14 原子、电荷 0、多重度 1。review check 完整且未过期。未做 Opt/Freq、自由能或构象集合科学验收，未提交正式研究作业。
+
+当前阻塞归类为科学审阅（人工里程碑签字待确认）与环境发布（Gaussian 环境增量尚待审阅/合并）。共享配置启用 environment 字段后，未包含本增量的 main 配置验证器会拒绝；本次显式使用工作分支运行，未切换全局安装。研究数据及配置留在本地，不随 PR 提交。
