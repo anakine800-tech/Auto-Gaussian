@@ -101,7 +101,7 @@ def main(argv=None):
     parser.add_argument('--version', action='version', version=__version__)
     subparsers = parser.add_subparsers(dest='command')
     register(subparsers)
-    for name in ('facts', 'thermo', 'dedup', 'cluster', 'graph'):
+    for name in ('facts', 'thermo', 'dedup', 'cluster', 'graph', 'irc_compare'):
         module_name = f'ag.{name}'
         try:
             module = import_module(module_name)
