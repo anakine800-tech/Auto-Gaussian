@@ -58,7 +58,21 @@ CREST/RDKit 极小点搜索冒充该步骤，也不强套极小点的窗口剪�
 ag prepare --study <study_id> --template gaussian --input <ts.gjf> --tier simple --walltime 24:00:00 --label ts-c01 --method-basis <DOI及位置或兜底方法说明>
 ```
 
-有真实上游 Attempt 才使用已有 `--parent` / `--relation` 参数；人提供的外部结构在 study 记录来源，不虚构 parent。跨 Attempt 复用 chk 待 T13，不用 `%oldchk`、`Guess=Read` 或 `Geom=AllCheck` 绕过当前输入限制。
+有真实上游 Attempt 才使用已有 `--parent` / `--relation` 参数；人提供的外部结构在 study 记录来源，不虚构 parent。复用父 chk 时，同时声明 `--parent <parent_id> --relation ts_from --parent-chk <parent_id>:<父输入中声明的chk文件名>`。父 Attempt 必须为 finished/fetched，submit 确认前和确认后都核对调度器中已无该作业；父子必须在同一集群。
+
+例如经审阅可复用波函数与力常数时，使用以下 Link0/route 替换上面的相应行，标题、电荷多重度和**显式坐标仍须写在输入中**：
+
+```text
+%oldchk=parent.chk
+%chk=ts-reuse.chk
+%nprocshared=8
+%mem=10GB
+#p wB97XD/6-31G(d) guess=read opt=(ts,rcfc,noeigentest) freq
+```
+
+RCFC 需要父 chk 中确有适用的力常数；仅复用波函数可用 `guess=read opt=(ts,calcfc) freq`。核对父 chk 的方法、几何、原子顺序、电荷与多重度是否适用；哈希相同不代表科学上适用。`Geom=Check` 和 `Geom=AllCheck` 继续拒绝，`%chk` 必须不同于固定的 `%oldchk=parent.chk`。
+
+prepare 只做本地声明；submit 在 Mac 弹窗前只读取得父 chk 大小与 SHA256，并显示父 ID、来源文件名、大小、哈希前 12 位及目标 parent.chk。确认后专用操作独占创建副本，源/目标哈希都须等于确认值；父文件只读。远端需 Python ≥ 3.6 和 Linux /proc 支持固定描述符助手，缺少即停止；先运行 `ag doctor --cluster <cluster>` 查看 Python 版本和 /proc 支持。复制失败、255、超时或哈希改变均记 failed_presubmit，不 qsub、不重试、不删除副本；报告后由人决定新 Attempt。
 
 ## 4. 资源建议
 
@@ -68,7 +82,7 @@ ag prepare --study <study_id> --template gaussian --input <ts.gjf> --tier simple
 
 - 假设签字、初猜来源、目标成键/断键原子对、构象覆盖与原子映射均明确，结构无未解释近接触。
 - 身份、电荷、多重度、立体化学与目标一致；route 的方法、色散、溶剂与比较物种一致。
-- 坐标和占位符已替换；核数匹配档位，内存不超过 85%，chk 仅文件名；当前输入不依赖尚未支持的额外段或父 chk。
+- 坐标和占位符已替换；核数匹配档位，内存不超过 85%，chk 仅文件名；当前输入不依赖尚未支持的额外段；使用父 chk 时核对附件声明和确认摘要。
 - 按 [确认摘要](../../auto-g16-study/references/confirmation-summary.md)展示结构、立体警告、方法依据、完整 route、资源、walltime、远程目录、输入哈希；等人确认并亲手点击提交对话框。
 
 ## 6. 结果判据清单
@@ -84,7 +98,7 @@ ag prepare --study <study_id> --template gaussian --input <ts.gjf> --tier simple
 
 零虚频说明落到极小点或尚缺完整证据；多虚频可能是高阶鞍点或软模问题；方向错误可能是另一步反应。分别核对完整输出和结构，重审初猜/构象或假设，转 [失败诊断](failure-diagnosis.md)；提出新 Attempt，等人确认。
 
-QST、扫描额外段、自动初猜或父 chk 必不可少时，写明“待 T13”并暂停该步骤。真实作业异常先停止报告；不在原 Attempt 重跑，不用旧 Skill 执行。
+扫描额外段或自动初猜必不可少且当前不支持时，写明具体缺口并暂停该步骤。真实作业异常先停止报告；不在原 Attempt 重跑，不用旧 Skill 执行。
 
 ## 8. 常见坑
 
@@ -93,5 +107,5 @@ QST、扫描额外段、自动初猜或父 chk 必不可少时，写明“待 T1
 - Opt 结束时抓到的截断日志不能当作完整 Freq；须查完整模式数及位移。
 - 一个负频只是候选，键变化方向审核和双向 IRC 端点识别不可省略。
 - QST 同元素原子交换也可能改变反应映射；外部映射表不能修复实际输入行顺序。`End of file in ZSymb` 后不要反复试换空行提交。
-- 父 chk、几何和原子顺序不一致会把 IRC 引向错误起点；跨 Attempt chk 复用在新 ag 中仍待 T13。
+- 父 chk、几何和原子顺序不一致会把 IRC 引向错误起点；必须核对显式坐标与父 chk 的几何、方法及原子顺序，不能把副本哈希一致当作科学验证。
 - 解离片段的近自由平移/转动可能导致优化困难，不默认把多个孤立片段当普通单分子极小点。

@@ -59,6 +59,8 @@ class Fake:
         self.calls.append(command)
         if command.operation == self.fail:
             raise TransportError('Synthetic interrupted connection')
+        if command.operation == 'parent_chk_environment':
+            return Result(stdout='Python 3.6.8\nproc_fd=yes\n')
         if command.operation == 'identity':
             return Result(stdout='fixture\n')
         if command.operation == 'jobs':
@@ -385,7 +387,7 @@ def test_other_templates(cfg, prepared, tmp_path, template, params):
 def test_doctor_is_read_only(cfg):
     fake = Fake(cfg)
     assert doctor.doctor(cfg, fake)['ok']
-    assert set(fake.operations()) == {'identity', 'jobs', 'queues', 'root_check', 'executable'}
+    assert set(fake.operations()) == {'identity', 'jobs', 'queues', 'root_check', 'executable', 'parent_chk_environment'}
 
 
 def test_remote_allowlist_and_paths(cfg, prepared):

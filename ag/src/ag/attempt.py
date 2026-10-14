@@ -51,7 +51,7 @@ def all_attempts(cfg, name=None):
     return result
 
 
-def prepare(cfg, *, study_name, template, input_path, tier, walltime, label, params=None, parents=None, method_basis='兜底方法', constraints=None, cluster='default', card=None):
+def prepare(cfg, *, study_name, template, input_path, tier, walltime, label, params=None, parents=None, method_basis='兜底方法', constraints=None, cluster='default', card=None, parent_chk=None):
     cfg = select_cluster(cfg, cluster)
     s = study.locate(cfg, study_name)
     if not (s / 'study.md').is_file() or not (s / 'attempts').is_dir():
@@ -69,10 +69,14 @@ def prepare(cfg, *, study_name, template, input_path, tier, walltime, label, par
     if '--cinp' in params:
         raise ValueError('Use --constraints to supply a validated CREST constraint file')
     render.parameters(template, params)
+    attachment = None
+    if parent_chk is not None:
+        from ag.parent_chk import declare
+        attachment = declare(cfg, s, template, parents or [], parent_chk)
     if template == 'gaussian':
         if source.suffix.lower() != '.gjf':
             raise ValueError('Gaussian input must have .gjf extension')
-        science = gaussian_input.validate(data.decode(), **resource)
+        science = gaussian_input.validate(data.decode(), **resource, parent_chk=attachment is not None)
     else:
         if source.suffix.lower() != '.xyz':
             raise ValueError('xTB/CREST input must have .xyz extension')
@@ -114,6 +118,8 @@ def prepare(cfg, *, study_name, template, input_path, tier, walltime, label, par
              pbs_job_name='ag' + sha256(attempt_id.encode()).hexdigest()[:12],
              remote_dir=f'{s.name}/{attempt_id}', parents=parents, created_at=journal.now(),
              ag_version=__version__, card=card_record, completion_receipts=True, science={**science, 'method_basis': method_basis})
+    if attachment is not None:
+        m['parent_chk'] = attachment
     script = 'job.slurm' if m['scheduler'] == 'slurm' else 'job.pbs'
     files = {name: data, script: render.render(cfg, m, name).encode()}
     if constraint_data is not None:
@@ -167,7 +173,10 @@ def verified_files(cfg, path, manifest):
     if files[script] != render.render(cfg, m, name).encode():
         raise ValueError('Prepared script differs from current reviewed template/configuration')
     if m['template'] == 'gaussian':
-        science = gaussian_input.validate(files[name].decode(), **resource)
+        if 'parent_chk' in m:
+            from ag.parent_chk import resolve
+            resolve(cfg, m)
+        science = gaussian_input.validate(files[name].decode(), **resource, parent_chk='parent_chk' in m)
         if any(m['science'].get(k) != v for k, v in science.items()):
             raise ValueError('Scientific summary differs from submitted input')
     return files
@@ -191,12 +200,16 @@ def summary(cfg, m):
                      f"(fixed row mapping, {science['displacement_unit']}; up to 5 atoms):\n\n")
         geometry += '\n'.join(f"- Atom {row['atom_index']} ({row['element']}): {row['displacement']:.8f}"
                               for row in science['largest_displacements']) + '\n\n'
+    attachment_summary = ''
+    if 'parent_chk' in m:
+        from ag.parent_chk import summary
+        attachment_summary = summary(m['parent_chk']) + '\n\n'
     return (f"### {m['attempt_id']}\n\nCluster: {m.get('cluster', 'default')}\n\n{cost_line(m)}\n{budget_line}\n\nTemplate: {m['template']} | Tier: {m['tier']} | "
             f"Cores: {m['cores']} | Memory: {m['mem_gb']} GB | Walltime: {m['walltime']}\n\n"
             f"{cards.label(m)}\n\nRemote directory: {attempt_dir(cfg, m)}\n\nBundle SHA-256: {m['bundle_sha256']}\n\n"
             f"Method basis: {m['science']['method_basis']}\n\nRoute: {m['science']['route']}\n\n"
             f"Charge / multiplicity: {m['science']['charge']} / {m['science']['multiplicity']}\n\n"
-            f"{m['science']['stereochemistry_warning']}\n\n" + geometry +
+            f"{m['science']['stereochemistry_warning']}\n\n" + geometry + attachment_summary +
             '\n'.join(f"- {r['name']}: {r['sha256']}" for r in m['inputs']))
 
 

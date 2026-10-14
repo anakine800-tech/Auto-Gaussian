@@ -1,4 +1,5 @@
 """Read-only environment checks; never create remote probe files."""
+import re
 import time
 import sys
 from ag import remote, status, slurm, budget
@@ -32,7 +33,8 @@ def doctor(cfg, transport):
              'crest': cfg['programs']['xtb']['root'] + '/bin/crest'}
     for name, path in paths.items():
         require_ok(transport.run(remote.executable(path)), f'{name} executable')
-    return dict(ok=history_available is not False, storage_kib=storage_kib, expiry_warning=budget.expiry_warning(cfg), accounting_history=history_available,
+    checkpoint = parent_chk_environment(transport)
+    return dict(ok=history_available is not False and checkpoint['ok'], parent_chk=checkpoint, storage_kib=storage_kib, expiry_warning=budget.expiry_warning(cfg), accounting_history=history_available,
                 accounting_note=('No historical jobs visible; accounting availability remains unverified' if history_available is False else None),
                 cluster=cfg.get('_cluster', 'default'), ssh=True, identity=True, scheduler=True, allowed_root=True,
                 programs=list(paths), occupied_cores=used,
@@ -45,3 +47,16 @@ def storage(cfg, transport):
     if len(fields) != 2 or not fields[0].isdigit() or fields[1] != cfg['remote']['ag_root']:
         raise ValueError('Invalid du usage response')
     return int(fields[0])
+
+
+def parent_chk_environment(transport):
+    value = require_ok(transport.run(remote.parent_chk_environment()), 'parent chk Python/proc environment')
+    match = re.fullmatch(r'Python (\d+)\.(\d+)\.(\d+)\nproc_fd=(yes|no)\n?', value.strip())
+    if match is None:
+        raise ValueError('Invalid parent chk Python/proc environment response')
+    version = tuple(int(match[i]) for i in (1, 2, 3))
+    proc_fd = match[4] == 'yes'
+    supported = version >= (3, 6, 0)
+    return dict(ok=supported and proc_fd, python_version='.'.join(str(n) for n in version),
+                proc_fd=proc_fd, note=None if supported and proc_fd else
+                'Parent chk requires Python >= 3.6 and readable /proc/self/fd')

@@ -3,7 +3,7 @@ from hashlib import sha256
 from pathlib import Path
 import tempfile
 import sys
-from ag import attempt, cards, confirm, journal, remote, state, status, slurm, submission, budget
+from ag import attempt, cards, confirm, journal, parent_chk, remote, state, status, slurm, submission, budget
 from ag.config import for_manifest, scheduler_kind
 from ag.transport import bound_transport
 from ag.locks import claim, submission_lock
@@ -19,8 +19,9 @@ class UserCancelled(ValueError):
     pass
 
 
-def metadata(transport, cfg, manifest, name):
-    text = require_ok(transport.run(remote.metadata(cfg, manifest, name)), 'remote file verification')
+def metadata(transport, cfg, manifest, name, *, checkpoint=False):
+    command = remote.parent_chk_metadata if checkpoint else remote.metadata
+    text = require_ok(transport.run(command(cfg, manifest, name)), 'remote file verification')
     lines = text.splitlines()
     if len(lines) != 2 or not lines[0].isdigit():
         raise ValueError('Invalid remote file metadata')
@@ -80,6 +81,12 @@ def submit(cfg, ids, transport):
             raise ValueError('Batch requires the same template, route and method basis')
         budget_ledger = budget.read(cfg) if is_slurm else None
         username, jobs, used = status.inventory(transport, cfg)
+        attachments = {}
+        for path, m, _ in prepared:
+            if 'parent_chk' in m:
+                parent = parent_chk.resolve(cfg, m, jobs)
+                observed = metadata(transport, cfg, parent, m['parent_chk']['source_name'], checkpoint=True)
+                attachments[path.name] = (parent, observed)
         running, queued = (slurm.core_breakdown(jobs, username) if is_slurm else status.core_breakdown(jobs, username))
         if is_slurm:
             held = budget.unobserved_cores(cfg, jobs, budget_ledger)
@@ -94,6 +101,9 @@ def submit(cfg, ids, transport):
         budget_text = budget.summary(cfg, sum(budget.requested(m) for _, m, _ in prepared)) if is_slurm else None
         text = f"Cluster: {cfg['_cluster']}\n" + '\n'.join(f"{m['attempt_id']} | {m['template']} | {m['tier']} {m['cores']} cores | "
                          f"{m['walltime']} | {cards.label(m)} | SHA256 {m['bundle_sha256'][:12]}\n{attempt.cost_line(m)}" for _, m, _ in prepared)
+        for path, m, _ in prepared:
+            if path.name in attachments:
+                text += '\n' + path.name + ' | ' + parent_chk.summary(m['parent_chk'], attachments[path.name][1])
         text += (f'\n当前占用 {used} 核（运行 {running}、排队 {queued}），'
                  f'提交后合计 {used + requested} / 上限 {cap} 核；集群空闲不足时作业将在 {scheduler_kind(cfg).upper()} 中排队')
         if budget_text:
@@ -137,7 +147,27 @@ def submit(cfg, ids, transport):
                     fresh_used += sum(cores for job_id, cores in submitted.items() if job_id not in visible)
                 if fresh_used + m['cores'] > cap:
                     raise ValueError('Core limit changed during confirmation; stop')
+                if path.name in attachments:
+                    parent, observed = attachments[path.name]
+                    if parent_chk.resolve(cfg, m, jobs) != parent:
+                        raise ValueError('Parent manifest changed during confirmation')
                 require_ok(transport.run(remote.create_attempt(cfg, m)), 'new remote Attempt directory')
+                if path.name in attachments:
+                    attachment = m['parent_chk']
+                    detail = dict(source_attempt=parent['attempt_id'], source_name=attachment['source_name'],
+                                  target_attempt=m['attempt_id'], target_name='parent.chk',
+                                  size=observed[0], sha256=observed[1])
+                    journal.append(path.parent.parent, 'copy_parent_chk', path.name, 'started', detail)
+                    try:
+                        require_ok(transport.run(remote.copy_parent_chk(cfg, parent, m)), 'parent chk copy')
+                        source_result = metadata(transport, cfg, parent, attachment['source_name'], checkpoint=True)
+                        target_result = metadata(transport, cfg, m, 'parent.chk', checkpoint=True)
+                        if source_result != observed or target_result != observed:
+                            raise ValueError('Parent chk hash/size changed after confirmation or copy; stop')
+                    except BaseException:
+                        journal.append(path.parent.parent, 'copy_parent_chk', path.name, 'failed_presubmit', detail)
+                        raise
+                    journal.append(path.parent.parent, 'copy_parent_chk', path.name, 'verified', detail)
                 with tempfile.TemporaryDirectory(prefix='ag-submit-') as temp:
                     for name, data in files.items():
                         local = Path(temp) / name
