@@ -75,7 +75,7 @@ def core_command(args):
                 transport = SSHTransport(selected, read_only=True)
                 result.append(dict(attempt_id=id_, **status.check(selected, path, transport)))
         elif command == 'fetch':
-            result = fetch.fetch(cfg, attempt.find(cfg, args.id), transport)
+            result = fetch.fetch(cfg, attempt.find(cfg, args.id), transport, add_missing=args.add_missing)
         else:
             result = cancel.cancel(cfg, attempt.find(cfg, args.id), transport)
     if command == 'status' and not args.json:
@@ -136,6 +136,9 @@ def register(subparsers):
             p.add_argument('ids', nargs='+')
         elif name in ('fetch', 'cancel'):
             p.add_argument('id')
+            if name == 'fetch':
+                p.add_argument('--add-missing', action='store_true',
+                               help='Verify existing outputs and collect only missing files for a fetched Attempt')
         elif name in ('status', 'list'):
             p.add_argument('--study')
             if name == 'status':
