@@ -10,7 +10,7 @@
 
 ## 3. 输入模板
 
-验收示例（用审阅过的笛卡尔坐标替换占位行，保留 Gaussian 必需空行）：
+中性流程验收示例（用审阅过的笛卡尔坐标替换占位行，保留 Gaussian 必需空行）：
 
 ```text
 %chk=optfreq.chk
@@ -25,7 +25,13 @@
 
 ```
 
-`Opt Freq` 合在一个作业。研究无先例时将方法换成 B3LYP-D3(BJ)/def2-SVP，溶液相加 `SCRF=(SMD,Solvent=<已核实的溶剂关键词>)`；最终摘要必须展示替换后的完整 route。
+`Opt Freq` 合在一个作业。研究无直接先例的骨架为
+`#p wB97XD/6-31G(d) Opt Freq`；阴离子或负电荷明显离域时改用
+`#p wB97XD/6-31+G(d) Opt Freq`，后续单点也带弥散函数。
+溶液相加 `SCRF=(SMD,Solvent=<已核实的溶剂关键词>)`，wB97XD 不叠加 GD3BJ。
+方法、依据和负责人确认记录见[方法表](../../auto-g16-study/references/acceptance-methods.md)；
+阴离子流程验收则保留 B3LYP-D3(BJ)，但将优化及筛选单点基组都换成
+`6-31+G(d)`；最终摘要必须展示替换后的完整 route。
 
 ```text
 ag prepare --study <study_id> --template gaussian --input <conformer.gjf> --tier simple --walltime 24:00:00 --label optfreq-c01
@@ -51,6 +57,22 @@ ag prepare --study <study_id> --template gaussian --input <conformer.gjf> --tier
 - 极小点要求 `n_imag = 0`；核对完整频率，非线性分子有 3N−6 个、线性分子有 3N−5 个振动模式，不能把截断输出当零虚频。
 - 对低于 50 cm⁻¹ 的正频逐项记录并检查软扭转 / 数值敏感性；任何负频都不能直接置零。热化学按 thermo 卡片的 100 cm⁻¹ qRRHO 处理，但 qRRHO 不会修复非极小点。
 - 记录 SCF、ZPE、热修正及 Gaussian 原始 G 的单位和来源；与后续 qRRHO 结果区分。优化后调用 `ag dedup` / `ag cluster` 检查不同初猜是否落到同一极小点。
+
+### 极小点系综（R09）
+
+来源：[旧设计 R09](../../../archive/docs/end-to-end-reaction-computation-workflow.md)。
+先验证给反应路径提供参考的极小点；每个保留候选须满足正常优化、完整频率、
+零虚频，以及身份、立体化学、电荷、多重度、配位和预期缔合状态不变。
+变化为另一种化学态时另行标记，不纳入原物种系综。多个起点坍缩为相同
+优化结构时重新去重，保留起点到终态映射，避免重复计权。
+
+按[筛选方法](../../auto-g16-study/references/acceptance-methods.md)先完成
+xTB 6 kcal/mol → DFT 单点重排 → 3 kcal/mol 内进入优化（研究最多 20 个）。
+之后每个化学盆地分别用一致 Opt/Freq/SP 与热修正建立系综；使用
+[thermo](thermo.md) 的可比自由能及 `ensemble_G`，不能用力场排序或平均 G
+代替系综自由能。筛选单点在初始几何上，研究需要最终精化时，优化后须重新做单点；流程验收不增设高精度单点。
+替代催化活性态不能仅因能量较高就删除，记录排除的化学与动力学依据。
+本规则防止重复构象、改变身份的极小点或低层级误排污染参考自由能。
 
 ### 静默失败检查清单
 
