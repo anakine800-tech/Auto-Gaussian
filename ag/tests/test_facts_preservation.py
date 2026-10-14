@@ -85,13 +85,43 @@ def test_multiple_refreshes_retain_every_version(tmp_path, monkeypatch):
     directory = attempt(tmp_path)
     target = directory / 'facts.json'
     versions = []
-    for digit in ('a', 'b', 'c'):
+    for index, digit in enumerate(('a', 'b', 'c')):
+        # Actual parsed values must differ; provenance-only changes are a no-op.
+        monkeypatch.setattr(facts, 'parse_facts', lambda path, i=index:
+                            ({'n_atoms': 3, 'energies': {'scf': -75.0 + i}}, {}))
         monkeypatch.setattr(facts, 'ag_provenance', lambda d=digit: dict(git_commit=d * 40, dirty=False))
         facts.build_facts(directory, refresh=True)
         versions.append(target.read_bytes())
     for old in versions[:-1]:
         assert (directory / f'facts.{sha256(old).hexdigest()[:12]}.json').read_bytes() == old
     assert target.read_bytes() == versions[-1]
+
+
+@pytest.mark.parametrize('refresh', [False, True])
+def test_commit_only_change_preserves_facts_bytes(tmp_path, monkeypatch, capsys, refresh):
+    directory = attempt(tmp_path)
+    monkeypatch.setattr(facts, 'ag_provenance', lambda: dict(git_commit='a' * 40, dirty=False))
+    original = facts.build_facts(directory)
+    before = snapshot(directory)
+    monkeypatch.setattr(facts, 'ag_provenance', lambda: dict(git_commit='b' * 40, dirty=False))
+    assert main(['facts', str(directory), '--json'] + (['--refresh'] if refresh else [])) == 0
+    assert json.loads(capsys.readouterr().out) == original
+    assert snapshot(directory) == before
+    assert not list(directory.glob('facts.*.json'))
+
+
+@pytest.mark.parametrize('refresh', [False, True])
+def test_legacy_without_provenance_preserves_facts_bytes(tmp_path, capsys, refresh):
+    directory = attempt(tmp_path)
+    original = facts.build_facts(directory)
+    original.pop('ag_provenance')
+    # Legacy formatting and line endings are part of the signed bytes too.
+    (directory / 'facts.json').write_bytes((json.dumps(original, sort_keys=True) + '\r\n').encode())
+    before = snapshot(directory)
+    assert main(['facts', str(directory), '--json'] + (['--refresh'] if refresh else [])) == 0
+    assert json.loads(capsys.readouterr().out) == original
+    assert snapshot(directory) == before
+    assert not list(directory.glob('facts.*.json'))
 
 
 @pytest.mark.parametrize('kind', ['collision', 'symlink', 'directory', 'identical'])

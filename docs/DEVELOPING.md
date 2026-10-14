@@ -156,8 +156,9 @@ Slurm 从 squeue 消失仅触发 sacct 核对；终态中非零退出/信号以�
 ### 本地证据与签字
 
 `parse_facts` 只返回内存中的事实和几何文本；thermo/profile/review check 不生成或改写 facts.json。
-`ag facts` 遇到不同的已有内容会列出差异并拒绝；人工核对后用 `ag facts <id> --refresh`，
-先保留原始字节为 `facts.<SHA-256前12位>.json`，再原子写入新版。相同字节不更新 mtime，
+`ag facts` 比较新旧解析内容时排除 `ag_provenance`；解析内容相同则保留旧文件原始字节和 mtime，
+不归档、不补写缺失的 provenance，升级提交号不会使既有证据失效。只有解析内容不同时才列出差异并拒绝；
+人工核对后用 `ag facts <id> --refresh`，先保留原始字节为 `facts.<SHA-256前12位>.json`，再原子写入新版。
 已有几何仍不得覆盖。新 facts 的 `ag_provenance` 记录解析器 checkout 的提交号与 dirty 状态；
 review 快照绑定该来源，不能用当前 HEAD 或 Skills 提交号代替。旧记录缺版本时明确报告未知。
 

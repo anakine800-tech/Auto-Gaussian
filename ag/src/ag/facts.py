@@ -152,7 +152,22 @@ def build_facts(attempt_dir, *, refresh=False):
     with os.fdopen(fd, 'rb') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         old = _existing_bytes(target)
-        if old is not None and old != content and not refresh:
+        previous = None
+        same = False
+        if old is not None:
+            try:
+                previous = json.loads(old)
+                if isinstance(previous, dict):
+                    # A code upgrade alone must not invalidate signed evidence.
+                    # Canonical JSON preserves number/bool types while ignoring
+                    # formatting, key order and parser provenance metadata.
+                    canonical = lambda value: json.dumps(
+                        {key: item for key, item in value.items() if key != 'ag_provenance'},
+                        sort_keys=True, ensure_ascii=False, allow_nan=False)
+                    same = canonical(previous) == canonical(facts)
+            except (ValueError, UnicodeDecodeError):
+                pass  # Invalid old bytes still require explicit, archived refresh.
+        if old is not None and not same and not refresh:
             diff = ''.join(difflib.unified_diff(
                 old.decode('utf-8', errors='replace').splitlines(keepends=True),
                 content.decode('utf-8').splitlines(keepends=True),
@@ -169,8 +184,9 @@ def build_facts(attempt_dir, *, refresh=False):
                 raise ValueError(f'{name} 与当前日志解析结果不一致，需人工核对')
         for name, geometry in geometries.items():
             _write_geometry(directory / name, geometry)
-        if old == content:
-            return facts  # Keep the mtime and the review fingerprint unchanged.
+        if same:
+            # Report the retained version, including its original/missing provenance.
+            return previous  # Keep bytes, mtime and the review fingerprint unchanged.
         if old is None:
             with target.open('xb') as handle:
                 handle.write(content)

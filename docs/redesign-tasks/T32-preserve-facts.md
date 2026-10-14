@@ -20,9 +20,9 @@
 ## 验收标准
 
 1. 分析只在内存使用解析结果；thermo（含 SP 配对）、profile、review check 前后 Attempt 证据字节不变。
-2. 仅 facts 命令写 facts.json；不同字节默认拒绝并显示 diff 和新旧哈希。
+2. 仅 facts 命令写 facts.json；比较时排除 ag_provenance，解析内容不同才默认拒绝并显示 diff 和新旧哈希。
    人确认差异后用 `--refresh`，先独占保存 `facts.<旧 SHA-256 前12位>.json`，再原子更新当前文件。
-   相同字节不改 mtime；备份冲突或发布失败保留旧版；不删除任何旧版。
+   解析内容相同保留旧字节和 mtime、不归档（包括无 provenance 的旧版）；备份冲突或发布失败保留旧版，不删除任何旧版。
 3. 新 facts 保存实际 ag 代码提交号与 dirty 状态，review 快照绑定该来源。
    哈希不符明确报告“证据文件已变化”和绑定版本提交号；旧记录缺版本或 dirty 时诚实说明复现限制。
 4. `ag review manifest --study <dir>` 收集全部 facts.json、review.md、study.md 和被引用的分析输出；
