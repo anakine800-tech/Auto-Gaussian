@@ -272,10 +272,24 @@ def read_xyz_frames(path):
     return frames
 
 
-def parse_xtb(outputs):
+def parse_xtb(outputs, scheduler_output='job.pbs.out'):
     text = (outputs / 'xtb.out').read_text(errors='replace')
-    pbs = outputs / 'job.pbs.out'
-    facts = termination(text, 'normal termination of xtb', pbs.read_text() if pbs.exists() else '')
+    scheduler_path = outputs / scheduler_output
+    available = scheduler_path.is_file()
+    scheduler_text = scheduler_path.read_text(errors='replace') if available else ''
+    marker = 'normal termination of xtb'
+    facts = termination(text + '\n' + scheduler_text, marker, scheduler_text)
+    # stderr contains xTB's normal marker, but a scheduler kill overrides it.
+    killed = re.search(r'\b(?:kill(?:ed|ing)?|sigkill|sigterm|oom(?:_kill)?|out of memory)\b'
+                       r'|time\s*limit|walltime.*(?:exceed|limit)', scheduler_text, re.I)
+    if killed or facts['error_hint'] == 'walltime':
+        facts['termination'] = 'error'
+        facts['error_hint'] = facts['error_hint'] or 'scheduler termination error'
+    facts.update(termination_marker_sources=[name for name, content in
+                 [('xtb.out', text), (scheduler_output, scheduler_text)] if marker in content.lower()],
+                 scheduler_output={'file': scheduler_output, 'available': available},
+                 termination_warning=None if available else
+                 f'{scheduler_output} 未取回；无法核对调度器输出，不据退出回执推断正常结束')
     facts.update(total_energy=last_number(r'TOTAL ENERGY\s*', text),
                  converged='GEOMETRY OPTIMIZATION CONVERGED' in text)
     geometry = None

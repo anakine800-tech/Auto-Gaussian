@@ -87,7 +87,7 @@ def parse_facts(attempt_dir):
         else:
             facts, geometry = parse_crest(outputs)
     elif program == 'xtb':
-        facts, geometry = parse_xtb(outputs)
+        facts, geometry = parse_xtb(outputs, 'job.slurm.err' if manifest.get('scheduler') == 'slurm' else 'job.pbs.out')
     else:
         raise ValueError(f'Unsupported template: {program}')
     definition = manifest.get('science', {}).get('scan')

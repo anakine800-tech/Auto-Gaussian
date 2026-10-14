@@ -244,3 +244,52 @@ def test_missing_geometry_does_not_guess_mode_count():
     from ag._parse_outputs import expected_vibrational_modes
     assert expected_vibrational_modes(3, None) is None
     assert expected_vibrational_modes(3, [[0, 0, 0]] * 3) is None
+
+
+@pytest.mark.parametrize('scheduler,filename', [('pbs', 'job.pbs.out'), ('slurm', 'job.slurm.err')])
+@pytest.mark.parametrize('marker_location', ['program', 'scheduler', 'both', 'neither', 'missing'])
+def test_xtb_termination_sources(tmp_path, scheduler, filename, marker_location):
+    directory = attempt(tmp_path, fixture=None, template='xtb')
+    manifest_path = directory / 'manifest.json'
+    manifest = json.loads(manifest_path.read_text())
+    manifest['scheduler'] = scheduler
+    manifest_path.write_text(json.dumps(manifest))
+    outputs = directory / 'outputs'
+    marker = 'normal termination of xtb\n'
+    (outputs / 'xtb.out').write_text('finished run\n' +
+                                   (marker if marker_location in ('program', 'both') else ''))
+    if marker_location != 'missing':
+        (outputs / filename).write_text(marker if marker_location in ('scheduler', 'both') else '')
+    # An unrelated scheduler's file must not supply evidence for this attempt.
+    other = 'job.slurm.err' if scheduler == 'pbs' else 'job.pbs.out'
+    (outputs / other).write_text(marker + 'killed\n')
+    facts = build_facts(directory)
+    sources = (['xtb.out'] if marker_location in ('program', 'both') else [])
+    sources += [filename] if marker_location in ('scheduler', 'both') else []
+    assert facts['termination'] == ('normal' if sources else 'incomplete')
+    assert facts['termination_marker_sources'] == sources
+    assert facts['scheduler_output'] == {'file': filename, 'available': marker_location != 'missing'}
+    assert bool(facts['termination_warning']) == (marker_location == 'missing')
+    assert json.loads((directory / 'facts.json').read_text()) == facts
+
+
+@pytest.mark.parametrize('filename', ['job.pbs.out', 'job.slurm.err'])
+@pytest.mark.parametrize('error', [
+    'PBS: job killed: walltime exceeded limit',
+    'JOB CANCELLED DUE TO TIME LIMIT',
+    'Killed', 'signal SIGTERM', 'oom_kill event', 'fatal error', '[ERROR] stopped',
+])
+def test_xtb_scheduler_error_overrides_normal(tmp_path, filename, error):
+    (tmp_path / 'xtb.out').write_text('normal termination of xtb\n')
+    (tmp_path / filename).write_text('normal termination of xtb\n' + error)
+    facts, _ = parse_xtb(tmp_path, filename)
+    assert facts['termination'] == 'error'
+    assert facts['termination_marker_sources'] == ['xtb.out', filename]
+    if 'walltime' in error:
+        assert facts['error_hint'] == 'walltime'
+
+
+def test_xtb_program_error_overrides_scheduler_marker(tmp_path):
+    (tmp_path / 'xtb.out').write_text('[ERROR] optimization failed\n')
+    (tmp_path / 'job.pbs.out').write_text('normal termination of xtb\n')
+    assert parse_xtb(tmp_path)[0]['termination'] == 'error'
