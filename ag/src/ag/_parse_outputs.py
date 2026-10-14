@@ -143,6 +143,30 @@ def frequency_convergence(text):
     return {'freq_step_converged': converged, 'freq_step_convergence': check}
 
 
+def wavefunction_stability(text):
+    """Last printed diagnostic in the current job, not acceptance of a new state.
+
+    Stable=Opt may print several results. Do not infer stability from termination,
+    or reuse a prior job's result after a new route/Link1 starts.
+    """
+    result, evidence = 'unknown', None
+    patterns = (
+        ('stable', r'The wavefunction is stable under the perturbations considered\.'),
+        ('internal_instability', r'The wavefunction has an internal instability\.'),
+        ('rhf_to_uhf', r'The wavefunction has an RHF\s*->\s*UHF instability\.'),
+    )
+    for line in text.splitlines():
+        if re.match(r'\s*(?:#|--Link1--|Link1:.*Proceeding|Entering Gaussian System)', line, re.I):
+            result, evidence = 'unknown', None
+        if re.match(r'\s*The wavefunction\b', line, re.I):
+            # An unsupported or truncated diagnostic must not retain an older
+            # positive result. Preserve its exact line so it can be reviewed.
+            evidence = line
+            result = next((value for value, pattern in patterns
+                           if re.fullmatch(r'\s*' + pattern + r'\s*', line, re.I)), 'unknown')
+    return {'wavefunction_stability': result, 'wavefunction_stability_line': evidence}
+
+
 def expected_vibrational_modes(n_atoms, coordinates):
     """Classify geometry; missing/degenerate coordinates do not imply nonlinear.
 
@@ -188,6 +212,7 @@ def parse_gaussian(path, pbs_path=None):
     facts['charge'] = int(data.charge) if data is not None and hasattr(data, 'charge') else None
     facts['multiplicity'] = int(data.mult) if data is not None and hasattr(data, 'mult') else None
     facts.update(frequency_convergence(text))
+    facts.update(wavefunction_stability(text))
     facts['opt_converged'] = (True if 'Optimization completed.' in text else
                               False if 'Optimization stopped.' in text else None)
     scf = float(convertor(data.scfenergies[-1], 'eV', 'hartree')) if data is not None and hasattr(data, 'scfenergies') else None
