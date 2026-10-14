@@ -60,7 +60,7 @@ ag prepare --study <study_id> --template gaussian --input <irc-forward.gjf> --ti
 `final.xyz` 通常是 Standard orientation，无标准取向时可能退回输入取向，
 以 facts 的 `final_geometry_orientation` 为准。缺少 Input 表时不会臆造
 `final_input.xyz`；需核对原日志或改用 CalcFC。
-prepare 在 `--parent-chk` + RCFC/ReadFC 时逐原子直接比较，容差 1e-4 Å，
+prepare 已在 `--parent-chk` + RCFC/ReadFC 时逐原子校验输入与父作业 `final_input.xyz` 的坐标，容差 1e-4 Å，
 不做旋转、平移或原子交换；父 TS 的 route 带 `nosymm` 时，两种取向相同，
 可用任一导出文件。也可预先让新的 TS Opt+Freq 带 `nosymm`；
 仅对子 IRC 加它不能补救父力常数与输入坐标的框架错配。

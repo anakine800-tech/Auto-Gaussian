@@ -146,7 +146,7 @@ RCFC/ReadFC 复用时，先对父 Attempt 运行 `ag facts`，显式坐标取
 `final_input.xyz`（最终几何的 Input orientation，去掉 XYZ 前两行），保持原子顺序，
 不能直接拿通常为 Standard orientation 的 `final.xyz`。facts 分别记录取向；
 未打印 Input 表时不臆造该文件，须核对原日志或改用 CalcFC。
-prepare 对 `--parent-chk` + RCFC/ReadFC 按固定原子顺序比较，每个原子的坐标偏差
+prepare 已对 `--parent-chk` + RCFC/ReadFC 按固定原子顺序校验输入与父作业 `final_input.xyz` 的坐标，每个原子的偏差
 不得超过 1e-4 Å，不做旋转/平移对齐。旧导出文件相同则沿用，不同则停止人工核对。
 若后续要复用本 TS 的力常数，可在计算该 TS 时加入 `nosymm`，使两种取向一致；
 父 route 已带 `nosymm` 时可取任一导出坐标，仍须匹配父几何。
