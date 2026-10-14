@@ -79,5 +79,41 @@
 ## rcfc 的坐标系错配
 现象：L3 用父 TS 的 Standard 坐标读取力常数时，双向 IRC 均首点校正失败；正确 Input 坐标的 RCFC 与独立 CalcFC 部分轨迹高度吻合并越过首点，随后仍有校正失败。
 原因：输入坐标与父作业 Input 框架的 Cartesian 力常数/模式错配；副本哈希、相同起点能量及对齐 RMSD 不能证明取向一致，不宣称这是所有失败的唯一根因。
-修复：[#240](https://github.com/anakine800-tech/Auto-Gaussian/pull/240)（待审阅）导出 final_input.xyz 与实际取向，在 prepare 读取父力常数时按固定原子顺序检查 1e-4 Å 容差；已有几何文件只沿用相同字节，不覆盖。
-以后：RCFC/ReadFC 用 final_input.xyz，或预先在父 TS 加 nosymm；取向正确后再逐级审阅 StepSize、MaxCycle、CalcAll/ReCalc。L3-C/D 结论待补，部分轨迹不等于双向完成和端点验证。
+修复：[#240](https://github.com/anakine800-tech/Auto-Gaussian/pull/240) 导出 final_input.xyz 与实际取向，在 prepare 读取父力常数时按固定原子顺序检查 1e-4 Å 容差；已有几何文件只沿用相同字节，不覆盖。
+以后：RCFC/ReadFC 用 final_input.xyz，或预先在父 TS 加 nosymm；取向正确后再逐级审阅 StepSize、MaxCycle、CalcAll/ReCalc。L3 最终完成了双向 IRC 与端点识别并签字，所用设置记录在本地 study，尚待回写 irc 卡片；部分轨迹不等于双向完成。
+
+## PBS 槽位写成逗号组合范围
+现象：pbsnodes 与 exec_host 出现 `0-7,12-25` 这类写法，核数解析失败，提交与监控都退回严格模式。
+原因：解析器只认单个数字、`a-b` 和 `n*k`，没覆盖真实调度器的组合写法。
+修复：[#243](https://github.com/anakine800-tech/Auto-Gaussian/pull/243) 支持逗号分段并拒绝重叠；解析失败仍走严格模式。
+以后：解析失败一律退回更保守的上限，不放宽；数组作业号目前仍会触发严格模式。
+
+## 分析命令改写已签字的 facts.json
+现象：在 L2 签字后重跑 thermo，三份 facts.json 被重写，哈希与签字绑定值不符。
+原因：thermo 调用 facts 解析时顺带写文件，而新版本给 facts 增加了字段。
+修复：[#247](https://github.com/anakine800-tech/Auto-Gaussian/pull/247) 分析命令只在内存解析；`ag facts` 比较时排除 ag_provenance，内容相同不改写，不同时需 `--refresh` 并归档旧版；新增 `ag review manifest`。
+以后：已签字的证据只能归档后更新；签字前先生成证据清单。
+
+## scan-peak 误选扫描边界一侧的点
+现象：L3 的 Gaussian C–F 扫描，旧 scan-peak 选中贴近起点的第 2 点，由它出发的 TS 优化没有回到已验证 TS。
+原因：气相离子–分子反应中，分离一侧的能量高于势阱里的局部峰；挑全局最高点就会选错。
+修复：[#248](https://github.com/anakine800-tech/Auto-Gaussian/pull/248) 只选严格局部极大，无峰时拒绝导出；同一扫描重选得到第 9 点，与 TS 的 RMSD 约 0.002 Å。
+以后：扫描峰只是初猜；浅能垒体系的 xTB 扫描可能完全没有峰，此时应改用 DFT 扫描，不能据此断言真实反应无能垒。
+
+## xTB 正常结束标记在调度器输出里
+现象：xTB 扫描 17 点全部收敛、退出码 0，facts 仍判为 incomplete。
+原因：xTB 把 `normal termination of xtb` 写到 stderr，PBS 合并进 job.pbs.out，而 ag 既不取回该文件，也只在 xtb.out 里找标记。
+修复：[#249](https://github.com/anakine800-tech/Auto-Gaussian/pull/249) 取回调度器输出并从中识别标记，调度器报告 kill 或超时时判为 error。
+以后：新程序模板要核对完成标记实际写在哪个流里，并把该文件列入声明输出。
+
+## 已取回的作业无法补取新声明的文件
+现象：T34 给 xTB 新增了声明输出，但已取回的作业无法补取，fetch 因已有文件拒绝整次取回。
+原因：fetch 只允许 finished 状态，且任一目标已存在就拒绝。
+修复：[#251](https://github.com/anakine800-tech/Auto-Gaussian/pull/251) 新增 `ag fetch --add-missing`：先核对全部远端哈希和本地已有文件，只补缺失文件，不改状态。
+以后：模板增加声明输出后，旧作业用 `--add-missing` 补取，再 `ag facts --refresh`；不手工从服务器下载放进 outputs。
+
+## 跨来源去重丢失极性氢朝向
+现象：外部审阅用乙醇合成坐标复现：只改 C–C–O–H 二面角的两个构象被合并，并被标为两条路线共同找到。
+原因：去重只比较重原子 RMSD；跨来源合并又不看能量。
+修复：[#246](https://github.com/anakine800-tech/Auto-Gaussian/pull/246) 默认让 N/O/S/P 上的氢参与 RMSD，lowest 模式加能量容差，记录两种 RMSD。
+以后：涉及氢键或参与反应的氢必须参与构象区分；分子很大时整体 RMSD 会稀释单个氢的差异，需要另看关键二面角。
