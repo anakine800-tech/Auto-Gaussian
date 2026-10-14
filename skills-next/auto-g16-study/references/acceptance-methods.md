@@ -23,8 +23,22 @@ DOI `10.1021/jacs.2c00962`、`10.1021/jacs.4c09067` 的 Computational details
 2024 JACS 记录优化也加 SMD；当前两层 SMD 是据此选定。
 弥散优化、统一弥散单点与筛选窗口是 T12b 经负责人确认的方案，不冒充直接先例。
 
-Gaussian 方法关键词为 `wB97XD/6-31G(d)`、`wB97XD/def2TZVPP`；
-弥散方案为 `wB97XD/6-31+G(d)`、`wB97XD/6-311++G(d,p)`。
+Gaussian 输入组合只在下表维护；卡片骨架引用本表，流程验收示例也必须与之相符。
+表中未写 EmpiricalDispersion 表示不额外添加该选项，仍保留泛函自身的色散处理。
+
+<!-- gaussian-combinations -->
+| 用途 | Gaussian 方法/基组及额外色散 |
+|---|---|
+| 中性流程验收 | `B3LYP/6-31G(d) EmpiricalDispersion=GD3BJ` |
+| 弥散流程验收 | `B3LYP/6-31+G(d) EmpiricalDispersion=GD3BJ` |
+| 研究优化/筛选 | `wB97XD/6-31G(d)` |
+| 弥散研究优化/筛选 | `wB97XD/6-31+G(d)` |
+| 研究最终精化 | `wB97XD/def2TZVPP` |
+| 弥散研究最终精化 | `wB97XD/6-311++G(d,p)` |
+| 方法敏感性 | `M062X/def2TZVPP` |
+| 弥散方法敏感性 | `M062X/6-311++G(d,p)` |
+<!-- /gaussian-combinations -->
+
 弥散要求也覆盖流程验收：如验收对象是阴离子或负电荷明显离域，将
 B3LYP-D3(BJ) 的优化与筛选单点基组一并改为 `6-31+G(d)`，不能照抄
 中性验收骨架。

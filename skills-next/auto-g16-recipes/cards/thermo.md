@@ -49,6 +49,8 @@
 
 ## 8. 常见坑
 
+知识衔接：[GKB-0512：自由能与标准态](../../auto-g16-gaussian-learning-library/references/advanced-properties.md)。
+
 - 力场 / xTB 排序不是最终 Gibbs 布居；必须在同一化学身份与方法栈内比较。来源：`skills/auto-g16-rtwin-pbs/references/scientific-workflows.md`、`skills/auto-g16-view-rt-win/references/conformer-workflow.md`。
 - 标准态修正按独立物种计数，不能对整个反应只加一次；各物种的构象集合分别汇总，再比较系综自由能。来源：`skills/auto-g16-rtwin-pbs/references/scientific-workflows.md`。
 - 旧文档要求另议低频处理，新方案已选定 D21 qRRHO；保留“报告低频”的经验，不沿用其未选定处理的旧流程。来源：`skills/auto-g16-rtwin-pbs/references/scientific-workflows.md`。

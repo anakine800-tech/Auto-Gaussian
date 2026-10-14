@@ -21,8 +21,8 @@ ag prepare --study <study_id> --template crest --input <reviewed.xyz> --tier sim
 ```
 
 上述是通用 prepare 参数，还须按当前 `ag prepare --help` 将完整 CREST 参数交给模板；它们不是随意透传的 shell 命令。准备后走确认摘要及 `ag submit`。完成后 status → fetch → facts，读取 `crest_conformers.xyz` 等声明输出，调用 `ag dedup` / `ag cluster`。保留 xTB 相对能量 ≤ 6 kcal/mol 的候选并去重；对这些候选先按
-[SP](sp.md) 做优化层级 DFT 单点重排：研究用 ωB97X-D/6-31G(d)
-加 SMD，阴离子或负电荷明显离域用 ωB97X-D/6-31+G(d) 加 SMD；
+[SP](sp.md) 做优化层级 DFT 单点重排；方法/基组：见
+[acceptance-methods.md](../../auto-g16-study/references/acceptance-methods.md)，包括溶剂与阴离子弥散方案；
 不能按 xTB 排序先截成 20 个。
 再将相对最低 DFT 单点能 ≤ 3 kcal/mol 的候选送入 Opt+Freq，研究最多
 20 个、验收最多 10 个；优化后重新去重，再算研究所需最终单点及热化学；验收不增设高精度单点。
@@ -101,6 +101,8 @@ prepare 将原文件字节作为 `constraints.inp` 纳入 bundle 和逐文件 SH
 覆盖警告出现时提出扩大采样：去掉 CREST 快速模式并给足 walltime、增加 ETKDG 种子/候选数、加入定向构造；单加 walltime 不会延长已正常结束的采样。新 Attempt 人确认后运行，完成后重新合并、DFT 重排并出新报告。轨迹时长参数不在现有白名单时先走模板审阅，不自行透传。
 
 ## 8. 常见坑
+
+知识衔接：[GKB-0420：局部性与构象覆盖](../../auto-g16-gaussian-learning-library/references/core-job-types.md)。
 
 - 排队不代表失败，也不能仅凭排队推断节点满载；不以重复计算解决等待。来源：`skills/auto-g16-rtwin-pbs/references/environment-and-failures.md`。
 - 不同初始构象可能在 DFT 后合并，最终布居前还要再去重。来源：`skills/auto-g16-view-rt-win/references/conformer-workflow.md`。

@@ -18,9 +18,8 @@
 - **方法敏感性**：已确定关键能垒及完整参考物种、竞争通道，在同一几何
   集合上比较至少两类泛函，按[方法表](../../auto-g16-study/references/acceptance-methods.md)。
 
-整组明确同一单点方法和溶剂。流程验收只用 B3LYP-D3(BJ)/6-31G(d)
-作筛选单点，不做高精度单点；若验收对象为阴离子或负电荷明显离域，
-将优化和筛选单点基组均换为 `6-31+G(d)`。方法表已由负责人于 2026-10-14 确认。
+整组明确同一单点方法和溶剂。流程验收仅作筛选单点，不做高精度单点；
+验收和研究的阴离子弥散方案均见方法表。
 
 TS 族、关键中间体、复合物必须双路线，可旋转键较多也建议；按
 [构象工作流](../../auto-g16-structures/references/conformer-workflow.md)保留路线来源，
@@ -30,15 +29,18 @@ TS 族、关键中间体、复合物必须双路线，可旋转键较多也建�
 
 ## 3. 输入模板
 
+方法/基组：见 [acceptance-methods.md](../../auto-g16-study/references/acceptance-methods.md)。
+骨架中的 `<方法/基组>` 必须按已审阅方案替换，并补齐适用的色散与溶剂设置。
+
 最终精化从父 Attempt 的 `final.xyz` 写显式笛卡尔输入；筛选单点从已审阅
 xTB/RDKit 候选坐标写入，并记录构象编号。均不跨 Attempt 读取 checkpoint。
-研究无直接先例时的中性最终精化骨架（筛选时按下表更换 route）：
+最终精化输入骨架（方法按本次用途从方法表选择）：
 
 ```text
 %chk=sp.chk
 %nprocshared=8
 %mem=10GB
-#p wB97XD/def2TZVPP SP SCRF=(SMD,Solvent=<已核实关键词>)
+#p <方法/基组> SP SCRF=(SMD,Solvent=<已核实关键词>)
 
 <最终精化构象名>
 
@@ -47,19 +49,9 @@ xTB/RDKit 候选坐标写入，并记录构象编号。均不跨 Attempt 读取 
 
 ```
 
-研究的两种单点用途采用不同基组，所有 route 均写明 SMD 溶剂：
-
-| 用途 | 中性骨架 | 阴离子或负电荷明显离域骨架 |
-|---|---|---|
-| 候选筛选（优化层级） | `#p wB97XD/6-31G(d) SP SCRF=(SMD,Solvent=<已核实关键词>)` | `#p wB97XD/6-31+G(d) SP SCRF=(SMD,Solvent=<已核实关键词>)` |
-| 最终几何精化 | `#p wB97XD/def2TZVPP SP SCRF=(SMD,Solvent=<已核实关键词>)` | `#p wB97XD/6-311++G(d,p) SP SCRF=(SMD,Solvent=<已核实关键词>)` |
-
-筛选单点只在候选几何上重排；优化后仍须在最终几何上做精化单点。
-阴离子或负电荷明显离域的配套优化也含弥散函数。
-ωB97X-D 不额外叠加 GD3BJ。溶液相按 study 加
-`SCRF=(SMD,Solvent=<已核实关键词>)`；直接先例优先。
-方法敏感性第二类采用 `M062X/def2TZVPP SP`，弥散方案则为
-`M062X/6-311++G(d,p) SP`；同基组、溶剂及几何，不自行添加 D3。
+候选筛选采用优化层级；最终精化采用方法表指定的较大基组。
+筛选单点只在候选几何上重排，优化后仍须在最终几何上重算精化单点。
+方法敏感性的第二类泛函也只在方法表定义；比较时保持同基组、溶剂和几何。
 
 下面 parent 示例仅适用于最终精化；筛选时若来自 CREST，改为真实 CREST
 parent，并用说明筛选来源的 relation 文本（如 `screening_sp_of`）；本地
@@ -93,6 +85,8 @@ ag prepare --study <study_id> --template gaussian --input <sp.gjf> --tier simple
 SCF 失败、内存或时长不足时按 failure-diagnosis 审阅已有事实。最终精化若发现父驻点不合格，先回到 opt-freq 或 ts 卡片；筛选失败保留缺项，不能直接按高能筛除；提出新 Attempt，等人确认。
 
 ## 8. 常见坑
+
+知识衔接：[GKB-0410、GKB-0411：单点边界与 SCF 排障](../../auto-g16-gaussian-learning-library/references/core-job-types.md)。
 
 - 单点电子能与低层级热修正必须分列，标准态按每个独立物种处理，不能把一次修正加到整个反应上。来源：`skills/auto-g16-rtwin-pbs/references/scientific-workflows.md`。
 - 旧预览输入中的方法只是占位示例，不能无依据用于正式研究。来源：`skills/auto-g16-view-rt-win/references/chemistry-boundaries.md`。

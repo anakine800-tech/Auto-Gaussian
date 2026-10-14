@@ -179,6 +179,8 @@ ag profile <study_dir>/analyses/reaction.json --perturb 1.0 --json
 
 ## 8. 常见坑
 
+知识衔接：[GKB-0611、GKB-0630：能量跨度与能量图](../../auto-g16-gaussian-learning-library/references/research-workflow.md)。
+
 - ΔΔG‡ 的符号连同通道顺序说明，少一个低能 TS 就可能反转选择性。
 - 采样次数不是物理简并度；与实验相符仍可能存在未排除机理。
 

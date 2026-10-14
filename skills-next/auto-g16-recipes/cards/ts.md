@@ -12,7 +12,7 @@
 - 沿反应坐标做一维弛豫扫描：记录坐标、范围、步长、冻结项及选点依据，能量最高点仅是初猜，具体做法见下。
 - QST2/QST3：端点须有相同原子组成、实际行顺序与对应；QST3 还需 TS 初猜。使用已支持的 QST 多结构输入，逐组审阅实际坐标与位移摘要。
 - 类比已知 TS：记录 DOI/结构来源、映射及差异；类比几何不意味着该方法或机理已获验证。
-- 自动初猜工具：待 T13；工具给的结构仍需人工审阅。
+- 扫描初猜可用 `ag scan-peak`；全自动 TS 搜索不在当前范围，工具给的结构仍需人工审阅。
 
 ### 初猜来源：一维弛豫扫描
 
@@ -103,13 +103,16 @@ TS 族必须双路线：约束 CREST 与按特定相互作用/进攻方向假设
 
 ## 3. 输入模板
 
+方法/基组：见 [acceptance-methods.md](../../auto-g16-study/references/acceptance-methods.md)。
+骨架中的 `<方法/基组>` 必须按已审阅方案替换，并补齐适用的色散与溶剂设置。
+
 单结构 route 示例 `opt=(ts,calcfc,noeigentest) freq`。以下仅为[研究方法](../../auto-g16-study/references/acceptance-methods.md)的输入骨架，填入已审阅的显式坐标，保留空行；正式方法须另有文献依据或明确兜底声明。
 
 ```text
 %chk=ts.chk
 %nprocshared=8
 %mem=10GB
-#p wB97XD/6-31G(d) opt=(ts,calcfc,noeigentest) freq
+#p <方法/基组> opt=(ts,calcfc,noeigentest) freq
 
 <TS 步骤与构象编号>
 
@@ -118,9 +121,7 @@ TS 族必须双路线：约束 CREST 与按特定相互作用/进攻方向假设
 
 ```
 
-上述为已确认方法的中性基组骨架；阴离子或负电荷明显离域者改为 `wB97XD/6-31+G(d)`，
-后续单点采用弥散基组。溶液相加入 `SCRF=(SMD,Solvent=<已核实关键词>)`，
-不向 wB97XD 叠加 GD3BJ；展示最终完整 route。决定结论的关键能垒按方法表
+阴离子弥散、色散和溶剂按方法表及已签方案填写，展示最终完整 route。决定结论的关键能垒按方法表
 做不同类型泛函的单点敏感性，包含 TS 和完整参考物种；连接到 [profile](profile.md)。`NoEigenTest` 仅关闭优化中的曲率检查，不免除最终 Hessian、虚频数量和方向审阅。
 
 ```text
@@ -136,7 +137,7 @@ ag prepare --study <study_id> --template gaussian --input <ts.gjf> --tier simple
 %chk=ts-reuse.chk
 %nprocshared=8
 %mem=10GB
-#p wB97XD/6-31G(d) guess=read opt=(ts,rcfc,noeigentest) freq
+#p <方法/基组> guess=read opt=(ts,rcfc,noeigentest) freq
 ```
 
 RCFC 需要父 chk 中确有适用的力常数；仅复用波函数可用 `guess=read opt=(ts,calcfc) freq`。核对父 chk 的方法、几何、原子顺序、电荷与多重度是否适用；哈希相同不代表科学上适用。`Geom=Check` 和 `Geom=AllCheck` 继续拒绝，`%chk` 必须不同于固定的 `%oldchk=parent.chk`。
@@ -170,6 +171,8 @@ prepare 只做本地声明；submit 在 Mac 弹窗前只读取得父 chk 大小�
 需要多维扫描、白名单外输入段或尚未支持的自动初猜时，写明具体缺口并暂停该步骤。真实作业异常先停止报告；不在原 Attempt 重跑，不用旧 Skill 执行。
 
 ## 8. 常见坑
+
+知识衔接：[GKB-0431、GKB-0422：TS 验证与优化排障](../../auto-g16-gaussian-learning-library/references/core-job-types.md)。
 
 以下科学经验改写自 [archive/skills/auto-g16-ts-irc/SKILL.md](../../../archive/skills/auto-g16-ts-irc/SKILL.md) 的 Safety and scope、Workflow、Interpretation gates；仅追溯经验，不恢复其历史流程：
 

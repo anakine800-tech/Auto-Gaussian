@@ -12,6 +12,8 @@
 | 环境与性质 | SMD、显式溶剂、BSSE、NMR、TDDFT、重元素、外场 | `advanced-properties.md` |
 | 研究工作流 | 机理、金属催化、能量跨度、TOF、数据表、论文写作 | `research-workflow.md` |
 
+书目信息见[参考书目](bibliography.md)，仅含元数据。
+
 ## 组合读取规则
 
 - “怎样写输入并确认计算成功”：读取输入输出文件，再读取对应作业类型文件。
