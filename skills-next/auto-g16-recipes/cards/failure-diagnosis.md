@@ -26,6 +26,26 @@
 
 没有通用重启 route。人决定继续后，按对应卡片准备新输入和 `ag prepare`，用已有 `--parent <failed_id> --relation retry_of` 记录来源；频率阶段重优化可用 `reoptimized_from`。跨 Attempt 复用 chk 使用 `ag prepare --parent-chk <parent_id>:<chk文件名>` 并按 TS/IRC 卡片核对适用性，不能盲用 Restart/Guess=Read；原 Attempt 和输出保留。
 
+### 电子态与 Stable 诊断
+
+长键、断键、强电荷转移、SCF 有多个解或近简并迹象时，即使 SCF 收敛，
+也须审查电子态，防止在错误电子态上接受能量、频率和路径。记录可疑几何、
+SCF 解的能量/占据与已有自旋证据，向人提出独立 `Stable` 诊断作业；
+沿用被诊断几何、方法、基组、溶剂、电荷/多重度，核对波函数来源。
+若需检查特定父 SCF 解，按父 chk 规则声明并审阅 `Guess=Read`；重新生成
+的波函数不能冒称就是原解。诊断仍须新 Attempt 和人的提交确认。
+
+T30 的 `facts.json` 字段 `wavefunction_stability` 只报告当前作业最后一条诊断：
+`stable`、`internal_instability`、`rhf_to_uhf` 或 `unknown`；
+`wavefunction_stability_line` 保存原文行（缺失可为 null），须回查原日志。
+字段缺失、unknown 或只见正常终止都不是稳定证据；Link1 后不能沿用前段结论。
+stable 仅表示对所测扰动稳定，不证明全局最低电子态或单参考方法适用。
+出现 internal_instability/rhf_to_uhf 时暂停科学接受并报告；若需非限制性
+或多参考方法，明确标注“超出当前闭壳层卡片范围”，交给人另定方法。
+不得把 `Stable=Opt` 机械地加到所有计算里：它会尝试重优化波函数且可能
+转为非限制性；即使最终打印 stable，也须重审实际电子态及原几何/频率的适用性。
+关键词依据：[Gaussian Stable 手册转载](https://conflex.co.jp/gaussian_support/stable.php)。
+
 ## 4. 资源建议
 
 诊断先做本地只读核验，不占集群核数。阶梯按通常改动幅度和成本排列，实际代价必须估计；不同级不是必须各跑一次。有明确 walltime/内存证据时可直接提出对应资源级，说明为何低级无关，不为走完阶梯浪费计算。任何新计算均待人确认。
@@ -45,6 +65,7 @@
 - 进入、操作、退出条件完整，升级有更低级不适用/失败的证据；只记录建议，不声称已解决。
 - 新结果到来后重新应用原计算卡片的全部判据；数值收敛不代表结构、目标态或机理正确。
 - 极小点任一虚频都需解释；TS 则须恰好一个且方向正确，不能把预期 TS 虚频当作失败消除。IRC 仍须双向完成及端点识别。
+- 已触发电子态疑点时记录 Stable 诊断提议、T30 状态及原文证据；未知不视为稳定，非限制性/多参考需求标明超出闭壳层范围。
 - 原输入、状态、输出保留，新 Attempt 不能重用旧提交声明；UNKNOWN 不进入重算流程。
 
 ## 7. 常见失败与处理
