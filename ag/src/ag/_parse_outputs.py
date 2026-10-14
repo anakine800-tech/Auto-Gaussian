@@ -123,6 +123,7 @@ def parse_gaussian(path, pbs_path=None):
     text = path.read_text(errors='replace')
     pbs = pbs_path.read_text(errors='replace') if pbs_path and pbs_path.exists() else ''
     facts = termination(text, 'Normal termination of Gaussian', pbs)
+    facts.update(gaussian_version(text))
     # Truncated/error logs can make cclib raise. Keep termination evidence,
     # but never turn a failed parse into invented numerical facts.
     try:
@@ -234,3 +235,14 @@ def parse_crest(outputs):
                  best_energy=number(match[1]) if match else None,
                  relative_energies_kcal=energies)
     return facts, xyz_text(elements, coords)
+
+
+def gaussian_version(text):
+    """Extract only product/revision tokens; never retain identifying headers."""
+    versions = set(re.findall(r'Gaussian\s+(\d{2}),\s+Revision\s+([A-Z]\.\d{2})\b', text, re.I))
+    versions.update(re.findall(r'Gaussian\s+(\d{2}):[^\n]*?G\d{2}Rev([A-Z]\.\d{2})\b', text, re.I))
+    normalized = sorted({f'Gaussian {major} Rev {revision.upper()}' for major, revision in versions})
+    return dict(program_version=normalized[0] if len(normalized) == 1 else None,
+                program_versions=normalized,
+                program_version_warning=('Conflicting Gaussian versions in log' if len(normalized) > 1 else
+                                         'Gaussian version not found in log' if not normalized else None))

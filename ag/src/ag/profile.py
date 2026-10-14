@@ -148,6 +148,7 @@ def calculate_profile(definition, *, perturb=None):
                for name, spec in specs.items()}
     baseline = next(iter(species.values()))
     for name, item in species.items():
+        require(item['program_version'] == baseline['program_version'], f'{name}: inconsistent program versions within profile')
         require(item['settings'] == baseline['settings'], f'{name}: inconsistent temperature/standard state/low-frequency settings')
         require(item['protocol'] == baseline['protocol'], f'{name}: inconsistent method/basis/dispersion/solvent protocol')
     settings = baseline['settings']

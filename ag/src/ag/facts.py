@@ -45,7 +45,7 @@ def build_facts(attempt_dir):
     outputs = attempt_dir / 'outputs'
     if program == 'gaussian':
         log = gaussian_log(attempt_dir)
-        facts, geometry = parse_gaussian(log, outputs / 'job.pbs.out')
+        facts, geometry = parse_gaussian(log, outputs / ('job.slurm.err' if manifest.get('scheduler') == 'slurm' else 'job.pbs.out'))
         if 'irc' in facts:
             from ag._irc import parse_irc
             _, endpoint = parse_irc(log.read_text(errors='replace'))

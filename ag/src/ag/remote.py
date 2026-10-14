@@ -63,7 +63,10 @@ def jobs(job=None):
 def root_check(cfg):
     root = cfg['remote']['allowed_root']
     ag = cfg['remote']['ag_root']
-    return Command('root_check', f'{path_checks(root)} && test -d {quote(root)} && test -w {quote(root)} && test -x {quote(root)} && test ! -L {quote(ag)}')
+    text = f'{path_checks(root)} && test -d {quote(root)} && test -w {quote(root)} && test -x {quote(root)} && test ! -L {quote(ag)}'
+    if cfg.get('scheduler') == 'slurm':
+        text += f' && test -d {quote(ag)} && test -w {quote(ag)} && test -x {quote(ag)}'
+    return Command('root_check', text)
 
 
 def executable(path):
@@ -124,8 +127,11 @@ def receipt(cfg, manifest, name):
 
 def output_names(manifest):
     from ag.render import declaration
-    stem = PurePosixPath(next(r['name'] for r in manifest['inputs'] if r['name'] != 'job.pbs')).stem
-    return [filename(n.format(stem=stem)) for n in declaration(manifest['template'])['outputs']]
+    stem = PurePosixPath(next(r['name'] for r in manifest['inputs'] if r['name'] not in ('job.pbs', 'job.slurm', 'constraints.inp'))).stem
+    names = [filename(n.format(stem=stem)) for n in declaration(manifest['template'])['outputs']]
+    if manifest.get('scheduler') == 'slurm':
+        names = [n.replace('job.pbs.out', 'job.slurm.out') for n in names] + ['job.slurm.err']
+    return names
 
 
 def output_observation(cfg, manifest):
@@ -160,3 +166,68 @@ def session_processes(session):
     if not isinstance(session, str) or not re.fullmatch(r'[1-9][0-9]{0,9}', session):
         raise ValueError('Invalid PBS session ID')
     return Command('session_processes', f'ps -s {session} -o pid=,sid=,stat=,comm=')
+
+
+# These fixed constructions prevent job IDs, account names or scheduler output
+# from becoming remote commands; callers cannot supply formats or shell flags.
+def slurm_job_id(value):
+    if not isinstance(value, str) or not re.fullmatch(r'[1-9][0-9]*', value):
+        raise ValueError('Invalid exact Slurm job ID')
+    return value
+
+
+def slurm_token(value):
+    if not isinstance(value, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]*', value):
+        raise ValueError('Invalid Slurm selector')
+    return value
+
+
+def slurm_jobs(job=None, *, user=None):
+    if (job is None) == (user is None):
+        raise ValueError('Expected one exact job or user selector')
+    selector = '-j ' + slurm_job_id(job) if job is not None else '-u ' + quote(slurm_token(user))
+    return Command('slurm_jobs', f"squeue -h {selector} -r --local -o '%i|%j|%u|%T|%C|%M|%P'")
+
+
+def slurm_accounting(job):
+    return Command('slurm_accounting', 'sacct -X -n -P -j ' + slurm_job_id(job)
+                   + ' --format=JobID,State,ExitCode,Elapsed,AllocCPUS')
+
+
+def slurm_find(user, name, since):
+    identifier(name)
+    if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', since):
+        raise ValueError('Invalid accounting start date')
+    return Command('slurm_find', f'sacct -X -n -P -u {quote(slurm_token(user))} '
+                   f'--name={quote(name)} --starttime={since} '
+                   '--format=JobID,JobName%128,User%128,State%64,ExitCode,Elapsed,AllocCPUS')
+
+
+def slurm_history(user):
+    return Command('slurm_history', f'sacct -X -n -P -u {quote(slurm_token(user))} '
+                   '--starttime=1970-01-01 --endtime=now --state=CD,F,CA,TO,OOM,NF '
+                   '--format=JobID,State,ExitCode,Elapsed,AllocCPUS')
+
+
+def slurm_partitions(partition=None):
+    return Command('slurm_partitions', "sinfo -h -o '%P'" +
+                   (' -p ' + quote(slurm_token(partition)) if partition else ''))
+
+
+def slurm_tools():
+    return Command('slurm_tools', 'command -v sbatch && command -v squeue && command -v sacct && command -v scancel && command -v sinfo')
+
+
+def slurm_submit(cfg, manifest):
+    p = attempt_dir(cfg, manifest)
+    return Command('submit', f'{path_checks(p + "/job.slurm")} && cd {quote(p)} && sbatch --parsable job.slurm', 120)
+
+
+def slurm_cancel(job):
+    return Command('cancel', 'scancel ' + slurm_job_id(job))
+
+
+def storage_usage(cfg):
+    root = contained(cfg, cfg['remote']['ag_root'])
+    # du's default does not follow encountered symlinks; reject root symlinks.
+    return Command('storage_usage', f'{path_checks(root)} && test -d {quote(root)} && du -s -k -- {quote(root)}')

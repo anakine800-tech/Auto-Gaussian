@@ -1,0 +1,73 @@
+# Local-only template. Replace every placeholder before use; never commit values.
+# The old config.example.toml remains valid as the default PBS cluster.
+[local]
+python = "<absolute local Python executable>"
+studies_root = "<absolute local studies directory outside Git>"
+
+[clusters.default]
+scheduler = "pbs"
+queue = "<PBS queue>"
+[clusters.default.ssh]
+config_file = "<absolute SSH configuration file>"
+host = "<PBS SSH alias>"
+[clusters.default.remote]
+allowed_root = "<absolute allowed root>"
+ag_root = "<absolute allowed root>/ag"
+[clusters.default.programs.gaussian]
+g16root = "<absolute Gaussian executable directory>"
+[clusters.default.programs.xtb]
+root = "<absolute xtb and crest installation root>"
+[clusters.default.resources]
+max_cores = 44
+max_committed_cores = 88
+[clusters.default.resources.tiers.mini]
+cores = 4
+mem_gb = 10
+[clusters.default.resources.tiers.simple]
+cores = 8
+mem_gb = 12
+[clusters.default.resources.tiers.general]
+cores = 22
+mem_gb = 50
+[clusters.default.resources.tiers.complex]
+cores = 44
+mem_gb = 120
+
+[clusters.batch]
+scheduler = "slurm"
+# Optional; omit to use the site's scheduler defaults.
+partition = "<partition>"
+account = "<account>"
+qos = "<qos>"
+expires = "<YYYY-MM-DD>"
+[clusters.batch.ssh]
+config_file = "<absolute SSH configuration file>"
+host = "<Slurm SSH alias>"
+[clusters.batch.remote]
+allowed_root = "<absolute allowed root>"
+ag_root = "<absolute allowed root>/ag"
+[clusters.batch.programs.gaussian]
+g16root = "<absolute Gaussian executable directory>"
+# Optional environment-module setup: only a source-file path and module names.
+# Arbitrary shell text and scheduler extra flags are not supported.
+module_init = "<absolute module initialization file>"
+modules = ["<Gaussian module name>"]
+[clusters.batch.programs.xtb]
+root = "<absolute xtb and crest installation root>"
+[clusters.batch.resources]
+# Example limits only; replace with the intended local allowance.
+max_cores = 44
+max_committed_cores = 44
+budget_core_hours = 100
+[clusters.batch.resources.tiers.mini]
+cores = 4
+mem_gb = 10
+[clusters.batch.resources.tiers.simple]
+cores = 8
+mem_gb = 12
+[clusters.batch.resources.tiers.general]
+cores = 22
+mem_gb = 50
+[clusters.batch.resources.tiers.complex]
+cores = 44
+mem_gb = 120

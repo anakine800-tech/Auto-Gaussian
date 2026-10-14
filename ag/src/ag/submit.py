@@ -3,7 +3,9 @@ from hashlib import sha256
 from pathlib import Path
 import tempfile
 import sys
-from ag import attempt, confirm, journal, remote, state, status
+from ag import attempt, confirm, journal, remote, state, status, slurm, submission, budget
+from ag.config import for_manifest, scheduler_kind
+from ag.transport import bound_transport
 from ag.locks import claim, submission_lock
 from ag.pbs import parse_nodes
 from ag.transport import require_ok, TransportError
@@ -32,6 +34,8 @@ def metadata(transport, cfg, manifest, name):
 def capacity(cfg, transport, jobs):
     """Fall back to the strict cap when hardware capacity cannot be verified."""
     limit = cfg['resources']['max_cores']
+    if scheduler_kind(cfg) == 'slurm':
+        return limit, 'Slurm 无硬件保证；运行加排队按 max_cores 严格统计'
     reason = None
     try:
         nodes = parse_nodes(require_ok(transport.run(remote.nodes()), 'pbsnodes'), jobs)
@@ -51,6 +55,13 @@ def capacity(cfg, transport, jobs):
 def submit(cfg, ids, transport):
     if not ids or len(ids) != len(set(ids)):
         raise ValueError('Expected unique Attempt IDs')
+    manifests = [attempt.read_manifest(attempt.find(cfg, id_)) for id_ in ids]
+    if len({m.get('cluster', 'default') for m in manifests}) != 1:
+        raise ValueError('Submit one cluster per confirmed batch')
+    cfg = for_manifest(cfg, manifests[0])
+    transport = bound_transport(transport, cfg)
+    is_slurm = scheduler_kind(cfg) == 'slurm'
+    scheduler_command = 'sbatch' if is_slurm else 'qsub'
     if hasattr(transport, 'record_to'):
         transport.record_to([attempt.find(cfg, id_) for id_ in ids])
     with submission_lock(cfg):
@@ -67,16 +78,26 @@ def submit(cfg, ids, transport):
         # Batch confirmation is for a single template and scientific method/card.
         if len({(m['template'], m['science']['route'], m['science']['method_basis']) for _, m, _ in prepared}) != 1:
             raise ValueError('Batch requires the same template, route and method basis')
-        username, jobs, used = status.inventory(transport)
-        running, queued = status.core_breakdown(jobs, username)
+        budget_ledger = budget.read(cfg) if is_slurm else None
+        username, jobs, used = status.inventory(transport, cfg)
+        running, queued = (slurm.core_breakdown(jobs, username) if is_slurm else status.core_breakdown(jobs, username))
+        if is_slurm:
+            held = budget.unobserved_cores(cfg, jobs, budget_ledger)
+            used += held
+            queued += held
         cap, reason = capacity(cfg, transport, jobs)
         requested = sum(m['cores'] for _, m, _ in prepared)
         if used + requested > cap:
             raise ValueError(f'Core limit exceeded: {used} occupied + {requested} requested / {cap} cap')
-        text = '\n'.join(f"{m['attempt_id']} | {m['template']} | {m['tier']} {m['cores']} cores | "
-                         f"{m['walltime']} | SHA256 {m['bundle_sha256'][:12]}" for _, m, _ in prepared)
+        if is_slurm:
+            budget.check(cfg, sum(budget.requested(m) for _, m, _ in prepared), ledger=budget_ledger)
+        budget_text = budget.summary(cfg, sum(budget.requested(m) for _, m, _ in prepared)) if is_slurm else None
+        text = f"Cluster: {cfg['_cluster']}\n" + '\n'.join(f"{m['attempt_id']} | {m['template']} | {m['tier']} {m['cores']} cores | "
+                         f"{m['walltime']} | SHA256 {m['bundle_sha256'][:12]}\n{attempt.cost_line(m)}" for _, m, _ in prepared)
         text += (f'\n当前占用 {used} 核（运行 {running}、排队 {queued}），'
-                 f'提交后合计 {used + requested} / 上限 {cap} 核；集群空闲不足时作业将在 PBS 中排队')
+                 f'提交后合计 {used + requested} / 上限 {cap} 核；集群空闲不足时作业将在 {scheduler_kind(cfg).upper()} 中排队')
+        if budget_text:
+            text += '\n' + budget_text
         if reason:
             text += f'\n严格模式：{reason}；排队也计入上限'
         # Keep stdout machine-readable for ag submit --json.
@@ -93,19 +114,27 @@ def submit(cfg, ids, transport):
             if attempt.read_manifest(path) != m or attempt.verified_files(cfg, path, m) != files:
                 raise ValueError('Inputs changed during confirmation')
             claim(path / '.submit-claim')
+            if is_slurm:
+                budget.reserve(cfg, m, budget_ledger)
             state.write(path, 'submitting')
             qsub_started = False
             try:
                 # Other scheduler clients can submit during the confirmation window.
                 # Keep the confirmed hardware result for this batch: an intermittent
                 # pbsnodes failure must not consume an otherwise valid Attempt.
-                jobs = status.parse_jobs(require_ok(transport.run(remote.jobs()), 'qstat'))
-                fresh_used = status.occupied(jobs, username)
+                if is_slurm:
+                    jobs = slurm.parse_queue(require_ok(transport.run(remote.slurm_jobs(user=username)), 'squeue'))
+                    fresh_used = sum(slurm.core_breakdown(jobs, username))
+                    fresh_used += budget.unobserved_cores(cfg, jobs, budget_ledger, exclude=m['attempt_id'])
+                else:
+                    jobs = status.parse_jobs(require_ok(transport.run(remote.jobs()), 'qstat'))
+                    fresh_used = status.occupied(jobs, username)
                 # qstat can lag behind successful qsub. Reserve earlier batch jobs
                 # until visible; do not double count them or reserve visible C jobs.
                 visible = {job['job_id'] for job in jobs
-                           if job['Job_Owner'].split('@')[0] == username}
-                fresh_used += sum(cores for job_id, cores in submitted.items() if job_id not in visible)
+                           if (job['owner'] if is_slurm else job['Job_Owner'].split('@')[0]) == username}
+                if not is_slurm:
+                    fresh_used += sum(cores for job_id, cores in submitted.items() if job_id not in visible)
                 if fresh_used + m['cores'] > cap:
                     raise ValueError('Core limit changed during confirmation; stop')
                 require_ok(transport.run(remote.create_attempt(cfg, m)), 'new remote Attempt directory')
@@ -118,22 +147,27 @@ def submit(cfg, ids, transport):
                         if (size, digest) != (len(data), sha256(data).hexdigest()):
                             raise ValueError('Uploaded file hash mismatch; stop')
                 qsub_started = True
-                result = transport.run(remote.submit(cfg, m))
+                result = transport.run(remote.slurm_submit(cfg, m) if is_slurm else remote.submit(cfg, m))
                 if result.returncode:
-                    if result.returncode != 255 and result.stderr.lstrip().startswith('qsub:'):
+                    if not is_slurm and result.returncode != 255 and result.stderr.lstrip().startswith('qsub:'):
                         qsub_started = False  # scheduler explicitly rejected the request
-                        raise ValueError('qsub explicitly rejected submission; do not resubmit this Attempt')
-                    raise UnknownSubmission('qsub outcome unknown; stop and use read-only status')
+                        raise ValueError(f'{scheduler_command} explicitly rejected submission; do not resubmit this Attempt')
+                    # sbatch can print an error after controller acceptance.
+                    # Nonzero transport/scheduler replies retain the reservation.
+                    raise UnknownSubmission(f'{scheduler_command} outcome unknown; stop and use read-only status')
                 try:
-                    job = remote.job_id(result.stdout.strip())
+                    job, reported_cluster = slurm.parse_submission(result.stdout) if is_slurm else (remote.job_id(result.stdout.strip()), None)
+                    submission.record(path, m, job, scheduler_cluster=reported_cluster)
                 except ValueError as exc:
-                    raise UnknownSubmission('Unparseable qsub response; stop and use read-only status') from exc
-                results.append(dict(attempt_id=path.name, **state.write(path, 'submitted', job_id=job)))
+                    raise UnknownSubmission(f'Unparseable {scheduler_command} response; stop and use read-only status') from exc
+                results.append(dict(attempt_id=path.name, **state.write(path, 'submitted', job_id=submission.qualified(m, job))))
                 submitted[job] = m['cores']
             except BaseException as exc:
+                if is_slurm and not qsub_started:
+                    budget.reject(cfg, m, budget_ledger)
                 target = 'unknown' if qsub_started else 'failed_presubmit'
                 state.write(path, target, note=str(exc) if isinstance(exc, (ValueError, TransportError, UnknownSubmission)) else 'Submission interrupted')
                 if qsub_started:
-                    raise UnknownSubmission('qsub outcome unknown; no further remote writes') from exc
+                    raise UnknownSubmission(f'{scheduler_command} outcome unknown; no further remote writes') from exc
                 raise
         return results

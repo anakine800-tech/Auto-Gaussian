@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import re
 from ag import __version__, crest_input, gaussian_input, journal, render, state, study
+from ag.config import select_cluster, for_manifest, scheduler_kind
 from ag.locks import claim
 from ag.remote import filename
 
@@ -50,7 +51,8 @@ def all_attempts(cfg, name=None):
     return result
 
 
-def prepare(cfg, *, study_name, template, input_path, tier, walltime, label, params=None, parents=None, method_basis='兜底方法', constraints=None):
+def prepare(cfg, *, study_name, template, input_path, tier, walltime, label, params=None, parents=None, method_basis='兜底方法', constraints=None, cluster='default'):
+    cfg = select_cluster(cfg, cluster)
     s = study.locate(cfg, study_name)
     if not (s / 'study.md').is_file() or not (s / 'attempts').is_dir():
         raise ValueError('Initialize the study first')
@@ -106,12 +108,13 @@ def prepare(cfg, *, study_name, template, input_path, tier, walltime, label, par
         raise ValueError('Study sequence exhausted')
     attempt_id = f'{s.name}-{number:03}-{label}'
     study.identifier(attempt_id)
-    m = dict(schema='ag-attempt/1', attempt_id=attempt_id, study_id=s.name, label=label,
+    m = dict(schema='ag-attempt/1', cluster=cluster, scheduler=scheduler_kind(cfg), attempt_id=attempt_id, study_id=s.name, label=label,
              template=template, template_params=params, tier=tier, **resource, walltime=walltime,
              pbs_job_name='ag' + sha256(attempt_id.encode()).hexdigest()[:12],
              remote_dir=f'{s.name}/{attempt_id}', parents=parents, created_at=journal.now(),
              ag_version=__version__, completion_receipts=True, science={**science, 'method_basis': method_basis})
-    files = {name: data, 'job.pbs': render.render(cfg, m, name).encode()}
+    script = 'job.slurm' if m['scheduler'] == 'slurm' else 'job.pbs'
+    files = {name: data, script: render.render(cfg, m, name).encode()}
     if constraint_data is not None:
         files['constraints.inp'] = constraint_data
     m['inputs'], m['bundle_sha256'] = bundle(files)
@@ -131,6 +134,8 @@ def prepare(cfg, *, study_name, template, input_path, tier, walltime, label, par
 
 def verified_files(cfg, path, manifest):
     m = manifest
+    cfg = for_manifest(cfg, m)
+    script = 'job.slurm' if m.get('scheduler') == 'slurm' else 'job.pbs'
     resource = cfg['resources']['tiers'].get(m['tier'])
     if not resource or any(m[k] != resource[k] for k in ('cores', 'mem_gb')):
         raise ValueError('Resource configuration changed since preparation')
@@ -144,7 +149,7 @@ def verified_files(cfg, path, manifest):
     records, digest = bundle(files)
     if records != m['inputs'] or digest != m['bundle_sha256']:
         raise ValueError('Input bundle differs from confirmed manifest')
-    names = set(files) - {'job.pbs'}
+    names = set(files) - {script}
     constrained = m['template'] == 'crest' and m['template_params'].get('--cinp') == 'constraints.inp'
     if constrained:
         if 'constraints.inp' not in names:
@@ -158,7 +163,7 @@ def verified_files(cfg, path, manifest):
         if not rows or not rows[0].isdigit() or int(rows[0]) < 1 or len(rows) != int(rows[0]) + 2:
             raise ValueError('Invalid XYZ atom count')
         crest_input.validate(files['constraints.inp'].decode(), int(rows[0]))
-    if files['job.pbs'] != render.render(cfg, m, name).encode():
+    if files[script] != render.render(cfg, m, name).encode():
         raise ValueError('Prepared script differs from current reviewed template/configuration')
     if m['template'] == 'gaussian':
         science = gaussian_input.validate(files[name].decode(), **resource)
@@ -169,7 +174,10 @@ def verified_files(cfg, path, manifest):
 
 def summary(cfg, m):
     from ag.remote import attempt_dir
+    cfg = for_manifest(cfg, m)
     science = m['science']
+    from ag import budget
+    budget_line = budget.summary(cfg, budget.requested(m)) if m.get('scheduler') == 'slurm' else ''
     geometry = f"```text\n{science['geometry']}\n```\n\n"
     if science.get('qst_mode'):
         geometry = f"{science['qst_mode']} structures (input atom order):\n\n"
@@ -182,10 +190,16 @@ def summary(cfg, m):
                      f"(fixed row mapping, {science['displacement_unit']}; up to 5 atoms):\n\n")
         geometry += '\n'.join(f"- Atom {row['atom_index']} ({row['element']}): {row['displacement']:.8f}"
                               for row in science['largest_displacements']) + '\n\n'
-    return (f"### {m['attempt_id']}\n\nTemplate: {m['template']} | Tier: {m['tier']} | "
+    return (f"### {m['attempt_id']}\n\nCluster: {m.get('cluster', 'default')}\n\n{cost_line(m)}\n{budget_line}\n\nTemplate: {m['template']} | Tier: {m['tier']} | "
             f"Cores: {m['cores']} | Memory: {m['mem_gb']} GB | Walltime: {m['walltime']}\n\n"
             f"Remote directory: {attempt_dir(cfg, m)}\n\nBundle SHA-256: {m['bundle_sha256']}\n\n"
             f"Method basis: {m['science']['method_basis']}\n\nRoute: {m['science']['route']}\n\n"
             f"Charge / multiplicity: {m['science']['charge']} / {m['science']['multiplicity']}\n\n"
             f"{m['science']['stereochemistry_warning']}\n\n" + geometry +
             '\n'.join(f"- {r['name']}: {r['sha256']}" for r in m['inputs']))
+
+
+def cost_line(m):
+    hours, minutes, seconds = map(int, m['walltime'].split(':'))
+    cost = m['cores'] * (hours + minutes / 60 + seconds / 3600)
+    return f"估算核时 = 核数 × walltime = {cost:g} 核时（实际费用以平台计费为准）"

@@ -9,7 +9,8 @@ import subprocess
 import tempfile
 import time
 
-from ag import remote, status
+from ag import remote, status, slurm, submission, attempt, budget
+from ag.config import select_cluster, scheduler_kind
 from ag.pbs import parse_nodes
 from ag.transport import SSHTransport, redact_stderr, require_ok
 
@@ -65,23 +66,30 @@ def parse_queues(text):
     return rows
 
 
-def local_attempts(root):
+def local_attempts(root, cluster='default'):
     records = []
     for path in sorted(root.glob('*/attempts/*/status.json')):
         value = json.loads(path.read_text(encoding='utf-8'))
+        manifest_path = path.parent / 'manifest.json'
+        manifest = attempt.read_manifest(path.parent) if manifest_path.exists() else {}
+        if manifest.get('cluster', 'default') != cluster:
+            continue
         if value.get('job_id') is not None:
-            records.append(dict(job_id=remote.job_id(value['job_id']), state=value['state'],
+            job = submission.raw_job(manifest, value['job_id'])
+            records.append(dict(job_id=job, state=value['state'],
                                 study=path.parents[2].name, attempt=path.parent.name))
     return records
 
 
 def observation(cfg, transport, username):
+    if scheduler_kind(cfg) == 'slurm':
+        return slurm_observation(cfg, transport, username)
     jobs = status.parse_jobs(require_ok(transport.run(remote.jobs()), 'qstat jobs'))
     # Use submit's exact all-user validation and non-C reservation accounting.
     used = status.occupied(jobs, username)
     queues = parse_queues(require_ok(transport.run(remote.queues()), 'qstat queues'))
     nodes = parse_nodes(require_ok(transport.run(remote.nodes()), 'pbsnodes'), jobs)
-    attempts = local_attempts(Path(cfg['local']['studies_root']))
+    attempts = local_attempts(Path(cfg['local']['studies_root']), cfg.get('_cluster', 'default'))
     by_job = {}
     for item in attempts:
         # Do not silently attach a scheduler job to the wrong copied Attempt.
@@ -119,6 +127,10 @@ def observation(cfg, transport, username):
     if used > warning_cap:
         warnings.append(dict(kind='over-cap', job_id=None, study=None, attempt=None,
                              detail=f'本人占用 {used} 核，超过上限 {warning_cap} 核'))
+    if cfg.get('_cluster'):
+        for row in own + warnings:
+            if row.get('job_id'):
+                row['job_id'] = cfg['_cluster'] + ':' + row['job_id']
     return dict(own=dict(cores_in_use=used, core_cap=cap, jobs=own,
                          cores_running=running, cores_queued=queued, committed_cap=committed_cap),
                 cluster=dict(nodes=nodes, queues=queues,
@@ -128,8 +140,10 @@ def observation(cfg, transport, username):
 
 def cache_dir(cfg):
     root = Path(cfg['local']['studies_root']) / '.ag-monitor'
+    if cfg.get('_cluster'):
+        root = root / cfg['_cluster']
     # A redirected cache/history could otherwise overwrite study files.
-    for path in (root, *(root / name for name in ('latest.json', 'history.jsonl', 'history.1.jsonl'))):
+    for path in (root.parent, root, *(root / name for name in ('latest.json', 'history.jsonl', 'history.1.jsonl'))):
         if path.is_symlink():
             raise ValueError('Monitor cache must not contain symbolic links')
     root.mkdir(parents=True, exist_ok=True)
@@ -199,11 +213,15 @@ def sample(cfg, transport, interval=None):
         snapshot['error'] = redact_stderr(f'{operation}: {exc}', cfg)
     else:
         snapshot.update(ok=True, last_ok_at=now)
+    if scheduler_kind(cfg) == 'slurm':
+        snapshot['cluster']['expiry_warning'] = budget.expiry_warning(cfg)
     publish(root, snapshot)
     return snapshot
 
 
 def run(cfg, interval=None):
+    if 'clusters' in cfg:
+        return run_clusters(cfg, interval)
     transport = SSHTransport(cfg, read_only=True)
     try:
         while True:
@@ -212,6 +230,67 @@ def run(cfg, interval=None):
             print(json.dumps(snapshot, ensure_ascii=False), flush=True)
             if interval is None:
                 return 0 if snapshot['ok'] else 2
+            time.sleep(max(0, interval - (time.monotonic() - started)))
+    except KeyboardInterrupt:
+        return 0
+
+
+def slurm_observation(cfg, transport, username):
+    from ag.doctor import storage
+    storage_kib = storage(cfg, transport)
+    expiry = budget.expiry_warning(cfg)
+    jobs = slurm.parse_queue(require_ok(transport.run(remote.slurm_jobs(user=username)), 'squeue monitor'))
+    running, queued = slurm.core_breakdown(jobs, username)
+    records = local_attempts(Path(cfg['local']['studies_root']), cfg['_cluster'])
+    by_job = {}
+    for record in records:
+        if record['job_id'] in by_job:
+            raise ValueError('Multiple local Attempts record the same exact job ID')
+        by_job[record['job_id']] = record
+    own = []
+    for job in jobs:
+        link = by_job.get(job['job_id'], {})
+        own.append(dict(job_id=cfg['_cluster'] + ':' + job['job_id'], name=job['name'],
+                        state=job['state'], cores=job['cores'], queue=job['partition'],
+                        walltime_used=job['elapsed'], study=link.get('study'), attempt=link.get('attempt')))
+    warnings = []
+    active = {j['job_id'] for j in jobs}
+    for record in records:
+        kind = None
+        if record['state'] in ('submitted', 'running', 'unknown') and record['job_id'] not in active:
+            kind = 'absent-from-scheduler'
+        elif record['state'] in ('finished', 'fetched', 'cancelled') and record['job_id'] in active:
+            kind = 'scheduler-residue'
+        if kind:
+            warnings.append(dict(kind=kind, job_id=cfg['_cluster'] + ':' + record['job_id'],
+                                 study=record['study'], attempt=record['attempt'], detail='运行 ag status 核对；不会自动重提或取消'))
+    cap = cfg['resources']['max_cores']
+    if running + queued > cap:
+        warnings.append(dict(kind='over-cap', job_id=None, study=None, attempt=None,
+                             detail=f'本人运行加排队 {running + queued} 核，超过上限 {cap} 核'))
+    return dict(own=dict(cores_in_use=running + queued, cores_running=running, cores_queued=queued,
+                         core_cap=cap, committed_cap=cap, jobs=own),
+                cluster=dict(nodes=[], queues=[], cores_total=0, cores_used=0,
+                             hardware_capacity_known=False, name=cfg['_cluster'], scheduler='slurm',
+                             storage_kib=storage_kib, expiry_warning=expiry), warnings=warnings)
+
+
+def run_clusters(cfg, interval=None):
+    # Include every manifest-bound cluster even if it is no longer configured;
+    # missing configuration is an explicit failure, never a default fallback.
+    names = set(cfg['clusters'])
+    root = Path(cfg['local']['studies_root'])
+    for path in root.glob('*/attempts/*/manifest.json'):
+        names.add(attempt.read_manifest(path.parent).get('cluster', 'default'))
+    selected = {name: select_cluster(cfg, name) for name in sorted(names)}
+    transports = {name: SSHTransport(c, read_only=True) for name, c in selected.items()}
+    try:
+        while True:
+            started = time.monotonic()
+            snapshots = {name: sample(c, transports[name], interval) for name, c in selected.items()}
+            print(json.dumps(dict(clusters=snapshots), ensure_ascii=False), flush=True)
+            if interval is None:
+                return 0 if all(s['ok'] for s in snapshots.values()) else 2
             time.sleep(max(0, interval - (time.monotonic() - started)))
     except KeyboardInterrupt:
         return 0

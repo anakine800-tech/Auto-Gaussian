@@ -1,11 +1,16 @@
 """Explicit, separately confirmed cancellation of a recorded exact job ID."""
-from ag import attempt, confirm, journal, remote, state
+from ag import attempt, confirm, journal, remote, state, submission
+from ag.config import for_manifest, scheduler_kind
+from ag.transport import bound_transport
 from ag.locks import claim, submission_lock
 from ag.submit import UserCancelled
 from ag.transport import require_ok
 
 
 def cancel(cfg, path, transport):
+    cfg = for_manifest(cfg, attempt.read_manifest(path))
+    transport = bound_transport(transport, cfg)
+    is_slurm = scheduler_kind(cfg) == 'slurm'
     if hasattr(transport, 'record_to'):
         transport.record_to([path])
     with submission_lock(cfg):
@@ -16,24 +21,29 @@ def cancel(cfg, path, transport):
             raise ValueError('Cancellation requires an active job or scheduler residue and recorded job ID')
         if (path / '.cancel-claim').exists():
             raise ValueError('Exact-job cancellation already attempted; no retry')
-        job = remote.job_id(current['job_id'])
-        text = (f"{path.name}\nJob: {job}\n{m['template']} | {m['tier']} {m['cores']} cores | "
+        job = submission.verified_job(path, m, current)
+        text = (f"{path.name}\nCluster: {cfg['_cluster']}\nJob: {current['job_id']}\n{m['template']} | {m['tier']} {m['cores']} cores | "
                 f"{m['walltime']} | SHA256 {m['bundle_sha256'][:12]}\n取消此确切作业？")
         if not confirm.confirm(text, '取消作业'):
             journal.append(path.parent.parent, 'cancel', path.name, 'user_cancelled')
             raise UserCancelled('Cancellation declined')
-        if state.read(path) != current:
+        if state.read(path) != current or attempt.read_manifest(path) != m or submission.verified_job(path, m, current) != job:
             raise ValueError('Status changed during confirmation; no cancellation issued')
         # qdel may succeed before SSH drops; an exclusive local claim prevents
         # a later manual invocation from issuing it again after ambiguity.
         claim(path / '.cancel-claim')
         try:
-            result = transport.run(remote.cancel(job))
-            require_ok(result, 'qdel')
+            result = transport.run(remote.slurm_cancel(job) if is_slurm else remote.cancel(job))
+            require_ok(result, 'scancel' if is_slurm else 'qdel')
         except BaseException:
             journal.append(path.parent.parent, 'cancel', path.name, 'failed_or_unknown', 'No automatic retry')
             raise
-        journal.append(path.parent.parent, 'cancel', path.name, 'succeeded', {'job_id': job})
+        journal.append(path.parent.parent, 'cancel', path.name, 'succeeded', {'job_id': current['job_id']})
+        if is_slurm:
+            if residue:
+                return state.write(path, current['state'], exit_status=current.get('exit_status'),
+                                   note='Confirmed exact-job scancel accepted', cleanup_status='scancel_accepted')
+            return state.write(path, 'cancelled', note='Confirmed exact-job scancel accepted')
         if residue:
             return state.write(path, current['state'], exit_status=current.get('exit_status'),
                                note='Scheduler cleanup qdel accepted; removal not yet verified',

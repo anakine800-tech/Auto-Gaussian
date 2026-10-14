@@ -25,7 +25,7 @@ def source(tmp_path, name, kcal, *, ts=False, formula=None, charge=0, settings=N
     for index in range(count):
         aid = f'{name}-{index}'
         directory = tmp_path / 'attempts' / aid
-        facts = {'schema': 'ag-facts/1', 'program': 'gaussian', 'termination': 'normal',
+        facts = {'schema': 'ag-facts/1', 'program': 'gaussian', 'program_version': 'Gaussian 16 Rev A.03', 'termination': 'normal',
                  'n_atoms': len(elements), 'charge': charge, 'multiplicity': 1,
                  'n_imag': 1 if ts else 0, 'route': route, 'final_geometry': 'final.xyz',
                  'energies': {'scf': kcal / HARTREE_TO_KCAL}}
@@ -389,3 +389,25 @@ def test_pair_write_collision_rolls_back_only_own_new_file(tmp_path, monkeypatch
         write_profile(result, path, 'race')
     assert destination.read_text() == 'other writer'
     assert not (path.parent / 'race.json').exists()
+
+
+@pytest.mark.parametrize('scope', ['species', 'conformer', 'spc', 'missing'])
+def test_program_version_consistency(tmp_path, scope):
+    path, data = definition(tmp_path)
+    targets = ['P-0', 'P-1'] if scope == 'species' else ['P-0']
+    if scope == 'spc':
+        source(tmp_path, 'sp', 0, count=1)
+        table_path = path.parent / 'P.json'
+        table = json.loads(table_path.read_text())
+        for row in table['rows']:
+            row['spc_attempt_id'] = 'sp-0'
+        dump(table_path, table)
+        targets = ['sp-0']
+    for aid in targets:
+        facts_path = tmp_path / 'attempts' / aid / 'facts.json'
+        facts = json.loads(facts_path.read_text())
+        facts['program_version'] = None if scope == 'missing' else 'Gaussian 16 Rev C.01'
+        dump(facts_path, facts)
+    with pytest.raises(ValueError, match='program version'):
+        calculate_profile(path)
+    assert not list(path.parent.glob('*-profile.*'))

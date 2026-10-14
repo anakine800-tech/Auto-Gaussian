@@ -5,10 +5,10 @@ set -C
 allowed_root=$allowed_root
 work_dir=$work_dir
 root_real=$$(realpath -e -- "$$allowed_root")
-work_real=$$(realpath -e -- "$$PBS_O_WORKDIR")
+work_real=$$(realpath -e -- "$$${workdir_variable}")
 test "$$root_real" = "$$allowed_root"
 test "$$work_real" = "$$work_dir"
-test "$$PBS_O_WORKDIR" = "$$work_dir"
+test "$$${workdir_variable}" = "$$work_dir"
 case "$$work_real" in "$$allowed_root"/*) ;; *) exit 41 ;; esac
 $path_checks
 cd "$$work_real"
@@ -21,12 +21,12 @@ export GAUSS_SCRDIR="$$scratch"
 # archive/auto_g16/execution/_program_completion_wrapper.py; no legacy imports.
 # Noclobber prevents a second launch from replacing either receipt.
 ag_run() {
-    case "$${PBS_JOBID:-}" in ''|*[!A-Za-z0-9_.-]*) exit 42 ;; esac
+    case "$${${jobid_variable}:-}" in ''|*[!A-Za-z0-9_.-]*) exit 42 ;; esac
     test ! -e ag-start.json
     test ! -L ag-start.json
     test ! -e ag-exit.json
     test ! -L ag-exit.json
-    printf '{"started_at":"%s","PBS_JOBID":"%s"}\n' "$$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$$PBS_JOBID" > ag-start.json
+    printf '{"started_at":"%s","${receipt_job_key}":"%s"}\n' "$$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$$${jobid_variable}" > ag-start.json
     if "$$@"; then
         ag_code=0
     else
@@ -34,6 +34,6 @@ ag_run() {
     fi
     test ! -e ag-exit.json
     test ! -L ag-exit.json
-    printf '{"returncode":%s,"finished_at":"%s","PBS_JOBID":"%s"}\n' "$$ag_code" "$$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$$PBS_JOBID" > ag-exit.json
+    printf '{"returncode":%s,"finished_at":"%s","${receipt_job_key}":"%s"}\n' "$$ag_code" "$$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$$${jobid_variable}" > ag-exit.json
     exit "$$ag_code"
 }

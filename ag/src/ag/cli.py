@@ -4,7 +4,7 @@ from importlib import import_module
 import json
 import sys
 from ag import __version__
-from ag.config import load_config
+from ag.config import load_config, select_cluster, for_manifest
 
 
 CONFIG_COMMANDS = ('init', 'prepare', 'submit', 'status', 'fetch', 'cancel', 'list', 'doctor', 'monitor')
@@ -32,7 +32,7 @@ def core_command(args):
         result = attempt.prepare(cfg, study_name=args.study, template=args.template,
                                  input_path=args.input, tier=args.tier, walltime=args.walltime,
                                  label=args.label, params=params, method_basis=args.method_basis,
-                                 constraints=args.constraints,
+                                 constraints=args.constraints, cluster=args.cluster,
                                  parents=[dict(attempt_id=p, relation=r) for p, r in zip(args.parent, args.relation)])
         if not args.json:
             print(attempt.summary(cfg, result))
@@ -40,7 +40,17 @@ def core_command(args):
     elif command == 'list':
         result = attempt.all_attempts(cfg, args.study)
     else:
-        transport = SSHTransport(cfg, read_only=command in ('doctor', 'status', 'fetch'))
+        # Select from immutable Attempt identity before constructing SSH options.
+        if command == 'doctor':
+            cfg = select_cluster(cfg, getattr(args, 'cluster', 'default'))
+        elif command in ('fetch', 'cancel'):
+            cfg = for_manifest(cfg, attempt.read_manifest(attempt.find(cfg, args.id)))
+        elif command == 'submit':
+            names = {attempt.read_manifest(attempt.find(cfg, id_)).get('cluster', 'default') for id_ in args.ids}
+            if len(names) != 1:
+                raise ValueError('Submit one cluster per confirmed batch')
+            cfg = for_manifest(cfg, attempt.read_manifest(attempt.find(cfg, args.ids[0])))
+        transport = None if command == 'status' else SSHTransport(cfg, read_only=command in ('doctor', 'fetch'))
         if command == 'doctor':
             result = doctor.doctor(cfg, transport)
         elif command == 'submit':
@@ -49,7 +59,12 @@ def core_command(args):
             if args.id and args.study:
                 raise ValueError('Use an Attempt ID or --study, not both')
             ids = [args.id] if args.id else [a['attempt_id'] for a in attempt.all_attempts(cfg, args.study)]
-            result = [dict(attempt_id=id_, **status.check(cfg, attempt.find(cfg, id_), transport)) for id_ in ids]
+            result = []
+            for id_ in ids:
+                path = attempt.find(cfg, id_)
+                selected = for_manifest(cfg, attempt.read_manifest(path))
+                transport = SSHTransport(selected, read_only=True)
+                result.append(dict(attempt_id=id_, **status.check(selected, path, transport)))
         elif command == 'fetch':
             result = fetch.fetch(cfg, attempt.find(cfg, args.id), transport)
         else:
@@ -58,6 +73,8 @@ def core_command(args):
         print(status.format_status(result))
     else:
         print(json.dumps(result, ensure_ascii=False, indent=2))
+    if command == 'doctor' and result.get('ok') is False:
+        return 2
     if command == 'status' and any(r['state'] == 'unknown' for r in result):
         return 3
     return 0
@@ -68,6 +85,8 @@ def register(subparsers):
         p = subparsers.add_parser(name)
         p.add_argument('--json', action='store_true')
         p.set_defaults(func=core_command)
+        if name in ('prepare', 'doctor'):
+            p.add_argument('--cluster', default='default')
         if name == 'init':
             p.add_argument('directory')
         elif name == 'monitor':
