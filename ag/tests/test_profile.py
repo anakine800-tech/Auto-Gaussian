@@ -435,6 +435,8 @@ def test_profile_with_monatomic_species(tmp_path, capsys, cached_atom):
         {'id': 'TS', 'kind': 'ts', 'species': {'ts': 1, 'F': 1}},
         {'id': 'P', 'kind': 'minimum', 'species': {'water': 1, 'F_shift': 1}},
     ]})
+    evidence = {p: (p.read_bytes(), p.stat().st_mtime_ns)
+                for p in (tmp_path / 'attempts').rglob('*') if p.is_file()}
     assert main(['profile', str(path), '--json']) == 0
     result = json.loads(capsys.readouterr().out)
     assert result['species']['F']['n_imag'] == 0
@@ -442,6 +444,8 @@ def test_profile_with_monatomic_species(tmp_path, capsys, cached_atom):
     assert result['steps'][0]['reaction_G_kcal'] == pytest.approx(0.01 * HARTREE_TO_KCAL)
     assert result['states'][-1]['relative_G_kcal'] == pytest.approx(0.01 * HARTREE_TO_KCAL)
     assert (path.parent / 'reaction-profile.json').is_file()
+    assert evidence == {p: (p.read_bytes(), p.stat().st_mtime_ns)
+                        for p in (tmp_path / 'attempts').rglob('*') if p.is_file()}
 
 
 def test_direct_polyatomic_log_without_frequencies_is_rejected(tmp_path, capsys):

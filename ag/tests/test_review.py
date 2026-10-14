@@ -221,7 +221,7 @@ def test_check_stale_facts(cfg, tmp_path, repository, change):
         os.utime(path / 'facts.json', ns=(newer, newer))
     result = review.check(path)
     assert result['complete'] and result['stale']
-    assert 'review 可能过期' in result['warnings'][0]
+    assert any('review 可能过期' in warning for warning in result['warnings'])
 
 
 def test_cli_prepare_review_are_local(cfg, tmp_path, repository, monkeypatch, capsys):
@@ -255,6 +255,36 @@ def test_stale_review_can_be_explicitly_reassessed(cfg, tmp_path, repository):
     text = re.sub(r'<!-- facts: .+ -->', '<!-- facts: ' + json.dumps(result['current_facts']) + ' -->', text)
     p.write_text(text)
     assert review.check(path)['stale'] is False
+
+
+@pytest.mark.parametrize('dirty', [False, True, None])
+def test_changed_evidence_reports_bound_ag_commit(cfg, tmp_path, repository, dirty):
+    path, m = prepare_card(cfg, tmp_path)
+    bound = {'git_commit': 'a' * 40, 'dirty': dirty}
+    facts(path, m, ag_provenance=bound)
+    review.init(path)
+    complete(path)
+    # The new parser commit and Skills commit must never replace the bound one.
+    facts(path, m, n_imag=1, ag_provenance={'git_commit': 'b' * 40, 'dirty': False})
+    before = {p.name: (p.read_bytes(), p.stat().st_mtime_ns) for p in path.iterdir() if p.is_file()}
+    result = review.check(path)
+    assert result['stale'] and result['bound_ag_commit'] == 'a' * 40
+    warning = result['warnings'][0]
+    assert '证据文件已变化' in warning and 'a' * 40 in warning
+    assert 'b' * 40 not in warning and m['card']['git_commit'] not in warning
+    assert ('仅该提交不能保证复现' in warning) == (dirty is not False)
+    assert before == {p.name: (p.read_bytes(), p.stat().st_mtime_ns) for p in path.iterdir() if p.is_file()}
+
+
+def test_legacy_changed_evidence_does_not_invent_commit(cfg, tmp_path, repository):
+    path, m = prepare_card(cfg, tmp_path)
+    facts(path, m)
+    review.init(path)
+    facts(path, m, n_imag=1)
+    result = review.check(path)
+    assert result['bound_ag_commit'] is None
+    assert '证据文件已变化' in result['warnings'][0]
+    assert '历史记录未保存 ag 提交号' in result['warnings'][0]
 
 
 def test_missing_git_provenance_is_not_invented(tmp_path, monkeypatch):

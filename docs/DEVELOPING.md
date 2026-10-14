@@ -37,6 +37,7 @@
 - `parent_chk_remote.py`：以固定描述符安全读取和独占复制 chk 的远端脚本文本。
 - `cards.py`：读取实际部署卡片并保存文本、提交号和 dirty 状态。
 - `review.py`：生成审阅骨架，检查判据完整性及 facts 是否过期。
+- `_review_manifest.py`：签字前独占生成 study 证据清单，绑定文件字节与 ag 提交号。
 - `facts.py`：本地 facts/final.xyz 输出入口，仅提取事实。
 - `_parse_outputs.py`：Gaussian/cclib、xTB、CREST 输出解析。
 - `_irc.py`：Gaussian IRC 方向、路径点和完成事实提取。
@@ -151,6 +152,24 @@ Slurm 从 squeue 消失仅触发 sacct 核对；终态中非零退出/信号以�
 旧 manifest 可在 review init 时用 --card 补指定，明确标注审阅时来源，不补写 manifest；见 [#228](https://github.com/anakine800-tech/Auto-Gaussian/pull/228)。
 
 ## 测试与敏感信息
+
+### 本地证据与签字
+
+`parse_facts` 只返回内存中的事实和几何文本；thermo/profile/review check 不生成或改写 facts.json。
+`ag facts` 比较新旧解析内容时排除 `ag_provenance`；解析内容相同则保留旧文件原始字节和 mtime，
+不归档、不补写缺失的 provenance，升级提交号不会使既有证据失效。只有解析内容不同时才列出差异并拒绝；
+人工核对后用 `ag facts <id> --refresh`，先保留原始字节为 `facts.<SHA-256前12位>.json`，再原子写入新版。
+已有几何仍不得覆盖。新 facts 的 `ag_provenance` 记录解析器 checkout 的提交号与 dirty 状态；
+review 快照绑定该来源，不能用当前 HEAD 或 Skills 提交号代替。旧记录缺版本时明确报告未知。
+
+签字前运行 `ag review manifest --study <dir>`；它无需配置或网络，独占创建
+`analyses/review-manifest-<UTC时间>.json`。清单包含 study.md、全部 facts.json/review.md，
+以及从 study/review 和已引用分析文件递归发现的 analyses/ 输出，记录相对路径、字节数和 SHA-256。
+文档用 Markdown 链接、反引号路径或显式 `analyses/文件名`；分析 JSON 支持相对文件路径，
+包括 profile 的 `thermo` 引用。含空格路径用 Markdown 尖括号链接或反引号；二进制输出只哈希不解析。
+缺失引用、符号链接、越界会拒绝；远程 URL 不下载。未被引用的分析输出不纳入清单，
+因此签字前先在 study.md/review.md 写全依据。生成清单不是科学签字；向人展示清单后，
+将清单路径和命令返回的清单 SHA-256 一起记入签字记录。旧清单保留，每次签字生成新的清单。
 
 新测试只用合成配置、合成小分子和假 Transport/假 ag，不读取真实配置、研究数据或连接集群。
 从现场问题改写脱敏样例时，虚构身份和值，但保留空格、截断、换行、列宽、返回码和缺字段的真实形态。
