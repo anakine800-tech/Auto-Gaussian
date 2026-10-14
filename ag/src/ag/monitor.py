@@ -114,9 +114,11 @@ def observation(cfg, transport, username):
     cap = cfg['resources']['max_cores']
     committed_cap = cfg['resources'].get('max_committed_cores', cap)
     running, queued = status.core_breakdown(jobs, username)
-    if used > committed_cap:
+    # Match submit's strict fallback when hardware cannot bound running cores.
+    warning_cap = cap if sum(n['cores_total'] for n in nodes) > cap else committed_cap
+    if used > warning_cap:
         warnings.append(dict(kind='over-cap', job_id=None, study=None, attempt=None,
-                             detail=f'本人占用 {used} 核，超过上限 {committed_cap} 核'))
+                             detail=f'本人占用 {used} 核，超过上限 {warning_cap} 核'))
     return dict(own=dict(cores_in_use=used, core_cap=cap, jobs=own,
                          cores_running=running, cores_queued=queued, committed_cap=committed_cap),
                 cluster=dict(nodes=nodes, queues=queues,

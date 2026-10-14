@@ -169,10 +169,23 @@ def verified_files(cfg, path, manifest):
 
 def summary(cfg, m):
     from ag.remote import attempt_dir
+    science = m['science']
+    geometry = f"```text\n{science['geometry']}\n```\n\n"
+    if science.get('qst_mode'):
+        geometry = f"{science['qst_mode']} structures (input atom order):\n\n"
+        for i, structure in enumerate(science['structures'], 1):
+            role = ('reactant', 'product', 'TS guess')[i - 1]
+            geometry += (f"Group {i} ({role}) | Title: {structure['title']} | Atoms: {structure['n_atoms']}\n\n"
+                         f"Charge / multiplicity: {structure['charge']} / {structure['multiplicity']}\n\n"
+                         f"```text\n{structure['geometry']}\n```\n\n")
+        geometry += ('Largest reactant/product displacements after Kabsch alignment '
+                     f"(fixed row mapping, {science['displacement_unit']}; up to 5 atoms):\n\n")
+        geometry += '\n'.join(f"- Atom {row['atom_index']} ({row['element']}): {row['displacement']:.8f}"
+                              for row in science['largest_displacements']) + '\n\n'
     return (f"### {m['attempt_id']}\n\nTemplate: {m['template']} | Tier: {m['tier']} | "
             f"Cores: {m['cores']} | Memory: {m['mem_gb']} GB | Walltime: {m['walltime']}\n\n"
             f"Remote directory: {attempt_dir(cfg, m)}\n\nBundle SHA-256: {m['bundle_sha256']}\n\n"
             f"Method basis: {m['science']['method_basis']}\n\nRoute: {m['science']['route']}\n\n"
             f"Charge / multiplicity: {m['science']['charge']} / {m['science']['multiplicity']}\n\n"
-            f"{m['science']['stereochemistry_warning']}\n\n```text\n{m['science']['geometry']}\n```\n\n" +
+            f"{m['science']['stereochemistry_warning']}\n\n" + geometry +
             '\n'.join(f"- {r['name']}: {r['sha256']}" for r in m['inputs']))

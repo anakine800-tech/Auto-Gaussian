@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Source: skills/auto-g16-chemdraw-pipeline/scripts/inspect_chemdraw.py (T4 migration).
+# Source: archive/skills/auto-g16-chemdraw-pipeline/scripts/inspect_chemdraw.py (T4 migration).
 """Normalize one ChemDraw CDX/CDXML file for review before Gaussian conversion."""
 
 from __future__ import annotations
