@@ -1,5 +1,7 @@
 # Auto-Gaussian 改造方案（ag + Skills）
 
+本文是 v4.0 的设计记录；现行规则以 AGENTS.md 和 README 为准。
+
 版本：2026-10-13 初版。规划与监督：Claude；操作与合并：项目负责人；执行：Codex。
 本文件是新架构的唯一方案来源。开工前先读仓库根目录的 `AGENTS.md`。
 
