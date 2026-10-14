@@ -118,7 +118,7 @@ def register(subparsers):
             p.add_argument('--template', choices=('gaussian', 'xtb', 'crest'), required=True)
             p.add_argument('--input', required=True)
             p.add_argument('--card', help='Recipe name; capture its text, Skills Git commit and dirty state')
-            p.add_argument('--constraints', help='CREST-only xcontrol file, bundled as constraints.inp')
+            p.add_argument('--constraints', help='xTB/CREST xcontrol file, bundled as constraints.inp')
             p.add_argument('--tier', choices=('mini', 'simple', 'general', 'complex'), required=True)
             p.add_argument('--walltime', required=True)
             p.add_argument('--label', required=True)
@@ -142,7 +142,7 @@ def main(argv=None):
     parser.add_argument('--version', action='version', version=__version__)
     subparsers = parser.add_subparsers(dest='command')
     register(subparsers)
-    for name in ('facts', 'thermo', 'dedup', 'cluster', 'graph', 'irc_compare', 'profile', 'coverage'):
+    for name in ('facts', 'thermo', 'dedup', 'cluster', 'graph', 'irc_compare', 'profile', 'coverage', 'scan_peak'):
         module_name = f'ag.{name}'
         try:
             module = import_module(module_name)

@@ -114,10 +114,10 @@ def prepare(cfg, *, study_name, template, input_path, tier, walltime, label, par
     name = filename(source.name)
     data = source.read_bytes()
     params = dict(params or {})
-    if constraints is not None and template != 'crest':
-        raise ValueError('--constraints is only supported for the crest template')
-    if '--cinp' in params:
-        raise ValueError('Use --constraints to supply a validated CREST constraint file')
+    if constraints is not None and template not in ('crest', 'xtb'):
+        raise ValueError('--constraints is only supported for the crest or xtb template')
+    if '--cinp' in params or '--input' in params:
+        raise ValueError('Use --constraints to supply a validated xTB/CREST constraint file')
     render.parameters(template, params)
     attachment = None
     if parent_chk is not None:
@@ -140,8 +140,15 @@ def prepare(cfg, *, study_name, template, input_path, tier, walltime, label, par
     constraint_data = None
     if constraints is not None:
         constraint_data = Path(constraints).read_bytes()
-        crest_input.validate(constraint_data.decode(), science['n_atoms'])
-        params['--cinp'] = 'constraints.inp'
+        scan = crest_input.validate(constraint_data.decode(), science['n_atoms'], allow_scan=template == 'xtb')
+        if scan:
+            from ag._scan import coordinate, input_geometry
+            symbols, _ = input_geometry(science['geometry'])
+            scan['coordinate'] = coordinate(**scan['coordinate'], symbols=symbols)
+            science['scan'] = scan
+            # xTB suppresses per-point convergence reports without verbose.
+            params['--verbose'] = ''
+        params['--cinp' if template == 'crest' else '--input'] = 'constraints.inp'
         science['route'] = render.parameters(template, params)
     if not isinstance(method_basis, str) or not method_basis.strip():
         raise ValueError('Method basis must be a DOI/reference or fallback declaration')
@@ -207,19 +214,27 @@ def verified_files(cfg, path, manifest):
     if records != m['inputs'] or digest != m['bundle_sha256']:
         raise ValueError('Input bundle differs from confirmed manifest')
     names = set(files) - {script}
-    constrained = m['template'] == 'crest' and m['template_params'].get('--cinp') == 'constraints.inp'
+    constraint_option = {'crest': '--cinp', 'xtb': '--input'}.get(m['template'])
+    constrained = constraint_option and m['template_params'].get(constraint_option) == 'constraints.inp'
     if constrained:
         if 'constraints.inp' not in names:
-            raise ValueError('Missing CREST constraints.inp input')
+            raise ValueError('Missing constraints.inp input')
         names.remove('constraints.inp')
     if len(names) != 1:
-        raise ValueError('Expected one program input, job.pbs and optional declared CREST constraints')
+        raise ValueError('Expected one program input, job.pbs and optional declared constraints')
     name = next(iter(names))
     if constrained:
         rows = files[name].decode().splitlines()
         if not rows or not rows[0].isdigit() or int(rows[0]) < 1 or len(rows) != int(rows[0]) + 2:
             raise ValueError('Invalid XYZ atom count')
-        crest_input.validate(files['constraints.inp'].decode(), int(rows[0]))
+        scan = crest_input.validate(files['constraints.inp'].decode(), int(rows[0]),
+                                    allow_scan=m['template'] == 'xtb')
+        if scan:
+            from ag._scan import coordinate, input_geometry
+            symbols, _ = input_geometry('\n'.join(rows[2:]))
+            scan['coordinate'] = coordinate(**scan['coordinate'], symbols=symbols)
+        if scan != m['science'].get('scan'):
+            raise ValueError('Scientific scan summary differs from submitted input')
     if files[script] != render.render(cfg, m, name).encode():
         raise ValueError('Prepared script differs from current reviewed template/configuration')
     if m['template'] == 'gaussian':
@@ -250,6 +265,8 @@ def summary(cfg, m):
                      f"(fixed row mapping, {science['displacement_unit']}; up to 5 atoms):\n\n")
         geometry += '\n'.join(f"- Atom {row['atom_index']} ({row['element']}): {row['displacement']:.8f}"
                               for row in science['largest_displacements']) + '\n\n'
+    from ag._scan import summary as scan_summary
+    geometry += scan_summary(science)
     attachment_summary = ''
     if 'parent_chk' in m:
         from ag.parent_chk import summary

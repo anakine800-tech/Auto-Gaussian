@@ -21,7 +21,7 @@ def test_installed_version():
     assert result.stderr == ""
 
 
-@pytest.mark.parametrize("command", ["facts", "thermo", "dedup", "cluster", "graph", "profile", "coverage"])
+@pytest.mark.parametrize("command", ["facts", "thermo", "dedup", "cluster", "graph", "profile", "coverage", "scan_peak"])
 def test_registered_command_runs_without_loading_config(monkeypatch, command):
     seen = []
 
@@ -40,7 +40,7 @@ def test_registered_command_runs_without_loading_config(monkeypatch, command):
     monkeypatch.setattr(cli, "import_module", load)
     monkeypatch.setattr(cli, "load_config", unexpected_config_load)
     assert cli.main([command]) == 7
-    assert seen == ["ag.facts", "ag.thermo", "ag.dedup", "ag.cluster", "ag.graph", "ag.irc_compare", "ag.profile", "ag.coverage"]
+    assert seen == ["ag.facts", "ag.thermo", "ag.dedup", "ag.cluster", "ag.graph", "ag.irc_compare", "ag.profile", "ag.coverage", "ag.scan_peak"]
 
 
 def test_dedup_help_and_run_without_config(monkeypatch, tmp_path, capsys):

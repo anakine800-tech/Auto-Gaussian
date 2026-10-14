@@ -1,6 +1,10 @@
 outputs = ["xtb.out", "xtbopt.xyz", "xtbopt.log"]
+scan_outputs = ["xtb.out", "xtbscan.log"]
 completion = "normal termination of xtb"
 [parameters]
+"--verbose" = "flag"
+# Only prepare --constraints can set this validated attachment.
+"--input" = ["constraints.inp"]
 "--gfn" = ["2"]
 "--opt" = ["", "crude", "sloppy", "loose", "normal", "tight", "verytight", "extreme"]
 "--alpb" = ["water", "methanol", "ethanol", "acetone", "acetonitrile", "benzene", "toluene", "ch2cl2", "chloroform", "thf", "dmso", "ether", "hexane"]

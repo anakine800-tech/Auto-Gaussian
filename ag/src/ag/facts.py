@@ -1,5 +1,6 @@
 """Local extraction of reported facts; scientific acceptance belongs to the reviewer."""
 
+from hashlib import sha256
 import json
 from pathlib import Path
 import sys
@@ -69,6 +70,29 @@ def build_facts(attempt_dir):
         facts, geometry = parse_xtb(outputs)
     else:
         raise ValueError(f'Unsupported template: {program}')
+    definition = manifest.get('science', {}).get('scan')
+    if definition:
+        from ag._scan import parse_gaussian_scan, parse_xtb_scan
+        if program == 'gaussian':
+            scan, geometries = parse_gaussian_scan(log.read_text(errors='replace'), definition)
+        elif program == 'xtb':
+            scan_path = outputs / 'xtbscan.log'
+            if not scan_path.is_file():
+                raise ValueError('Missing xtbscan.log for declared scan')
+            scan, geometries = parse_xtb_scan(scan_path, (outputs / 'xtb.out').read_text(errors='replace'), definition)
+        else:
+            raise ValueError('Unsupported scan program')
+        if geometries:
+            target = attempt_dir / 'scan_points.xyz'
+            content = geometries.encode('utf-8')
+            try:
+                with target.open('xb') as handle:
+                    handle.write(content)
+            except FileExistsError:
+                if target.is_symlink() or not target.is_file() or target.read_bytes() != content:
+                    raise ValueError('scan_points.xyz differs from current parsed output; manual review required') from None
+            scan['geometries_sha256'] = sha256(content).hexdigest()
+        facts['scan'] = scan
     facts = {'schema': 'ag-facts/1', 'program': program,
              'units': {'energy': 'Hartree', 'frequency': 'cm^-1', 'distance': 'angstrom',
                        'relative_energy': 'kcal/mol'},
