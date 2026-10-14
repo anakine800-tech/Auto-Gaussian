@@ -1,4 +1,4 @@
-"""Export an interior converged scan geometry as a TS guess, never a TS verdict."""
+"""Export a strict local scan maximum as a TS guess, never a TS verdict."""
 from hashlib import sha256
 import json
 from pathlib import Path
@@ -23,18 +23,31 @@ def aligned_rmsd(left, right):
     return float(np.sqrt(np.mean(np.sum((a @ (u @ correction @ vt) - b) ** 2, axis=1))))
 
 
-def select_peak(scan, frames):
+def select_peak(scan, frames, point=None):
     points = scan['points']
     if len(points) < 3:
-        raise ValueError('At least three scan points are needed; endpoints cannot be exported')
+        raise ValueError('At least three scan points are needed; 扫描范围或扫描坐标不合适，拒绝导出。')
     def energy(point):
         return geo.finite_number(point['energy_hartree'])
     def usable(point):
         return point['converged'] is True and point['energy_hartree'] is not None
-    candidates = [i for i in range(1, len(points) - 1) if usable(points[i])]
+    candidates = [i for i in range(1, len(points) - 1)
+                  if all(usable(points[j]) for j in (i - 1, i, i + 1))
+                  and energy(points[i]) > energy(points[i - 1])
+                  and energy(points[i]) > energy(points[i + 1])]
     if not candidates:
-        raise ValueError('No converged interior scan point')
-    selected = max(candidates, key=lambda i: energy(points[i]))
+        raise ValueError('No strict local maximum with converged neighbors; '
+                         '扫描范围或扫描坐标不合适，或相邻点收敛证据不足；拒绝导出，请审阅扫描曲线。')
+    if point is None:
+        selected = max(candidates, key=lambda i: energy(points[i]))
+    else:
+        selected = next((i for i in candidates if points[i]['point'] == point), None)
+        if selected is None:
+            raise ValueError(f'Point {point} is not a strict local maximum with converged neighbors; '
+                             '指定点不是合格的局部极大，拒绝导出。')
+    reference = min(energy(p) for p in points if usable(p))
+    maxima = [dict(points[i], relative_energy_kcal_mol=(energy(points[i]) - reference) * geo.HARTREE_TO_KCAL)
+              for i in candidates]
     peak = points[selected]
     def frame(point):
         index = point.get('geometry_frame')
@@ -56,7 +69,9 @@ def select_peak(scan, frames):
             jumps.append(dict(points=[i, i + 1], energy_change_kcal_mol=delta, rmsd_angstrom=rmsd))
     if jumps:
         warnings.append('可能跳到了另一条路径或另一个构象：相邻点能量或几何 RMSD 跳变，需人工审阅。')
-    report = dict(peak=peak, coordinate=scan['coordinate'],
+    report = dict(peak=peak, local_maxima=maxima, coordinate=scan['coordinate'],
+                  relative_energy_reference=dict(energy_hartree=reference,
+                                                 description='全部已收敛扫描点的最低能量'),
                   neighbors_before=points[max(0, selected - 2):selected],
                   neighbors_after=points[selected + 1:selected + 3], warnings=warnings, jumps=jumps,
                   warning_thresholds=dict(energy_kcal_mol=ENERGY_JUMP_KCAL, rmsd_angstrom=RMSD_JUMP_ANGSTROM),
@@ -76,13 +91,18 @@ def run(args):
     # Prevent exporting a different frame after somebody edits the multi-XYZ.
     if source.is_symlink() or sha256(source.read_bytes()).hexdigest() != scan.get('geometries_sha256'):
         raise ValueError('scan_points.xyz differs from facts.json; review/regenerate facts')
-    report, frame = select_peak(scan, geo.read_xyz(source))
+    report, frame = select_peak(scan, geo.read_xyz(source), point=args.point)
     geo.write_xyz(args.out, [frame])
     report['out'] = str(args.out)
     if args.json:
         print(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False))
     else:
         print(report['note'])
+        print('全部严格局部极大（相对能以全部已收敛扫描点最低能为零）：')
+        for point in report['local_maxima']:
+            print(f"point {point['point']}: coordinate={point['coordinate_value']} "
+                  f"{scan['coordinate']['unit']}, energy={point['energy_hartree']} Hartree, "
+                  f"relative_energy={point['relative_energy_kcal_mol']:.6f} kcal/mol")
         print(f"TS 初猜：point {report['peak']['point']} → {args.out}")
         for point in report['neighbors_before'] + [report['peak']] + report['neighbors_after']:
             print(f"point {point['point']}: coordinate={point['coordinate_value']} "
@@ -98,5 +118,6 @@ def register(subparsers):
     parser.add_argument('attempt', help='Attempt directory or ID')
     parser.add_argument('--study', help='Study directory or configured study ID')
     parser.add_argument('--out', type=Path, required=True, help='New XYZ file; existing files are refused')
+    parser.add_argument('--point', type=int, help='Original 1-based scan point number; must be a strict local maximum')
     parser.add_argument('--json', action='store_true')
     parser.set_defaults(func=run)
