@@ -61,6 +61,33 @@ def xyz_text(elements, coordinates):
         for element, (x, y, z) in zip(elements, coordinates)))
 
 
+def gaussian_orientation(text, orientation):
+    """Last printed orientation only; never fall back past a truncated table."""
+    from cclib.parser.utils import PeriodicTable
+
+    headers = list(re.finditer(r'(?m)^[ \t]*' + re.escape(orientation)
+                               + r' orientation:[ \t]*$', text))
+    if not headers:
+        return None
+    block = re.match(
+        r'\s*\n[ \t]*-+\n[^\n]*Coordinates \(Angstroms\)[^\n]*\n'
+        r'[^\n]*\n[ \t]*-+\n(?P<atoms>(?:[^\n]+\n)+?)[ \t]*-+(?:\n|$)',
+        text[headers[-1].end():])
+    if block is None:
+        return None
+    rows = [row.split() for row in block['atoms'].splitlines()]
+    table = PeriodicTable().element
+    try:
+        if not rows or any(len(row) != 6 or int(row[0]) != i + 1
+                           or not 0 < int(row[1]) < len(table)
+                           for i, row in enumerate(rows)):
+            return None
+        return xyz_text([table[int(row[1])] for row in rows],
+                        [[number(x) for x in row[3:]] for row in rows])
+    except ValueError:
+        return None
+
+
 
 def frequency_convergence(text):
     """Last post-frequency convergence check, scoped to its Gaussian job step.
@@ -180,10 +207,17 @@ def parse_gaussian(path, pbs_path=None):
     facts['imag_modes'] = []
     geometry = None
     coords = None
+    facts['final_geometry_orientation'] = None
     if data is not None and hasattr(data, 'atomcoords') and hasattr(data, 'atomnos'):
         coords = data.atomcoords[-1]
         elements = [PeriodicTable().element[int(n)] for n in data.atomnos]
         geometry = xyz_text(elements, coords)
+        # cclib prefers Standard; without it, it uses Input/Z-Matrix coordinates.
+        # Label only a frame whose printed coordinates actually match the export.
+        for orientation in ('Standard', 'Input', 'Z-Matrix'):
+            if gaussian_orientation(text, orientation) == geometry:
+                facts['final_geometry_orientation'] = orientation.lower()
+                break
         if hasattr(data, 'vibdisps'):
             facts['imag_modes'] = imaginary_modes(frequencies, data.vibdisps, coords, elements)
     facts['monatomic'] = facts['n_atoms'] == 1

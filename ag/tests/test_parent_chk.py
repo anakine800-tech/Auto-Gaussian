@@ -24,6 +24,8 @@ def parent(cfg, prepared):
     submission.record(path, manifest, '42.fixture')
     state.write(path, 'submitted', job_id=submission.qualified(manifest, '42.fixture'))
     state.write(path, 'finished')
+    # Synthetic parent geometry in the Hessian's input frame.
+    (path / 'final_input.xyz').write_text('3\nInput orientation\nO 0 0 0\nH 0 0 1\nH 0 1 0\n')
     return path, manifest
 
 
@@ -533,6 +535,7 @@ def test_legacy_parent_is_bound_to_default(cfg, prepared, tmp_path):
     state.write(p, 'submitting')
     state.write(p, 'submitted', job_id='42.fixture')
     state.write(p, 'finished')
+    (p / 'final_input.xyz').write_text('3\nInput orientation\nO 0 0 0\nH 0 0 1\nH 0 1 0\n')
     path, child_manifest = child(cfg, tmp_path, (p, m))
     assert child_manifest['parent_chk']['cluster'] == 'default'
     attempt.verified_files(cfg, path, child_manifest)
@@ -550,6 +553,7 @@ def bound_slurm_parent(multi, tmp_path, parent):
     state.write(path, 'submitting')
     state.write(path, 'submitted', job_id='batch:42')
     state.write(path, 'finished')
+    (path / 'final_input.xyz').write_bytes((parent[0] / 'final_input.xyz').read_bytes())
     return path, manifest
 
 

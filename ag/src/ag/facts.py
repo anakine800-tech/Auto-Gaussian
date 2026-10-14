@@ -36,9 +36,22 @@ def gaussian_log(attempt_dir):
     return logs[0]
 
 
+def _write_geometry(path, geometry):
+    """Reuse identical bytes, never replace a previously reviewed geometry."""
+    content = geometry.encode('utf-8')
+    try:
+        with path.open('xb') as handle:
+            handle.write(content)
+    except FileExistsError:
+        if path.is_symlink() or not path.is_file():
+            raise ValueError(f'{path.name} 必须是普通文件，不能是符号链接') from None
+        if path.read_bytes() != content:
+            raise ValueError(f'{path.name} 与当前日志解析结果不一致，需人工核对') from None
+
+
 def build_facts(attempt_dir):
-    """Read local outputs and regenerate facts.json and, when available, final.xyz."""
-    from ag._parse_outputs import parse_gaussian, parse_crest, parse_xtb
+    """Regenerate facts, exporting available geometries without overwriting."""
+    from ag._parse_outputs import parse_gaussian, parse_crest, parse_xtb, gaussian_orientation
 
     attempt_dir = Path(attempt_dir)
     manifest = json.loads((attempt_dir / 'manifest.json').read_text())
@@ -47,22 +60,16 @@ def build_facts(attempt_dir):
     if program == 'gaussian':
         log = gaussian_log(attempt_dir)
         facts, geometry = parse_gaussian(log, outputs / ('job.slurm.err' if manifest.get('scheduler') == 'slurm' else 'job.pbs.out'))
+        input_geometry = gaussian_orientation(log.read_text(errors='replace'), 'Input')
+        facts['final_input_geometry'] = 'final_input.xyz' if input_geometry else None
+        facts['final_input_geometry_orientation'] = 'input' if input_geometry else None
+        if input_geometry:
+            _write_geometry(attempt_dir / 'final_input.xyz', input_geometry)
         if 'irc' in facts:
             from ag._irc import parse_irc
             _, endpoint = parse_irc(log.read_text(errors='replace'))
             if endpoint:
-                # Reuse identical bytes on regeneration, but never replace a
-                # geometry that may already have been reviewed or optimized.
-                endpoint_path = attempt_dir / 'irc_end.xyz'
-                endpoint_bytes = endpoint.encode('utf-8')
-                try:
-                    with endpoint_path.open('xb') as handle:
-                        handle.write(endpoint_bytes)
-                except FileExistsError:
-                    if endpoint_path.is_symlink() or not endpoint_path.is_file():
-                        raise ValueError('irc_end.xyz 必须是普通文件，不能是符号链接') from None
-                    if endpoint_path.read_bytes() != endpoint_bytes:
-                        raise ValueError('irc_end.xyz 与当前日志解析结果不一致，需人工核对') from None
+                _write_geometry(attempt_dir / 'irc_end.xyz', endpoint)
                 facts['irc']['end_geometry'] = 'irc_end.xyz'
     elif program == 'crest':
         facts, geometry = parse_crest(outputs)
@@ -99,7 +106,7 @@ def build_facts(attempt_dir):
              'n_atoms': None, 'charge': None, 'multiplicity': None, 'route': None,
              **facts, 'final_geometry': 'final.xyz' if geometry else None}
     if geometry:
-        (attempt_dir / 'final.xyz').write_text(geometry)
+        _write_geometry(attempt_dir / 'final.xyz', geometry)
     (attempt_dir / 'facts.json').write_text(json.dumps(facts, indent=2, ensure_ascii=False,
                                                      allow_nan=False) + '\n')
     return facts
