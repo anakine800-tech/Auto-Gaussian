@@ -155,6 +155,25 @@ doctor 通过只说明上述环境检查通过；它不验证科学方法、真�
 当前只读传输对 SSH 连接失败/超时最多间隔 15 秒重试一次；这不允许重提作业，
 真实环境意外仍须按 [AGENTS.md](../AGENTS.md) 停下来报告。
 
+## 本地审阅与旧 Attempt
+
+`ag review init <ATTEMPT_ID> --json` 从准备时保存的卡片生成审阅骨架，
+`ag review check <ATTEMPT_ID> --json` 检查判据、依据、结论和 facts 新鲜度。
+两者只需要配置中的 `local.studies_root`；多集群配置里无关的 SSH 或程序环境字段
+不会阻止本地审阅，远程操作仍使用完整配置校验。
+
+旧 manifest 没有卡片记录时，可以明确补指定：
+
+```bash
+ag review init <ATTEMPT_ID> --card opt-freq --json
+ag review check <ATTEMPT_ID> --json
+```
+
+生成的 `review.md` 会注明“卡片为审阅时补指定，非准备时记录”，保存当时的 Skills
+完整提交号、dirty 标记和卡片内容。后续 check 使用保存的内容，不随当前卡片更新而改变。
+manifest 保持原样；准备时已有卡片的 Attempt 不接受替换，已有 review.md 也不会被覆盖。
+完整性检查通过不表示科学审阅通过或 study 完成。
+
 ## 本地开发与验证
 
 从仓库根目录运行 `python -m pytest ag/tests`，测试通过替身模拟远程操作。

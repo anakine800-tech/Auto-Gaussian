@@ -14,7 +14,7 @@ def cell(value):
 def expected(manifest):
     card = manifest.get('card')
     if not card:
-        raise ValueError('Manifest has no card; cannot reconstruct its review criteria')
+        raise ValueError('Manifest has no card; use review init --card to specify review criteria')
     items = cards.criteria(card['content'])
     checklist = ' '.join(items)
     science = manifest['science']
@@ -72,18 +72,30 @@ def facts_snapshot(path):
     return facts, dict(sha256=sha256(data).hexdigest(), mtime_ns=stamp)
 
 
-def init(path):
+def init(path, card=None):
     destination = study.local_path(path.parent.parent, path / 'review.md')
     if destination.exists():
         raise FileExistsError('review.md already exists; will not overwrite')
     manifest = attempt.read_manifest(path)
+    provenance = ''
+    source = '判据来自 manifest 中保存的卡片第 6 节。'
+    if card is not None:
+        if manifest.get('card'):
+            raise ValueError('--card cannot replace a card recorded during preparation')
+        snapshot = cards.snapshot(card)
+        manifest = {**manifest, 'card': snapshot}
+        source = '卡片为审阅时补指定，非准备时记录。判据来自补指定卡片的第 6 节。'
+        # Save the recipe here so a later Skills update cannot change check's criteria.
+        encoded = json.dumps(snapshot, ensure_ascii=False).replace('<', r'\u003c').replace('>', r'\u003e')
+        provenance = (f'Skills commit: {snapshot["git_commit"]}\n\n'
+                      f'<!-- review-card: {encoded} -->\n\n')
     fields, items = expected(manifest)
     facts, fingerprint = facts_snapshot(path)
     rows = [fact_row(key, target, facts) for key, target in fields]
     rows += [(item, '', '') for item in items]
     text = (f"# Review: {path.name}\n\n{cards.label(manifest)}\n\n"
-            '<!-- facts: ' + json.dumps(fingerprint) + ' -->\n\n'
-            '判据来自 manifest 中保存的卡片第 6 节。facts 核对仅证明对应字段，'
+            + provenance + '<!-- facts: ' + json.dumps(fingerprint) + ' -->\n\n'
+            + source + 'facts 核对仅证明对应字段，'
             '不能替代整条科学判据；其余行由 LLM 填写，结论限通过 / 不通过 / 无法判断。'
             '依据需指向 facts 字段、日志行号或文件；无法判断也须说明缺失的证据。\n\n'
             '| 判据 | 依据（facts 字段、日志行号或文件） | 结论 |\n'
@@ -98,6 +110,19 @@ def check(path):
     destination = study.local_path(path.parent.parent, path / 'review.md')
     text = destination.read_text(encoding='utf-8')
     manifest = attempt.read_manifest(path)
+    if not manifest.get('card'):
+        recorded_cards = re.findall(r'^<!-- review-card: (.+) -->$', text, re.M)
+        try:
+            if len(recorded_cards) != 1:
+                raise ValueError('Missing or ambiguous review card snapshot')
+            snapshot = json.loads(recorded_cards[0])
+            if (not re.fullmatch(r'[a-z0-9][a-z0-9-]*', snapshot['name'])
+                    or not re.fullmatch(r'[0-9a-f]{40}', snapshot['git_commit'])
+                    or type(snapshot['dirty']) is not bool or not isinstance(snapshot['content'], str)):
+                raise ValueError('Invalid review card snapshot')
+        except (ValueError, KeyError, TypeError) as exc:
+            raise ValueError(f'Attempt {path.name}: invalid or missing review-time card snapshot') from exc
+        manifest = {**manifest, 'card': snapshot}
     fields, items = expected(manifest)
     required = [cell(fact_row(key, target, {})[0]) for key, target in fields] + [cell(item) for item in items]
     issues, found = [], []
@@ -138,6 +163,6 @@ def check(path):
     return result
 
 
-def run(cfg, action, attempt_id):
+def run(cfg, action, attempt_id, *, card=None):
     path = attempt.find(cfg, attempt_id)
-    return init(path) if action == 'init' else check(path)
+    return init(path, card=card) if action == 'init' else check(path)

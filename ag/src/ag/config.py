@@ -21,12 +21,20 @@ def absolute(value, key, *, remote=False):
     return str(path)
 
 
-def load_config(path=None):
+def load_config(path=None, *, local_only=False):
     path = Path(path) if path else Path.home() / '.config/ag/config.toml'
     try:
         with path.open('rb') as handle:
             cfg = tomllib.load(handle)
         cfg['local']['studies_root'] = absolute(cfg['local']['studies_root'], 'local.studies_root')
+        studies = Path(cfg['local']['studies_root'])
+        # Prevent accidentally committing studies into this or another Git checkout.
+        if any((p / '.git').exists() for p in (studies, *studies.parents)):
+            raise ConfigError('studies_root must be outside a Git checkout')
+        cfg['_config_dir'] = str(path.parent)
+        if local_only:
+            # review is local: cluster credentials and scheduler settings are not prerequisites.
+            return dict(local=cfg['local'], _config_dir=cfg['_config_dir'])
         if 'clusters' in cfg:
             if not isinstance(cfg['clusters'], dict) or not cfg['clusters']:
                 raise ConfigError('Expected nonempty clusters table')
@@ -39,11 +47,6 @@ def load_config(path=None):
                 validate_cluster(cluster)
         else:
             validate_cluster(cfg)
-        studies = Path(cfg['local']['studies_root'])
-        # Prevent accidentally committing studies into this or another Git checkout.
-        if any((p / '.git').exists() for p in (studies, *studies.parents)):
-            raise ConfigError('studies_root must be outside a Git checkout')
-        cfg['_config_dir'] = str(path.parent)
         return cfg
     except (KeyError, TypeError, OSError, tomllib.TOMLDecodeError) as exc:
         raise ConfigError('Missing or invalid local configuration') from exc
