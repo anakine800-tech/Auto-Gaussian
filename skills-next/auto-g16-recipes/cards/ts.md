@@ -142,6 +142,16 @@ ag prepare --study <study_id> --template gaussian --input <ts.gjf> --tier simple
 
 RCFC 需要父 chk 中确有适用的力常数；仅复用波函数可用 `guess=read opt=(ts,calcfc) freq`。核对父 chk 的方法、几何、原子顺序、电荷与多重度是否适用；哈希相同不代表科学上适用。`Geom=Check` 和 `Geom=AllCheck` 继续拒绝，`%chk` 必须不同于固定的 `%oldchk=parent.chk`。
 
+RCFC/ReadFC 复用时，先对父 Attempt 运行 `ag facts`，显式坐标取
+`final_input.xyz`（最终几何的 Input orientation，去掉 XYZ 前两行），保持原子顺序，
+不能直接拿通常为 Standard orientation 的 `final.xyz`。facts 分别记录取向；
+未打印 Input 表时不臆造该文件，须核对原日志或改用 CalcFC。
+prepare 对 `--parent-chk` + RCFC/ReadFC 按固定原子顺序比较，每个原子的坐标偏差
+不得超过 1e-4 Å，不做旋转/平移对齐。旧导出文件相同则沿用，不同则停止人工核对。
+若后续要复用本 TS 的力常数，可在计算该 TS 时加入 `nosymm`，使两种取向一致；
+父 route 已带 `nosymm` 时可取任一导出坐标，仍须匹配父几何。
+仅在子作业加 `nosymm` 不能修正父 chk 已有的框架；取向匹配不替代力常数适用性审阅。
+
 prepare 只做本地声明；submit 在 Mac 弹窗前只读取得父 chk 大小与 SHA256，并显示父 ID、来源文件名、大小、哈希前 12 位及目标 parent.chk。确认后专用操作独占创建副本，源/目标哈希都须等于确认值；父文件只读。远端需 Python ≥ 3.6 和 Linux /proc 支持固定描述符助手，缺少即停止；先运行 `ag doctor --cluster <cluster>` 查看 Python 版本和 /proc 支持。复制失败、255、超时或哈希改变均记 failed_presubmit，不 qsub、不重试、不删除副本；报告后由人决定新 Attempt。
 
 ## 4. 资源建议
@@ -179,5 +189,5 @@ prepare 只做本地声明；submit 在 Mac 弹窗前只读取得父 chk 大小�
 - Opt 结束时抓到的截断日志不能当作完整 Freq；须查完整模式数及位移。
 - 一个负频只是候选，键变化方向审核和双向 IRC 端点识别不可省略。
 - QST 同元素原子交换也可能改变反应映射；外部映射表不能修复实际输入行顺序。`End of file in ZSymb` 后不要反复试换空行提交。
-- 父 chk、几何和原子顺序不一致会把 IRC 引向错误起点；必须核对显式坐标与父 chk 的几何、方法及原子顺序，不能把副本哈希一致当作科学验证。
+- 父 chk、几何和原子顺序不一致会把 IRC 引向错误起点；RCFC 坐标取 `final_input.xyz`，或预先在父 TS 使用 `nosymm`。副本哈希、对齐 RMSD 及相同起点能量均不能证明坐标框架正确。
 - 解离片段的近自由平移/转动可能导致优化困难，不默认把多个孤立片段当普通单分子极小点。

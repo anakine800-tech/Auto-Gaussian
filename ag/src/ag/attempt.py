@@ -127,6 +127,9 @@ def prepare(cfg, *, study_name, template, input_path, tier, walltime, label, par
         if source.suffix.lower() != '.gjf':
             raise ValueError('Gaussian input must have .gjf extension')
         science = gaussian_input.validate(data.decode(), **resource, parent_chk=attachment is not None)
+        if attachment is not None:
+            from ag.parent_chk import validate_force_constant_frame
+            validate_force_constant_frame(cfg, attachment, science)
     else:
         if source.suffix.lower() != '.xyz':
             raise ValueError('xTB/CREST input must have .xyz extension')

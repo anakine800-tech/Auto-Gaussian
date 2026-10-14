@@ -75,3 +75,9 @@
 原因：合并只更新远端 main；本机检出、软链接目标和运行环境不会自动快进。
 修复：T24 补充合并后同步要求；本机同步操作另有记录，不把文档修改当作部署完成。
 以后：每次合并后后端和前端 main 均 `git pull --ff-only`；真实计算只用后端 main 的 `.venv/bin/ag`，前端从固定目录运行。
+
+## rcfc 的坐标系错配
+现象：L3 用父 TS 的 Standard 坐标读取力常数时，双向 IRC 均首点校正失败；正确 Input 坐标的 RCFC 与独立 CalcFC 部分轨迹高度吻合并越过首点，随后仍有校正失败。
+原因：输入坐标与父作业 Input 框架的 Cartesian 力常数/模式错配；副本哈希、相同起点能量及对齐 RMSD 不能证明取向一致，不宣称这是所有失败的唯一根因。
+修复：T25（PR 待审阅）导出 final_input.xyz 与实际取向，在 prepare 读取父力常数时按固定原子顺序检查 1e-4 Å 容差；已有几何文件只沿用相同字节，不覆盖。
+以后：RCFC/ReadFC 用 final_input.xyz，或预先在父 TS 加 nosymm；取向正确后再逐级审阅 StepSize、MaxCycle、CalcAll/ReCalc。L3-C/D 结论待补，部分轨迹不等于双向完成和端点验证。
