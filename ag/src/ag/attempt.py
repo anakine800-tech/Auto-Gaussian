@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 import re
 from ag import __version__, cards, crest_input, gaussian_input, journal, render, state, study
-from ag.config import select_cluster, for_manifest, scheduler_kind
+from ag.config import select_cluster, for_manifest, scheduler_kind, cluster_name
 from ag.locks import claim
 from ag.remote import filename
 
@@ -16,11 +16,60 @@ def bundle(files):
 
 
 def read_manifest(path):
-    study.local_path(path.parent.parent, path / 'manifest.json')
-    m = json.loads((path / 'manifest.json').read_text())
-    if m['attempt_id'] != path.name or m['study_id'] != path.parent.parent.name:
-        raise ValueError('Manifest identity differs from directory')
-    return m
+    try:
+        study.local_path(path.parent.parent, path / 'manifest.json')
+        m = json.loads((path / 'manifest.json').read_text())
+        if m['attempt_id'] != path.name or m['study_id'] != path.parent.parent.name:
+            raise ValueError('Manifest identity differs from directory')
+        cluster_name(m.get('cluster', 'default'))
+        return m
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise ValueError(f'Attempt {path.name} (study {path.parent.parent.name}): invalid manifest.json') from exc
+
+
+def local_record(path, cluster=None, scheduler=None):
+    """Filter before reading status: another cluster's records cannot poison a scan.
+
+    Shared by monitor, submission accounting and status/list. A missing manifest
+    cannot safely be guessed to be a legacy PBS Attempt.
+    """
+    from ag import submission
+    m = read_manifest(path)
+    if cluster is not None and m.get('cluster', 'default') != cluster:
+        return None
+    try:
+        kind = m.get('scheduler', 'pbs' if 'cluster' not in m else None)
+        if kind not in ('pbs', 'slurm') or ('cluster' not in m and kind != 'pbs'):
+            raise ValueError('Cannot determine Attempt scheduler')
+        if scheduler is not None and kind != scheduler:
+            raise ValueError('Scheduler changed since preparation')
+        study.local_path(path.parent.parent, path / 'status.json')
+        current = state.read(path)
+        if current['state'] not in state.TRANSITIONS:
+            raise ValueError('Invalid local state')
+        job = submission.raw_job(m, current['job_id']) if current.get('job_id') is not None else None
+        target = study.local_path(path.parent.parent, path / 'submission.json')
+        if job is not None and 'cluster' in m:
+            submission.verified_job(path, m, current)
+        if target.exists():
+            record = json.loads(target.read_text())
+            recorded = submission.verified_job(path, m, {'job_id': record['job_id']})
+            if job is not None and job != recorded:
+                raise ValueError('Submission manifest/status/cluster mismatch')
+            job = recorded
+        if job is None and current['state'] in ('submitted', 'running', 'finished', 'fetched', 'cancelled'):
+            raise ValueError('Missing recorded job identity')
+        return m, current, job
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+        raise ValueError(f'Attempt {path.name} (study {path.parent.parent.name}): invalid local record ({exc})') from exc
+
+
+def local_records(root, cluster=None, scheduler=None):
+    for path in sorted(Path(root).glob('*/attempts/*')):
+        if path.is_dir():
+            record = local_record(path, cluster, scheduler)
+            if record is not None:
+                yield path, *record
 
 
 def find(cfg, attempt_id):
@@ -28,7 +77,7 @@ def find(cfg, attempt_id):
     root = Path(cfg['local']['studies_root'])
     matches = list(root.glob(f'*/attempts/{attempt_id}'))
     if len(matches) != 1:
-        raise ValueError('Attempt ID missing or ambiguous')
+        raise ValueError(f'Attempt {attempt_id}: ID missing or ambiguous')
     path = study.local_path(root, matches[0])
     for name in ('manifest.json', 'status.json', 'inputs', 'outputs'):
         study.local_path(root, path / name)
@@ -38,16 +87,17 @@ def find(cfg, attempt_id):
 
 def all_attempts(cfg, name=None):
     root = Path(cfg['local']['studies_root'])
-    studies = [study.locate(cfg, name)] if name else sorted(root.glob('*'))
+    scope = study.locate(cfg, name) if name else None
+    paths = sorted((scope / 'attempts').glob('*') if scope else root.glob('*/attempts/*'))
     result = []
-    for s in studies:
-        study.local_path(root, s)
-        for a in sorted((s / 'attempts').glob('*')):
-            if a.is_dir():
-                study.local_path(root, a)
-                if not (a / 'manifest.json').exists():
-                    continue
-                result.append(dict(attempt_id=a.name, study_id=s.name, **state.read(a)))
+    for path in paths:
+        if not path.is_dir():
+            continue
+        record = local_record(path, cfg.get('_cluster'),
+                              scheduler_kind(cfg) if '_cluster' in cfg else None)
+        if record is not None:
+            m, current, _ = record
+            result.append(dict(attempt_id=path.name, study_id=m['study_id'], **current))
     return result
 
 

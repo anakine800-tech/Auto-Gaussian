@@ -147,7 +147,10 @@ def select_cluster(cfg, name='default'):
 
 
 def for_manifest(cfg, manifest):
-    selected = select_cluster(cfg, manifest.get('cluster', 'default'))
-    if scheduler_kind(selected) != manifest.get('scheduler', 'pbs'):
-        raise ConfigError('Scheduler changed since preparation')
-    return selected
+    try:
+        selected = select_cluster(cfg, manifest.get('cluster', 'default'))
+        if scheduler_kind(selected) != manifest.get('scheduler', 'pbs'):
+            raise ConfigError('Scheduler changed since preparation')
+        return selected
+    except ValueError as exc:
+        raise ConfigError(f'Attempt {manifest.get("attempt_id", "<unknown>")}: {exc}') from exc

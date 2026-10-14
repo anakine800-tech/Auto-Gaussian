@@ -11,7 +11,7 @@ import os
 from pathlib import Path
 import re
 import tempfile
-from ag.config import cluster_name
+from ag.config import cluster_name, scheduler_kind
 
 
 def seconds(value):
@@ -37,19 +37,17 @@ def read(cfg):
     value = json.loads(path.read_text()) if path.exists() else dict(cluster=cfg['_cluster'], attempts={})
     if value.get('cluster') != cfg['_cluster'] or not isinstance(value.get('attempts'), dict):
         raise ValueError('Invalid cluster budget ledger')
-    for row in value['attempts'].values():
+    for aid, row in value['attempts'].items():
         if (not isinstance(row, dict) or row.get('state') not in ('reserved', 'settled', 'rejected')
                 or any(type(row.get(k)) is not int or row[k] < 0 for k in ('used', 'reserved'))):
-            raise ValueError('Invalid budget ledger entry; cannot infer available credit')
+            raise ValueError(f'Attempt {aid}: invalid budget ledger entry; cannot infer available credit')
     # A missing/partial ledger after a crash or manual deletion must not reset
     # already committed spend to zero. No reconstruction from guessed timings.
-    root = Path(cfg['local']['studies_root'])
-    for manifest in root.glob('*/attempts/*/manifest.json'):
-        m = json.loads(manifest.read_text())
-        if m.get('cluster') != cfg['_cluster'] or m.get('scheduler') != 'slurm':
-            continue
-        if (manifest.parent / '.submit-claim').exists() and m['attempt_id'] not in value['attempts']:
-            raise ValueError('Claimed Attempt missing from budget ledger; human reconciliation required')
+    from ag import attempt
+    for path, m, _, _ in attempt.local_records(
+            cfg['local']['studies_root'], cfg['_cluster'], scheduler_kind(cfg)):
+        if (path / '.submit-claim').exists() and m['attempt_id'] not in value['attempts']:
+            raise ValueError(f'Attempt {path.name} (study {m["study_id"]}): claimed Attempt missing from budget ledger; human reconciliation required')
     return value
 
 
@@ -144,20 +142,19 @@ def unobserved_cores(cfg, jobs, ledger, *, exclude=None):
     Reserve still-unsettled local jobs absent from the queue. An UNKNOWN job
     without a bound ID is conservatively counted until read-only reconciliation.
     """
-    from ag import attempt, submission
+    from ag import attempt
     visible = {job['job_id'] for job in jobs}
     cores = 0
     for aid, row in ledger['attempts'].items():
         if row['state'] != 'reserved' or aid == exclude:
             continue
         path = attempt.find(cfg, aid)
-        m = attempt.read_manifest(path)
-        if m.get('cluster') != cfg['_cluster'] or m['bundle_sha256'] != row['bundle_sha256']:
-            raise ValueError('Budget/core reservation identity mismatch')
-        record = path / 'submission.json'
-        if record.is_symlink():
-            raise ValueError('Submission manifest must not be a symbolic link')
-        job = submission.raw_job(m, json.loads(record.read_text())['job_id']) if record.exists() else None
+        record = attempt.local_record(path, cfg['_cluster'], scheduler_kind(cfg))
+        if record is None:
+            continue
+        m, _, job = record
+        if m['bundle_sha256'] != row['bundle_sha256']:
+            raise ValueError(f'Attempt {path.name} (study {m["study_id"]}): budget/core reservation identity mismatch')
         if job not in visible:
             cores += m['cores']
     return cores
