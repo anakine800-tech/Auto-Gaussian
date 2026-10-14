@@ -115,6 +115,8 @@ def validate_cluster(cfg):
     budget = cfg['resources'].get('budget_core_hours')
     if budget is not None and (type(budget) not in (int, float) or not math.isfinite(budget) or budget <= 0):
         raise ConfigError('budget_core_hours must be a positive finite number')
+    if scheduler == 'pbs':
+        return  # Preserve legacy PBS handling of unused program config fields.
     gaussian = cfg['programs']['gaussian']
     if set(gaussian) - {'g16root', 'modules', 'module_init'}:
         raise ConfigError('Unsupported Gaussian environment field')
@@ -123,8 +125,6 @@ def validate_cluster(cfg):
         raise ConfigError('Invalid Gaussian module name')
     if 'module_init' in gaussian:
         gaussian['module_init'] = absolute(gaussian['module_init'], 'programs.gaussian.module_init', remote=True)
-    if scheduler == 'pbs' and (modules or 'module_init' in gaussian):
-        raise ConfigError('Module environment fields are Slurm-only')
 
 
 def select_cluster(cfg, name='default'):

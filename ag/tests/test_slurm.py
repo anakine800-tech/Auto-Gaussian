@@ -465,3 +465,9 @@ def test_separate_submits_reserve_unobserved_cores(multi, tmp_path, monkeypatch)
     with pytest.raises(ValueError, match='Core limit exceeded'): submit.submit(multi, [q.name], fake)
     assert not (q / '.submit-claim').exists()
     assert state.read(p)['state'] == 'submitted'
+
+
+def test_pbs_unused_program_fields_remain_compatible(cfg):
+    cfg['programs']['gaussian']['legacy_note'] = 'unused fixture metadata'
+    loaded = config.load_config(write_config(cfg))
+    assert loaded['programs']['gaussian']['legacy_note'] == 'unused fixture metadata'
