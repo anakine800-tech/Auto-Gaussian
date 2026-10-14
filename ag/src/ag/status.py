@@ -62,6 +62,10 @@ def core_breakdown(jobs, username):
 
 
 def inventory(transport, cfg=None):
+    if cfg is not None:
+        # Validate local identities before using scheduler occupancy for submit.
+        list(attempt.local_records(cfg['local']['studies_root'],
+                                   cfg.get('_cluster', 'default'), scheduler_kind(cfg)))
     username = require_ok(transport.run(remote.identity()), 'identity').strip()
     if not re.fullmatch(r'[A-Za-z0-9_.-]+', username):
         raise ValueError('Cannot identify remote user')
@@ -153,6 +157,7 @@ def scheduler_absent(result):
 def check(cfg, path, transport):
     m = attempt.read_manifest(path)
     cfg = for_manifest(cfg, m)
+    attempt.local_record(path, cfg['_cluster'], scheduler_kind(cfg))
     transport = bound_transport(transport, cfg)
     if m.get('scheduler') == 'slurm':
         return check_slurm(cfg, path, transport, m)

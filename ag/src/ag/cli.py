@@ -20,7 +20,7 @@ def core_command(args):
         return run(cfg, args.watch)
     if command == 'review':
         from ag import review
-        result = review.run(cfg, args.action, args.id)
+        result = review.run(cfg, args.action, args.id, card=getattr(args, 'card', None))
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return int(args.action == 'check' and (not result['complete'] or result['stale']))
     if command == 'clusters':
@@ -106,6 +106,8 @@ def register(subparsers):
             for action in ('init', 'check'):
                 child = actions.add_parser(action)
                 child.add_argument('id')
+                if action == 'init':
+                    child.add_argument('--card', help='Recipe for legacy manifests without a recorded card')
                 child.add_argument('--json', action='store_true', default=argparse.SUPPRESS)
         elif name == 'monitor':
             from ag.monitor import watch_seconds
@@ -156,7 +158,7 @@ def main(argv=None):
     from ag.submit import UnknownSubmission
     try:
         if args.command in CONFIG_COMMANDS:
-            args.config = load_config()
+            args.config = load_config(local_only=True) if args.command == 'review' else load_config()
         return args.func(args)
     except UnknownSubmission as exc:
         code = 3

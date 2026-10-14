@@ -212,7 +212,7 @@ def test_cli_prepare_review_are_local(cfg, tmp_path, repository, monkeypatch, ca
     study.init(cfg, 'smoke')
     source = tmp_path / 'water.gjf'
     source.write_text(INPUT)
-    monkeypatch.setattr(cli, 'load_config', lambda: cfg)
+    monkeypatch.setattr(cli, 'load_config', lambda **_: cfg)
     monkeypatch.setattr('ag.transport.SSHTransport', lambda *a, **k: pytest.fail('local review must not connect'))
     assert cli.main(['prepare', '--study', 'smoke', '--template', 'gaussian', '--input', str(source),
                      '--tier', 'simple', '--walltime', '00:30:00', '--label', 'sp', '--card', 'opt-freq', '--json']) == 0
@@ -300,7 +300,7 @@ def test_card_and_slurm_cluster_survive_integration(multi, tmp_path, repository,
     study.init(multi, 'smoke')
     source = tmp_path / 'water.gjf'
     source.write_text(INPUT.replace(' SP', ' Opt Freq'))
-    monkeypatch.setattr(cli, 'load_config', lambda: multi)
+    monkeypatch.setattr(cli, 'load_config', lambda **_: multi)
     monkeypatch.setattr('ag.transport.SSHTransport', lambda *a, **k: pytest.fail('prepare/review are local'))
     assert cli.main(['prepare', '--study', 'smoke', '--template', 'gaussian', '--input', str(source),
                      '--tier', 'simple', '--walltime', '01:30:00', '--label', 'opt',
@@ -327,3 +327,106 @@ def test_card_and_slurm_cluster_survive_integration(multi, tmp_path, repository,
     for token in ('Cluster: batch', '12 核时', cards.label(m)):
         assert token in seen[0]
     assert 'submit' not in fake.operations() and not (path / '.submit-claim').exists()
+
+
+@pytest.mark.parametrize('cluster', ['default', 'batch'])
+@pytest.mark.parametrize('legacy', [False, True])
+def test_review_cli_reads_multicluster_toml(multi, tmp_path, repository, monkeypatch, capsys, cluster, legacy):
+    from ag import config
+    from test_core import write_config
+    from test_slurm import prepare
+    path, m = prepare(multi, tmp_path, cluster, 'review')
+    if not legacy:
+        m['card'] = cards.snapshot('opt-freq')
+        (path / 'manifest.json').write_text(json.dumps(m))
+    else:
+        m.pop('card', None)
+        (path / 'manifest.json').write_text(json.dumps(m))
+    original = (path / 'manifest.json').read_bytes()
+    facts(path, m)
+    # Exercise the actual TOML loader, including a pure multi-cluster file
+    # without top-level ssh/scheduler/resources, rather than mocking load_config.
+    home = tmp_path / 'home'
+    conf = home / '.config/ag'
+    conf.mkdir(parents=True)
+    multi['_config_dir'] = str(conf)
+    write_config(multi)
+    monkeypatch.setattr(Path, 'home', lambda: home)
+    monkeypatch.setattr('ag.transport.SSHTransport', lambda *a, **k: pytest.fail('review is local'))
+    assert 'clusters' in config.load_config()
+    args = ['review', 'init', path.name, '--json']
+    if legacy:
+        args += ['--card', 'opt-freq']
+    assert cli.main(args) == 0
+    assert json.loads(capsys.readouterr().out)['review'] == 'review.md'
+    assert cli.main(['review', 'check', path.name, '--json']) == 1
+    assert not json.loads(capsys.readouterr().out)['complete']
+    complete(path)
+    assert cli.main(['review', 'check', path.name, '--json']) == 0
+    assert json.loads(capsys.readouterr().out)['complete']
+    assert (path / 'manifest.json').read_bytes() == original
+
+
+@pytest.mark.parametrize('problem', ['ssh', 'gaussian-field'])
+def test_local_review_does_not_require_remote_cluster_credentials(multi, tmp_path, repository, monkeypatch, capsys, problem):
+    from ag import config
+    from test_core import write_config
+    path, m = prepare_card(multi, tmp_path)
+    facts(path, m)
+    home = tmp_path / 'home'
+    conf = home / '.config/ag'
+    conf.mkdir(parents=True)
+    multi['_config_dir'] = str(conf)
+    if problem == 'ssh':
+        del multi['clusters']['batch']['ssh']
+        error = 'Missing or invalid local configuration'
+    else:
+        multi['clusters']['batch']['programs']['gaussian']['legacy_note'] = 'fixture'
+        error = 'Unsupported Gaussian environment field'
+    write_config(multi)
+    monkeypatch.setattr(Path, 'home', lambda: home)
+    monkeypatch.setattr('ag.transport.SSHTransport', lambda *a, **k: pytest.fail('review is local'))
+    with pytest.raises(config.ConfigError, match=error):
+        config.load_config()  # Submission still requires complete remote configuration.
+    assert cli.main(['review', 'init', path.name, '--json']) == 0
+    capsys.readouterr()
+    complete(path)
+    assert cli.main(['review', 'check', path.name, '--json']) == 0
+    assert json.loads(capsys.readouterr().out)['complete']
+
+
+def test_legacy_review_captures_card_without_changing_manifest(prepared, repository):
+    path, m = prepared
+    m.pop('card', None)
+    (path / 'manifest.json').write_text(json.dumps(m))
+    original = (path / 'manifest.json').read_bytes()
+    facts(path, m)
+    _, directory, git = repository
+    review.init(path, card='opt-freq')
+    text = (path / 'review.md').read_text()
+    assert '卡片为审阅时补指定，非准备时记录' in text
+    assert git('rev-parse', 'HEAD') in text
+    assert 'Card: opt-freq' in text
+    complete(path)
+    # Later edits or removal of the current card cannot silently change criteria.
+    (directory / 'opt-freq.md').unlink()
+    assert review.check(path)['complete']
+    p = path / 'review.md'
+    p.write_text(p.read_text().replace('| 补充科学判断。 | outputs/water.log:42 | 无法判断 |\n', ''))
+    assert not review.check(path)['complete']
+    assert (path / 'manifest.json').read_bytes() == original
+
+
+def test_review_card_cannot_replace_preparation_record(cfg, tmp_path, repository):
+    path, _ = prepare_card(cfg, tmp_path)
+    with pytest.raises(ValueError, match='cannot replace'):
+        review.init(path, card='ts')
+    assert not (path / 'review.md').exists()
+
+
+@pytest.mark.parametrize('snapshot', ['', '<!-- review-card: {} -->\n', '<!-- review-card: {broken} -->\n'])
+def test_legacy_check_rejects_missing_or_damaged_snapshot(prepared, snapshot):
+    path, _ = prepared
+    (path / 'review.md').write_text(snapshot)
+    with pytest.raises(ValueError, match=path.name):
+        review.check(path)

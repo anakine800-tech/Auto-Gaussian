@@ -77,6 +77,7 @@ def attempt(cfg, name, job_id, state):
     path = Path(cfg['local']['studies_root']) / 'water' / 'attempts' / name / 'status.json'
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(dict(job_id=job_id, state=state)))
+    path.with_name('manifest.json').write_text(json.dumps(dict(attempt_id=name, study_id='water')))
     return path
 
 

@@ -23,8 +23,8 @@ def raw_job(manifest, value):
         cluster, value = value.split(':', 1)
         if cluster != manifest.get('cluster', 'default'):
             raise ValueError('Recorded job belongs to a different cluster')
-    elif 'cluster' in manifest:
-        raise ValueError('Cluster-qualified job identity required')
+    elif manifest.get('cluster', 'default') != 'default' or manifest.get('scheduler', 'pbs') != 'pbs':
+        raise ValueError('Unqualified job identity belongs to default PBS only')
     validate = remote.slurm_job_id if manifest.get('scheduler') == 'slurm' else remote.job_id
     return validate(value)
 
@@ -56,14 +56,17 @@ def record(path, manifest, job, *, scheduler_cluster=None):
 
 
 def verified_job(path, manifest, status):
-    job = raw_job(manifest, status['job_id'])
-    if 'cluster' not in manifest:  # pre-T16 PBS, never a current default lookup
+    try:
+        job = raw_job(manifest, status['job_id'])
+        target = study.local_path(path.parent.parent, path / 'submission.json')
+        if 'cluster' not in manifest and not target.exists():  # pre-T16 PBS
+            return job
+        value = json.loads(target.read_text())
+        expected = dict(schema='ag-submission/1', attempt_id=manifest['attempt_id'],
+                        cluster=manifest.get('cluster', 'default'), job_id=qualified(manifest, job),
+                        manifest_sha256=sha256((path / 'manifest.json').read_bytes()).hexdigest())
+        if any(value.get(k) != v for k, v in expected.items()):
+            raise ValueError('Submission manifest/status/cluster mismatch')
         return job
-    target = study.local_path(path.parent.parent, path / 'submission.json')
-    value = json.loads(target.read_text())
-    expected = dict(schema='ag-submission/1', attempt_id=manifest['attempt_id'],
-                    cluster=manifest['cluster'], job_id=qualified(manifest, job),
-                    manifest_sha256=sha256((path / 'manifest.json').read_bytes()).hexdigest())
-    if any(value.get(k) != v for k, v in expected.items()):
-        raise ValueError('Submission manifest/status/cluster mismatch')
-    return job
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise ValueError(f'Attempt {path.name}: invalid submission binding ({exc})') from exc

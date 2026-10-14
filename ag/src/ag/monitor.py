@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 import time
 
-from ag import remote, status, slurm, submission, attempt, budget
+from ag import remote, status, slurm, attempt, budget
 from ag.config import select_cluster, scheduler_kind
 from ag.pbs import parse_nodes
 from ag.transport import SSHTransport, redact_stderr, require_ok
@@ -66,19 +66,10 @@ def parse_queues(text):
     return rows
 
 
-def local_attempts(root, cluster='default'):
-    records = []
-    for path in sorted(root.glob('*/attempts/*/status.json')):
-        value = json.loads(path.read_text(encoding='utf-8'))
-        manifest_path = path.parent / 'manifest.json'
-        manifest = attempt.read_manifest(path.parent) if manifest_path.exists() else {}
-        if manifest.get('cluster', 'default') != cluster:
-            continue
-        if value.get('job_id') is not None:
-            job = submission.raw_job(manifest, value['job_id'])
-            records.append(dict(job_id=job, state=value['state'],
-                                study=path.parents[2].name, attempt=path.parent.name))
-    return records
+def local_attempts(root, cluster='default', scheduler=None):
+    return [dict(job_id=job, state=current['state'], study=m['study_id'], attempt=path.name)
+            for path, m, current, job in attempt.local_records(root, cluster, scheduler)
+            if job is not None]
 
 
 def observation(cfg, transport, username):
@@ -89,12 +80,12 @@ def observation(cfg, transport, username):
     used = status.occupied(jobs, username)
     queues = parse_queues(require_ok(transport.run(remote.queues()), 'qstat queues'))
     nodes = parse_nodes(require_ok(transport.run(remote.nodes()), 'pbsnodes'), jobs)
-    attempts = local_attempts(Path(cfg['local']['studies_root']), cfg.get('_cluster', 'default'))
+    attempts = local_attempts(Path(cfg['local']['studies_root']), cfg.get('_cluster', 'default'), 'pbs')
     by_job = {}
     for item in attempts:
         # Do not silently attach a scheduler job to the wrong copied Attempt.
         if item['job_id'] in by_job:
-            raise ValueError('Multiple local Attempts record the same exact job ID')
+            raise ValueError(f'Multiple local Attempts record the same exact job ID: {by_job[item["job_id"]]["attempt"]}, {item["attempt"]}')
         by_job[item['job_id']] = item
     own = []
     for job in jobs:
@@ -247,11 +238,11 @@ def slurm_observation(cfg, transport, username):
     expiry = budget.expiry_warning(cfg)
     jobs = slurm.parse_queue(require_ok(transport.run(remote.slurm_jobs(user=username)), 'squeue monitor'))
     running, queued = slurm.core_breakdown(jobs, username)
-    records = local_attempts(Path(cfg['local']['studies_root']), cfg['_cluster'])
+    records = local_attempts(Path(cfg['local']['studies_root']), cfg['_cluster'], 'slurm')
     by_job = {}
     for record in records:
         if record['job_id'] in by_job:
-            raise ValueError('Multiple local Attempts record the same exact job ID')
+            raise ValueError(f'Multiple local Attempts record the same exact job ID: {by_job[record["job_id"]]["attempt"]}, {record["attempt"]}')
         by_job[record['job_id']] = record
     own = []
     for job in jobs:
@@ -287,8 +278,16 @@ def run_clusters(cfg, interval=None):
     # missing configuration is an explicit failure, never a default fallback.
     names = set(cfg['clusters'])
     root = Path(cfg['local']['studies_root'])
-    for path in root.glob('*/attempts/*/manifest.json'):
-        names.add(attempt.read_manifest(path.parent).get('cluster', 'default'))
+    for path in sorted(root.glob('*/attempts/*')):
+        if not path.is_dir():
+            continue
+        m = attempt.read_manifest(path)
+        name = m.get('cluster', 'default')
+        try:
+            select_cluster(cfg, name)
+        except ValueError as exc:
+            raise ValueError(f'Attempt {path.name} (study {m["study_id"]}): cluster is not configured') from exc
+        names.add(name)
     selected = {name: select_cluster(cfg, name) for name in sorted(names)}
     transports = {name: SSHTransport(c, read_only=True) for name, c in selected.items()}
     try:
