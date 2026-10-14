@@ -94,7 +94,7 @@ Gaussian、xTB、CREST、调度器及本机 OpenSSH 需另行准备，外部软�
 `prepare --cluster '<CLUSTER>'` 固定 Attempt 所属集群；后续操作遵循该绑定，不能靠切换当前配置把作业送往别处。
 `cluster` 子命令是**构象聚类**，并非集群切换命令。
 旧单集群 [config.example.toml](ag/config.example.toml) 仍支持为 `default` PBS 配置。
-前端当前的配置兼容限制见下文。
+`ag clusters --json` 只读列出本机配置的集群及资源档位；它不连接服务器，程序启用标记不等于远程安装验证。
 
 资源示例：`mini` 4 核/10 GB、`simple` 8 核/12 GB、`general` 22 核/50 GB、`complex` 44 核/120 GB，均按实际配置调整。
 Gaussian `%nprocshared` 必须等于档位核数，`%mem` 不超过档位内存的 85%。
@@ -111,22 +111,64 @@ SSH 准备说明见 [ag/README.md](ag/README.md)；配置后按需运行 `ag doc
 | `ag prepare --study '<STUDY_ID>' ...` | 本地建立独立 Attempt、校验输入并显示确认摘要；`--card` 保存卡片来源 |
 | `ag submit '<ATTEMPT_ID>' ...` | 人点击 Mac 确认后提交；支持批次 |
 | `ag status '<ATTEMPT_ID>' --json` | 只读查询远程证据并更新本地状态；也可 `--study` |
-| `ag fetch '<ATTEMPT_ID>'` | 取回声明输出，拒绝覆盖 |
+| `ag fetch '<ATTEMPT_ID>' [--add-missing]` | 首次取回，或仅为 fetched Attempt 补取缺失声明输出；拒绝覆盖 |
 | `ag cancel '<ATTEMPT_ID>'` | 人点击 Mac 确认后取消确切作业 |
 | `ag list --study '<STUDY_ID>' --json` | 列出本地 Attempt |
 | `ag doctor --cluster '<CLUSTER>' --json` | 只读检查连接、调度器和程序环境 |
 | `ag monitor --watch 120` | 前台只读采样并保存监控快照；Ctrl-C 退出，无自动提交或取消 |
-| `ag facts '<ATTEMPT_ID>' --study '<STUDY_ID>' --json` | 解析日志、几何、频率、IRC 等事实 |
+| `ag facts '<ATTEMPT_ID>' --study '<STUDY_ID>' [--refresh] --json` | 解析日志、几何、频率、扫描、IRC 和波函数稳定性事实；显式刷新保留旧证据 |
 | `ag thermo '<ATTEMPT_A>' '<ATTEMPT_B>' --study '<STUDY_ID>' --json` | GoodVibes qRRHO 与所选构象集合的布居 |
 | `ag dedup '<XYZ_FILE>' --charge 0 --out '<ANALYSES_DIR>' --json` | 按已确认电荷去重；此例为中性体系 |
 | `ag cluster '<DEDUP_JSON>' --max 20 --json` | 从去重结果选择代表构象 |
 | `ag graph --study '<STUDY_DIR>' --json` | 展示 Attempt 父子关系 |
 | `ag irc-compare --ts '<TS>' --forward '<FORWARD>' --reverse '<REVERSE>' --reactant '<REACTANT>' --product '<PRODUCT>' --out '<NEW_REPORT_JSON>' --json` | 双向 IRC 端点与参考结构的映射比较 |
 | `ag profile '<PROFILE_JSON>' --json` | 组装已审阅物种的反应自由能曲线、能垒及适用时的能量跨度 |
-| `ag review init '<ATTEMPT_ID>'` / `ag review check '<ATTEMPT_ID>'` | 创建审阅骨架或检查事实快照是否仍匹配；不代替科学判断或签字 |
+| `ag review init '<ATTEMPT_ID>' [--card '<CARD>']` / `ag review check '<ATTEMPT_ID>'` | 创建审阅骨架、核对判据及事实快照；旧 manifest 可在审阅时补指定卡片 |
+| `ag review manifest --study '<STUDY_DIR>' --json` | 签字前生成不可覆盖的本地证据清单 |
+| `ag clusters --json` | 本地集群、资源档位和可选预算查询，不返回连接凭据 |
+| `ag coverage --merged '<DEDUP_JSON>' --energies '<ENERGY_JSON>' --out '<NEW_REPORT_JSON>' --json` | 按匹配的 DFT 能量统计采样路线重叠与低能覆盖 |
+| `ag scan-peak '<ATTEMPT_ID>' --study '<STUDY_ID>' --point 9 --out '<NEW_GUESS_XYZ>' --json` | 按原扫描点序号选择严格局部极大，导出 TS 初猜 |
 
 作业命令退出码：0 成功，1 取消或校验失败，2 环境/连接错误，3 状态不确定。
 `unknown`、`failed_presubmit` 或计算失败不构成重提同一 Attempt 的理由。
+
+## 新增命令用法与证据维护
+
+```bash
+# 只读查询本机集群；附加目录核对只返回是否匹配，不公开路径
+ag clusters --json --verify-studies-root '<STUDIES_ROOT>'
+
+# 新审阅骨架；只有旧 manifest 未记录 card 时才补指定 --card
+ag review init '<ATTEMPT_ID>' --card opt-freq --json
+ag review check '<ATTEMPT_ID>' --json
+ag review manifest --study '<STUDY_DIR>' --json
+
+# fetched Attempt 补取新声明的缺失文件；不会顺带刷新 facts
+ag fetch '<ATTEMPT_ID>' --add-missing --json
+# 已有 facts 时比较解析内容；确认差异后再显式刷新并保留旧版
+ag facts '<ATTEMPT_ID>' --study '<STUDY_ID>' --json
+ag facts '<ATTEMPT_ID>' --study '<STUDY_ID>' --refresh --json
+
+# 两条路线已在相同 xTB 方法优化、能量可比时，才使用 lowest/统一窗口
+ag dedup --source 'crest=<CREST_XYZ>' --source 'mdopt=<MDOPT_XYZ>' \
+  --charge 0 --hydrogens polar --representative lowest --window 6 \
+  --out '<NEW_DEDUP_DIR>' --json
+ag coverage --merged '<DEDUP_JSON>' --energies '<DFT_ENERGIES_JSON>' \
+  --window 3 --top 5 --out '<NEW_COVERAGE_JSON>' --json
+
+# 9 是原始扫描点序号示例，必须是列出的合格局部极大
+ag scan-peak '<SCAN_ATTEMPT>' --study '<STUDY_ID>' \
+  --point 9 --out '<NEW_TS_GUESS_XYZ>' --json
+ag profile '<STUDY_DIR>/analyses/<PROFILE_JSON>' --name '<NEW_PROFILE_NAME>' --json
+```
+
+- `review init` 不覆盖已有审阅；`--card` 的补指定来源明确记在 review 中，不修改 manifest。`review check` 核对已保存的判据与事实，不代签。签字前先在 study/review 中引用全部依据，再生成 `review manifest`；清单独占创建在 `analyses/`，记录相对路径、大小、SHA-256 与 ag 提交号。签字记录应包含清单路径和清单哈希，生成清单本身不是签字。
+- `facts` 在解析内容相同时保持原字节和 mtime，即使解析器提交号变化也不重写；内容不同时默认显示差异并拒绝。人工核对后用 `--refresh`，先保留 `facts.<旧哈希前12位>.json` 再发布新版；已有几何仍不能覆盖。thermo/profile/review check 不改写 facts。
+- `fetch --add-missing` 只适用于 fetched：先核对全部声明远程输出与本地已有文件的大小/哈希，不一致就拒绝；只独占写入缺失项，另存补取记录，原 status、manifest 和 fetch journal 保留。补取成功不表示解析或科学审阅完成。
+- `dedup --hydrogens heavy|polar|all` 默认 `polar`（重原子加 N/O/S/P 上的氢）；反应相关氢若不属该集合，使用 `all`。旧无氢模式记录按 heavy 解释。仅几何来源合并不混排能量；`--representative lowest` 要求同方法、有限 Hartree 能量，并应用能差容差（默认严格小于 0.05 kcal/mol）。ETKDG 候选先经 CREST `--mdopt` 优化后才能与同层级 CREST 能量合并，不能混用力场能量。
+- `coverage` 的 `--energies` 可给单点 Attempt 目录/ID、JSON 路径列表或原生 thermo JSON；按坐标和来源证据匹配，SCF 与 qh_G 分开统计。单路线独有低能项会提示补采样；报告不是构象穷尽证明。
+- `scan-peak` 仅接受内部点及左右紧邻点均收敛、有能量，且中点严格高于两侧的候选；列出全部局部峰，默认选最高局部峰，`--point` 选择指定原序号。无合格峰、指定非候选、单调曲线或平台都不导出；仍须审阅扫描范围与跳变，并继续 TS/Freq/双向 IRC。
+- `profile` 输入定义放在 study 的 `analyses/`，引用已审阅物种及可比的热化学来源；输出到新的名称，不覆盖。`--perturb 1` 可逐个 TS 做 ±1 kcal/mol 扰动分析。SP/Freq 配对须有几何证据，热化学审计分项不能重复加到 qh_G；无势垒步骤不支持表达。
 
 ## Skills 部署
 
@@ -169,22 +211,28 @@ TS 必须恰好一个虚频且振动方向与反应坐标一致；只有双向 I
 [Auto-Gaussian-Frontend](https://github.com/anakine800-tech/Auto-Gaussian-Frontend) v4.0.0 配合 ag 4.0.0 使用，启动方式见其 README。
 默认只读，读取本地 study、结果与保存的监控快照。`--enable-actions` 显式开启经本机 ag 执行的准备、提交、状态刷新、取回和取消；不绕过 Mac 确认，也不直接执行远程命令。
 
-**当前兼容边界**：前端操作模式读取旧单集群配置的顶层 `resources.tiers`；服务器页只读取
-`<STUDIES_ROOT>/.ag-monitor/latest.json`。多集群配置下，ag 将快照保存在
-`<STUDIES_ROOT>/.ag-monitor/<CLUSTER>/latest.json`，前端尚未适配该布局和多集群操作。
-多集群用户当前使用 ag CLI；前端仍可只读浏览本地 study，不把缺少监控快照当成服务器空闲。
+T7e 已适配多集群（[Frontend #9](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/9)）：
+操作模式通过 `ag clusters --json --verify-studies-root` 获取档位并核对目录，新建 Attempt 显式选择集群；
+提交与取消继续遵循 Attempt 绑定。服务器页分集群读取
+`<STUDIES_ROOT>/.ag-monitor/<CLUSTER>/latest.json`，同时兼容旧单集群的
+`<STUDIES_ROOT>/.ag-monitor/latest.json`；两种 default 来源并存时显示歧义，不能擅自视为最新。
+监控数据始终来自 ag monitor 快照，前端不启动采样器；缺失、过期或失败不当成空闲或零预算。
+Slurm 核时预算来自 ag 本地台账，不等于平台余额。
 
 ## 验收状态
 
-截至 2026-10-14，依据本地 study 文件核对，仅公开流程状态，不公开研究数据或连接信息；本次发布准备未重新连接集群或执行计算。
+截至 2026-10-14，按负责人本次发布前确认更新。以下是已完成的验证与适用边界；本次文档更新没有重新运行计算、补取输出或代签。
 
-| 层级 | 已有证据 | 尚未完成 |
+| 项目 | 状态 | 结果与边界 |
 | --- | --- | --- |
-| L1 正丁烷 | 结构、代表集合已签字；CREST、去重、代表 Opt+Freq、热化学及旧结果对照已完成；跨对话文件续接已验证 | 最终结果签字；实际关闭并重开桌面应用未独立验证 |
-| L2 真实柔性主族体系 | 结构、有限代表集合已签字；CREST 已取回；四个 Opt+Freq 已提交 | DFT 完成证据、优化后去重、热化学、科学审阅、恢复验证及最终签字；覆盖有限，仅作流程验收 |
-| L3 小体系 TS/IRC | 机理假设、结构、代表集合已签字；首批四个分子 Opt+Freq 已提交 | TS 与离子 Freq 尚未提交；TS 振动方向、双向 IRC、端点、能垒及最终签字未完成 |
+| SCNet | **已验证** | Gaussian 16 A.03 学习版；已验证提交、状态、取回与解析链路。平台免责条款由使用者自行评估，不据此承诺所有方法/任务已验证 |
+| L1 正丁烷 | **已签字（流程验收）** | 正丁烷构象、Opt+Freq、热化学及续接流程验收；不外推为任意体系的精度保证 |
+| L2 柔性主族体系 | **已签字（流程验收）** | 构象覆盖不完整；所选集合的结果不代表完整构象空间或正式研究结论 |
+| L3 小体系 TS/IRC | **已签字（流程验收）** | 能垒只代表 B3LYP-D3(BJ) 这一方法层级，不构成跨方法精度保证 |
+| V-T21 扫描 | **Gaussian 部分已通过；xTB 待补记** | 026 选中第 9 点，与 TS 的 RMSD 为 0.002 Å；xTB 部分等 789 补取后补记，不提前标作通过 |
+| V-T22 双路线覆盖 | **进行中，不阻塞发布** | 尚未完成的覆盖验证保持进行中，不由工具或 CI 通过推断完成 |
 
-以上均不标记为整体验收通过。发布 PR 保持未合并，等待负责人确认验收；tag 和 release 由负责人在 GitHub 页面操作。
+发布 PR 不自动合并；tag 和 release 由负责人在 GitHub 页面操作。
 
 ## 支持范围与限制
 
@@ -192,8 +240,15 @@ TS 必须恰好一个虚频且振动方向与反应坐标一致；只有双向 I
 - 支持 PBS/Torque 与 Slurm 配置；适配实现与离线测试不等于任意站点的真实环境验收。
 - 不支持金属体系、开壳层、激发态、多参考等专门方法的可靠研究流程；不把可传入的程序参数解释为科学支持承诺。
 - 不提供全自动 TS 搜索、无人值守研究、自动重提、多用户服务或旧 v3 数据库/工作流兼容迁移。
-- `prepare --parent-chk` 支持同 study、同集群内受限复用父 checkpoint：父作业必须结束且已离开调度器，复制到新 Attempt 时校验确认过的哈希、不覆盖。TS/IRC 工具存在不代表 L3 已通过。
+- `prepare --parent-chk` 支持同 study、同集群内受限复用父 checkpoint：父作业必须结束且已离开调度器，复制到新 Attempt 时校验确认过的哈希、不覆盖。RCFC/ReadFC 按父 `final_input.xyz` 的 Input 坐标框架校验（父 route 含 NoSymm 时允许匹配任一已导出取向）；对齐 RMSD 或 chk 哈希相同不等于取向匹配。
 - 构象数量上限、成功日志和布居都不能证明采样完备；研究方法按文献与体系审阅选择。
+
+### 已知限制
+
+- PBS 数组作业号可能使硬件核数核验解析失败并退回严格模式，此时排队也计入 `max_cores`；不能假定仍可使用放宽的排队额度。逗号组合槽位范围已支持（#243），数组作业号限制仍保留。
+- 分子很大时，少数极性氢的局部变化会被整体 RMSD 平均稀释，灵敏度下降；仍需结合相关二面角、氢键模式和结构审阅，不能仅凭去重报告证明等价。
+- IRC StepSize 的单位须按本机 Gaussian 手册和实际输出核实，记录实际打印的步长及坐标类型，不把不同版本中的单位描述通用化。
+- `profile` 要求极小点与 TS 交替的离散路径，不能表达无势垒步骤；不得虚构 TS 来凑齐曲线。
 
 ## 开发检查与版本历史
 
@@ -203,6 +258,7 @@ python -m pytest ag/tests skills-next -q -rs
 python ag/tools/scan_sensitive.py --staged
 ```
 
+开发前阅读 [DEVELOPING.md](docs/DEVELOPING.md) 和 [LESSONS.md](docs/LESSONS.md)。
 离线测试不连接真实集群。开发范围以任务单或负责人明确任务指令为准，PR 首行写 `Task: Tn`；实际阻塞注明结构、提交、解析、科学审阅或环境类别。合并由人完成。
 
 - **v2.7、v3**：已归档于 [archive/](archive/README.md)，原始 v3 基线为 `v3-frozen`。旧 [CHANGELOG](archive/CHANGELOG.md) 保持原样。
