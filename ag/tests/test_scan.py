@@ -9,7 +9,7 @@ from ag import attempt, cli, crest_input, gaussian_input, render, remote, study
 from ag._scan import (coordinate, input_geometry, modredundant, parse_gaussian_scan,
                       parse_xtb_scan, value)
 from ag.facts import build_facts
-from ag.geometry import Frame, read_xyz, xyz_text
+from ag.geometry import Frame, HARTREE_TO_KCAL, read_xyz, xyz_text
 from ag.scan_peak import select_peak
 from test_core import cfg, INPUT
 
@@ -219,7 +219,7 @@ def test_peak_warnings(case, tmp_path):
     if case == 'jump':
         energies[3] += .1
     if case == 'unconverged':
-        states[3] = False
+        states[0] = False
     scan, xyz = parse_gaussian_scan(gaussian_log(energies, states), definition())
     path = tmp_path / 'points.xyz'
     path.write_text(xyz)
@@ -237,15 +237,116 @@ def test_peak_warnings(case, tmp_path):
     elif case in ('jump', 'rmsd'):
         assert '另一条路径' in warnings and report['jumps']
     else:
-        assert '未收敛' in warnings and report['peak']['point'] != 4
+        assert '未收敛' in warnings and report['peak']['point'] == 4
 
 
 def test_no_converged_interior_and_required_out():
     scan, _ = parse_gaussian_scan(gaussian_log(ENERGIES, [True] + [False] * 5 + [True]), definition())
-    with pytest.raises(ValueError, match='No converged interior'):
+    with pytest.raises(ValueError, match='No strict local maximum'):
         select_peak(scan, [])
     with pytest.raises(SystemExit):
         cli.main(['scan-peak', 'attempt'])
+
+
+def synthetic_scan(energies, states=None):
+    spec = {**definition(), 'expected_points': len(energies)}
+    scan, _ = parse_gaussian_scan(gaussian_log(energies, states or [True] * len(energies)), spec)
+    return scan, [frame_at(i, e) for i, e in enumerate(energies)]
+
+
+def test_lower_local_peak_below_separation_boundary():
+    # Toward the left/separated boundary energy rises; point 2 is the highest
+    # interior point, but the buried local peak is point 9.
+    energies = [-150 + e * .001 for e in (20, 18, 14, 8, 2, 0, 1, 3, 5, 3, 1)]
+    scan, frames = synthetic_scan(energies)
+    report, chosen = select_peak(scan, frames)
+    assert report['peak']['point'] == 9
+    assert chosen == frames[8]
+    assert [p['point'] for p in report['local_maxima']] == [9]
+    assert '范围不够' in ' '.join(report['warnings'])
+
+
+@pytest.mark.parametrize('energies', [
+    [-3, -2, -1], [-1, -2, -3], [-1, -1, -1], [-3, -2, -2, -3],
+    [-1, -3, -2], [-3, -2],
+])
+def test_no_strict_peak_refuses(energies):
+    scan, frames = synthetic_scan(energies)
+    with pytest.raises(ValueError, match='扫描范围或扫描坐标不合适'):
+        select_peak(scan, frames)
+
+
+@pytest.mark.parametrize('index', [0, 1, 2])
+@pytest.mark.parametrize('missing', [False, None, 'energy'])
+def test_peak_requires_center_and_immediate_neighbors(index, missing):
+    scan, frames = synthetic_scan([-150, -149.99, -150])
+    if missing == 'energy':
+        scan['points'][index]['energy_hartree'] = None
+    else:
+        scan['points'][index]['converged'] = missing
+    with pytest.raises(ValueError, match='No strict local maximum'):
+        select_peak(scan, frames)
+
+
+@pytest.mark.parametrize('json_output', [False, True])
+@pytest.mark.parametrize('point, selected', [(None, 5), (2, 2), (5, 5)])
+def test_two_peaks_cli_lists_all_and_exports_requested(tmp_path, capsys, json_output, point, selected):
+    scan, frames = synthetic_scan([-150, -149.998, -149.999, -149.999, -149.996, -149.999, -150])
+    (tmp_path / 'manifest.json').write_text('{}')
+    source = tmp_path / 'scan_points.xyz'
+    source.write_text(xyz_text(frames))
+    scan['geometries_sha256'] = sha256(source.read_bytes()).hexdigest()
+    (tmp_path / 'facts.json').write_text(json.dumps({'scan': scan}))
+    destination = tmp_path / 'peak.xyz'
+    args = ['scan-peak', str(tmp_path), '--out', str(destination)]
+    if json_output:
+        args += ['--json']
+    if point is not None:
+        args += ['--point', str(point)]
+    assert cli.main(args) == 0
+    output = capsys.readouterr().out
+    if json_output:
+        report = json.loads(output)
+        assert report['peak']['point'] == selected
+        assert [p['point'] for p in report['local_maxima']] == [2, 5]
+        assert [p['coordinate_value'] for p in report['local_maxima']] == pytest.approx([1.55, 1.85])
+        assert [p['energy_hartree'] for p in report['local_maxima']] == [-149.998, -149.996]
+        assert [p['relative_energy_kcal_mol'] for p in report['local_maxima']] == pytest.approx(
+            [.002 * HARTREE_TO_KCAL, .004 * HARTREE_TO_KCAL])
+        assert report['relative_energy_reference']['energy_hartree'] == -150
+    else:
+        assert 'point 2: coordinate=1.55 angstrom, energy=-149.998 Hartree, relative_energy=' in output
+        assert 'point 5: coordinate=1.85 angstrom, energy=-149.996 Hartree, relative_energy=' in output
+        assert f'TS 初猜：point {selected}' in output
+    for actual, expected in zip(read_xyz(destination)[0].coordinates, frames[selected - 1].coordinates):
+        assert actual == pytest.approx(expected)
+
+
+@pytest.mark.parametrize('point', [0, 1, 3, 7, 8, -1])
+def test_invalid_requested_peak_does_not_export(tmp_path, capsys, point):
+    scan, frames = synthetic_scan(ENERGIES)
+    (tmp_path / 'manifest.json').write_text('{}')
+    source = tmp_path / 'scan_points.xyz'
+    source.write_text(xyz_text(frames))
+    scan['geometries_sha256'] = sha256(source.read_bytes()).hexdigest()
+    (tmp_path / 'facts.json').write_text(json.dumps({'scan': scan}))
+    destination = tmp_path / 'peak.xyz'
+    assert cli.main(['scan-peak', str(tmp_path), '--point', str(point), '--out', str(destination)]) == 1
+    assert 'not a strict local maximum' in capsys.readouterr().err
+    assert not destination.exists()
+
+
+def test_monotonic_cli_does_not_export(tmp_path, capsys):
+    scan, frames = synthetic_scan([-150, -149.999, -149.998])
+    (tmp_path / 'manifest.json').write_text('{}')
+    source = tmp_path / 'scan_points.xyz'
+    source.write_text(xyz_text(frames))
+    scan['geometries_sha256'] = sha256(source.read_bytes()).hexdigest()
+    (tmp_path / 'facts.json').write_text(json.dumps({'scan': scan}))
+    destination = tmp_path / 'peak.xyz'
+    assert cli.main(['scan-peak', str(tmp_path), '--out', str(destination)]) == 1
+    assert '扫描范围或扫描坐标不合适' in capsys.readouterr().err
+    assert not destination.exists()
 
 
 def test_angle_dihedral_values():
