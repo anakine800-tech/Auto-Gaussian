@@ -9,15 +9,17 @@ description: 在 ag 新架构中创建、恢复和推进主族闭壳层计算研
 
 ## 每次调用的固定流程
 
-1. **恢复上下文。** 先读目标目录 `study.md` 的“当前阻塞”，再读其余内容和 `ag list --study <study_id> --json`；核对目标、未完成的量、签字和 Attempt 状态。新研究尚无目录时，用 `ag init <study_dir>` 建骨架，按[研究模板](references/study-md-template.md)与人补齐目标和体系，再读取清单。缺电荷、多重度、溶剂或温度时询问，不从旧研究推断。
+1. **恢复上下文。** 先核对“主会话”：同一 study 同时仅主会话推进，其他会话只读；接手时记录交接。再读目标目录 `study.md` 的“当前阻塞”，再读其余内容和 `ag list --study <study_id> --json`；核对目标、未完成的量、签字和 Attempt 状态。新研究尚无目录时，用 `ag init <study_dir>` 建骨架，按[研究模板](references/study-md-template.md)与人补齐目标和体系，再读取清单。缺电荷、多重度、溶剂或温度时询问，不从旧研究推断。
 2. **判断阶段并选卡。** 按下表打开 `auto-g16-recipes` 的对应卡片。极小点/初筛覆盖主族闭壳层单分子；机理研究可用 reaction-plan、ts、irc 卡片，仍不开放双分子初筛、开壳层或金属计算。没有适用卡片或所需能力标注“待 T13”时说明缺口并暂停依赖步骤，不借用旧 Skill 执行。真实环境出现异常时先停下报告。
 3. **确定方法与机理假设。** 使用 `auto-g16-literature`，优先人提供的本组论文和 SI，记录 DOI 与位置、直接先例或类比；无先例才使用[兜底方法](references/acceptance-methods.md)，在摘要声明。验收用最快的验收方法，不宣称研究精度。涉及机理时先按 [reaction-plan](../auto-g16-recipes/cards/reaction-plan.md) 在 study.md 写出各步骤、待算物种与 TS、竞争假设及可推翻条件，请人签字后才能推进依赖该假设的计算。这个签字用于防止把未经同意的机理猜想变成计算计划，不替代提交确认。
-4. **准备与提交。** 核查卡片输入、资源和前置结果，调用 `ag prepare`，按[确认摘要](references/confirmation-summary.md)展示每个 Attempt。同一卡片、同一方法的多个 Attempt 可以一次批量确认。等人明确说“提交”后运行 `ag submit <id>...`，仍由人亲手点击 Mac 系统对话框；不代点、不提供跳过方式。`ag` 负责单次提交、文件一致性、路径检查和全用户作业核数统计，无法核实就不提交。
-5. **接收并解释结果。** 用 `ag status <id>` 查询；`awaiting_second_observation` 表示证据不足，按显示的最早时间再次只读观察，不视为失败或允许取回。结合 `resources_used.cput`、声明输出的大小/mtime 和观察时间判断活动，缺值记未知。完成后 `ag fetch <id>`、`ag facts <id>`，取回后若 `scheduler_residue=true`，提醒人先用 `ag status` 核查残留；仍残留且人明确授权后才调用 `ag cancel`，由人亲手点击确认，只针对 status.json 的确切 job_id，之后只读核查。不自动 qdel，不重试已声明的取消；qdel 返回不等于最终离队。阅读事实和卡片判据，在 Attempt 的 `review.md` 中逐条填写“通过 / 不通过 / 依据”，依据指向数字和本地输出位置。作业离开队列不等于科学成功；缺失事实不能填成零。更新 `study.md` 进度和剩余问题，每次结束前更新“当前阻塞”（无阻塞写“无”）。
+4. **准备与提交。** 核查卡片输入、资源和前置结果，调用 `ag prepare --card <卡片名>`，按[确认摘要](references/confirmation-summary.md)展示每个 Attempt。同一卡片、同一方法的多个 Attempt 可以一次批量确认。等人明确说“提交”后运行 `ag submit <id>...`，仍由人亲手点击 Mac 系统对话框；不代点、不提供跳过方式。`ag` 负责单次提交、文件一致性、路径检查和全用户作业核数统计，无法核实就不提交。
+5. **接收并解释结果。** 用 `ag status <id>` 查询；`awaiting_second_observation` 表示证据不足，按显示的最早时间再次只读观察，不视为失败或允许取回。结合 `resources_used.cput`、声明输出的大小/mtime 和观察时间判断活动，缺值记未知。完成后 `ag fetch <id>`、`ag facts <id>`，取回后若 `scheduler_residue=true`，提醒人先用 `ag status` 核查残留；仍残留且人明确授权后才调用 `ag cancel`，由人亲手点击确认，只针对 status.json 的确切 job_id，之后只读核查。不自动 qdel，不重试已声明的取消；qdel 返回不等于最终离队。审阅时先运行 `ag review init <id>`，从 manifest 保存的卡片第 6 节生成 `review.md`；已存在时不覆盖，直接读已有 review。阅读事实和原判据，逐行填写“判据 | 依据 | 结论（通过 / 不通过 / 无法判断）”，依据指向 facts 字段、日志行号或文件；自动预填的字段核对不替代完整科学判据。写完后运行 `ag review check <id>`，补齐漏项，出现“review 可能过期”时重新核对新 facts 并更新审阅记录，不把提示当成科学失败或自动重算授权。作业离开队列不等于科学成功；缺失事实不能填成零。更新 `study.md` 进度和剩余问题，每次结束前更新“当前阻塞”和“待你决定”（无则写“无”）；后者集中列出所有待人决定事项、所需信息与证据、选项及影响。
 6. **处理异常。** 遇到 `unknown` 或 `failed_presubmit` 按[异常说明](references/unknown-and-failures.md)只报告、不自行处理。计算失败转 `failure-diagnosis` 卡片，提出新 Attempt 的修改方案，等人确认；原 Attempt 保留。取消仅使用 `ag cancel <id>`，由人点击确认，作业号来自其 `status.json`。
 7. **请求里程碑签字并更新假设。** 分别向人展示结构、代表构象集合（含简并度）、最终结果，再将其明确确认的日期和签字人写入 `study.md`。不可代签或把提交按钮当成科学签字；已有签字可以沿用到未改变的对象，发生改变时说明并重新确认对应里程碑。机理研究在每个里程碑之后更新假设（即使保留也写证据和理由）；TS 方向审核、IRC 端点识别有新证据时及时更新。假设的步骤、物种、TS 或推翻条件改变后，重新取得机理假设签字才推进依赖工作；既有签字仅适用于未变化对象，不代签。
-8. **沉淀经验。** 解决问题或被人纠正后，按[经验格式](references/lessons.md)在 study 的 `lessons/` 起草，提议修改具体卡片小节，不直接改 Skill。
+8. **沉淀经验。** 解决问题或被人纠正后，按[经验格式](references/lessons.md)在 study 的 `lessons/` 起草，提议修改具体卡片小节，不直接改 Skill；在每周清理时经人审阅合并进卡片。
 9. **判定完成。** 只有目标中的量都算出、三个里程碑都签字、机理研究的当前假设已签字且里程碑后更新已记录、`study.md` 有结论，才能称 study 完成；否则说明目前结果及尚缺的证据。下次继续从第 1 步恢复。
+
+prepare 在 manifest 的 `card` 中记录 `name`、`git_commit`、`dirty` 和原始 `content`，优先读取已部署的 `auto-g16-recipes`（解析软链接），未部署时读取 ag 源码仓库的卡片。摘要显示提交号前 7 位和 dirty；保存文本防止 dirty 内容或后续改卡导致旧判据丢失。旧 Attempt 未记录卡片时，review init 会报错，不猜卡、不改 manifest；由 LLM 手工记录依据。check 只检查完整性和 facts 新鲜度，不代表科学接受。facts 重生成后，须逐行重新核对依据和结论，再把 review 顶部 `<!-- facts: ... -->` 的 JSON 更新为 check 返回的 `current_facts`，重跑 check；不要只改快照消除提示。check 本身不修改文件。
 
 ## 阶段决策
 

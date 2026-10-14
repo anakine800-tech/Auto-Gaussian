@@ -39,8 +39,8 @@ def init(cfg, name):
     for child in ('structures', 'attempts', 'analyses', 'lessons'):
         (path / child).mkdir()
     (path / 'study.md').write_text(
-        f'# {path.name}\n\n## 目标\n\n## 体系\n\n## 方法与依据\n\n## 计划与进度\n\n'
-        '## 里程碑签字\n\n- 结构：待签字\n- 代表构象集合：待签字\n- 最终结果：待签字\n\n## 结论\n',
+        f'# {path.name}\n\n## 主会话\n\n<会话标识；其他会话只读>\n\n## 目标\n\n## 体系\n\n## 方法与依据\n\n## 计划与进度\n\n'
+        '## 待你决定\n\n<事项、所需信息与证据、选项及影响；无则写无；每次结束前更新>\n\n## 里程碑签字\n\n- 结构：待签字\n- 代表构象集合：待签字\n- 最终结果：待签字\n\n## 结论\n',
         encoding='utf-8')
     journal.append(path, 'init')
     return {'study_id': path.name}
