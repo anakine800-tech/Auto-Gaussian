@@ -4,6 +4,11 @@
 
 主族、闭壳层、单个连通分子，所有原子能由 MMFF94s 或 UFF 参数化。不是金属、离子对、TS 或双分子相对取向搜索。
 
+TS 族、关键中间体、复合物必须双路线；可旋转键较多的分子建议也走。
+本卡适用的稳定单分子以 ETKDG 与 CREST 交叉核对；TS/复合物用 CREST +
+定向构造约束 CREST（directed），不扩大本卡力场适用范围。详见
+[conformer-workflow](../../auto-g16-structures/references/conformer-workflow.md)。
+
 ## 2. 前置条件
 
 结构已由人签字，电荷、多重度和立体化学明确；新 `auto-g16-structures` Skill 及其初筛脚本可用。读该 Skill 的实际用法，不运行旧部署脚本。
@@ -16,6 +21,16 @@
 候选先按 [SP](sp.md) 做 DFT 单点重排，再选 DFT 单点能 3 kcal/mol 内
 代表并请人确认集合和简并度，之后进入 opt-freq；优化后重新去重。
 数值及优化层级筛选单点方法见[方法表](../../auto-g16-study/references/acceptance-methods.md)，负责人已于 2026-10-14 确认。
+
+各路线独立预筛后，`ag dedup --source crest=crest.xyz --source etkdg=etkdg.xyz --charge 0 --out analyses`
+按几何合并并保留所有来源，不跨方法比较能量。对合并候选用同层级 DFT 单点，
+再执行 `ag coverage --merged analyses/dedup-TIMESTAMP.json --energies attempts/SP_A attempts/SP_B --window 3 --out analyses/coverage-01.md`。
+先看输入几何（1e-4 Å、保留原子顺序）未匹配项，再看窗口总数、路线命中数、
+最低 5 个构象来源和单路线独有低能构象。最低构象单路线独有或某路线独占
+超过窗口一半会警告“采样可能不足”；无警告不代表充分，覆盖报告不能证明采样已经完备。
+可选 `--top N` / `--json`；`--out` 必填且不能覆盖。
+聚类默认 lowest 保持原行为；`--representative medoid` 选簇内 RMSD 总和最小成员。
+不同方法来源合并后只用 medoid，不按原始力场/xTB 能量选最低者。
 
 ## 4. 资源建议
 
@@ -33,11 +48,14 @@
 - 元素组成、连通性与立体化学保持；轴手性需人工检查，不能只看四面体中心列表。
 - `ag dedup` 输出无重复代表；聚类保留代表与成员对应关系、阈值、窗口和筛除原因。
 - 展示代表及简并度给人签字；成员出现次数不直接等于物理简并度，依据不清就标待确认。
+- 双路线来源及覆盖报告已审阅，未匹配项、低能独有项、警告与采样限制已记录。
 - 明确结果是初筛；力场排序不能作为 DFT 自由能或最终 Boltzmann 布居。
 
 ## 7. 常见失败与处理
 
 参数化失败、嵌入失败或手性改变时保存报告，提出修正结构或调整本地生成方案，等人确认受影响的结构 / 集合。初筛能力不足可提出 CREST 路线；若需要远程计算，提出新 Attempt，等人确认。
+
+出现覆盖警告时增加 ETKDG 随机种子/候选数（仍标 etkdg）、延长 CREST 有效采样（去掉快速模式、给足 walltime），或由结构 Skill 按特定相互作用/进攻方向假设搭建初猜再用约束 CREST，来源标 directed。新增远程计算经人确认；重做合并、同层级 DFT 重排和覆盖报告，不自动扩样或重提。
 
 ## 8. 常见坑
 
