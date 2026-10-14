@@ -59,6 +59,12 @@ imaginary_mode_matches: true
 
 单构象必须逐物种提供非空 `single_conformer_reason`；即便简并度大于 1，只算了一个代表也要说明。构象归属、物理简并度和分子身份的判断仍由人负责，元素组成相同不证明是同一个物种。
 
+立体或区域选择性的两 TS 对照用顶层可选字段，例如
+`"competing_ts": [{"id": "selectivity", "a": "ts_a", "b": "ts_b"}]`。
+两者均须在 `species` 中定义，可仅用于此比较而不出现在 `states` 中；
+要求 n_imag=1、元素组成与电荷相同，并通过同样的协议及方向审阅。
+定义 a/b 对应的通道，共同反应物零点、前因子及可比构象覆盖由人核实。
+
 复合方案在每个 Attempt 中加 `"spc_attempt_id": "study-012-sp-c01"`；所有物种都使用相同的频率层与单点层，不混用有/无单点修正。方法、基组、色散和溶剂从本地 Gaussian route 提取，区分两个层级。`Gen/GenECP/ChkBasis`、自定义 ECP、IOp、SCRF=Read 等缺少可确定完整定义的输入会明确报错；不能当作默认方法放过。溶液 route 必须写出模型与溶剂，如 `SCRF=(SMD,Solvent=Water)`；等价方法的拼写差异可能需要核实后统一来源。
 
 直接 Attempt 默认采用当前 thermo 的设置：298.15 K、1 M、Grimme 熵/Head-Gordon 焓修正、各 100 cm⁻¹、频率/ZPE 缩放 1、global inertia。可用顶层 `thermo_settings` 覆盖已有设置名；与 thermo 表混用时，未指定设置会继承第一份表，仍逐物种核对全部设置。如果指定温度与来源不符，必须重算热化学，不能仅更改 RT。
@@ -139,8 +145,8 @@ SMD 下 H/S 分项只是当前 RRHO/qRRHO 与单点替换模型的审计分项�
   分子数须另行推导，不把此单分子式直接叫二级速率常数。
 - 催化循环可在假设成立时用 energetic-span；多步可逆反应、缓慢催化态
   交换、浓度依赖或产物互变影响结论时需显式动力学/微观动力学网络。
-  本命令未实现通道选择性、速率常数和微观动力学；需要时记录缺口，不能由最高的一根能垒直接推断
-  实验速率或由两个孤立 TS 推断 ee。
+  本命令提供每步正反 Eyring 换算及 `competing_ts` 两物种对照，未实现完整通道网络与微观动力学；
+  不能由最高的一根能垒直接推断实验速率或由两个孤立 TS 推断实验 ee。
 
 输出应包括每个通道的覆盖、简并度、排除理由和仍缺的合理候选。
 分别检查构象遗漏/逐一移除候选、能量扰动、溶剂、低频处理、标准态、
@@ -171,6 +177,12 @@ IRC 连通证明的是所审阅势能面的路径连接，不代表真实动力�
 - 表格输出各状态 ΔG，以及每步 `G_TS−G_R`、`G_TS−G_P`、`G_P−G_R`，JSON/Markdown 均列出公式。
 - `G_state=Σν_s G_ensemble,s`；`G_ensemble=−RT ln Σd_i exp(−G_i/RT)`。
 - 标准态每物种 `RT ln(C_target/C_source)`；`C_1atm=1/(R_L_atm T)`。显式溶剂再加 `RT ln(c/C_target)`，两项单独显示。
+- **S1（缔合熵）**：分子数变化的步骤必须同时报告正反 ΔH‡、−TΔS‡ 及反应 ΔH、−TΔS，标注“受缔合熵模型影响”。`molecule_count` 是每态计量数之和，`molecularity_change` 为 TS−反应物。H_ens 与 G_ens 用相同 p_i，S_ens=(H_ens−G_ens)/T；标准态及显式溶剂浓度修正全部计入 −TΔS。逐行 qh_H−T·qh_S 与 qh_G 须在 1e-6 Hartree 内一致，否则按报出的 Attempt 核查上游，不手改数值。
+- 不默认替换熵模型；GoodVibes freespace 仅在该版本支持的溶剂下作为独立敏感性对照，明确为**实验性功能**。`ag thermo` 与 `ag profile` 当前没有 freespace 选项，不杜撰参数或把对照结果覆盖到主报告。
+- 正反 `forward_kinetics` / `reverse_kinetics` 中 `k_s-1`、`half_life_s` 用 profile 温度和 κ=1；没有隧穿校正，不是微观动力学模型。半衰期为不可逆一级/准一级近似，不是可逆网络的弛豫时间；缔合方向注明“按标准态浓度的准一级近似，受缔合熵模型影响”。1 M 下 <5 kcal/mol 的双分子步骤标“接近扩散控制，不宜用 TST 速率解释”。
+- `competing_ts` 报 ΔΔG‡=G(b)−G(a)、`rate_ratio_a_over_b`=exp(ΔΔG‡/RT)、`ee_percent` 大小及 faster=a/b/equal；正值表示 a 更快。另报同修正口径的最低构象对照（不计构象系综混合/简并度熵），仅作敏感性参考。速率比和 ee 只是简单 TST 下的表观值；区域/非对映通道的数值不能称为对映体 ee；有可逆步骤或后续选择性捕获时不能等同于实验 ee。
+- **S3（σ 与系综口径）**：读取“对称数”节逐构象 σ、来源、nosymm 与 RT ln σ。nosymm 混用、同物种 σ 不同或任一 σ>1 均警告，不自动报错或修正能量；RT ln σ 仅估算固定其他项时相对 σ=1 的贡献，不能直接作为混合系综能垒的修正。保留真实几何，逐结构核对 σ（C1 取 1）、统一对称处理、路径数另记；比较统一用系综 G，最低构象只作敏感性报告。
+- **S9（低频截断敏感性）**：关键 |ΔΔG|<1 kcal/mol 时，同一比较的全部物种按 thermo 卡片用 50、100、150 cm⁻¹ 两截断同步重算并保留三档结果；直接 Attempt 同步 `thermo_settings.s_cutoff_cm1/h_cutoff_cm1`。报告结论是否翻转，不能仅改变 profile 的 RT。
 - 循环按 [Kozuch–Shaik, Acc. Chem. Res. 2011, eq 9, DOI:10.1021/ar1000956](https://doi.org/10.1021/ar1000956)：遍历所有 TS/中间体对；TS 在中间体之后用 `G_TS−G_I`，之前用 `G_TS−G_I+ΔG_cycle`，取最大值为 δE。末态作为下一圈首态，不重复加入 TDI 候选。输出 TDTS、TDI、所有配对及并列最大值，不用全图最高点减最低点替代。
 - 这是给定单一循环的能量跨度近似，不输出完整速率或证明某一个步骤决速；非放能循环只报告形式上的跨度，不推断正向 TOF。
 - `--perturb x` 对每个 TS **状态**逐个加、减 x kcal/mol，保留其他状态不动，报告 TDTS/TDI 配对是否变化（包括并列）。这是逐项敏感性，不是所有误差组合的全局稳健性证明。非循环仅比较最大局部正向能垒，不称作动力学决速态。

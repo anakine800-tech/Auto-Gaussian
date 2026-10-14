@@ -11,6 +11,18 @@ from ag.thermo import HARTREE_TO_KCAL, R_HARTREE
 
 R_KCAL = R_HARTREE * HARTREE_TO_KCAL
 R_L_ATM = 0.082057366080960
+K_B_OVER_H = 1.380649e-23 / 6.62607015e-34
+DECOMPOSITION_NOTE = ('H_ens = sum(p_i qh_H_i); S_ens = (H_ens - G_ens)/T; '
+                      'p_i proportional to d_i exp(-qh_G_i/RT). '
+                      '标准态修正和显式溶剂浓度修正全部记入 −TΔS；构象熵与简并度包含在系综 S 中。'
+                      'SMD 下这些是模型审计分项，不是实验溶液的焓熵分解。')
+KINETICS_NOTE = ('k = (k_B T/h) exp(-ΔG‡/RT); half_life = ln(2)/k; κ = 1。'
+                 '没有隧穿校正，不是微观动力学模型；半衰期仅为不可逆一级/准一级近似。'
+                 '超出浮点表示范围的指数结果记为 null，并保留自然对数。')
+COMPETING_NOTE = ('ΔΔG‡ = G(b) - G(a); k(a)/k(b) = exp(ΔΔG‡/RT); '
+                  '|ee| = |tanh(ΔΔG‡/(2RT))|。相同前因子、κ = 1、共同反应物参考态；'
+                  '速率比和 ee 只是简单 TST 下的表观值。仅对映体通道可解释为 ee；'
+                  '可逆步骤或后续选择性捕获时不能等同于实验 ee。最低构象仅作敏感性参考。')
 SPAN_DOI = '10.1021/ar1000956'
 FORMULAS = {
     'ensemble': 'G_s = -RT ln sum_i d_i exp(-G_si/RT); never sum_i p_i G_si',
@@ -65,6 +77,93 @@ def step_table(states):
             for a, ts, b in zip(states[::2], states[1::2], states[2::2])]
 
 
+def _represented_exp(log_value):
+    # Extreme barriers must not make an otherwise valid legacy profile fail
+    # or silently turn a tiny positive rate into zero/infinite half-life.
+    try:
+        value = math.exp(log_value)
+    except OverflowError:
+        return None
+    return value if value > 0 else None
+
+
+def eyring(barrier_kcal, temperature):
+    log_k = math.log(K_B_OVER_H * temperature) - barrier_kcal / (R_KCAL * temperature)
+    log_half_life = math.log(math.log(2)) - log_k
+    return {'k_s-1': _represented_exp(log_k), 'half_life_s': _represented_exp(log_half_life),
+            'ln_k_s-1': log_k, 'ln_half_life_s': log_half_life}
+
+
+def step_decomposition(steps, states, species, temperature, standard_state):
+    for step, (a, ts, b) in zip(steps, zip(states[::2], states[1::2], states[2::2])):
+        step['molecule_counts'] = {key: row['molecule_count'] for key, row in
+                                   (('reactant', a), ('ts', ts), ('product', b))}
+        step['molecularity_change'] = ts['molecule_count'] - a['molecule_count']
+        step['reverse_molecularity_change'] = ts['molecule_count'] - b['molecule_count']
+        step['reaction_molecularity_change'] = b['molecule_count'] - a['molecule_count']
+        for direction, start, end, g_key in (
+                ('forward', a, ts, 'forward_barrier_kcal'),
+                ('reverse', b, ts, 'reverse_barrier_kcal'),
+                ('reaction', a, b, 'reaction_G_kcal')):
+            dh = math.fsum((end['species'].get(s, 0) - start['species'].get(s, 0))
+                           * item['ensemble_H_hartree'] * HARTREE_TO_KCAL
+                           for s, item in species.items())
+            step[f'{direction}_dH_kcal'] = dh
+            step[f'{direction}_minus_TdS_kcal'] = step[g_key] - dh
+            if direction == 'reaction':
+                continue
+            # Cancel explicit spectators before identifying bimolecularity.
+            reacting_count = sum(max(n - end['species'].get(s, 0), 0)
+                                 for s, n in start['species'].items())
+            notes = []
+            if end['molecule_count'] < start['molecule_count']:
+                notes.append('按标准态浓度的准一级近似，受缔合熵模型影响')
+            elif end['molecule_count'] > start['molecule_count']:
+                notes.append('分子数变化，受缔合熵模型影响（反向为缔合）')
+            if standard_state == '1M' and reacting_count == 2 and step[g_key] < 5:
+                notes.append('接近扩散控制，不宜用 TST 速率解释')
+            step[f'{direction}_kinetics'] = {**eyring(step[g_key], temperature), 'notes': notes}
+
+
+def competing_comparisons(comparisons, species, temperature):
+    def values(a, b, key):
+        delta = b[key] - a[key]
+        log_ratio = delta / (R_KCAL * temperature)
+        return {'ddG_barrier_kcal': delta, 'rate_ratio_a_over_b': _represented_exp(log_ratio),
+                'ln_rate_ratio_a_over_b': log_ratio,
+                'ee_percent': 100 * abs(math.tanh(log_ratio / 2)),
+                'faster': 'a' if delta > 0 else 'b' if delta < 0 else 'equal'}
+    rows = []
+    for comparison in comparisons:
+        a, b = (species[comparison[key]] for key in ('a', 'b'))
+        label = comparison['id']
+        require(a['n_imag'] == b['n_imag'] == 1, f'{label}: competing_ts requires TS species (n_imag=1)')
+        require(a['elements'] == b['elements'], f'{label}: competing_ts elemental composition differs')
+        require(a['charge'] == b['charge'], f'{label}: competing_ts charge differs')
+        rows.append({**comparison, **values(a, b, 'corrected_G_kcal'),
+                     'lowest_conformer': values(a, b, 'corrected_lowest_conformer_G_kcal')})
+    return rows
+
+
+def symmetry_report(species, temperature):
+    warnings = []
+    routes = {c['nosymm'] for item in species.values() for c in item['conformers']}
+    if len(routes) > 1:
+        warnings.append('剖面中混用 nosymm 与未使用 nosymm 的结构；请核对对称处理一致性。')
+    for name, item in species.items():
+        sigmas = {c['rotational_symmetry_number'] for c in item['conformers']}
+        if len(sigmas) > 1:
+            warnings.append(f'{name}: 同一物种不同构象的 σ 不同。')
+        if max(sigmas) > 1:
+            warnings.append(f'{name}: 存在 σ > 1；请核对真实几何与对称处理。')
+        for conformer in item['conformers']:
+            conformer['RT_ln_sigma_kcal'] = R_KCAL * temperature * math.log(conformer['rotational_symmetry_number'])
+    return {'warnings': warnings,
+            'note': '每个构象列出 RT ln σ，表示固定其他项时相对 σ=1 的 G 贡献估算，'
+                    '不自动修正能量；混合系综不能直接用此值修正能垒。'
+                    'σ 与构象简并度及路径数分别审阅；GoodVibes 默认值不等于物理对称数已确认。'}
+
+
 def sensitivity(states, perturb, cycle):
     def determining(rows):
         if cycle:
@@ -100,7 +199,7 @@ def calculate_profile(definition, *, perturb=None):
     study, analyses = path.parent.parent, path.parent
     data = read_json(path)
     require(set(data) <= {'species', 'states', 'reference', 'temperature_K', 'standard_state',
-                         'explicit_solvent_concentrations_M', 'thermo_settings', 'catalytic_cycle'},
+                         'explicit_solvent_concentrations_M', 'thermo_settings', 'catalytic_cycle', 'competing_ts'},
             'Unknown profile field')
     specs, states = data.get('species'), data.get('states')
     require(isinstance(specs, dict) and bool(specs), 'Missing species definitions')
@@ -121,7 +220,20 @@ def calculate_profile(definition, *, perturb=None):
             require(name in specs, f'{sid}: missing species {name}')
             integer(coefficient, f'{sid}/{name}: stoichiometry', positive=True)
             used.add(name)
-    require(used == set(specs), 'Unused species definitions: remove them or include them in states')
+    comparisons = data.get('competing_ts', [])
+    require(isinstance(comparisons, list), 'competing_ts must be a list')
+    comparison_ids = set()
+    for comparison in comparisons:
+        require(isinstance(comparison, dict) and set(comparison) == {'id', 'a', 'b'},
+                'Each competing_ts entry needs id, a and b')
+        cid = nonempty(comparison['id'], 'competing_ts id')
+        require(cid not in comparison_ids, f'Duplicate competing_ts id: {cid}')
+        comparison_ids.add(cid)
+        for key in ('a', 'b'):
+            name = nonempty(comparison[key], f'{cid}: {key}')
+            require(name in specs, f'{cid}: missing species {name}')
+            used.add(name)
+    require(used == set(specs), 'Unused species definitions: remove them or include them in states/competing_ts')
     reference = data.get('reference')
     require(reference in state_ids, 'Reference state is missing')
     cycle = data.get('catalytic_cycle', False)
@@ -175,6 +287,10 @@ def calculate_profile(definition, *, perturb=None):
         item['concentration_correction_kcal'] = solvent_correction
         item['corrected_G_kcal'] = (item['ensemble_G_hartree'] * HARTREE_TO_KCAL
                                     + standard_correction + solvent_correction)
+        item['corrected_S_hartree_per_K'] = (item['ensemble_H_hartree']
+                                            - item['corrected_G_kcal'] / HARTREE_TO_KCAL) / temperature
+        item['corrected_lowest_conformer_G_kcal'] = (item['lowest_conformer_G_hartree'] * HARTREE_TO_KCAL
+                                                    + standard_correction + solvent_correction)
     rows = []
     for state in states:
         elements, charge, ts_count = Counter(), 0, 0
@@ -186,6 +302,7 @@ def calculate_profile(definition, *, perturb=None):
         require(ts_count == (1 if state['kind'] == 'ts' else 0),
                 f"{state['id']}: minimum requires only n_imag=0; ts requires exactly one TS species")
         rows.append({**state, 'elements': dict(elements), 'charge': charge,
+                     'molecule_count': sum(state['species'].values()),
                      'G_kcal': math.fsum(species[s]['corrected_G_kcal'] * n for s, n in state['species'].items())})
     ref = rows[state_ids.index(reference)]
     for row in rows:
@@ -205,6 +322,12 @@ def calculate_profile(definition, *, perturb=None):
         result['energetic_span'] = energetic_span(rows)
     if perturb is not None:
         result['sensitivity'] = sensitivity(rows, perturb, cycle)
+    step_decomposition(result['steps'], rows, species, temperature, standard_state)
+    result['decomposition_note'] = DECOMPOSITION_NOTE
+    result['kinetics_note'] = KINETICS_NOTE
+    result['competing_ts'] = competing_comparisons(comparisons, species, temperature)
+    result['competing_ts_note'] = COMPETING_NOTE
+    result['symmetry'] = symmetry_report(species, temperature)
     # Check derived numbers as well (e.g. overflow from malformed large input).
     try:
         json.dumps(result, allow_nan=False)
@@ -247,7 +370,48 @@ def markdown(result):
         for variant in sensitivity_result['variants']:
             controlling = variant.get('pairs', variant.get('highest_local_barrier_TS'))
             lines.append(f"| {cell(variant['perturbed_TS'])} | {variant['shift_kcal']:+.6f} | {cell(json.dumps(controlling, ensure_ascii=False))} | {variant['changed']} |")
-    return '\n'.join(lines + ['', result['note'], ''])
+    lines += ['', result['note'], '', '## 焓熵分项', '', result['decomposition_note'], '',
+              '| Step | ΔH‡ forward | −TΔS‡ forward | ΔH‡ reverse | −TΔS‡ reverse | ΔH | −TΔS | Molecules R/TS/P | Δn TS−R |',
+              '|---|---:|---:|---:|---:|---:|---:|---|---:|']
+    for step in result['steps']:
+        label = cell(f"{step['reactant']} → {step['ts']} → {step['product']}")
+        terms = ' | '.join(f'{step[key]:.6f}' for key in (
+            'forward_dH_kcal', 'forward_minus_TdS_kcal', 'reverse_dH_kcal',
+            'reverse_minus_TdS_kcal', 'reaction_dH_kcal', 'reaction_minus_TdS_kcal'))
+        counts = '/'.join(str(step['molecule_counts'][key]) for key in ('reactant', 'ts', 'product'))
+        lines.append(f"| {label} | {terms} | {counts} | {step['molecularity_change']} |")
+    lines += ['', '## 动力学换算', '', result['kinetics_note'], '',
+              '| Step | Direction | k (s⁻¹) | Half-life (s) | Notes |', '|---|---|---:|---:|---|']
+    def number(value):
+        return f'{value:.6g}' if value is not None else 'null (see JSON logarithm)'
+    for step in result['steps']:
+        for direction in ('forward', 'reverse'):
+            kinetics = step[f'{direction}_kinetics']
+            label = cell(f"{step['reactant']} ⇌ {step['product']}")
+            lines.append(f"| {label} | {direction} | {number(kinetics['k_s-1'])} | {number(kinetics['half_life_s'])} | {cell('; '.join(kinetics['notes']))} |")
+    lines += ['', '## 竞争 TS 比较', '', result['competing_ts_note'], '',
+              '| ID | a / b | Basis | G(b)−G(a) (kcal/mol) | k(a)/k(b) | ee magnitude (%) | Faster |',
+              '|---|---|---|---:|---:|---:|---|']
+    if not result['competing_ts']:
+        lines += ['未指定 competing_ts。']
+    for comparison in result['competing_ts']:
+        for basis, values in (('ensemble', comparison), ('lowest conformer', comparison['lowest_conformer'])):
+            faster = comparison.get(values['faster'], 'equal')
+            lines.append(f"| {cell(comparison['id'])} | {cell(comparison['a'])} / {cell(comparison['b'])} | {basis} | {values['ddG_barrier_kcal']:.6f} | {number(values['rate_ratio_a_over_b'])} | {values['ee_percent']:.6f} | {cell(faster)} |")
+    lines += ['', '## 对称数', '', result['symmetry']['note'], '']
+    lines += [f'- 警告：{cell(warning)}' for warning in result['symmetry']['warnings']]
+    if not result['symmetry']['warnings']:
+        lines += ['未触发 σ/nosymm 混用警告。']
+    lines += ['', '| Species | Attempt | σ | Source | nosymm | RT ln σ (kcal/mol) |',
+              '|---|---|---:|---|---|---:|']
+    for name, item in result['species'].items():
+        for conformer in item['conformers']:
+            source = conformer['rotational_symmetry_source']
+            evidence = source['kind']
+            if source.get('file'):
+                evidence += f" ({source['file']}:{source.get('line')})"
+            lines.append(f"| {cell(name)} | {cell(conformer['attempt_id'])} | {conformer['rotational_symmetry_number']} | {cell(evidence)} | {conformer['nosymm']} | {conformer['RT_ln_sigma_kcal']:.6f} |")
+    return '\n'.join(lines + [''])
 
 
 def write_profile(result, definition, name=None):
