@@ -1,5 +1,5 @@
-outputs = ["xtb.out", "xtbopt.xyz", "xtbopt.log"]
-scan_outputs = ["xtb.out", "xtbscan.log"]
+outputs = ["xtb.out", "xtbopt.xyz", "xtbopt.log", "job.pbs.out"]
+scan_outputs = ["xtb.out", "xtbscan.log", "job.pbs.out"]
 completion = "normal termination of xtb"
 [parameters]
 "--verbose" = "flag"

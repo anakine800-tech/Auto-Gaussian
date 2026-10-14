@@ -99,8 +99,8 @@ def test_xtb_constraints_bundle(cfg, tmp_path):
     assert files['job.pbs'].endswith(b'--input constraints.inp > xtb.out\n')
     assert m['science']['scan']['coordinate']['elements'] == ['O', 'O']
     assert 'xtbscan.log' in render.declaration('xtb')['scan_outputs']
-    assert remote.output_names(plain) == ['xtb.out', 'xtbopt.xyz', 'xtbopt.log']
-    assert remote.output_names(m) == ['xtb.out', 'xtbscan.log']
+    assert remote.output_names(plain) == ['xtb.out', 'xtbopt.xyz', 'xtbopt.log', 'job.pbs.out']
+    assert remote.output_names(m) == ['xtb.out', 'xtbscan.log', 'job.pbs.out']
     assert '--input' not in plain['template_params']
     assert 'scan' not in plain['science']
     bad = deepcopy(m)
@@ -386,3 +386,13 @@ def test_no_extra_section_keeps_single_structure_behavior(route):
     science = gaussian_input.validate(GJF.replace('opt=modredundant', route), 8, 12)
     assert science['n_atoms'] == 4
     assert 'scan' not in science
+
+
+@pytest.mark.parametrize('scan', [False, True])
+@pytest.mark.parametrize('scheduler', ['pbs', 'slurm'])
+def test_xtb_fetch_declares_termination_evidence(scan, scheduler):
+    manifest = {'template': 'xtb', 'scheduler': scheduler,
+                'inputs': [{'name': 'water.xyz'}], 'science': {'scan': {'steps': 3}} if scan else {}}
+    expected = ['xtb.out', 'xtbscan.log'] if scan else ['xtb.out', 'xtbopt.xyz', 'xtbopt.log']
+    expected += ['job.pbs.out'] if scheduler == 'pbs' else ['job.slurm.out', 'job.slurm.err']
+    assert remote.output_names(manifest) == expected
