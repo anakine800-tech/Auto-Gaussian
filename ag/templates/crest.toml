@@ -4,6 +4,7 @@ completion = "CREST terminated normally."
 # Set by prepare --constraints after content validation, never an arbitrary path.
 "--cinp" = ["constraints.inp"]
 "--gfn2" = "flag"
+"--nci" = "flag"
 "--gfnff" = "flag"
 "--quick" = "flag"
 "--squick" = "flag"

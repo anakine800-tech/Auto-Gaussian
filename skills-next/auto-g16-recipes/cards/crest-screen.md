@@ -2,7 +2,9 @@
 
 ## 1. 适用范围
 
-主族闭壳层单分子的构象搜索，可中性或带电；也可从已审阅的 TS 初猜进行下述约束构象搜索。不包括金属、开壳层、双分子结合或反应路径搜索。
+主族闭壳层单分子及已构建、审阅的非共价复合物构象搜索，可中性或带电；也可从已审阅的 TS 初猜进行约束构象搜索。不包括金属、开壳层或反应路径搜索；复合物搜索不等于结合自由能计算。
+
+TS 族、关键中间体、复合物必须双路线交叉核对；可旋转键较多也建议走。普通稳定单分子用 CREST + ETKDG；TS/复合物用 CREST + 定向构造约束 CREST（directed），不强用不适用的力场。流程见[conformer-workflow](../../auto-g16-structures/references/conformer-workflow.md)。
 
 ## 2. 前置条件
 
@@ -10,7 +12,7 @@
 
 ## 3. 输入模板
 
-方案允许的 CREST 程序参数是：`--gfn2`、`--gfnff`、`--alpb <溶剂>`、`--chrg <整数>`、`--uhf <整数>`、`--ewin <数>`、`--quick`、`--squick`、`--mquick`。只用当前模板声明实际接受的组合和值，不自行追加参数。
+方案允许的 CREST 程序参数是：`--gfn2`、`--gfnff`、`--nci`、`--alpb <溶剂>`、`--chrg <整数>`、`--uhf <整数>`、`--ewin <数>`、`--quick`、`--squick`、`--mquick`。只用当前模板声明实际接受的组合和值，不自行追加参数。
 
 以下窗口已由负责人于 2026-10-14 确认。首选 GFN2-xTB；正丁烷气相验收参数为 `--gfn2 --chrg 0 --uhf 0 --ewin 6 --quick`。溶液相加经过模板验证的 ALPB 溶剂。快速模式选一种；GFN-FF 是另一个方法选项，不能把其能量当 GFN2 能量。
 
@@ -28,6 +30,19 @@ ag prepare --study <study_id> --template crest --input <reviewed.xyz> --tier sim
 若候选量超预算，记录未完成的 DFT 重排及覆盖限制，不称为完整筛选。
 
 非手性分子（如正丁烷）聚类时使用 `ag cluster` 的 `--mirror`：将互为镜像的 gauche+ / gauche− 合并为一个代表，简并度为 2，在 DFT 重排后只需对选中的该代表做一个 Opt+Freq。手性分子不要使用 `--mirror`，避免把不同立体异构体混入同一代表；运行前仍核对当前接口支持。
+
+### 非共价复合物与定向构造
+
+催化剂与底物复合物、离子对、氢键聚集体可用 `--param=--nci`。
+它引入包围初始复合物的椭球壁势及调整的 MTD 偏置，减少片段解离；
+几何优化阶段移去壁势。[官方 NCI 说明](https://crest-lab.github.io/crest-docs/page/examples/example_3.html)。
+`--nci` 本身不将构象能量窗口改成 30 kcal/mol；3.0.2 的 NCI 分支没有设置 ewin，
+普通构象搜索默认 6 kcal/mol。显式传 `--param=--ewin=6` 并核对输出实际窗口；
+若需扩大窗口，在方案中给出依据，不能把 NCI 或快速模式当成全覆盖保证。
+[参数说明](https://crest-lab.github.io/crest-docs/page/documentation/keywords.html)、
+[3.0.2 参数源码](https://github.com/crest-lab/crest/blob/v3.0.2/src/confparse.f90)。
+定向构造由结构 Skill 按相互作用/进攻方向假设搭建审阅 XYZ，再做约束 CREST；
+来源标为 directed，保留约束偏向与共用引擎的局限。不自写 MD 或退火引擎。
 
 ### 约束构象搜索
 
@@ -48,6 +63,18 @@ prepare 将原文件字节作为 `constraints.inp` 纳入 bundle 和逐文件 SH
 
 搜到的结构只是 TS 候选，仍需用 DFT 重新优化为 TS，并逐个按 [TS 卡片](ts.md) 审阅：恰好一个虚频，且振动方向与目标成键/断键坐标一致。需要 IRC 验证时，必须双向完成并识别端点，才能声称验证；CREST 正常终止不能代替 TS 验证。
 
+### 合并与覆盖报告
+
+各路线独立预筛后用 `ag dedup --source crest=crest.xyz --source etkdg=etkdg.xyz --charge 0 --out analyses`；
+有定向路线再加 `--source directed=directed.xyz`。按几何合并且保留全部来源，
+不把 xTB/力场能量混排。DFT 单点后运行
+`ag coverage --merged analyses/dedup-TIMESTAMP.json --energies attempts/SP_A attempts/SP_B --window 3 --out analyses/coverage-01.md`。
+先处理未匹配项（按输入坐标 1e-4 Å 核对，不靠名称），再读窗口总数、各路线命中数、
+最低 5 个来源和单路线独有项；可用 `--top N`、`--json`，输出文件必须新建。
+最低构象单路线独有或超过一半窗口构象由某路线独占会警告“采样可能不足”。
+覆盖报告不能证明采样已经完备；无警告、空窗口也不能代替人审阅。
+几何聚类可选 `--representative medoid`；同层级能量集合默认 lowest，来源合并用 medoid。
+
 ## 4. 资源建议
 
 正丁烷和约 50 原子以内快速验收先用 simple（8 核、12 GB）、04:00:00；更柔性或已有耗时证据时提出 general（22 核、50 GB）、24:00:00。复杂体系确有需要再考虑 complex（44 核、120 GB）；模板负责线程数，不能额外拼接线程参数。
@@ -64,11 +91,14 @@ prepare 将原文件字节作为 `constraints.inp` 纳入 bundle 和逐文件 SH
 - 逐一审阅连通性、质子位置和立体化学，排除变化为其他物种的结构并记原因。
 - dedup / cluster 输出能追溯代表、成员、相对能量、阈值和筛选原因；截断到数量上限时写明覆盖局限。
 - 把代表构象及其简并度展示给人签字。聚类样本数可能含重复采样，不等于物理简并度；复制工具输出时保留这一含义，未确认则不用于最终布居。
+- 双路线来源与覆盖报告已审阅，未匹配项、低能独有项和警告已明确记录，覆盖报告不能证明采样已经完备。
 - 分列 xTB 能量、筛选 DFT 单点能、优化后去重与最终电子能；快速搜索完成不代表已穷尽全构象空间。
 
 ## 7. 常见失败与处理
 
 异常结束、缺构象或解析不一致先停下报告，转 failure-diagnosis。搜索改变物种时先确认化学身份，不能自动进入原物种 DFT 集合；提出新 Attempt，等人确认。
+
+覆盖警告出现时提出扩大采样：去掉 CREST 快速模式并给足 walltime、增加 ETKDG 种子/候选数、加入定向构造；单加 walltime 不会延长已正常结束的采样。新 Attempt 人确认后运行，完成后重新合并、DFT 重排并出新报告。轨迹时长参数不在现有白名单时先走模板审阅，不自行透传。
 
 ## 8. 常见坑
 
