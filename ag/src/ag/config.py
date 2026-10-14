@@ -121,8 +121,15 @@ def validate_cluster(cfg):
     if scheduler == 'pbs':
         return  # Preserve legacy PBS handling of unused program config fields.
     gaussian = cfg['programs']['gaussian']
-    if set(gaussian) - {'g16root', 'modules', 'module_init'}:
+    if set(gaussian) - {'g16root', 'modules', 'module_init', 'environment'}:
         raise ConfigError('Unsupported Gaussian environment field')
+    if 'environment' in gaussian:
+        if gaussian['environment'] != 'scnet-a03':
+            raise ConfigError('Unsupported Gaussian environment')
+        # The platform env.sh writes outside ag_root and resets scratch.
+        # This fixed template must not source it via module initialization.
+        if gaussian.get('module_init') or gaussian.get('modules'):
+            raise ConfigError('scnet-a03 uses its fixed environment without module setup')
     modules = gaussian.get('modules', [])
     if not isinstance(modules, list) or any(not isinstance(m, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_./+-]*', m) or '..' in m for m in modules):
         raise ConfigError('Invalid Gaussian module name')

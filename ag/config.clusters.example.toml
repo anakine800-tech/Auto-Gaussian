@@ -52,6 +52,8 @@ g16root = "<absolute Gaussian executable directory>"
 # Arbitrary shell text and scheduler extra flags are not supported.
 module_init = "<absolute module initialization file>"
 modules = ["<Gaussian module name>"]
+# SCNet A.03: replace module_init/modules above with environment="scnet-a03".
+# The fixed template preserves private scratch and avoids vendor telemetry writes.
 [clusters.batch.programs.xtb]
 root = "<absolute xtb and crest installation root>"
 [clusters.batch.resources]

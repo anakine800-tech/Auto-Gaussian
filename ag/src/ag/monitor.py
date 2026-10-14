@@ -205,6 +205,11 @@ def sample(cfg, transport, interval=None):
     else:
         snapshot.update(ok=True, last_ok_at=now)
     if scheduler_kind(cfg) == 'slurm':
+        # Missing fields in a first failure or a pre-T19 cache are unknown,
+        # never zero. Preserve the last successful budget/storage on failure.
+        snapshot['cluster'].setdefault('budget', None)
+        snapshot['cluster'].setdefault('storage_kib', None)
+        snapshot['cluster']['expires'] = cfg.get('expires')
         snapshot['cluster']['expiry_warning'] = budget.expiry_warning(cfg)
     publish(root, snapshot)
     return snapshot
@@ -228,6 +233,7 @@ def run(cfg, interval=None):
 
 def slurm_observation(cfg, transport, username):
     from ag.doctor import storage
+    budget_summary = budget.public_summary(cfg)
     storage_kib = storage(cfg, transport)
     expiry = budget.expiry_warning(cfg)
     jobs = slurm.parse_queue(require_ok(transport.run(remote.slurm_jobs(user=username)), 'squeue monitor'))
@@ -263,7 +269,8 @@ def slurm_observation(cfg, transport, username):
                          core_cap=cap, committed_cap=cap, jobs=own),
                 cluster=dict(nodes=[], queues=[], cores_total=0, cores_used=0,
                              hardware_capacity_known=False, name=cfg['_cluster'], scheduler='slurm',
-                             storage_kib=storage_kib, expiry_warning=expiry), warnings=warnings)
+                             storage_kib=storage_kib, expiry_warning=expiry,
+                             budget=budget_summary, expires=cfg.get('expires')), warnings=warnings)
 
 
 def run_clusters(cfg, interval=None):

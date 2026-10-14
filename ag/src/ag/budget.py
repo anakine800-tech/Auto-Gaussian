@@ -57,6 +57,20 @@ def totals(cfg, *, ledger=None):
             sum(v['reserved'] for v in ledger['attempts'].values()))
 
 
+def public_summary(cfg):
+    """Read local totals in core-hours, without exposing ledger identities."""
+    maximum = cfg['resources'].get('budget_core_hours')
+    if scheduler_kind(cfg) != 'slurm' or maximum is None:
+        return None
+    try:
+        used, reserved = totals(cfg)
+    except (OSError, ValueError, KeyError, AttributeError, TypeError) as exc:
+        # Filesystem/JSON exceptions can contain private paths or values. A
+        # broken ledger must not be displayed as zero available/spent credit.
+        raise ValueError('Cannot read local cluster budget; human reconciliation required') from exc
+    return dict(core_hours=maximum, used=used / 3600, reserved=reserved / 3600)
+
+
 def check(cfg, amount, *, ledger=None):
     used, reserved = totals(cfg, ledger=ledger)
     maximum = cfg['resources'].get('budget_core_hours')

@@ -76,7 +76,12 @@ def render(cfg, manifest, input_name):
         for key in ('partition', 'account', 'qos'):
             if key in cfg:
                 header += f"#SBATCH --{key}={slurm_token(cfg[key])}\n"
-    body = (TEMPLATES / '_guard.sh').read_text() + (TEMPLATES / f"{m['template']}.pbs").read_text()
+    program_template = f"{m['template']}.pbs"
+    if (m.get('scheduler') == 'slurm' and m['template'] == 'gaussian'
+            and cfg['programs']['gaussian'].get('environment') == 'scnet-a03'):
+        program_template = 'gaussian-scnet-a03.sh'
+        values['gaussian_parent'] = shlex.quote(str(Path(cfg['programs']['gaussian']['g16root']).parent))
+    body = (TEMPLATES / '_guard.sh').read_text() + (TEMPLATES / program_template).read_text()
     # Substitute only the scheduler-specific inputs; PBS scripts retain their
     # original bytes so prepared PBS bundles remain verifiable after upgrade.
     values.update(workdir_variable='PBS_O_WORKDIR', jobid_variable='PBS_JOBID', receipt_job_key='PBS_JOBID')
