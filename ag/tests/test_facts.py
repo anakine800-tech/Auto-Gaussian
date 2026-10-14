@@ -38,6 +38,9 @@ def test_real_small_molecule_facts(tmp_path, fixture, n_atoms):
         assert abs(facts['energies'][key]-expected) < 1e-6
     assert facts['n_atoms'] == n_atoms
     assert facts['n_imag'] == 0 and facts['imag_modes'] == []
+    assert facts['monatomic'] is False
+    assert facts['n_vibrational_modes'] == facts['expected_vibrational_modes'] == 3 * n_atoms - 6
+    assert facts['vibrational_modes_complete'] is True
     assert facts['termination'] == 'normal'
     assert facts['charge'] == 0 and facts['multiplicity'] == 1
     assert facts['route'].startswith('#')
@@ -157,3 +160,87 @@ def test_spin_expectation(tmp_path, text, expected):
     path = tmp_path/'spin.log'
     path.write_text(text)
     assert parse_gaussian(path)[0]['s2'] == expected
+
+
+def test_monatomic_freq_and_regeneration(tmp_path, capsys):
+    from ag.cli import main
+    directory = attempt(tmp_path, fixture='fluoride_freq_synthetic.log')
+    # Replace an older derived facts record, leaving the original log untouched.
+    (directory / 'facts.json').write_text('{"n_imag": null}')
+    original = (directory / 'outputs/input.log').read_bytes()
+    assert main(['facts', str(directory), '--json']) == 0
+    facts = json.loads(capsys.readouterr().out)
+    assert facts['parser_warning'] is None
+    assert (facts['n_atoms'], facts['charge'], facts['multiplicity']) == (1, -1, 1)
+    assert facts['monatomic'] is True and facts['n_imag'] == 0
+    assert facts['n_vibrational_modes'] == facts['expected_vibrational_modes'] == 0
+    assert facts['vibrational_modes_complete'] is True
+    assert facts['frequencies_low'] == facts['imag_modes'] == []
+    assert facts['frequency_note'] == '单原子无振动模式'
+    assert facts['energies']['g'] == -99.013
+    assert build_facts(directory) == facts
+    assert (directory / 'outputs/input.log').read_bytes() == original
+
+
+@pytest.mark.parametrize('problem', ['sp', 'incomplete', 'error', 'no_thermo', 'partial_thermo', 'parse_failure'])
+def test_monatomic_zero_requires_completed_frequency_thermochemistry(tmp_path, monkeypatch, problem):
+    text = (FIXTURES / 'fluoride_freq_synthetic.log').read_text()
+    if problem == 'sp':
+        text = text.replace(' Freq', ' SP')
+    elif problem == 'incomplete':
+        text = text.replace('Normal termination of Gaussian', '')
+    elif problem == 'error':
+        text += '\n Error termination\n'
+    elif problem == 'no_thermo':
+        text = text.split(' - Thermochemistry -')[0] + '\n Normal termination of Gaussian\n'
+    elif problem == 'partial_thermo':
+        text = '\n'.join(line for line in text.splitlines() if 'Free Energies=' not in line)
+    else:
+        import cclib.io
+        monkeypatch.setattr(cclib.io, 'ccread', lambda *a, **kw: None)
+    path = tmp_path / 'atom.log'
+    path.write_text(text)
+    facts, _ = parse_gaussian(path)
+    assert facts['n_imag'] is None
+    assert facts['n_vibrational_modes'] is None
+    assert facts['vibrational_modes_complete'] is not True
+    assert facts['frequency_note'] is None
+
+
+@pytest.mark.parametrize('coordinates,mode_count,expected', [
+    ([(0, 0, -1), (0, 0, 1)], 1, 1),
+    ([(2, 3, 4), (3, 4, 5), (4, 5, 6)], 4, 4),
+    ([(2, 3, 4), (3, 4, 5), (4, 5, 6)], 3, 4),
+    ([(0, 0, 0), (1, 0, 0), (2, 0.001, 0)], 3, 3),
+    ([(0, 0, 0), (1, 0.000001, 0), (2, 0, 0)], 4, 4),
+    ([(0, 0, -1), (0, 0, 1)], 0, 1),
+])
+def test_geometry_based_mode_completeness(tmp_path, coordinates, mode_count, expected):
+    # Minimal synthetic H2 / three-atom parser output, including a rotated line.
+    atoms = '\n'.join(f' {i} 1 0 {x:.6f} {y:.6f} {z:.6f}'
+                      for i, (x, y, z) in enumerate(coordinates, 1))
+    text = ('Gaussian, Inc.\n --------------------\n #p HF/STO-3G Freq\n --------------------\n'
+            ' Input orientation:\n --------------------\n'
+            ' Center Atomic Atomic Coordinates (Angstroms)\n Number Number Type X Y Z\n'
+            f' --------------------\n{atoms}\n --------------------\n')
+    if mode_count:
+        text += ' Harmonic frequencies (cm**-1)\n'
+        for start in range(0, mode_count, 3):
+            text += ' Frequencies -- ' + ' '.join(['100.0'] * min(3, mode_count - start)) + '\n'
+        text += '\n'
+    text += ' Normal termination of Gaussian\n'
+    path = tmp_path / 'molecule.log'
+    path.write_text(text)
+    facts, _ = parse_gaussian(path)
+    assert facts['parser_warning'] is None
+    assert facts['expected_vibrational_modes'] == expected
+    assert facts['n_vibrational_modes'] == (mode_count or None)
+    assert facts['vibrational_modes_complete'] is (mode_count == expected)
+    assert facts['n_imag'] == (0 if mode_count else None)
+    assert facts['monatomic'] is False
+
+
+def test_missing_geometry_does_not_guess_mode_count():
+    from ag._parse_outputs import expected_vibrational_modes
+    assert expected_vibrational_modes(3, None) is None
+    assert expected_vibrational_modes(3, [[0, 0, 0]] * 3) is None

@@ -76,6 +76,7 @@ def test_balanced_profile_ensemble_barriers_and_span(tmp_path):
     ('route', '#p B3LYP/6-31G(d) empiricaldispersion=GD3 freq', 'protocol'),
     ('route', '#p B3LYP/6-31G(d) empiricaldispersion=GD3BJ scrf=(smd,solvent=water) freq', 'protocol'),
     ('termination', 'incomplete', 'termination'), ('n_imag', 2, 'n_imag'),
+    ('n_imag', None, 'n_imag'),
 ])
 def test_reject_source_mismatch_without_output(tmp_path, capsys, field, value, error):
     path, _ = definition(tmp_path)
@@ -372,6 +373,73 @@ def test_requested_settings_and_duplicate_json_fields_fail(tmp_path):
     path.write_text('{"reference":"R", "reference":"P"}')
     with pytest.raises(ValueError, match='Duplicate JSON key'):
         calculate_profile(path)
+
+
+@pytest.mark.parametrize('cached_atom', [False, True])
+def test_profile_with_monatomic_species(tmp_path, capsys, cached_atom):
+    from test_facts import attempt
+    from ag.facts import build_facts
+    from ag.thermo import calculate_thermo
+
+    species = {}
+    for name, fixture in [('water', 'water_opt_freq.log'), ('ts', 'water_opt_freq.log'),
+                          ('F', 'fluoride_freq_synthetic.log'), ('F_shift', 'fluoride_freq_synthetic.log')]:
+        directory = attempt(tmp_path, name, fixture)
+        log = directory / 'outputs/input.log'
+        text = log.read_text().replace('#p B3LYP/STO-3G Opt Freq SCF=Tight Integral=UltraFine',
+                                       '#p B3LYP/6-31+G(d) Freq')
+        if name == 'ts':
+            text = text.replace('2017.6012', '-2017.6012')
+            (directory / 'review.md').write_text(
+                'Synthetic sign change only\nprofile_review: pass\nimaginary_mode_matches: true\n')
+        if name == 'F_shift':
+            # An invented +0.01 Hartree electronic shift isolates the atomic G
+            # contribution; identical masses/temperatures cancel thermal terms.
+            text = text.replace('-99.000000', '-98.990000').replace('-98.998584', '-98.988584')
+            text = text.replace('-98.997640', '-98.987640').replace('-99.013000', '-99.003000')
+        log.write_text(text)
+        parsed = build_facts(directory)
+        if name.startswith('F'):
+            assert parsed['monatomic'] and parsed['n_imag'] == 0
+        spec = {'attempts': [{'attempt_id': name}], 'single_conformer_reason': 'Synthetic rigid fixture'}
+        if cached_atom and name.startswith('F'):
+            dump(tmp_path / 'analyses' / f'{name}.json', calculate_thermo([directory]))
+            spec = {'thermo': f'{name}.json', 'single_conformer_reason': 'Monatomic fixture'}
+        species[name] = spec
+    path = tmp_path / 'analyses/reaction.json'
+    dump(path, {'reference': 'R', 'species': species, 'states': [
+        {'id': 'R', 'kind': 'minimum', 'species': {'water': 1, 'F': 1}},
+        {'id': 'TS', 'kind': 'ts', 'species': {'ts': 1, 'F': 1}},
+        {'id': 'P', 'kind': 'minimum', 'species': {'water': 1, 'F_shift': 1}},
+    ]})
+    assert main(['profile', str(path), '--json']) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result['species']['F']['n_imag'] == 0
+    assert result['species']['F']['charge'] == -1
+    assert result['steps'][0]['reaction_G_kcal'] == pytest.approx(0.01 * HARTREE_TO_KCAL)
+    assert result['states'][-1]['relative_G_kcal'] == pytest.approx(0.01 * HARTREE_TO_KCAL)
+    assert (path.parent / 'reaction-profile.json').is_file()
+
+
+def test_direct_polyatomic_log_without_frequencies_is_rejected(tmp_path, capsys):
+    from test_facts import attempt
+    from ag.facts import build_facts
+    path, data = definition(tmp_path, energies=(0, 20, -5))
+    directory = attempt(tmp_path, 'missing_freq')
+    log = directory / 'outputs/input.log'
+    text = log.read_text()
+    start = text.index(' Harmonic frequencies (')
+    end = text.index(' - Thermochemistry -', start)
+    log.write_text(text[:start] + text[end:])
+    facts = build_facts(directory)
+    assert facts['n_atoms'] == 3 and facts['n_imag'] is None
+    assert facts['vibrational_modes_complete'] is False
+    data['species']['R'] = {'attempts': [{'attempt_id': 'missing_freq'}],
+                            'single_conformer_reason': 'Synthetic missing frequency block'}
+    dump(path, data)
+    assert main(['profile', str(path), '--json']) == 1
+    assert 'n_imag must be 0 or 1' in json.loads(capsys.readouterr().out)['error']
+    assert not list(path.parent.glob('*-profile.*'))
 
 
 def test_pair_write_collision_rolls_back_only_own_new_file(tmp_path, monkeypatch):

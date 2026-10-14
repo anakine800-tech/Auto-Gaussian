@@ -11,7 +11,7 @@ def cell(value):
     return str(value).replace('|', '&#124;').replace('\n', ' ')
 
 
-def expected(manifest):
+def expected(manifest, facts=None):
     card = manifest.get('card')
     if not card:
         raise ValueError('Manifest has no card; use review init --card to specify review criteria')
@@ -27,7 +27,10 @@ def expected(manifest):
             fields.append(('freq_step_converged', True))
             # Counts alone never certify complete modes or a reaction direction.
             counts = set(re.findall(r'\bn_imag\s*=\s*(\d+)\b', checklist))
-            fields.append(('n_imag', int(next(iter(counts))) if len(counts) == 1 else None))
+            target = int(next(iter(counts))) if len(counts) == 1 else None
+            if facts and facts.get('monatomic') is True:
+                target = 0
+            fields.append(('n_imag', target))
     fields.extend((key, science.get(key)) for key in ('route', 'charge', 'multiplicity'))
     return fields, items
 
@@ -45,6 +48,8 @@ def fact_row(key, target, facts):
         valid = value in ('normal', 'error', 'incomplete')
     if key == 'n_imag':
         valid = valid and value >= 0
+        if facts.get('monatomic') is True:
+            evidence += '；期望值依据：monatomic=true，单原子无振动模式'
     if key == 'multiplicity':
         valid = valid and value >= 1
     if key == 'route':
@@ -89,8 +94,8 @@ def init(path, card=None):
         encoded = json.dumps(snapshot, ensure_ascii=False).replace('<', r'\u003c').replace('>', r'\u003e')
         provenance = (f'Skills commit: {snapshot["git_commit"]}\n\n'
                       f'<!-- review-card: {encoded} -->\n\n')
-    fields, items = expected(manifest)
     facts, fingerprint = facts_snapshot(path)
+    fields, items = expected(manifest, facts)
     rows = [fact_row(key, target, facts) for key, target in fields]
     rows += [(item, '', '') for item in items]
     text = (f"# Review: {path.name}\n\n{cards.label(manifest)}\n\n"
@@ -123,7 +128,8 @@ def check(path):
         except (ValueError, KeyError, TypeError) as exc:
             raise ValueError(f'Attempt {path.name}: invalid or missing review-time card snapshot') from exc
         manifest = {**manifest, 'card': snapshot}
-    fields, items = expected(manifest)
+    facts, current = facts_snapshot(path)
+    fields, items = expected(manifest, facts)
     required = [cell(fact_row(key, target, {})[0]) for key, target in fields] + [cell(item) for item in items]
     issues, found = [], []
     for number, line in enumerate(text.splitlines(), 1):
@@ -147,7 +153,6 @@ def check(path):
     for criterion in required:
         if criterion not in found:
             issues.append('缺少判据行：' + criterion)
-    _, current = facts_snapshot(path)
     recorded = re.search(r'^<!-- facts: (.+) -->$', text, re.M)
     try:
         original = json.loads(recorded.group(1)) if recorded else None
