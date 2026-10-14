@@ -322,3 +322,28 @@ def gaussian_version(text):
                 program_versions=normalized,
                 program_version_warning=('Conflicting Gaussian versions in log' if len(normalized) > 1 else
                                          'Gaussian version not found in log' if not normalized else None))
+
+
+def parse_crest_mdopt(outputs, expected_frames=None):
+    """CREST 3.0.2 optimization.f90 writes ordered Hartree XYZ, not crest.energies."""
+    from ag import geometry as geo
+    frames = geo.read_xyz(outputs / 'crest_ensemble.xyz')
+    if expected_frames is not None and len(frames) != expected_frames:
+        raise ValueError('CREST mdopt input/output frame counts differ')
+    failed = [index for index, frame in enumerate(frames, 1) if '!failed' in frame.comment.lower()]
+    if failed:
+        indices = ', '.join(map(str, failed))
+        raise ValueError(f'CREST mdopt contains failed optimizations in frames (1-based): {indices}; review before dedup')
+    for frame in frames:
+        if frame.symbols != frames[0].symbols:
+            raise ValueError('CREST mdopt atom counts or element sequences differ')
+        if frame.energy is None or frame.energy_unit != 'hartree':
+            raise ValueError('CREST mdopt requires a finite Hartree energy in every XYZ comment')
+    text = (outputs / 'crest.out').read_text(errors='replace')
+    facts = termination(text, 'CREST terminated normally.')
+    best = min(frames, key=lambda frame: frame.energy)
+    facts.update(mode='mdopt', n_atoms=len(best.symbols), n_conformers=len(frames),
+                 conformer_energies_hartree=[frame.energy for frame in frames],
+                 relative_energies_kcal=geo.relative_energies(frames, best.energy),
+                 best_energy=best.energy)
+    return facts, geo.xyz_text([best]), geo.xyz_text(frames)

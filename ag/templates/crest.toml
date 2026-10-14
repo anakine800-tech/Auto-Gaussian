@@ -1,8 +1,10 @@
 outputs = ["crest.out", "crest_conformers.xyz", "crest.energies", "crest_best.xyz"]
+mdopt_outputs = ["crest.out", "crest_ensemble.xyz", "ensemble_energies.log"]
 completion = "CREST terminated normally."
 [parameters]
 # Set by prepare --constraints after content validation, never an arbitrary path.
 "--cinp" = ["constraints.inp"]
+"--mdopt" = "flag"
 "--gfn2" = "flag"
 "--nci" = "flag"
 "--gfnff" = "flag"

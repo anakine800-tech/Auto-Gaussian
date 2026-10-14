@@ -12,7 +12,7 @@ TS 族、关键中间体、复合物必须双路线交叉核对；可旋转键�
 
 ## 3. 输入模板
 
-方案允许的 CREST 程序参数是：`--gfn2`、`--gfnff`、`--nci`、`--alpb <溶剂>`、`--chrg <整数>`、`--uhf <整数>`、`--ewin <数>`、`--quick`、`--squick`、`--mquick`。只用当前模板声明实际接受的组合和值，不自行追加参数。
+方案允许的 CREST 程序参数是：`--gfn2`、`--gfnff`、`--mdopt`、`--nci`、`--alpb <溶剂>`、`--chrg <整数>`、`--uhf <整数>`、`--ewin <数>`、`--quick`、`--squick`、`--mquick`。只用当前模板声明实际接受的组合和值，不自行追加参数。
 
 以下窗口已由负责人于 2026-10-14 确认。首选 GFN2-xTB；正丁烷气相验收参数为 `--gfn2 --chrg 0 --uhf 0 --ewin 6 --quick`。溶液相加经过模板验证的 ALPB 溶剂。快速模式选一种；GFN-FF 是另一个方法选项，不能把其能量当 GFN2 能量。
 
@@ -30,6 +30,37 @@ ag prepare --study <study_id> --template crest --input <reviewed.xyz> --tier sim
 若候选量超预算，记录未完成的 DFT 重排及覆盖限制，不称为完整筛选。
 
 非手性分子（如正丁烷）聚类时使用 `ag cluster` 的 `--mirror`：将互为镜像的 gauche+ / gauche− 合并为一个代表，简并度为 2，在 DFT 重排后只需对选中的该代表做一个 Opt+Freq。手性分子不要使用 `--mirror`，避免把不同立体异构体混入同一代表；运行前仍核对当前接口支持。
+
+### ETKDG 系综统一到 xTB 能量
+
+ETKDG/MMFF 或 UFF 只负责生成候选；力场能量不能换单位后与 CREST 能量混排。
+保留足够候选，先用同一 GFN2-xTB、ALPB 溶剂、电荷及 `--uhf` 做系综优化：
+
+```text
+ag prepare --study <study_id> --template crest --input <etkdg-ensemble.xyz> --param=--mdopt --param=--gfn2 --param=--alpb=<与 CREST 路线相同的溶剂> --param=--chrg=0 --param=--uhf=0 --tier simple --walltime 04:00:00 --label etkdg-mdopt
+```
+
+GFN 层级、ALPB 溶剂、电荷和 `--uhf` 必须与参与合并的 CREST 来源逐项一致，
+否则不得使用 `lowest`。上例溶剂占位符须替换为模板接受的实际溶剂值；
+只有参与合并的全部来源均为气相时，才一致省略 `--alpb`。
+
+`--mdopt` 在 ag 中是标志，模板绑定已校验的输入文件，实际执行
+`crest --mdopt <输入文件> ... -T <核数>`。输入为 1–1000 帧 XYZ，所有帧
+原子数和元素顺序必须一致，坐标必须有限；仍须人核对同元素原子的映射及立体化学。
+不带 `--mdopt` 的 CREST/xTB prepare 仍只接受单帧。方法、资源及输入哈希
+照常展示，等人授权并点击 Mac 确认后提交。
+
+CREST 3.0.2 的该模式取回 `crest.out`、`crest_ensemble.xyz` 和 `ensemble_energies.log`；XYZ 按输入顺序
+逐帧写 Hartree 能量和优化几何；不要求普通搜索的 `crest.energies` 或
+`crest_conformers.xyz`。依据：[optimization.f90](https://github.com/crest-lab/crest/blob/v3.0.2/src/algos/optimization.f90#L131-L232)、
+[文件名常量](https://github.com/crest-lab/crest/blob/v3.0.2/src/classes.f90#L49-L51)、
+[优化循环输出](https://github.com/crest-lab/crest/blob/v3.0.2/src/algos/parallel.f90#L327-L333)、
+[XYZ 写出格式](https://github.com/crest-lab/crest/blob/v3.0.2/src/strucreader.f90#L644-L665)。
+完成 status → fetch → facts；`facts.json` 记录逐帧 `conformer_energies_hartree`，
+`ensemble_geometry` 指向 Attempt 下的 `mdopt.xyz`，注释是 Hartree 能量，
+可直接作为 `ag dedup --source etkdg=.../mdopt.xyz`。`final.xyz` 仅为最低能帧。
+失败帧在 CREST 中标 `+1.0 !failed`，解析拒绝导出；缺帧、坏能量或坐标也须停下核对。
+正常终止和帧数吻合仍不替代几何、连通性、立体化学及优化收敛的科学审阅。
 
 ### 非共价复合物与定向构造
 
@@ -65,15 +96,26 @@ prepare 将原文件字节作为 `constraints.inp` 纳入 bundle 和逐文件 SH
 
 ### 合并与覆盖报告
 
-各路线独立预筛后用 `ag dedup --source crest=crest.xyz --source etkdg=etkdg.xyz --charge 0 --out analyses`；
-有定向路线再加 `--source directed=directed.xyz`。按几何合并且保留全部来源，
-不把 xTB/力场能量混排。DFT 单点后运行
+ETKDG 候选先经上述 `--mdopt`，审阅通过后与同方法 CREST 结果合并，
+再按相对合并集合最低 xTB 能量 ≤ 6 kcal/mol 开窗口：
+
+```text
+ag dedup --source crest=crest.xyz --source etkdg=attempts/ETKDG_MDOPT/mdopt.xyz --representative lowest --window 6 --charge 0 --out analyses
+```
+
+CREST 来源使用 `crest_conformers.xyz` 的绝对 Hartree 注释，不用相对能量表混排。
+有定向路线再加 `--source directed=directed.xyz`，但必须先审阅它是否具有相同
+Hamiltonian、溶剂、电荷、自旋及约束能量口径；不同约束不自动保证能量可比。
+`--representative lowest` 是使用者对同层级能量的显式声明，代码只核验有限
+Hartree 能量，不从单位猜方法。代表保留全部来源和逐帧溯源，再做 DFT 单点。
+无法统一口径时，省略 lowest 和窗口，沿用仅几何合并，不得混排能量。
+DFT 单点后运行
 `ag coverage --merged analyses/dedup-TIMESTAMP.json --energies attempts/SP_A attempts/SP_B --window 3 --out analyses/coverage-01.md`。
 先处理未匹配项（按输入坐标 1e-4 Å 核对，不靠名称），再读窗口总数、各路线命中数、
 最低 5 个来源和单路线独有项；可用 `--top N`、`--json`，输出文件必须新建。
 最低构象单路线独有或超过一半窗口构象由某路线独占会警告“采样可能不足”。
 覆盖报告不能证明采样已经完备；无警告、空窗口也不能代替人审阅。
-几何聚类可选 `--representative medoid`；同层级能量集合默认 lowest，来源合并用 medoid。
+几何聚类可选 `--representative medoid`；统一 xTB 标度后的来源合并可用 lowest；未统一标度的几何合并仍用 medoid。
 
 ## 4. 资源建议
 
@@ -87,6 +129,7 @@ prepare 将原文件字节作为 `constraints.inp` 纳入 bundle 和逐文件 SH
 
 ## 6. 结果判据清单
 
+- ETKDG 已经同方法 `--mdopt` 优化后再与 CREST 合并，并按统一 xTB 标度开 6 kcal/mol 窗口。
 - CREST 正常终止，`n_conformers` 为非零，能量与输出构象数量对应；不能只凭文件存在就接受。
 - 逐一审阅连通性、质子位置和立体化学，排除变化为其他物种的结构并记原因。
 - dedup / cluster 输出能追溯代表、成员、相对能量、阈值和筛选原因；截断到数量上限时写明覆盖局限。
