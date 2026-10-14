@@ -7,7 +7,7 @@ from ag import __version__
 from ag.config import load_config, select_cluster, for_manifest
 
 
-CONFIG_COMMANDS = ('init', 'prepare', 'submit', 'status', 'fetch', 'cancel', 'list', 'doctor', 'monitor')
+CONFIG_COMMANDS = ('init', 'prepare', 'submit', 'status', 'fetch', 'cancel', 'list', 'doctor', 'monitor', 'review')
 
 
 def core_command(args):
@@ -18,6 +18,11 @@ def core_command(args):
     if command == 'monitor':
         from ag.monitor import run
         return run(cfg, args.watch)
+    if command == 'review':
+        from ag import review
+        result = review.run(cfg, args.action, args.id)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return int(args.action == 'check' and (not result['complete'] or result['stale']))
     if command == 'init':
         result = study.init(cfg, args.directory)
     elif command == 'prepare':
@@ -32,7 +37,7 @@ def core_command(args):
         result = attempt.prepare(cfg, study_name=args.study, template=args.template,
                                  input_path=args.input, tier=args.tier, walltime=args.walltime,
                                  label=args.label, params=params, method_basis=args.method_basis,
-                                 constraints=args.constraints, cluster=args.cluster,
+                                 constraints=args.constraints, cluster=args.cluster, card=args.card,
                                  parents=[dict(attempt_id=p, relation=r) for p, r in zip(args.parent, args.relation)])
         if not args.json:
             print(attempt.summary(cfg, result))
@@ -89,6 +94,12 @@ def register(subparsers):
             p.add_argument('--cluster', default='default')
         if name == 'init':
             p.add_argument('directory')
+        elif name == 'review':
+            actions = p.add_subparsers(dest='action', required=True)
+            for action in ('init', 'check'):
+                child = actions.add_parser(action)
+                child.add_argument('id')
+                child.add_argument('--json', action='store_true', default=argparse.SUPPRESS)
         elif name == 'monitor':
             from ag.monitor import watch_seconds
             p.add_argument('--watch', type=watch_seconds, metavar='SECONDS',
@@ -97,6 +108,7 @@ def register(subparsers):
             p.add_argument('--study', required=True)
             p.add_argument('--template', choices=('gaussian', 'xtb', 'crest'), required=True)
             p.add_argument('--input', required=True)
+            p.add_argument('--card', help='Recipe name; capture its text, Skills Git commit and dirty state')
             p.add_argument('--constraints', help='CREST-only xcontrol file, bundled as constraints.inp')
             p.add_argument('--tier', choices=('mini', 'simple', 'general', 'complex'), required=True)
             p.add_argument('--walltime', required=True)

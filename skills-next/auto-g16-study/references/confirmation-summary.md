@@ -2,7 +2,7 @@
 
 从 `ag prepare` 的输出和已审阅的 study 信息填表，不手算替代其 bundle 值。只展示本次要提交的 Attempt；表内不留未知值。若准备后改动输入，重新 prepare 一个新 Attempt 并重新展示摘要。实时总核数由 `ag` 在提交时复核。
 
-Study：<study_id>；卡片：<卡片名>；用途：<验收 / 研究>。
+Study：<study_id>；卡片：<manifest.card.name>；Skills 提交：<git_commit 前 7 位>；工作区：<clean / dirty>；用途：<验收 / 研究>。
 
 | Attempt | 结构（SMILES 或结构名） | 电荷 / 多重度 | 立体化学警告 | 方法与依据（DOI + 位置或“兜底方法”声明） | 完整 route / 程序参数 | 模板 | 档位 | 核数 | walltime | 远程目录（相对 ag 根） | bundle 哈希前 12 位 |
 |---|---|---|---|---|---|---|---|---|---|---|---|

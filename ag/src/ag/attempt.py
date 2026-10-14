@@ -3,7 +3,7 @@ from hashlib import sha256
 import json
 from pathlib import Path
 import re
-from ag import __version__, crest_input, gaussian_input, journal, render, state, study
+from ag import __version__, cards, crest_input, gaussian_input, journal, render, state, study
 from ag.config import select_cluster, for_manifest, scheduler_kind
 from ag.locks import claim
 from ag.remote import filename
@@ -51,7 +51,7 @@ def all_attempts(cfg, name=None):
     return result
 
 
-def prepare(cfg, *, study_name, template, input_path, tier, walltime, label, params=None, parents=None, method_basis='兜底方法', constraints=None, cluster='default'):
+def prepare(cfg, *, study_name, template, input_path, tier, walltime, label, params=None, parents=None, method_basis='兜底方法', constraints=None, cluster='default', card=None):
     cfg = select_cluster(cfg, cluster)
     s = study.locate(cfg, study_name)
     if not (s / 'study.md').is_file() or not (s / 'attempts').is_dir():
@@ -91,6 +91,7 @@ def prepare(cfg, *, study_name, template, input_path, tier, walltime, label, par
         science['route'] = render.parameters(template, params)
     if not isinstance(method_basis, str) or not method_basis.strip():
         raise ValueError('Method basis must be a DOI/reference or fallback declaration')
+    card_record = cards.snapshot(card) if card is not None else None
     parents = parents or []
     for parent in parents:
         parent_path = find(cfg, parent['attempt_id'])
@@ -112,7 +113,7 @@ def prepare(cfg, *, study_name, template, input_path, tier, walltime, label, par
              template=template, template_params=params, tier=tier, **resource, walltime=walltime,
              pbs_job_name='ag' + sha256(attempt_id.encode()).hexdigest()[:12],
              remote_dir=f'{s.name}/{attempt_id}', parents=parents, created_at=journal.now(),
-             ag_version=__version__, completion_receipts=True, science={**science, 'method_basis': method_basis})
+             ag_version=__version__, card=card_record, completion_receipts=True, science={**science, 'method_basis': method_basis})
     script = 'job.slurm' if m['scheduler'] == 'slurm' else 'job.pbs'
     files = {name: data, script: render.render(cfg, m, name).encode()}
     if constraint_data is not None:
@@ -192,7 +193,7 @@ def summary(cfg, m):
                               for row in science['largest_displacements']) + '\n\n'
     return (f"### {m['attempt_id']}\n\nCluster: {m.get('cluster', 'default')}\n\n{cost_line(m)}\n{budget_line}\n\nTemplate: {m['template']} | Tier: {m['tier']} | "
             f"Cores: {m['cores']} | Memory: {m['mem_gb']} GB | Walltime: {m['walltime']}\n\n"
-            f"Remote directory: {attempt_dir(cfg, m)}\n\nBundle SHA-256: {m['bundle_sha256']}\n\n"
+            f"{cards.label(m)}\n\nRemote directory: {attempt_dir(cfg, m)}\n\nBundle SHA-256: {m['bundle_sha256']}\n\n"
             f"Method basis: {m['science']['method_basis']}\n\nRoute: {m['science']['route']}\n\n"
             f"Charge / multiplicity: {m['science']['charge']} / {m['science']['multiplicity']}\n\n"
             f"{m['science']['stereochemistry_warning']}\n\n" + geometry +

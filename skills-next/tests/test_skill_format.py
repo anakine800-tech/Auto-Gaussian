@@ -85,3 +85,34 @@ def test_files_have_no_private_addresses_or_user_paths():
         for label, pattern in PRIVATE_PATTERNS.items():
             # Do not echo a matched sensitive value into CI logs.
             assert not pattern.search(text), f"{label} in {path.name}"
+
+
+# T17 baseline at main 6525b43: profile.md was the longest card, 190 lines.
+# Fixed at 1.5 * 190 = 285; do not recompute from today's cards and let it drift.
+MAX_CARD_LINES = 285
+MAX_PITFALLS = 10
+
+
+def check_card_size(text):
+    # Bound accumulated advice so actionable criteria do not get buried.
+    assert len(text.splitlines()) <= MAX_CARD_LINES, '卡片超出 285 行：先合并或删除，再追加'
+    section = re.search(r'^## 8\. 常见坑\s*\n(.*?)(?=^## |\Z)', text, re.M | re.S)
+    assert section, 'Missing 常见坑 section'
+    count = len(re.findall(r'^\s*(?:[-*+] |\d+[.)] )', section.group(1), re.M))
+    assert count <= MAX_PITFALLS, '常见坑超过 10 条：先合并或删除，再追加'
+
+
+@pytest.mark.parametrize('path', sorted((ROOT / 'auto-g16-recipes/cards').glob('*.md')), ids=lambda p: p.stem)
+def test_card_size_limits(path):
+    check_card_size(path.read_text(encoding='utf-8'))
+
+
+def test_card_size_limits_reject_growth():
+    ten = '## 8. 常见坑\n' + '- pitfall\n' * 10
+    check_card_size(ten)
+    with pytest.raises(AssertionError, match='先合并或删除，再追加'):
+        check_card_size(ten + '- another\n')
+    exactly = ten + '\n' * (MAX_CARD_LINES - len(ten.splitlines()))
+    check_card_size(exactly)
+    with pytest.raises(AssertionError, match='先合并或删除，再追加'):
+        check_card_size(exactly + '\n')

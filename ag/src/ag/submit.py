@@ -3,7 +3,7 @@ from hashlib import sha256
 from pathlib import Path
 import tempfile
 import sys
-from ag import attempt, confirm, journal, remote, state, status, slurm, submission, budget
+from ag import attempt, cards, confirm, journal, remote, state, status, slurm, submission, budget
 from ag.config import for_manifest, scheduler_kind
 from ag.transport import bound_transport
 from ag.locks import claim, submission_lock
@@ -93,7 +93,7 @@ def submit(cfg, ids, transport):
             budget.check(cfg, sum(budget.requested(m) for _, m, _ in prepared), ledger=budget_ledger)
         budget_text = budget.summary(cfg, sum(budget.requested(m) for _, m, _ in prepared)) if is_slurm else None
         text = f"Cluster: {cfg['_cluster']}\n" + '\n'.join(f"{m['attempt_id']} | {m['template']} | {m['tier']} {m['cores']} cores | "
-                         f"{m['walltime']} | SHA256 {m['bundle_sha256'][:12]}\n{attempt.cost_line(m)}" for _, m, _ in prepared)
+                         f"{m['walltime']} | {cards.label(m)} | SHA256 {m['bundle_sha256'][:12]}\n{attempt.cost_line(m)}" for _, m, _ in prepared)
         text += (f'\n当前占用 {used} 核（运行 {running}、排队 {queued}），'
                  f'提交后合计 {used + requested} / 上限 {cap} 核；集群空闲不足时作业将在 {scheduler_kind(cfg).upper()} 中排队')
         if budget_text:
