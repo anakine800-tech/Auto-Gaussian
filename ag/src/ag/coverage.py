@@ -42,9 +42,19 @@ def input_geometry(directory):
     return geo.Frame(tuple(symbols), tuple(coordinates)), science
 
 
-def same_geometry(left, right):
-    return left.symbols == right.symbols and all(
-        math.dist(a, b) <= TOLERANCE for a, b in zip(left.coordinates, right.coordinates))
+def same_geometry(left, right, hydrogens="all", charge=0):
+    if left.symbols != right.symbols:
+        return False
+    from rdkit import Chem
+    from rdkit.Chem import rdDetermineBonds
+    molecules = [geo.infer_molecule(frame, charge, Chem, rdDetermineBonds) for frame in (left, right)]
+    indices = [geo.atom_indices(mol, hydrogens) for mol in molecules]
+    # Selection must agree at the original indices; never rename atoms to attach energies.
+    return (indices[0] == indices[1] and bool(indices[0])
+            and geo.graph_key(molecules[0], Chem) == geo.graph_key(molecules[1], Chem)
+            and geo.stereo_key(molecules[0], Chem) == geo.stereo_key(molecules[1], Chem)
+            and all(math.dist(left.coordinates[i], right.coordinates[i]) <= TOLERANCE
+                    for i in indices[0]))
 
 
 def energy_rows(values, study=None):
@@ -98,6 +108,9 @@ def report(merged, values, window=3.0, top=5, study=None):
         raise ValueError('--top must be positive')
     merged = Path(merged)
     payload = json.loads(merged.read_text())
+    hydrogens = payload.get('hydrogens', 'heavy')
+    if hydrogens not in {'heavy', 'polar', 'all'}:
+        raise ValueError('Unknown hydrogen mode in dedup JSON')
     records = payload['kept']
     xyz_path = merged.parent / payload['xyz_file']
     # Without this binding a replaced XYZ could silently retain another ensemble's routes.
@@ -112,8 +125,13 @@ def report(merged, values, window=3.0, top=5, study=None):
     basis, rows, unmatched = energy_rows(values, study)
     matches = {i: [] for i in range(len(frames))}
     for row in rows:
-        indices = [i for i, frame in enumerate(frames) if same_geometry(frame, row['geometry'])]
         entry = {k: v for k, v in row.items() if k != 'geometry'}
+        try:
+            indices = [i for i, frame in enumerate(frames)
+                       if same_geometry(frame, row['geometry'], hydrogens, payload['charge'])]
+        except (ValueError, RuntimeError) as exc:
+            unmatched.append({**entry, 'reason': 'geometry_inference_failed', 'detail': str(exc)})
+            continue
         if len(indices) != 1:
             unmatched.append({**entry, 'reason': 'geometry_unmatched' if not indices else 'geometry_ambiguous',
                               'candidate_indices': [records[i]['index'] for i in indices]})
@@ -145,7 +163,8 @@ def report(merged, values, window=3.0, top=5, study=None):
         if sum(r['sources'] == [route] for r in inside) > len(inside) / 2:
             warnings.append(f'采样可能不足：窗口内一半以上构象仅由 {route} 找到。')
     return {'energy_basis': basis, 'energy_unit': 'hartree', 'window_kcal': window,
-            'geometry_tolerance_angstrom': TOLERANCE, 'matching': 'input coordinates; fixed atom order; no alignment',
+            'hydrogens': hydrogens,
+            'geometry_tolerance_angstrom': TOLERANCE, 'matching': 'selected input coordinates; fixed atom order; no alignment',
             'n_candidates': len(records), 'n_matched': len(candidates), 'n_in_window': len(inside),
             'route_counts': counts, 'top_n': top, 'lowest': candidates[:top],
             'in_window': inside, 'single_route_low_energy': exclusive,
@@ -156,6 +175,7 @@ def report(merged, values, window=3.0, top=5, study=None):
 def markdown(result):
     lines = ['# 构象采样覆盖报告', '',
              f"能量：{result['energy_basis']} (Hartree)；窗口 ≤ {result['window_kcal']:g} kcal/mol。",
+             f"氢模式：{result['hydrogens']}（继承 dedup）；按原子顺序核对所选坐标。",
              f"候选 {result['n_candidates']}；唯一能量匹配 {result['n_matched']}；窗口内 {result['n_in_window']}。",
              '', '路线计数（同一构象可计入多条路线）：']
     lines += [f'- {route}: {count}' for route, count in result['route_counts'].items()]

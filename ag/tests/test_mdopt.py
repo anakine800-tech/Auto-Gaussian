@@ -153,9 +153,10 @@ def test_lowest_source_merge_window_provenance_and_cluster(tmp_path, capsys):
     result = json.loads(capsys.readouterr().out)
     assert len(result['kept']) == 1
     assert result['kept'][0]['energy'] == -10.001
-    assert result['kept'][0]['sources'] == ['crest', 'etkdg']
-    assert len(result['kept'][0]['members']) == 2
-    assert any(r['reason'] == 'energy_window' for r in result['excluded'])
+    # Same geometry cannot attach the crest provenance across a > --de gap.
+    assert result['kept'][0]['sources'] == ['etkdg']
+    assert len(result['kept'][0]['members']) == 1
+    assert [r['reason'] for r in result['excluded']] == ['energy_window', 'energy_window']
     assert main(['cluster', result['output'], '--representative', 'lowest', '--json']) == 0
     assert json.loads(capsys.readouterr().out)['representatives'][0]['energy'] == -10.001
     (tmp_path / 'etkdg.xyz').write_text(geo.xyz_text([replace(etkdg[0], energy_unit='kcal/mol')]))

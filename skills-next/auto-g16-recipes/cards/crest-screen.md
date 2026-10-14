@@ -100,18 +100,23 @@ ETKDG 候选先经上述 `--mdopt`，审阅通过后与同方法 CREST 结果合
 再按相对合并集合最低 xTB 能量 ≤ 6 kcal/mol 开窗口：
 
 ```text
-ag dedup --source crest=crest.xyz --source etkdg=attempts/ETKDG_MDOPT/mdopt.xyz --representative lowest --window 6 --charge 0 --out analyses
+ag dedup --source crest=crest.xyz --source etkdg=attempts/ETKDG_MDOPT/mdopt.xyz --representative lowest --de 0.05 --hydrogens polar --window 6 --charge 0 --out analyses
 ```
 
 CREST 来源使用 `crest_conformers.xyz` 的绝对 Hartree 注释，不用相对能量表混排。
 有定向路线再加 `--source directed=directed.xyz`，但必须先审阅它是否具有相同
 Hamiltonian、溶剂、电荷、自旋及约束能量口径；不同约束不自动保证能量可比。
 `--representative lowest` 是使用者对同层级能量的显式声明，代码只核验有限
-Hartree 能量，不从单位猜方法。代表保留全部来源和逐帧溯源，再做 DFT 单点。
+Hartree 能量，不从单位猜方法；合并还要求能差小于 `--de`（默认 0.05 kcal/mol）。代表保留实际合并成员的来源和逐帧溯源，再做 DFT 单点。
 无法统一口径时，省略 lowest 和窗口，沿用仅几何合并，不得混排能量。
+`--hydrogens heavy|polar|all` 默认 polar：重原子及 N/O/S/P 上的氢参与 RMSD，
+避免把 OH 等转子合并并误标为多路线共同找到；甲基氢默认不参与。
+涉及氢键或参与反应的氢必须参与构象区分；若包含 C–H 等非 polar 氢，选择 all。
+JSON 记录 hydrogens；每次合并记录 heavy_rmsd 与实际判定的 rmsd（均为 Å）。
+coverage 与 cluster 继承该模式；无模式字段的旧 JSON 按 heavy 解释，不能恢复已丢失的氢朝向，应重新去重。
 DFT 单点后运行
 `ag coverage --merged analyses/dedup-TIMESTAMP.json --energies attempts/SP_A attempts/SP_B --window 3 --out analyses/coverage-01.md`。
-先处理未匹配项（按输入坐标 1e-4 Å 核对，不靠名称），再读窗口总数、各路线命中数、
+先处理未匹配项（按所选原子的输入坐标 1e-4 Å、原子顺序核对，不靠名称），再读窗口总数、各路线命中数、
 最低 5 个来源和单路线独有项；可用 `--top N`、`--json`，输出文件必须新建。
 最低构象单路线独有或超过一半窗口构象由某路线独占会警告“采样可能不足”。
 覆盖报告不能证明采样已经完备；无警告、空窗口也不能代替人审阅。
@@ -132,7 +137,7 @@ DFT 单点后运行
 - ETKDG 已经同方法 `--mdopt` 优化后再与 CREST 合并，并按统一 xTB 标度开 6 kcal/mol 窗口。
 - CREST 正常终止，`n_conformers` 为非零，能量与输出构象数量对应；不能只凭文件存在就接受。
 - 逐一审阅连通性、质子位置和立体化学，排除变化为其他物种的结构并记原因。
-- dedup / cluster 输出能追溯代表、成员、相对能量、阈值和筛选原因；截断到数量上限时写明覆盖局限。
+- dedup / cluster 输出能追溯代表、成员、相对能量、氢模式、两种 RMSD、阈值和筛选原因；确认氢键或反应相关氢未被忽略，截断时写明覆盖局限。
 - 把代表构象及其简并度展示给人签字。聚类样本数可能含重复采样，不等于物理简并度；复制工具输出时保留这一含义，未确认则不用于最终布居。
 - 双路线来源与覆盖报告已审阅，未匹配项、低能独有项和警告已明确记录，覆盖报告不能证明采样已经完备。
 - 分列 xTB 能量、筛选 DFT 单点能、优化后去重与最终电子能；快速搜索完成不代表已穷尽全构象空间。
