@@ -198,7 +198,7 @@ def test_doctor_read_only(multi):
     cfg = config.select_cluster(multi, 'batch'); fake = SlurmFake(cfg)
     result = doctor.doctor(cfg, fake)
     assert result['ok'] and result['accounting_history']
-    assert set(fake.operations()) <= {'identity', 'slurm_jobs', 'slurm_history', 'slurm_tools', 'slurm_partitions', 'root_check', 'executable', 'storage_usage'}
+    assert set(fake.operations()) <= {'identity', 'slurm_jobs', 'slurm_history', 'slurm_tools', 'slurm_partitions', 'root_check', 'executable', 'storage_usage', 'parent_chk_environment'}
     assert 'test -w' in next(c.text for c in fake.calls if c.operation == 'root_check')
     fake.history = Result()
     assert doctor.doctor(cfg, fake)['ok'] is False

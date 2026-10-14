@@ -90,7 +90,7 @@ def _qst_displacements(structures):
             for i in indices]
 
 
-def validate(text, cores, mem_gb):
+def validate(text, cores, mem_gb, *, parent_chk=False):
     lines = text.splitlines()
     link = {}
     index = 0
@@ -119,9 +119,12 @@ def validate(text, cores, mem_gb):
             raise ValueError('%oldchk must be a plain filename')
         if link.get('chk') == link['oldchk']:
             raise ValueError('%chk and %oldchk must use different filenames')
-        # T13-2 owns declaring and validating parent chk attachments in the manifest.
-        # A parents/relation entry alone does not provide such an attachment.
-        raise ValueError('%oldchk requires a declared and validated parent chk attachment; not yet supported')
+        if not parent_chk or link['oldchk'] != 'parent.chk':
+            raise ValueError('%oldchk requires a declared parent chk attachment named parent.chk')
+        if 'chk' not in link:
+            raise ValueError('%oldchk requires a distinct explicit %chk')
+    if parent_chk and link.get('oldchk') != 'parent.chk':
+        raise ValueError('Parent chk attachment requires %oldchk=parent.chk')
     rest = '\n'.join(lines[index:]).strip()
     sections = re.split(r'\n\s*\n', rest)
     if len(sections) < 3 or not sections[0].lstrip().startswith('#') or not sections[1].strip():
@@ -130,6 +133,9 @@ def validate(text, cores, mem_gb):
     # External launches and file inclusion can bypass reviewed program templates.
     if re.search(r'\bexternal\b|\binclude\b|@', text, re.I) or '--link1--' in text.lower():
         raise ValueError('External programs, includes and Link1 are unsupported')
+    for option in re.finditer(r'\bgeom(?:etry)?\s*(?:=\s*)?(\([^()]*\)|[A-Za-z]+)', route, re.I):
+        if re.search(r'\b(?:check|checkpoint|allcheck)\b', option[1], re.I):
+            raise ValueError('Geom=Check/AllCheck is unsupported; provide explicit coordinates')
     mode = _qst_mode(route)
     if mode:
         structures = _qst_structures(sections, mode)

@@ -95,6 +95,44 @@ def metadata(cfg, manifest, name):
     return Command('metadata', f"{path_checks(p)} && test -f {quote(p)} && stat -c %s -- {quote(p)} && sha256sum -- {quote(p)}")
 
 
+def parent_chk_environment():
+    # Diagnose unsupported Python/proc before any checkpoint declaration is used.
+    return Command('parent_chk_environment',
+                   "python3 --version && if test -d /proc/self/fd && "
+                   "test -r /proc/self/fd/0; then printf 'proc_fd=yes\\n'; "
+                   "else printf 'proc_fd=no\\n'; fi")
+
+
+def parent_chk_metadata(cfg, manifest, name):
+    from ag.parent_chk_remote import SCRIPT
+    if not filename(name).endswith('.chk'):
+        raise ValueError('Expected a chk filename')
+    source = attempt_dir(cfg, manifest) + '/' + name
+    return Command('parent_chk_metadata',
+                   f'{path_checks(source)} && python3 -c {quote(SCRIPT)} metadata {quote(source)} -')
+
+
+def copy_parent_chk(cfg, parent, child):
+    from ag.parent_chk_remote import SCRIPT
+    attachment = child['parent_chk']
+    if (attachment['attempt_id'] != parent['attempt_id'] or
+            attachment['target_name'] != 'parent.chk' or
+            parent['attempt_id'] == child['attempt_id'] or
+            parent['study_id'] != child['study_id'] or
+            parent.get('cluster', 'default') != child.get('cluster', 'default') or
+            attachment['cluster'] != child.get('cluster', 'default')):
+        raise ValueError('Invalid parent chk copy declaration')
+    name = filename(attachment['source_name'])
+    if not name.endswith('.chk'):
+        raise ValueError('Expected a chk filename')
+    source = attempt_dir(cfg, parent) + '/' + name
+    target = attempt_dir(cfg, child)
+    return Command('copy_parent_chk',
+                   f'{path_checks(source)} && test -f {quote(source)} && '
+                   f'{path_checks(target)} && set -C && '
+                   f'python3 -c {quote(SCRIPT)} copy {quote(source)} {quote(target)}')
+
+
 def output_exists(cfg, manifest, name):
     p = attempt_dir(cfg, manifest) + '/' + filename(name)
     return Command('output_exists', f'{path_checks(p)} && test -f {quote(p)}')

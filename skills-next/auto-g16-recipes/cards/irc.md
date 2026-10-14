@@ -8,7 +8,7 @@
 
 [TS 卡片](ts.md)的优化、完整频率、恰好一个虚频及目标方向审核全部通过；[机理假设](reaction-plan.md)已签字。两个方向使用同一已接受 TS 的最终几何、原子顺序、电荷、多重度和方法；预先列明可能的反应物/产物与原子映射，不预设 Forward 就是产物。
 
-当前 ag 可准备单结构显式坐标输入，但跨 Attempt 复用 chk、IRC 方向完成事实的结构化解析、端点提取及连接关系自动比对待 T13。需要这些功能时停止相关步骤并在 study 记录缺口；本卡不承诺现有 ag 可自动跑通完整 IRC 验证。
+当前 ag 可准备单结构显式坐标输入，并用 `--parent-chk` 声明父 chk 副本。后续方向完成、端点提取和连接比对须另行核对对应工具与证据。若缺少所需能力或证据，停止相关步骤并在 study 记录缺口；本卡不承诺现有 ag 可自动跑通完整 IRC 验证。
 
 ## 3. 输入模板
 
@@ -36,7 +36,27 @@ Gaussian 路线形式为 `irc=(calcfc,maxpoints=<点数>,stepsize=<步长>,forwa
 ag prepare --study <study_id> --template gaussian --input <irc-forward.gjf> --tier simple --walltime 24:00:00 --label irc-forward --parent <ts_id> --relation irc_from --method-basis <与TS相同的方法依据>
 ```
 
-`irc_from` 只是现有 relation 文本，不会复用 chk 或验证路径。基于 chk 的 RCFC/Geom=AllCheck 输入待 T13，不提供绕行复制命令。两侧端点经人工确认坐标后，要各自再按 [Opt+Freq](opt-freq.md)优化为极小点；可用现有 parent/relation 参数记录 `endpoint_of` 来源。端点自动提取和比对待 T13，不发明端点命令。
+`irc_from` 只是现有 relation 文本，不会复用 chk 或验证路径。经审阅复用 TS 力常数时，在 prepare 中追加 `--parent-chk <ts_id>:<父输入中声明的chk文件名>`，与现有 `--parent <ts_id>` 配套。父 Attempt 必须 finished/fetched，submit 确认前后均核对调度器中已无该作业，且父子属于同一集群。
+
+```text
+%oldchk=parent.chk
+%chk=irc-forward.chk
+%nprocshared=8
+%mem=10GB
+#p wB97XD/6-31G(d) guess=read irc=(rcfc,maxpoints=50,stepsize=10,forward)
+
+<TS 编号与 forward 方向>
+
+<charge> <multiplicity>
+<element> <TS 最终 x> <TS 最终 y> <TS 最终 z>
+
+```
+
+反方向另建 Attempt，改为 `reverse` 和 `%chk=irc-reverse.chk`，引用同一父 chk。**坐标仍须显式写在输入中**；`Geom=Check`/`Geom=AllCheck` 不允许。父 chk 必须确有适用的力常数；Guess=Read 也须核对方法、电荷、多重度、原子顺序和几何。
+
+prepare 纯本地；submit 在 Mac 确认弹窗展示父 ID、来源文件名、大小、SHA256 前 12 位和固定目标 parent.chk。确认后只在新 Attempt 目录独占创建副本，源与目标哈希都等于确认值才继续上传/qsub，父文件只读。固定复制助手需要远端 Python ≥ 3.6 和 Linux /proc；缺少时停止；先运行 `ag doctor --cluster <cluster>` 查看 Python 版本和 /proc 支持。复制失败、SSH 255、超时或哈希变化均为 failed_presubmit，保留副本、不重试、不 qsub。
+
+两侧端点经人工确认坐标后，要各自再按 [Opt+Freq](opt-freq.md)优化为极小点；可用现有 parent/relation 参数记录 `endpoint_of` 来源。端点自动提取和比对待 T13，不发明端点命令。
 
 ## 4. 资源建议
 
@@ -45,7 +65,7 @@ ag prepare --study <study_id> --template gaussian --input <irc-forward.gjf> --ti
 ## 5. 提交前检查清单
 
 - 起点是通过 TS 及振动方向审核的同一个几何；两份输入元素和原子行号一致，方向关键词明确且不重复。
-- 方法、电荷、多重度、溶剂与 TS 一致，CalcFC 的来源和代价已说明；需要父 chk 的方案在 T13 支持前暂停。
+- 方法、电荷、多重度、溶剂与 TS 一致，CalcFC 的来源和代价已说明；采用 RCFC 时核对父力常数的适用性、附件声明和确认哈希。
 - 结构、立体警告、方法依据、完整 route、资源档位、walltime、远程目录和输入哈希均已展示，提交仍由人点击 Mac 对话框。
 - 端点获取和人工审阅路径已说明；缺解析/比对能力就记录待 T13，不把通用 facts 字段当成 IRC 专用完成标志。
 

@@ -38,6 +38,7 @@ def core_command(args):
                                  input_path=args.input, tier=args.tier, walltime=args.walltime,
                                  label=args.label, params=params, method_basis=args.method_basis,
                                  constraints=args.constraints, cluster=args.cluster, card=args.card,
+                                 parent_chk=args.parent_chk,
                                  parents=[dict(attempt_id=p, relation=r) for p, r in zip(args.parent, args.relation)])
         if not args.json:
             print(attempt.summary(cfg, result))
@@ -115,6 +116,7 @@ def register(subparsers):
             p.add_argument('--label', required=True)
             p.add_argument('--method-basis', default='兜底方法')
             p.add_argument('--parent', action='append', default=[])
+            p.add_argument('--parent-chk', help='Completed parent Attempt ID:checkpoint filename')
             p.add_argument('--relation', action='append', default=[])
             p.add_argument('--param', action='append', default=[], help='Template option, e.g. --param=--gfn=2 or --param=--quick')
         elif name == 'submit':
