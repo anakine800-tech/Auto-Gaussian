@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from ag import attempt, cancel, cli, config, confirm, doctor, fetch, gaussian_input, remote, render, state, status, study, submit
+from ag import submission
 from ag.locks import claim
 from ag.transport import Result, SSHTransport, TransportError
 
@@ -270,12 +271,12 @@ def test_unknown_reconcile_read_only(cfg, prepared):
     assert set(fake.operations()) <= {'identity', 'jobs', 'listing'}
     fake.qstat = Result(stdout=job_text(m))
     assert status.check(cfg, p, fake)['state'] == 'submitted'
-    assert state.read(p)['job_id'] == '123.fixture'
+    assert state.read(p)['job_id'] == 'default:123.fixture'
 
 
 def test_status_absent_awaits_second_observation_without_receipt(cfg, prepared):
     p, m = prepared
-    state.write(p, 'submitting'); state.write(p, 'submitted', job_id='123.fixture')
+    state.write(p, 'submitting'); seed_submission(p)
     fake = Fake(cfg)
     assert status.check(cfg, p, fake)['state'] == 'awaiting_second_observation'
     fake.files['job.pbs.out'] = b'output'
@@ -284,14 +285,14 @@ def test_status_absent_awaits_second_observation_without_receipt(cfg, prepared):
 
 def test_status_error_does_not_infer_completion(cfg, prepared):
     p, _ = prepared
-    state.write(p, 'submitting'); state.write(p, 'submitted', job_id='123.fixture')
+    state.write(p, 'submitting'); seed_submission(p)
     fake = Fake(cfg); fake.job = Result(255, '', 'connection error')
     with pytest.raises(TransportError): status.check(cfg, p, fake)
     assert state.read(p)['state'] == 'submitted'
 
 
 def finish(p):
-    state.write(p, 'submitting'); state.write(p, 'submitted', job_id='123.fixture'); state.write(p, 'finished', exit_status=0)
+    state.write(p, 'submitting'); seed_submission(p); state.write(p, 'finished', exit_status=0)
 
 
 def test_fetch_verified_no_overwrite(cfg, prepared):
@@ -324,7 +325,7 @@ def test_fetch_hash_failure_leaves_no_published_files(cfg, prepared):
 
 def test_cancel_exactly_once(cfg, prepared, monkeypatch):
     p, m = prepared
-    state.write(p, 'submitting'); state.write(p, 'submitted', job_id='123.fixture')
+    state.write(p, 'submitting'); seed_submission(p)
     fake = Fake(cfg); allow(monkeypatch)
     assert cancel.cancel(cfg, p, fake)['state'] == 'cancelled'
     assert [c.text for c in fake.calls] == ['qdel 123.fixture']
@@ -334,7 +335,7 @@ def test_cancel_exactly_once(cfg, prepared, monkeypatch):
 
 def test_cancel_declined_zero_remote_calls(cfg, prepared, monkeypatch):
     p, _ = prepared
-    state.write(p, 'submitting'); state.write(p, 'submitted', job_id='123.fixture')
+    state.write(p, 'submitting'); seed_submission(p)
     fake = Fake(cfg)
     monkeypatch.setattr(confirm, 'confirm', lambda *args: False)
     with pytest.raises(submit.UserCancelled): cancel.cancel(cfg, p, fake)
@@ -477,7 +478,7 @@ def test_crash_in_submitting_reconciles_only_read_only(cfg, prepared):
 
 def test_scheduler_completion_alone_is_not_program_receipt(cfg, prepared):
     p, m = prepared
-    state.write(p, 'submitting'); state.write(p, 'submitted', job_id='123.fixture')
+    state.write(p, 'submitting'); seed_submission(p)
     fake = Fake(cfg); fake.job = Result(stdout=job_text(m, state_='C').replace('exit_status = 0', 'exit_status = 9'))
     result = status.check(cfg, p, fake)
     assert result['state'] == 'interrupted' and result['exit_status'] is None
@@ -485,7 +486,7 @@ def test_scheduler_completion_alone_is_not_program_receipt(cfg, prepared):
 
 def test_cancel_failure_records_no_retry(cfg, prepared, monkeypatch):
     p, _ = prepared
-    state.write(p, 'submitting'); state.write(p, 'submitted', job_id='123.fixture')
+    state.write(p, 'submitting'); seed_submission(p)
     fake = Fake(cfg); fake.fail = 'cancel'; allow(monkeypatch)
     with pytest.raises(TransportError): cancel.cancel(cfg, p, fake)
     assert fake.operations() == ['cancel']
@@ -707,3 +708,9 @@ def test_list_has_no_ssh_operations(cfg, monkeypatch):
     from types import SimpleNamespace
     monkeypatch.setattr('ag.transport.SSHTransport', lambda *a, **k: pytest.fail('list is local-only'))
     assert cli.core_command(SimpleNamespace(config=cfg, command='list', study=None, json=True)) == 0
+
+
+def seed_submission(path):
+    m = attempt.read_manifest(path)
+    submission.record(path, m, '123.fixture')
+    return state.write(path, 'submitted', job_id=submission.qualified(m, '123.fixture'))

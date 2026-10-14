@@ -73,7 +73,9 @@ def redact_stderr(value, cfg):
 # Submit/cancel retain the original single-attempt transport, including reads.
 READ_OPERATIONS = frozenset({'identity', 'queues', 'nodes', 'jobs', 'root_check', 'executable',
                             'metadata', 'output_exists', 'listing', 'receipt',
-                            'output_observation', 'completion_marker', 'session_processes'})
+                            'output_observation', 'completion_marker', 'session_processes',
+                            'slurm_jobs', 'slurm_accounting', 'slurm_find', 'slurm_history',
+                            'slurm_partitions', 'slurm_tools', 'storage_usage'})
 
 
 class SSHTransport:
@@ -89,7 +91,7 @@ class SSHTransport:
             p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
         except subprocess.TimeoutExpired as exc:
             detail = redact_stderr(exc.stderr or '', self.cfg)
-            raise SSHConnectionError('Remote operation timed out' + (': ' + detail if detail else '')) from exc
+            raise SSHConnectionError('Remote operation timed out; 密钥可能已过期，请到网页重新下载' + (': ' + detail if detail else '')) from exc
         except OSError as exc:
             raise TransportError('Could not start SSH/scp locally') from exc
         return Result(p.returncode, p.stdout, redact_stderr(p.stderr, self.cfg))
@@ -119,7 +121,7 @@ class SSHTransport:
                     raise
             else:
                 if result.returncode == 255:
-                    result.stderr = redact_stderr(result.stderr, self.cfg)
+                    result.stderr = redact_stderr(result.stderr, self.cfg) + '; 密钥可能已过期，请到网页重新下载'
                     self._record_failure(result.stderr or 'SSH failed (exit 255; no stderr)')
                 if result.returncode != 255 or not self.read_only or index == 1:
                     return result
@@ -159,3 +161,23 @@ class SSHTransport:
 
         require_ok(self._perform(download_once), 'download')
         os.link(candidate, local)
+
+
+_SSH_TRANSPORT_TYPE = SSHTransport
+
+
+def bound_transport(transport, cfg):
+    """Select the endpoint before any operation; injectable fakes stay inert."""
+    if isinstance(transport, _SSH_TRANSPORT_TYPE):
+        from ag.config import select_cluster
+        if select_cluster(transport.cfg, cfg['_cluster']) == cfg:
+            return transport
+        return SSHTransport(cfg, read_only=transport.read_only)
+    if hasattr(transport, 'for_cluster'):
+        return transport.for_cluster(cfg)
+    if hasattr(transport, 'cfg'):
+        from ag.config import select_cluster
+        original = select_cluster(transport.cfg, cfg['_cluster'])
+        if original['ssh'] != cfg['ssh'] or original['remote'] != cfg['remote']:
+            raise ValueError('Injected transport belongs to a different cluster')
+    return transport

@@ -7,14 +7,14 @@ from ag import journal
 TRANSITIONS = {
     'prepared': {'submitting'},
     'submitting': {'submitted', 'failed_presubmit', 'unknown'},
-    'unknown': {'submitted'},
+    'unknown': {'submitted', 'running', 'finished'},
     'awaiting_second_observation': {'submitted', 'running', 'stalled', 'interrupted', 'finished'},
-    'submitted': {'awaiting_second_observation', 'running', 'stalled', 'interrupted', 'finished', 'cancelled'},
-    'running': {'awaiting_second_observation', 'submitted', 'stalled', 'interrupted', 'finished', 'cancelled'},
+    'submitted': {'unknown', 'awaiting_second_observation', 'running', 'stalled', 'interrupted', 'finished', 'cancelled'},
+    'running': {'unknown', 'awaiting_second_observation', 'submitted', 'stalled', 'interrupted', 'finished', 'cancelled'},
     'stalled': {'awaiting_second_observation', 'submitted', 'running', 'interrupted', 'finished', 'cancelled'},
-    'interrupted': {'awaiting_second_observation', 'submitted', 'running', 'stalled', 'finished'},
+    'interrupted': {'unknown', 'awaiting_second_observation', 'submitted', 'running', 'stalled', 'finished'},
     'finished': {'fetched'},
-    'fetched': set(), 'cancelled': set(), 'failed_presubmit': set(),
+    'fetched': set(), 'cancelled': {'finished', 'unknown'}, 'failed_presubmit': set(),
 }
 
 

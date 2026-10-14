@@ -10,7 +10,7 @@ import pytest
 
 from ag import attempt, cancel, fetch, remote, render, state, status, submit
 from ag.transport import Result, SSHTransport, TransportError, redact_stderr
-from test_core import cfg, prepared, Fake, allow, job_text
+from test_core import cfg, prepared, Fake, allow, job_text, seed_submission
 
 
 class ObservationFake(Fake):
@@ -50,7 +50,7 @@ def submitted(prepared, cfg, legacy=False):
         m.pop('completion_receipts')
         (p / 'manifest.json').write_text(json.dumps(m))  # simulate a pre-T1c fixture
     state.write(p, 'submitting')
-    state.write(p, 'submitted', job_id='123.fixture')
+    seed_submission(p)
     return p, m, ObservationFake(cfg, m)
 
 

@@ -3,19 +3,22 @@ from hashlib import sha256
 import os
 from pathlib import Path
 import tempfile
-from ag import attempt, journal, render, state, study
+from ag import attempt, journal, render, state, study, remote
+from ag.config import for_manifest
+from ag.transport import bound_transport
 from ag.submit import metadata
 
 
 def fetch(cfg, path, transport):
+    cfg = for_manifest(cfg, attempt.read_manifest(path))
+    transport = bound_transport(transport, cfg)
     if hasattr(transport, 'record_to'):
         transport.record_to([path])
     m = attempt.read_manifest(path)
     journal.append(path.parent.parent, 'fetch', path.name, 'requested')
     if state.read(path)['state'] != 'finished':
         raise ValueError('Only a finished Attempt can be fetched')
-    stem = next(Path(r['name']).stem for r in m['inputs'] if r['name'] != 'job.pbs')
-    names = [n.format(stem=stem) for n in render.declaration(m['template'])['outputs']]
+    names = remote.output_names(m)
     output = study.local_path(Path(cfg['local']['studies_root']), path / 'outputs')
     for name in names:
         if (output / name).exists() or (output / name).is_symlink():

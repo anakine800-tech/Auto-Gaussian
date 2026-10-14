@@ -3,7 +3,9 @@ import re
 import json
 import time
 from datetime import datetime, timezone
-from ag import attempt, journal, remote, state
+from ag import attempt, journal, remote, state, slurm, submission, budget
+from ag.config import for_manifest, scheduler_kind
+from ag.transport import bound_transport
 from ag.transport import require_ok, TransportError
 
 
@@ -59,10 +61,13 @@ def core_breakdown(jobs, username):
     return running, total - running
 
 
-def inventory(transport):
+def inventory(transport, cfg=None):
     username = require_ok(transport.run(remote.identity()), 'identity').strip()
     if not re.fullmatch(r'[A-Za-z0-9_.-]+', username):
         raise ValueError('Cannot identify remote user')
+    if cfg is not None and scheduler_kind(cfg) == 'slurm':
+        jobs = slurm.parse_queue(require_ok(transport.run(remote.slurm_jobs(user=username)), 'squeue'))
+        return username, jobs, sum(slurm.core_breakdown(jobs, username))
     jobs = parse_jobs(require_ok(transport.run(remote.jobs()), 'qstat'))
     return username, jobs, occupied(jobs, username)
 
@@ -86,7 +91,7 @@ def read_receipt(cfg, manifest, transport, name, job_id):
         value = json.loads(raw, object_pairs_hook=pairs)
         key = 'started_at' if name == 'ag-start.json' else 'finished_at'
         stamp = datetime.fromisoformat(value[key].replace('Z', '+00:00'))
-        if stamp.tzinfo is None or value['PBS_JOBID'] != job_id:
+        if stamp.tzinfo is None or value['job_id' if manifest.get('scheduler') == 'slurm' else 'PBS_JOBID'] != job_id:
             raise ValueError('Receipt time/job identity mismatch')
         if name == 'ag-exit.json' and (type(value['returncode']) is not int or not 0 <= value['returncode'] <= 255):
             raise ValueError('Invalid program return code')
@@ -146,6 +151,11 @@ def scheduler_absent(result):
 
 
 def check(cfg, path, transport):
+    m = attempt.read_manifest(path)
+    cfg = for_manifest(cfg, m)
+    transport = bound_transport(transport, cfg)
+    if m.get('scheduler') == 'slurm':
+        return check_slurm(cfg, path, transport, m)
     if hasattr(transport, 'record_to'):
         transport.record_to([path])
     m, current = attempt.read_manifest(path), state.read(path)
@@ -157,13 +167,17 @@ def check(cfg, path, transport):
         matches = [j for j in jobs if j.get('Job_Name') == m['pbs_job_name']
                    and j.get('Job_Owner', '').split('@')[0] == username]
         if len(matches) == 1:
-            return state.write(path, 'submitted', job_id=matches[0]['job_id'], note='Read-only scheduler reconciliation')
+            job = matches[0]['job_id']
+            if 'cluster' in m:
+                submission.record(path, m, job)
+                job = submission.qualified(m, job)
+            return state.write(path, 'submitted', job_id=job, note='Read-only scheduler reconciliation')
         require_ok(transport.run(remote.listing(cfg, m)), 'unknown directory inspection')
         journal.append(path.parent.parent, 'status', path.name, 'unknown', 'No unique scheduler evidence; human review required')
         return {**current, 'note': 'No unique scheduler evidence; remains unknown. Human review required.'}
     if current['state'] not in ('submitted', 'running', 'stalled', 'interrupted', 'awaiting_second_observation', 'finished', 'fetched'):
         return current
-    job_id = remote.job_id(current['job_id'])
+    job_id = submission.verified_job(path, m, current)
     start = read_receipt(cfg, m, transport, 'ag-start.json', job_id)
     end = read_receipt(cfg, m, transport, 'ag-exit.json', job_id)
     result = transport.run(remote.jobs(job_id))
@@ -271,9 +285,13 @@ def format_status(results):
         lines.append(f"{result['attempt_id']}: {result['state']}")
         if result.get('note'):
             lines.append(f"  {result['note']}")
-        lines.append(f"  PBS: {result.get('scheduler_state') or '未知/无记录'}; "
+        lines.append(f"  {result.get('scheduler', 'pbs').upper()}: {result.get('scheduler_state') or '未知/无记录'}; "
                      f"resources_used.cput: {result.get('cput') or '未知'} "
                      f"(查询时间 {stamp(result.get('scheduler_observed_at'))})")
+        if result.get('scheduler') == 'slurm':
+            lines.append(f"  Cluster: {result.get('cluster')} | Job: {result.get('job_id')} | "
+                         f"ExitCode: {result.get('exit_code')}:{result.get('exit_signal')} | Elapsed: {result.get('elapsed')}")
+            continue
         observation = result.get('observation') or {}
         at = observation.get('at')
         age = f"{max(0, time.time() - at):.0f} 秒前" if at is not None else '未知'
@@ -285,3 +303,69 @@ def format_status(results):
             lines.append(f"  已等待 {result['wait_seconds']:.0f} 秒；最早再次观察: "
                          f"{stamp(result['next_observation_at'])}")
     return '\n'.join(lines)
+
+
+def check_slurm(cfg, path, transport, m):
+    if hasattr(transport, 'record_to'):
+        transport.record_to([path])
+    current = state.read(path)
+    journal.append(path.parent.parent, 'status', path.name, 'query', current['state'])
+    if current['state'] == 'submitting':
+        current = state.write(path, 'unknown', note='Interrupted submission; read-only reconciliation required')
+    if current['state'] == 'unknown' and not current.get('job_id'):
+        username, jobs, _ = inventory(transport, cfg)
+        matches = {j['job_id'] for j in jobs if j['name'] == m['attempt_id'] and j['owner'] == username}
+        # Explicit start date avoids sacct's default midnight window hiding a
+        # submission whose reply was lost before the next day's reconciliation.
+        text = require_ok(transport.run(remote.slurm_find(username, m['attempt_id'], m['created_at'][:10])), 'sacct name reconciliation')
+        for line in text.splitlines():
+            fields = line.split('|')
+            if len(fields) != 7 or fields[1] != m['attempt_id'] or fields[2] != username:
+                raise ValueError('sacct name/owner identity mismatch')
+            row = slurm.parse_accounting('|'.join([fields[0], *fields[3:]]))[0]
+            matches.add(row['job_id'])
+        if len(matches) != 1:
+            return state.write(path, 'unknown', note='No unique Slurm job evidence; human review required')
+        job = next(iter(matches))
+        submission.record(path, m, job)
+        current = state.write(path, 'submitted', job_id=submission.qualified(m, job), note='Read-only scheduler reconciliation')
+    if current['state'] not in ('submitted', 'running', 'unknown', 'interrupted', 'finished', 'fetched', 'cancelled'):
+        return current
+    job = submission.verified_job(path, m, current)
+    result = transport.run(remote.slurm_jobs(job))
+    # Some versions return an explicit invalid-job diagnostic after purging;
+    # it only triggers accounting lookup, never an inference of completion.
+    if result.returncode and result.returncode != 255 and 'Invalid job id specified' in result.stderr:
+        active = []
+    else:
+        active = slurm.parse_queue(require_ok(result, 'squeue exact job'))
+    if len(active) > 1 or any(j['job_id'] != job or j['name'] != m['attempt_id'] for j in active):
+        raise ValueError('squeue exact-job identity mismatch')
+    details = dict(scheduler='slurm', cluster=m['cluster'], scheduler_residue=False,
+                   scheduler_observed_at=time.time())
+    if active:
+        scheduler = active[0]['state']
+        target = 'running' if scheduler == 'RUNNING' else 'submitted'
+        if current['state'] in ('finished', 'fetched', 'cancelled'):
+            target = current['state']
+            details['scheduler_residue'] = True
+        return state.write(path, target, exit_status=current.get('exit_status'),
+                           scheduler_state=scheduler, note='Active Slurm scheduler observation', **details)
+    rows = slurm.parse_accounting(require_ok(transport.run(remote.slurm_accounting(job)), 'sacct exact job'), job)
+    if not rows:
+        if current['state'] in ('finished', 'fetched'):
+            return state.write(path, current['state'], exit_status=current.get('exit_status'),
+                               note='Previous accounting completion evidence retained', **details)
+        return state.write(path, 'unknown', scheduler_state=None,
+                           note='Absent from squeue and sacct; human review required; never resubmit', **details)
+    row = rows[0]
+    details.update(scheduler_state=row['state'], exit_code=row['exit_code'], exit_signal=row['exit_signal'],
+                   elapsed=row['elapsed'], allocated_cpus=row['allocated_cpus'])
+    # Completion is scheduler completion only, never scientific acceptance.
+    if row['state'] in slurm.TERMINAL:
+        budget.settle(cfg, m, row['elapsed'], job_id=submission.qualified(m, job))
+        target = 'fetched' if current['state'] == 'fetched' else 'finished'
+        return state.write(path, target, exit_status=row['exit_code'], completion_source='sacct',
+                           note='Slurm terminal state; inspect program outputs before scientific acceptance', **details)
+    return state.write(path, 'running' if row['state'] == 'RUNNING' else 'submitted',
+                       note='Accounting has no terminal state yet', **details)

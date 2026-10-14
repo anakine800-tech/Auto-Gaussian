@@ -48,6 +48,8 @@ def parameters(name, values):
 
 def render(cfg, manifest, input_name):
     from ag.remote import path_checks, attempt_dir
+    from ag.config import for_manifest
+    cfg = for_manifest(cfg, manifest)
     m = manifest
     if not re.fullmatch(r'\d{2,4}:[0-5]\d:[0-5]\d', m['walltime']) or not int(m['walltime'].replace(':', '')):
         raise ValueError('walltime must be positive HH:MM:SS')
@@ -61,8 +63,33 @@ def render(cfg, manifest, input_name):
         cores=m['cores'], input_name=input_name,
         log_name=Path(input_name).stem + '.log').items()}
     values.update(parameters=p, path_checks=path_checks(work))
-    header = (f"#!/bin/sh\n#PBS -N {m['pbs_job_name']}\n#PBS -q {cfg['scheduler']['queue']}\n"
+    header = (f"#!/bin/sh\n#PBS -N {m['pbs_job_name']}\n#PBS -q {(cfg['scheduler']['queue'] if isinstance(cfg['scheduler'], dict) else '')}\n"
               f"#PBS -l nodes=1:ppn={m['cores']}\n#PBS -l mem={m['mem_gb']}gb\n"
               f"#PBS -l walltime={m['walltime']}\n#PBS -j oe\n#PBS -r n\n#PBS -o {work}/job.pbs.out\n")
+    if m.get('scheduler') == 'slurm':
+        header = (f"#!/bin/sh\n#SBATCH --job-name={m['attempt_id']}\n"
+                  f"#SBATCH --nodes=1\n#SBATCH --ntasks=1\n#SBATCH --cpus-per-task={m['cores']}\n"
+                  f"#SBATCH --mem={m['mem_gb']}G\n#SBATCH --time={m['walltime']}\n"
+                  f"#SBATCH --output={work}/job.slurm.out\n#SBATCH --error={work}/job.slurm.err\n"
+                  "#SBATCH --no-requeue\n")
+        from ag.remote import slurm_token
+        for key in ('partition', 'account', 'qos'):
+            if key in cfg:
+                header += f"#SBATCH --{key}={slurm_token(cfg[key])}\n"
     body = (TEMPLATES / '_guard.sh').read_text() + (TEMPLATES / f"{m['template']}.pbs").read_text()
+    # Substitute only the scheduler-specific inputs; PBS scripts retain their
+    # original bytes so prepared PBS bundles remain verifiable after upgrade.
+    values.update(workdir_variable='PBS_O_WORKDIR', jobid_variable='PBS_JOBID', receipt_job_key='PBS_JOBID')
+    if m.get('scheduler') == 'slurm':
+        values.update(workdir_variable='SLURM_SUBMIT_DIR', jobid_variable='SLURM_JOB_ID', receipt_job_key='job_id')
+        if m['template'] == 'gaussian':
+            env = cfg['programs']['gaussian']
+            setup = ''
+            if env.get('module_init'):
+                setup += '. ' + shlex.quote(env['module_init']) + '\n'
+            for module in env.get('modules', []):
+                if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_./+-]*', module) or '..' in module:
+                    raise ValueError('Invalid module name')
+                setup += 'module load ' + shlex.quote(module) + '\n'
+            body = body.replace('export g16root=', setup + 'export g16root=')
     return header + Template(body).substitute(values)

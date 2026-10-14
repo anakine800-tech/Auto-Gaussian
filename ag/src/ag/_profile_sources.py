@@ -180,13 +180,14 @@ def load_species(name, spec, study, analyses, direct_settings):
             freq_scale_factor=settings['frequency_scale'], zpe_scale_factor=settings['zpe_scale'])
     if len(rows) == 1:
         nonempty(spec.get('single_conformer_reason'), f'{name}: single_conformer_reason')
-    identities, protocols, energies, degeneracies, ids = [], [], [], [], []
+    identities, protocols, energies, degeneracies, ids, program_versions = [], [], [], [], [], []
     for row in rows:
         require(isinstance(row, dict), f'{name}: each Attempt must be an object')
         aid = row.get('attempt_id')
         require(aid not in ids, f'{name}: duplicate Attempt')
         directory, facts, elements, freq_protocol = attempt_facts(study, aid, cached=cached)
         ids.append(aid)
+        program_versions.append(nonempty(facts.get('program_version'), f'{aid}: program version missing; regenerate ag facts'))
         n_imag = facts.get('n_imag')
         require(type(n_imag) is int and n_imag in (0, 1), f'{aid}: n_imag must be 0 or 1')
         if n_imag == 1:
@@ -196,6 +197,7 @@ def load_species(name, spec, study, analyses, direct_settings):
         sp_id = row.get('spc_attempt_id')
         if sp_id:
             _, sp_facts, sp_elements, sp_protocol = attempt_facts(study, sp_id, cached=cached)
+            program_versions.append(nonempty(sp_facts.get('program_version'), f'{sp_id}: program version missing; regenerate ag facts'))
             require((elements, facts['charge'], facts['multiplicity']) ==
                     (sp_elements, sp_facts['charge'], sp_facts['multiplicity']),
                     f'{aid}: SPC identity mismatch')
@@ -211,6 +213,8 @@ def load_species(name, spec, study, analyses, direct_settings):
         energies.append(energy)
         degeneracies.append(integer(row.get('degeneracy', 1), f'{aid}: degeneracy', positive=True))
     require(all(x == identities[0] for x in identities), f'{name}: mixed conformer identities or n_imag')
+    # Different revisions can change numerical energies even at the same route.
+    require(len(set(program_versions)) == 1, f'{name}: inconsistent program versions within species/SPC')
     require(all(x == protocols[0] for x in protocols), f'{name}: mixed conformer protocols')
     _, _, ensemble = boltzmann(energies, degeneracies, settings['temperature_K'])
     if cached:
@@ -225,5 +229,5 @@ def load_species(name, spec, study, analyses, direct_settings):
         require(integer(spec['charge'], 'declared charge') == charge, f'{name}: declared charge mismatch')
     return {'ensemble_G_hartree': ensemble, 'elements': elements, 'charge': charge,
             'multiplicity': multiplicity, 'n_imag': n_imag, 'settings': settings,
-            'protocol': protocols[0], 'attempts': ids,
+            'protocol': protocols[0], 'attempts': ids, 'program_version': program_versions[0],
             'single_conformer_reason': spec.get('single_conformer_reason')}
