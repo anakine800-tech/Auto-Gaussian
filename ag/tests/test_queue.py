@@ -302,3 +302,39 @@ def test_batch_completed_job_does_not_reserve_cores(cfg, tmp_path, monkeypatch):
         + job_text(cores=16, state_='C').replace('123.fixture', '201.fixture')]
     monkeypatch.setattr(confirm, 'confirm', lambda text: True)
     assert len(submit.submit(cfg, ids, fake)) == 2
+
+
+@pytest.mark.parametrize('source', ['exec_host', 'jobs'])
+@pytest.mark.parametrize('slots', ['', ',0', '0,', '0,,2', '7-0', 'x', '0-7,7-12'])
+def test_combined_slot_parse_failure_keeps_strict_cap(
+        cfg, prepared, monkeypatch, capsys, source, slots):
+    cfg['resources']['max_committed_cores'] = 88
+    fake = QueueFake(cfg)
+    if source == 'exec_host':
+        fake.qstat = Result(stdout=job_text(cores=40) + f'    exec_host = n1/{slots}\n')
+    else:
+        fake.nodes = Result(stdout=f'n1\n    state = free\n    np = 44\n'
+                                   f'    jobs = {slots}/101.srv\n')
+    monkeypatch.setattr(confirm, 'confirm', lambda text: pytest.fail('over strict cap'))
+    with pytest.raises(ValueError, match='40 occupied.*8 requested / 44'):
+        submit.submit(cfg, [prepared[0].name], fake)
+    assert '严格模式：pbsnodes' in capsys.readouterr().err
+    assert 'create_attempt' not in fake.operations()
+    assert fake.submitted_count == 0
+    assert not (prepared[0] / '.submit-claim').exists()
+
+
+@pytest.mark.parametrize('source', ['exec_host', 'jobs'])
+def test_combined_ranges_keep_queue_allowance(cfg, prepared, monkeypatch, capsys, source):
+    cfg['resources']['max_committed_cores'] = 88
+    fake = QueueFake(cfg, occupied=40)
+    if source == 'exec_host':
+        fake.qstat = Result(stdout=job_text(cores=40) + '    exec_host = n1/0-7,12-25\n')
+    else:
+        fake.nodes = Result(stdout='n1\n    state = free\n    np = 44\n'
+                                   '    jobs = 0-7,12-25/101.srv,26/102.srv\n')
+    dialogs = []
+    monkeypatch.setattr(confirm, 'confirm', lambda text: dialogs.append(text) or True)
+    assert submit.submit(cfg, [prepared[0].name], fake)[0]['state'] == 'submitted'
+    assert '提交后合计 48 / 上限 88 核' in dialogs[0]
+    assert '严格模式' not in capsys.readouterr().err
