@@ -109,6 +109,11 @@ def register(subparsers):
                 if action == 'init':
                     child.add_argument('--card', help='Recipe for legacy manifests without a recorded card')
                 child.add_argument('--json', action='store_true', default=argparse.SUPPRESS)
+            from ag._review_manifest import run as review_manifest
+            child = actions.add_parser('manifest', help='Freeze a signature evidence inventory')
+            child.add_argument('--study', required=True, help='Local study directory')
+            child.add_argument('--json', action='store_true', default=argparse.SUPPRESS)
+            child.set_defaults(func=review_manifest)
         elif name == 'monitor':
             from ag.monitor import watch_seconds
             p.add_argument('--watch', type=watch_seconds, metavar='SECONDS',
@@ -157,7 +162,7 @@ def main(argv=None):
         return 0
     from ag.submit import UnknownSubmission
     try:
-        if args.command in CONFIG_COMMANDS:
+        if args.command in CONFIG_COMMANDS and not (args.command == 'review' and args.action == 'manifest'):
             args.config = load_config(local_only=True) if args.command == 'review' else load_config()
         return args.func(args)
     except UnknownSubmission as exc:

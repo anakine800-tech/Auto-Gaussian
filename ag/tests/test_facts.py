@@ -165,10 +165,10 @@ def test_spin_expectation(tmp_path, text, expected):
 def test_monatomic_freq_and_regeneration(tmp_path, capsys):
     from ag.cli import main
     directory = attempt(tmp_path, fixture='fluoride_freq_synthetic.log')
-    # Replace an older derived facts record, leaving the original log untouched.
+    # Explicit refresh preserves an older derived record and the original log.
     (directory / 'facts.json').write_text('{"n_imag": null}')
     original = (directory / 'outputs/input.log').read_bytes()
-    assert main(['facts', str(directory), '--json']) == 0
+    assert main(['facts', str(directory), '--json', '--refresh']) == 0
     facts = json.loads(capsys.readouterr().out)
     assert facts['parser_warning'] is None
     assert (facts['n_atoms'], facts['charge'], facts['multiplicity']) == (1, -1, 1)

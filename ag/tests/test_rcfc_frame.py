@@ -200,7 +200,7 @@ def test_missing_or_truncated_input_is_not_invented(cfg, tmp_path):
     original = target.read_text()
     (path / 'final_input.xyz').unlink()
     target.write_text(original + ' Input orientation:\n --------\n truncated\n')
-    facts = build_facts(path)
+    facts = build_facts(path, refresh=True)
     assert facts['final_input_geometry'] is None
     assert not (path / 'final_input.xyz').exists()
     assert gaussian_orientation(original.replace('Input orientation:', 'Other orientation:'), 'Input') is None
