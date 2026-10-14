@@ -37,8 +37,12 @@ ETKDG/MMFF 或 UFF 只负责生成候选；力场能量不能换单位后与 CRE
 保留足够候选，先用同一 GFN2-xTB、ALPB 溶剂、电荷及 `--uhf` 做系综优化：
 
 ```text
-ag prepare --study <study_id> --template crest --input <etkdg-ensemble.xyz> --param=--mdopt --param=--gfn2 --param=--chrg=0 --param=--uhf=0 --tier simple --walltime 04:00:00 --label etkdg-mdopt
+ag prepare --study <study_id> --template crest --input <etkdg-ensemble.xyz> --param=--mdopt --param=--gfn2 --param=--alpb=<与 CREST 路线相同的溶剂> --param=--chrg=0 --param=--uhf=0 --tier simple --walltime 04:00:00 --label etkdg-mdopt
 ```
+
+GFN 层级、ALPB 溶剂、电荷和 `--uhf` 必须与参与合并的 CREST 来源逐项一致，
+否则不得使用 `lowest`。上例溶剂占位符须替换为模板接受的实际溶剂值；
+只有参与合并的全部来源均为气相时，才一致省略 `--alpb`。
 
 `--mdopt` 在 ag 中是标志，模板绑定已校验的输入文件，实际执行
 `crest --mdopt <输入文件> ... -T <核数>`。输入为 1–1000 帧 XYZ，所有帧

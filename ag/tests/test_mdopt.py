@@ -192,3 +192,22 @@ def test_mdopt_fetch_collects_only_mode_outputs(cfg, tmp_path):
     assert result['files'] == ['crest.out', 'crest_ensemble.xyz', 'ensemble_energies.log']
     assert state.read(path)['state'] == 'fetched'
     assert facts.build_facts(path)['n_conformers'] == 2
+
+
+@pytest.mark.parametrize('failed_frames', [(2,), (1, 3)])
+def test_mdopt_reports_all_failed_frame_indices(cfg, tmp_path, failed_frames):
+    path = output_attempt(cfg, tmp_path)
+    manifest = json.loads((path / 'manifest.json').read_text())
+    manifest['science']['n_frames'] = 3
+    (path / 'manifest.json').write_text(json.dumps(manifest))
+    contents = ''.join(WATER.replace('MMFF energy=4 kcal/mol',
+                                    '1.00000000 !failed' if index in failed_frames else '-5.00000000')
+                       for index in range(1, 4))
+    (path / 'outputs' / 'crest_ensemble.xyz').write_text(contents)
+    with pytest.raises(ValueError) as error:
+        facts.build_facts(path)
+    indices = ', '.join(map(str, failed_frames))
+    assert str(error.value) == (f'CREST mdopt contains failed optimizations in frames (1-based): '
+                                f'{indices}; review before dedup')
+    assert not (path / 'mdopt.xyz').exists()
+    assert not (path / 'facts.json').exists()

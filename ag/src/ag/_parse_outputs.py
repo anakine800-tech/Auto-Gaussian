@@ -330,11 +330,13 @@ def parse_crest_mdopt(outputs, expected_frames=None):
     frames = geo.read_xyz(outputs / 'crest_ensemble.xyz')
     if expected_frames is not None and len(frames) != expected_frames:
         raise ValueError('CREST mdopt input/output frame counts differ')
+    failed = [index for index, frame in enumerate(frames, 1) if '!failed' in frame.comment.lower()]
+    if failed:
+        indices = ', '.join(map(str, failed))
+        raise ValueError(f'CREST mdopt contains failed optimizations in frames (1-based): {indices}; review before dedup')
     for frame in frames:
         if frame.symbols != frames[0].symbols:
             raise ValueError('CREST mdopt atom counts or element sequences differ')
-        if '!failed' in frame.comment.lower():
-            raise ValueError('CREST mdopt contains failed optimizations; review before dedup')
         if frame.energy is None or frame.energy_unit != 'hartree':
             raise ValueError('CREST mdopt requires a finite Hartree energy in every XYZ comment')
     text = (outputs / 'crest.out').read_text(errors='replace')
