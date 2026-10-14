@@ -137,6 +137,10 @@ def validate(text, cores, mem_gb, *, parent_chk=False):
         if re.search(r'\b(?:check|checkpoint|allcheck)\b', option[1], re.I):
             raise ValueError('Geom=Check/AllCheck is unsupported; provide explicit coordinates')
     mode = _qst_mode(route)
+    opt_options = [word.lower() for option in re.finditer(
+        r'\bopt\b\s*(?:=\s*)?(\([^()]*\)|[A-Za-z0-9]+)', route, re.I)
+        for word in re.findall(r'\b[A-Za-z][A-Za-z0-9]*\b', option[1])]
+    modredundant = 'modredundant' in opt_options
     if mode:
         structures = _qst_structures(sections, mode)
         first = structures[0]
@@ -154,8 +158,15 @@ def validate(text, cores, mem_gb, *, parent_chk=False):
     for row in geom[1:]:
         if not re.fullmatch(rf'\s*(?:[A-Z][a-z]?|\d+)\s+{number}\s+{number}\s+{number}\s*', row):
             raise ValueError('Expected finite Cartesian coordinates')
+    scan_data = {}
     if len(sections) > 3:
-        raise ValueError('Additional Gaussian input sections are not supported in this release')
+        if not modredundant or 'ts' in opt_options or len(sections) != 4:
+            raise ValueError('Additional section requires non-TS Opt=ModRedundant and exactly one block')
+        # Avoid displaying an angstrom scan range for non-angstrom input.
+        if re.search(r'\bunits?\b', route, re.I):
+            raise ValueError('ModRedundant summaries require default angstrom units; omit Units')
+        from ag._scan import modredundant as parse_modredundant
+        scan_data = parse_modredundant(sections[3], '\n'.join(geom[1:]))
     return dict(charge=int(match[1]), multiplicity=int(match[2]), route=route,
-                geometry='\n'.join(geom[1:]), n_atoms=len(geom) - 1,
+                geometry='\n'.join(geom[1:]), n_atoms=len(geom) - 1, **scan_data,
                 stereochemistry_warning='Review stereochemistry against the source structure.')

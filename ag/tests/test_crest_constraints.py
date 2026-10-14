@@ -128,8 +128,8 @@ def test_no_constraints_preserves_existing_behavior(cfg, inputs):
     assert 'constraints.inp' not in attempt.summary(cfg, m)
 
 
-@pytest.mark.parametrize('template', ['xtb', 'gaussian'])
-def test_constraints_are_crest_only(cfg, inputs, template):
+@pytest.mark.parametrize('template', ['gaussian'])
+def test_constraints_reject_gaussian(cfg, inputs, template):
     with pytest.raises(ValueError, match='only supported for the crest'):
         prepare(cfg, inputs, template=template)
 

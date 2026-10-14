@@ -166,7 +166,10 @@ def receipt(cfg, manifest, name):
 def output_names(manifest):
     from ag.render import declaration
     stem = PurePosixPath(next(r['name'] for r in manifest['inputs'] if r['name'] not in ('job.pbs', 'job.slurm', 'constraints.inp'))).stem
-    names = [filename(n.format(stem=stem)) for n in declaration(manifest['template'])['outputs']]
+    declared = declaration(manifest['template'])
+    # Scan output selection only; keep existing commands and non-scan files unchanged.
+    key = 'scan_outputs' if manifest['template'] == 'xtb' and manifest.get('science', {}).get('scan') else 'outputs'
+    names = [filename(n.format(stem=stem)) for n in declared[key]]
     if manifest.get('scheduler') == 'slurm':
         names = [n.replace('job.pbs.out', 'job.slurm.out') for n in names] + ['job.slurm.err']
     return names
