@@ -8,7 +8,8 @@ import sys
 from . import geometry as geo
 
 
-def select(frames, records, charge, maximum, rmsd, mirror, chem, bonds, align, representative="lowest"):
+def select(frames, records, charge, maximum, rmsd, mirror, chem, bonds, align, representative="lowest",
+           hydrogens="polar"):
     if representative not in {"lowest", "medoid"}:
         raise ValueError("Unknown representative method")
     rmsd = geo.nonnegative(rmsd)
@@ -25,7 +26,8 @@ def select(frames, records, charge, maximum, rmsd, mirror, chem, bonds, align, r
                                                useLegacyImplementation=False)
                       for mol in molecules):
         raise ValueError("镜像简并只适用于非手性分子 (--mirror found a specified chiral center)")
-    molecules = [geo.heavy_molecule(mol, chem) for mol in molecules]
+    heavy = [geo.heavy_molecule(mol, chem) for mol in molecules]
+    molecules = [geo.rms_molecule(mol, chem, hydrogens) for mol in molecules]
     minimum = min(frame.energy for frame in frames)
     relative = geo.relative_energies(frames, minimum)
     selected, representatives, excluded, groups = [], [], [], []
@@ -42,14 +44,18 @@ def select(frames, records, charge, maximum, rmsd, mirror, chem, bonds, align, r
                     distance = geo.best_rms(molecules[index], molecules[previous], chem, align, mirror=True)
                     if distance < rmsd and distance + 1e-7 < direct[position]:
                         representatives[position]["degeneracy"] += 1
-                        representatives[position]["members"].append({**item, "reason": "mirror", "rmsd": distance})
+                        heavy_distance = geo.best_rms(heavy[index], heavy[previous], chem, align, mirror=True)
+                        representatives[position]["members"].append({**item, "reason": "mirror", "rmsd": distance,
+                                                                     "heavy_rmsd": heavy_distance})
                         groups[position].append(index)
                         merged = True
                         break
         if not merged:
             for position, distance in enumerate(direct):
                 if distance <= rmsd:
-                    representatives[position]["members"].append({**item, "reason": "rmsd", "rmsd": distance})
+                    heavy_distance = geo.best_rms(heavy[index], heavy[selected[position]], chem, align)
+                    representatives[position]["members"].append({**item, "reason": "rmsd", "rmsd": distance,
+                                                                 "heavy_rmsd": heavy_distance})
                     groups[position].append(index)
                     merged = True
                     break
@@ -91,6 +97,8 @@ def run(args):
         return 2
     try:
         payload = json.loads(args.input.read_text())
+        # Old dedup JSON predates hydrogen selection and used heavy atoms only.
+        hydrogens = payload.get("hydrogens", "heavy")
         source_merge = payload.get("energy_basis") == "per_source_not_comparable"
         frames = (geo.read_xyz(args.input.parent / payload["xyz_file"]) if source_merge else
                   geo.load_frames([args.input.parent / payload["xyz_file"]]))
@@ -109,7 +117,7 @@ def run(args):
         working = [replace(f, energy=0.0, energy_unit="hartree") for f in frames] if source_merge else frames
         reps, excluded, selected = select(working, records, payload["charge"], args.maximum,
                                           args.rmsd, args.mirror, Chem, rdDetermineBonds, rdMolAlign,
-                                          args.representative)
+                                          args.representative, hydrogens)
         if source_merge:
             selected = [frames[rep["xyz_frame"] - 1] for rep in reps]
         stem = geo.output_stem(args.out or args.input.parent, "cluster")
@@ -117,7 +125,7 @@ def run(args):
             path = stem.with_name(f"{stem.name}-c{index:03d}.xyz")
             geo.write_xyz(path, [frame])
             rep["xyz_file"] = path.name
-        result = {"charge": payload["charge"], "rmsd_threshold": args.rmsd,
+        result = {"charge": payload["charge"], "rmsd_threshold": args.rmsd, "hydrogens": hydrogens,
                   "representative_method": args.representative, "mirror": args.mirror, "max_representatives": args.maximum,
                   "representatives": reps, "excluded": excluded}
         output = stem.with_suffix(".json")
@@ -134,7 +142,8 @@ def register(subparsers):
     parser = subparsers.add_parser("cluster", description=__doc__)
     parser.add_argument("input", type=Path, help="dedup-*.json")
     parser.add_argument("--max", dest="maximum", type=int, default=20)
-    parser.add_argument("--rmsd", type=float, default=0.5, help="Heavy-atom RMSD in angstrom")
+    parser.add_argument("--rmsd", type=float, default=0.5,
+                        help="RMSD in angstrom; hydrogen mode inherited from dedup JSON (legacy: heavy)")
     parser.add_argument("--representative", choices=("lowest", "medoid"), default="lowest")
     parser.add_argument("--mirror", action="store_true")
     parser.add_argument("--out", type=Path, help="Defaults to the dedup output directory")

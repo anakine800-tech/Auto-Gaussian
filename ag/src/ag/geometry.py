@@ -112,6 +112,30 @@ def heavy_molecule(mol, chem):
     return result
 
 
+def atom_indices(mol, hydrogens):
+    """Select original atom indices; polar H is bonded to N, O, S or P."""
+    if hydrogens not in {"heavy", "polar", "all"}:
+        raise ValueError("Unknown hydrogen mode: expected heavy, polar or all")
+    return tuple(atom.GetIdx() for atom in mol.GetAtoms()
+                 if atom.GetAtomicNum() != 1 or hydrogens == "all" or
+                 (hydrogens == "polar" and any(neighbor.GetAtomicNum() in {7, 8, 15, 16}
+                                               for neighbor in atom.GetNeighbors())))
+
+
+def rms_molecule(mol, chem, hydrogens):
+    """Filter a comparison copy only; never reorder or change the input/output atoms."""
+    indices = set(atom_indices(mol, hydrogens))
+    if not indices:
+        raise ValueError("RMSD requires at least one selected atom")
+    # Retain original order in this temporary projection. The original molecule
+    # and Frame remain untouched, including every hydrogen and its coordinates.
+    result = chem.RWMol(mol)
+    for index in reversed(range(mol.GetNumAtoms())):
+        if index not in indices:
+            result.RemoveAtom(index)
+    return result.GetMol()
+
+
 def best_rms(probe, reference, chem, align, mirror=False):
     # GetBestRMS modifies probe coordinates: copy to preserve output geometries.
     copy = chem.Mol(probe)

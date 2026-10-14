@@ -1,4 +1,4 @@
-"""Energy-window filtering and symmetry-aware heavy-atom deduplication."""
+"""Energy-window filtering and symmetry-aware conformer deduplication."""
 
 import hashlib
 import json
@@ -9,9 +9,10 @@ import sys
 from . import geometry as geo
 
 
-def deduplicate(frames, charge, rmsd, de, window, chem, bonds, align, routes=None, representative=None):
+def deduplicate(frames, charge, rmsd, de, window, chem, bonds, align, routes=None, representative=None,
+                hydrogens="polar"):
     rmsd, de, window = map(geo.nonnegative, (rmsd, de, window))
-    molecules, rejected = {}, []
+    molecules, heavy, rejected = {}, {}, []
     first = geo.infer_molecule(frames[0], charge, chem, bonds)
     key = geo.graph_key(first, chem)
     stereo = geo.stereo_key(first, chem)
@@ -26,7 +27,8 @@ def deduplicate(frames, charge, rmsd, de, window, chem, bonds, align, routes=Non
         elif geo.stereo_key(mol, chem) != stereo:
             rejected.append({**geo.record(frame, index, None), "reason": "stereo_changed"})
         else:
-            molecules[index] = geo.heavy_molecule(mol, chem)
+            molecules[index] = geo.rms_molecule(mol, chem, hydrogens)
+            heavy[index] = geo.heavy_molecule(mol, chem)
     # Only an explicit lowest request asserts a shared energy method across routes.
     comparable = routes is None or representative == "lowest"
     if routes is not None and comparable and any(f.energy is None or f.energy_unit != "hartree" for f in frames):
@@ -43,10 +45,12 @@ def deduplicate(frames, charge, rmsd, de, window, chem, bonds, align, routes=Non
             continue
         duplicate = None
         for previous in kept:
-            if routes is not None or abs(relative[index] - relative[previous]) < de:
+            if not comparable or abs(relative[index] - relative[previous]) < de:
                 distance = geo.best_rms(molecules[index], molecules[previous], chem, align)
                 if distance < rmsd:
-                    duplicate = (previous, distance)
+                    heavy_distance = (distance if hydrogens == "heavy" else
+                                      geo.best_rms(heavy[index], heavy[previous], chem, align))
+                    duplicate = (previous, distance, heavy_distance)
                     break
         if duplicate is None:
             if comparable and relative[index] > window:
@@ -55,7 +59,7 @@ def deduplicate(frames, charge, rmsd, de, window, chem, bonds, align, routes=Non
                 kept.append(index)
         else:
             rejected.append({**item, "reason": "duplicate", "representative": duplicate[0] + 1,
-                             "rmsd": duplicate[1]})
+                             "rmsd": duplicate[1], "heavy_rmsd": duplicate[2]})
     records = [{**geo.record(frames[index], index, relative[index]), "xyz_frame": position + 1}
                for position, index in enumerate(kept)]
     if routes is not None:
@@ -80,9 +84,10 @@ def run(args):
     try:
         routes = None
         if args.source:
-            if (args.inputs or args.energies or args.energy_unit or args.de is not None
-                    or (args.window is not None and args.representative != "lowest")):
-                raise ValueError("--source is geometry-only; do not combine with positional inputs or energy filters")
+            if args.inputs or args.energies or args.energy_unit:
+                raise ValueError("--source cannot combine with positional inputs, --energies or --energy-unit")
+            if args.representative != "lowest" and (args.de is not None or args.window is not None):
+                raise ValueError("--source is geometry-only without --representative lowest; do not use --de or --window")
             frames, routes = [], []
             for value in args.source:
                 name, separator, path = value.partition("=")
@@ -98,10 +103,12 @@ def run(args):
         de = 0.05 if args.de is None else args.de
         window = 3.0 if args.window is None else args.window
         kept, rejected, selected = deduplicate(frames, args.charge, args.rmsd, de,
-                                              window, Chem, rdDetermineBonds, rdMolAlign, routes, args.representative)
+                                              window, Chem, rdDetermineBonds, rdMolAlign, routes, args.representative,
+                                              args.hydrogens)
         stem = geo.output_stem(args.out, "dedup")
         xyz_path, json_path = stem.with_suffix(".xyz"), stem.with_suffix(".json")
-        result = {"charge": args.charge, "rmsd_threshold": args.rmsd, "de_kcal": None if routes is not None else de,
+        result = {"charge": args.charge, "rmsd_threshold": args.rmsd, "hydrogens": args.hydrogens,
+                  "de_kcal": None if routes is not None and args.representative != "lowest" else de,
                   "window_kcal": None if routes is not None and args.representative != "lowest" else window, "xyz_file": xyz_path.name,
                   "kept": kept, "excluded": rejected}
         if routes is not None:
@@ -126,15 +133,17 @@ def register(subparsers):
     parser = subparsers.add_parser("dedup", description=__doc__)
     parser.add_argument("inputs", nargs="*", help="XYZ files or Attempt directories containing final.xyz")
     parser.add_argument("--source", action="append", default=[], metavar="ROUTE=XYZ",
-                        help="Merge route-labelled XYZs geometrically; lowest opts in to comparable-energy ranking")
+                        help="Merge route-labelled XYZs geometrically; lowest opts in to comparable-energy ranking and --de")
     parser.add_argument("--representative", choices=("lowest",),
                         help="With --source, assert same-method Hartree energies and select the lowest-energy member")
     parser.add_argument("--charge", type=int, required=True)
     parser.add_argument("--energies", help="One energy per row, optionally preceded by a 1-based index")
     parser.add_argument("--energy-unit", choices=("hartree", "kcal/mol"),
                         help="Override units; two-column crest.energies defaults to kcal/mol, otherwise Hartree")
-    parser.add_argument("--rmsd", type=float, default=0.125, help="Heavy-atom RMSD in angstrom")
-    parser.add_argument("--de", type=float, help="Duplicate energy tolerance in kcal/mol (default 0.05; positional inputs only)")
+    parser.add_argument("--hydrogens", choices=("heavy", "polar", "all"), default="polar",
+                        help="RMSD atoms: heavy only, plus N/O/S/P-bound H (default polar), or all atoms")
+    parser.add_argument("--rmsd", type=float, default=0.125, help="Selected-atom RMSD in angstrom")
+    parser.add_argument("--de", type=float, help="Duplicate energy tolerance in kcal/mol (default 0.05; positional inputs or --source --representative lowest)")
     parser.add_argument("--window", type=float, help="Energy window in kcal/mol (default 3; positional inputs or --source --representative lowest)")
     parser.add_argument("--out", type=Path, required=True,
                         help="Output directory: point to the study's analyses/ outside the repository")

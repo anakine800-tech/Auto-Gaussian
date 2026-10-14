@@ -65,24 +65,33 @@ ETKDG 的多帧 XYZ 必须先按 [CREST 卡片](../../auto-g16-recipes/cards/cre
 把审阅过的多帧 XYZ 合并（以下路径均为 study 内占位符）：
 
 ```text
-ag dedup --source crest=crest.xyz --source etkdg=attempts/ETKDG_MDOPT/mdopt.xyz --representative lowest --window 6 --charge 0 --out analyses --json
+ag dedup --source crest=crest.xyz --source etkdg=attempts/ETKDG_MDOPT/mdopt.xyz --representative lowest --de 0.05 --hydrogens polar --window 6 --charge 0 --out analyses --json
 ag coverage --merged analyses/dedup-TIMESTAMP.json --energies attempts/SP_A attempts/SP_B --window 3 --out analyses/coverage-01.md
 ```
 
-`--source` 按身份与重原子 RMSD 合并，重复构象的 `sources` 保留全部路线，
+`--hydrogens heavy|polar|all` 默认 polar，比较重原子及 N/O/S/P 上的氢，
+保留 OH 等极性氢朝向；普通甲基转动仍可合并。涉及氢键或参与反应的氢必须
+参与构象区分，若包括 C–H 等其他氢，选择 all。heavy 仅比较重原子。
+原始原子顺序与坐标保持不变，仅临时比较副本筛选原子并做对称性比对。
+JSON 的 hydrogens 记录实际模式；每次合并的 heavy_rmsd 是重原子 RMSD，
+rmsd 是实际判定用的 RMSD（Å），两者分别拟合，不能互换作判据。
+
+`--source` 按身份与所选原子的 RMSD 合并，重复构象的 `sources` 保留实际合并的全部路线，
 `members` 保留原始文件、帧号、路线与原能量。显式 `--representative lowest`
 表示人已确认各来源能量可比，要求所有帧为有限 Hartree 能量，按最低能选代表，
-并接受 `--window 6`。CREST 来源取 `crest_conformers.xyz` 的绝对能量注释。
+并接受 `--window 6`；合并还要求能差小于 `--de`（默认 0.05 kcal/mol，可显式调整）。CREST 来源取 `crest_conformers.xyz` 的绝对能量注释。
 代码不能从 Hartree 单位验证相同方法，GFN-FF 与 GFN2-xTB 不能混排；
 定向约束路线只有在确认约束及能量口径一致后才加入此窗口。
 
 省略 lowest 时保留原来的几何合并行为：代表按输入次序，允许不同方法/单位，
-不接受 `--window`；合并来源始终不接受 `--de`、`--energies`、`--energy-unit`
-或位置输入。旧位置输入能量去重不变；不能靠转换单位比较力场与 xTB 能量。
+不接受 `--window` 或 `--de`；合并来源始终不接受 `--energies`、`--energy-unit`
+或位置输入。位置输入的能量规则不变，但氢模式默认改为 polar；不能靠转换单位比较力场与 xTB 能量。
 
 对合并后的每个候选原样制作 DFT 单点输入，使用一致方法、基组、溶剂、
 电荷与多重度。`ag coverage` 读取已有 facts，不运行 DFT、不重写 facts。
-对应按候选与 Attempt **输入**的元素顺序及每原子坐标距离 ≤ 1e-4 Å 建立；
+coverage 与 cluster 自动继承 dedup 的 hydrogens；旧 JSON 缺少字段时按 heavy
+解释。旧 heavy 结果已丢失的氢朝向无法恢复，涉及相关氢时重新去重。
+对应按候选与 Attempt **输入**的元素顺序及所选原子坐标距离 ≤ 1e-4 Å 建立；
 不按名称、也不旋转/平移或交换原子。为保证可追溯，输入须符合 manifest 哈希。
 重复能量映射、缺失或歧义均列为未匹配，不静默挑最低值。
 若优化后几何变了，不能把原候选名称当成对应依据；重新整理候选和输入映射。
@@ -126,10 +135,11 @@ walltime（只加 walltime 不会自动增加已正常结束的采样）；增�
 ## 聚类代表
 
 `ag cluster --representative lowest|medoid` 默认 lowest，保持旧输入的最低能
-代表行为。medoid 在原有簇内选到其他成员重原子 RMSD 之和最小的成员；
+代表行为。medoid 在原有簇内选到其他成员的所选原子 RMSD 之和最小的成员；
 平局按能量、输入顺序，使用 `--mirror` 时同原有镜像能差条件取更小镜像 RMSD。
 聚类分组仍由原算法生成；输出 `representative_method`、medoid RMSD 总和，
-成员中的 reason/rmsd 是相对原簇种子的归属证据，`cluster_seed_index` 标识该种子。
+成员中的 reason/rmsd/heavy_rmsd 是相对原簇种子的归属证据，`cluster_seed_index` 标识该种子。
+直接分组、镜像判断及 medoid 均使用继承的氢模式；镜像合并的两个 RMSD 都比较镜像坐标。
 未经能量统一的来源合并集合只允许 medoid 且不启用镜像能差判断，平局按输入顺序。
 ETKDG 经 `--mdopt` 且按上述 lowest 模式合并后，已建立同层级能量集合，
 可继续用 `ag cluster --representative lowest`。medoid 是几何中心
