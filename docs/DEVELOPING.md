@@ -49,15 +49,12 @@
 - `_profile_sources.py`：反应曲线的来源、物种、方法和审阅检查。
 - `profile.py`：守恒反应自由能曲线、能垒和敏感性分析。
 
-## 提交流程：顺序与当前差异
+## 提交流程：规范顺序
 
-T20 要求记录的固定顺序是：
-**声明 → 确认 → 核数和预算 → 建目录 → 上传 → 哈希 → qsub/sbatch → submission.json**。
-这里“声明”指以 `O_EXCL` 创建 `.submit-claim`；有声明就不能再次提交该 Attempt。
-
-**当前实现尚不完全符合上述顺序。** `submit.submit` 及已合并 [#209](https://github.com/anakine800-tech/Auto-Gaussian/pull/209)、[#224](https://github.com/anakine800-tech/Auto-Gaussian/pull/224) 的实际顺序为：
+规范顺序与当前 `submit.submit` 实现一致，参见已合并 [#209](https://github.com/anakine800-tech/Auto-Gaussian/pull/209)、[#224](https://github.com/anakine800-tech/Auto-Gaussian/pull/224)：
 锁内校验输入和集群 → 核数/预算预检 → Mac 确认 → 再校验字节 → 声明 → Slurm 预算预留 → submitting → 复查占用 → 建目录 → 上传并逐文件核对大小/SHA-256 → qsub/sbatch → submission.json → submitted。
-因此取消确认时 Attempt 仍是 prepared、尚无声明；本纯文档任务不调整这段行为，顺序变更需另开代码任务。
+这里“声明”指以 `O_EXCL` 创建 `.submit-claim`；有声明就不能再次提交该 Attempt。
+声明放在确认之后，是为了让人在弹窗取消时 Attempt 仍保持 prepared、没有声明，之后可正常提交，不因取消而消耗一次提交机会。
 
 核数统计包含该用户在目标集群的全部作业，不能只统计 ag 作业；还要计入已提交但尚未读回的占用。
 PBS 每批确认前核验一次节点容量；每项声明后复查队列，沿用已确认的有效上限；核验不成立时严格计入排队核数。
