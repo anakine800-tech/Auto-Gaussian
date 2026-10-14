@@ -364,6 +364,8 @@ def test_existing_ag_thermo_output_with_direct_ts_and_composite(tmp_path):
     ts_log = ts / 'outputs' / 'input.log'
     ts_log.write_text(ts_log.read_text().replace('2017.6012', '-2017.6012'))
     (ts / 'review.md').write_text('Synthetic TS\nprofile_review: pass\nimaginary_mode_matches: true\n')
+    from test_thermo import sp_input
+    sp_input(sp, low)
     table = calculate_thermo([low], spc={str(low): str(sp)}, temp=310)
     dump(tmp_path / 'analyses' / 'thermo.json', table)
     data = {'reference': 'R', 'species': {
