@@ -33,7 +33,13 @@ stereo annotations or change the source drawing to make an error disappear.
 3. **Ask the researcher to confirm the structure (milestone 1).** Record their
    confirmation in `study.md` before screening. A successful script is not a
    human signature. Do not invent a signature from a test run.
-4. Optionally follow `references/conformer-workflow.md` and run
+4. Follow `references/conformer-workflow.md`: TS families, key intermediates and
+   complexes require two sampling routes; flexible molecules are also recommended.
+   Use CREST + ETKDG for supported minima, CREST + hypothesis-directed constrained
+   CREST for TS/complexes. Construct and review the proposed interaction/attack
+   direction before constrained CREST and label that route `directed`; do not feed
+   disconnected complexes/TS into the connected-only force-field script. The
+   coverage report cannot prove completeness. For supported minima run
    `scripts/prepare_conformers.py generate SOURCE --study STUDY --name ff-screen
    --multiplicity MULT`. Inspect warnings and force-field convergence. Keep the
    original source for ChemDraw so explicit-H wedge information survives.
