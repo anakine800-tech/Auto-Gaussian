@@ -25,7 +25,7 @@ def core_command(args):
         return int(args.action == 'check' and (not result['complete'] or result['stale']))
     if command == 'clusters':
         from ag.clusters import describe
-        result = describe(cfg)
+        result = describe(cfg, verify_studies_root=args.verify_studies_root)
     elif command == 'init':
         result = study.init(cfg, args.directory)
     elif command == 'prepare':
@@ -98,6 +98,9 @@ def register(subparsers):
             p.add_argument('--cluster', default='default')
         if name == 'init':
             p.add_argument('directory')
+        elif name == 'clusters':
+            p.add_argument('--verify-studies-root', metavar='PATH',
+                           help='Compare resolved study roots; return only a boolean, never paths')
         elif name == 'review':
             actions = p.add_subparsers(dest='action', required=True)
             for action in ('init', 'check'):

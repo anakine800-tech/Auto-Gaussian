@@ -1,9 +1,11 @@
 """Local, allowlisted cluster metadata for frontend discovery."""
+from pathlib import Path
+
 from ag import budget
 from ag.config import scheduler_kind, select_cluster
 
 
-def describe(cfg):
+def describe(cfg, *, verify_studies_root=None):
     rows = []
     for name in sorted(cfg.get('clusters', {'default': cfg})):
         selected = select_cluster(cfg, name)
@@ -26,4 +28,12 @@ def describe(cfg):
         if summary is not None:
             row['budget'] = summary
         rows.append(row)
-    return dict(clusters=rows)
+    result = dict(clusters=rows)
+    if verify_studies_root is not None:
+        try:
+            result['studies_root_matches'] = (
+                Path(verify_studies_root).resolve() == Path(cfg['local']['studies_root']).resolve())
+        except RuntimeError as exc:
+            # Python 3.11 reports symlink loops with a path-bearing RuntimeError.
+            raise ValueError('Cannot resolve studies root') from exc
+    return result

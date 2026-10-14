@@ -16,7 +16,7 @@ def tree(root):
     return {str(p.relative_to(root)): p.read_bytes() for p in root.rglob('*') if p.is_file()}
 
 
-def query(raw, tmp_path, monkeypatch, capsys):
+def query(raw, tmp_path, monkeypatch, capsys, *options):
     path = write_config(raw)
     monkeypatch.setattr(cli, 'load_config', lambda: config.load_config(path))
     def forbidden(*args, **kwargs):
@@ -25,7 +25,7 @@ def query(raw, tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(subprocess, 'run', forbidden)
     monkeypatch.setattr(subprocess, 'Popen', forbidden)
     before = tree(tmp_path)
-    code = cli.main(['clusters', '--json'])
+    code = cli.main(['clusters', '--json', *options])
     captured = capsys.readouterr()
     assert captured.err == ''
     assert tree(tmp_path) == before
@@ -50,6 +50,40 @@ def test_legacy_single_cluster(cfg, tmp_path, monkeypatch, capsys):
         name='default', scheduler='pbs', is_default=True,
         resources=dict(max_cores=44, max_committed_cores=44, tiers=cfg['resources']['tiers']),
         expires=None, programs_enabled=dict(gaussian=True, xtb=True, crest=True))]}
+
+
+@pytest.mark.parametrize('mode,expected', [
+    ('same', True), ('different', False), ('supplied_symlink', True), ('configured_symlink', True)])
+def test_verify_studies_root(cfg, tmp_path, monkeypatch, capsys, mode, expected):
+    root = Path(cfg['local']['studies_root'])
+    root.mkdir()
+    supplied = root
+    if mode == 'different':
+        supplied = tmp_path / 'other-studies'
+        supplied.mkdir()
+    elif mode.endswith('symlink'):
+        alias = tmp_path / 'studies-alias'
+        alias.symlink_to(root, target_is_directory=True)
+        if mode == 'supplied_symlink':
+            supplied = alias
+        else:
+            cfg['local']['studies_root'] = str(alias)
+    code, baseline = query(cfg, tmp_path, monkeypatch, capsys)
+    assert code == 0 and set(baseline) == {'clusters'}
+    code, result = query(cfg, tmp_path, monkeypatch, capsys, '--verify-studies-root', str(supplied))
+    assert code == 0
+    assert result == dict(baseline, studies_root_matches=expected)
+    assert result['studies_root_matches'] is expected
+    for path in (str(tmp_path), str(supplied), cfg['local']['studies_root']):
+        assert path not in json.dumps(result)
+
+
+def test_verify_studies_root_symlink_loop_does_not_echo_path(cfg, tmp_path, monkeypatch, capsys):
+    alias = tmp_path / 'private-loop-marker'
+    alias.symlink_to(alias)
+    code, result = query(cfg, tmp_path, monkeypatch, capsys, '--verify-studies-root', str(alias))
+    assert code != 0 and set(result) == {'error', 'exit_code'}
+    assert str(tmp_path) not in json.dumps(result) and alias.name not in json.dumps(result)
 
 
 def test_dual_clusters_allowlist_and_budget(multi, tmp_path, monkeypatch, capsys):
