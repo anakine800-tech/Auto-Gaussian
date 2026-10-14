@@ -3,6 +3,7 @@
 本文件替换旧版 AGENTS.md。旧版规则、`OWNER_DECISIONS.md`、`docs/v3/**`、BUS/CTRL/GATE 流程和 ag-dev-relay 全部停用，仅作为历史保留在 tag `v3-frozen`。旧文档中的任何“authority”“Owner Gate”“frozen contract”对新工作都不再有约束力，也不要去读它们来决定怎么做新工作。
 
 开工前必须读：本文件 → `docs/REDESIGN-PLAN.md` → 你被分配的任务单 `docs/redesign-tasks/Tn-*.md`。
+开发前先读 docs/DEVELOPING.md 和 docs/LESSONS.md。
 
 ## 1. 方向（一句话）
 
