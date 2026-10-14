@@ -101,7 +101,7 @@ def all_attempts(cfg, name=None):
     return result
 
 
-def prepare(cfg, *, study_name, template, input_path, tier, walltime, label, params=None, parents=None, method_basis='兜底方法', constraints=None, cluster='default', card=None, parent_chk=None):
+def prepare(cfg, *, study_name, template, input_path, tier, walltime, label, params=None, parents=None, method_basis, constraints=None, cluster='default', card=None, parent_chk=None):
     cfg = select_cluster(cfg, cluster)
     s = study.locate(cfg, study_name)
     if not (s / 'study.md').is_file() or not (s / 'attempts').is_dir():
@@ -162,7 +162,7 @@ def prepare(cfg, *, study_name, template, input_path, tier, walltime, label, par
         params['--cinp' if template == 'crest' else '--input'] = 'constraints.inp'
         science['route'] = render.parameters(template, params)
     if not isinstance(method_basis, str) or not method_basis.strip():
-        raise ValueError('Method basis must be a DOI/reference or fallback declaration')
+        raise ValueError('Method basis must be nonblank: 文献先例（DOI 及位置）、本课题既有方案（来源；不是文献先例，精度未经验证）或兜底方法声明')
     card_record = cards.snapshot(card) if card is not None else None
     parents = parents or []
     for parent in parents:

@@ -50,7 +50,7 @@ def prepare_card(cfg, tmp_path, name='opt-freq'):
     study.init(cfg, 'smoke')
     source = tmp_path / 'water.gjf'
     source.write_text(INPUT.replace(' SP', ' Opt Freq'))
-    manifest = attempt.prepare(cfg, study_name='smoke', template='gaussian', input_path=source,
+    manifest = attempt.prepare(cfg, method_basis='兜底方法：合成测试', study_name='smoke', template='gaussian', input_path=source,
                                tier='simple', walltime='00:30:00', label='opt', card=name)
     path = attempt.find(cfg, manifest['attempt_id'])
     return path, manifest
@@ -230,7 +230,7 @@ def test_cli_prepare_review_are_local(cfg, tmp_path, repository, monkeypatch, ca
     source.write_text(INPUT)
     monkeypatch.setattr(cli, 'load_config', lambda **_: cfg)
     monkeypatch.setattr('ag.transport.SSHTransport', lambda *a, **k: pytest.fail('local review must not connect'))
-    assert cli.main(['prepare', '--study', 'smoke', '--template', 'gaussian', '--input', str(source),
+    assert cli.main(['prepare', '--method-basis', '兜底方法：合成测试', '--study', 'smoke', '--template', 'gaussian', '--input', str(source),
                      '--tier', 'simple', '--walltime', '00:30:00', '--label', 'sp', '--card', 'opt-freq', '--json']) == 0
     m = json.loads(capsys.readouterr().out)
     assert m['card']['name'] == 'opt-freq'
@@ -348,7 +348,7 @@ def test_card_and_slurm_cluster_survive_integration(multi, tmp_path, repository,
     source.write_text(INPUT.replace(' SP', ' Opt Freq'))
     monkeypatch.setattr(cli, 'load_config', lambda **_: multi)
     monkeypatch.setattr('ag.transport.SSHTransport', lambda *a, **k: pytest.fail('prepare/review are local'))
-    assert cli.main(['prepare', '--study', 'smoke', '--template', 'gaussian', '--input', str(source),
+    assert cli.main(['prepare', '--method-basis', '兜底方法：合成测试', '--study', 'smoke', '--template', 'gaussian', '--input', str(source),
                      '--tier', 'simple', '--walltime', '01:30:00', '--label', 'opt',
                      '--cluster', 'batch', '--card', 'opt-freq', '--json']) == 0
     m = json.loads(capsys.readouterr().out)

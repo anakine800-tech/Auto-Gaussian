@@ -224,3 +224,36 @@ def test_recipe_knowledge_ids_exist():
         text = path.read_text()
         ids = set(re.findall(r'GKB-\d{4}', text))
         assert ids and ids <= known, f'{path.name}: missing/unknown GKB link {ids - known}'
+
+
+def check_prepare_method_basis(text):
+    """Full study-scoped examples must not silently inherit a fallback basis."""
+    for line, command in commands(text):
+        tokens = shlex.split(re.sub(r'<[^>]*>', 'VALUE', command))
+        if tokens[:2] != ['prepare', '--study'] or any(t in ('...', '…') for t in tokens):
+            continue
+        assert any(t.split('=', 1)[0] == '--method-basis' for t in tokens), (
+            f'line {line}: ag prepare --study example must include --method-basis')
+
+
+@pytest.mark.parametrize('path', sorted(CARDS.glob('*.md')) +
+                         sorted((SKILLS / 'auto-g16-study').rglob('*.md')),
+                         ids=lambda p: str(p.relative_to(SKILLS)))
+def test_prepare_examples_have_explicit_method_basis(path):
+    check_prepare_method_basis(path.read_text())
+
+
+@pytest.mark.parametrize('wrapper', ('`{command}`', '```sh\n{command}\n```',
+                                     '```sh\n{command} \\\n  --json\n```'))
+@pytest.mark.parametrize('template', ('gaussian', 'xtb', 'crest'))
+def test_prepare_basis_checker_catches_missing_parameter(wrapper, template):
+    command = (f'ag prepare --study <study_id> --template {template} --input <input> '
+               '--tier simple --walltime 00:30:00 --label example')
+    with pytest.raises(AssertionError, match='must include --method-basis'):
+        check_prepare_method_basis(wrapper.format(command=command))
+    for basis in (' --method-basis <文献先例 DOI 及位置 / 本课题既有方案及来源 / 兜底方法声明>',
+                  ' --method-basis="兜底方法：合成测试"'):
+        check_prepare_method_basis(wrapper.format(command=command + basis))
+    # A mention inside another argument is not the method-basis option.
+    with pytest.raises(AssertionError, match='must include --method-basis'):
+        check_prepare_method_basis(wrapper.format(command=command + ' --card "--method-basis text"'))

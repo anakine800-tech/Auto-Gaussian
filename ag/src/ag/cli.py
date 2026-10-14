@@ -127,7 +127,9 @@ def register(subparsers):
             p.add_argument('--tier', choices=('mini', 'simple', 'general', 'complex'), required=True)
             p.add_argument('--walltime', required=True)
             p.add_argument('--label', required=True)
-            p.add_argument('--method-basis', default='兜底方法')
+            p.add_argument('--method-basis', required=True,
+                           metavar='文献先例/本课题既有方案/兜底方法',
+                           help='文献先例：DOI 及位置；本课题既有方案：来源，且声明不是文献先例、精度未经验证；兜底方法：明确声明')
             p.add_argument('--parent', action='append', default=[])
             p.add_argument('--parent-chk', help='Completed parent Attempt ID:checkpoint filename')
             p.add_argument('--relation', action='append', default=[])

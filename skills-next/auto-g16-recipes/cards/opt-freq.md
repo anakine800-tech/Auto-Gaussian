@@ -45,7 +45,7 @@ TS 族、关键中间体、复合物必须双路线，可旋转键较多也建�
 [方法表](../../auto-g16-study/references/acceptance-methods.md#数值设置与热化学依据)，并随实际结果记录。
 
 ```text
-ag prepare --study <study_id> --template gaussian --input <conformer.gjf> --tier simple --walltime 24:00:00 --label optfreq-c01
+ag prepare --study <study_id> --template gaussian --input <conformer.gjf> --tier simple --walltime 24:00:00 --label optfreq-c01 --method-basis <文献先例 DOI 及位置 / 本课题既有方案及来源（不是文献先例，精度未经验证） / 兜底方法声明>
 ```
 
 若上游来自 CREST Attempt，补 `--parent <crest_id> --relation conformer_of`；本地 RDKit 产物不是 Attempt，不伪造 parent，在 study 记录结构来源。

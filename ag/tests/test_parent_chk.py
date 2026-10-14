@@ -38,7 +38,7 @@ def child(cfg, tmp_path, parent, **changes):
                    parents=[dict(attempt_id=manifest['attempt_id'], relation='irc_from')],
                    parent_chk=manifest['attempt_id'] + ':water.chk')
     options.update(changes)
-    m = attempt.prepare(cfg, **options)
+    m = attempt.prepare(cfg, method_basis='兜底方法：合成测试', **options)
     return attempt.find(cfg, m['attempt_id']), m
 
 
@@ -95,7 +95,7 @@ def test_local_declaration_cli_and_summary(cfg, parent, tmp_path, monkeypatch, c
     attempt.verified_files(cfg, p, m)
     monkeypatch.setattr(cli, 'load_config', lambda: cfg)
     monkeypatch.setattr('ag.transport.SSHTransport', lambda *a, **kw: pytest.fail('prepare must be local'))
-    assert cli.main(['prepare', '--study', 'smoke', '--template', 'gaussian',
+    assert cli.main(['prepare', '--method-basis', '兜底方法：合成测试', '--study', 'smoke', '--template', 'gaussian',
                      '--input', str(tmp_path / 'child.gjf'), '--tier', 'simple',
                      '--walltime', '00:05:00', '--label', 'cli', '--parent', parent[0].name,
                      '--relation', 'irc_from', '--parent-chk', parent[0].name + ':water.chk', '--json']) == 0
@@ -546,7 +546,7 @@ def test_legacy_parent_is_bound_to_default(cfg, prepared, tmp_path):
 def bound_slurm_parent(multi, tmp_path, parent):
     source = tmp_path / 'batch.gjf'
     source.write_text(INPUT)
-    manifest = attempt.prepare(multi, study_name='smoke', template='gaussian', input_path=source,
+    manifest = attempt.prepare(multi, method_basis='兜底方法：合成测试', study_name='smoke', template='gaussian', input_path=source,
                                tier='simple', walltime='00:30:00', label='batch', cluster='batch')
     path = attempt.find(multi, manifest['attempt_id'])
     submission.record(path, manifest, '42')

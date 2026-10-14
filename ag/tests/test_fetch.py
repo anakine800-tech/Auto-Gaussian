@@ -208,7 +208,7 @@ def test_add_missing_xtb_current_declaration_includes_scheduler_output(cfg, prep
     # Prepared study is reused, but xTB files and all remote bytes are synthetic.
     xyz = tmp_path / 'water.xyz'
     xyz.write_text('3\nwater\nO 0 0 0\nH 0 0 1\nH 0 1 0\n')
-    manifest = attempt.prepare(cfg, study_name='smoke', template='xtb', input_path=xyz,
+    manifest = attempt.prepare(cfg, method_basis='兜底方法：合成测试', study_name='smoke', template='xtb', input_path=xyz,
                                tier='simple', walltime='00:10:00', label='xtb')
     path = attempt.find(cfg, manifest['attempt_id'])
     finish(path)
