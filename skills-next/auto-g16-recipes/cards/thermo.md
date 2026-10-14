@@ -16,13 +16,18 @@
 
 非手性分子（如正丁烷）使用 `ag cluster --mirror` 合并镜像构象：anti 的简并度为 1，两个 gauche 合并为一个代表、简并度为 2；gauche 只需一个 Opt+Freq，热化学中对该代表计入权重 2。保留初筛聚类的镜像成员对应关系，不能因为最终只计算了一个代表就丢掉其简并度，也不能再另列其镜像重复计权。手性分子不要使用 `--mirror`。
 
-无 SP 时用频率层级 qRRHO G；复合方案为 `E_SP + (G_qRRHO,low − E_elec,low)`，核实工具的配对和标准态处理避免重复修正。布居满足 `p_i = d_i exp(−ΔG_i/RT) / Σ_j d_j exp(−ΔG_j/RT)`，G 与 RT 必须使用一致单位。
+无 SP 时用频率层级 qRRHO G；复合方案为 `E_SP + (G_qRRHO,low − E_elec,low)`，核实工具的配对和标准态处理避免重复修正。SP 输入必须保留频率最终几何的元素与原子顺序；工具按全部原子的固定行号做 Kabsch 对齐（仅旋转、平移），要求 RMSD ≤ 1e-3 Å，不进行原子重排或镜像反射。布居满足 `p_i = d_i exp(−ΔG_i/RT) / Σ_j d_j exp(−ΔG_j/RT)`，G 与 RT 必须使用一致单位。
 
 计算反应能、能垒等需要比较不同物种时，分别汇总各物种的构象集合，使用 `ag thermo` 输出的 **`ensemble_G`（构象系综自由能）** 按相应化学计量进行能量比较。`weighted_mean_G` 只用于描述构象分布，不用于能量比较，不能替代 `ensemble_G`。若研究选用“最低构象”的做法，须在 `study.md` 说明所用构象、选用依据和比较口径。
 
 反应自由能剖面、能垒和通道选择性转 [profile](profile.md)（R13/R14）；
 本卡只汇总同一物种极小点。研究温度须与实验对齐，不能不加说明地沿用
 298.15 K；先核对当前工具支持所需设置，再报告结果。
+
+输出的 `H/S/G` 为单点替换后的 RRHO，`qh_H/qh_S/qh_G` 为同温度、同浓度的 qRRHO；`frequency_rrho` 保留未替换电子能的原始 RRHO H/S/G。能量单位为 Hartree，熵为 Hartree/K。
+审计分解为 `qh_G = frequency_rrho_G_1atm + spc_correction + low_frequency_correction + standard_state_correction + concentration_correction`。
+低频修正为 qRRHO G − RRHO G；标准态修正为 `RT ln(RT × 1 mol/L / 1 atm)`，已包含在所报 G 中，不能再次相加。非 1 M 时，另列从 1 M 到指定浓度的 `RT ln(c / 1 mol/L)`。
+每行的构象简并度 `degeneracy`（d_i）与旋转对称数 `rotational_symmetry_number`（σ_i）分别记录来源；后者为 GoodVibes 实际采用的日志值，缺失时明确标为默认 1。默认值不等于已审阅的物理对称数。反应路径数须在机理说明中另行记录，不作为这里的 d_i 或 σ_i。
 
 ## 4. 资源建议
 
@@ -37,7 +42,8 @@
 ## 6. 结果判据清单
 
 - 工具成功并报告要求的版本及设置；所有代表具有有限的能量、修正和布居，没有静默漏掉失败记录。
-- 原始 RRHO 与最终 qRRHO G 分清，记录低频处理及每个代表的简并度。< 50 cm⁻¹ 的频率结合 opt-freq 审阅，不用 qRRHO 掩盖虚频。
+- 工具运行成功不代表配对正确，要以输出里的 `pairing_evidence` 为准：核对 SP 输入与频率最终几何的 SHA-256、固定行号 Kabsch RMSD 及来源 Attempt；无 SPC 时此项为 null，不能当作已验证的配对。
+- 同温度、同浓度的原始 RRHO 与最终 qRRHO H/S/G 分清，核对单点替换、低频和标准态分解，以及每个代表的 d_i、实际 σ_i 和来源。< 50 cm⁻¹ 的频率结合 opt-freq 审阅，不用 qRRHO 掩盖虚频。
 - 相对能量零点明确，单位换算明确；布居均非负且总和在数值舍入误差内为 1（百分数为 100%）。
 - 将输出表写入 `study.md`：`代表 | Attempt | 简并度 | qRRHO G (Hartree) | ΔG (kcal/mol) | 布居 (%)`；复合方案另列 E_SP 与低层级修正。
 - 跨物种能量比较记录各物种的 `ensemble_G`、单位及化学计量，不使用 `weighted_mean_G`；采用“最低构象”时，核对 `study.md` 已说明该选择。
@@ -54,3 +60,4 @@
 - 力场 / xTB 排序不是最终 Gibbs 布居；必须在同一化学身份与方法栈内比较。来源：`skills/auto-g16-rtwin-pbs/references/scientific-workflows.md`、`skills/auto-g16-view-rt-win/references/conformer-workflow.md`。
 - 标准态修正按独立物种计数，不能对整个反应只加一次；各物种的构象集合分别汇总，再比较系综自由能。来源：`skills/auto-g16-rtwin-pbs/references/scientific-workflows.md`。
 - 旧文档要求另议低频处理，新方案已选定 D21 qRRHO；保留“报告低频”的经验，不沿用其未选定处理的旧流程。来源：`skills/auto-g16-rtwin-pbs/references/scientific-workflows.md`。
+- SMD 下的 H/S 分项不能当成实验溶液中的焓熵分解；这里只是同一热化学模型下的审计分项。
