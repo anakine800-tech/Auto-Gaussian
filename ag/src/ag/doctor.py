@@ -23,7 +23,7 @@ def doctor(cfg, transport):
         if not visible or (cfg.get('partition') and cfg['partition'] not in visible):
             raise ValueError('Configured Slurm partition is not visible')
         history = require_ok(transport.run(remote.slurm_history(username)), 'Slurm accounting history')
-        history_available = bool(slurm.parse_accounting(history, allow_arrays=True))
+        history_available = bool(slurm.parse_accounting(history, username=username, allow_arrays=True))
         storage_kib = storage(cfg, transport)
     else:
         require_ok(transport.run(remote.queues()), 'scheduler queues')
@@ -34,7 +34,9 @@ def doctor(cfg, transport):
     for name, path in paths.items():
         require_ok(transport.run(remote.executable(path)), f'{name} executable')
     checkpoint = parent_chk_environment(transport)
-    return dict(ok=history_available is not False and checkpoint['ok'], parent_chk=checkpoint, storage_kib=storage_kib, expiry_warning=budget.expiry_warning(cfg), accounting_history=history_available,
+    if not checkpoint['ok']:
+        print(checkpoint['note'], file=sys.stderr, flush=True)
+    return dict(ok=history_available is not False, parent_chk=checkpoint, storage_kib=storage_kib, expiry_warning=budget.expiry_warning(cfg), accounting_history=history_available,
                 accounting_note=('No historical jobs visible; accounting availability remains unverified' if history_available is False else None),
                 cluster=cfg.get('_cluster', 'default'), ssh=True, identity=True, scheduler=True, allowed_root=True,
                 programs=list(paths), occupied_cores=used,
@@ -50,7 +52,10 @@ def storage(cfg, transport):
 
 
 def parent_chk_environment(transport):
-    value = require_ok(transport.run(remote.parent_chk_environment()), 'parent chk Python/proc environment')
+    result = transport.run(remote.parent_chk_environment())
+    if result.returncode == 127:
+        return dict(ok=False, python_version=None, proc_fd=None, note='父 chk 功能不可用：远端没有 python3')
+    value = require_ok(result, 'parent chk Python/proc environment')
     match = re.fullmatch(r'Python (\d+)\.(\d+)\.(\d+)\nproc_fd=(yes|no)\n?', value.strip())
     if match is None:
         raise ValueError('Invalid parent chk Python/proc environment response')
@@ -59,4 +64,4 @@ def parent_chk_environment(transport):
     supported = version >= (3, 6, 0)
     return dict(ok=supported and proc_fd, python_version='.'.join(str(n) for n in version),
                 proc_fd=proc_fd, note=None if supported and proc_fd else
-                'Parent chk requires Python >= 3.6 and readable /proc/self/fd')
+                '父 chk 功能不可用：需要 Python >= 3.6 和可读的 /proc/self/fd')

@@ -20,7 +20,7 @@ def parse_queue(text):
     jobs = []
     seen = set()
     for line in text.splitlines():
-        fields = line.split('|')
+        fields = [field.strip() for field in line.split('|')]
         if len(fields) != 7:
             raise ValueError('Invalid squeue record; cannot count cores')
         job, name, owner, state, cpus, elapsed, partition = fields
@@ -45,14 +45,18 @@ def core_breakdown(jobs, username):
     return running, queued
 
 
-def parse_accounting(text, job_id=None, *, allow_arrays=False):
+def parse_accounting(text, job_id=None, *, name=None, username=None, allow_arrays=False):
     jobs = []
     seen = set()
     for line in text.splitlines():
-        fields = line.split('|')
-        if len(fields) != 5:
+        fields = [field.strip() for field in line.split('|')]
+        if len(fields) != 7:
             raise ValueError('Invalid sacct record')
-        job, state, exitcode, elapsed, cpus = fields
+        job, job_name, owner, state, exitcode, elapsed, cpus = fields
+        if (not job_name or not re.fullmatch(r'[A-Za-z0-9_.-]+', owner)
+                or (name is not None and job_name != name)
+                or (username is not None and owner != username)):
+            raise ValueError('sacct name/owner identity mismatch')
         if allow_arrays:
             if not re.fullmatch(r'[1-9][0-9]*(?:_[0-9]+|\+[0-9]+)?', job):
                 raise ValueError('Invalid sacct allocation identity')
