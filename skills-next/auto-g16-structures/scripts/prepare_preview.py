@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Source: skills/auto-g16-view-rt-win/scripts/prepare_preview.py (T4 migration).
+# Source: archive/skills/auto-g16-view-rt-win/scripts/prepare_preview.py (T4 migration).
 """Read a structure and write its identity summary and 2D preview for milestone 1."""
 
 from __future__ import annotations

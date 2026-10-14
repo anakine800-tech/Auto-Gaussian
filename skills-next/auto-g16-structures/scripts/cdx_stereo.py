@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Source: skills/auto-g16-chemdraw-pipeline/scripts/cdx_stereo.py (T4 migration).
+# Source: archive/skills/auto-g16-chemdraw-pipeline/scripts/cdx_stereo.py (T4 migration).
 """Load ChemDraw files without losing explicit-H wedge stereochemistry."""
 
 from __future__ import annotations

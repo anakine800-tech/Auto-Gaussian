@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Source: skills/auto-g16-view-rt-win/scripts/prepare_conformers.py (T4 migration).
+# Source: archive/skills/auto-g16-view-rt-win/scripts/prepare_conformers.py (T4 migration).
 """Generate stereochemistry-preserving force-field conformers for ag dedup."""
 
 from __future__ import annotations

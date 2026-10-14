@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Source: skills/auto-g16-chemdraw-pipeline/scripts/make_gaussian_input.py (T4 migration).
+# Source: archive/skills/auto-g16-chemdraw-pipeline/scripts/make_gaussian_input.py (T4 migration).
 """Create a Gaussian input and summary from XYZ, ChemDraw, MOL, SDF, or SMILES.
 
 This is intentionally conservative: it refuses unassigned tetrahedral
