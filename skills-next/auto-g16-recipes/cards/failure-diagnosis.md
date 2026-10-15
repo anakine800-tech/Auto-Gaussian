@@ -78,6 +78,7 @@ stable 仅表示对所测扰动稳定，不证明全局最低电子态或单参�
 满足后 `ag fetch <attempt> --incomplete`，只取确认存在的声明输出；核对独立记录的缺失项，再 `ag facts <attempt>`。权限/SSH/哈希错误立即报告，保留 `.partial`，不手工补文件；不能再用普通 fetch 或 --add-missing 升级这份取回记录。
 由人决定用父 chk 接续（新 Attempt，RCFC 或 Guess=Read）、从最后几何重新开始，或延长 walltime 重来。RCFC/ReadFC 坐标必须用 `final_input.xyz` 并通过既有取向校验；只在能导出时使用，缺失则停止。有效不完整取回记录允许 interrupted 父 chk，父子同集群、manifest 绑定、复制前后哈希和独占创建检查全部保留。
 被杀时 chk 可能未写完整；安全复制不保证 Gaussian 能读取，也不保证有可用 Hessian。提交仍须逐个展示完整摘要并由人点击 Mac 确认；不自动接续或重提。不完整结果禁止进入 thermo/profile，最终结果须按新 Attempt 的完整证据重新审阅。
+没有完成 Freq 的中断优化，不把 RCFC 作为已验证的接续方案；可向人提出 final_input.xyz 加父 chk 的 Guess=Read，并用 CalcFC 重新计算 Hessian，是否可读取须以新 Attempt 的日志验证。
 
 ### 第 1 级：纠正已定位的输入错误
 

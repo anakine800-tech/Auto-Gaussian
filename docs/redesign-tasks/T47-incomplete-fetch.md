@@ -82,13 +82,21 @@
 
 ## 真实环境验证（合并前，在计算机上；每个作业提交前都由负责人在 Mac 上确认）
 
+### 负责人补充的执行分工和前置条件（2026-10-15）
+
+开发机仅做离线开发和 PR，停用默认集群配置；不连接集群、不读取计算机上的 study。以下作业全部由计算机上的验证会话提交。
+等待对象是 OPS-3 作业 1 和作业 3；作业 2 的 RCFC 路径已判定不适用于该无 Freq 的中断优化，不重跑，不当作环境故障。
+负责人在计算机上确认：作业 1/3 均为 finished 或 fetched，无 submitted/running/unknown 作业；OPS-3 报告已写好，作业 3 的通过或不通过结论明确。
+作业 3 验证 final_input.xyz 几何加父 chk 波函数的 Guess=Read 接续；若未通过，T47 第 2 项的验收标准先与负责人核对。
+HSS 可以同时运行，核数由 ag 按集群核验；为避免两个会话同时提交，T47 验证安排在 HSS 两次提交之间。离线开发和 PR 不等待以上条件。
+
 用一个专门的验证 study，最多 3 个作业：
 
 1. **PBS 强杀：** 在组里集群提交一个小分子 Gaussian 优化，预计耗时远超 walltime（例如 walltime 5 分钟，作业设计成每步就要数分钟，由 Codex 提出方案并估算），必须能在被杀前写出至少一个优化步的几何和 chk。被杀后：
    - 两次 `ag status` 判为 interrupted，满足证据门槛；
    - `fetch --incomplete` 成功，记录正确；
    - facts 的 error_hint 为 walltime，`final_input.xyz` 已导出。
-2. **从中断作业接续：** 用第 1 步的 chk 和 `final_input.xyz` 新建 Attempt（RCFC 或 Guess=Read），正常 walltime。验证复制操作的哈希一致，并记录 chk 能否被 Gaussian 读入。读不了要如实报告，这本身就是有用的结论。
+2. **从中断作业接续：** 用第 1 步的 chk 和 `final_input.xyz` 新建 Attempt，走 `Guess=Read Opt=(TS,CalcFC) Freq` 的波函数接续路线（具体结构、方法和完整输入在计算机上由负责人确认），正常 walltime。不能把无 Freq 中断优化的 RCFC 当作此项验收路径。验证复制操作的哈希一致，并记录 chk 能否被 Gaussian 读入。读不了要如实报告；若 OPS-3 作业 3 未通过，先与负责人核对验收标准。
 3. **Slurm TIMEOUT：** 在 SCNet 上用 `--time 00:05:00` 提交一个必定超时的小作业。sacct 给出 TIMEOUT 后 `fetch --incomplete` 成功，facts 识别 walltime。
 
 结果写进 PR 描述，不写主机、账户和路径。出现 UNKNOWN、哈希不一致或 SSH 报错时，立即停下报告。
