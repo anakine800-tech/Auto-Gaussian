@@ -244,8 +244,9 @@ def test_scf_energy_is_from_last_normal_section(tmp_path):
     assert facts['energies']['scf'] == pytest.approx(-74.3227750502)
     assert facts['fact_sources']['energies.scf'] == 2
     facts, _ = parse(tmp_path, text.split(' Normal termination')[0])
-    assert facts['energies']['scf'] is None
-    assert facts['fact_sources']['energies.scf'] is None
+    assert facts['energies']['scf'] == BASELINE['water_opt_only.log'][0]['energies']['scf']
+    assert facts['fact_sources']['energies.scf'] == 1
+    assert facts['termination'] == 'incomplete'
 
 
 def _existing_job_examples():
@@ -280,10 +281,152 @@ def test_existing_job_examples_have_no_extra_hash_sections(name, text, count):
                for section in sections)
 
 
-def test_repeated_hash_inside_job_is_conservative_boundary():
-    # This is a limitation check, not evidence that Gaussian normally prints it.
+def test_bare_hash_inside_job_is_not_a_route_boundary():
+    # A body line without the full route echo framing is not a new job.
     text = SP.replace(' SCF Done:', ' # unexpected body line\n SCF Done:', 1)
     sections, warnings = gaussian_job_sections(text)
-    assert len(sections) == 2
-    assert sections[0]['termination'] == 'incomplete'
+    assert len(sections) == 1
+    assert sections[0]['termination'] == 'normal'
+    assert warnings == []
+
+
+@pytest.mark.parametrize('ending', ['normal', 'failure', 'truncated'])
+def test_irc_hash_statistics_keep_points_and_one_section(tmp_path, ending):
+    from test_irc import irc_log
+
+    # Synthetic water; add the actual statistics shape missing from T42 tests.
+    text = 'Gaussian, Inc.\n --------------------\n' + irc_log(ending)
+    for point in (1, 2):
+        marker = f' Point Number: {point} Path Number: 1\n'
+        text = text.replace(marker, marker + f' # OF POINTS ALONG THE PATH = {point}\n'
+                            + f' # OF STEPS = {point}\n')
+    facts, _ = parse(tmp_path, text)
+    assert len(facts['job_sections']) == 1
+    assert facts['job_sections'][0]['route'].startswith('#p HF/STO-3G IRC=')
+    assert facts['parser_warning'] is None
+    assert facts['irc']['point_count'] == 2
+    assert [p['energy_hartree'] for p in facts['irc']['energies']] == [-75.1, -75.2]
+    assert facts['fact_sources']['irc'] == 1
+    assert facts['termination'] == {'normal': 'normal', 'failure': 'error',
+                                    'truncated': 'incomplete'}[ending]
+
+
+@pytest.mark.parametrize('newline', ['\n', '\r\n'])
+@pytest.mark.parametrize('wrapped', [' # Freq', ' Freq'])
+def test_route_echo_wraps_and_uses_previous_nonblank_separator(newline, wrapped):
+    from ag._parse_outputs import _parse_gaussian_section
+
+    text = ('Gaussian, Inc.\n --------\n \n #p HF/STO-3G Opt\n' + wrapped
+            + '\n --------\n Normal termination of Gaussian\n').replace('\n', newline)
+    sections, warnings = gaussian_job_sections(text)
+    assert len(sections) == 1 and warnings == []
+    route = '#p HF/STO-3G Opt ' + wrapped.strip()
+    assert sections[0]['route'] == route
+    assert _parse_gaussian_section(text)[0]['route'] == route
+
+
+@pytest.mark.parametrize('text', [
+    ' #p HF/STO-3G Opt\n --------\n',  # missing opening separator
+    ' --------\n #p HF/STO-3G Opt\n',  # missing closing separator
+    ' -------- not a separator\n #p HF/STO-3G Opt\n --------\n',
+    ' --------\n title\n #p HF/STO-3G Opt\n --------\n',
+])
+def test_unframed_hash_does_not_supply_route(text):
+    from ag._parse_outputs import _parse_gaussian_section
+
+    sections, _ = gaussian_job_sections(text)
+    assert len(sections) == 1 and sections[0]['route'] is None
+    assert _parse_gaussian_section(text)[0]['route'] is None
+
+
+def test_second_complete_route_block_still_starts_a_section():
+    from ag._parse_outputs import _parse_gaussian_section, gaussian_section_text
+
+    # No normal terminal before the next genuine route echo: retain warning.
+    text = ('Gaussian, Inc.\n --------\n #p HF/STO-3G SP\n --------\n body\n'
+            ' --------\n #p HF/STO-3G Freq\n --------\n Normal termination of Gaussian\n')
+    sections, warnings = gaussian_job_sections(text)
+    assert [(s['start_line'], s['end_line']) for s in sections] == [(1, 5), (6, 9)]
+    assert [s['termination'] for s in sections] == ['incomplete', 'normal']
     assert any('Unexpected job section' in warning for warning in warnings)
+    for section in sections:
+        block = gaussian_section_text(text, section)
+        assert _parse_gaussian_section(block)[0]['route'] == section['route']
+
+
+@pytest.mark.parametrize('prefix', ['', ' '])
+@pytest.mark.parametrize('marker,expected', [
+    ('Optimization completed.', True),
+    ('Optimization completed on the basis of negligible forces.', True),
+    ('Optimization stopped.', False),
+    ('Optimization stopped after too many steps.', False),
+])
+def test_optimization_status_variants_stay_in_opt_section(tmp_path, prefix, marker, expected):
+    text = OPT.replace(' Optimization completed.', prefix + marker) + FREQ
+    facts, _ = parse(tmp_path, text)
+    assert facts['opt_converged'] is expected
+    assert facts['fact_sources']['opt_converged'] == 1
+
+
+@pytest.mark.parametrize('marker', ['Optimization completed.', 'Optimization stopped.',
+                                  'Optimization completed on the basis of negligible forces.'])
+@pytest.mark.parametrize('prefix', [' Title: ', ' "', '  ', '\t'])
+def test_quoted_or_indented_optimization_text_is_not_status(tmp_path, prefix, marker):
+    # The frequency section still has a real completed marker: no leakage.
+    text = OPT.replace(' Optimization completed.', prefix + marker) + FREQ
+    facts, _ = parse(tmp_path, text)
+    assert facts['opt_converged'] is None
+    assert facts['fact_sources']['opt_converged'] == 1
+
+
+@pytest.mark.parametrize('tail,state', [('', 'incomplete'),
+    (' Error termination via Lnk1e in PATH/l9999.exe\n', 'error')])
+def test_single_abnormal_section_keeps_own_last_scf(tmp_path, tail, state):
+    text = OPT_ONLY.split(' Normal termination')[0] + tail
+    facts, _ = parse(tmp_path, text)
+    assert len(facts['job_sections']) == 1
+    assert facts['energies']['scf'] == BASELINE['water_opt_only.log'][0]['energies']['scf']
+    assert facts['fact_sources']['energies.scf'] == 1
+    assert facts['termination'] == state
+
+
+def test_multiple_abnormal_sections_do_not_supply_scf(tmp_path):
+    text = OPT.split(' Normal termination')[0] + FREQ.split(' Normal termination')[0]
+    facts, _ = parse(tmp_path, text)
+    assert len(facts['job_sections']) == 2
+    assert facts['termination'] == 'incomplete'
+    assert facts['energies']['scf'] is None
+    assert facts['fact_sources']['energies.scf'] is None
+    assert_no_frequencies(facts)
+
+
+def test_orientation_label_matches_exported_opt_geometry_not_frequency_table(tmp_path):
+    from ag._parse_outputs import _parse_gaussian_section
+
+    # Public water derivative: frequency tables differ, while cclib's whole-log
+    # export still retains the optimized geometry. Whole-log label was unknown.
+    text = OPT + FREQ.replace('0.770245', '0.870245')
+    previous, previous_geometry = _parse_gaussian_section(text)
+    facts, geometry = parse(tmp_path, text)
+    assert previous['final_geometry_orientation'] is None
+    assert facts['final_geometry_orientation'] == 'standard'
+    assert geometry == previous_geometry == gaussian_orientation(OPT, 'Standard')
+    assert geometry != gaussian_orientation(text, 'Standard')
+    assert facts['fact_sources']['final_geometry_orientation'] == 1
+
+
+@pytest.mark.parametrize('tail,expected', [('', True), ('\n \n', True),
+    (' #p HF/STO-3G Freq\n --------\n', None), (' unknown trailing output\n', None)])
+def test_frequency_check_does_not_survive_nonblank_post_terminal_tail(tail, expected):
+    from ag._parse_outputs import frequency_convergence
+    from test_l1_iteration import HARMONIC, TABLE, END
+
+    assert frequency_convergence(HARMONIC + TABLE + END + tail)['freq_step_converged'] is expected
+
+
+def test_hash_body_line_does_not_disable_frequency_convergence():
+    from ag._parse_outputs import frequency_convergence
+    from test_l1_iteration import HARMONIC, TABLE
+
+    text = HARMONIC + ' # body statistic\n' + TABLE
+    assert frequency_convergence(text)['freq_step_converged'] is True

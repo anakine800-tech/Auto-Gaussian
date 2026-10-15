@@ -89,6 +89,38 @@ def gaussian_orientation(text, orientation):
 
 
 
+def _gaussian_routes(text):
+    """Map opening separator lines (zero-based) to complete route echoes.
+
+    IRC's '# OF POINTS' and '# OF STEPS' are body statistics, not routes.
+    Keep the opening separator in the new section so extraction and boundary
+    detection apply exactly the same rule, including wrapped route lines.
+    """
+    lines = text.splitlines()
+    routes = {}
+    separator = re.compile(r'[ \t]*-{5,}[ \t]*')
+    i = 0
+    while i < len(lines):
+        if not separator.fullmatch(lines[i]):
+            i += 1
+            continue
+        first = i + 1
+        while first < len(lines) and not lines[first].strip():
+            first += 1
+        if first == len(lines) or not lines[first].lstrip().startswith('#'):
+            i += 1
+            continue
+        end = first + 1
+        while end < len(lines) and lines[end].strip() and not separator.fullmatch(lines[end]):
+            end += 1
+        if end < len(lines) and separator.fullmatch(lines[end]):
+            routes[i] = ' '.join(' '.join(lines[first:end]).split())
+            i = end + 1
+        else:
+            i = end
+    return routes
+
+
 def frequency_convergence(text):
     """Last post-frequency convergence check, scoped to its Gaussian job step.
 
@@ -100,13 +132,17 @@ def frequency_convergence(text):
     row_pattern = re.compile(
         r'^\s*(Maximum|RMS)\s+(Force|Displacement)\s+(' + NUMBER +
         r')\s+(' + NUMBER + r')\s+(YES|NO)\s*$', re.I)
-    routes = {match.start(): match.group() for match in re.finditer(
-        r'(?m)^[ \t]*#[^\n]*(?:\n(?!\s*-{5,})[^\n]+)*', text)}
     # Line numbers are local log evidence, never copies of paths or raw headers.
-    route_lines = {text.count('\n', 0, start) + 1: route for start, route in routes.items()}
+    route_lines = {start + 1: route for start, route in _gaussian_routes(text).items()}
     check = None
     active = False
+    after_terminal = False
     for index, line in enumerate(lines, 1):
+        if after_terminal and line.strip():
+            # A new/truncated job after termination cannot inherit the old
+            # check, even when its route echo is not complete enough to parse.
+            check = None
+            after_terminal = False
         if index in route_lines:
             active = False
             if re.search(r'\bfreq\b', route_lines[index], re.I):
@@ -114,6 +150,8 @@ def frequency_convergence(text):
         if re.search(r'Normal termination of Gaussian|Error termination|'
                      r'Link1:.*Proceeding|Entering Gaussian System|^\s*--Link1--', line, re.I):
             active = False
+        if re.match(r'[ \t]*(?:Normal termination of Gaussian|Error termination)\b', line, re.I):
+            after_terminal = True
         if re.search(r'^\s*Harmonic frequencies\s*\(', line, re.I):
             active = True
             check = {'frequency_line': index, 'table_line': None,
@@ -198,6 +236,7 @@ def gaussian_job_sections(text):
     step. A bare l1 entry is not itself proof of a valid continuation.
     """
     lines = text.splitlines(keepends=True)
+    routes = _gaussian_routes(text)
     sections, warnings = [], []
     start = None
     kind, step = None, None
@@ -208,14 +247,13 @@ def gaussian_job_sections(text):
         while end > start and not lines[end - 1].strip():
             end -= 1
         block = ''.join(lines[start:end])
-        routes = re.findall(r'(?m)^[ \t]*(#[^\n]*(?:\n(?!\s*-{5,})[^\n]+)*)'
-                            r'\n\s*-{5,}', block)
+        section_routes = [route for line, route in routes.items() if start <= line < end]
         state = termination(block, 'Normal termination of Gaussian')['termination']
         if state == 'normal' and not re.match(
                 r'\s*Normal termination of Gaussian\b', lines[end - 1], re.I):
             state = 'incomplete'
         sections.append(dict(index=len(sections) + 1, start_line=start + 1, end_line=end,
-                             route=' '.join(routes[0].split()) if routes else None,
+                             route=section_routes[0] if section_routes else None,
                              termination=state,
                              start_kind=kind, internal_step=step))
         start = None
@@ -228,7 +266,7 @@ def gaussian_job_sections(text):
         internal = re.match(r'\s*(?:Link1:\s*)?Proceeding to internal job step number\s+(\d+)\.',
                             line, re.I)
         explicit = bool(re.match(r'\s*--Link1--\s*$', line, re.I))
-        route = bool(re.match(r'\s*#', line))
+        route = i in routes
         if start is not None:
             # The initial header has both launch markers; neither is an
             # additional job. The optional l1 line belongs to its next step.
@@ -338,7 +376,9 @@ def parse_gaussian(path, pbs_path=None):
     sources['final_geometry'] = sources['final_geometry_orientation'] = opt + 1
 
     normal = [i for i, section in enumerate(sections) if section['termination'] == 'normal']
-    scf = normal[-1] if normal else None
+    # A single failed/truncated job still owns its reported SCF energy.
+    # Multiple jobs may only borrow from the last normally terminated section.
+    scf = 0 if len(sections) == 1 else normal[-1] if normal else None
     facts['energies'] = dict(facts['energies'])
     facts['energies']['scf'] = parsed[scf][0]['energies']['scf'] if scf is not None else None
     sources['energies.scf'] = scf + 1 if scf is not None else None
@@ -397,8 +437,8 @@ def _parse_gaussian_section(text, *, internal=False):
     except (ValueError, IndexError, AssertionError, AttributeError, StopIteration):
         data = None
     facts['parser_warning'] = None if data is not None else 'cclib could not parse this output'
-    routes = re.findall(r'(?m)^\s*(#[^\n]*(?:\n(?!\s*-{5,})[^\n]+)*)\n\s*-{5,}', text)
-    facts['route'] = ' '.join(routes[0].split()) if routes else None
+    routes = list(_gaussian_routes(text).values())
+    facts['route'] = routes[0] if routes else None
     facts['n_atoms'] = int(data.natom) if data is not None and hasattr(data, 'natom') else None
     facts['charge'] = int(data.charge) if data is not None and hasattr(data, 'charge') else None
     facts['multiplicity'] = int(data.mult) if data is not None and hasattr(data, 'mult') else None
@@ -407,8 +447,10 @@ def _parse_gaussian_section(text, *, internal=False):
     if (any(re.search(r'\bstable\b', route, re.I) for route in routes)
             or re.search(r'(?m)^[ \t]*The wavefunction\b', text, re.I)):
         facts.update(wavefunction_stability(text))
-    facts['opt_converged'] = (True if 'Optimization completed.' in text else
-                              False if 'Optimization stopped.' in text else None)
+    # Gaussian prints one leading space; deeper indentation/quoted prose is
+    # not a status line. Match variants such as '... negligible forces.'.
+    facts['opt_converged'] = (True if re.search(r'(?m)^ ?Optimization completed\b', text) else
+                              False if re.search(r'(?m)^ ?Optimization stopped\b', text) else None)
     scf = float(convertor(data.scfenergies[-1], 'eV', 'hartree')) if data is not None and hasattr(data, 'scfenergies') else None
     facts['energies'] = {
         'scf': scf,

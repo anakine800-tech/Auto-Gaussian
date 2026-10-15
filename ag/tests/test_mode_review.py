@@ -26,7 +26,7 @@ def orientation(kind='Standard', xyz=XYZ):
 
 
 def synthetic_log(kind='Standard', route='# freq', end=' Normal termination of Gaussian\n'):
-    return (' Entering Gaussian System\n Gaussian, Inc.\n'
+    return (' Entering Gaussian System\n Gaussian, Inc.\n -----\n'
             f' {route}\n -----\n NAtoms=    3\n' + orientation(kind) +
             ' Harmonic frequencies (cm**-1)\n'
             '                      1\n'
@@ -187,7 +187,7 @@ def test_reject_abnormal_frequency_section(sections, ending):
 
 
 def test_opt_freq_uses_only_frequency_section(sections):
-    first = ' Entering Gaussian System\n # opt freq\n -----\n' + orientation(xyz=[[9, 0, 0]] * 3)
+    first = ' Entering Gaussian System\n -----\n # opt freq\n -----\n' + orientation(xyz=[[9, 0, 0]] * 3)
     first += ' Normal termination of Gaussian\n'
     freq = synthetic_log().replace(' Entering Gaussian System\n Gaussian, Inc.\n',
         ' Link1:  Proceeding to internal job step number 2.\n')
