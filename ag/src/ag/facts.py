@@ -64,6 +64,21 @@ def parse_facts(attempt_dir):
     program = manifest['template']
     outputs = attempt_dir / 'outputs'
     geometries = {}
+    from ag.fetch import incomplete_record
+    incomplete = incomplete_record(attempt_dir)
+    if incomplete:
+        from ag.remote import output_names
+        primary = output_names(manifest)[0]
+        if primary in incomplete[1]['missing']:
+            # No program log means no geometry/energy to infer. Still expose the
+            # verified collection sources and scheduler error as incomplete facts.
+            from ag._parse_outputs import annotate_fetch_sources
+            result = dict(schema='ag-facts/1', program=program, termination='incomplete',
+                          error_hint=None, n_atoms=None, charge=None, multiplicity=None,
+                          route=None, opt_converged=None, final_geometry=None,
+                          final_input_geometry=None, parser_warning=f'{primary} confirmed missing')
+            annotate_fetch_sources(result, attempt_dir)
+            return result, geometries
     if program == 'gaussian':
         log = gaussian_log(attempt_dir)
         facts, geometry = parse_gaussian(log, outputs / ('job.slurm.err' if manifest.get('scheduler') == 'slurm' else 'job.pbs.out'))
@@ -121,6 +136,9 @@ def parse_facts(attempt_dir):
              **facts, 'final_geometry': 'final.xyz' if geometry else None}
     if geometry:
         geometries['final.xyz'] = geometry
+    if program != 'gaussian':
+        from ag._parse_outputs import annotate_fetch_sources
+        annotate_fetch_sources(facts, attempt_dir)
     return facts, geometries
 
 

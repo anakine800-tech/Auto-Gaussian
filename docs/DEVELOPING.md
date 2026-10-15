@@ -22,11 +22,11 @@
 - `submission.py`：一次性提交绑定及确切作业身份交叉校验。
 - `budget.py`：按集群预留、核对、结算本地 ag 核时预算。
 - `cancel.py`：确认后取消记录中的确切作业，取消声明也只能用一次。
-- `status.py`：PBS/Slurm 观察、程序完成证据及 unknown 只读核对。
-- `fetch.py`：校验输出大小和哈希，以不覆盖方式发布到本地。
+- `status.py`：PBS/Slurm 观察、程序完成证据及 unknown 只读核对；保留不完整取回所需的 PBS 首次/最近不活跃观察。
+- `fetch.py`：校验输出大小和哈希，以不覆盖方式发布到本地；显式不完整取回及绑定的独占记录。
 - `monitor.py`：只读采样集群，在本地缓存最新快照和历史。
 - `doctor.py`：只读检查连接、调度器、目录和程序环境。
-- `remote.py`：全部固定远程命令、参数白名单及路径检查。
+- `remote.py`：全部固定远程命令、参数白名单及路径检查；独立的 incomplete_output_observation 在可进入的父目录内区分缺失与无法核实，复用 output_observation 只读操作类别。
 - `transport.py`：SSH/scp、只读传输重试、脱敏及可注入的 Transport 接口。
 - `pbs.py`：PBS 节点与容量解析，供提交和监控共用。
 - `slurm.py`：Slurm 提交、队列和记账输出的严格解析。
@@ -79,7 +79,7 @@ Slurm 始终按 max_cores 严格计算运行加排队；核时预算在远程写
 | running | 调度器报告运行；继续只读观察。 |
 | awaiting_second_observation | 首次证据不足；按 next_observation_at 等待第二次观察，至少相隔 60 秒。 |
 | stalled | PBS 仍运行而声明输出至少 60 秒未变化；需结合进程/日志判断，不自动取消。 |
-| interrupted | 无充分完成证据，且作业不活跃或报告异常；保留证据并诊断。 |
+| interrupted | 无充分完成证据，且作业不活跃或报告异常；PBS 满足五分钟稳定、不活跃且无回执的两次观察后，可显式 fetch --incomplete。 |
 | finished | 程序退出回执、旧 PBS 完成证据或 Slurm 终态已确认；检查退出码，再 fetch/解析/审阅。 |
 | fetched | 声明输出已取回校验；仍需 facts 和科学审阅。 |
 | cancelled | 已发出经确认的取消；不据此断言程序科学失败或调度记录已经消失。 |
@@ -91,6 +91,14 @@ failed_presubmit 或计算失败的修复方式是提出新 Attempt，经人确�
 PBS 有退出回执时可 finished 并取回，即使队列仍显示 R（调度器残留）；清理只走确认后的 cancel。
 旧 PBS 无回执时：完成标记 + 两次输出稳定；队列仍有 R/C 记录时还需会话进程证据，读取标记后再复核输出。
 Slurm 从 squeue 消失仅触发 sacct 核对；终态中非零退出/信号以及 FAILED、TIMEOUT 等都不是科学成功。
+
+`fetch --incomplete` 不新增状态，也不把 interrupted/finished 改成 fetched。
+PBS 的 `incomplete_observations` 只补充证据，不改变已有 60 秒观察规则或核心状态判定；输出变化、回执出现或重新入队都会清空/重置这组证据。
+Slurm 取回前后均只读核对 squeue 无此作业及 sacct 终态（TIMEOUT、CANCELLED、FAILED、OUT_OF_MEMORY、NODE_FAIL、COMPLETED）；COMPLETED 仅在缺声明输出时适用。
+本地 cancelled 仍拒绝：发出取消不证明作业已经停止；若 status 后续证实 Slurm 终态并成为 finished，才可按该证据取回。
+独占记录绑定 manifest SHA-256、集群/作业身份、存在输出哈希、确认缺失项、结束证据和 ag 版本；记录与本地字节不符时 facts/父 chk 均拒绝。
+已有不完整取回记录拒绝普通 fetch、重复 --incomplete 和 --add-missing，两个显式选项互斥；缺失文件不能被后续补放后静默升级成正常结果。
+失败保留 `.partial`，验证全部通过后独占发布；本地发布失败仅撤回本次已创建的链接，暂存字节仍保留。远端无写入。
 
 ## 集群绑定：读哪个记录
 

@@ -1,0 +1,490 @@
+"""T47: synthetic outputs only; no network, scheduler submission or Gaussian."""
+from hashlib import sha256
+import json
+import os
+from pathlib import Path
+import shlex
+import subprocess
+import sys
+
+import pytest
+
+from ag import attempt, cli, config, facts, fetch, parent_chk, remote, state, status, submission
+from ag.transport import Result, TransportError
+from test_core import cfg, prepared, seed_submission, job_text
+from test_slurm import multi, prepare
+
+MTIME = '2026-01-01 00:00:00.000000000 +0000'
+LOG = ("""Gaussian, Inc.
+ --------------------
+ #p HF/STO-3G Opt
+ --------------------
+ Charge = 0 Multiplicity = 1
+ Input orientation:
+ --------------------
+ Center Atomic Atomic Coordinates (Angstroms)
+ Number Number Type X Y Z
+ --------------------
+ 1 8 0 0.0 0.0 0.0
+ 2 1 0 0.0 0.0 1.0
+ 3 1 0 0.0 1.0 0.0
+ --------------------
+ Standard orientation:
+ --------------------
+ Center Atomic Atomic Coordinates (Angstroms)
+ Number Number Type X Y Z
+ --------------------
+ 1 8 0 0.0 0.0 0.0
+ 2 1 0 0.0 0.0 1.0
+ 3 1 0 0.0 1.0 0.0
+ --------------------
+ SCF Done: E(RHF) = -75.0 A.U.
+""")
+
+
+class IncompleteFake:
+    def __init__(self, manifest, files=None):
+        self.manifest = manifest
+        self.files = {'water.log': LOG.encode()} if files is None else files
+        self.calls = []
+        self.downloaded = []
+        self.queue = Result(153, stderr='qstat: Unknown Job Id Error')
+        self.slurm_queue = Result()
+        self.accounting_state = 'TIMEOUT'
+        self.receipt = 'absent\n'
+        self.corrupt = False
+        self.failure = None
+        self.after_download = lambda: None
+
+    def run(self, command):
+        self.calls.append(command)
+        if self.failure == command.operation:
+            return Result(255, stderr='synthetic connection failure')
+        if command.operation == 'output_observation':
+            if 'test -x' in command.text:  # new per-file strict observer
+                name = next(n for n in remote.output_names(self.manifest)
+                            if ('/' + n) in command.text)
+                data = self.files.get(name)
+                return Result(stdout='absent\n' if data is None else f'{len(data)} {MTIME}\n')
+            return Result(stdout=''.join(
+                f'{name} absent\n' if name not in self.files else f'{name} {len(self.files[name])} {MTIME}\n'
+                for name in remote.output_names(self.manifest)))
+        if command.operation == 'metadata':
+            name = Path(shlex.split(command.text)[-1]).name
+            data = self.files.get(name)
+            return Result(1) if data is None else Result(
+                stdout=f'{len(data)}\n{sha256(data).hexdigest()}  {shlex.split(command.text)[-1]}\n')
+        if command.operation == 'receipt':
+            return Result(stdout=self.receipt if 'ag-exit.json' in command.text else 'absent\n')
+        if command.operation == 'jobs':
+            return self.queue
+        if command.operation == 'identity':
+            return Result(stdout='fixture\n')
+        if command.operation == 'slurm_jobs':
+            return self.slurm_queue
+        if command.operation == 'slurm_accounting':
+            return Result(stdout=f"123|{self.manifest['attempt_id']}|fixture|{self.accounting_state}|1:9|00:05:00|8\n")
+        if command.operation == 'completion_marker':
+            return Result(stdout='absent\n')
+        raise AssertionError(command.operation)
+
+    def download(self, manifest, name, local):
+        self.downloaded.append(name)
+        with local.open('xb') as handle:
+            handle.write(self.files[name] + (b'corrupt' if self.corrupt else b''))
+        self.after_download()
+
+
+def observe(cfg, path, fake, monkeypatch, at):
+    monkeypatch.setattr(status.time, 'time', lambda: at)
+    return status.check(cfg, path, fake)
+
+
+@pytest.fixture
+def interrupted(cfg, prepared, monkeypatch):
+    path, manifest = prepared
+    state.write(path, 'submitting')
+    seed_submission(path)
+    fake = IncompleteFake(manifest)
+    assert observe(cfg, path, fake, monkeypatch, 1000)['state'] == 'awaiting_second_observation'
+    assert observe(cfg, path, fake, monkeypatch, 1300)['state'] == 'interrupted'
+    return path, manifest, fake
+
+
+def assert_unpublished(path):
+    assert not [p for p in (path / 'outputs').iterdir() if p.name != '.partial']
+    assert not list(path.glob('fetch-incomplete-*.json'))
+
+
+def test_pbs_success_record_state_preservation_and_repeat(cfg, interrupted):
+    path, manifest, fake = interrupted
+    before = (path / 'status.json').read_bytes()
+    result = fetch.fetch(cfg, path, fake, incomplete=True)
+    assert result['files'] == ['water.log'] and result['missing'] == ['job.pbs.out']
+    assert (path / 'status.json').read_bytes() == before
+    record = json.loads((path / result['record']).read_text())
+    assert record['manifest_sha256'] == sha256((path / 'manifest.json').read_bytes()).hexdigest()
+    assert record['ag_version'] and record['complete'] is True
+    assert record['end_evidence']['observations'][0]['at'] == 1000
+    assert record['end_evidence']['observations'][1]['at'] == 1300
+    assert record['outputs']['water.log']['sha256'] == sha256(fake.files['water.log']).hexdigest()
+    assert fetch.incomplete_record(path)[1] == record
+    for kwargs in ({'incomplete': True}, {}, {'add_missing': True}):
+        with pytest.raises(FileExistsError, match='record already exists'):
+            fetch.fetch(cfg, path, fake, **kwargs)
+    assert fake.downloaded == ['water.log']
+
+
+@pytest.mark.parametrize('value', ['unknown', 'submitting', 'running', 'submitted', 'stalled',
+                                   'cancelled', 'awaiting_second_observation', 'finished', 'fetched'])
+def test_pbs_reject_other_states(cfg, interrupted, value):
+    path, _, fake = interrupted
+    current = state.read(path)
+    current['state'] = value
+    (path / 'status.json').write_text(json.dumps(current))
+    fake.calls.clear()
+    with pytest.raises(ValueError, match='requires interrupted'):
+        fetch.fetch(cfg, path, fake, incomplete=True)
+    assert not fake.calls
+    assert_unpublished(path)
+
+
+@pytest.mark.parametrize('failure', ['one', 'too_soon', 'changed', 'Q', 'R', 'E', 'receipt', 'ssh',
+                                    'bad_job', 'future'])
+def test_pbs_end_evidence_refusal(cfg, interrupted, failure):
+    path, manifest, fake = interrupted
+    current = state.read(path)
+    if failure == 'one':
+        current['incomplete_observations'].pop()
+    elif failure == 'too_soon':
+        current['incomplete_observations'][-1]['at'] = 1299
+    elif failure == 'changed':
+        current['incomplete_observations'][0]['outputs']['water.log']['size'] += 1
+    elif failure in ('Q', 'R', 'E'):
+        fake.queue = Result(stdout=job_text(manifest, state_=failure))
+    elif failure == 'receipt':
+        fake.receipt = json.dumps(dict(PBS_JOBID='123.fixture', finished_at='2026-01-01T00:00:00Z', returncode=0))
+    elif failure == 'ssh':
+        fake.failure = 'jobs'
+    elif failure == 'bad_job':
+        current['incomplete_observations'][0]['job_id'] = '456.fixture'
+    elif failure == 'future':
+        current['incomplete_observations'][-1]['at'] = 2000
+    (path / 'status.json').write_text(json.dumps(current))
+    with pytest.raises((ValueError, TransportError)):
+        fetch.fetch(cfg, path, fake, incomplete=True)
+    assert_unpublished(path)
+
+
+def test_status_resets_evidence_when_output_changes_or_job_reappears(cfg, interrupted, monkeypatch):
+    path, manifest, fake = interrupted
+    fake.files['water.log'] += b'changed'
+    result = observe(cfg, path, fake, monkeypatch, 1400)
+    assert len(result['incomplete_observations']) == 1
+    assert result['incomplete_observations'][0]['at'] == 1400
+    fake.queue = Result(stdout=job_text(manifest, state_='R'))
+    result = observe(cfg, path, fake, monkeypatch, 1450)
+    assert result['state'] == 'running' and result['incomplete_observations'] == []
+    fake.queue = Result(153)
+    observe(cfg, path, fake, monkeypatch, 1600)
+    result = observe(cfg, path, fake, monkeypatch, 1660)
+    assert result['state'] == 'interrupted'
+    with pytest.raises(ValueError, match='300 seconds'):
+        fetch.fetch(cfg, path, fake, incomplete=True)
+
+
+@pytest.mark.parametrize('failure', ['corrupt', 'change', 'appear', 'ssh', 'late_change', 'active'])
+def test_no_publication_on_download_failure(cfg, interrupted, failure):
+    path, manifest, fake = interrupted
+    if failure == 'corrupt':
+        fake.corrupt = True
+    elif failure == 'change':
+        fake.after_download = lambda: fake.files.update({'water.log': b'changed'})
+    elif failure == 'appear':
+        fake.after_download = lambda: fake.files.update({'job.pbs.out': b'new'})
+    elif failure == 'ssh':
+        fake.after_download = lambda: setattr(fake, 'failure', 'metadata')
+    elif failure == 'active':
+        fake.after_download = lambda: setattr(fake, 'queue', Result(stdout=job_text(manifest, state_='R')))
+    else:
+        # Same-size replacement is invisible to size+mtime, but not SHA-256.
+        fake.after_download = lambda: fake.files.update({'water.log': b'x' * len(fake.files['water.log'])})
+    with pytest.raises((ValueError, TransportError)):
+        fetch.fetch(cfg, path, fake, incomplete=True)
+    assert_unpublished(path)
+    assert list((path / 'outputs/.partial').rglob('water.log'))
+
+
+def test_unverifiable_is_not_missing(cfg, interrupted):
+    path, _, fake = interrupted
+    fake.failure = 'output_observation'
+    with pytest.raises(TransportError, match='Cannot verify.*无法核实'):
+        fetch.fetch(cfg, path, fake, incomplete=True)
+    assert_unpublished(path)
+    assert fake.downloaded == []
+
+
+@pytest.fixture
+def slurm_finished(multi, tmp_path):
+    path, manifest = prepare(multi, tmp_path)
+    state.write(path, 'submitting')
+    submission.record(path, manifest, '123')
+    state.write(path, 'submitted', job_id='batch:123')
+    state.write(path, 'finished')
+    return path, manifest, IncompleteFake(manifest)
+
+
+@pytest.mark.parametrize('terminal', ['TIMEOUT', 'CANCELLED', 'FAILED', 'OUT_OF_MEMORY', 'NODE_FAIL', 'COMPLETED'])
+def test_slurm_terminal_with_missing_outputs(multi, slurm_finished, terminal):
+    path, _, fake = slurm_finished
+    fake.accounting_state = terminal
+    before = (path / 'status.json').read_bytes()
+    result = fetch.fetch(multi, path, fake, incomplete=True)
+    assert result['missing'] == ['job.slurm.out', 'job.slurm.err']
+    assert (path / 'status.json').read_bytes() == before
+    assert fetch.incomplete_record(path)[1]['end_evidence']['accounting']['state'] == terminal
+
+
+@pytest.mark.parametrize('failure', ['active', 'nonterminal', 'complete_all', 'ssh', 'cancelled'])
+def test_slurm_refuses_without_terminal_evidence(multi, slurm_finished, failure):
+    path, manifest, fake = slurm_finished
+    if failure == 'active':
+        fake.slurm_queue = Result(stdout=f"123|{manifest['attempt_id']}|fixture|RUNNING|8|00:00|fixture\n")
+    elif failure == 'nonterminal':
+        fake.accounting_state = 'RUNNING'
+    elif failure == 'complete_all':
+        fake.accounting_state = 'COMPLETED'
+        fake.files.update({'job.slurm.out': b'', 'job.slurm.err': b''})
+    elif failure == 'ssh':
+        fake.failure = 'slurm_accounting'
+    else:
+        current = state.read(path)
+        current['state'] = 'cancelled'
+        (path / 'status.json').write_text(json.dumps(current))
+    with pytest.raises((ValueError, TransportError)):
+        fetch.fetch(multi, path, fake, incomplete=True)
+    assert_unpublished(path)
+
+
+def test_local_collision_rolls_back_own_links_keeps_stage(cfg, interrupted, monkeypatch):
+    path, _, fake = interrupted
+    original = fetch.os.link
+    def collide(source, target):
+        if Path(target).name.startswith('fetch-incomplete-'):
+            raise FileExistsError('synthetic record collision')
+        return original(source, target)
+    monkeypatch.setattr(fetch.os, 'link', collide)
+    with pytest.raises(FileExistsError):
+        fetch.fetch(cfg, path, fake, incomplete=True)
+    assert_unpublished(path)
+    assert list((path / 'outputs/.partial').rglob('water.log'))
+
+
+@pytest.mark.parametrize('case', ['parent_000', 'absent', 'file_000', 'symlink', 'parent_symlink', 'no_parent'])
+def test_strict_command_permissions_and_absence(cfg, prepared, case):
+    if os.geteuid() == 0:
+        pytest.skip('Permission test requires unprivileged user')
+    _, manifest = prepared
+    # Resolve macOS temporary-root symlinks; test only intentionally added links.
+    cfg['remote'] = {k: str(Path(v).resolve()) for k, v in cfg['remote'].items()}
+    directory = Path(remote.attempt_dir(cfg, manifest))
+    directory.mkdir(parents=True)
+    target = directory / 'water.log'
+    target.write_text('synthetic water output')
+    if case == 'parent_000':
+        directory.chmod(0)
+    elif case == 'file_000':
+        target.chmod(0)
+    elif case == 'symlink':
+        target.unlink()
+        target.symlink_to(directory / 'absent')
+    elif case == 'parent_symlink':
+        saved = directory.with_name('saved')
+        directory.rename(saved)
+        directory.symlink_to(saved, target_is_directory=True)
+    elif case in ('absent', 'no_parent'):
+        target.unlink()
+        if case == 'no_parent':
+            directory.rmdir()
+    try:
+        result = subprocess.run(['sh', '-c', remote.incomplete_output_observation(cfg, manifest, 'water.log').text],
+                                capture_output=True, text=True)
+        if case == 'absent':
+            assert result.returncode == 0 and result.stdout == 'absent\n'
+        else:
+            assert result.returncode != 0 and 'absent' not in result.stdout
+    finally:
+        if case == 'parent_000':
+            directory.chmod(0o700)
+        if case == 'file_000':
+            target.chmod(0o600)
+
+
+@pytest.mark.skipif(not sys.platform.startswith('linux'), reason='remote stat uses GNU/Linux format')
+def test_strict_command_present_gnu_stat(cfg, prepared):
+    _, manifest = prepared
+    directory = Path(remote.attempt_dir(cfg, manifest))
+    directory.mkdir(parents=True)
+    (directory / 'water.log').write_bytes(b'water')
+    fake = type('Local', (), {'run': lambda self, command: Result(*(
+        lambda p: (p.returncode, p.stdout, p.stderr))(
+        subprocess.run(['sh', '-c', command.text], capture_output=True, text=True)))})()
+    observed = fetch._presence(cfg, manifest, fake)
+    assert observed['water.log']['size'] == 5 and observed['job.pbs.out'] is None
+
+
+def test_parent_requires_valid_record_and_preserves_checks(cfg, interrupted):
+    path, manifest, fake = interrupted
+    with pytest.raises(ValueError, match='finished or fetched'):
+        parent_chk._parent(cfg, path.name, 'water.chk')
+    fetch.fetch(cfg, path, fake, incomplete=True)
+    assert parent_chk._parent(cfg, path.name, 'water.chk')[0] == manifest
+    with pytest.raises(ValueError, match='same cluster'):
+        parent_chk._parent({**cfg, '_cluster': 'other'}, path.name, 'water.chk')
+    with pytest.raises(ValueError, match='differs'):
+        parent_chk._parent(cfg, path.name, 'other.chk')
+    (path / 'outputs/water.log').write_bytes(b'tampered')
+    with pytest.raises(ValueError, match='differs from record'):
+        parent_chk._parent(cfg, path.name, 'water.chk')
+
+
+def test_empty_record_does_not_unlock_parent(cfg, interrupted):
+    path, _, _ = interrupted
+    (path / 'fetch-incomplete-empty.json').write_text('{}')
+    with pytest.raises(ValueError, match='binding mismatch'):
+        parent_chk._parent(cfg, path.name, 'water.chk')
+
+
+@pytest.mark.parametrize('scheduler_name,message', [
+    ('job.pbs.out', 'walltime 301 exceeded limit 300'),
+    ('job.slurm.err', 'CANCELLED DUE TO TIME LIMIT'),
+    ('job.slurm.out', 'CANCELLED DUE TO TIME LIMIT'),
+    (None, None),
+])
+def test_facts_and_downstream_reject_incomplete(cfg, interrupted, multi, slurm_finished,
+                                               scheduler_name, message, monkeypatch):
+    path, manifest, fake = slurm_finished if scheduler_name and 'slurm' in scheduler_name else interrupted
+    selected_cfg = multi if manifest.get('scheduler') == 'slurm' else cfg
+    # A complete-looking old segment cannot certify an incompletely collected job.
+    complete = (' Step number 1\n'
+                '         Item               Value     Threshold  Converged?\n'
+                ' Maximum Force 0.0 0.001 YES\n RMS Force 0.0 0.001 YES\n'
+                ' Maximum Displacement 0.0 0.001 YES\n RMS Displacement 0.0 0.001 YES\n'
+                ' Optimization completed.\n Normal termination of Gaussian\n')
+    fake.files['water.log'] = (LOG + complete).encode()
+    if scheduler_name:
+        fake.files[scheduler_name] = message.encode()
+    if manifest.get('scheduler') != 'slurm':
+        # Produce fresh observations for the new synthetic bytes.
+        observe(cfg, path, fake, monkeypatch, 2000)
+        observe(cfg, path, fake, monkeypatch, 2300)
+    fetch.fetch(selected_cfg, path, fake, incomplete=True)
+    result = facts.build_facts(path)
+    assert result['termination'] == ('error' if message else 'incomplete')
+    assert result['opt_converged'] is not True
+    assert result['incomplete_fetch']['record']
+    assert (path / 'final_input.xyz').is_file()
+    if message:
+        assert result['error_hint'] == 'walltime'
+        assert result['error_hint_sources'] == [scheduler_name]
+    from ag.thermo import calculate_thermo
+    with pytest.raises(ValueError, match='requires normal termination'):
+        calculate_thermo([path])
+    from ag._profile_sources import attempt_facts
+    for cached in (False, True):
+        with pytest.raises(ValueError, match='non-normal termination'):
+            attempt_facts(path.parent.parent, path.name, cached=cached)
+
+
+def test_cli_option(cfg, interrupted, monkeypatch, capsys):
+    path, _, fake = interrupted
+    monkeypatch.setattr(cli, 'load_config', lambda: cfg)
+    monkeypatch.setattr('ag.transport.SSHTransport', lambda *a, **kw: fake)
+    assert cli.main(['fetch', path.name, '--incomplete', '--json']) == 0
+    assert json.loads(capsys.readouterr().out)['state'] == 'interrupted'
+    with pytest.raises(SystemExit):
+        cli.main(['fetch', path.name, '--incomplete', '--add-missing'])
+
+
+def test_first_ssh_failure_stops_and_read_only_enforcement_remains(cfg, interrupted, monkeypatch):
+    from ag.transport import SSHTransport
+    path, _, _ = interrupted
+    calls = []
+    def fail(self, argv, timeout):
+        calls.append(argv)
+        return Result(255, stderr='synthetic SSH failure')
+    monkeypatch.setattr(SSHTransport, '_execute', fail)
+    monkeypatch.setattr('ag.transport.time.sleep', lambda *a: pytest.fail('must not retry'))
+    transport = SSHTransport(config.for_manifest(cfg, attempt.read_manifest(path)), read_only=True)
+    with pytest.raises(TransportError, match='无法核实'):
+        fetch.fetch(cfg, path, transport, incomplete=True)
+    assert len(calls) == 1
+    strict = fetch._IncompleteSSHTransport(transport.cfg)
+    assert strict.read_only is True
+    with pytest.raises(ValueError, match='refuses remote writes'):
+        strict.run(remote.cancel('123.fixture'))
+    with pytest.raises(ValueError, match='refuses uploads'):
+        strict.upload(path / 'inputs/water.gjf', attempt.read_manifest(path), 'water.gjf')
+    assert len(calls) == 1
+    assert_unpublished(path)
+
+
+def test_first_download_ssh_failure_does_not_retry(cfg, prepared, tmp_path, monkeypatch):
+    from ag.transport import SSHTransport
+    _, manifest = prepared
+    calls = []
+    monkeypatch.setattr(SSHTransport, '_execute',
+                        lambda self, argv, timeout: calls.append(argv) or Result(255))
+    monkeypatch.setattr('ag.transport.time.sleep', lambda *a: pytest.fail('must not retry'))
+    transport = fetch._IncompleteSSHTransport(config.for_manifest(cfg, manifest))
+    with pytest.raises(TransportError):
+        transport.download(manifest, 'water.log', tmp_path / 'download.log')
+    assert len(calls) == 1 and not (tmp_path / 'download.log').exists()
+
+
+def test_facts_partial_opt_and_last_geometry(cfg, interrupted):
+    path, _, fake = interrupted
+    fetch.fetch(cfg, path, fake, incomplete=True)
+    result = facts.build_facts(path)
+    assert result['termination'] == 'incomplete'
+    assert result['opt_converged'] is not True
+    assert result['final_geometry'] == 'final.xyz'
+    assert result['final_input_geometry'] == 'final_input.xyz'
+
+
+def test_existing_and_racing_local_files_preserved(cfg, interrupted):
+    path, _, fake = interrupted
+    target = path / 'outputs/water.log'
+    fake.after_download = lambda: target.write_bytes(b'concurrent')
+    with pytest.raises(FileExistsError):
+        fetch.fetch(cfg, path, fake, incomplete=True)
+    assert target.read_bytes() == b'concurrent'
+    assert not list(path.glob('fetch-incomplete-*.json'))
+    fake.calls.clear()
+    with pytest.raises(FileExistsError):
+        fetch.fetch(cfg, path, fake, incomplete=True)
+    assert fake.calls == []
+
+
+def test_slurm_final_accounting_must_match(multi, slurm_finished):
+    path, _, fake = slurm_finished
+    fake.after_download = lambda: setattr(fake, 'accounting_state', 'FAILED')
+    with pytest.raises(ValueError, match='accounting changed'):
+        fetch.fetch(multi, path, fake, incomplete=True)
+    assert_unpublished(path)
+
+
+def test_no_program_log_yields_only_incomplete_source_facts(cfg, interrupted, monkeypatch):
+    path, _, fake = interrupted
+    fake.files = {}
+    observe(cfg, path, fake, monkeypatch, 2000)
+    observe(cfg, path, fake, monkeypatch, 2300)
+    result = fetch.fetch(cfg, path, fake, incomplete=True)
+    assert result['files'] == []
+    parsed = facts.build_facts(path)
+    assert parsed['termination'] == 'incomplete'
+    assert parsed['final_geometry'] is None and parsed['opt_converged'] is None
+    assert set(parsed['incomplete_fetch']['missing']) == {'water.log', 'job.pbs.out'}
+    from ag.thermo import calculate_thermo
+    with pytest.raises(ValueError, match='requires normal termination'):
+        calculate_thermo([path])
