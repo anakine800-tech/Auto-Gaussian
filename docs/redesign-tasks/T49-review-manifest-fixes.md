@@ -38,7 +38,7 @@
 ## 测试
 
 - 新增用例：路径后紧跟汉字或中文标点（`analyses/a.json说明`、`analyses/a.json，见上`），只识别出 `analyses/a.json`；反引号和链接写法的现有测试保持不变。
-- 引用目录：正常展开、排序稳定；目录中含符号链接、目录本身是符号链接、目录在 `analyses/` 外、空目录：全部拒绝。
+- 引用目录：正常展开、排序稳定；目录中含符号链接、目录本身是符号链接、越出 study、空目录：全部拒绝。study 内但 `analyses/` 外的目录引用忽略，与文件一致（审阅修订）；覆盖 review.md 中的 `../attempts/<id>/` 链接。
 - 已签清单不展开的现有测试原样通过。
 - `topology` 的现有测试全部原样通过。
 - `PYTHONPATH=ag/src python -m pytest ag/tests skills-next -q -rs`；暂存精确文件后运行敏感扫描和 `git diff --cached --check`。

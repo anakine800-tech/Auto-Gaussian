@@ -72,8 +72,6 @@ def _analysis_reference(root, source, value, explicit):
             raise ValueError(f'Evidence reference escapes study: {value}')
         return None
     if not candidate.is_relative_to(analyses):
-        if candidate.is_dir() and (explicit or mentions_analysis):
-            raise ValueError('Referenced evidence directories must be inside analyses/')
         return None
     # JSON often contains labels, units, or log basenames. Only an existing
     # analysis file or explicit local path is an analysis-output reference.

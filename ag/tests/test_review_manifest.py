@@ -203,7 +203,7 @@ def test_overlapping_directory_references_preserve_all_origins(tmp_path):
 
 
 @pytest.mark.parametrize('kind', ['directory_link', 'nested_directory_link', 'file_link', 'dangling_link',
-                                  'outside_analyses', 'outside_study', 'empty', 'only_empty_subdirectory'])
+                                  'outside_study', 'empty', 'only_empty_subdirectory'])
 def test_directory_expansion_rejects_unsafe_or_empty_targets(tmp_path, kind):
     root = tmp_path / 'study'
     root.mkdir()
@@ -223,9 +223,6 @@ def test_directory_expansion_rejects_unsafe_or_empty_targets(tmp_path, kind):
         (folder / 'nested/linked').symlink_to(outside, target_is_directory=True)
     elif kind in {'file_link', 'dangling_link'}:
         (folder / 'linked.txt').symlink_to(outside / ('a.txt' if kind == 'file_link' else 'missing.txt'))
-    elif kind == 'outside_analyses':
-        reference = '[batch](analyses/../attempts/)'
-        error = 'must be inside analyses'
     elif kind == 'outside_study':
         reference = '[batch](../outside/)'
         error = 'escapes'
@@ -277,3 +274,20 @@ def test_prior_signed_manifest_is_hashed_without_expansion(tmp_path, reference):
     assert entries['analyses/batch/signed.json']['sha256'] == sha256(before[0]).hexdigest()
     assert not any('missing' in name or 'outside' in name for name in entries)
     assert (old.read_bytes(), old.stat().st_mtime_ns) == before
+
+
+@pytest.mark.parametrize('reference', [
+    '../attempts/water-a/', '../attempts/water-a', '../analyses/../attempts/water-a/',
+])
+def test_review_directory_link_inside_study_outside_analyses_is_ignored(tmp_path, reference):
+    root = study(tmp_path)
+    review = root / 'reviews/review.md'
+    review.parent.mkdir()
+    review.write_text(f'[attempt]({reference})')
+    (root / 'attempts/water-a/input.txt').write_text('Synthetic input, not analysis evidence')
+    result = inventory.create(root)
+    paths = {entry['path'] for entry in result['files']}
+    assert paths == {'study.md', 'reviews/review.md',
+                     'attempts/water-a/facts.json', 'attempts/water-a/review.md',
+                     'attempts/water-b/facts.json', 'attempts/water-b/review.md'}
+    assert all('expanded_from' not in entry for entry in result['files'])
