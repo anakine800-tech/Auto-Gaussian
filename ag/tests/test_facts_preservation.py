@@ -190,3 +190,55 @@ def test_provenance_is_parser_checkout_not_skills(tmp_path, monkeypatch):
     assert facts.ag_provenance()['dirty'] is True
     monkeypatch.setattr(facts, '__file__', str(tmp_path / 'installed/ag/src/ag/facts.py'))
     assert facts.ag_provenance() == {'git_commit': None, 'dirty': None}
+
+
+@pytest.mark.parametrize('old_value,new_value', [(0, 1), (False, 0), (1, 1.0),
+                                                 (None, 0), ([], [100.0])])
+def test_refusal_summary_reports_nested_changes_without_writes(tmp_path, monkeypatch, capsys,
+                                                               old_value, new_value):
+    directory = attempt(tmp_path)
+    target = directory / 'facts.json'
+    old = {'energies': {'scf': -75.0, 'g': old_value, 'old_energy': 1},
+           'freq_step_convergence': {'criteria': {'rms_force': {'converged': True}}},
+           'removed': {'nested': 1}, 'ag_provenance': {'git_commit': 'old'}}
+    new = {'energies': {'scf': -75.0, 'g': new_value, 'new_energy': 2},
+           'freq_step_convergence': {'criteria': {'rms_force': {'converged': False}}},
+           'job_sections': [{'index': 1}], 'ag_provenance': {'git_commit': 'new'}}
+    target.write_text(json.dumps(old) + '\n')
+    before = snapshot(directory)
+    monkeypatch.setattr(facts, 'parse_facts', lambda path: (new, {'final.xyz': 'not written'}))
+    assert main(['facts', str(directory), '--json']) == 1
+    error = capsys.readouterr().err
+    summary = error.split('facts.json 内容不同')[0]
+    assert summary.startswith('差异分类（不含 ag_provenance）：既有值发生变化。')
+    assert '新增的键：energies.new_energy, job_sections\n' in summary
+    assert '删除的键：energies.old_energy, removed\n' in summary
+    assert ('既有值变化的键：energies.g, '
+            'freq_step_convergence.criteria.rms_force.converged\n') in summary
+    assert 'ag_provenance.git_commit' not in summary
+    assert '--- facts.json (existing)' in error and '+++ facts.json (parsed)' in error
+    assert not (directory / 'final.xyz').exists()
+    assert not list(directory.glob('facts.*.json'))
+    after = snapshot(directory)
+    after.pop('.facts.lock')  # Existing write-entry lock, not evidence content.
+    assert after == before
+
+
+@pytest.mark.parametrize('old', [b'{bad', b'[]', b'null', b'{"g": NaN}'])
+def test_unclassifiable_old_facts_still_refuses_with_diff(tmp_path, capsys, old):
+    directory = attempt(tmp_path)
+    target = directory / 'facts.json'
+    target.write_bytes(old)
+    assert main(['facts', str(directory), '--json']) == 1
+    error = capsys.readouterr().err
+    assert error.startswith('差异分类：') and '无法分类' in error
+    assert '--- facts.json (existing)' in error and '--refresh' in error
+    assert target.read_bytes() == old and not list(directory.glob('*.xyz'))
+    assert not list(directory.glob('facts.*.json'))
+
+
+def test_deletion_only_summary_and_object_type_change():
+    assert '删除的键：energies.g' in facts._difference_summary({'energies': {'g': 1}}, {'energies': {}})
+    summary = facts._difference_summary({'energies': {'g': 1}}, {'energies': None})
+    assert '既有值变化的键：energies\n' in summary
+    assert '删除的键：无' in summary

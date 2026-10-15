@@ -212,8 +212,14 @@ def test_existing_facts_are_only_compared_not_refreshed(tmp_path):
     target = directory / 'facts.json'
     target.write_text(json.dumps(facts) + '\n')
     before = target.read_bytes(), target.stat().st_mtime_ns
-    with pytest.raises(ValueError, match='--refresh'):
+    with pytest.raises(ValueError, match='--refresh') as exc:
         build_facts(directory)
+    summary = str(exc.value).split('facts.json 内容不同')[0]
+    assert '只有新增字段，既有值未变' in summary
+    assert '新增的键：fact_sources, frequency_unavailable_reason, job_sections' in summary
+    assert '删除的键：无' in summary and '既有值变化的键：无' in summary
+    assert '--- facts.json (existing)' in str(exc.value)
+    assert '+++ facts.json (parsed)' in str(exc.value)
     assert (target.read_bytes(), target.stat().st_mtime_ns) == before
     assert not list(directory.glob('facts.*.json'))
 
@@ -240,3 +246,44 @@ def test_scf_energy_is_from_last_normal_section(tmp_path):
     facts, _ = parse(tmp_path, text.split(' Normal termination')[0])
     assert facts['energies']['scf'] is None
     assert facts['fact_sources']['energies.scf'] is None
+
+
+def _existing_job_examples():
+    from test_irc import irc_log
+    from test_scan import gaussian_log, ENERGIES
+    from test_stability import HEADER, INTERNAL, STABLE, NORMAL
+
+    examples = [(name, (FIXTURES / name).read_text(), count) for name, count in (
+        ('water_opt_freq.log', 2), ('butane_anti_freq.log', 1),
+        ('butane_gauche_freq.log', 1), ('fluoride_freq_synthetic.log', 1))]
+    examples += [('Opt derivative', OPT_ONLY, 1), ('SP derivative', SP, 1),
+                 # Existing profile TS example changes the sign, not a real TS calculation.
+                 ('TS sign-change derivative', WATER.replace('2017.6012', '-2017.6012'), 2),
+                 ('TS route derivative', WATER.replace(' Opt Freq', ' Opt=(TS,CalcFC) Freq'), 2),
+                 ('Stable synthetic', HEADER + INTERNAL + '\n' + STABLE + NORMAL, 1),
+                 ('scan synthetic', gaussian_log(ENERGIES, [True] * 7), 1)]
+    examples += [(f'IRC {direction} {ending} synthetic', irc_log(ending, direction), 1)
+                 for direction in ('Forward', 'Reverse')
+                 for ending in ('normal', 'maxpoints', 'failure', 'truncated')]
+    return examples
+
+
+@pytest.mark.parametrize('name,text,count', [
+    pytest.param(name, text, count, id=name) for name, text, count in _existing_job_examples()])
+def test_existing_job_examples_have_no_extra_hash_sections(name, text, count):
+    sections, warnings = gaussian_job_sections(text)
+    assert len(sections) == count and warnings == [], name
+    # Each existing section has exactly one route line, including wrapped routes.
+    lines = text.splitlines()
+    assert all(sum(bool(re.match(r'\s*#', line))
+                   for line in lines[section['start_line'] - 1:section['end_line']]) == 1
+               for section in sections)
+
+
+def test_repeated_hash_inside_job_is_conservative_boundary():
+    # This is a limitation check, not evidence that Gaussian normally prints it.
+    text = SP.replace(' SCF Done:', ' # unexpected body line\n SCF Done:', 1)
+    sections, warnings = gaussian_job_sections(text)
+    assert len(sections) == 2
+    assert sections[0]['termination'] == 'incomplete'
+    assert any('Unexpected job section' in warning for warning in warnings)

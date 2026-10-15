@@ -13,7 +13,7 @@
 ## 允许改动的路径
 
 - `ag/src/ag/_parse_outputs.py`：分段与按段取值。
-- `ag/src/ag/facts.py`：只在需要写出新增字段时修改。
+- `ag/src/ag/facts.py`：写出新增字段；按负责人转交的 PR #256 审阅要求，补充拒绝写入时的差异分类摘要（比较与写入规则不变）。
 - `ag/tests/` 中解析相关测试，以及由仓库内已脱敏的小分子日志（水、正丁烷）改写的合成样例。
 - `docs/LESSONS.md`：新增一条经验。
 - `docs/redesign-tasks/T42-gaussian-job-segments.md`：本任务单。
@@ -58,6 +58,8 @@
 ## 真实环境验证
 
 - 合并后，由负责人在计算机上对 L1、L2、L3 和 V-T22 已取回的 Gaussian Attempt 逐个运行 `ag facts <id>`。现有机制下，解析内容相同就不写文件；内容不同会拒绝写入并列出差异。这样可以只读地确认已签字的证据是否受影响。不用 `--refresh`，不提交作业。
+- 核对拒绝信息开头的摘要：分别统计只有新增字段、删除字段、既有值变化的 Attempt，不把新增来源元数据误算为科学数值变化。
+- 专门核对 `parser_warning` 中的 `Unexpected job section` 和 `Unexpected or unrecognized job section`；逐段对照原日志中的 `#` 行、启动/内部步骤与结束标记，确认没有把同段 route 重复回显或非 route 的 `#` 行误切为新段。遇到不能可靠解释的边界，停止并交负责人决定，不用 `--refresh`。
 - PR 评论里只记录：受影响的 Attempt 数，以及差异的字段名。如有受影响的已签字证据，停下来，交给负责人决定。
 
 ## 停止条件
@@ -87,7 +89,29 @@
 
 ## 本次离线验证
 
-- `PYTHONPATH=ag/src .venv/bin/python -m pytest ag/tests skills-next -q -rs`：1683 passed、2 skipped；跳过项为 Linux 远端 stat/ps 方言测试（交 Linux CI）及未启用的私有日志测试。
+- `PYTHONPATH=ag/src .venv/bin/python -m pytest ag/tests skills-next -q -rs`：1712 passed、2 skipped；跳过项为 Linux 远端 stat/ps 方言测试（交 Linux CI）及未启用的私有日志测试。
 - 单段 SP/Opt 样例进一步限定为相应阶段后，重跑 `ag/tests/test_gaussian_sections.py`：35 passed；解析器实现没有再改动。
 - 暂存文件敏感扫描与 `git diff --cached --check` 通过；author/committer 均已核对为 noreply。
 - 当前阻塞：等待监督方审阅与负责人合并。未连接集群，未运行真实研究 facts；合并后的旧证据核对由负责人按上节另行执行。
+
+
+## PR #256 审阅修订
+
+- 拒绝信息先列新增、删除、既有值变化的键；共享对象递归到 `energies.*` 和 `freq_step_convergence` 子键，新建/删除的整棵子树只列其根键，数组作为一个值列出。仍排除顶层 `ag_provenance`，仍用 JSON 类型敏感比较，后接原有哈希和完整 unified diff。
+- 旧 facts 仅缺三个新字段时，明确显示“只有新增字段，既有值未变”。旧文件无效时显示无法分类，继续拒绝并提供完整 diff。原比较、归档、refresh 与不覆盖机制不变。
+- 未修改 `(route and seen_route)` 分段规则。它是保守的异常边界识别：同段再次出现行首 `#` 会分段并警告；这不是对所有 Gaussian 输出方言的覆盖保证。
+
+| 样例类别 | 证据来源 | 分段 / 每段行首 `#` 数 |
+| --- | --- | --- |
+| 水 Opt+Freq | 已脱敏完整日志 | 2 段，各 1 行（原日志 86、1382 行） |
+| 正丁烷 anti / gauche Freq | 两份已脱敏完整日志，含换行 route | 各 1 段，各 1 行（85 行） |
+| 单原子 Freq | 既有氟离子合成日志 | 1 段、1 行 |
+| 单段 Opt、SP | 已脱敏水日志的截取改写 | 各 1 段、1 行 |
+| TS | profile 既有水频率变号样例；另加 TS route 改写对照 | 各 2 段，每段 1 行；非真实 TS 日志 |
+| IRC | 既有水合成输出，正/反向 × 正常、MaxPoints、失败、截断 | 8 个样例均 1 段、1 行 |
+| Stable | 既有合成输出，同段多次稳定性诊断 | 1 段、1 行 |
+| Gaussian 扫描 | 既有过氧化氢合成输出，7 点、每点多次 SCF | 1 段、1 行 |
+
+以上 18 个样例均无额外分段或边界警告，已固化为回归测试；另有反例确认同段第二个 `#` 会触发保守分段。仓库没有公开的完整真实 TS/IRC/Stable/扫描日志，本次未读取真实 L1–L3 或 V-T22 Attempt，不能把合成覆盖视为真实作业已验证。
+
+本轮审阅修订验证：定向测试 84 passed；完整后端与 Skills 测试 1712 passed、2 skipped（跳过原因同上）。敏感扫描与暂存 diff 检查通过；未连接集群或修改研究证据。
