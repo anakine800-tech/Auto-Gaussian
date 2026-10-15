@@ -117,3 +117,9 @@
 原因：去重只比较重原子 RMSD；跨来源合并又不看能量。
 修复：[#246](https://github.com/anakine800-tech/Auto-Gaussian/pull/246) 默认让 N/O/S/P 上的氢参与 RMSD，lowest 模式加能量容差，记录两种 RMSD。
 以后：涉及氢键或参与反应的氢必须参与构象区分；分子很大时整体 RMSD 会稀释单个氢的差异，需要另看关键二面角。
+
+## Gaussian 后段未结束却沿用前段事实
+现象：脱敏水 Opt+Freq 日志追加未完成作业后，全文解析仍沿用前段 normal、收敛及完整频率；这是离线复现，不代表已签研究结果受影响。
+原因：完成标记和 cclib 数据跨作业段复用；内部频率步骤只打印 Link1/Proceeding，不重复启动头。
+修复：T42 按启动头、内部步骤与结束边界逐段解析，记录 job_sections、fact_sources；频率段未正常结束时相关量置 null。
+以后：核对事实来源段与绝对行号；未知尾段保留警告，旧 facts 差异须人工审阅，不自动 refresh。
