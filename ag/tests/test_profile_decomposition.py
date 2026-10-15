@@ -324,6 +324,30 @@ def test_selectivity_invalid_definition(tmp_path, mutation, error):
         calculate_profile(path)
 
 
+@pytest.mark.parametrize('product', ['Z', 'A'])
+def test_duplicate_ts_rejected_before_loading_sources(tmp_path, monkeypatch, capsys, product):
+    path, data = selection_fixture(tmp_path)
+    data['selectivity'][0]['products'][product].append({'species': 'TS1', 'paths': 2})
+    dump(path, data)
+    monkeypatch.setattr('ag.profile.load_species', lambda *args: pytest.fail('loaded duplicate TS source'))
+    assert main(['profile', str(path), '--json']) == 1
+    error = json.loads(capsys.readouterr().out)['error']
+    assert 'selectivity: duplicate TS species' in error and "'TS1'" in error
+    assert f"at product {product!r} channel 2" in error
+    assert "first at product 'Z' channel 1" in error
+    assert 'using paths' in error
+    assert not list(path.parent.glob('*-profile.*'))
+
+
+def test_ts_reuse_across_independent_selectivity_definitions_allowed(tmp_path):
+    path, data = selection_fixture(tmp_path)
+    data['selectivity'].append({**data['selectivity'][0], 'id': 'independent-comparison'})
+    dump(path, data)
+    first, second = calculate_profile(path)['selectivity']
+    assert first['products'] == second['products']
+    assert first['ee_percent'] == second['ee_percent']
+
+
 @pytest.mark.parametrize('value', [True, 0, -1, 1.5, '2'])
 def test_invalid_paths(tmp_path, value):
     path, data = selection_fixture(tmp_path)

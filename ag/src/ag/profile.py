@@ -141,14 +141,21 @@ def selectivity_definitions(data, specs):
         products = entry['products']
         require(isinstance(products, dict) and len(products) >= 2,
                 f'{label}: selectivity needs at least two products')
+        # Repeated TS entries double-count flux or assign it to two products.
+        locations = {}
         for product, channels in products.items():
             nonempty(product, f'{label}: product label')
             require(isinstance(channels, list) and channels, f'{label}/{product}: empty TS channels')
-            for channel in channels:
+            for index, channel in enumerate(channels, 1):
                 require(isinstance(channel, dict) and 'species' in channel
                         and set(channel) <= {'species', 'paths'}, f'{label}: channel needs species and optional paths')
                 name = nonempty(channel['species'], f'{label}: TS species')
                 require(name in specs, f'{label}: missing species {name}')
+                location = f'product {product!r} channel {index}'
+                if name in locations:
+                    raise ValueError(f'{label}: duplicate TS species {name!r} at {location}; '
+                                     f'first at {locations[name]}; express path degeneracy using paths')
+                locations[name] = location
                 integer(channel.get('paths', 1), f'{label}/{name}: paths', positive=True)
                 used.add(name)
         if 'perturb_kcal' in entry:

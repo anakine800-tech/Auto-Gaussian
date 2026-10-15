@@ -60,6 +60,7 @@
    - 列出的物种必须都是 TS（n_imag = 1），所有物种的元素组成和电荷都相同；只出现在这里的物种，不算“未使用的物种定义”。
    - 产物权重 w_p = Σ paths·exp(−G_TS/RT)，G 用 `corrected_G_kcal`。输出各产物比例、有效能垒（−RT ln w_p，相对最低者）、产物两两之间的 ΔΔG‡ 和比例；用稳定的对数权重计算。
    - paths 是正整数，可省略，默认 1；构象简并度已含在系综 G 中，与 paths 分开显示；省略 paths 时注明“默认 1”，不能重复计权。
+   - 同一条 selectivity 定义内，同一 TS 物种只能出现一次；同产物内重复和跨产物重复均在定义检查时拒绝，报错指明物种、首次和重复位置，防止重复计算通量或分配给两个产物。路径简并只能用 paths 表达。
    - 产物标签按定义文件顺序固定。恰好两个产物时，输出有符号 ee：第一个标签占优为正，并写明符号约定；多于两个产物时，输出比例分布和两两比值（dr）。
    - 给了非负有限 `perturb_kcal` 时，逐个把每个 TS 物种 G 加减该值（一次只改一个，该物种所有出现位置一起改变），报告各产物比例最小/最大值及占优产物是否翻转。区间包含基线，并列集合改变单独报告。
    - 另附只用每个 TS 物种最低构象的同口径结果，复用 `corrected_lowest_conformer_G_kcal`，保留 paths；只作敏感性参考。
@@ -98,6 +99,7 @@
   - 同一产物两个 TS 按通量相加，覆盖每个产物各有两个立体通道的合成样例；paths = 2 等价于 G 降低 RT ln 2，paths 与构象简并度不重复计权；
   - 三个产物：归一化比例分布和全部两两比值，不给 ee；逐 TS 扰动导致占优产物翻转，报告比例区间；
   - 组成或电荷不同、非 TS 物种都拒绝；旧接口不再接受；
+  - 合成反例：同产物内重复 TS、跨产物重复 TS 均在读取来源前拒绝且不生成报告；独立 selectivity 定义之间可以复用 TS，已有 paths=2 等价关系仍通过；
   - σ 警告：nosymm 混用、σ 大于 1 时出现警告，并给出 RT ln σ 数值。
 - 后端：`PYTHONPATH=ag/src python -m pytest ag/tests skills-next -q -rs`；记录通过数和跳过原因。
 - 暂存精确文件后运行敏感扫描与 `git diff --cached --check`，人工核对 PR 文本和 Git 身份。
@@ -128,7 +130,7 @@
 - 顶层新增 `selectivity`（产物比例、相对有效能垒、两两 ΔΔG‡/比例、两产物有符号 ee、逐 TS 敏感性、最低构象同口径对照）、`symmetry` 警告及模型说明。极端指数无法表示时返回 null 并保留自然对数，避免新增换算导致原自由能输出失败。
 - schema 仍为 `ag-profile/1`。旧合成样例的完整输出快照递归核对全部旧字段，值精确相同；旧 Markdown 内容作为新报告的前缀逐字节一致。未修改 thermo 计算/输出或 facts。
 - 测试文件：修改 `ag/tests/test_profile.py`；新增 `ag/tests/test_profile_decomposition.py` 和合成旧输出快照 `ag/tests/data/profile_legacy_output.json`。未使用研究数据。
-- 修订版定向验证 178 passed；全量 `PYTHONPATH=ag/src .venv/bin/python -m pytest ag/tests skills-next -q -rs`：1590 passed、2 skipped。跳过：Linux stat/ps 方言由 Linux CI 验证；私有本地日志未启用。profile 卡片 233 行，常见坑 6 条。
+- 复审补充同定义内 TS 唯一性检查后，定向验证 181 passed；全量 `PYTHONPATH=ag/src .venv/bin/python -m pytest ag/tests skills-next -q -rs`：1593 passed、2 skipped。跳过：Linux stat/ps 方言由 Linux CI 验证；私有本地日志未启用。profile 卡片 234 行，常见坑 6 条。
 - 24 kcal/mol、298.15 K 得到半衰期 12.116692 h；两产物各一个 TS 时，1.13 kcal/mol 得到有符号 ee +74.141337%，交换标签顺序后为 −74.141337%。
 - 提交前敏感扫描及差异检查通过，作者/提交者 noreply 身份已本地核对。当前无开发阻塞；监督方审阅和负责人合并仍待完成。
 - 未连接集群；L3 真实环境只读重跑留待合并后由负责人另行安排，不以离线测试替代科学验收。
