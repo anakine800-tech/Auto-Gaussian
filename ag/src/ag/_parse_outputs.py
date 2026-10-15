@@ -21,14 +21,38 @@ def last_number(pattern, text):
     return number(matches[-1]) if matches else None
 
 
-def termination(text, marker, pbs_text=''):
+def termination(text, marker, pbs_text='', *, line_offset=0):
     error = re.search(r'Error termination|abnormal termination|fatal error|\[ERROR\]', text, re.I)
-    link = re.findall(r'Error termination via Lnk1e in .*?[/\\]l(\d+)\.exe', text, re.I)
+    links = list(re.finditer(r'Error termination via Lnk1e in .*?[/\\]l(\d+)\.exe', text, re.I))
     hint = None
-    if link:
-        hint = {'9999': 'L9999: 优化步数用完', '502': 'L502: SCF 不收敛'}.get(link[-1], 'L' + link[-1])
-    elif re.search(r'convergence failure|SCF.*not converg', text, re.I):
-        hint = 'SCF 不收敛'
+    # A link identifies the exit point, not the cause (L9999 also reports a
+    # wrong TS curvature at the first step). Prefer the last explicit cause
+    # in this job section; never copy raw log text, which can contain paths.
+    causes = []
+    for pattern, label in (
+        (r'Number of steps exceeded', '优化步数用完'),
+        (r'Wrong number of Negative eigenvalues', 'TS 曲率不符：负本征值数与期望不符'),
+        (r'Convergence failure|SCF(?: has)? not converged', 'SCF 不收敛'),
+    ):
+        causes.extend((match.start(), label) for match in re.finditer(pattern, text, re.I))
+    # "Optimization stopped" alone is not evidence of a step limit.
+    for stopped in re.finditer(r'Optimization stopped[^\n]*(?:\n[^\n]*){0,2}', text, re.I):
+        limit = re.search(r'(?:maximum number of (?:optimization )?steps|'
+                          r'(?:optimization )?step limit)\s+(?:has been\s+)?(?:reached|exceeded)',
+                          stopped[0], re.I)
+        if limit:
+            causes.append((stopped.start() + limit.start(), '优化步数用完'))
+    if causes:
+        position, label = max(causes, key=lambda item: item[0])
+        prefix = 'L' + links[-1][1] + ': ' if links else ''
+        hint = prefix + label
+    elif links:
+        position = links[-1].start()
+        hint = ('L9999：优化未完成（原因见日志）' if links[-1][1] == '9999'
+                else 'L' + links[-1][1])
+    if hint:
+        line = line_offset + text.count('\n', 0, position) + 1
+        hint += f'（line {line}）'
     walltime = re.search(r'walltime.*(?:exceed|limit|kill)|(?:exceed|kill).*walltime', pbs_text, re.I)
     if walltime:
         hint = 'walltime'
@@ -359,10 +383,14 @@ def parse_gaussian(path, pbs_path=None):
     facts['termination'] = ('error' if errors else 'normal' if not boundary_warning and all(
         section['termination'] == 'normal' for section in sections) else 'incomplete')
     if errors:
-        facts['error_hint'] = parsed[errors[-1]][0]['error_hint']
+        facts['error_hint'] = termination(
+            blocks[errors[-1]], 'Normal termination of Gaussian',
+            line_offset=sections[errors[-1]]['start_line'] - 1)['error_hint']
         sources['error_hint'] = errors[-1] + 1
     else:
-        facts['error_hint'] = termination(blocks[-1], 'Normal termination of Gaussian', pbs)['error_hint']
+        facts['error_hint'] = termination(
+            blocks[-1], 'Normal termination of Gaussian', pbs,
+            line_offset=sections[-1]['start_line'] - 1)['error_hint']
         sources['error_hint'] = None if facts['error_hint'] == 'walltime' else len(sections)
 
     opts = [i for i, section in enumerate(sections) if _route_has(section['route'], 'opt')]

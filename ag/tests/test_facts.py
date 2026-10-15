@@ -68,7 +68,7 @@ def test_walltime_and_error_precedence(tmp_path):
     assert parse_gaussian(log, pbs)[0]['error_hint'] == 'walltime'
     log.write_text('Normal termination of Gaussian\nError termination via Lnk1e in PATH/l123.exe\n')
     facts, _ = parse_gaussian(log)
-    assert facts['termination'] == 'error' and facts['error_hint'] == 'L123'
+    assert facts['termination'] == 'error' and facts['error_hint'] == 'L123（line 2）'
 
 
 def test_imaginary_mode_distance_derivative():
@@ -293,3 +293,49 @@ def test_xtb_program_error_overrides_scheduler_marker(tmp_path):
     (tmp_path / 'xtb.out').write_text('[ERROR] optimization failed\n')
     (tmp_path / 'job.pbs.out').write_text('normal termination of xtb\n')
     assert parse_xtb(tmp_path)[0]['termination'] == 'error'
+
+
+@pytest.mark.parametrize('body,link,hint,line', [
+    (' Number of steps exceeded', '9999', 'L9999: 优化步数用完', 2),
+    (' Optimization stopped.\n Maximum number of optimization steps reached',
+     '9999', 'L9999: 优化步数用完', 3),
+    (' Wrong number of Negative eigenvalues: Desired=1 Actual=0',
+     '9999', 'L9999: TS 曲率不符：负本征值数与期望不符', 2),
+    (' Convergence failure -- run terminated.', '502', 'L502: SCF 不收敛', 2),
+    (' SCF has not converged', '9999', 'L9999: SCF 不收敛', 2),
+    (' Optimization stopped.', '9999', 'L9999：优化未完成（原因见日志）', 3),
+    (' No recognized cause', '123', 'L123', 3),
+    (' No recognized cause', '502', 'L502', 3),
+    (' SCF has not converged', None, 'SCF 不收敛', 2),
+])
+def test_error_hint_uses_cause_and_original_line(tmp_path, body, link, hint, line):
+    # Prevent a link-only diagnosis from recommending the wrong recovery action.
+    text = 'Synthetic termination fragment.\n' + body + '\n'
+    text += f' Error termination via Lnk1e in PATH/l{link}.exe\n' if link else ''
+    log = tmp_path / 'synthetic.log'
+    log.write_text(text)
+    facts, _ = parse_gaussian(log)
+    assert facts['termination'] == ('error' if link else 'incomplete')
+    assert facts['error_hint'] == f'{hint}（line {line}）'
+    assert text.splitlines()[line - 1].strip()
+
+
+def test_walltime_hint_and_state_remain_unchanged():
+    # Scheduler walltime remains its existing keyword, not a Gaussian log line.
+    from ag._parse_outputs import termination
+    text = ' Number of steps exceeded\n Error termination via Lnk1e in PATH/l9999.exe\n'
+    assert termination(text, 'Normal termination', '\nwalltime exceeded limit\n') == {
+        'termination': 'error', 'error_hint': 'walltime'}
+    assert termination('partial', 'Normal termination', 'walltime exceeded limit') == {
+        'termination': 'incomplete', 'error_hint': 'walltime'}
+
+
+def test_last_explicit_cause_wins_within_section(tmp_path):
+    # An earlier SCF diagnostic must not hide the terminal curvature failure.
+    log = tmp_path / 'synthetic.log'
+    log.write_text(' SCF has not converged\n'
+                   ' Wrong number of Negative eigenvalues: Desired=1 Actual=0\n'
+                   ' Error termination via Lnk1e in PATH/l9999.exe\n')
+    facts, _ = parse_gaussian(log)
+    assert facts['termination'] == 'error'
+    assert facts['error_hint'] == 'L9999: TS 曲率不符：负本征值数与期望不符（line 2）'

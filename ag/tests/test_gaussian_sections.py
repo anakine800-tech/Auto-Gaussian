@@ -96,7 +96,7 @@ def test_frequency_error_owns_hint_and_energy(tmp_path):
     pbs.write_text('job killed: walltime exceeded limit\n')
     facts, _ = parse_gaussian(log, pbs)
     assert facts['termination'] == 'error'
-    assert facts['error_hint'] == 'L502: SCF 不收敛'
+    assert facts['error_hint'] == f'L502（line {len(text.splitlines())}）'
     assert facts['fact_sources']['error_hint'] == 2
     assert facts['opt_converged'] is True
     assert facts['fact_sources']['energies.scf'] == 1
@@ -141,7 +141,7 @@ def test_error_precedes_unrecognized_tail_and_prior_normal(tmp_path):
     text = OPT + FREQ.split(' Normal termination')[0] + ' Error termination via Lnk1e in PATH/l502.exe\n'
     facts, _ = parse(tmp_path, text + ' Entering Gaussian System\n')
     assert facts['termination'] == 'error'
-    assert facts['error_hint'] == 'L502: SCF 不收敛'
+    assert facts['error_hint'] == f'L502（line {len(text.splitlines())}）'
     assert facts['fact_sources']['error_hint'] == 2
 
 
@@ -430,3 +430,23 @@ def test_hash_body_line_does_not_disable_frequency_convergence():
 
     text = HARMONIC + ' # body statistic\n' + TABLE
     assert frequency_convergence(text)['freq_step_converged'] is True
+
+
+@pytest.mark.parametrize('ending', ['\n', '\r\n'])
+@pytest.mark.parametrize('tail', ['', ' Entering Gaussian System\n'])
+def test_error_hint_reports_global_cause_line_without_borrowing(tmp_path, ending, tail):
+    # Prevent a later failed job from borrowing an earlier cause or local line number.
+    prefix = (' Entering Gaussian System\n'
+              ' Number of steps exceeded\n'
+              ' Normal termination of Gaussian\n\n')
+    failed = (' Entering Gaussian System\n'
+              ' Wrong number of Negative eigenvalues: Desired=1 Actual=0\n'
+              ' Error termination via Lnk1e in PATH/l9999.exe\n')
+    single, _ = parse(tmp_path, failed.replace('\n', ending))
+    facts, _ = parse(tmp_path, (prefix + failed + tail).replace('\n', ending))
+    label = 'L9999: TS 曲率不符：负本征值数与期望不符'
+    assert single['error_hint'] == label + '（line 2）'
+    assert facts['error_hint'] == label + '（line 6）'
+    assert facts['termination'] == single['termination'] == 'error'
+    assert facts['fact_sources']['error_hint'] == 2
+    assert (prefix + failed + tail).splitlines()[5].lstrip().startswith('Wrong number')
