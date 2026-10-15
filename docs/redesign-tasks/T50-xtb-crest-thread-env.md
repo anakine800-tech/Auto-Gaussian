@@ -3,7 +3,7 @@
 ## 分支与目标
 
 - 分支：`codex/t50-xtb-crest-thread-env`；基于 v4.1.0 之后的 main，一张任务单一个 PR。
-- **防的事故（2026-10-15 真实发生）：** SCNet 上 V2（17 个原子的 CREST）的 crest.out 里有约 159 万行 OpenBLAS/OpenMP 警告，文件约 194 MB。xTB 用 OpenMP 并行，又调用了按 pthread 编译的 OpenBLAS，嵌套并行时 OpenBLAS 会反复报警。HSS 的 M1 有 84 个原子，运行时间长得多，日志可能更大。后果是取回慢、本地和集群都多占空间，也让真正的错误信息淹没在警告里。
+- **防的事故（2026-10-15 真实发生）：** SCNet 上 V2（17 个原子的 CREST）的 job.slurm.err 里有约 159 万行 OpenBLAS/OpenMP 警告，文件约 194 MB。xTB 用 OpenMP 并行，又调用了按 pthread 编译的 OpenBLAS，嵌套并行时 OpenBLAS 会反复报警。HSS 的 M1 有 84 个原子，运行时间长得多，日志可能更大。后果是取回慢、本地和集群都多占空间，也让真正的错误信息淹没在警告里。
 - **目标：** 在 `crest.pbs` 和 `xtb.pbs` 两个模板里固定设置 `OPENBLAS_NUM_THREADS=1`（是否同时加 `MKL_NUM_THREADS=1` 和 `OMP_MAX_ACTIVE_LEVELS=1`，由 Codex 查 xTB/CREST 官方文档后提出并说明依据），让并行只交给 OpenMP（`OMP_NUM_THREADS=$cores` 保持不变）。
 
 ## 允许改动的路径
@@ -33,15 +33,29 @@
 ## 真实环境验证（合并前，在开发机上，由负责人确认提交）
 
 - 用 T50 分支的临时 worktree（按 DEVELOPING 的例外流程），在 SCNet 上重跑一次 V2 体系（质子化正丁胺，`--chrg 1 --alpb ch2cl2`，8 核）：
-  - crest.out 里不再有 OpenBLAS 警告（或只剩个位数行），文件大小降到 MB 量级以下；
-  - 构象数、相对能量与 V2 一致（相对能量差小于 0.01 kcal/mol）；
+  - 核对 `crest.out` 和 `job.slurm.err` 的 OpenBLAS 警告行数及精确字节数；警告不再出现（或只剩个位数行），日志低于 MB 量级。原 V2 的约 194 MB 警告日志实际是 stderr，非 crest.out；
+  - 按下述修订后的结构与能量判据比较两次构象集合；
   - 墙钟时间不明显变长（超过 V2 的 1.5 倍就停下报告）。
 - 结果写进 PR 描述，不写主机和路径。验证结束后删除临时 worktree。
+
+### 验收口径修订（2026-10-15，负责人转达监督方批准）
+
+CREST 采样有随机性，原“构象数一致、相对能差 < 0.01 kcal/mol”标准作废，改为：
+
+1. 两次运行的最低构象为同一结构：重原子对齐后 RMSD ≤ 0.125 Å，绝对总能量差 ≤ 0.1 kcal/mol。
+2. T50 的每个构象都能在 V2 中找到对应：重原子 RMSD ≤ 0.125 Å，相对能差 ≤ 0.2 kcal/mol。
+3. V2 多出的构象，相对能 ≥ 1.5 kcal/mol，或与某个已匹配构象近乎重复，均可接受；若有 < 1 kcal/mol 的低能构象在 T50 中找不到，停下报告。未落入上述接受条件的情况列出证据交监督方判断，不自行降低阈值。
+
+复用仓库 `ag.geometry` 的 XYZ、重原子投影和 RMSD 工具；保持输入原子顺序，允许对称等价映射，不另写对齐算法，不开启镜像匹配。先核对分子身份及原子序列，再计算全部配对；不能只按能量排序配对。PR 描述列出逐构象配对、RMSD、相对能差，以及最低构象总能量差。
+
+V2 的 `crest_conformers.xyz` 由负责人提供，仅作临时比较数据，不写入任何 study，比较后删除本次创建的临时坐标副本，不操作原 V2 study。XYZ 注释的绝对总能量与 `crest.energies` 的相对能必须区分，缺少总能量时报告缺失，不用相对零点代替。
+
+V2 的 1 h 与 T50 的 4 h 为调度资源时限，按批准意见不影响本次 CREST 正常完成的比较，保留披露。实测墙钟时间 664.285 s 对 108.129 s，约为原来的 1/6，满足“不明显变长”。
 
 ## 停止条件
 
 - 加了变量后警告仍然存在：停下报告，不要试别的变量组合。
-- 结果或耗时明显变化。
+- 修订后的结构/能量判据不满足，或墙钟时间超过 V2 的 1.5 倍。
 - 需要改动 Gaussian 模板或安全逻辑。
 
 ## 合并前审阅与交付
@@ -56,4 +70,4 @@
 - `OMP_MAX_ACTIVE_LEVELS=1`：按 [xTB 官方并行设置](https://xtb-docs.readthedocs.io/en/latest/setup.html#parallelisation) 禁用嵌套 OpenMP；原有 `OMP_NUM_THREADS=$cores` 和 CREST `-T $cores` 不变。
 - 不新增 `MKL_NUM_THREADS=1`：xTB 文档允许 MKL 独立设置为分配核数，并未要求固定为 1。此次故障针对 OpenBLAS，强制串行化 MKL 可能影响其他构建的性能。
 - 完整脚本基线来自 v4.1.0 后 main 的 `36b645e`；覆盖 xTB/CREST 的 PBS、Slurm，以及 Gaussian PBS、Slurm 和 SCNet A.03。移除两行新增 export 后校验完整脚本 SHA-256，Gaussian 直接校验原始字节哈希。
-- 真实环境验证尚未执行；合并前仍需负责人授权并确认提交，以及监督方审阅。README/交接文档按任务单删除 T50 已知问题条目，不代表真实验收通过。
+- 已由负责人点击确认完成单次真实运行：T50 stdout 37,091 字节、stderr 0 字节，OpenBLAS 警告为 0；V2/T50 分别 7/6 构象。按修订口径，当前等待负责人提供 V2 XYZ 后完成结构与能量对应，尚不宣称完整验收通过。README/交接文档删除已知问题条目不代表验收通过，合并前仍需监督方复核。

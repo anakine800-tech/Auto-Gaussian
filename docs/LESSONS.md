@@ -161,7 +161,7 @@
 以后：引用证据时用反引号或链接包裹路径；需要引用一批文件时可以直接引用目录，空目录仍报错。
 
 ## CREST/xTB 的 OpenBLAS 警告撑大日志
-现象：SCNet 小分子 CREST 输出出现约 159 万行 OpenBLAS/OpenMP 警告，日志约 194 MB。
+现象：SCNet 小分子 CREST 的 `job.slurm.err` 出现约 159 万行 OpenBLAS/OpenMP 警告，约 194 MB；`crest.out` 无该警告。
 原因：OpenMP 并行中调用 pthread OpenBLAS，嵌套并行反复报警；不能把其他程序错误一并忽略。
-修复：T50 固定 `OPENBLAS_NUM_THREADS=1` 和 `OMP_MAX_ACTIVE_LEVELS=1`，保留原 OpenMP 核数；真实警告数、结果与耗时对照待负责人确认提交后验证。
-以后：按 CREST/xTB 官方线程建议审阅模板，BLAS 与 OpenMP 分开控制；离线渲染通过不等于真实运行或科学验收。
+修复：T50 固定 `OPENBLAS_NUM_THREADS=1` 和 `OMP_MAX_ACTIVE_LEVELS=1`，保留原 OpenMP 核数；单次真实验证中 stderr 降为 0 字节，结构与能量对应仍待核验。
+以后：按 CREST/xTB 官方线程建议审阅模板，BLAS 与 OpenMP 分开控制；离线渲染通过不等于真实运行或科学验收。随机采样的真实验证，按“结构对应和能量接近”来验收，不要求逐帧一致。
