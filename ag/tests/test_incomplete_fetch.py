@@ -380,7 +380,7 @@ def test_facts_and_downstream_reject_incomplete(cfg, interrupted, multi, slurm_f
         observe(cfg, path, fake, monkeypatch, 2300)
     fetch.fetch(selected_cfg, path, fake, incomplete=True)
     result = facts.build_facts(path)
-    assert result['termination'] == ('error' if message else 'incomplete')
+    assert result['termination'] == 'incomplete'
     assert result['opt_converged'] is not True
     assert result['incomplete_fetch']['record']
     assert (path / 'final_input.xyz').is_file()
@@ -408,6 +408,9 @@ def test_cli_option(cfg, interrupted, monkeypatch, capsys):
 
 def test_first_ssh_failure_stops_and_read_only_enforcement_remains(cfg, interrupted, monkeypatch):
     from ag.transport import SSHTransport
+    # This subclass intentionally overrides an internal hook. A rename must
+    # fail here even if the replacement happens to avoid retries on this path.
+    assert callable(SSHTransport.__dict__.get('_perform'))
     path, _, _ = interrupted
     calls = []
     def fail(self, argv, timeout):
@@ -488,3 +491,42 @@ def test_no_program_log_yields_only_incomplete_source_facts(cfg, interrupted, mo
     from ag.thermo import calculate_thermo
     with pytest.raises(ValueError, match='requires normal termination'):
         calculate_thermo([path])
+
+
+@pytest.mark.parametrize('scheduler_name', ['job.pbs.out', 'job.slurm.err', 'job.slurm.out'])
+@pytest.mark.parametrize('tail,expected', [
+    (' Normal termination of Gaussian\n', 'normal'),
+    ('', 'incomplete'),
+    (' Error termination via Lnk1e in PATH/l502.exe\n', 'error'),
+])
+@pytest.mark.parametrize('message', ['Resource summary: walltime 10, limit 300',
+                                     'walltime exceeded limit; DUE TO TIME LIMIT'])
+def test_scheduler_walltime_hint_preserves_log_termination(
+        prepared, slurm_finished, scheduler_name, tail, expected, message):
+    # No incomplete-fetch record: normal, partial and error logs retain their
+    # own termination, even with the broad resource-summary walltime match.
+    path, _ = prepared if scheduler_name == 'job.pbs.out' else slurm_finished[:2]
+    (path / 'outputs/water.log').write_text(LOG + tail)
+    baseline, baseline_geometry = facts.parse_facts(path)
+    (path / 'outputs' / scheduler_name).write_text(message)
+    parsed, geometry = facts.parse_facts(path)
+    assert parsed['termination'] == baseline['termination'] == expected
+    assert parsed['error_hint'] == 'walltime'
+    assert parsed['error_hint_sources'] == [scheduler_name]
+    assert parsed['opt_converged'] == baseline['opt_converged']
+    assert geometry == baseline_geometry
+
+
+def test_fetch_lock_is_staged_and_excluded_from_review_manifest(cfg, interrupted):
+    from ag._review_manifest import create
+    path, _, fake = interrupted
+    fetch.fetch(cfg, path, fake, incomplete=True)
+    facts.build_facts(path)
+    assert not (path / '.fetch-incomplete.lock').exists()
+    lock = path / 'outputs/.partial/.fetch-incomplete.lock'
+    assert lock.is_file()
+    result = create(path.parent.parent)
+    selected = {entry['path'] for entry in result['files']}
+    assert (path / 'facts.json').relative_to(path.parent.parent).as_posix() in selected
+    assert lock.relative_to(path.parent.parent).as_posix() not in selected
+    assert all('.partial' not in name for name in selected)

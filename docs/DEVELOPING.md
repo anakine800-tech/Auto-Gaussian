@@ -99,6 +99,8 @@ Slurm 取回前后均只读核对 squeue 无此作业及 sacct 终态（TIMEOUT�
 独占记录绑定 manifest SHA-256、集群/作业身份、存在输出哈希、确认缺失项、结束证据和 ag 版本；记录与本地字节不符时 facts/父 chk 均拒绝。
 已有不完整取回记录拒绝普通 fetch、重复 --incomplete 和 --add-missing，两个显式选项互斥；缺失文件不能被后续补放后静默升级成正常结果。
 失败保留 `.partial`，验证全部通过后独占发布；本地发布失败仅撤回本次已创建的链接，暂存字节仍保留。远端无写入。
+并发取回锁位于 `outputs/.partial/.fetch-incomplete.lock`，不放在 Attempt 根目录；签字清单不收集该暂存锁。
+调度器 walltime 匹配仅设置 `error_hint` 和来源，不改变日志解析的 termination；有效不完整取回记录才将 normal 降为 incomplete，日志本身的 error 保留。
 
 ## 集群绑定：读哪个记录
 

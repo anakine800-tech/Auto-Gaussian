@@ -260,9 +260,11 @@ def _incomplete(cfg, path, transport):
     root = Path(cfg['local']['studies_root'])
     output = study.local_path(root, path / 'outputs')
     names = remote.output_names(manifest)
-    # Serialize concurrent incomplete fetches; normal fetch cannot publish over
-    # these files either. The lock is local and carries no lifecycle state.
-    lock_path = study.local_path(root, path / '.fetch-incomplete.lock')
+    # Keep synchronization artifacts with staging, outside Attempt evidence.
+    # Do not unlink a shared flock inode while another fetch may be waiting.
+    partial = study.local_path(root, output / '.partial')
+    partial.mkdir(exist_ok=True)
+    lock_path = study.local_path(root, partial / '.fetch-incomplete.lock')
     fd = os.open(lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
     with os.fdopen(fd, 'rb') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
@@ -271,8 +273,6 @@ def _incomplete(cfg, path, transport):
         for name in names:
             if (output / name).exists() or (output / name).is_symlink():
                 raise FileExistsError('Output already exists; incomplete fetch will not overwrite')
-        partial = study.local_path(root, output / '.partial')
-        partial.mkdir(exist_ok=True)
         stage = Path(tempfile.mkdtemp(prefix='fetch-incomplete-', dir=partial))
         presence = _presence(cfg, manifest, transport)
         # A strict directory/readability check precedes receipt absence checks.

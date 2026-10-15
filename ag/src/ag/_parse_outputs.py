@@ -462,7 +462,9 @@ def annotate_fetch_sources(facts, directory):
     walltime_sources = [name for name in scheduler_names if (outputs / name).is_file()
                        and termination('', '', (outputs / name).read_text(errors='replace'))['error_hint'] == 'walltime']
     if walltime_sources:
-        facts.update(termination='error', error_hint='walltime', error_hint_sources=walltime_sources)
+        # A broad scheduler-text match is a hint, not termination evidence:
+        # resource summaries can mention a walltime limit even after success.
+        facts.update(error_hint='walltime', error_hint_sources=walltime_sources)
         if 'fact_sources' in facts:
             facts['fact_sources']['error_hint'] = None
     if incomplete:
