@@ -60,7 +60,7 @@ def _contacts(frame):
     return result
 
 
-def _fragments(frame):
+def fragments(frame):
     """Connected components of definite radius-rule bonds, including explicit H."""
     from rdkit import Chem
     neighbors = {i: set() for i in range(1, len(frame.symbols) + 1)}
@@ -86,6 +86,10 @@ def _fragments(frame):
     return dict(count=len(components), components=components,
                 rule='仅以半径比 [0.6, 1.2) 的确定相连边统计；不确定接触不合并片段。',
                 formula_note='分子式按显式原子计数，使用 Hill 顺序；不推断片段电荷或补氢。')
+
+
+# Preserve the private entry point used by existing topology callers/tests.
+_fragments = fragments
 
 
 def _check_fragments_and_mapping(result, submitted, final, charge):

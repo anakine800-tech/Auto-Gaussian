@@ -80,7 +80,7 @@
 现象：L3 用父 TS 的 Standard 坐标读取力常数时，双向 IRC 均首点校正失败；正确 Input 坐标的 RCFC 与独立 CalcFC 部分轨迹高度吻合并越过首点，随后仍有校正失败。
 原因：输入坐标与父作业 Input 框架的 Cartesian 力常数/模式错配；副本哈希、相同起点能量及对齐 RMSD 不能证明取向一致，不宣称这是所有失败的唯一根因。
 修复：[#240](https://github.com/anakine800-tech/Auto-Gaussian/pull/240) 导出 final_input.xyz 与实际取向，在 prepare 读取父力常数时按固定原子顺序检查 1e-4 Å 容差；已有几何文件只沿用相同字节，不覆盖。
-以后：RCFC/ReadFC 用 final_input.xyz，或预先在父 TS 加 nosymm；取向正确后再逐级审阅 StepSize、MaxCycle、CalcAll/ReCalc。L3 最终完成了双向 IRC 与端点识别并签字，所用设置记录在本地 study，尚待回写 irc 卡片；部分轨迹不等于双向完成。
+以后：RCFC/ReadFC 用 final_input.xyz，或预先在父 TS 加 nosymm；取向正确后再逐级审阅 StepSize、MaxCycle、CalcAll/ReCalc。L3 的 T46 前流程验收经过及按现行判据的状态已回写 [irc 卡片第 7 节](../skills-next/auto-g16-recipes/cards/irc.md#7-常见失败与处理)，A/B 对照已证实 Input 坐标读取正确；部分轨迹不等于双向完成。
 
 ## PBS 槽位写成逗号组合范围
 现象：pbsnodes 与 exec_host 出现 `0-7,12-25` 这类写法，核数解析失败，提交与监控都退回严格模式。
