@@ -100,7 +100,7 @@ xTB 6 kcal/mol → DFT 单点重排 → 3 kcal/mol 内进入优化（研究最�
 为防止把程序正常退出误当科学成功，借鉴 [QUASAR，arXiv:2602.00185v2](https://arxiv.org/html/2602.00185v2) §2.3 “Long Simulation Handling”（完成状态不保证收敛）及 §4 “Discussion”（貌似合理的结果仍需物理核验）。下面七项是面向 Gaussian 和本项目的具体化，并非论文给出的 Gaussian 清单；不采用其自动终止/重启操作。
 
 - **正常终止但不在驻点**：分别检查 `opt_converged` 和 `freq_step_converged`。尤其 `freq_step_converged=false` 时即便零虚频也暂停接受；`null` 是缺证据，查末次频率阶段的收敛表和 `Non-Optimized Parameters`，不能用别的阶段替代。
-- **连接关系或立体构型改变**：按相同原子映射比较输入与最终几何中的成键、断键、质子转移及立体中心。用 `ag graph --study <study_dir>` 核对来源；当前 ag graph 是 Attempt 来源图，不做分子连接关系/立体化学比对，不能把它当结构比较工具。人工逐项记录差异，无法判定就暂停纳入原构象集合，不能用来源图声明结构一致。
+- **连接关系或立体构型改变**：先运行 `ag topology <attempt> --study <study_dir> --out <analyses/新文件.json>`，在 review.md 中引用 JSON 与 Markdown 输出，按相同原子映射人工审阅 changed/unknown 项，包括成键、断键、质子转移、B/N/O 不确定接触及立体中心。结构改变或无法判定时不能计入原构象集合；结构比较不代替科学审阅。`ag graph` 仅核对 Attempt 来源，不能用于声明结构一致。
 - **小虚频**：当负频的绝对值 < 50 cm⁻¹ 时，检查完整位移，区分软扭转、片段运动、真实反应方向与数值误差；不能直接置零。可提出更严格优化/积分网格或沿该模式小扰动后同方法重新优化，重新核对完整 Freq；提出新 Attempt，等人确认。100 cm⁻¹ qRRHO 截断不负责消除虚频。
 - **低频残余**：记录末次已完成频率段的 `Low frequencies ---` 第一行及原日志行号，核对平动、转动残余。
   TS 的真实虚频可能排在这些残余之前，软振动也可能混排；必要时连同后续行及投影后的频率、模式辨认，

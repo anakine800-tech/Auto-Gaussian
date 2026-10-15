@@ -39,6 +39,7 @@
 - `review.py`：生成审阅骨架，检查判据完整性及 facts 是否过期。
 - `_review_manifest.py`：签字前独占生成 study 证据清单，绑定文件字节与 ag 提交号。
 - `facts.py`：本地 facts/final.xyz 输出入口，仅提取事实。
+- `mode_review.py`：基于正常结束的频率段导出正负模式位移、指定原子对距离及全对排名，方向由人审阅。
 - `_parse_outputs.py`：Gaussian/cclib、xTB、CREST 输出解析。
 - `_irc.py`：Gaussian IRC 方向、路径点和完成事实提取。
 - `geometry.py`：XYZ、显式能量单位、成键/立体标识及 RMSD 共用工具。
@@ -46,6 +47,7 @@
 - `cluster.py`：代表构象选择及可选镜像简并度。
 - `graph.py`：只读展示 parents/relation 谱系和缺失父节点。
 - `irc_compare.py`：保留原子编号的 IRC 端点几何比较，不代替科学验收。
+- `topology.py`：本地比较提交与最终几何，报告拓扑/立体差异或指定 TS 原子对距离，独占输出 JSON 与 Markdown。
 - `thermo.py`：GoodVibes qRRHO、单点修正和显式简并度布居。
 - `_profile_sources.py`：反应曲线的来源、物种、方法和审阅检查。
 - `profile.py`：守恒反应自由能曲线、能垒和敏感性分析。
