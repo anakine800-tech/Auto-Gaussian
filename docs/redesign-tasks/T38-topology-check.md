@@ -9,7 +9,8 @@
   - `ag/src/ag/geometry.py:89–105`：`infer_molecule`、`graph_key`、`stereo_key`；
   - `ag/src/ag/facts.py:70–116`：取回后写出 `final.xyz`、`final_input.xyz`；
   - `skills-next/auto-g16-recipes/cards/opt-freq.md:103`：目前要求人工比对，并注明 `ag graph` 不做结构比对；
-  - 相关已合并 PR：#226（IRC 端点比较）、#240（final_input.xyz）。
+  - 相关已合并 PR：#226（IRC 端点比较）、#240（final_input.xyz）；
+  - 旧版知识来源（只读参考，不 import，提交说明注明来源）：`archive/auto_g16/conformer/service.py` 第 690 行附近的身份变化检查（原子对应、连接图、片段数、立体化学变化），用来补全检查项，不照搬它的数据结构。
 - 防的事故：优化过程中发生质子迁移、配位转移、成环/开环或立体翻转（含硼、两性离子等电荷分离体系尤其容易出现），而结构仍被当作原构象计入系综或剖面。现在只能人工逐项比对，容易漏看。构象去重已经会拒绝立体变化的帧（`dedup.py:27`），但 Gaussian 优化结果还没有同样的检查。
 
 ## 允许改动的路径
@@ -38,6 +39,8 @@
 3. **极小点模式：**
    - 复用 `compare_endpoint` 的判定，输出 `status`（unchanged / changed / unknown）、`bond_differences`、`ambiguous_bonds`、`proton_differences`、`stereo_differences`。
    - 另外按元素列出 B、N、O 与其他原子之间处于“不确定”区间（共价半径比值 1.2–1.5）的接触，提交几何和最终几何各一份，用于审阅配位变化。
+   - 报告提交与最终几何的连通片段数及各片段分子式；片段数变化时，status 判为 changed。
+   - 原子顺序默认一一对应，不做重排。对同元素原子位置互换这种情况，用“相连关系整体是否同构，但逐原子邻居不同”的方式标出来，判为 unknown，交给人确认。
    - RDKit 无法给出键级或立体时，相应项报 UNKNOWN 并写明原因，不猜。
 4. **TS 模式：**
    - facts 显示恰好一个虚频，且 route 含 `Opt=TS` 或 QST 时，不给出“相连”结论。

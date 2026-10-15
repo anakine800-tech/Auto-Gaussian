@@ -1,4 +1,5 @@
 """Report submitted/final topology or declared TS distances without changing evidence."""
+from collections import Counter
 from hashlib import sha256
 import json
 import math
@@ -59,6 +60,66 @@ def _contacts(frame):
     return result
 
 
+def _fragments(frame):
+    """Connected components of definite radius-rule bonds, including explicit H."""
+    from rdkit import Chem
+    neighbors = {i: set() for i in range(1, len(frame.symbols) + 1)}
+    for (i, j), evidence in _pairs(frame, Chem).items():
+        if evidence['state'] == 'bonded':
+            neighbors[i].add(j)
+            neighbors[j].add(i)
+    components, remaining = [], set(neighbors)
+    while remaining:
+        pending, atoms = [min(remaining)], set()
+        while pending:
+            atom = pending.pop()
+            if atom not in atoms:
+                atoms.add(atom)
+                pending.extend(neighbors[atom] - atoms)
+        remaining -= atoms
+        counts = Counter(frame.symbols[i - 1] for i in atoms)
+        # Hill order; composition only, no inferred fragment charge or hydrogens.
+        order = (['C'] + (['H'] if 'H' in counts else []) + sorted(counts.keys() - {'C', 'H'})
+                 if 'C' in counts else sorted(counts))
+        formula = ''.join(element + (str(counts[element]) if counts[element] > 1 else '') for element in order)
+        components.append(dict(atoms=sorted(atoms), formula=formula))
+    return dict(count=len(components), components=components,
+                rule='仅以半径比 [0.6, 1.2) 的确定相连边统计；不确定接触不合并片段。',
+                formula_note='分子式按显式原子计数，使用 Hill 顺序；不推断片段电荷或补氢。')
+
+
+def _check_fragments_and_mapping(result, submitted, final, charge):
+    fragments = {name: _fragments(frame) for name, frame in (('submitted', submitted), ('final', final))}
+    result['fragments'] = fragments
+    before, after = (fragments[name]['count'] for name in ('submitted', 'final'))
+    if before != after:
+        result['status'] = 'changed'
+        result['reasons'].append(f'按半径比规则的连通片段数变化：{before} → {after}。')
+        return
+    if not result['bond_differences']:
+        return
+    # compare_endpoint can return before exposing graph keys on a distance
+    # mismatch. Compute the canonical keys here without altering IRC behavior.
+    keys = result.get('graph_keys')
+    if keys is None and charge is not None:
+        from rdkit import Chem
+        from rdkit.Chem import rdDetermineBonds
+        try:
+            keys = {name: geo.graph_key(geo.infer_molecule(frame, charge, Chem, rdDetermineBonds), Chem)
+                    for name, frame in (('reference', submitted), ('endpoint', final))}
+        except (ValueError, RuntimeError):
+            pass
+    result['same_connectivity_graph'] = None if keys is None else keys['endpoint'] == keys['reference']
+    if keys is None:
+        result['reasons'].append('缺少电荷或 RDKit 无法推断整体连接图，同元素原子映射检查为 unknown。')
+    else:
+        result['graph_keys'] = keys
+        if result['same_connectivity_graph']:
+            result['status'] = 'unknown'
+            result['reasons'].append('可能是同元素原子位置互换或编号映射问题，需人工核对；'
+                                     '逐原子成键有差异，但不含立体的整体连接图相同。')
+
+
 def compare_minimum(submitted, final, charge):
     result = dict(status='unknown', reasons=[], **{key: [] for key in DIFFERENCES})
     result['bond_order_and_stereo_assessment'] = {
@@ -82,6 +143,7 @@ def compare_minimum(submitted, final, charge):
                 '未完成键级/立体身份比较（距离差异、不确定接触、缺电荷或 RDKit 推断失败）；'
                 '不能从空列表推断立体不变。' + '；'.join(evidence['reasons']))
         result['uncertain_contacts'] = {'submitted': _contacts(submitted), 'final': _contacts(final)}
+        _check_fragments_and_mapping(result, submitted, final, charge)
     except ImportError:
         result['reasons'].append('RDKit 不可用，不能推断成键、键级及立体身份。')
     except (ValueError, RuntimeError):
@@ -137,7 +199,7 @@ def analyze(path, pairs=()):
                                  'applied': mode == 'minimum'},
                   field_meanings={'endpoint': 'final geometry', 'reference': 'submitted geometry'},
                   notice=NOTICE,
-                  limitations=['同元素原子交换无法由元素序列检测，须人工核对原子映射。',
+                  limitations=['逐原子成键有差异但整体连接图相同时仅标记可能的同元素原子互换；不重排原子，须人工核对。',
                                'unchanged 不是极小点确认；仍需频率与科学审阅。'])
     if any(item['frame'].symbols != final.symbols for item in references):
         result['reasons'].append('元素序列或原子数不同，不能沿用原子编号映射；不做重排。')
@@ -184,7 +246,8 @@ def markdown(result):
     lines.extend(['', '## 判定说明', ''] + ['- ' + item for item in result['reasons'] + result['limitations']])
     # Include complete evidence so the Markdown alone is reviewable.
     for field in ('geometries', *DIFFERENCES, 'bond_order_and_stereo_assessment',
-                  'graph_keys', 'stereo_keys', 'uncertain_contacts', 'pair_distances', 'distance_report_status'):
+                  'graph_keys', 'stereo_keys', 'fragments', 'same_connectivity_graph',
+                  'uncertain_contacts', 'pair_distances', 'distance_report_status'):
         value = result['sources']['submitted'].get(field) if field == 'geometries' else result.get(field)
         if value is not None:
             lines.extend(['', f'## {field}', '', '```json', json.dumps(value, ensure_ascii=False, indent=2), '```'])

@@ -278,3 +278,81 @@ def test_nondefault_units_are_not_assumed_angstrom(tmp_path, chemistry):
     report = topology.analyze(path)
     assert report['status'] == 'unknown'
     assert 'Units' in report['reasons'][0]
+
+
+@pytest.mark.parametrize('before,after,formulas', [
+    (WATER, replace(WATER, coordinates=(WATER.coordinates[0], (4., 0., 0.), WATER.coordinates[2])), ['HO', 'H']),
+    (geo.Frame(('B', 'O'), ((0., 0., 0.), (1.5, 0., 0.))),
+     geo.Frame(('B', 'O'), ((0., 0., 0.), (4., 0., 0.))), ['B', 'O']),
+])
+def test_fragment_split_and_formulas(tmp_path, chemistry, before, after, formulas):
+    path = attempt(tmp_path, before, after)
+    report = topology.analyze(path)
+    assert report['status'] == 'changed'
+    assert report['fragments']['submitted']['count'] == 1
+    assert report['fragments']['final']['count'] == 2
+    assert [item['formula'] for item in report['fragments']['final']['components']] == formulas
+    assert any('片段数变化：1 → 2' in reason for reason in report['reasons'])
+    summary = topology.markdown(report)
+    assert 'fragments' in summary and all(formula in summary for formula in formulas)
+
+
+def two_waters():
+    return geo.Frame(WATER.symbols * 2, WATER.coordinates + tuple((x + 5., y, z) for x, y, z in WATER.coordinates))
+
+
+def test_unchanged_disconnected_molecules(chemistry):
+    before = two_waters()
+    report = topology.compare_minimum(before, before, 0)
+    assert report['status'] == 'unchanged'
+    for name in ('submitted', 'final'):
+        fragments = report['fragments'][name]
+        assert fragments['count'] == 2
+        assert fragments['components'] == [dict(atoms=[1, 2, 3], formula='H2O'), dict(atoms=[4, 5, 6], formula='H2O')]
+
+
+@pytest.mark.parametrize('indices', [(1, 4), (0, 3)])
+def test_same_element_exchange_is_unknown(tmp_path, chemistry, indices):
+    before = two_waters()
+    coordinates = list(before.coordinates)
+    i, j = indices
+    coordinates[i], coordinates[j] = coordinates[j], coordinates[i]
+    after = replace(before, coordinates=tuple(coordinates))
+    report = topology.analyze(attempt(tmp_path, before, after))
+    assert report['status'] == 'unknown'
+    assert report['bond_differences'] and report['proton_differences']
+    assert report['same_connectivity_graph'] is True
+    assert report['graph_keys']['endpoint'] == report['graph_keys']['reference']
+    assert report['fragments']['submitted']['count'] == report['fragments']['final']['count'] == 2
+    assert any('可能是同元素原子位置互换或编号映射问题，需人工核对' in reason for reason in report['reasons'])
+    assert 'same_connectivity_graph' in topology.markdown(report)
+    assert '无法由元素序列检测' not in ' '.join(report['limitations'])
+
+
+def test_fragment_uncertainty_is_not_a_bond(chemistry):
+    frame = geo.Frame(('B', 'O'), ((0., 0., 0.), (2., 0., 0.)))
+    report = topology.compare_minimum(frame, frame, 0)
+    assert report['status'] == 'unknown'
+    assert report['fragments']['submitted']['count'] == 2
+    assert report['ambiguous_bonds']
+
+
+def test_ts_does_not_report_connectivity_fragments(tmp_path, chemistry, monkeypatch):
+    def forbidden(*args):
+        pytest.fail('TS must not infer connected components')
+    monkeypatch.setattr(topology, '_fragments', forbidden)
+    path = attempt(tmp_path, route='# opt=ts', n_imag=1)
+    report = topology.analyze(path, ['1-2'])
+    assert 'fragments' not in report
+    assert report['distance_report_status'] == 'reported'
+
+
+def test_proton_transfer_with_different_graph_stays_changed(chemistry):
+    # Hand-built HF + water -> fluoride + hydronium; two fragments on both sides.
+    before = geo.Frame(WATER.symbols + ('F', 'H'), WATER.coordinates + ((5., 0., 0.), (5.92, 0., 0.)))
+    after = replace(before, coordinates=before.coordinates[:-1] + ((-0.24, -0.93, 0.),))
+    report = topology.compare_minimum(before, after, 0)
+    assert report['status'] == 'changed'
+    assert report['same_connectivity_graph'] is False
+    assert report['proton_differences'] == [{'hydrogen': 5, 'endpoint_owners': [1], 'reference_owners': [4]}]
+    assert report['fragments']['submitted']['count'] == report['fragments']['final']['count'] == 2
