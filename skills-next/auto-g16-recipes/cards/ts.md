@@ -115,6 +115,18 @@ TS 族必须双路线：约束 CREST 与按特定相互作用/进攻方向假设
 方法/基组：见 [acceptance-methods.md](../../auto-g16-study/references/acceptance-methods.md)。
 骨架中的 `<方法/基组>` 必须按已审阅方案替换，并补齐适用的色散与溶剂设置。
 
+Hessian 策略是按体系与成本选择的可选路径，不强制两阶段计算：
+
+- **路径 A**：直接在完整方法下做 `Opt=(TS,CalcFC) Freq`，初始 Hessian 与目标势能面一致，
+  是稳妥的基线路径；初始完整 Hessian 的成本较高，最终 Freq 仍不可省。
+- **路径 B（较大体系推荐）**：先用小基组做 `Opt=(TS,CalcFC) Freq`，
+  例如方法表中不含弥散的同泛函组合，具体组合及适用性由计算方案签字确定。
+  审核恰好一个虚频且方向正确后，以它为父 Attempt，通过下述 `--parent-chk`
+  和 `Opt=(TS,RCFC) Freq` 在完整方法下重新优化并计算最终频率；
+  显式坐标取父 `final_input.xyz`，沿用下述取向和父 chk 校验。
+  小基组 TS 只作中间步骤，不进入剖面；完整方法仍按方法表保留所需弥散、色散与溶剂，
+  其最终 TS 必须重新满足第 6 节，后续 IRC 使用完整方法的 TS 与 Hessian。
+
 单结构基础 route 为 `opt=(ts,calcfc) freq`。以下仅为[研究方法](../../auto-g16-study/references/acceptance-methods.md)的输入骨架，填入已审阅的显式坐标，保留空行；正式方法须另有文献依据或明确兜底声明。
 
 ```text
@@ -131,7 +143,7 @@ TS 族必须双路线：约束 CREST 与按特定相互作用/进攻方向假设
 ```
 
 阴离子弥散、色散和溶剂按方法表及已签方案填写，展示最终完整 route。决定结论的关键能垒按方法表
-做不同类型泛函的单点敏感性，包含 TS 和完整参考物种；连接到 [profile](profile.md)。`NoEigenTest` 仅在有具体曲率或初猜诊断依据时使用，在 review 和提交摘要写明理由；它关闭优化中的曲率检查，不免除最终 Hessian、虚频数量和方向审阅，不能作为常规默认。
+做不同类型泛函的单点敏感性，包含 TS 和完整参考物种；连接到 [profile](profile.md)。`NoEigenTest` 仅在初始 Hessian 已确认有且只有一个负本征值、且对应目标反应方向时使用，在 review 和提交摘要写明曲率/初猜诊断依据及理由；它关闭优化中的曲率检查，不免除最终 Hessian、虚频数量和方向审阅，不能作为常规默认。
 
 ```text
 ag prepare --study <study_id> --template gaussian --input <ts.gjf> --tier simple --walltime 24:00:00 --label ts-c01 --method-basis <文献先例 DOI 及位置 / 本课题既有方案及来源（不是文献先例，精度未经验证） / 兜底方法声明>
@@ -150,6 +162,12 @@ ag prepare --study <study_id> --template gaussian --input <ts.gjf> --tier simple
 ```
 
 RCFC 需要父 chk 中确有适用的力常数；仅复用波函数可用 `guess=read opt=(ts,calcfc) freq`。核对父 chk 的方法、几何、原子顺序、电荷与多重度是否适用；哈希相同不代表科学上适用。`Geom=Check` 和 `Geom=AllCheck` 继续拒绝，`%chk` 必须不同于固定的 `%oldchk=parent.chk`。
+
+RCFC 读取父 Freq 保存的 Cartesian Hessian；`Opt=(TS,ReadFC)` 可在内部坐标兼容、
+力常数来源明确时选用，不能把它和 RCFC 当成无条件互换的同义词。
+路径 B 采用完整小基组 Freq 的 Hessian，不把优化更新的近似 Hessian 冒充它。
+更换基组时，`Guess=Read` 是否适用须单独审阅；只复用 Hessian 时可移除该选项。
+选项语义见 [Gaussian Opt 手册转载](https://www.conflex.co.jp/gaussian_support/opt.php)，使用前核对实际版本。
 
 RCFC/ReadFC 复用时，先对父 Attempt 运行 `ag facts`，显式坐标取
 `final_input.xyz`（最终几何的 Input orientation，去掉 XYZ 前两行），保持原子顺序，
@@ -178,6 +196,12 @@ prepare 只做本地声明；submit 在 Mac 弹窗前只读取得父 chk 大小�
 
 - `termination=normal`、`opt_converged=true`、`freq_step_converged=true`；缺失/不通过则读原日志，不能推定通过。Opt 和 Freq 都已完成，完整模式数应为非线性 3N−6 / 线性 3N−5。
 - **恰好一个虚频**：`n_imag=1`，按原始负频计数，小负频也不能删掉凑数。零或多个虚频均不满足 TS 判据。
+- **低频残余**：记录末次已完成频率段的 `Low frequencies ---` 第一行及原日志行号，核对平动、转动残余。
+  TS 的真实虚频可能排在这些残余之前，软振动也可能混排；必要时连同后续行及投影后的频率、模式辨认，
+  不能把首行所有数都当残余或按数值大小直接删除真实虚频。依据：[Gaussian 振动分析说明 §2.1](https://gaussian.com/wp-content/uploads/dl/vib.pdf)。
+  **辨认出的平动、转动残余**绝对值超过约 20 cm⁻¹ 时，在 review 标为“残余偏大”，提示几何收敛或积分网格可能不足、
+  热化学中的低频熵不可信，不直接接受；提出更严收敛标准或积分网格重新优化并做 Freq 的新 Attempt，经人确认后提交。
+  缺该行或无法区分模式则写缺证据。它不是 `facts.json` 的 `frequencies_low`（cclib 提取的最低几个振动频率），不能用该字段代替。
 - **振动方向对应目标键变化**：逐项核对 `facts.json` 的 `imag_modes[].pairs[].atoms`、`elements`、`distance`、`distance_change_rate` 与目标原子对。全局振动正负号任意，须查看同一方向上成键缩短/断键伸长等协调变化，不能仅靠频率大小或单个符号判断。
 - 当前 `imag_modes` 只列距离小于 3.5 Å 的原子对中变化率绝对值最大的五对；缺目标对并不证明它不动。结合原日志完整位移与几何人工审核（必要时看动画/正负位移），缺证据写不通过并停下，不杜撰模式查看命令。
 - 出现长键、断键、强电荷转移、SCF 多个解或近简并迹象时，审查电子态并提出独立 Stable 诊断，按 [失败诊断](failure-diagnosis.md#电子态与-stable-诊断) 审阅 T30 的 `wavefunction_stability` 及原文行；未诊断不算稳定，稳定也不证明闭壳层方法足够。需要非限制性或多参考方法时明确超出本卡范围。
@@ -187,6 +211,10 @@ prepare 只做本地声明；submit 在 Mac 弹窗前只读取得父 chk 大小�
 ## 7. 常见失败与处理
 
 零虚频说明落到极小点或尚缺完整证据；多虚频可能是高阶鞍点或软模问题；方向错误可能是另一步反应。分别核对完整输出和结构，重审初猜/构象或假设，转 [失败诊断](failure-diagnosis.md)；提出新 Attempt，等人确认。
+
+起点与目标方向合理但难收敛时，若 Hessian 更新不足，可在方法支持解析二阶导数时用 `RecalcFC=N`
+在第一步及此后每 N 步重算，说明额外 Hessian 成本；若步长过大、优化振荡或越过目标区域，可减小 `MaxStep`。
+参数与依据写进 review，每次修改都作为新 Attempt，经人确认后提交；不能用 `NoEigenTest` 掩盖错误曲率。
 
 不得将 `Stable=Opt` 机械地加到所有计算里；它可能改变电子态，不能以较低能量自动接受新态。
 
