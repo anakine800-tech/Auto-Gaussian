@@ -127,3 +127,153 @@ def test_initial_structure_signoff_without_attempts(tmp_path):
     (tmp_path / 'analyses').mkdir()
     result = inventory.create(tmp_path)
     assert [entry['path'] for entry in result['files']] == ['study.md']
+
+
+@pytest.mark.parametrize('suffix', ['说明', '，见上', '。', '；见上', '、见上', '!note', 'extra'])
+def test_bare_path_stops_at_extension(tmp_path, suffix):
+    root = study(tmp_path)
+    (root / 'study.md').write_text('Evidence: analyses/a.json' + suffix)
+    (root / 'analyses/a.json').write_text('{}')
+    result = inventory.create(root)
+    assert 'analyses/a.json' in {entry['path'] for entry in result['files']}
+
+
+@pytest.mark.parametrize('extension', ['json', 'md', 'csv', 'tsv', 'txt', 'xyz', 'pdf', 'png', 'svg', 'html'])
+def test_bare_path_uses_last_known_extension(tmp_path, extension):
+    path = tmp_path / 'study.md'
+    name = f'analyses/a.json.backup.{extension}'
+    assert inventory._references(path, (name + '说明').encode()) == [(name, True)]
+
+
+@pytest.mark.parametrize('reference', ['`analyses/a.json说明`', '[a](analyses/a.json说明)'])
+def test_quoted_paths_are_not_truncated(tmp_path, reference):
+    root = study(tmp_path)
+    (root / 'study.md').write_text(reference)
+    (root / 'analyses/a.json说明').write_bytes(b'opaque evidence')
+    result = inventory.create(root)
+    assert 'analyses/a.json说明' in {entry['path'] for entry in result['files']}
+
+
+@pytest.mark.parametrize('reference', [
+    '`analyses/batch`', '[batch](analyses/batch/)', '[batch](analyses/batch)',
+    'json', 'relative_json', 'relative_markdown',
+])
+def test_explicit_directory_expansion_is_sorted_and_hashed(tmp_path, reference):
+    root = study(tmp_path)
+    folder = root / 'analyses/batch'
+    (folder / 'nested').mkdir(parents=True)
+    (folder / 'z.csv').write_bytes(b'energy\r\n0\r\n')
+    (folder / 'nested/a.png').write_bytes(b'opaque\x00\xff')
+    (folder / 'b.md').write_text('[extra](../extra.txt)')
+    (root / 'analyses/extra.txt').write_text('Evidence')
+    if reference in {'json', 'relative_json'}:
+        value = 'analyses/batch' if reference == 'json' else 'batch/'
+        (root / 'analyses/signature.json').write_text(json.dumps({'frozen_evidence': value}))
+        reference = '[signature](analyses/signature.json)'
+    elif reference == 'relative_markdown':
+        (root / 'analyses/selection.md').write_text('[batch](batch/)')
+        reference = '[selection](analyses/selection.md)'
+    (root / 'study.md').write_text(reference)
+    first = inventory.create(root)
+    second = inventory.create(root)
+    assert first['schema'] == 'ag-review-manifest/1'
+    assert first['files'] == second['files']
+    assert [entry['path'] for entry in first['files']] == sorted(entry['path'] for entry in first['files'])
+    entries = {entry['path']: entry for entry in first['files']}
+    members = ['analyses/batch/b.md', 'analyses/batch/nested/a.png', 'analyses/batch/z.csv']
+    assert {name for name in entries if name.startswith('analyses/batch/')} == set(members)
+    for name in members:
+        assert entries[name]['expanded_from'] == ['analyses/batch']
+        assert entries[name]['sha256'] == sha256((root / name).read_bytes()).hexdigest()
+        assert entries[name]['size'] == (root / name).stat().st_size
+    assert 'analyses/extra.txt' in entries
+    assert 'expanded_from' not in entries['analyses/extra.txt']
+
+
+def test_overlapping_directory_references_preserve_all_origins(tmp_path):
+    root = study(tmp_path)
+    (root / 'analyses/batch/nested').mkdir(parents=True)
+    (root / 'analyses/batch/nested/a.csv').write_text('energy\n0\n')
+    (root / 'study.md').write_text('[all](analyses/batch) [subset](analyses/batch/nested) '
+                                 '[file](analyses/batch/nested/a.csv)')
+    result = inventory.create(root)
+    entries = [entry for entry in result['files'] if entry['path'] == 'analyses/batch/nested/a.csv']
+    assert len(entries) == 1
+    assert entries[0]['expanded_from'] == ['analyses/batch', 'analyses/batch/nested']
+
+
+@pytest.mark.parametrize('kind', ['directory_link', 'nested_directory_link', 'file_link', 'dangling_link',
+                                  'outside_analyses', 'outside_study', 'empty', 'only_empty_subdirectory'])
+def test_directory_expansion_rejects_unsafe_or_empty_targets(tmp_path, kind):
+    root = tmp_path / 'study'
+    root.mkdir()
+    study(root)
+    folder = root / 'analyses/batch'
+    folder.mkdir()
+    outside = tmp_path / 'outside'
+    outside.mkdir()
+    (outside / 'a.txt').write_text('unchanged')
+    reference = '[batch](analyses/batch/)'
+    error = 'Symbolic links'
+    if kind == 'directory_link':
+        (root / 'analyses/linked').symlink_to(outside, target_is_directory=True)
+        reference = '[batch](analyses/linked/)'
+    elif kind == 'nested_directory_link':
+        (folder / 'nested').mkdir()
+        (folder / 'nested/linked').symlink_to(outside, target_is_directory=True)
+    elif kind in {'file_link', 'dangling_link'}:
+        (folder / 'linked.txt').symlink_to(outside / ('a.txt' if kind == 'file_link' else 'missing.txt'))
+    elif kind == 'outside_analyses':
+        reference = '[batch](analyses/../attempts/)'
+        error = 'must be inside analyses'
+    elif kind == 'outside_study':
+        reference = '[batch](../outside/)'
+        error = 'escapes'
+    else:
+        if kind == 'only_empty_subdirectory':
+            (folder / 'empty').mkdir()
+        error = 'Empty referenced'
+    (root / 'study.md').write_text(reference)
+    with pytest.raises(ValueError, match=error):
+        inventory.create(root)
+    assert not list((root / 'analyses').glob('review-manifest-*.json'))
+    assert (outside / 'a.txt').read_text() == 'unchanged'
+
+
+def test_directory_expansion_rejects_non_regular_file(tmp_path):
+    root = study(tmp_path)
+    folder = root / 'analyses/batch'
+    folder.mkdir()
+    inventory.os.mkfifo(folder / 'pipe')
+    (root / 'study.md').write_text('[batch](analyses/batch)')
+    with pytest.raises(ValueError, match='regular file'):
+        inventory.create(root)
+
+
+def test_does_not_guess_directory_references_from_prose(tmp_path):
+    root = study(tmp_path)
+    (root / 'analyses/batch').mkdir()
+    (root / 'analyses/batch/a.csv').write_text('energy\n0\n')
+    (root / 'analyses/notes.json').write_text('{"description":"batch"}')
+    (root / 'study.md').write_text('The batch is ready; analyses/batch is a label. '
+                                 '[notes](analyses/notes.json)')
+    result = inventory.create(root)
+    assert all('batch' not in entry['path'] for entry in result['files'])
+
+
+@pytest.mark.parametrize('reference', ['[old](analyses/batch/signed.json)', '[batch](analyses/batch)'])
+def test_prior_signed_manifest_is_hashed_without_expansion(tmp_path, reference):
+    root = study(tmp_path)
+    (root / 'analyses/batch').mkdir()
+    old = root / 'analyses/batch/signed.json'
+    old.write_text(json.dumps({'schema': 'ag-review-manifest/1', 'files': [
+        {'path': 'analyses/missing.json', 'sha256': 'a' * 64},
+        {'path': 'analyses/../../outside.json', 'sha256': 'b' * 64},
+    ]}))
+    before = (old.read_bytes(), old.stat().st_mtime_ns)
+    (root / 'study.md').write_text(reference)
+    result = inventory.create(root)
+    entries = {entry['path']: entry for entry in result['files']}
+    assert entries['analyses/batch/signed.json']['sha256'] == sha256(before[0]).hexdigest()
+    assert not any('missing' in name or 'outside' in name for name in entries)
+    assert (old.read_bytes(), old.stat().st_mtime_ns) == before

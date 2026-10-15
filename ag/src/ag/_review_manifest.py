@@ -28,8 +28,9 @@ def _references(path, data):
                 for v in item:
                     yield from strings(v, key)
             elif isinstance(item, str):
-                yield item, key == 'thermo' or (key in {'path', 'file', 'source', 'definition'}
-                                                and bool(Path(item).suffix))
+                yield item, (key in {'thermo', 'frozen_evidence'}
+                             or (key in {'path', 'file', 'source', 'definition'}
+                                 and bool(Path(item).suffix)))
         return list(strings(value))
     refs, plain = [], list(text)
     patterns = [r'!?\[[^\]\n]*\]\(\s*(?:<([^>]+)>|([^\s)]+))(?:\s+"[^"]*")?\s*\)',
@@ -42,9 +43,10 @@ def _references(path, data):
                 r'[^\n]+\.(?:json|md|csv|tsv|txt|xyz|pdf|png|svg|html)', value))
             refs.append((value, explicit))
             plain[match.start():match.end()] = ' ' * (match.end() - match.start())
-    # Do not parse a second, truncated path from a quoted filename with spaces.
-    refs += [(m.rstrip('.,;，。；'), True) for m in re.findall(
-        r'(?<![\w/])((?:\.{1,2}/)*analyses/[^\s`<>"\]\)|，。；、]+)', ''.join(plain))]
+    # Quoted paths stay intact; bare paths stop at the last known extension.
+    refs += [(m, True) for m in re.findall(
+        r'(?<![\w/])((?:\.{1,2}/)*analyses/[^\s`<>"\]\)|，。；、]+'
+        r'\.(?:json|md|csv|tsv|txt|xyz|pdf|png|svg|html))', ''.join(plain))]
     return refs
 
 
@@ -55,8 +57,6 @@ def _analysis_reference(root, source, value, explicit):
     if url.scheme or url.netloc or not url.path:
         return None  # Remote references are not downloaded or signed as local files.
     value = unquote(url.path)
-    if value.endswith('/'):
-        return None
     relative = value.removeprefix('./')
     base = root if relative.startswith('analyses/') else source.parent
     raw = base / value
@@ -68,17 +68,19 @@ def _analysis_reference(root, source, value, explicit):
     analyses = root / 'analyses'
     mentions_analysis = 'analyses' in Path(value).parts
     if not candidate.is_relative_to(root):
-        if mentions_analysis or (source.is_relative_to(analyses) and explicit):
+        if mentions_analysis or (explicit and (source.is_relative_to(analyses) or candidate.is_dir())):
             raise ValueError(f'Evidence reference escapes study: {value}')
         return None
     if not candidate.is_relative_to(analyses):
+        if candidate.is_dir() and (explicit or mentions_analysis):
+            raise ValueError('Referenced evidence directories must be inside analyses/')
         return None
     # JSON often contains labels, units, or log basenames. Only an existing
     # analysis file or explicit local path is an analysis-output reference.
     if not (explicit or mentions_analysis or candidate.is_file()):
         return None
     candidate = local_path(root, candidate)
-    if not candidate.is_file():
+    if not (candidate.is_file() or candidate.is_dir()):
         raise ValueError(f'Missing referenced analysis output: {candidate.relative_to(root)}')
     return candidate
 
@@ -97,9 +99,10 @@ def create(directory):
             if not path.is_file():
                 raise ValueError(f'Evidence must be a regular file: {path.relative_to(root)}')
             pending.add(path)
-    files = {}
+    files, expanded_from = {}, {}
     while pending:
-        path = pending.pop()
+        path = min(pending)
+        pending.remove(path)
         if path in files:
             continue
         data = local_path(root, path).read_bytes()
@@ -107,10 +110,28 @@ def create(directory):
                            sha256=sha256(data).hexdigest())
         for value, explicit in _references(path, data):
             referenced = _analysis_reference(root, path, value, explicit)
-            if referenced is not None and referenced not in files:
+            if referenced is None:
+                continue
+            if referenced.is_dir():
+                members = []
+                for child in sorted(referenced.rglob('*')):
+                    child = local_path(root, child)
+                    if child.is_dir():
+                        continue
+                    if not child.is_file():
+                        raise ValueError(f'Evidence must be a regular file: {child.relative_to(root)}')
+                    members.append(child)
+                if not members:
+                    raise ValueError(f'Empty referenced analysis directory: {referenced.relative_to(root)}')
+                for child in members:
+                    expanded_from.setdefault(child, set()).add(referenced.relative_to(root).as_posix())
+                    pending.add(child)
+            elif referenced not in files:
                 pending.add(referenced)
     # Catch evidence edited during collection before publishing a mixed inventory.
     for path, entry in files.items():
+        if path in expanded_from:
+            entry['expanded_from'] = sorted(expanded_from[path])
         if sha256(local_path(root, path).read_bytes()).hexdigest() != entry['sha256']:
             raise ValueError(f'Evidence changed while collecting: {entry["path"]}')
     now = datetime.now(timezone.utc)

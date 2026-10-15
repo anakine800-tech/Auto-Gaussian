@@ -93,9 +93,9 @@ _fragments = fragments
 
 
 def _check_fragments_and_mapping(result, submitted, final, charge):
-    fragments = {name: _fragments(frame) for name, frame in (('submitted', submitted), ('final', final))}
-    result['fragments'] = fragments
-    before, after = (fragments[name]['count'] for name in ('submitted', 'final'))
+    fragment_results = {name: _fragments(frame) for name, frame in (('submitted', submitted), ('final', final))}
+    result['fragments'] = fragment_results
+    before, after = (fragment_results[name]['count'] for name in ('submitted', 'final'))
     if before != after:
         result['status'] = 'changed'
         result['reasons'].append(f'按半径比规则的连通片段数变化：{before} → {after}。')
