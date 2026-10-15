@@ -68,7 +68,7 @@ parent，并用说明筛选来源的 relation 文本（如 `screening_sp_of`）�
 RDKit 坐标无 Attempt，不伪造 parent。relation 仅记录来源，不触发分析。
 
 ```text
-ag prepare --study <study_id> --template gaussian --input <sp.gjf> --tier simple --walltime 12:00:00 --label sp-c01 --parent <optfreq_id> --relation single_point_of
+ag prepare --study <study_id> --template gaussian --input <sp.gjf> --tier simple --walltime 12:00:00 --label sp-c01 --parent <optfreq_id> --relation single_point_of --method-basis <文献先例 DOI 及位置 / 本课题既有方案及来源（不是文献先例，精度未经验证） / 兜底方法声明>
 ```
 
 ## 4. 资源建议

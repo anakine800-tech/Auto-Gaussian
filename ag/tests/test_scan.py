@@ -54,7 +54,7 @@ def test_scan_input_summary(cfg, tmp_path):
     study.init(cfg, 'smoke')
     source = tmp_path / 'peroxide.gjf'
     source.write_text(GJF + 'B 1 2 S 6 0.1\nA 3 1 2 F\n')
-    m = attempt.prepare(cfg, study_name='smoke', template='gaussian', input_path=source,
+    m = attempt.prepare(cfg, method_basis='兜底方法：合成测试', study_name='smoke', template='gaussian', input_path=source,
                         tier='simple', walltime='00:30:00', label='scan')
     summary = attempt.summary(cfg, m)
     assert 'B 1(O) 2(O)' in summary
@@ -91,8 +91,8 @@ def test_xtb_constraints_bundle(cfg, tmp_path):
     constraint.write_text(XCONTROL)
     kwargs = dict(study_name='smoke', template='xtb', input_path=source,
                   tier='simple', walltime='00:30:00', label='scan', params={'--gfn': '2', '--opt': ''})
-    plain = attempt.prepare(cfg, **kwargs)
-    m = attempt.prepare(cfg, constraints=constraint, **kwargs)
+    plain = attempt.prepare(cfg, method_basis='兜底方法：合成测试', **kwargs)
+    m = attempt.prepare(cfg, method_basis='兜底方法：合成测试', constraints=constraint, **kwargs)
     path = attempt.find(cfg, m['attempt_id'])
     files = attempt.verified_files(cfg, path, m)
     assert files['constraints.inp'] == constraint.read_bytes()
@@ -108,7 +108,7 @@ def test_xtb_constraints_bundle(cfg, tmp_path):
     with pytest.raises(ValueError, match='summary'):
         attempt.verified_files(cfg, path, bad)
     with pytest.raises(ValueError, match='Use --constraints'):
-        attempt.prepare(cfg, **{**kwargs, 'params': {'--input': 'constraints.inp'}})
+        attempt.prepare(cfg, method_basis='兜底方法：合成测试', **{**kwargs, 'params': {'--input': 'constraints.inp'}})
     (path / 'inputs/constraints.inp').write_text(XCONTROL.replace('2.05', '2.15'))
     with pytest.raises(ValueError, match='bundle'):
         attempt.verified_files(cfg, path, m)

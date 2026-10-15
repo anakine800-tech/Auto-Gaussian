@@ -28,7 +28,7 @@ def prepare(cfg, inputs, **overrides):
                 constraints=inputs[1], tier='simple', walltime='00:30:00',
                 label='crest', params={'--gfn2': '', '--quick': ''})
     args.update(overrides)
-    return attempt.prepare(cfg, **args)
+    return attempt.prepare(cfg, method_basis='兜底方法：合成测试', **args)
 
 
 @pytest.mark.parametrize('entry', [
@@ -185,7 +185,7 @@ def test_bundle_revalidation_rejects_inconsistent_constraints(cfg, inputs, chang
 @pytest.mark.parametrize('json_output', [False, True])
 def test_prepare_cli_with_constraints(cfg, inputs, monkeypatch, capsys, json_output):
     monkeypatch.setattr(cli, 'load_config', lambda: cfg)
-    args = ['prepare', '--study', 'smoke', '--template', 'crest', '--input', str(inputs[0]),
+    args = ['prepare', '--method-basis', '兜底方法：合成测试', '--study', 'smoke', '--template', 'crest', '--input', str(inputs[0]),
             '--constraints', str(inputs[1]), '--tier', 'simple', '--walltime', '00:30:00',
             '--label', 'crest', '--param=--gfn2']
     if json_output:

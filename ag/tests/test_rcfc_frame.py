@@ -47,7 +47,7 @@ def make_parent(cfg, tmp_path, *, nosymm=False, input_only=False):
     study.init(cfg, 'smoke')
     source = tmp_path / 'water.gjf'
     source.write_text(INPUT.replace(' SP', ' opt freq' + (' NoSymm' if nosymm else '')))
-    m = attempt.prepare(cfg, study_name='smoke', template='gaussian', input_path=source,
+    m = attempt.prepare(cfg, method_basis='兜底方法：合成测试', study_name='smoke', template='gaussian', input_path=source,
                         tier='simple', walltime='00:30:00', label='parent')
     path = attempt.find(cfg, m['attempt_id'])
     state.write(path, 'submitting')
@@ -64,7 +64,7 @@ def prepare_child(cfg, tmp_path, path, geometry, route='irc=(rcfc,forward)'):
     source.write_text('%oldchk=parent.chk\n' + INPUT.replace(' SP', ' ' + route)
                       .replace(INITIAL, geometry))
     return attempt.prepare(
-        cfg, study_name='smoke', template='gaussian', input_path=source, tier='simple',
+        cfg, method_basis='兜底方法：合成测试', study_name='smoke', template='gaussian', input_path=source, tier='simple',
         walltime='00:30:00', label='child',
         parents=[dict(attempt_id=path.name, relation='irc_from')],
         parent_chk=path.name + ':water.chk')

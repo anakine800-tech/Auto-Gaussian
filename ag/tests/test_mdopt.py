@@ -17,7 +17,7 @@ def prepare(cfg, tmp_path, contents=WATER * 2, params=None, name='ensemble.xyz')
     study.init(cfg, 'smoke')
     source = tmp_path / name
     source.write_text(contents)
-    return attempt.prepare(cfg, study_name='smoke', template='crest', input_path=source,
+    return attempt.prepare(cfg, method_basis='兜底方法：合成测试', study_name='smoke', template='crest', input_path=source,
                            params={'--gfn2': '', '--mdopt': ''} if params is None else params,
                            tier='simple', walltime='00:30:00', label='mdopt')
 
@@ -65,14 +65,14 @@ def test_non_mdopt_single_frame_unchanged(cfg, tmp_path, template):
     source.write_text(WATER)
     kwargs = dict(study_name='smoke', template=template, input_path=source,
                   tier='simple', walltime='00:30:00', label='single')
-    m = attempt.prepare(cfg, **kwargs)
+    m = attempt.prepare(cfg, method_basis='兜底方法：合成测试', **kwargs)
     assert m['science']['n_atoms'] == 3
     assert 'n_frames' not in m['science']
     if template == 'crest':
         assert remote.output_names(m) == ['crest.out', 'crest_conformers.xyz', 'crest.energies', 'crest_best.xyz']
     source.write_text(WATER * 2)
     with pytest.raises(ValueError, match='atom count'):
-        attempt.prepare(cfg, **kwargs)
+        attempt.prepare(cfg, method_basis='兜底方法：合成测试', **kwargs)
 
 
 @pytest.mark.parametrize('template,params', [('xtb', {'--mdopt': ''}), ('crest', {'--mdopt': 'file.xyz'}),
@@ -170,7 +170,7 @@ def test_constrained_mdopt_bundle_revalidation(cfg, tmp_path):
     source.write_text(WATER * 2)
     constraints = tmp_path / 'water.inp'
     constraints.write_text('$constrain\n distance: 1, 2, 0.96\n$end\n')
-    m = attempt.prepare(cfg, study_name='smoke', template='crest', input_path=source,
+    m = attempt.prepare(cfg, method_basis='兜底方法：合成测试', study_name='smoke', template='crest', input_path=source,
                         params={'--mdopt': '', '--gfn2': ''}, constraints=constraints,
                         tier='simple', walltime='00:30:00', label='constrained')
     path = attempt.find(cfg, m['attempt_id'])

@@ -38,7 +38,7 @@ def prepare_batch(cfg, tmp_path, cores, count=1):
     cfg['resources']['tiers']['simple']['cores'] = cores
     source = tmp_path / 'water.gjf'
     source.write_text(INPUT.replace('nprocshared=8', f'nprocshared={cores}'))
-    return [attempt.prepare(cfg, study_name='water', template='gaussian', input_path=source,
+    return [attempt.prepare(cfg, method_basis='兜底方法：合成测试', study_name='water', template='gaussian', input_path=source,
                             tier='simple', walltime='00:01:00', label=f'sp{i}')['attempt_id']
             for i in range(count)]
 

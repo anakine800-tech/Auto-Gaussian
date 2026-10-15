@@ -29,7 +29,7 @@ def prepare(cfg, tmp_path, cluster='batch', label='sp'):
         study.init(cfg, 'water')
     source = tmp_path / 'water.gjf'
     source.write_text(INPUT)
-    m = attempt.prepare(cfg, study_name='water', template='gaussian', input_path=source,
+    m = attempt.prepare(cfg, method_basis='兜底方法：合成测试', study_name='water', template='gaussian', input_path=source,
                         tier='simple', walltime='01:30:00', label=label, cluster=cluster)
     return attempt.find(cfg, m['attempt_id']), m
 

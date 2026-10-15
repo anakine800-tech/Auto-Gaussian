@@ -4,9 +4,11 @@
 
 Study：<study_id>；卡片：<manifest.card.name>；Skills 提交：<git_commit 前 7 位>；工作区：<clean / dirty>；用途：<验收 / 研究>。
 
-| Attempt | 结构（SMILES 或结构名） | 电荷 / 多重度 | 立体化学警告 | 方法与依据（DOI + 位置或“兜底方法”声明） | 完整 route / 程序参数 | 模板 | 档位 | 核数 | walltime | 远程目录（相对 ag 根） | bundle 哈希前 12 位 |
+| Attempt | 结构（SMILES 或结构名） | 电荷 / 多重度 | 立体化学警告 | 方法与依据（文献先例 / 本课题既有方案 / 兜底方法） | 完整 route / 程序参数 | 模板 | 档位 | 核数 | walltime | 远程目录（相对 ag 根） | bundle 哈希前 12 位 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | <id> | <结构> | <Q / M> | <明确列出；无则写无> | <填写> | <完整内容，不用省略号> | <gaussian / crest / xtb> | <simple / general / complex> | <填写> | <HH:MM:SS> | <study_id/attempt_id> | <prepare 输出> |
+
+“方法与依据”列按所属类别填写，与显式传入的 `--method-basis` 及 manifest 的 `science.method_basis` 一致：文献先例写 DOI 加主文页码或 SI 位置；本课题既有方案写来源计算或 study，并声明“不是文献先例，精度未经验证”；兜底方法引用方法表并明确声明。
 
 每个 Gaussian 输入的 Link0：<逐个列出 `%nprocshared`、`%mem`、不带路径的 `%chk`>。
 CREST / xTB 没有 Gaussian route，明确写“不适用”并列完整程序参数；本地 RDKit 和 thermo 不提交，不用此摘要。

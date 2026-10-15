@@ -134,7 +134,7 @@ TS 族必须双路线：约束 CREST 与按特定相互作用/进攻方向假设
 做不同类型泛函的单点敏感性，包含 TS 和完整参考物种；连接到 [profile](profile.md)。`NoEigenTest` 仅在有具体曲率或初猜诊断依据时使用，在 review 和提交摘要写明理由；它关闭优化中的曲率检查，不免除最终 Hessian、虚频数量和方向审阅，不能作为常规默认。
 
 ```text
-ag prepare --study <study_id> --template gaussian --input <ts.gjf> --tier simple --walltime 24:00:00 --label ts-c01 --method-basis <DOI及位置或兜底方法说明>
+ag prepare --study <study_id> --template gaussian --input <ts.gjf> --tier simple --walltime 24:00:00 --label ts-c01 --method-basis <文献先例 DOI 及位置 / 本课题既有方案及来源（不是文献先例，精度未经验证） / 兜底方法声明>
 ```
 
 有真实上游 Attempt 才使用已有 `--parent` / `--relation` 参数；人提供的外部结构在 study 记录来源，不虚构 parent。复用父 chk 时，同时声明 `--parent <parent_id> --relation ts_from --parent-chk <parent_id>:<父输入中声明的chk文件名>`。父 Attempt 必须为 finished/fetched，submit 确认前和确认后都核对调度器中已无该作业；父子必须在同一集群。
