@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
 from hashlib import sha256
+import errno
+from pathlib import Path
 import json
 
 import pytest
@@ -129,8 +131,8 @@ def test_initial_structure_signoff_without_attempts(tmp_path):
     assert [entry['path'] for entry in result['files']] == ['study.md']
 
 
-@pytest.mark.parametrize('suffix', ['说明', '，见上', '。', '；见上', '、见上', '!note', 'extra'])
-def test_bare_path_stops_at_extension(tmp_path, suffix):
+@pytest.mark.parametrize('suffix', ['说明', '，见上', '。', '；见上', '、见上', '!note', '.', ',', ';'])
+def test_bare_path_stops_at_ascii_boundary(tmp_path, suffix):
     root = study(tmp_path)
     (root / 'study.md').write_text('Evidence: analyses/a.json' + suffix)
     (root / 'analyses/a.json').write_text('{}')
@@ -139,10 +141,10 @@ def test_bare_path_stops_at_extension(tmp_path, suffix):
 
 
 @pytest.mark.parametrize('extension', ['json', 'md', 'csv', 'tsv', 'txt', 'xyz', 'pdf', 'png', 'svg', 'html'])
-def test_bare_path_uses_last_known_extension(tmp_path, extension):
+def test_bare_path_preserves_dotted_names(tmp_path, extension):
     path = tmp_path / 'study.md'
     name = f'analyses/a.json.backup.{extension}'
-    assert inventory._references(path, (name + '说明').encode()) == [(name, True)]
+    assert inventory._references(path, (name + '说明').encode()) == [(name, True, 'line 1')]
 
 
 @pytest.mark.parametrize('reference', ['`analyses/a.json说明`', '[a](analyses/a.json说明)'])
@@ -252,7 +254,7 @@ def test_does_not_guess_directory_references_from_prose(tmp_path):
     (root / 'analyses/batch').mkdir()
     (root / 'analyses/batch/a.csv').write_text('energy\n0\n')
     (root / 'analyses/notes.json').write_text('{"description":"batch"}')
-    (root / 'study.md').write_text('The batch is ready; analyses/batch is a label. '
+    (root / 'study.md').write_text('The batch is ready. '
                                  '[notes](analyses/notes.json)')
     result = inventory.create(root)
     assert all('batch' not in entry['path'] for entry in result['files'])
@@ -291,3 +293,90 @@ def test_review_directory_link_inside_study_outside_analyses_is_ignored(tmp_path
                      'attempts/water-a/facts.json', 'attempts/water-a/review.md',
                      'attempts/water-b/facts.json', 'attempts/water-b/review.md'}
     assert all('expanded_from' not in entry for entry in result['files'])
+
+
+@pytest.mark.parametrize(('text', 'path'), [
+    ('analyses/a.json说明', 'analyses/a.json'),
+    ('见analyses/a.json', 'analyses/a.json'),
+    ('analyses/run.gjf，见上', 'analyses/run.gjf'),
+    ('analyses/x.jsonl。', 'analyses/x.jsonl'),
+    ('analyses/script.py', 'analyses/script.py'),
+    ('analyses/output', 'analyses/output'),
+    ('analyses/a.jsonextra', 'analyses/a.jsonextra'),
+])
+def test_bare_references_use_ascii_boundaries_without_extension_filter(tmp_path, text, path):
+    root = study(tmp_path)
+    assert inventory._references(root / 'study.md', text.encode()) == [(path, True, 'line 1')]
+    (root / 'study.md').write_text(text)
+    (root / path).write_bytes(b'{}')
+    result = inventory.create(root)
+    assert path in {entry['path'] for entry in result['files']}
+
+
+@pytest.mark.parametrize('prefix', ['a', '9', '_', '/', '.'])
+def test_bare_references_require_forward_boundary(tmp_path, prefix):
+    assert inventory._references(tmp_path / 'study.md', (prefix + 'analyses/a.json').encode()) == []
+
+
+@pytest.mark.parametrize('path', ['analyses/missing', 'analyses/missing.log', 'analyses/missing.sdf'])
+def test_arbitrary_bare_missing_references_still_fail(tmp_path, path):
+    root = study(tmp_path)
+    (root / 'study.md').write_text(path)
+    with pytest.raises(ValueError, match='Missing referenced analysis output'):
+        inventory.create(root)
+
+
+@pytest.mark.parametrize('description', ['Long description ' * 40, 'first line\nsecond line', '汉' * 86])
+def test_long_or_multiline_nonexplicit_json_description_is_ignored(tmp_path, description):
+    root = study(tmp_path)
+    (root / 'study.md').write_text('[review](analyses/review.json)')
+    (root / 'analyses/review.json').write_text(json.dumps({'description': description}))
+    result = inventory.create(root)
+    assert len(result['files']) == 6
+
+
+@pytest.mark.parametrize('value', ['analyses/' + 'x' * 256 + '.json', 'analyses/' + '汉' * 86 + '.json',
+                                  'analyses/first\nsecond.json', 'analyses/first%0Asecond.json'])
+def test_invalid_explicit_json_reference_names_source_and_field(tmp_path, value):
+    root = study(tmp_path)
+    (root / 'study.md').write_text('[review](analyses/review.json)')
+    (root / 'analyses/review.json').write_text(json.dumps({'evidence': [{'path': value}]}))
+    with pytest.raises(ValueError) as error:
+        inventory.create(root)
+    message = str(error.value)
+    assert 'analyses/review.json' in message
+    assert '$["evidence"][0]["path"]' in message
+    assert '255 bytes' in message or 'newline' in message
+    assert not list((root / 'analyses').glob('review-manifest-*.json'))
+
+
+@pytest.mark.parametrize('explicit', [False, True])
+@pytest.mark.parametrize('value', ['x' * 256, '汉' * 86, 'a\nb', 'a\rb'])
+def test_invalid_path_is_checked_before_filesystem_access(tmp_path, monkeypatch, explicit, value):
+    monkeypatch.setattr(Path, 'is_symlink', lambda *_: pytest.fail('invalid string reached filesystem'))
+    if explicit:
+        with pytest.raises(ValueError, match='study.md.*field input'):
+            inventory._analysis_reference(tmp_path, tmp_path / 'study.md', value, True, 'input')
+    else:
+        assert inventory._analysis_reference(tmp_path, tmp_path / 'study.md', value, False) is None
+
+
+@pytest.mark.parametrize('explicit', [False, True])
+def test_filesystem_enametoolong_is_handled_with_reference_context(tmp_path, monkeypatch, explicit):
+    def too_long(*args):
+        raise OSError(errno.ENAMETOOLONG, 'raw OS message')
+    monkeypatch.setattr(Path, 'is_symlink', too_long)
+    if explicit:
+        with pytest.raises(ValueError, match='study.md.*field input.*ENAMETOOLONG') as error:
+            inventory._analysis_reference(tmp_path, tmp_path / 'study.md', 'analyses/a.json', True, 'input')
+        assert 'raw OS message' not in str(error.value)
+    else:
+        assert inventory._analysis_reference(tmp_path, tmp_path / 'study.md', 'description', False) is None
+
+
+def test_unrelated_filesystem_error_is_not_ignored(tmp_path, monkeypatch):
+    def denied(*args):
+        raise PermissionError(errno.EACCES, 'denied')
+    monkeypatch.setattr(Path, 'is_symlink', denied)
+    with pytest.raises(PermissionError):
+        inventory._analysis_reference(tmp_path, tmp_path / 'study.md', 'description', False)
