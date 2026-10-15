@@ -101,7 +101,7 @@ def test_prepare_and_facts_cli(cfg, tmp_path, capsys, keyword):
     study.init(cfg, 'smoke')
     source = tmp_path / 'water.gjf'
     source.write_text(INPUT.replace(' SP', ' ' + keyword))
-    manifest = attempt.prepare(cfg, study_name='smoke', template='gaussian', input_path=source,
+    manifest = attempt.prepare(cfg, method_basis='兜底方法：合成测试', study_name='smoke', template='gaussian', input_path=source,
                                tier='simple', walltime='00:05:00', label='stable')
     path = attempt.find(cfg, manifest['attempt_id'])
     persisted = attempt.read_manifest(path)
@@ -150,7 +150,7 @@ def test_stable_prepare_preserves_rejections(cfg, tmp_path, keyword, old, new, e
     source = tmp_path / 'water.gjf'
     source.write_text(INPUT.replace(old, new).replace(' SP', ' ' + keyword))
     with pytest.raises(ValueError, match=error):
-        attempt.prepare(cfg, study_name='smoke', template='gaussian', input_path=source,
+        attempt.prepare(cfg, method_basis='兜底方法：合成测试', study_name='smoke', template='gaussian', input_path=source,
                         tier='simple', walltime='00:05:00', label='stable')
 
 

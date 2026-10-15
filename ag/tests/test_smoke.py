@@ -61,7 +61,8 @@ def test_dedup_help_and_run_without_config(monkeypatch, tmp_path, capsys):
 
 @pytest.mark.parametrize("argv", [
     ["init", "study"],
-    ["prepare", "--study", "study", "--template", "gaussian", "--input", "input.gjf",
+    ["prepare", "--method-basis", "兜底方法：合成测试", "--study", "study",
+     "--template", "gaussian", "--input", "input.gjf",
      "--tier", "simple", "--walltime", "00:30:00", "--label", "sp"],
     ["submit", "attempt"], ["status"], ["fetch", "attempt"],
     ["cancel", "attempt"], ["list"], ["doctor"],

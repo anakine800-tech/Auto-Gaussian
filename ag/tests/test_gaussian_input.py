@@ -131,7 +131,7 @@ def prepare_qst(cfg, tmp_path, mode):
     study.init(cfg, 'smoke')
     source = tmp_path / 'water.gjf'
     source.write_text(qst(mode))
-    manifest = attempt.prepare(cfg, study_name='smoke', template='gaussian', input_path=source,
+    manifest = attempt.prepare(cfg, method_basis='兜底方法：合成测试', study_name='smoke', template='gaussian', input_path=source,
                                tier='simple', walltime='00:05:00', label='qst')
     return source, attempt.find(cfg, manifest['attempt_id']), manifest
 
@@ -166,7 +166,7 @@ def test_parent_relation_does_not_authorize_oldchk(cfg, tmp_path):
     source, path, parent = prepare_qst(cfg, tmp_path, 2)
     source.write_text('%oldchk=parent.chk\n' + INPUT)
     with pytest.raises(ValueError, match='parent chk attachment'):
-        attempt.prepare(cfg, study_name='smoke', template='gaussian', input_path=source,
+        attempt.prepare(cfg, method_basis='兜底方法：合成测试', study_name='smoke', template='gaussian', input_path=source,
                         tier='simple', walltime='00:05:00', label='child',
                         parents=[dict(attempt_id=parent['attempt_id'], relation='irc_of')])
     assert [p.name for p in path.parent.iterdir() if p.is_dir()] == [parent['attempt_id']]

@@ -39,7 +39,7 @@ def prepared(cfg, tmp_path):
     study.init(cfg, 'smoke')
     source = tmp_path / 'water.gjf'
     source.write_text(INPUT)
-    m = attempt.prepare(cfg, study_name='smoke', template='gaussian', input_path=source,
+    m = attempt.prepare(cfg, method_basis='兜底方法：合成测试', study_name='smoke', template='gaussian', input_path=source,
                         tier='simple', walltime='00:30:00', label='sp')
     return attempt.find(cfg, m['attempt_id']), m
 
@@ -118,7 +118,7 @@ def test_prepare_and_bundle(cfg, prepared):
 
 def test_parallel_prepare_unique_sequences(cfg, prepared, tmp_path):
     def prepare(n):
-        return attempt.prepare(cfg, study_name='smoke', template='gaussian', input_path=tmp_path / 'water.gjf',
+        return attempt.prepare(cfg, method_basis='兜底方法：合成测试', study_name='smoke', template='gaussian', input_path=tmp_path / 'water.gjf',
                                tier='simple', walltime='00:01:00', label=f'sp{n}')['attempt_id']
     with ThreadPoolExecutor(4) as pool:
         ids = list(pool.map(prepare, range(8)))
@@ -182,7 +182,7 @@ def test_cancel_submission(cfg, prepared, monkeypatch):
 @pytest.mark.parametrize('response', [Result(0, 'not a job'), Result(255, '', 'disconnect'), TransportError('timeout')])
 def test_unknown_stops_batch(cfg, prepared, tmp_path, monkeypatch, response):
     p, m = prepared
-    m2 = attempt.prepare(cfg, study_name='smoke', template='gaussian', input_path=tmp_path / 'water.gjf',
+    m2 = attempt.prepare(cfg, method_basis='兜底方法：合成测试', study_name='smoke', template='gaussian', input_path=tmp_path / 'water.gjf',
                          tier='simple', walltime='00:30:00', label='second')
     p2 = attempt.find(cfg, m2['attempt_id'])
     fake = Fake(cfg)
@@ -377,7 +377,7 @@ def test_parameter_whitelist(template, params):
 @pytest.mark.parametrize('template,params', [('xtb', {'--gfn': '2', '--opt': ''}), ('crest', {'--gfn2': '', '--quick': ''})])
 def test_other_templates(cfg, prepared, tmp_path, template, params):
     source = tmp_path / 'water.xyz'; source.write_text('3\nwater\nO 0 0 0\nH 0 0 1\nH 0 1 0\n')
-    m = attempt.prepare(cfg, study_name='smoke', template=template, input_path=source, tier='simple',
+    m = attempt.prepare(cfg, method_basis='兜底方法：合成测试', study_name='smoke', template=template, input_path=source, tier='simple',
                         walltime='00:30:00', label=template, params=params)
     script = attempt.verified_files(cfg, attempt.find(cfg, m['attempt_id']), m)['job.pbs'].decode()
     assert subprocess.run(['sh', '-n'], input=script, text=True).returncode == 0
@@ -523,7 +523,7 @@ def test_remote_create_existing_and_symlink_rejected(cfg, prepared, tmp_path):
 
 def test_batch_one_confirmation(cfg, prepared, tmp_path, monkeypatch):
     p, m = prepared
-    other = attempt.prepare(cfg, study_name='smoke', template='gaussian', input_path=tmp_path / 'water.gjf',
+    other = attempt.prepare(cfg, method_basis='兜底方法：合成测试', study_name='smoke', template='gaussian', input_path=tmp_path / 'water.gjf',
                             tier='simple', walltime='00:30:00', label='other')
     seen = []
     monkeypatch.setattr(confirm, 'confirm', lambda text: seen.append(text) or True)
@@ -678,14 +678,14 @@ def test_second_failed_download_is_not_published(cfg, prepared, monkeypatch, tmp
 def test_mini_prepare_and_memory_limit(cfg, prepared, tmp_path):
     source = tmp_path / 'mini.gjf'
     source.write_text(INPUT.replace('nprocshared=8', 'nprocshared=4').replace('mem=10GB', 'mem=8GB'))
-    m = attempt.prepare(cfg, study_name='smoke', template='gaussian', input_path=source,
+    m = attempt.prepare(cfg, method_basis='兜底方法：合成测试', study_name='smoke', template='gaussian', input_path=source,
                         tier='mini', walltime='00:30:00', label='mini')
     assert (m['tier'], m['cores'], m['mem_gb']) == ('mini', 4, 10)
     script = attempt.verified_files(cfg, attempt.find(cfg, m['attempt_id']), m)['job.pbs'].decode()
     assert 'nodes=1:ppn=4' in script and 'mem=10gb' in script
     source.write_text(source.read_text().replace('mem=8GB', 'mem=10GB'))
     with pytest.raises(ValueError):
-        attempt.prepare(cfg, study_name='smoke', template='gaussian', input_path=source,
+        attempt.prepare(cfg, method_basis='兜底方法：合成测试', study_name='smoke', template='gaussian', input_path=source,
                         tier='mini', walltime='00:30:00', label='too-much-memory')
     assert cfg['resources']['tiers']['simple'] == {'cores': 8, 'mem_gb': 12}
 

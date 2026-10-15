@@ -108,7 +108,7 @@ SSH 准备说明见 [ag/README.md](ag/README.md)；配置后按需运行 `ag doc
 | 命令 | 用途 |
 | --- | --- |
 | `ag init '<STUDY_ID>'` | 创建 study 骨架 |
-| `ag prepare --study '<STUDY_ID>' ...` | 本地建立独立 Attempt、校验输入并显示确认摘要；`--card` 保存卡片来源 |
+| `ag prepare --study '<STUDY_ID>' ...` | 本地建立独立 Attempt、校验输入并显示确认摘要；三种模板均须显式填写非空 `--method-basis`；`--card` 保存卡片来源 |
 | `ag submit '<ATTEMPT_ID>' ...` | 人点击 Mac 确认后提交；支持批次 |
 | `ag status '<ATTEMPT_ID>' --json` | 只读查询远程证据并更新本地状态；也可 `--study` |
 | `ag fetch '<ATTEMPT_ID>' [--add-missing]` | 首次取回，或仅为 fetched Attempt 补取缺失声明输出；拒绝覆盖 |
@@ -191,13 +191,13 @@ ln -s '<REPO_ROOT>/skills-next/<SKILL_NAME>' "$HOME/.codex/skills/<SKILL_NAME>"
 
 1. `ag init`，在 `study.md` 中记录目标、结构、电荷、多重度、溶剂、温度及方法依据；人确认结构。
 2. 按结构/文献/recipes 卡片做 RDKit 或 CREST 初筛、去重、DFT 单点重排；人签署代表构象集合。
-3. 用 `prepare` 准备 Opt+Freq 等 Attempt，向人展示结构、立体警告、完整 route、DOI 或兜底声明、资源、walltime、远程目录和输入哈希。例如：
+3. 用 `prepare` 准备 Opt+Freq 等 Attempt，向人展示结构、立体警告、完整 route、方法依据（文献先例 DOI 及位置 / 本课题既有方案来源并声明“不是文献先例，精度未经验证” / 兜底声明）、资源、walltime、远程目录和输入哈希。例如：
 
    ```bash
    ag prepare --study '<STUDY_ID>' --cluster '<CLUSTER>' \
      --template gaussian --input '<INPUT_GJF>' --card opt-freq \
      --tier simple --walltime 01:00:00 --label optfreq \
-     --method-basis '<DOI_OR_FALLBACK_STATEMENT>'
+     --method-basis '<文献先例 DOI 及位置 / 本课题既有方案及来源（不是文献先例，精度未经验证） / 兜底方法声明>'
    ```
 
 4. 获得提交指令后执行 `ag submit`，由人亲手点击 Mac 对话框。`status → fetch → facts` 收集证据；失败时按诊断卡片提出新 Attempt，不自动重提。
