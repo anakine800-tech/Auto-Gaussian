@@ -173,7 +173,7 @@ def test_generic_final_geometry_is_preserved(tmp_path, monkeypatch):
     directory = tmp_path / 'attempt'
     (directory / 'outputs').mkdir(parents=True)
     (directory / 'manifest.json').write_text(json.dumps({'template': 'gaussian', 'inputs': [{'name': 'water.gjf'}]}))
-    (directory / 'outputs/water.log').write_text(irc_log() + ' #p HF/STO-3G Opt\n --------------------------\n' + orientation(5))
+    (directory / 'outputs/water.log').write_text(irc_log() + ' --------------------------\n #p HF/STO-3G Opt\n --------------------------\n' + orientation(5))
     monkeypatch.setattr('cclib.io.ccread', lambda *args, **kwargs: SimpleNamespace(
         natom=3, atomnos=[8, 1, 1], atomcoords=[[[5, 0, 0], [.96, 0, 0], [-.24, .93, 0]]]))
     facts = build_facts(directory)
