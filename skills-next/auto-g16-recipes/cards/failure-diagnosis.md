@@ -72,6 +72,15 @@ stable 仅表示对所测扰动稳定，不证明全局最低电子态或单参�
 
 下列是建议阶梯，不是执行循环。只读诊断发现可接受结果就回原卡片审阅，不为升级而计算；每一级的退出条件都需要真实新证据才能判定达成。
 
+### 作业被强杀
+
+先 `ag status <attempt>`：PBS 需 interrupted、至少两次相隔 5 分钟的不活跃观察，输出大小/mtime 不变且无退出回执；Slurm 需 sacct 终态且 squeue 无此作业。UNKNOWN、仍运行或无法核实都停止，不据文件不变推断作业结束。
+满足后 `ag fetch <attempt> --incomplete`，只取确认存在的声明输出；核对独立记录的缺失项，再 `ag facts <attempt>`。权限/SSH/哈希错误立即报告，保留 `.partial`，不手工补文件；不能再用普通 fetch 或 --add-missing 升级这份取回记录。
+由人决定用父 chk 接续（新 Attempt，RCFC 或 Guess=Read）、从最后几何重新开始，或延长 walltime 重来。RCFC/ReadFC 坐标必须用 `final_input.xyz` 并通过既有取向校验；只在能导出时使用，缺失则停止。有效不完整取回记录允许 interrupted 父 chk，父子同集群、manifest 绑定、复制前后哈希和独占创建检查全部保留。
+被杀时 chk 可能未写完整；安全复制不保证 Gaussian 能读取，也不保证有可用 Hessian。提交仍须逐个展示完整摘要并由人点击 Mac 确认；不自动接续或重提。不完整结果禁止进入 thermo/profile，最终结果须按新 Attempt 的完整证据重新审阅。
+没有完成 Freq 的中断优化，不把 RCFC 作为已验证的接续方案；可向人提出 final_input.xyz 加父 chk 的 Guess=Read，并用 CalcFC 重新计算 Hessian，是否可读取须以新 Attempt 的日志验证。
+不完整取回的 opt_converged 保守标为 null；需要时去日志里看 Opt 段是否完成，并人工判断，不能据此把未完成的 Freq 当作已完成。
+
 ### 第 1 级：纠正已定位的输入错误
 
 知识卡片：GKB-0430。

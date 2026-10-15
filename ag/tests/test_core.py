@@ -395,9 +395,10 @@ def test_remote_allowlist_and_paths(cfg, prepared):
     commands = [remote.identity(), remote.queues(), remote.nodes(), remote.jobs(), remote.jobs('123.fixture'), remote.root_check(cfg),
                 remote.executable(cfg['programs']['gaussian']['g16root'] + '/g16'), remote.create_attempt(cfg, m),
                 remote.metadata(cfg, m, 'water.gjf'), remote.upload_check(cfg, m, 'water.gjf'),
-                remote.output_exists(cfg, m, 'job.pbs.out'), remote.listing(cfg, m), remote.submit(cfg, m), remote.cancel('123.fixture')]
+                remote.output_exists(cfg, m, 'job.pbs.out'), remote.listing(cfg, m), remote.submit(cfg, m), remote.cancel('123.fixture'),
+                remote.incomplete_output_observation(cfg, m, 'water.log')]
     import shlex
-    allowed = {'id', 'qstat', 'pbsnodes', 'test', 'mkdir', 'stat', 'sha256sum', 'ls', 'cd', 'qsub', 'qdel'}
+    allowed = {'id', 'qstat', 'pbsnodes', 'test', 'mkdir', 'stat', 'sha256sum', 'ls', 'cd', 'qsub', 'qdel', 'printf'}
     for c in commands:
         assert not any(token in shlex.split(c.text) for token in ('rm', 'rmdir', 'mv', 'cp', '>', '>>'))
         assert subprocess.run(['sh', '-n'], input=c.text, text=True).returncode == 0
@@ -406,13 +407,29 @@ def test_remote_allowlist_and_paths(cfg, prepared):
         for token in tokens:
             if token in ('&&', ';'):
                 expect_command = True
-            elif token in ('if', 'then', 'fi'):
+            elif token in ('if', 'then', 'else', 'fi'):
                 continue
             elif expect_command:
                 assert token in allowed
                 expect_command = False
     for bad in ('../escape', 'file;evil', '/absolute'):
         with pytest.raises(ValueError): remote.metadata(cfg, m, bad)
+        with pytest.raises(ValueError): remote.incomplete_output_observation(cfg, m, bad)
+    with pytest.raises(ValueError): remote.incomplete_output_observation(cfg, m, 'undeclared.log')
+    with pytest.raises(ValueError): remote.incomplete_output_observation(cfg, {**m, 'remote_dir': '../escape'}, 'water.log')
+    directory = remote.attempt_dir(cfg, m)
+    p = directory + '/water.log'
+    q, parent = shlex.quote(p), shlex.quote(directory)
+    checks = ' && '.join('test ! -L ' + shlex.quote(str(part))
+                         for part in reversed((Path(p), *Path(p).parents[:-1])))
+    command = remote.incomplete_output_observation(cfg, m, 'water.log')
+    assert command.text == (f'{checks} && test -d {parent} && test -x {parent} && '
+                            f'if test -e {q}; then test -f {q} && test -r {q} && '
+                            f"stat -c '%s %y' -- {q}; else "
+                            f'test ! -L {q} && test -d {parent} && test -x {parent} && '
+                            "printf 'absent\\n'; fi")
+    from ag.transport import READ_OPERATIONS
+    assert command.operation == 'output_observation' and command.operation in READ_OPERATIONS
     with pytest.raises(ValueError): remote.attempt_dir(cfg, {**m, 'remote_dir': '../escape'})
     with pytest.raises(ValueError): remote.cancel('123;evil')
 

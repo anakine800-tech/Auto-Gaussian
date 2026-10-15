@@ -10,7 +10,10 @@ def _parent(cfg, parent_id, source_name):
     path = attempt.find(cfg, parent_id)
     manifest = attempt.read_manifest(path)
     current = state.read(path)
-    if current['state'] not in ('finished', 'fetched'):
+    from ag.fetch import incomplete_record
+    incomplete = incomplete_record(path)
+    if (current['state'] not in ('finished', 'fetched')
+            and not (current['state'] == 'interrupted' and incomplete is not None)):
         raise ValueError('Parent chk requires a finished or fetched Attempt')
     if manifest.get('cluster', 'default') != cfg.get('_cluster', 'default'):
         raise ValueError('Parent and child must belong to the same cluster')

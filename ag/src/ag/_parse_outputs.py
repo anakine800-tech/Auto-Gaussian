@@ -53,7 +53,7 @@ def termination(text, marker, pbs_text='', *, line_offset=0):
     if hint:
         line = line_offset + text.count('\n', 0, position) + 1
         hint += f'（line {line}）'
-    walltime = re.search(r'walltime.*(?:exceed|limit|kill)|(?:exceed|kill).*walltime', pbs_text, re.I)
+    walltime = re.search(r'walltime.*(?:exceed|limit|kill)|(?:exceed|kill).*walltime|DUE TO TIME LIMIT', pbs_text, re.I)
     if walltime:
         hint = 'walltime'
     state = 'error' if error else ('normal' if marker.lower() in text.lower() else 'incomplete')
@@ -445,7 +445,36 @@ def parse_gaussian(path, pbs_path=None):
         sources['irc'] = ircs[-1] + 1
     facts.update(job_sections=sections, fact_sources=sources,
                  parser_warning='; '.join(warnings) or None)
+    if path.parent.name == 'outputs' and (path.parent.parent / 'manifest.json').is_file():
+        annotate_fetch_sources(facts, path.parent.parent)
     return facts, geometry
+
+
+def annotate_fetch_sources(facts, directory):
+    """Also used by direct Gaussian readers (profile), not just ag facts."""
+    import json
+    from ag.fetch import incomplete_record
+    manifest = json.loads((directory / 'manifest.json').read_text())
+    outputs = directory / 'outputs'
+    incomplete = incomplete_record(directory)
+    scheduler_names = (['job.slurm.err', 'job.slurm.out']
+                       if manifest.get('scheduler') == 'slurm' else ['job.pbs.out'])
+    walltime_sources = [name for name in scheduler_names if (outputs / name).is_file()
+                       and termination('', '', (outputs / name).read_text(errors='replace'))['error_hint'] == 'walltime']
+    if walltime_sources:
+        # A broad scheduler-text match is a hint, not termination evidence:
+        # resource summaries can mention a walltime limit even after success.
+        facts.update(error_hint='walltime', error_hint_sources=walltime_sources)
+        if 'fact_sources' in facts:
+            facts['fact_sources']['error_hint'] = None
+    if incomplete:
+        name, record = incomplete
+        facts['incomplete_fetch'] = dict(record=name, missing=record['missing'], outputs=record['outputs'])
+        if facts['termination'] != 'error':
+            facts['termination'] = 'incomplete'
+        if facts.get('opt_converged') is True:
+            facts['opt_converged'] = None
+            facts.get('fact_sources', {})['opt_converged'] = None
 
 
 def _parse_gaussian_section(text, *, internal=False):

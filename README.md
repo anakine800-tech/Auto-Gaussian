@@ -111,7 +111,7 @@ SSH 准备说明见 [ag/README.md](ag/README.md)；配置后按需运行 `ag doc
 | `ag prepare --study '<STUDY_ID>' ...` | 本地建立独立 Attempt、校验输入并显示确认摘要；三种模板均须显式填写非空 `--method-basis`；`--card` 保存卡片来源 |
 | `ag submit '<ATTEMPT_ID>' ...` | 人点击 Mac 确认后提交；支持批次 |
 | `ag status '<ATTEMPT_ID>' --json` | 只读查询远程证据并更新本地状态；也可 `--study` |
-| `ag fetch '<ATTEMPT_ID>' [--add-missing]` | 首次取回，或仅为 fetched Attempt 补取缺失声明输出；拒绝覆盖 |
+| `ag fetch '<ATTEMPT_ID>' [--add-missing \| --incomplete]` | 首次取回、为 fetched 补取，或有结束证据时显式取回不完整输出；拒绝覆盖 |
 | `ag cancel '<ATTEMPT_ID>'` | 人点击 Mac 确认后取消确切作业 |
 | `ag list --study '<STUDY_ID>' --json` | 列出本地 Attempt |
 | `ag doctor --cluster '<CLUSTER>' --json` | 只读检查连接、调度器和程序环境 |
@@ -168,6 +168,9 @@ ag profile '<STUDY_DIR>/analyses/<PROFILE_JSON>' --name '<NEW_PROFILE_NAME>' --j
 - `review init` 不覆盖已有审阅；`--card` 的补指定来源明确记在 review 中，不修改 manifest。`review check` 核对已保存的判据与事实，不代签。签字前先在 study/review 中引用全部依据，再生成 `review manifest`；清单独占创建在 `analyses/`，记录相对路径、大小、SHA-256 与 ag 提交号。签字记录应包含清单路径和清单哈希，生成清单本身不是签字。
 - `facts` 在解析内容相同时保持原字节和 mtime，即使解析器提交号变化也不重写；内容不同时默认显示差异并拒绝。人工核对后用 `--refresh`，先保留 `facts.<旧哈希前12位>.json` 再发布新版；已有几何仍不能覆盖。thermo/profile/review check 不改写 facts。
 - `fetch --add-missing` 只适用于 fetched：先核对全部声明远程输出与本地已有文件的大小/哈希，不一致就拒绝；只独占写入缺失项，另存补取记录，原 status、manifest 和 fetch journal 保留。补取成功不表示解析或科学审阅完成。
+- `fetch --incomplete`：PBS 必须为 interrupted，并有至少相隔 300 秒、输出大小/mtime 相同、均不活跃且无退出回执的两次 status 观察；Slurm 必须为 finished，取回时重新确认 squeue 无此作业、sacct 有受支持终态。COMPLETED 且输出齐全用普通 fetch。
+- 不完整取回只下载声明中确认存在且可读的输出，逐文件前后核对大小/SHA-256，确认缺失项写入独占的 `fetch-incomplete-<UTC时间>.json`；权限或连接等无法核实就整次失败，暂存证据留在 `.partial`。状态不变，重复取回、普通 fetch 和 `--add-missing` 均拒绝已有不完整取回记录。
+- 不完整 facts 不是正常终止，不能用于 thermo/profile；有绑定完整取回记录的 interrupted 父作业可声明 parent chk，复制检查及 Mac 提交确认不变。chk 是否被 Gaussian 读入需另行验证。
 - `dedup --hydrogens heavy|polar|all` 默认 `polar`（重原子加 N/O/S/P 上的氢）；反应相关氢若不属该集合，使用 `all`。旧无氢模式记录按 heavy 解释。仅几何来源合并不混排能量；`--representative lowest` 要求同方法、有限 Hartree 能量，并应用能差容差（默认严格小于 0.05 kcal/mol）。ETKDG 候选先经 CREST `--mdopt` 优化后才能与同层级 CREST 能量合并，不能混用力场能量。
 - `coverage` 的 `--energies` 可给单点 Attempt 目录/ID、JSON 路径列表或原生 thermo JSON；按坐标和来源证据匹配，SCF 与 qh_G 分开统计。单路线独有低能项会提示补采样；报告不是构象穷尽证明。
 - `scan-peak` 仅接受内部点及左右紧邻点均收敛、有能量，且中点严格高于两侧的候选；列出全部局部峰，默认选最高局部峰，`--point` 选择指定原序号。无合格峰、指定非候选、单调曲线或平台都不导出；仍须审阅扫描范围与跳变，并继续 TS/Freq/双向 IRC。

@@ -201,6 +201,22 @@ def check(cfg, path, transport):
                'receipts': {'start': start, 'exit': end}, 'cput': job.get('resources_used.cput') if job else None}
     observed = outputs(cfg, m, transport)
     now = time.time()
+    # T47: retain the first and latest inactive observations, without changing
+    # lifecycle classification or the existing 60-second legacy completion rule.
+    # A queue reappearance, receipt, or output change resets the five-minute
+    # evidence needed by the explicit incomplete-fetch path.
+    inactive = {'at': now, 'job_id': job_id, 'scheduler_state': scheduler,
+                'outputs': observed, 'exit_receipt': end}
+    previous_inactive = current.get('incomplete_observations', [])
+    if scheduler in (None, 'C') and end is None:
+        first = previous_inactive[0] if previous_inactive else inactive
+        if (first['job_id'] != job_id or first['outputs'] != observed
+                or first['at'] > now or first['scheduler_state'] not in (None, 'C')
+                or first['exit_receipt'] is not None):
+            first = inactive
+        details['incomplete_observations'] = [first, inactive] if first['at'] < now else [inactive]
+    else:
+        details['incomplete_observations'] = []
     previous = current.get('observation') or {}
     session = job.get('session_id') if job else previous.get('session_id')
     if session is not None:

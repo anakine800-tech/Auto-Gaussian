@@ -190,6 +190,27 @@ def output_observation(cfg, manifest):
     return Command('output_observation', ' && '.join(f'{{ {c}; }}' for c in commands))
 
 
+def incomplete_output_observation(cfg, manifest, name):
+    """Strict, read-only presence check for one declared output.
+
+    T47: test ! -e alone mistakes an inaccessible parent for a missing file.
+    Keep the existing status observer unchanged; reuse its read-only operation
+    category, not its weaker absence test. Nonzero means unverifiable.
+    """
+    filename(name)
+    if name not in output_names(manifest):
+        raise ValueError('Expected a declared output filename')
+    directory = attempt_dir(cfg, manifest)
+    p = directory + '/' + name
+    q, parent = quote(p), quote(directory)
+    return Command('output_observation',
+                   f'{path_checks(p)} && test -d {parent} && test -x {parent} && '
+                   f'if test -e {q}; then test -f {q} && test -r {q} && '
+                   f"stat -c '%s %y' -- {q}; else "
+                   f"test ! -L {q} && test -d {parent} && test -x {parent} && "
+                   "printf 'absent\\n'; fi")
+
+
 def completion_marker(cfg, manifest):
     from ag.render import declaration
     name = output_names(manifest)[0]
