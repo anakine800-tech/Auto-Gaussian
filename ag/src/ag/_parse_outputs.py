@@ -48,7 +48,7 @@ def termination(text, marker, pbs_text='', *, line_offset=0):
         hint = prefix + label
     elif links:
         position = links[-1].start()
-        hint = ('L9999：优化未完成（原因见日志）' if links[-1][1] == '9999'
+        hint = ('L9999: 优化未完成（原因见日志）' if links[-1][1] == '9999'
                 else 'L' + links[-1][1])
     if hint:
         line = line_offset + text.count('\n', 0, position) + 1

@@ -28,7 +28,7 @@
    - `Number of steps exceeded` 或 `Optimization stopped` 并伴有步数上限的说明 → “优化步数用完”；
    - `Wrong number of Negative eigenvalues`（附带 Desired/Actual）→ “TS 曲率不符：负本征值数与期望不符”；
    - `Convergence failure` / `SCF has not converged` → “SCF 不收敛”；
-   - 其他 l9999 → “L9999：优化未完成（原因见日志）”，不再默认说成步数用完；
+   - 其他 l9999 → “L9999: 优化未完成（原因见日志）”，不再默认说成步数用完；
    - 其他 link → 保持现有的 “L<编号>”；walltime 的判断不变。
 
    提示里附上命中那一行的行号（在所属作业段内换算成全局行号）。
@@ -82,3 +82,5 @@
 - 离线验证：`PYTHONPATH=ag/src python -m pytest ag/tests skills-next -q -rs`（使用隔离 `.venv`）得到 **1877 passed, 2 skipped**；跳过 `test_completion.py:309` 的 Linux stat/ps 方言检查（交 Linux CI）及 `test_facts.py:132` 的显式 opt-in 私有日志。新错配用例 6 passed，无静默接受。
 - 另用基线 `7f12708` 原解析器，对 50 个纯合成正常/错误/多段/截断/带 scheduler 文本的情形进行内存对比：48 个 error_hint 预期变化，其他 facts 字段与几何全部不变；这不代替真实 29 个 Attempt 复扫。
 - 精确暂存六个允许范围内的文件后，敏感扫描与 `git diff --cached --check` 通过；作者/提交者均为 GitHub noreply。
+
+- 审阅后修正（2026-10-15）：未知 L9999 统一为半角冒号 `L9999: 优化未完成（原因见日志）`，同步断言与 PR 表格；负责人明确接受无具体原因的 L502 只报告 link 与行号。负责人已授权在本机按 T42b 清单对 29 个 Attempt 只读复扫，比较 T45 前基线与本分支的内存解析结果，逐项列出提示变化，并核对原证据未改写。
