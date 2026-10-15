@@ -1,0 +1,340 @@
+{
+  "water_opt_freq.log": [
+    {
+      "termination": "normal",
+      "error_hint": null,
+      "program_version": "Gaussian 16 Rev A.03",
+      "program_versions": [
+        "Gaussian 16 Rev A.03"
+      ],
+      "program_version_warning": null,
+      "parser_warning": null,
+      "route": "#p B3LYP/STO-3G Opt Freq SCF=Tight Integral=UltraFine",
+      "n_atoms": 3,
+      "charge": 0,
+      "multiplicity": 1,
+      "freq_step_converged": true,
+      "freq_step_convergence": {
+        "frequency_line": 1715,
+        "table_line": 1869,
+        "criteria": {
+          "maximum_force": {
+            "value": 0.000197,
+            "threshold": 0.00045,
+            "converged": true,
+            "line": 1870
+          },
+          "rms_force": {
+            "value": 0.000153,
+            "threshold": 0.0003,
+            "converged": true,
+            "line": 1871
+          },
+          "maximum_displacement": {
+            "value": 0.000522,
+            "threshold": 0.0018,
+            "converged": true,
+            "line": 1872
+          },
+          "rms_displacement": {
+            "value": 0.000427,
+            "threshold": 0.0012,
+            "converged": true,
+            "line": 1873
+          }
+        },
+        "non_optimized_parameters_line": null
+      },
+      "opt_converged": true,
+      "energies": {
+        "scf": -75.3227750502,
+        "zpe": 0.021563,
+        "e_thermal": -75.298379,
+        "h": -75.297435,
+        "g": -75.319062
+      },
+      "s2": null,
+      "n_imag": 0,
+      "frequencies_low": [
+        2017.6012,
+        3611.7356,
+        3835.6281
+      ],
+      "imag_modes": [],
+      "final_geometry_orientation": "standard",
+      "monatomic": false,
+      "n_vibrational_modes": 3,
+      "expected_vibrational_modes": 3,
+      "vibrational_modes_complete": true,
+      "frequency_note": null
+    },
+    "3\nFinal parsed geometry\nO   0.0000000000  0.0000000000  0.1359550000\nH  -0.0000000000  0.7702450000 -0.5438190000\nH  -0.0000000000 -0.7702450000 -0.5438190000\n"
+  ],
+  "butane_gauche_freq.log": [
+    {
+      "termination": "normal",
+      "error_hint": null,
+      "program_version": "Gaussian 16 Rev A.03",
+      "program_versions": [
+        "Gaussian 16 Rev A.03"
+      ],
+      "program_version_warning": null,
+      "parser_warning": null,
+      "route": "#p wB97XD/Def2SVP Freq SCF=(Tight,MaxCycle=128) Integral=UltraFine NoS ymm",
+      "n_atoms": 14,
+      "charge": 0,
+      "multiplicity": 1,
+      "freq_step_converged": true,
+      "freq_step_convergence": {
+        "frequency_line": 677,
+        "table_line": 1133,
+        "criteria": {
+          "maximum_force": {
+            "value": 1.3e-05,
+            "threshold": 0.00045,
+            "converged": true,
+            "line": 1134
+          },
+          "rms_force": {
+            "value": 5e-06,
+            "threshold": 0.0003,
+            "converged": true,
+            "line": 1135
+          },
+          "maximum_displacement": {
+            "value": 0.001595,
+            "threshold": 0.0018,
+            "converged": true,
+            "line": 1136
+          },
+          "rms_displacement": {
+            "value": 0.000542,
+            "threshold": 0.0012,
+            "converged": true,
+            "line": 1137
+          }
+        },
+        "non_optimized_parameters_line": null
+      },
+      "opt_converged": true,
+      "energies": {
+        "scf": -158.29545784,
+        "zpe": 0.132718,
+        "e_thermal": -158.15708,
+        "h": -158.156136,
+        "g": -158.190703
+      },
+      "s2": null,
+      "n_imag": 0,
+      "frequencies_low": [
+        114.838,
+        221.2022,
+        280.7979,
+        330.0999,
+        444.9327,
+        755.5711,
+        806.2244,
+        848.0528,
+        972.4967,
+        989.2509
+      ],
+      "imag_modes": [],
+      "final_geometry_orientation": "input",
+      "monatomic": false,
+      "n_vibrational_modes": 36,
+      "expected_vibrational_modes": 36,
+      "vibrational_modes_complete": true,
+      "frequency_note": null
+    },
+    "14\nFinal parsed geometry\nC  -1.5757160000  0.0154930000  0.5704910000\nC  -0.6818490000 -0.3478740000 -0.6119660000\nC   0.6818190000  0.3478370000 -0.6120080000\nC   1.5757130000 -0.0154400000  0.5704560000\nH  -2.5625100000 -0.4637800000  0.4858880000\nH  -1.1384510000 -0.3033190000  1.5290930000\nH  -1.7370740000  1.1043480000  0.6252550000\nH  -1.2056940000 -0.0979760000 -1.5496420000\nH  -0.5289120000 -1.4414630000 -0.6340810000\nH   1.2056420000  0.0978680000 -1.5496780000\nH   0.5288800000  1.4414250000 -0.6342020000\nH   2.5625060000  0.4638250000  0.4857910000\nH   1.1384710000  0.3034440000  1.5290430000\nH   1.7370710000 -1.1042920000  0.6252980000\n"
+  ],
+  "butane_anti_freq.log": [
+    {
+      "termination": "normal",
+      "error_hint": null,
+      "program_version": "Gaussian 16 Rev A.03",
+      "program_versions": [
+        "Gaussian 16 Rev A.03"
+      ],
+      "program_version_warning": null,
+      "parser_warning": null,
+      "route": "#p wB97XD/Def2SVP Freq SCF=(Tight,MaxCycle=128) Integral=UltraFine NoS ymm",
+      "n_atoms": 14,
+      "charge": 0,
+      "multiplicity": 1,
+      "freq_step_converged": true,
+      "freq_step_convergence": {
+        "frequency_line": 678,
+        "table_line": 1134,
+        "criteria": {
+          "maximum_force": {
+            "value": 4.4e-05,
+            "threshold": 0.00045,
+            "converged": true,
+            "line": 1135
+          },
+          "rms_force": {
+            "value": 1.4e-05,
+            "threshold": 0.0003,
+            "converged": true,
+            "line": 1136
+          },
+          "maximum_displacement": {
+            "value": 9.3e-05,
+            "threshold": 0.0018,
+            "converged": true,
+            "line": 1137
+          },
+          "rms_displacement": {
+            "value": 4.7e-05,
+            "threshold": 0.0012,
+            "converged": true,
+            "line": 1138
+          }
+        },
+        "non_optimized_parameters_line": null
+      },
+      "opt_converged": true,
+      "energies": {
+        "scf": -158.296186729,
+        "zpe": 0.132527,
+        "e_thermal": -158.157922,
+        "h": -158.156978,
+        "g": -158.191619
+      },
+      "s2": null,
+      "n_imag": 0,
+      "frequencies_low": [
+        122.9896,
+        228.6848,
+        265.3711,
+        266.8905,
+        434.721,
+        743.6819,
+        816.9488,
+        858.5125,
+        965.0826,
+        985.3896
+      ],
+      "imag_modes": [],
+      "final_geometry_orientation": "input",
+      "monatomic": false,
+      "n_vibrational_modes": 36,
+      "expected_vibrational_modes": 36,
+      "vibrational_modes_complete": true,
+      "frequency_note": null
+    },
+    "14\nFinal parsed geometry\nC  -1.9535570000  0.1316000000  0.0000090000\nC  -0.5698380000 -0.5084870000  0.0000010000\nC   0.5698390000  0.5084890000  0.0000060000\nC   1.9535590000 -0.1315980000  0.0000100000\nH  -2.0973900000  0.7677330000 -0.8879590000\nH  -2.7508420000 -0.6266630000 -0.0000070000\nH  -2.0973950000  0.7677020000  0.8879970000\nH  -0.4663710000 -1.1667610000 -0.8805030000\nH  -0.4663670000 -1.1667730000  0.8804960000\nH   0.4663740000  1.1667690000 -0.8804940000\nH   0.4663680000  1.1667680000  0.8805050000\nH   2.7508430000  0.6266650000  0.0000010000\nH   2.0973950000 -0.7677070000  0.8879940000\nH   2.0973920000 -0.7677240000 -0.8879620000\n"
+  ],
+  "fluoride_freq_synthetic.log": [
+    {
+      "termination": "normal",
+      "error_hint": null,
+      "program_version": "Gaussian 16 Rev A.03",
+      "program_versions": [
+        "Gaussian 16 Rev A.03"
+      ],
+      "program_version_warning": null,
+      "parser_warning": null,
+      "route": "#p B3LYP/6-31+G(d) Freq",
+      "n_atoms": 1,
+      "charge": -1,
+      "multiplicity": 1,
+      "freq_step_converged": null,
+      "freq_step_convergence": null,
+      "opt_converged": null,
+      "energies": {
+        "scf": -99.0,
+        "zpe": 0.0,
+        "e_thermal": -98.998584,
+        "h": -98.99764,
+        "g": -99.013
+      },
+      "s2": null,
+      "n_imag": 0,
+      "frequencies_low": [],
+      "imag_modes": [],
+      "final_geometry_orientation": "input",
+      "monatomic": true,
+      "n_vibrational_modes": 0,
+      "expected_vibrational_modes": 0,
+      "vibrational_modes_complete": true,
+      "frequency_note": "单原子无振动模式"
+    },
+    "1\nFinal parsed geometry\nF   0.0000000000  0.0000000000  0.0000000000\n"
+  ],
+  "water_sp.log": [
+    {
+      "termination": "normal",
+      "error_hint": null,
+      "program_version": "Gaussian 16 Rev A.03",
+      "program_versions": [
+        "Gaussian 16 Rev A.03"
+      ],
+      "program_version_warning": null,
+      "parser_warning": null,
+      "route": "#p B3LYP/STO-3G SP SCF=Tight Integral=UltraFine",
+      "n_atoms": 3,
+      "charge": 0,
+      "multiplicity": 1,
+      "freq_step_converged": null,
+      "freq_step_convergence": null,
+      "opt_converged": null,
+      "energies": {
+        "scf": -75.3124658999,
+        "zpe": null,
+        "e_thermal": null,
+        "h": null,
+        "g": null
+      },
+      "s2": null,
+      "n_imag": null,
+      "frequencies_low": [],
+      "imag_modes": [],
+      "final_geometry_orientation": "standard",
+      "monatomic": false,
+      "n_vibrational_modes": null,
+      "expected_vibrational_modes": 3,
+      "vibrational_modes_complete": null,
+      "frequency_note": null
+    },
+    "3\nFinal parsed geometry\nO  -0.0000000000  0.0000000000  0.1172520000\nH   0.0000000000  0.7571600000 -0.4690080000\nH  -0.0000000000 -0.7571600000 -0.4690080000\n"
+  ],
+  "water_opt_only.log": [
+    {
+      "termination": "normal",
+      "error_hint": null,
+      "program_version": "Gaussian 16 Rev A.03",
+      "program_versions": [
+        "Gaussian 16 Rev A.03"
+      ],
+      "program_version_warning": null,
+      "parser_warning": null,
+      "route": "#p B3LYP/STO-3G Opt SCF=Tight Integral=UltraFine",
+      "n_atoms": 3,
+      "charge": 0,
+      "multiplicity": 1,
+      "freq_step_converged": null,
+      "freq_step_convergence": null,
+      "opt_converged": true,
+      "energies": {
+        "scf": -75.3227750502,
+        "zpe": null,
+        "e_thermal": null,
+        "h": null,
+        "g": null
+      },
+      "s2": null,
+      "n_imag": null,
+      "frequencies_low": [],
+      "imag_modes": [],
+      "final_geometry_orientation": "standard",
+      "monatomic": false,
+      "n_vibrational_modes": null,
+      "expected_vibrational_modes": 3,
+      "vibrational_modes_complete": null,
+      "frequency_note": null
+    },
+    "3\nFinal parsed geometry\nO   0.0000000000  0.0000000000  0.1359550000\nH  -0.0000000000  0.7702450000 -0.5438190000\nH  -0.0000000000 -0.7702450000 -0.5438190000\n"
+  ]
+}

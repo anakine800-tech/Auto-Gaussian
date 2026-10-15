@@ -56,7 +56,8 @@ def _write_geometry(path, geometry):
 
 def parse_facts(attempt_dir):
     """Return facts and named geometry text in memory; never write evidence."""
-    from ag._parse_outputs import parse_gaussian, parse_crest, parse_xtb, gaussian_orientation
+    from ag._parse_outputs import (parse_gaussian, parse_crest, parse_xtb,
+                                   gaussian_orientation, gaussian_section_text)
 
     attempt_dir = Path(attempt_dir)
     manifest = json.loads((attempt_dir / 'manifest.json').read_text())
@@ -66,14 +67,20 @@ def parse_facts(attempt_dir):
     if program == 'gaussian':
         log = gaussian_log(attempt_dir)
         facts, geometry = parse_gaussian(log, outputs / ('job.slurm.err' if manifest.get('scheduler') == 'slurm' else 'job.pbs.out'))
-        input_geometry = gaussian_orientation(log.read_text(errors='replace'), 'Input')
+        text = log.read_text(errors='replace')
+        geometry_section = facts['fact_sources']['final_geometry']
+        input_geometry = gaussian_orientation(gaussian_section_text(
+            text, facts['job_sections'][geometry_section - 1]), 'Input') if geometry_section else None
+        facts['fact_sources']['final_input_geometry'] = geometry_section
+        facts['fact_sources']['final_input_geometry_orientation'] = geometry_section
         facts['final_input_geometry'] = 'final_input.xyz' if input_geometry else None
         facts['final_input_geometry_orientation'] = 'input' if input_geometry else None
         if input_geometry:
             geometries['final_input.xyz'] = input_geometry
         if 'irc' in facts:
             from ag._irc import parse_irc
-            _, endpoint = parse_irc(log.read_text(errors='replace'))
+            _, endpoint = parse_irc(gaussian_section_text(
+                text, facts['job_sections'][facts['fact_sources']['irc'] - 1]))
             if endpoint:
                 geometries['irc_end.xyz'] = endpoint
                 facts['irc']['end_geometry'] = 'irc_end.xyz'
