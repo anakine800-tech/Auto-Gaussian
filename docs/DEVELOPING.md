@@ -39,6 +39,7 @@
 - `review.py`：生成审阅骨架，检查判据完整性及 facts 是否过期。
 - `_review_manifest.py`：签字前独占生成 study 证据清单，绑定文件字节与 ag 提交号。
 - `facts.py`：本地 facts/final.xyz 输出入口，仅提取事实。
+- `mode_review.py`：基于正常结束的频率段导出正负模式位移、指定原子对距离及全对排名，方向由人审阅。
 - `_parse_outputs.py`：Gaussian/cclib、xTB、CREST 输出解析。
 - `_irc.py`：Gaussian IRC 方向、路径点和完成事实提取。
 - `geometry.py`：XYZ、显式能量单位、成键/立体标识及 RMSD 共用工具。
