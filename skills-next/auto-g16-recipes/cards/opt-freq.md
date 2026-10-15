@@ -97,11 +97,17 @@ xTB 6 kcal/mol → DFT 单点重排 → 3 kcal/mol 内进入优化（研究最�
 
 ### 静默失败检查清单
 
-为防止把程序正常退出误当科学成功，借鉴 [QUASAR，arXiv:2602.00185v2](https://arxiv.org/html/2602.00185v2) §2.3 “Long Simulation Handling”（完成状态不保证收敛）及 §4 “Discussion”（貌似合理的结果仍需物理核验）。下面六项是面向 Gaussian 和本项目的具体化，并非论文给出的 Gaussian 清单；不采用其自动终止/重启操作。
+为防止把程序正常退出误当科学成功，借鉴 [QUASAR，arXiv:2602.00185v2](https://arxiv.org/html/2602.00185v2) §2.3 “Long Simulation Handling”（完成状态不保证收敛）及 §4 “Discussion”（貌似合理的结果仍需物理核验）。下面七项是面向 Gaussian 和本项目的具体化，并非论文给出的 Gaussian 清单；不采用其自动终止/重启操作。
 
 - **正常终止但不在驻点**：分别检查 `opt_converged` 和 `freq_step_converged`。尤其 `freq_step_converged=false` 时即便零虚频也暂停接受；`null` 是缺证据，查末次频率阶段的收敛表和 `Non-Optimized Parameters`，不能用别的阶段替代。
 - **连接关系或立体构型改变**：先运行 `ag topology <attempt> --study <study_dir> --out <analyses/新文件.json>`，在 review.md 中引用 JSON 与 Markdown 输出，按相同原子映射人工审阅 changed/unknown 项，包括成键、断键、质子转移、B/N/O 不确定接触及立体中心。结构改变或无法判定时不能计入原构象集合；结构比较不代替科学审阅。`ag graph` 仅核对 Attempt 来源，不能用于声明结构一致。
 - **小虚频**：当负频的绝对值 < 50 cm⁻¹ 时，检查完整位移，区分软扭转、片段运动、真实反应方向与数值误差；不能直接置零。可提出更严格优化/积分网格或沿该模式小扰动后同方法重新优化，重新核对完整 Freq；提出新 Attempt，等人确认。100 cm⁻¹ qRRHO 截断不负责消除虚频。
+- **低频残余**：记录末次已完成频率段的 `Low frequencies ---` 第一行及原日志行号，核对平动、转动残余。
+  TS 的真实虚频可能排在这些残余之前，软振动也可能混排；必要时连同后续行及投影后的频率、模式辨认，
+  不能把首行所有数都当残余或按数值大小直接删除真实虚频。依据：[Gaussian 振动分析说明 §2.1](https://gaussian.com/wp-content/uploads/dl/vib.pdf)。
+  **辨认出的平动、转动残余**绝对值超过约 20 cm⁻¹ 时，在 review 标为“残余偏大”，提示几何收敛或积分网格可能不足、
+  热化学中的低频熵不可信，不直接接受；提出更严收敛标准或积分网格重新优化并做 Freq 的新 Attempt，经人确认后提交。
+  缺该行或无法区分模式则写缺证据。它不是 `facts.json` 的 `frequencies_low`（cclib 提取的最低几个振动频率），不能用该字段代替。
 - **实际方法、电荷或多重度不符**：核对最终计算对应的 Gaussian archive 行（展开折行），与输入、manifest 摘要及 `facts.json` 的 route/charge/multiplicity 对照；色散、溶剂等再对照输出回显。当前 facts 不提供完整 archive 审计字段，须查原日志，缺 archive/信息不全写缺证据，不能默认为一致。
 - **能量离群**：仅在同一组成、电荷、多重度、方法、溶剂和能量类型/单位下比较同组构象；区分 SCF 与 G/qRRHO。显著偏离时先检查结构是否改变、解析是否选错步骤和收敛情况，写出差值与依据；不设无来源的通用阈值，也不因更低就自动选中或因离群就删除。
 - **开壳层自旋污染**：本卡不开放开壳层执行；若输入/输出实际为开壳层，先报告超范围并停止接受。已有结果可读取 `s2`，以 S=(多重度−1)/2 的 S(S+1) 为参照，并查原日志湮灭前/后的值及目标态；缺值不当零，不凭湮灭后接近理想值就认定波函数正确。方法选择交给人判断。
