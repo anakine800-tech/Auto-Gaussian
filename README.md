@@ -123,6 +123,7 @@ SSH 准备说明见 [ag/README.md](ag/README.md)；配置后按需运行 `ag doc
 | `ag graph --study '<STUDY_DIR>' --json` | 展示 Attempt 父子关系 |
 | `ag irc-compare --ts '<TS>' --forward '<FORWARD>' --reverse '<REVERSE>' --reactant '<REACTANT>' --product '<PRODUCT>' --out '<NEW_REPORT_JSON>' --json` | 双向 IRC 端点与参考结构的映射比较 |
 | `ag topology '<ATTEMPT_ID>' --study '<STUDY_ID>' --out '<NEW_REPORT_JSON>' --json` | 比较提交与最终结构，报告成键、质子及立体差异；TS 用 `--pair i-j` 仅报告距离，同时生成 Markdown 摘要 |
+| `ag fragments '<ATTEMPT_OR_XYZ>' --study '<STUDY_DIR>' --out 'analyses/<NEW_REPORT>.json' --json` | 按共价半径识别片段，报告编号映射、分子式和跨片段不确定接触，独占导出 JSON、Markdown 与各片段 XYZ；单片段仅报告，电荷与多重度由人确认 |
 | `ag mode-review '<ATTEMPT>' --study '<STUDY_DIR>' --pair 1-2 --mode 1 --amplitude 0.3 --out analyses/mode-review.json --json` | 导出正常频率段的正负位移 XYZ、目标对距离变化与全对排名；编号从 1 开始，振幅为最大原子位移 Å，输出必须新建，方向由人判断 |
 | `ag profile '<PROFILE_JSON>' --json` | 组装已审阅物种的自由能曲线、焓熵分项、Eyring 换算、按产物汇总的选择性、σ 报告及适用时的能量跨度 |
 | `ag review init '<ATTEMPT_ID>' [--card '<CARD>']` / `ag review check '<ATTEMPT_ID>'` | 创建审阅骨架、核对判据及事实快照；旧 manifest 可在审阅时补指定卡片 |

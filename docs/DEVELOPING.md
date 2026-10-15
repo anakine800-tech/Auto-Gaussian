@@ -48,6 +48,7 @@
 - `graph.py`：只读展示 parents/relation 谱系和缺失父节点。
 - `irc_compare.py`：保留原子编号的 IRC 端点几何比较，不代替科学验收。
 - `topology.py`：本地比较提交与最终几何，报告拓扑/立体差异或指定 TS 原子对距离，独占输出 JSON 与 Markdown。
+- `fragments.py`：复用半径规则识别连通片段，在 study analyses 下独占导出报告与保留原子编号、原始坐标行的 XYZ，不推断电子态或身份。
 - `thermo.py`：GoodVibes qRRHO、单点修正和显式简并度布居。
 - `_profile_sources.py`：反应曲线的来源、物种、方法和审阅检查。
 - `profile.py`：守恒反应自由能曲线、能垒和敏感性分析。
