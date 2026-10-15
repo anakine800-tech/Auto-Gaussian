@@ -12,7 +12,7 @@
 
 ## 3. 输入模板
 
-按 `termination`、`error_hint`、`opt_converged`、`freq_step_converged`、`n_imag` 和已有输出定位问题。结合最后 80–120 行与更早收敛记录；大小写归一理解 `l9999` / `L9999`，不把链接号当唯一病因。在 review 写：
+按 `termination`、`error_hint`、`opt_converged`、`freq_step_converged`、`n_imag` 和已有输出定位问题。 `error_hint` 优先给出具体原因及日志全局行号；“TS 曲率不符”需核对负本征值与期望值，未知 L9999 只提示“优化未完成（原因见日志）”，不能据此直接增加步数。结合最后 80–120 行与更早收敛记录；大小写归一理解 `l9999` / `L9999`，不把链接号当唯一病因。在 review 写：
 
 ```text
 现象、Attempt 与输出位置：<事实；缺证据的部分>
