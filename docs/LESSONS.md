@@ -129,3 +129,27 @@
 原因：把任意 `#` 行当 route；只认带句点的精确完成字符串，缺少真实输出形态的合成回归。
 修复：T42 分段并记录来源；T42b 仅识别短横线包围的完整 route 块、行首完成/停止措辞，并保留单段异常作业自身的末次 SCF 能量。
 以后：切分和 route 提取共用规则，保留 Gaussian 行首单空格但拒绝引用/深缩进；核对来源段，异常终止独立记录，既有 facts 差异人工审阅、不自动 refresh。
+
+## RCFC 与中断的优化
+现象：没有做 Freq 的中断优化用 RCFC 接续，在初始化阶段终止。
+原因：RCFC 读取 Freq 写入 chk 的笛卡尔力常数；此次中断优化的对应记录长度为 0，优化更新的近似 Hessian 不能代替它。
+修复：按已验证接续方案，用 `final_input.xyz` + 父 chk 的 `Guess=Read Opt=(TS,CalcFC)` 新建 Attempt；强杀后先按 T47 不完整取回。
+以后：复用 RCFC 前确认父 chk 有适用的 Freq 力常数；接续仍须新 Attempt 和人工提交确认，不保证任意中断 chk 可读。
+
+## MaxCycles 不等于不超 walltime
+现象：设置 MaxCycles 后，优化仍可能被 walltime 强杀。
+原因：MaxCycles 只限制优化步数，不限制初始 Hessian、每步 SCF 或最终 Freq 的耗时。
+修复：按 `walltime ≥ 1.3 × (t_CalcFC + t_step × MaxCycles + t_Freq)` 估算总时限。
+以后：各项用本体系首个作业的实测值校准，小分子的耗时不能外推；估算留余量仍不保证必然按时完成。
+
+## SSH 报 Operation not permitted
+现象：Codex 沙箱禁止联网时，SSH 以 255 退出并报告 `Operation not permitted`。
+原因：此次是会话联网权限限制，不是网络或集群故障；不能仅凭 255 对所有 SSH 失败归因。
+修复：先检查会话联网权限，确认拒绝来自沙箱后按权限流程处理。
+以后：开发会话不连接集群；运行会话遇到 SSH 报错先停止报告，不因猜测网络原因而反复尝试。
+
+## 验证方案先对照卡片
+现象：OPS-3 的第二项验证拿 RCFC 接续没有 Freq 的中断优化，方案不适用。
+原因：设计前没有逐条对照 irc 卡片的父 Freq 力常数限制（当时第 63 行）。
+修复：保留失败结论，改为已验证的 `final_input.xyz` + `Guess=Read Opt=(TS,CalcFC)` 新 Attempt；不把设计不适用算作环境故障。
+以后：设计真实验证前逐条核对相关卡片限制，再审阅完整输入、资源和验收目标，获批准后执行。

@@ -185,6 +185,10 @@ prepare 只做本地声明；submit 在 Mac 弹窗前只读取得父 chk 大小�
 
 小体系首先提出 simple（8 核 / 12 GB，`%mem=10GB`），24:00:00；规模或已有耗时支持时提出 general（22 核 / 50 GB，`%mem=42GB`），48:00:00。complex（44 核 / 120 GB，`%mem=100GB`）需具体资源理由。CalcFC 与 Freq 均有 Hessian 成本；每个 TS 构象分别估计，不把加核当作收敛修复。
 
+`MaxCycles` 只限制步数，不能保证不超 walltime。按
+`walltime ≥ 1.3 × (t_CalcFC + t_step × MaxCycles + t_Freq)` 估算，
+各项须用本体系**首个作业实测校准**，不能外推小分子的耗时；计入额外 Hessian 重算成本。
+
 ## 5. 提交前检查清单
 
 - 假设签字、初猜来源、目标成键/断键原子对、构象覆盖与原子映射均明确，结构无未解释近接触。
@@ -210,7 +214,12 @@ prepare 只做本地声明；submit 在 Mac 弹窗前只读取得父 chk 大小�
 
 ## 7. 常见失败与处理
 
-被 walltime 强杀时按[失败诊断的“作业被强杀”](failure-diagnosis.md#作业被强杀)核对结束证据、显式不完整取回，再由人决定以新 Attempt 接续。
+**中断后接续：** 被强杀时，先按[失败诊断的“作业被强杀”](failure-diagnosis.md#作业被强杀)
+核对结束证据，显式 `ag fetch <attempt> --incomplete`，再用 `ag facts` 提取 `final_input.xyz`。
+经人审阅后，用该显式几何和父 chk 准备新 Attempt，采用 `Guess=Read Opt=(TS,CalcFC)`，
+重新计算初始力常数并完成最终 Freq；沿用第 3 节 `--parent-chk` 声明、同集群与哈希校验，提交仍须人确认。
+RCFC 只适用于父 chk 中确有 Freq 写入的适用笛卡尔力常数；没有 Freq 的中断优化不能用 RCFC 接续。
+缺少 `final_input.xyz` 或 chk 不可读时停止报告，不猜几何、不自动重提。
 
 零虚频说明落到极小点或尚缺完整证据；多虚频可能是高阶鞍点或软模问题；方向错误可能是另一步反应。分别核对完整输出和结构，重审初猜/构象或假设，转 [失败诊断](failure-diagnosis.md)；提出新 Attempt，等人确认。
 

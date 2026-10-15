@@ -1,4 +1,4 @@
-# Auto-Gaussian v4.0
+# Auto-Gaussian v4.1.0
 
 Auto-Gaussian 是人在回路中的计算化学助手：LLM 按 Skills 规划研究，人签字和确认，`ag` 负责安全把关与确定性计算。
 
@@ -214,7 +214,9 @@ TS 必须恰好一个虚频且振动方向与反应坐标一致；只有双向 I
 
 ## 前端
 
-[Auto-Gaussian-Frontend](https://github.com/anakine800-tech/Auto-Gaussian-Frontend) v4.0.0 配合 ag 4.0.0 使用，启动方式见其 README。
+[Auto-Gaussian-Frontend](https://github.com/anakine800-tech/Auto-Gaussian-Frontend) v4.0.0 配合 ag 4.1.0 使用，启动方式见其 README。
+已只读核对前端 main（`e224d5a`）：结果表读取 `route`、`termination`、`energies.scf`、`energies.g`、`n_imag` 和 `frequencies_low`，这些字段未改名或删除；缺失值显示为空。
+分析页将 profile 作为完整 JSON 展示，没有专用剖面字段依赖。`ag-facts/1` 和 `ag-profile/1` 保持不变，新增字段不影响读取；分段解析修正可能改变旧值，不能把字段兼容理解成重新解析后数值必然不变。
 默认只读，读取本地 study、结果与保存的监控快照。`--enable-actions` 显式开启经本机 ag 执行的准备、提交、状态刷新、取回和取消；不绕过 Mac 确认，也不直接执行远程命令。
 
 T7e 已适配多集群（[Frontend #9](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/9)）：
@@ -227,22 +229,25 @@ Slurm 核时预算来自 ag 本地台账，不等于平台余额。
 
 ## 验收状态
 
-截至 2026-10-14，按负责人本次发布前确认更新。以下是已完成的验证与适用边界；本次文档更新没有重新运行计算、补取输出或代签。
+截至 2026-10-15，按负责人在 T48 任务单中提供的已验证、已签字结论更新；T47 细节见 [#266](https://github.com/anakine800-tech/Auto-Gaussian/pull/266)。以下是已完成的验证与适用边界；本次文档更新没有重新运行计算、补取输出或代签。
 
 | 项目 | 状态 | 结果与边界 |
 | --- | --- | --- |
-| SCNet | **已验证** | Gaussian 16 A.03 学习版；已验证提交、状态、取回与解析链路。平台免责条款由使用者自行评估，不据此承诺所有方法/任务已验证 |
+| SCNet | **已验证** | Gaussian 16 A.03 学习版；已验证提交、状态、取回与解析链路。CREST/xTB 已验证中性和 +1 体系、ALPB 溶剂、取回及解析。平台免责条款由使用者自行评估，不据此承诺所有方法/任务已验证 |
 | L1 正丁烷 | **已签字（流程验收）** | 正丁烷构象、Opt+Freq、热化学及续接流程验收；不外推为任意体系的精度保证 |
 | L2 柔性主族体系 | **已签字（流程验收）** | 构象覆盖不完整；所选集合的结果不代表完整构象空间或正式研究结论 |
-| L3 小体系 TS/IRC | **已签字（流程验收）** | 能垒只代表 B3LYP-D3(BJ) 这一方法层级，不构成跨方法精度保证 |
+| L3 小体系 TS/IRC | **已签字（流程验收）** | 历史签字早于 T46；现行判据下仍缺完整连续性审阅，reverse 末点降能低于默认阈值，不能声称按 T46 双向完成。能垒只代表 B3LYP-D3(BJ) 层级 |
 | V-T21 扫描 | **已完成** | ① Gaussian 026 + scan-peak 选中第 9 点，与 TS 的 RMSD 为 0.002 Å；修复前会误选第 2 点。② xTB 789 沿 C–F 严格单调下降，本次扫描范围内无复合物势阱、无能垒，scan-peak 按设计拒绝导出。③ 浅能垒气相离子–分子 SN2 不宜用 xTB 扫描找 TS 初猜；xTB 无峰不代表真实反应无能垒 |
-| V-T22 双路线覆盖 | **进行中，不阻塞发布** | 尚未完成的覆盖验证保持进行中，不由工具或 CI 通过推断完成 |
+| V-T22 双路线覆盖 | **已终止** | 不再单独验证，双路线覆盖改由实际研究中的使用来检验；终止不等于覆盖验证通过 |
+| TS 优化中断后接续 | **已验证** | 使用 `final_input.xyz` + 父 chk 的 `Guess=Read Opt=(TS,CalcFC)`；RCFC 不适用于没有 Freq 的中断优化。只证明已验证的 chk 可读，不保证任意中断 chk 完整 |
+| 不完整取回（T47） | **已验证** | PBS 强杀、Slurm TIMEOUT 均已真实验证；取回与来源记录不代表科学成功。缺少声明输出分支仅有离线测试覆盖 |
 
 发布 PR 不自动合并；tag 和 release 由负责人在 GitHub 页面操作。
 
 ## 支持范围与限制
 
 - 当前科学工作范围：主族闭壳层体系，Opt+Freq、单点、构象筛选、热化学；已有人提供初猜的 TS/QST2/QST3、IRC 卡片及本地分析工具。
+- 双分子步骤与复合物按 [complex 卡片](skills-next/auto-g16-recipes/cards/complex.md)执行，只开放以已审阅原子对为约束的采样；通用对接搜索不开放。
 - 支持 PBS/Torque 与 Slurm 配置；适配实现与离线测试不等于任意站点的真实环境验收。
 - 不支持金属体系、开壳层、激发态、多参考等专门方法的可靠研究流程；不把可传入的程序参数解释为科学支持承诺。
 - 不提供全自动 TS 搜索、无人值守研究、自动重提、多用户服务或旧 v3 数据库/工作流兼容迁移。
@@ -250,6 +255,10 @@ Slurm 核时预算来自 ag 本地台账，不等于平台余额。
 - 构象数量上限、成功日志和布居都不能证明采样完备；研究方法按文献与体系审阅选择。
 
 ### 已知限制
+
+- `ag review manifest` 有两个已知解析问题：路径后紧跟中文说明时会将说明当作文件名；签字 JSON 引用的目录会被当作文件。由 T49 修复，本次仅记录。
+- CREST/xTB 输出可能被大量 OpenBLAS/OpenMP 线程警告撑大；已验证案例中不影响结果，由 T50 修复。不能用这条结论忽略其他程序错误。
+- `fetch --incomplete` 的“缺少声明输出”分支目前只有离线测试覆盖；两次真实取回的声明输出均存在。
 
 - PBS 数组作业号可能使硬件核数核验解析失败并退回严格模式，此时排队也计入 `max_cores`；不能假定仍可使用放宽的排队额度。逗号组合槽位范围已支持（#243），数组作业号限制仍保留。
 - 分子很大时，少数极性氢的局部变化会被整体 RMSD 平均稀释，灵敏度下降；仍需结合相关二面角、氢键模式和结构审阅，不能仅凭去重报告证明等价。
@@ -268,6 +277,6 @@ python ag/tools/scan_sensitive.py --staged
 离线测试不连接真实集群。开发范围以任务单或负责人明确任务指令为准，PR 首行写 `Task: Tn`；实际阻塞注明结构、提交、解析、科学审阅或环境类别。合并由人完成。
 
 - **v2.7、v3**：已归档于 [archive/](archive/README.md)，原始 v3 基线为 `v3-frozen`。旧 [CHANGELOG](archive/CHANGELOG.md) 保持原样。
-- **v4.0**：ag + Skills 文件状态架构，详见 [CHANGELOG.md](CHANGELOG.md)。[REDESIGN-PLAN](docs/REDESIGN-PLAN.md) 作为设计记录保留。
+- **v4.0 → v4.1.0**：ag + Skills 文件状态架构与后续解析、分析工具、卡片和不完整取回更新，详见 [CHANGELOG.md](CHANGELOG.md)。[REDESIGN-PLAN](docs/REDESIGN-PLAN.md) 作为设计记录保留。
 
 许可：[MIT](LICENSE)。

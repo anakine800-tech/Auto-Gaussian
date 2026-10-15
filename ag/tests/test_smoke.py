@@ -11,7 +11,7 @@ from ag import __version__, cli
 
 
 def test_import():
-    assert __version__ == "4.0.0"
+    assert __version__ == "4.1.0"
 
 
 def test_installed_version():
