@@ -56,7 +56,8 @@ def _write_geometry(path, geometry):
 
 def parse_facts(attempt_dir):
     """Return facts and named geometry text in memory; never write evidence."""
-    from ag._parse_outputs import parse_gaussian, parse_crest, parse_xtb, gaussian_orientation
+    from ag._parse_outputs import (parse_gaussian, parse_crest, parse_xtb,
+                                   gaussian_orientation, gaussian_section_text)
 
     attempt_dir = Path(attempt_dir)
     manifest = json.loads((attempt_dir / 'manifest.json').read_text())
@@ -66,14 +67,20 @@ def parse_facts(attempt_dir):
     if program == 'gaussian':
         log = gaussian_log(attempt_dir)
         facts, geometry = parse_gaussian(log, outputs / ('job.slurm.err' if manifest.get('scheduler') == 'slurm' else 'job.pbs.out'))
-        input_geometry = gaussian_orientation(log.read_text(errors='replace'), 'Input')
+        text = log.read_text(errors='replace')
+        geometry_section = facts['fact_sources']['final_geometry']
+        input_geometry = gaussian_orientation(gaussian_section_text(
+            text, facts['job_sections'][geometry_section - 1]), 'Input') if geometry_section else None
+        facts['fact_sources']['final_input_geometry'] = geometry_section
+        facts['fact_sources']['final_input_geometry_orientation'] = geometry_section
         facts['final_input_geometry'] = 'final_input.xyz' if input_geometry else None
         facts['final_input_geometry_orientation'] = 'input' if input_geometry else None
         if input_geometry:
             geometries['final_input.xyz'] = input_geometry
         if 'irc' in facts:
             from ag._irc import parse_irc
-            _, endpoint = parse_irc(log.read_text(errors='replace'))
+            _, endpoint = parse_irc(gaussian_section_text(
+                text, facts['job_sections'][facts['fact_sources']['irc'] - 1]))
             if endpoint:
                 geometries['irc_end.xyz'] = endpoint
                 facts['irc']['end_geometry'] = 'irc_end.xyz'
@@ -140,6 +147,46 @@ def _existing_bytes(path):
     return path.read_bytes() if path.exists() else None
 
 
+def _difference_summary(previous, current):
+    """Classify refused evidence changes without replacing the full byte diff.
+
+    Report newly added/deleted subtrees once; recurse through shared objects so
+    energy and convergence changes are visible. Arrays remain one value path.
+    Use the same JSON type-sensitive comparison and root provenance exclusion
+    as build_facts, rather than Python equality (where True == 1).
+    """
+    if not isinstance(previous, dict):
+        return '差异分类：旧 facts 不是有效的 JSON 对象，无法分类；请核对完整 diff。\n'
+    old = {key: value for key, value in previous.items() if key != 'ag_provenance'}
+    new = {key: value for key, value in current.items() if key != 'ag_provenance'}
+    canonical = lambda value: json.dumps(value, sort_keys=True, ensure_ascii=False, allow_nan=False)
+    try:
+        canonical(old)
+    except ValueError:
+        return '差异分类：旧 facts 含无效 JSON 数值，无法分类；请核对完整 diff。\n'
+    added, removed, changed = [], [], []
+
+    def compare(before, after, prefix=''):
+        for key in sorted(before.keys() | after.keys()):
+            path = f'{prefix}.{key}' if prefix else key
+            if key not in before:
+                added.append(path)
+            elif key not in after:
+                removed.append(path)
+            elif isinstance(before[key], dict) and isinstance(after[key], dict):
+                compare(before[key], after[key], path)
+            elif canonical(before[key]) != canonical(after[key]):
+                changed.append(path)
+
+    compare(old, new)
+    conclusion = ('只有新增字段，既有值未变' if added and not removed and not changed else
+                  '既有值发生变化' if changed else '存在删除字段，既有值未变')
+    return ('差异分类（不含 ag_provenance）：' + conclusion + '。\n'
+            + '新增的键：' + (', '.join(added) or '无') + '\n'
+            + '删除的键：' + (', '.join(removed) or '无') + '\n'
+            + '既有值变化的键：' + (', '.join(changed) or '无') + '\n')
+
+
 def build_facts(attempt_dir, *, refresh=False):
     """The ag facts write entry point; preserve exact old bytes before refresh."""
     directory = Path(attempt_dir)
@@ -172,8 +219,9 @@ def build_facts(attempt_dir, *, refresh=False):
                 old.decode('utf-8', errors='replace').splitlines(keepends=True),
                 content.decode('utf-8').splitlines(keepends=True),
                 fromfile='facts.json (existing)', tofile='facts.json (parsed)'))
-            raise ValueError('facts.json 内容不同，拒绝写入；人工确认差异后使用 --refresh。\n'
-                             f'旧 SHA-256: {sha256(old).hexdigest()}\n'
+            raise ValueError(_difference_summary(previous, facts)
+                             + 'facts.json 内容不同，拒绝写入；人工确认差异后使用 --refresh。\n'
+                             + f'旧 SHA-256: {sha256(old).hexdigest()}\n'
                              f'新 SHA-256: {sha256(content).hexdigest()}\n' + diff)
         # Validate all existing geometries before creating any new evidence.
         for name, geometry in geometries.items():

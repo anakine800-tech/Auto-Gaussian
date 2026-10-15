@@ -190,19 +190,210 @@ def expected_vibrational_modes(n_atoms, coordinates):
     return 3 * n_atoms - (5 if linear else 6)
 
 
+def gaussian_job_sections(text):
+    """Return inclusive, 1-based source spans; blanks after a terminal are not evidence.
+
+    Entering/Initial command are one launch header. Opt Freq's second step
+    instead has an optional l1 entry followed by Proceeding to internal job
+    step. A bare l1 entry is not itself proof of a valid continuation.
+    """
+    lines = text.splitlines(keepends=True)
+    sections, warnings = [], []
+    start = None
+    kind, step = None, None
+    seen_route = seen_initial = seen_launch = False
+
+    def finish(end):
+        nonlocal start
+        while end > start and not lines[end - 1].strip():
+            end -= 1
+        block = ''.join(lines[start:end])
+        routes = re.findall(r'(?m)^[ \t]*(#[^\n]*(?:\n(?!\s*-{5,})[^\n]+)*)'
+                            r'\n\s*-{5,}', block)
+        state = termination(block, 'Normal termination of Gaussian')['termination']
+        if state == 'normal' and not re.match(
+                r'\s*Normal termination of Gaussian\b', lines[end - 1], re.I):
+            state = 'incomplete'
+        sections.append(dict(index=len(sections) + 1, start_line=start + 1, end_line=end,
+                             route=' '.join(routes[0].split()) if routes else None,
+                             termination=state,
+                             start_kind=kind, internal_step=step))
+        start = None
+
+    for i, line in enumerate(lines):
+        if not line.strip():
+            continue
+        launch = bool(re.match(r'\s*Entering Gaussian System\b', line, re.I))
+        initial = bool(re.match(r'\s*Initial command:', line, re.I))
+        internal = re.match(r'\s*(?:Link1:\s*)?Proceeding to internal job step number\s+(\d+)\.',
+                            line, re.I)
+        explicit = bool(re.match(r'\s*--Link1--\s*$', line, re.I))
+        route = bool(re.match(r'\s*#', line))
+        if start is not None:
+            # The initial header has both launch markers; neither is an
+            # additional job. The optional l1 line belongs to its next step.
+            prelude = bool(internal or explicit) and all(
+                not row.strip() or re.fullmatch(r'\s*\(Enter .*[/\\]l1\.exe\)\s*', row)
+                for row in lines[start:i])
+            boundary = ((launch and (seen_launch or seen_initial or seen_route))
+                        or (initial and (seen_initial or seen_route))
+                        or ((internal or explicit) and not prelude)
+                        or (route and seen_route))
+            if boundary:
+                finish(i)
+        if start is None:
+            start, kind, step = i, 'unmarked', None
+            seen_route = seen_initial = seen_launch = False
+        if launch or initial:
+            kind = 'launch'
+        elif internal:
+            kind, step = 'internal', int(internal[1])
+        elif explicit:
+            kind = 'link1'
+        seen_launch |= launch
+        seen_initial |= initial
+        seen_route |= route
+        if re.match(r'\s*Normal termination of Gaussian\b', line, re.I):
+            finish(i + 1)
+    if start is not None:
+        finish(len(lines))
+    if not sections:
+        sections = [dict(index=1, start_line=1, end_line=len(lines), route=None,
+                         termination='incomplete', start_kind='unmarked', internal_step=None)]
+    first_route = sections[0]['route'] or ''
+    opt_freq = _route_has(first_route, 'opt') and _route_has(first_route, 'freq')
+    expected = 2 if opt_freq else 1
+    if len(sections) > expected:
+        warnings.append(f'Unexpected job section count: {len(sections)} (route allows at most {expected})')
+    for section in sections[1:]:
+        if not (opt_freq and section['index'] == 2 and section['start_kind'] == 'internal'
+                and section['internal_step'] == 2 and _route_has(section['route'], 'freq')
+                and not _route_has(section['route'], 'opt')):
+            warnings.append(f"Unexpected or unrecognized job section {section['index']} "
+                            f"at line {section['start_line']}")
+    return sections, warnings
+
+
+def _route_has(route, keyword):
+    # Stable=Opt is not a geometry optimization job.
+    return bool(re.search(r'(?:^|[\s#])' + keyword + r'\b', route or '', re.I))
+
+
+def gaussian_section_text(text, section):
+    return ''.join(text.splitlines(keepends=True)[section['start_line'] - 1:section['end_line']])
+
+
+_FREQUENCY_FACTS = ('freq_step_converged', 'freq_step_convergence', 'n_imag',
+                    'frequencies_low', 'imag_modes', 'n_vibrational_modes',
+                    'expected_vibrational_modes', 'vibrational_modes_complete', 'frequency_note')
+_THERMAL_FACTS = ('zpe', 'e_thermal', 'h', 'g')
+
+
 def parse_gaussian(path, pbs_path=None):
+    text = path.read_text(errors='replace')
+    pbs = pbs_path.read_text(errors='replace') if pbs_path and pbs_path.exists() else ''
+    sections, warnings = gaussian_job_sections(text)
+    boundary_warning = bool(warnings)
+    blocks = [gaussian_section_text(text, section) for section in sections]
+    parsed = [_parse_gaussian_section(block, internal=section['start_kind'] == 'internal')
+              for section, block in zip(sections, blocks)]
+    for section, (values, _) in zip(sections, parsed):
+        check = values['freq_step_convergence']
+        if check:
+            offset = section['start_line'] - 1
+            for key in ('frequency_line', 'table_line', 'non_optimized_parameters_line'):
+                if check[key] is not None:
+                    check[key] += offset
+            for row in check['criteria'].values():
+                row['line'] += offset
+        if values['parser_warning']:
+            warnings.append(values['parser_warning'] if len(sections) == 1 else
+                            f"Section {section['index']}: {values['parser_warning']}")
+
+    # Identity and spin belong to the last section, even if it is incomplete.
+    facts = dict(parsed[-1][0])
+    sources = {key: sections[-1]['index'] for key in
+               ('n_atoms', 'charge', 'multiplicity', 'monatomic', 's2')}
+    facts.update(gaussian_version(text))
+    facts['route'] = sections[0]['route']
+    sources['route'] = 1
+    errors = [i for i, section in enumerate(sections) if section['termination'] == 'error']
+    facts['termination'] = ('error' if errors else 'normal' if not boundary_warning and all(
+        section['termination'] == 'normal' for section in sections) else 'incomplete')
+    if errors:
+        facts['error_hint'] = parsed[errors[-1]][0]['error_hint']
+        sources['error_hint'] = errors[-1] + 1
+    else:
+        facts['error_hint'] = termination(blocks[-1], 'Normal termination of Gaussian', pbs)['error_hint']
+        sources['error_hint'] = None if facts['error_hint'] == 'walltime' else len(sections)
+
+    opts = [i for i, section in enumerate(sections) if _route_has(section['route'], 'opt')]
+    if not opts:
+        opts = [i for i, (values, _) in enumerate(parsed) if values['opt_converged'] is not None]
+    opt = opts[-1] if opts else len(sections) - 1
+    facts['opt_converged'] = parsed[opt][0]['opt_converged']
+    sources['opt_converged'] = opt + 1
+    geometry = parsed[opt][1]
+    facts['final_geometry_orientation'] = parsed[opt][0]['final_geometry_orientation']
+    sources['final_geometry'] = sources['final_geometry_orientation'] = opt + 1
+
+    normal = [i for i, section in enumerate(sections) if section['termination'] == 'normal']
+    scf = normal[-1] if normal else None
+    facts['energies'] = dict(facts['energies'])
+    facts['energies']['scf'] = parsed[scf][0]['energies']['scf'] if scf is not None else None
+    sources['energies.scf'] = scf + 1 if scf is not None else None
+    freqs = [i for i, section in enumerate(sections) if _route_has(section['route'], 'freq')
+             or re.search(r'Harmonic frequencies|Frequencies\s+--|Zero-point correction=', blocks[i])]
+    freq = freqs[-1] if freqs else None
+    # Unknown trailing output may be a new, truncated Freq. Do not lend it the
+    # prior frequency result. An explicitly identified SP keeps its own source.
+    unknown_tail = len(sections) > 1 and sections[-1]['route'] is None
+    invalid_freq = (freq is not None and sections[freq]['termination'] != 'normal') or unknown_tail
+    frequency_source = None if unknown_tail else freq + 1 if freq is not None else len(sections)
+    pending_internal_freq = (len(sections) == 2 and _route_has(sections[0]['route'], 'opt')
+                             and _route_has(sections[0]['route'], 'freq')
+                             and sections[-1]['start_kind'] == 'internal'
+                             and sections[-1]['internal_step'] == 2)
+    if unknown_tail and not pending_internal_freq:
+        geometry = None
+        facts['final_geometry_orientation'] = None
+        sources['final_geometry'] = sources['final_geometry_orientation'] = None
+    facts['frequency_unavailable_reason'] = (
+        'Unrecognized trailing job section; frequency source is uncertain' if unknown_tail else
+        f"Frequency section {freq + 1} ended {sections[freq]['termination']}" if invalid_freq else None)
+    for key in _FREQUENCY_FACTS:
+        facts[key] = None if invalid_freq else parsed[freq][0][key] if freq is not None else facts[key]
+        sources[key] = frequency_source
+    for key in _THERMAL_FACTS:
+        facts['energies'][key] = (None if invalid_freq else parsed[freq][0]['energies'][key]
+                                 if freq is not None else facts['energies'][key])
+        sources['energies.' + key] = frequency_source
+    if any('wavefunction_stability' in values for values, _ in parsed):
+        facts.update(wavefunction_stability(blocks[-1]))
+        sources['wavefunction_stability'] = sources['wavefunction_stability_line'] = len(sections)
+    ircs = [i for i, (values, _) in enumerate(parsed) if 'irc' in values]
+    if ircs:
+        facts['irc'] = parsed[ircs[-1]][0]['irc']
+        sources['irc'] = ircs[-1] + 1
+    facts.update(job_sections=sections, fact_sources=sources,
+                 parser_warning='; '.join(warnings) or None)
+    return facts, geometry
+
+
+def _parse_gaussian_section(text, *, internal=False):
     from cclib.io import ccread
     from cclib.parser.utils import PeriodicTable, convertor
 
-    text = path.read_text(errors='replace')
-    pbs = pbs_path.read_text(errors='replace') if pbs_path and pbs_path.exists() else ''
-    facts = termination(text, 'Normal termination of Gaussian', pbs)
+    facts = termination(text, 'Normal termination of Gaussian')
     facts.update(gaussian_version(text))
     # Truncated/error logs can make cclib raise. Keep termination evidence,
     # but never turn a failed parse into invented numerical facts.
     try:
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-            data = ccread(str(path), loglevel=50)
+            # Internal steps omit the banner used by cclib's format detector.
+            # This detector hint contains no facts from another section.
+            data = ccread(io.StringIO(('Gaussian, Inc.\n' if internal else '') + text),
+                          loglevel=50)
     except (ValueError, IndexError, AssertionError, AttributeError, StopIteration):
         data = None
     facts['parser_warning'] = None if data is not None else 'cclib could not parse this output'

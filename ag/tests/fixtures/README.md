@@ -42,3 +42,12 @@ and qh-G, leaving ZPE intact; both aggregate G values use the corrected qh-G.
 The GoodVibes integration was informed by the old
 `auto_g16/thermochemistry/_goodvibes.py`, then rewritten using the installed
 4.3.0 `ThermoOptions` / `calc_bbe.from_options` API. No old module is imported.
+
+T42 `gaussian_section_baseline.json` records pre-T42 `parse_gaussian` fields and
+XYZ strings from the existing water, butane and synthetic fluoride fixtures.
+`water_opt_only.log` and `water_sp.log` are names for in-memory derivatives in
+`test_gaussian_sections.py`: water's first completed optimization with an Opt
+route, and water truncated before its second geometry with an SP route and a
+normal-termination line copied from the same fixture. They are parser regression
+cases, not additional Gaussian calculations. Every old field and XYZ string is
+compared exactly; T42's source metadata is checked separately.
