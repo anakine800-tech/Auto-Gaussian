@@ -162,64 +162,188 @@ def test_extreme_kinetics_remain_json_serializable(tmp_path, barrier):
     assert 'null (see JSON logarithm)' in markdown(result)
 
 
-def competition(tmp_path, **kwargs):
+def selection_fixture(tmp_path, **kwargs):
     path, data = definition(tmp_path, energies=(0, 20, -5))
     data['species']['other_ts'] = source(tmp_path, 'other_ts', 21.13, ts=True, count=1, **kwargs)
     data['species']['other_ts']['single_conformer_reason'] = 'Synthetic single TS comparison'
-    data['competing_ts'] = [{'id': 'selectivity', 'a': 'TS1', 'b': 'other_ts'}]
+    data['selectivity'] = [{'id': 'selectivity', 'products': {
+        'Z': [{'species': 'TS1'}], 'A': [{'species': 'other_ts'}]}}]
     dump(path, data)
     return path, data
 
 
-def test_competing_ts_sign_ee_and_lowest_conformer(tmp_path):
-    path, data = competition(tmp_path)
+def test_selectivity_sign_order_and_lowest_conformer(tmp_path):
+    path, data = selection_fixture(tmp_path)
     result = calculate_profile(path)
-    comparison = result['competing_ts'][0]
-    assert comparison['ddG_barrier_kcal'] == pytest.approx(1.13)
-    assert comparison['rate_ratio_a_over_b'] == pytest.approx(math.exp(1.13 / (R_KCAL*298.15)))
+    comparison = result['selectivity'][0]
+    pair = comparison['pairwise'][0]
+    assert comparison['product_order'] == ['Z', 'A']
+    assert list(comparison['products']) == ['Z', 'A']
+    assert pair['ddG_barrier_kcal'] == pytest.approx(1.13)
+    assert pair['ratio_a_over_b'] == pytest.approx(math.exp(1.13 / (R_KCAL*298.15)))
     assert comparison['ee_percent'] == pytest.approx(74, abs=0.2)
-    assert comparison['faster'] == 'a'
-    assert comparison['lowest_conformer']['ddG_barrier_kcal'] == pytest.approx(1.13 - R_KCAL*298.15*math.log(2))
-    data['competing_ts'][0].update(a='other_ts', b='TS1')
+    assert comparison['dominant_products'] == ['Z']
+    assert '第一个标签占优为正' in comparison['ee_sign_convention']
+    assert comparison['channels']['Z'][0]['paths_source'] == '默认 1'
+    assert comparison['channels']['Z'][0]['paths'] == 1
+    assert comparison['lowest_conformer']['pairwise'][0]['ddG_barrier_kcal'] == pytest.approx(1.13 - R_KCAL*298.15*math.log(2))
+    data['selectivity'][0]['products'] = dict(reversed(list(data['selectivity'][0]['products'].items())))
     dump(path, data)
-    reverse = calculate_profile(path)['competing_ts'][0]
-    assert reverse['ddG_barrier_kcal'] == pytest.approx(-1.13)
-    assert reverse['rate_ratio_a_over_b'] * comparison['rate_ratio_a_over_b'] == pytest.approx(1)
-    assert reverse['ee_percent'] == comparison['ee_percent']
-    assert reverse['faster'] == 'b'
-    data['competing_ts'][0]['b'] = 'other_ts'
+    reverse = calculate_profile(path)['selectivity'][0]
+    assert reverse['pairwise'][0]['ddG_barrier_kcal'] == pytest.approx(-1.13)
+    assert reverse['pairwise'][0]['ratio_a_over_b'] * pair['ratio_a_over_b'] == pytest.approx(1)
+    assert reverse['ee_percent'] == -comparison['ee_percent']
+    assert reverse['dominant_products'] == ['Z']
+    assert 'competing_ts' not in result and 'competing_ts_note' not in result
+
+
+def test_two_channels_per_product_add_flux_and_report_degeneracies(tmp_path):
+    path, data = selection_fixture(tmp_path)
+    data['species']['z_extra'] = source(tmp_path, 'z_extra', 20.5, ts=True)
+    data['species']['a_extra'] = source(tmp_path, 'a_extra', 21.0, ts=True)
+    products = data['selectivity'][0]['products']
+    products['Z'].append({'species': 'z_extra', 'paths': 2})
+    products['A'].append({'species': 'a_extra'})
+    # The z_extra ensemble includes a physical conformer degeneracy of 3.
+    table_path = path.parent / 'z_extra.json'
+    table = json.loads(table_path.read_text())
+    table['rows'][0]['degeneracy'] = 3
+    table['ensemble_G'] -= R_HARTREE * 298.15 * math.log(2)
+    dump(table_path, table)
     dump(path, data)
-    tie = calculate_profile(path)['competing_ts'][0]
-    assert (tie['rate_ratio_a_over_b'], tie['ee_percent'], tie['faster']) == (1, 0, 'equal')
+    result = calculate_profile(path)['selectivity'][0]
+    rt = R_KCAL * 298.15
+    z = 1 + 4 * math.exp(-0.5/rt)  # 2 paths × ensemble partition-sum factor 2
+    a = math.exp(-1.13/rt) + math.exp(-1/rt)
+    assert result['products']['Z']['fraction'] == pytest.approx(z/(z+a))
+    assert result['ee_percent'] == pytest.approx(100*(z-a)/(z+a))
+    channel = result['channels']['Z'][1]
+    assert channel['paths'] == 2 and channel['paths_source'] == '显式指定'
+    assert [c['degeneracy'] for c in channel['conformer_degeneracies']] == [3, 1]
+
+
+def test_paths_two_equals_energy_lowering_rt_ln_two(tmp_path):
+    path, data = selection_fixture(tmp_path)
+    data['selectivity'][0]['products']['A'][0]['paths'] = 2
+    dump(path, data)
+    weighted = calculate_profile(path)['selectivity'][0]
+    data['selectivity'][0]['products']['A'][0]['paths'] = 1
+    table_path = path.parent / 'other_ts.json'
+    table = json.loads(table_path.read_text())
+    shift = R_HARTREE * 298.15 * math.log(2)
+    for row in table['rows']:
+        row['qh_G'] -= shift
+        row['qh_H'] -= shift
+    table['ensemble_G'] -= shift
+    dump(table_path, table)
+    dump(path, data)
+    lowered = calculate_profile(path)['selectivity'][0]
+    assert lowered['products']['A'] == pytest.approx(weighted['products']['A'])
+    assert lowered['ee_percent'] == pytest.approx(weighted['ee_percent'])
+    assert lowered['lowest_conformer']['ee_percent'] == pytest.approx(weighted['lowest_conformer']['ee_percent'])
+
+
+def test_three_products_ratios_no_ee_and_extreme_energy_offset(tmp_path):
+    path, data = selection_fixture(tmp_path)
+    data['species']['third'] = source(tmp_path, 'third', 20 + R_KCAL*298.15*math.log(3), ts=True)
+    data['selectivity'][0]['products']['M'] = [{'species': 'third'}]
+    dump(path, data)
+    result = calculate_profile(path)['selectivity'][0]
+    weights = [1, math.exp(-1.13/(R_KCAL*298.15)), 1/3]
+    assert result['product_order'] == ['Z', 'A', 'M']
+    assert [p['fraction'] for p in result['products'].values()] == pytest.approx([w/sum(weights) for w in weights])
+    assert len(result['pairwise']) == 3
+    assert result['pairwise'][1]['ratio_a_over_b'] == pytest.approx(3)
+    assert result['products']['M']['effective_barrier_relative_kcal'] == pytest.approx(R_KCAL*298.15*math.log(3))
+    assert 'ee_percent' not in result and 'ee_percent' not in result['lowest_conformer']
+    for name in ('TS1', 'other_ts', 'third'):
+        table_path = path.parent / f'{name}.json'
+        table = json.loads(table_path.read_text())
+        for row in table['rows']:
+            row['qh_G'] -= 10000
+            row['qh_H'] -= 10000
+        table['ensemble_G'] -= 10000
+        dump(table_path, table)
+    shifted = calculate_profile(path)['selectivity'][0]
+    assert [p['fraction'] for p in shifted['products'].values()] == pytest.approx([p['fraction'] for p in result['products'].values()])
+    json.dumps(shifted, allow_nan=False)
+
+
+def test_selectivity_species_perturbation_ranges_and_flip(tmp_path):
+    path, data = selection_fixture(tmp_path)
+    data['selectivity'][0]['perturb_kcal'] = 2
+    dump(path, data)
+    result = calculate_profile(path)['selectivity'][0]
+    report = result['sensitivity']
+    assert report['dominant_product_flipped'] and report['dominant_changed']
+    assert len(report['variants']) == 4
+    assert {(v['perturbed_species'], v['shift_kcal']) for v in report['variants']} == {
+        ('TS1', -2), ('TS1', 2), ('other_ts', -2), ('other_ts', 2)}
+    expected = [1/(1+math.exp(-gap/(R_KCAL*298.15))) for gap in (1.13-2, 1.13+2)]
+    assert report['fraction_ranges']['Z'] == pytest.approx({'min': min(expected), 'max': max(expected)})
+    assert result['lowest_conformer']['sensitivity']['dominant_product_flipped']
+    rendered = markdown(calculate_profile(path))
+    assert '占优产物翻转：True' in rendered and 'Minimum proportion' in rendered
+    data['selectivity'][0]['perturb_kcal'] = 0
+    dump(path, data)
+    report = calculate_profile(path)['selectivity'][0]['sensitivity']
+    assert not report['dominant_changed'] and not report['dominant_product_flipped']
+    assert report['fraction_ranges']['Z']['min'] == report['fraction_ranges']['Z']['max']
 
 
 @pytest.mark.parametrize('kwargs,error', [({'formula': ['H', 'H']}, 'elemental'), ({'charge': 1}, 'charge')])
-def test_competing_ts_identity_rejected(tmp_path, kwargs, error):
-    path, _ = competition(tmp_path, **kwargs)
+def test_selectivity_identity_rejected(tmp_path, kwargs, error):
+    path, _ = selection_fixture(tmp_path, **kwargs)
     with pytest.raises(ValueError, match=error):
         calculate_profile(path)
 
 
 @pytest.mark.parametrize('mutation,error', [
     ('minimum', 'requires TS'), ('missing', 'missing species'),
-    ('duplicate', 'Duplicate competing_ts'), ('not_list', 'must be a list')])
-def test_competing_ts_invalid_definition(tmp_path, mutation, error):
-    path, data = competition(tmp_path)
+    ('duplicate', 'Duplicate selectivity'), ('not_list', 'must be a list'),
+    ('old_interface', 'Unknown profile field'), ('empty', 'empty TS channels'),
+    ('one_product', 'at least two products')])
+def test_selectivity_invalid_definition(tmp_path, mutation, error):
+    path, data = selection_fixture(tmp_path)
     if mutation == 'minimum':
-        data['competing_ts'][0].update(a='R')
+        data['selectivity'][0]['products']['Z'][0]['species'] = 'R'
     elif mutation == 'missing':
-        data['competing_ts'][0].update(b='absent')
+        data['selectivity'][0]['products']['A'][0]['species'] = 'absent'
     elif mutation == 'duplicate':
-        data['competing_ts'] *= 2
+        data['selectivity'] *= 2
+    elif mutation == 'old_interface':
+        data['competing_ts'] = []
+    elif mutation == 'empty':
+        data['selectivity'][0]['products']['A'] = []
+    elif mutation == 'one_product':
+        del data['selectivity'][0]['products']['A']
     else:
-        data['competing_ts'] = {}
+        data['selectivity'] = {}
     dump(path, data)
     with pytest.raises(ValueError, match=error):
         calculate_profile(path)
 
 
+@pytest.mark.parametrize('value', [True, 0, -1, 1.5, '2'])
+def test_invalid_paths(tmp_path, value):
+    path, data = selection_fixture(tmp_path)
+    data['selectivity'][0]['products']['A'][0]['paths'] = value
+    dump(path, data)
+    with pytest.raises(ValueError, match='paths'):
+        calculate_profile(path)
+
+
+@pytest.mark.parametrize('value', [True, -1, float('nan'), float('inf')])
+def test_invalid_selectivity_perturbation(tmp_path, value):
+    path, data = selection_fixture(tmp_path)
+    data['selectivity'][0]['perturb_kcal'] = value
+    dump(path, data)
+    with pytest.raises(ValueError, match='perturb_kcal'):
+        calculate_profile(path)
+
+
 def test_symmetry_warning_and_four_markdown_sections(tmp_path):
-    path, _ = competition(tmp_path)
+    path, _ = selection_fixture(tmp_path)
     baseline = calculate_profile(path)
     assert baseline['symmetry']['warnings'] == []
     table_path = path.parent / 'R.json'
@@ -239,7 +363,7 @@ def test_symmetry_warning_and_four_markdown_sections(tmp_path):
     assert conformer['RT_ln_sigma_kcal'] == pytest.approx(R_KCAL*298.15*math.log(3))
     assert result['steps'] == baseline['steps']  # report only; no implicit energy correction
     rendered = markdown(result)
-    for heading in ('焓熵分项', '动力学换算', '竞争 TS 比较', '对称数'):
+    for heading in ('焓熵分项', '动力学换算', '产物选择性', '对称数'):
         assert f'## {heading}' in rendered
     for text in ('没有隧穿校正', '不是微观动力学模型', 'gaussian_output', 'goodvibes_default', '最低构象'):
         assert text in rendered
