@@ -239,7 +239,8 @@ git diff --cached --check
 每次合并后，本机的后端 main 检出和前端 main 检出都执行 `git pull --ff-only`。
 先确认分支是 main、工作区干净；若快进失败，报告本地分叉/改动，不强制重置。
 后端在该 main 检出的 `.venv` 中维护依赖；真实计算只调用该检出的 `.venv/bin/ag`，
-并核对版本和 Python 导入位置。清除临时 `PYTHONPATH`，不能用开发 worktree 或 PATH 中的旧 ag 执行真实计算。
+并核对版本和 Python 导入位置。清除临时 `PYTHONPATH`，不能用开发 worktree 或 PATH 中的旧 ag 执行日常真实计算。
+用未合并代码做真实验证，必须在工单写明并取得批准，使用临时 worktree，验证后删除。
 Skills 软链接指向后端 main 的 `skills-next`；合并 PR 本身不会更新本机检出。
 前端始终从本机约定的固定 main 检出目录运行，停止旧实例后从该目录重启，
 核对其调用的后端也是上述 `.venv/bin/ag`；不从临时 worktree 启动日常前端。

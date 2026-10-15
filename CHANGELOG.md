@@ -1,5 +1,44 @@
 # Changelog
 
+## v4.1.0
+
+发布准备中，tag 和 GitHub release 由负责人在本 PR 合并后创建。本节汇总 v4.0.0 之后已合并的 #252–#266；本次仅更新版本号和文档。
+
+### 解析与事实
+
+- T42/T42b 按 Gaussian 作业段提取事实，记录段号和来源行，修复 IRC 统计行误切段与优化完成措辞漏识别，避免后段未完成时沿用前段结论。[#256](https://github.com/anakine800-tech/Auto-Gaussian/pull/256)、[#261](https://github.com/anakine800-tech/Auto-Gaussian/pull/261)
+- T45 按实际报错原因生成 `error_hint`，区分优化步数耗尽、TS 曲率不符与 SCF 不收敛；不再仅凭 link 编号推断原因。[#265](https://github.com/anakine800-tech/Auto-Gaussian/pull/265)
+
+### 新命令
+
+- T38 `ag topology` 比较提交与最终结构的拓扑、质子及立体差异；TS 按指定原子对报告距离。[#257](https://github.com/anakine800-tech/Auto-Gaussian/pull/257)
+- T43 `ag mode-review` 导出正常频率段的正负位移、指定原子对距离与全对排名，振动方向由人审阅。[#258](https://github.com/anakine800-tech/Auto-Gaussian/pull/258)
+- T44 `ag fragments` 按共价半径识别片段，导出保留原子编号映射的报告与 XYZ，不推断片段电荷、多重度或化学身份。[#264](https://github.com/anakine800-tech/Auto-Gaussian/pull/264)
+
+### 剖面
+
+- T39 新增焓熵分项、分子数变化、Eyring 速率与半衰期换算、按产物汇总的 `selectivity` 和扰动分析，以及 σ 来源和警告；区分模型换算与实验动力学。[#255](https://github.com/anakine800-tech/Auto-Gaussian/pull/255)
+
+### 取回
+
+- T47 `fetch --incomplete` 只读取回已确认结束作业的已有声明输出，记录缺失项和结束证据；允许从有有效记录的中断作业安全复用父 chk 到新 Attempt，保留人工确认、独占复制及哈希核验。[#266](https://github.com/anakine800-tech/Auto-Gaussian/pull/266)
+
+### 方案与签字
+
+- T37 为 Gaussian、xTB、CREST 准备显式要求非空 `--method-basis`，卡片增加计算方案签字，保留文献先例、既有方案和兜底方法的区别。[#254](https://github.com/anakine800-tech/Auto-Gaussian/pull/254)
+
+### 卡片
+
+- T36a/T36b 清理验收示例与错字，回写历史 IRC 验收及其与现行完成判据的区别；历史签字不替代当前判据。[#253](https://github.com/anakine800-tech/Auto-Gaussian/pull/253)、[#263](https://github.com/anakine800-tech/Auto-Gaussian/pull/263)
+- T40 新增复合物与双分子步骤卡片，限定为已审阅原子对约束采样，明确分离反应物参考态、缔合熵、低频与 BSSE 未检查的边界。[#262](https://github.com/anakine800-tech/Auto-Gaussian/pull/262)
+- T46 补充 TS Hessian 策略、低频残余审阅及 IRC 双向“走完”判据，不以达到步数或正常退出代替路径审核。[#260](https://github.com/anakine800-tech/Auto-Gaussian/pull/260)
+
+### 文档与兼容性
+
+- 更新文档索引、交接与角色分工；T41 完成 ORCA 接入和仓库瘦身调研，不表示已支持 ORCA。[#252](https://github.com/anakine800-tech/Auto-Gaussian/pull/252)、[#259](https://github.com/anakine800-tech/Auto-Gaussian/pull/259)
+- Frontend v4.0.0 配合 ag 4.1.0 使用：前端读取的 facts 字段保留，`ag-facts/1`、`ag-profile/1` 不变，profile 新增字段；分段解析修正可能改变既有 facts 的值，仍需人工审阅差异后显式刷新。
+- 截至 2026-10-15，PBS 强杀与 Slurm TIMEOUT 不完整取回、父 chk 波函数接续已有真实验证；缺少声明输出分支仅有离线覆盖，任意中断 chk 的完整性不作保证。验收范围和已知问题见 [README](README.md#验收状态)。
+
 ## v4.0.0
 
 发布准备中，尚未创建 tag 或 release。以下为相对 `v3-frozen` 的主要变化，仅计入本次 main 基线已合并内容。
