@@ -42,4 +42,6 @@ v4.0.0 起，从这一页进入仓库文档。先按身份找到自己的入口�
 - [REDESIGN-PLAN.md](REDESIGN-PLAN.md)：v4.0 改造期的设计记录与决策表。其中的阶段计划已由后续任务和 README 取代。
 - `redesign-tasks/T*.md`：已完成任务的任务单，记录当时的范围与验收标准。
 - [research/](research/)：改造期的调研记录。
+- [ORCA 接入调研](research/orca.md)：许可、模板、解析、DLPNO 资源证据与分期建议。
+- [仓库瘦身评估](research/repo-slimming.md)：文档、测试、脚本与卡片的候选清单及风险。
 - `archive/`：v3 及更早版本，冻结，不修改、不引用为规则。
