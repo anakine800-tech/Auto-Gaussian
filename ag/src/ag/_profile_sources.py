@@ -12,7 +12,7 @@ from pathlib import Path
 import re
 
 from ag.geometry import read_xyz
-from ag.thermo import boltzmann
+from ag.thermo import boltzmann, _symmetry_evidence
 
 DEFAULT_SETTINGS = {
     'temperature_K': 298.15, 'concentration_mol_L': 1.0, 'qs': 'grimme',
@@ -185,6 +185,7 @@ def load_species(name, spec, study, analyses, direct_settings):
     if len(rows) == 1:
         nonempty(spec.get('single_conformer_reason'), f'{name}: single_conformer_reason')
     identities, protocols, energies, degeneracies, ids, program_versions = [], [], [], [], [], []
+    conformers = []
     for row in rows:
         require(isinstance(row, dict), f'{name}: each Attempt must be an object')
         aid = row.get('attempt_id')
@@ -210,28 +211,51 @@ def load_species(name, spec, study, analyses, direct_settings):
         protocols.append({'frequency': freq_protocol, 'single_point': sp_protocol})
         if cached:
             energy = finite(row.get('qh_G'), f'{aid}: qh_G')
+            enthalpy = finite(row.get('qh_H'), f'{aid}: qh_H')
+            entropy = finite(row.get('qh_S'), f'{aid}: qh_S')
+            symmetry = {key: row.get(key) for key in
+                        ('rotational_symmetry_number', 'rotational_symmetry_source')}
         else:
             require(set(row) <= {'attempt_id', 'degeneracy', 'spc_attempt_id'}, f'{aid}: unknown Attempt field')
             result = calc_bbe.from_options(str(gaussian_log(directory)), options)
             energy = finite(getattr(result, 'qh_gibbs_free_energy', None), f'{aid}: qh_G') + delta
+            enthalpy = finite(getattr(result, 'qh_enthalpy', None), f'{aid}: qh_H') + delta
+            entropy = finite(getattr(result, 'qh_entropy', None), f'{aid}: qh_S')
+            symmetry = _symmetry_evidence(result, gaussian_log(directory))
+        # Prevent mismatched qh/RRHO or SPC columns from inventing an entropy term.
+        require(math.isclose(enthalpy - settings['temperature_K'] * entropy, energy,
+                             rel_tol=0, abs_tol=1e-6), f'{aid}: qh_H - T*qh_S disagrees with qh_G')
+        integer(symmetry['rotational_symmetry_number'], f'{aid}: rotational_symmetry_number', positive=True)
+        provenance = symmetry['rotational_symmetry_source']
+        require(isinstance(provenance, dict) and provenance.get('kind') in
+                {'gaussian_output', 'goodvibes_default'}, f'{aid}: missing rotational symmetry source')
+        conformers.append({'attempt_id': aid, 'qh_G_hartree': energy,
+                          'qh_H_hartree': enthalpy, 'qh_S_hartree_per_K': entropy,
+                          **symmetry, 'nosymm': bool(re.search(r'\bnosymm\b', facts['route'], re.I))})
         energies.append(energy)
         degeneracies.append(integer(row.get('degeneracy', 1), f'{aid}: degeneracy', positive=True))
     require(all(x == identities[0] for x in identities), f'{name}: mixed conformer identities or n_imag')
     # Different revisions can change numerical energies even at the same route.
     require(len(set(program_versions)) == 1, f'{name}: inconsistent program versions within species/SPC')
     require(all(x == protocols[0] for x in protocols), f'{name}: mixed conformer protocols')
-    _, _, ensemble = boltzmann(energies, degeneracies, settings['temperature_K'])
+    populations, _, ensemble = boltzmann(energies, degeneracies, settings['temperature_K'])
     if cached:
         supplied = finite(data.get('ensemble_G'), f'{name}: ensemble_G')
         require(math.isclose(ensemble, supplied, rel_tol=0, abs_tol=1e-9),
                 f'{name}: ensemble_G disagrees with conformer partition sum')
         ensemble = supplied
+    enthalpy = math.fsum(p * c['qh_H_hartree'] for p, c in zip(populations, conformers))
+    for conformer, population, degeneracy in zip(conformers, populations, degeneracies):
+        conformer.update(population=population, degeneracy=degeneracy)
     elements, charge, multiplicity, n_imag = identities[0]
     if 'formula' in spec:
         require(parse_formula(spec['formula']) == elements, f'{name}: declared formula differs from geometry')
     if 'charge' in spec:
         require(integer(spec['charge'], 'declared charge') == charge, f'{name}: declared charge mismatch')
     return {'ensemble_G_hartree': ensemble, 'elements': elements, 'charge': charge,
+            'ensemble_H_hartree': enthalpy,
+            'ensemble_S_hartree_per_K': (enthalpy - ensemble) / settings['temperature_K'],
+            'lowest_conformer_G_hartree': min(energies), 'conformers': conformers,
             'multiplicity': multiplicity, 'n_imag': n_imag, 'settings': settings,
             'protocol': protocols[0], 'attempts': ids, 'program_version': program_versions[0],
             'single_conformer_reason': spec.get('single_conformer_reason')}

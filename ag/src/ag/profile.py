@@ -11,6 +11,20 @@ from ag.thermo import HARTREE_TO_KCAL, R_HARTREE
 
 R_KCAL = R_HARTREE * HARTREE_TO_KCAL
 R_L_ATM = 0.082057366080960
+K_B_OVER_H = 1.380649e-23 / 6.62607015e-34
+DECOMPOSITION_NOTE = ('H_ens = sum(p_i qh_H_i); S_ens = (H_ens - G_ens)/T; '
+                      'p_i proportional to d_i exp(-qh_G_i/RT). '
+                      '标准态修正和显式溶剂浓度修正全部记入 −TΔS；构象熵与简并度包含在系综 S 中。'
+                      'SMD 下这些是模型审计分项，不是实验溶液的焓熵分解。')
+KINETICS_NOTE = ('k = (k_B T/h) exp(-ΔG‡/RT); half_life = ln(2)/k; κ = 1。'
+                 '没有隧穿校正，不是微观动力学模型；半衰期仅为不可逆一级/准一级近似。'
+                 '超出浮点表示范围的指数结果记为 null，并保留自然对数。')
+SELECTIVITY_NOTE = ('w_p = sum(paths * exp(-G_TS/RT)); fraction_p = w_p / sum(w_p); '
+                    '有效能垒为 -RT ln w_p，相对最低者；ΔΔG‡ = G_eff(b) - G_eff(a)，ratio_a_over_b = w_a/w_b。'
+                    '构象简并度已含在系综 G 中，paths 仅计未枚举的等价反应路径，不重复计权。'
+                    '相同前因子、κ = 1、共同反应物参考态；比例和 ee 是简单 TST 下的表观值。'
+                    '仅对映产物可解释为 ee；可逆步骤或后续选择性捕获时不能等同于实验 ee。'
+                    '最低构象仅作敏感性参考。计算采用平移后的对数权重，比例溢出记 null 并保留自然对数。')
 SPAN_DOI = '10.1021/ar1000956'
 FORMULAS = {
     'ensemble': 'G_s = -RT ln sum_i d_i exp(-G_si/RT); never sum_i p_i G_si',
@@ -65,6 +79,191 @@ def step_table(states):
             for a, ts, b in zip(states[::2], states[1::2], states[2::2])]
 
 
+def _represented_exp(log_value):
+    # Extreme barriers must not make an otherwise valid legacy profile fail
+    # or silently turn a tiny positive rate into zero/infinite half-life.
+    try:
+        value = math.exp(log_value)
+    except OverflowError:
+        return None
+    return value if value > 0 else None
+
+
+def eyring(barrier_kcal, temperature):
+    log_k = math.log(K_B_OVER_H * temperature) - barrier_kcal / (R_KCAL * temperature)
+    log_half_life = math.log(math.log(2)) - log_k
+    return {'k_s-1': _represented_exp(log_k), 'half_life_s': _represented_exp(log_half_life),
+            'ln_k_s-1': log_k, 'ln_half_life_s': log_half_life}
+
+
+def step_decomposition(steps, states, species, temperature, standard_state):
+    for step, (a, ts, b) in zip(steps, zip(states[::2], states[1::2], states[2::2])):
+        step['molecule_counts'] = {key: row['molecule_count'] for key, row in
+                                   (('reactant', a), ('ts', ts), ('product', b))}
+        step['molecularity_change'] = ts['molecule_count'] - a['molecule_count']
+        step['reverse_molecularity_change'] = ts['molecule_count'] - b['molecule_count']
+        step['reaction_molecularity_change'] = b['molecule_count'] - a['molecule_count']
+        for direction, start, end, g_key in (
+                ('forward', a, ts, 'forward_barrier_kcal'),
+                ('reverse', b, ts, 'reverse_barrier_kcal'),
+                ('reaction', a, b, 'reaction_G_kcal')):
+            dh = math.fsum((end['species'].get(s, 0) - start['species'].get(s, 0))
+                           * item['ensemble_H_hartree'] * HARTREE_TO_KCAL
+                           for s, item in species.items())
+            step[f'{direction}_dH_kcal'] = dh
+            step[f'{direction}_minus_TdS_kcal'] = step[g_key] - dh
+            if direction == 'reaction':
+                continue
+            # Cancel explicit spectators before identifying bimolecularity.
+            reacting_count = sum(max(n - end['species'].get(s, 0), 0)
+                                 for s, n in start['species'].items())
+            notes = []
+            if end['molecule_count'] < start['molecule_count']:
+                notes.append('按标准态浓度的准一级近似，受缔合熵模型影响')
+            elif end['molecule_count'] > start['molecule_count']:
+                notes.append('分子数变化，受缔合熵模型影响（反向为缔合）')
+            if standard_state == '1M' and reacting_count == 2 and step[g_key] < 5:
+                notes.append('接近扩散控制，不宜用 TST 速率解释')
+            step[f'{direction}_kinetics'] = {**eyring(step[g_key], temperature), 'notes': notes}
+
+
+def selectivity_definitions(data, specs):
+    entries = data.get('selectivity', [])
+    require(isinstance(entries, list), 'selectivity must be a list')
+    identifiers, used = set(), set()
+    for entry in entries:
+        require(isinstance(entry, dict) and {'id', 'products'} <= set(entry)
+                and set(entry) <= {'id', 'products', 'perturb_kcal'},
+                'Each selectivity entry needs id, products and optional perturb_kcal')
+        label = nonempty(entry['id'], 'selectivity id')
+        require(label not in identifiers, f'Duplicate selectivity id: {label}')
+        identifiers.add(label)
+        products = entry['products']
+        require(isinstance(products, dict) and len(products) >= 2,
+                f'{label}: selectivity needs at least two products')
+        # Repeated TS entries double-count flux or assign it to two products.
+        locations = {}
+        for product, channels in products.items():
+            nonempty(product, f'{label}: product label')
+            require(isinstance(channels, list) and channels, f'{label}/{product}: empty TS channels')
+            for index, channel in enumerate(channels, 1):
+                require(isinstance(channel, dict) and 'species' in channel
+                        and set(channel) <= {'species', 'paths'}, f'{label}: channel needs species and optional paths')
+                name = nonempty(channel['species'], f'{label}: TS species')
+                require(name in specs, f'{label}: missing species {name}')
+                location = f'product {product!r} channel {index}'
+                if name in locations:
+                    raise ValueError(f'{label}: duplicate TS species {name!r} at {location}; '
+                                     f'first at {locations[name]}; express path degeneracy using paths')
+                locations[name] = location
+                integer(channel.get('paths', 1), f'{label}/{name}: paths', positive=True)
+                used.add(name)
+        if 'perturb_kcal' in entry:
+            value = finite(entry['perturb_kcal'], f'{label}: perturb_kcal')
+            require(value >= 0, f'{label}: perturb_kcal must be non-negative')
+    return entries, used
+
+
+def selectivity_distribution(products, energies, temperature):
+    rt = R_KCAL * temperature
+    origin = min(energies.values())
+    logs = {}
+    for label, channels in products.items():
+        weights = [math.log(c.get('paths', 1)) - (energies[c['species']] - origin) / rt for c in channels]
+        offset = max(weights)
+        logs[label] = offset + math.log(math.fsum(math.exp(w - offset) for w in weights))
+    maximum = max(logs.values())
+    total = math.fsum(math.exp(w - maximum) for w in logs.values())
+    rows = {label: {'fraction': math.exp(w - maximum) / total,
+                    'effective_barrier_relative_kcal': rt * (maximum - w)} for label, w in logs.items()}
+    labels = list(products)
+    pairwise = []
+    for i, a in enumerate(labels):
+        for b in labels[i + 1:]:
+            log_ratio = logs[a] - logs[b]
+            pairwise.append({'a': a, 'b': b, 'ddG_barrier_kcal': rt * log_ratio,
+                             'ratio_a_over_b': _represented_exp(log_ratio), 'ln_ratio_a_over_b': log_ratio})
+    result = {'products': rows, 'pairwise': pairwise,
+              'dominant_products': [label for label in labels if math.isclose(logs[label], maximum, rel_tol=0, abs_tol=1e-12)]}
+    if len(labels) == 2:
+        result['ee_percent'] = 100 * math.tanh((logs[labels[0]] - logs[labels[1]]) / 2)
+        result['ee_sign_convention'] = f'100 × (P({labels[0]}) − P({labels[1]}))；第一个标签占优为正，仅对映产物解释为 ee。'
+    return result
+
+
+def selectivity_results(entries, species, temperature):
+    rows = []
+    for entry in entries:
+        products, label = entry['products'], entry['id']
+        names = list(dict.fromkeys(c['species'] for channels in products.values() for c in channels))
+        baseline = species[names[0]]
+        channels = {}
+        for product, definitions in products.items():
+            channels[product] = []
+            for channel in definitions:
+                name = channel['species']
+                item = species[name]
+                require(item['n_imag'] == 1, f'{label}/{name}: selectivity requires TS species (n_imag=1)')
+                require(item['elements'] == baseline['elements'], f'{label}: selectivity elemental composition differs')
+                require(item['charge'] == baseline['charge'], f'{label}: selectivity charge differs')
+                channels[product].append({**channel, 'paths': channel.get('paths', 1),
+                    'paths_source': '显式指定' if 'paths' in channel else '默认 1',
+                    'conformer_degeneracies': [{'attempt_id': c['attempt_id'], 'degeneracy': c['degeneracy']}
+                                             for c in item['conformers']]})
+
+        def evaluate(key):
+            energies = {name: species[name][key] for name in names}
+            result = selectivity_distribution(products, energies, temperature)
+            if 'perturb_kcal' not in entry:
+                return result
+            variants = []
+            for name in names:
+                for sign in (-1, 1):
+                    shift = sign * entry['perturb_kcal']
+                    altered = {**energies, name: energies[name] + shift}
+                    variant = selectivity_distribution(products, altered, temperature)
+                    variants.append({'perturbed_species': name, 'shift_kcal': shift,
+                                     'fractions': {p: v['fraction'] for p, v in variant['products'].items()},
+                                     'dominant_products': variant['dominant_products'],
+                                     'dominant_changed': variant['dominant_products'] != result['dominant_products'],
+                                     'dominant_product_flipped': not set(variant['dominant_products']) & set(result['dominant_products'])})
+            ranges = {}
+            for product, values in result['products'].items():
+                fractions = [values['fraction']] + [v['fractions'][product] for v in variants]
+                ranges[product] = {'min': min(fractions), 'max': max(fractions)}
+            result['sensitivity'] = {'perturb_kcal': entry['perturb_kcal'], 'fraction_ranges': ranges,
+                                    'variants': variants,
+                                    'dominant_changed': any(v['dominant_changed'] for v in variants),
+                                    'dominant_product_flipped': any(v['dominant_product_flipped'] for v in variants),
+                                    'scope': '一次只扰动一个 TS 物种（其所有出现位置一起变化）；区间包含基线，不是联合误差界。'
+                                             '翻转指新旧占优产物集合无交集；新增或消失并列另报 dominant_changed。'}
+            return result
+
+        rows.append({'id': label, 'product_order': list(products), 'channels': channels,
+                     **evaluate('corrected_G_kcal'),
+                     'lowest_conformer': evaluate('corrected_lowest_conformer_G_kcal')})
+    return rows
+
+
+def symmetry_report(species, temperature):
+    warnings = []
+    routes = {c['nosymm'] for item in species.values() for c in item['conformers']}
+    if len(routes) > 1:
+        warnings.append('剖面中混用 nosymm 与未使用 nosymm 的结构；请核对对称处理一致性。')
+    for name, item in species.items():
+        sigmas = {c['rotational_symmetry_number'] for c in item['conformers']}
+        if len(sigmas) > 1:
+            warnings.append(f'{name}: 同一物种不同构象的 σ 不同。')
+        if max(sigmas) > 1:
+            warnings.append(f'{name}: 存在 σ > 1；请核对真实几何与对称处理。')
+        for conformer in item['conformers']:
+            conformer['RT_ln_sigma_kcal'] = R_KCAL * temperature * math.log(conformer['rotational_symmetry_number'])
+    return {'warnings': warnings,
+            'note': '每个构象列出 RT ln σ，表示固定其他项时相对 σ=1 的 G 贡献估算，'
+                    '不自动修正能量；混合系综不能直接用此值修正能垒。'
+                    'σ 与构象简并度及路径数分别审阅；GoodVibes 默认值不等于物理对称数已确认。'}
+
+
 def sensitivity(states, perturb, cycle):
     def determining(rows):
         if cycle:
@@ -100,7 +299,7 @@ def calculate_profile(definition, *, perturb=None):
     study, analyses = path.parent.parent, path.parent
     data = read_json(path)
     require(set(data) <= {'species', 'states', 'reference', 'temperature_K', 'standard_state',
-                         'explicit_solvent_concentrations_M', 'thermo_settings', 'catalytic_cycle'},
+                         'explicit_solvent_concentrations_M', 'thermo_settings', 'catalytic_cycle', 'selectivity'},
             'Unknown profile field')
     specs, states = data.get('species'), data.get('states')
     require(isinstance(specs, dict) and bool(specs), 'Missing species definitions')
@@ -121,7 +320,9 @@ def calculate_profile(definition, *, perturb=None):
             require(name in specs, f'{sid}: missing species {name}')
             integer(coefficient, f'{sid}/{name}: stoichiometry', positive=True)
             used.add(name)
-    require(used == set(specs), 'Unused species definitions: remove them or include them in states')
+    selections, selection_species = selectivity_definitions(data, specs)
+    used.update(selection_species)
+    require(used == set(specs), 'Unused species definitions: remove them or include them in states/selectivity')
     reference = data.get('reference')
     require(reference in state_ids, 'Reference state is missing')
     cycle = data.get('catalytic_cycle', False)
@@ -175,6 +376,10 @@ def calculate_profile(definition, *, perturb=None):
         item['concentration_correction_kcal'] = solvent_correction
         item['corrected_G_kcal'] = (item['ensemble_G_hartree'] * HARTREE_TO_KCAL
                                     + standard_correction + solvent_correction)
+        item['corrected_S_hartree_per_K'] = (item['ensemble_H_hartree']
+                                            - item['corrected_G_kcal'] / HARTREE_TO_KCAL) / temperature
+        item['corrected_lowest_conformer_G_kcal'] = (item['lowest_conformer_G_hartree'] * HARTREE_TO_KCAL
+                                                    + standard_correction + solvent_correction)
     rows = []
     for state in states:
         elements, charge, ts_count = Counter(), 0, 0
@@ -186,6 +391,7 @@ def calculate_profile(definition, *, perturb=None):
         require(ts_count == (1 if state['kind'] == 'ts' else 0),
                 f"{state['id']}: minimum requires only n_imag=0; ts requires exactly one TS species")
         rows.append({**state, 'elements': dict(elements), 'charge': charge,
+                     'molecule_count': sum(state['species'].values()),
                      'G_kcal': math.fsum(species[s]['corrected_G_kcal'] * n for s, n in state['species'].items())})
     ref = rows[state_ids.index(reference)]
     for row in rows:
@@ -205,6 +411,12 @@ def calculate_profile(definition, *, perturb=None):
         result['energetic_span'] = energetic_span(rows)
     if perturb is not None:
         result['sensitivity'] = sensitivity(rows, perturb, cycle)
+    step_decomposition(result['steps'], rows, species, temperature, standard_state)
+    result['decomposition_note'] = DECOMPOSITION_NOTE
+    result['kinetics_note'] = KINETICS_NOTE
+    result['selectivity'] = selectivity_results(selections, species, temperature)
+    result['selectivity_note'] = SELECTIVITY_NOTE
+    result['symmetry'] = symmetry_report(species, temperature)
     # Check derived numbers as well (e.g. overflow from malformed large input).
     try:
         json.dumps(result, allow_nan=False)
@@ -247,7 +459,67 @@ def markdown(result):
         for variant in sensitivity_result['variants']:
             controlling = variant.get('pairs', variant.get('highest_local_barrier_TS'))
             lines.append(f"| {cell(variant['perturbed_TS'])} | {variant['shift_kcal']:+.6f} | {cell(json.dumps(controlling, ensure_ascii=False))} | {variant['changed']} |")
-    return '\n'.join(lines + ['', result['note'], ''])
+    lines += ['', result['note'], '', '## 焓熵分项', '', result['decomposition_note'], '',
+              '| Step | ΔH‡ forward | −TΔS‡ forward | ΔH‡ reverse | −TΔS‡ reverse | ΔH | −TΔS | Molecules R/TS/P | Δn TS−R |',
+              '|---|---:|---:|---:|---:|---:|---:|---|---:|']
+    for step in result['steps']:
+        label = cell(f"{step['reactant']} → {step['ts']} → {step['product']}")
+        terms = ' | '.join(f'{step[key]:.6f}' for key in (
+            'forward_dH_kcal', 'forward_minus_TdS_kcal', 'reverse_dH_kcal',
+            'reverse_minus_TdS_kcal', 'reaction_dH_kcal', 'reaction_minus_TdS_kcal'))
+        counts = '/'.join(str(step['molecule_counts'][key]) for key in ('reactant', 'ts', 'product'))
+        lines.append(f"| {label} | {terms} | {counts} | {step['molecularity_change']} |")
+    lines += ['', '## 动力学换算', '', result['kinetics_note'], '',
+              '| Step | Direction | k (s⁻¹) | Half-life (s) | Notes |', '|---|---|---:|---:|---|']
+    def number(value):
+        return f'{value:.6g}' if value is not None else 'null (see JSON logarithm)'
+    for step in result['steps']:
+        for direction in ('forward', 'reverse'):
+            kinetics = step[f'{direction}_kinetics']
+            label = cell(f"{step['reactant']} ⇌ {step['product']}")
+            lines.append(f"| {label} | {direction} | {number(kinetics['k_s-1'])} | {number(kinetics['half_life_s'])} | {cell('; '.join(kinetics['notes']))} |")
+    lines += ['', '## 产物选择性', '', result['selectivity_note'], '']
+    if not result['selectivity']:
+        lines += ['未指定 selectivity。']
+    for selection in result['selectivity']:
+        lines += ['', f"### {cell(selection['id'])}", '',
+                  '| Product | TS species | paths | Source | Conformer degeneracies (already in ensemble G) |',
+                  '|---|---|---:|---|---|']
+        for product, channels in selection['channels'].items():
+            for channel in channels:
+                degeneracies = ', '.join(f"{c['attempt_id']}: {c['degeneracy']}" for c in channel['conformer_degeneracies'])
+                lines.append(f"| {cell(product)} | {cell(channel['species'])} | {channel['paths']} | {channel['paths_source']} | {cell(degeneracies)} |")
+        for basis, values in (('系综', selection), ('最低构象（敏感性参考）', selection['lowest_conformer'])):
+            lines += ['', f'#### {basis}', '', '| Product | Proportion (%) | Relative effective barrier (kcal/mol) |',
+                      '|---|---:|---:|']
+            for product, row in values['products'].items():
+                lines.append(f"| {cell(product)} | {100 * row['fraction']:.6f} | {row['effective_barrier_relative_kcal']:.6f} |")
+            lines += ['', '占优产物：' + ', '.join(cell(p) for p in values['dominant_products'])]
+            if 'ee_percent' in values:
+                lines += ['', f"ee = {values['ee_percent']:+.6f}%；{cell(values['ee_sign_convention'])}"]
+            lines += ['', '| a / b | ΔΔG‡ = G_eff(b)−G_eff(a) (kcal/mol) | Ratio a/b (dr) |', '|---|---:|---:|']
+            for pair in values['pairwise']:
+                lines.append(f"| {cell(pair['a'])} / {cell(pair['b'])} | {pair['ddG_barrier_kcal']:.6f} | {number(pair['ratio_a_over_b'])} |")
+            if 'sensitivity' in values:
+                report = values['sensitivity']
+                lines += ['', f"逐 TS 物种 ±{report['perturb_kcal']} kcal/mol；占优产物翻转：{report['dominant_product_flipped']}；占优集合改变：{report['dominant_changed']}。",
+                          report['scope'], '', '| Product | Minimum proportion (%) | Maximum proportion (%) |', '|---|---:|---:|']
+                for product, bounds in report['fraction_ranges'].items():
+                    lines.append(f"| {cell(product)} | {100 * bounds['min']:.6f} | {100 * bounds['max']:.6f} |")
+    lines += ['', '## 对称数', '', result['symmetry']['note'], '']
+    lines += [f'- 警告：{cell(warning)}' for warning in result['symmetry']['warnings']]
+    if not result['symmetry']['warnings']:
+        lines += ['未触发 σ/nosymm 混用警告。']
+    lines += ['', '| Species | Attempt | σ | Source | nosymm | RT ln σ (kcal/mol) |',
+              '|---|---|---:|---|---|---:|']
+    for name, item in result['species'].items():
+        for conformer in item['conformers']:
+            source = conformer['rotational_symmetry_source']
+            evidence = source['kind']
+            if source.get('file'):
+                evidence += f" ({source['file']}:{source.get('line')})"
+            lines.append(f"| {cell(name)} | {cell(conformer['attempt_id'])} | {conformer['rotational_symmetry_number']} | {cell(evidence)} | {conformer['nosymm']} | {conformer['RT_ln_sigma_kcal']:.6f} |")
+    return '\n'.join(lines + [''])
 
 
 def write_profile(result, definition, name=None):

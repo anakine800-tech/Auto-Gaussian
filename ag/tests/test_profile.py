@@ -35,7 +35,11 @@ def source(tmp_path, name, kcal, *, ts=False, formula=None, charge=0, settings=N
             (directory / 'review.md').write_text('Synthetic direction review\nprofile_review: pass\nimaginary_mode_matches: true\n')
         # Equal conformers chosen so their partition sum is exactly the input G.
         g = kcal / HARTREE_TO_KCAL + R_HARTREE * settings['temperature_K'] * math.log(count)
-        rows.append({'attempt_id': aid, 'qh_G': g, 'degeneracy': 1, 'spc_attempt_id': sp})
+        rows.append({'attempt_id': aid, 'qh_G': g, 'qh_H': g + 0.01,
+                     'qh_S': 0.01 / settings['temperature_K'],
+                     'rotational_symmetry_number': 1,
+                     'rotational_symmetry_source': {'kind': 'goodvibes_default'},
+                     'degeneracy': 1, 'spc_attempt_id': sp})
     data = {'schema': 'ag-thermo/1', 'goodvibes_version': '4.3.0', 'units': {'energy': 'Hartree'},
             'settings': settings, 'rows': rows, 'ensemble_G': kcal / HARTREE_TO_KCAL,
             'weighted_mean_G': 12345}
@@ -327,8 +331,13 @@ def test_direct_attempts_real_local_minimum_and_ts_logs(tmp_path):
     after = {p.relative_to(tmp_path): p.read_bytes() for p in tmp_path.rglob('*') if p.is_file()}
     assert before == after
     options = ThermoOptions(QH=True, concentration=1.0, freq_scale_factor=1.0, zpe_scale_factor=1.0)
-    expected = calc_bbe.from_options(str(ts_log), options).qh_gibbs_free_energy
-    assert result['species']['TS']['ensemble_G_hartree'] == pytest.approx(expected)
+    expected = calc_bbe.from_options(str(ts_log), options)
+    assert result['species']['TS']['ensemble_G_hartree'] == pytest.approx(expected.qh_gibbs_free_energy)
+    assert result['species']['TS']['ensemble_H_hartree'] == pytest.approx(expected.qh_enthalpy)
+    assert result['species']['TS']['ensemble_S_hartree_per_K'] == pytest.approx(expected.qh_entropy)
+    conformer = result['species']['TS']['conformers'][0]
+    assert conformer['rotational_symmetry_number'] == expected.xyz.symmno
+    assert conformer['rotational_symmetry_source']['kind'] == 'gaussian_output'
     assert result['species']['TS']['n_imag'] == 1
 
 
@@ -379,6 +388,17 @@ def test_existing_ag_thermo_output_with_direct_ts_and_composite(tmp_path):
     result = calculate_profile(path)
     assert result['temperature_K'] == 310
     assert result['species']['R']['ensemble_G_hartree'] == table['ensemble_G']
+    assert result['species']['R']['ensemble_H_hartree'] == table['rows'][0]['qh_H']
+    # The same electronic replacement must enter H and G, but never S.
+    from goodvibes.thermo import ThermoOptions, calc_bbe
+    from ag._parse_outputs import parse_gaussian
+    raw = calc_bbe.from_options(str(ts_log), ThermoOptions(QH=True, temperature=310,
+                               concentration=1.0, freq_scale_factor=1.0, zpe_scale_factor=1.0))
+    ts_facts, _ = parse_gaussian(ts_log)
+    sp_facts, _ = parse_gaussian(sp / 'outputs/input.log')
+    delta = sp_facts['energies']['scf'] - ts_facts['energies']['scf']
+    assert result['species']['TS']['ensemble_H_hartree'] == pytest.approx(raw.qh_enthalpy + delta)
+    assert result['species']['TS']['ensemble_S_hartree_per_K'] == pytest.approx(raw.qh_entropy)
     assert result['species']['TS']['protocol']['single_point'] is not None
     assert not (ts / 'facts.json').exists()
     data['temperature_K'] = 298.15

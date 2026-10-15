@@ -1,0 +1,451 @@
+{
+  "schema": "ag-profile/1",
+  "units": "kcal/mol",
+  "reference": "R",
+  "temperature_K": 298.15,
+  "standard_state": "1M",
+  "explicit_solvent_concentrations_M": {},
+  "species": {
+    "R": {
+      "ensemble_G_hartree": 0.0,
+      "elements": {
+        "O": 1,
+        "H": 2
+      },
+      "charge": 0,
+      "multiplicity": 1,
+      "n_imag": 0,
+      "settings": {
+        "temperature_K": 298.15,
+        "concentration_mol_L": 1.0,
+        "qs": "grimme",
+        "qh": "head_gordon",
+        "s_cutoff_cm1": 100.0,
+        "h_cutoff_cm1": 100.0,
+        "frequency_scale": 1.0,
+        "zpe_scale": 1.0,
+        "rotational_symmetry": "from_output",
+        "inertia": "global"
+      },
+      "protocol": {
+        "frequency": {
+          "method": "b3lyp",
+          "basis": "6-31g(d)",
+          "dispersion": "gd3bj",
+          "solvent_model": "none",
+          "solvent": "none"
+        },
+        "single_point": null
+      },
+      "attempts": [
+        "R-0",
+        "R-1"
+      ],
+      "program_version": "Gaussian 16 Rev A.03",
+      "single_conformer_reason": null,
+      "standard_state_correction_kcal": 0.0,
+      "concentration_correction_kcal": 0.0,
+      "corrected_G_kcal": 0.0
+    },
+    "TS1": {
+      "ensemble_G_hartree": 0.03187202535299778,
+      "elements": {
+        "O": 1,
+        "H": 2
+      },
+      "charge": 0,
+      "multiplicity": 1,
+      "n_imag": 1,
+      "settings": {
+        "temperature_K": 298.15,
+        "concentration_mol_L": 1.0,
+        "qs": "grimme",
+        "qh": "head_gordon",
+        "s_cutoff_cm1": 100.0,
+        "h_cutoff_cm1": 100.0,
+        "frequency_scale": 1.0,
+        "zpe_scale": 1.0,
+        "rotational_symmetry": "from_output",
+        "inertia": "global"
+      },
+      "protocol": {
+        "frequency": {
+          "method": "b3lyp",
+          "basis": "6-31g(d)",
+          "dispersion": "gd3bj",
+          "solvent_model": "none",
+          "solvent": "none"
+        },
+        "single_point": null
+      },
+      "attempts": [
+        "TS1-0",
+        "TS1-1"
+      ],
+      "program_version": "Gaussian 16 Rev A.03",
+      "single_conformer_reason": null,
+      "standard_state_correction_kcal": 0.0,
+      "concentration_correction_kcal": 0.0,
+      "corrected_G_kcal": 20.0
+    },
+    "I": {
+      "ensemble_G_hartree": -0.007968006338249446,
+      "elements": {
+        "O": 1,
+        "H": 2
+      },
+      "charge": 0,
+      "multiplicity": 1,
+      "n_imag": 0,
+      "settings": {
+        "temperature_K": 298.15,
+        "concentration_mol_L": 1.0,
+        "qs": "grimme",
+        "qh": "head_gordon",
+        "s_cutoff_cm1": 100.0,
+        "h_cutoff_cm1": 100.0,
+        "frequency_scale": 1.0,
+        "zpe_scale": 1.0,
+        "rotational_symmetry": "from_output",
+        "inertia": "global"
+      },
+      "protocol": {
+        "frequency": {
+          "method": "b3lyp",
+          "basis": "6-31g(d)",
+          "dispersion": "gd3bj",
+          "solvent_model": "none",
+          "solvent": "none"
+        },
+        "single_point": null
+      },
+      "attempts": [
+        "I-0",
+        "I-1"
+      ],
+      "program_version": "Gaussian 16 Rev A.03",
+      "single_conformer_reason": null,
+      "standard_state_correction_kcal": 0.0,
+      "concentration_correction_kcal": 0.0,
+      "corrected_G_kcal": -5.0
+    },
+    "TS2": {
+      "ensemble_G_hartree": 0.023904019014748333,
+      "elements": {
+        "O": 1,
+        "H": 2
+      },
+      "charge": 0,
+      "multiplicity": 1,
+      "n_imag": 1,
+      "settings": {
+        "temperature_K": 298.15,
+        "concentration_mol_L": 1.0,
+        "qs": "grimme",
+        "qh": "head_gordon",
+        "s_cutoff_cm1": 100.0,
+        "h_cutoff_cm1": 100.0,
+        "frequency_scale": 1.0,
+        "zpe_scale": 1.0,
+        "rotational_symmetry": "from_output",
+        "inertia": "global"
+      },
+      "protocol": {
+        "frequency": {
+          "method": "b3lyp",
+          "basis": "6-31g(d)",
+          "dispersion": "gd3bj",
+          "solvent_model": "none",
+          "solvent": "none"
+        },
+        "single_point": null
+      },
+      "attempts": [
+        "TS2-0",
+        "TS2-1"
+      ],
+      "program_version": "Gaussian 16 Rev A.03",
+      "single_conformer_reason": null,
+      "standard_state_correction_kcal": 0.0,
+      "concentration_correction_kcal": 0.0,
+      "corrected_G_kcal": 14.999999999999998
+    },
+    "P": {
+      "ensemble_G_hartree": -0.01593601267649889,
+      "elements": {
+        "O": 1,
+        "H": 2
+      },
+      "charge": 0,
+      "multiplicity": 1,
+      "n_imag": 0,
+      "settings": {
+        "temperature_K": 298.15,
+        "concentration_mol_L": 1.0,
+        "qs": "grimme",
+        "qh": "head_gordon",
+        "s_cutoff_cm1": 100.0,
+        "h_cutoff_cm1": 100.0,
+        "frequency_scale": 1.0,
+        "zpe_scale": 1.0,
+        "rotational_symmetry": "from_output",
+        "inertia": "global"
+      },
+      "protocol": {
+        "frequency": {
+          "method": "b3lyp",
+          "basis": "6-31g(d)",
+          "dispersion": "gd3bj",
+          "solvent_model": "none",
+          "solvent": "none"
+        },
+        "single_point": null
+      },
+      "attempts": [
+        "P-0",
+        "P-1"
+      ],
+      "program_version": "Gaussian 16 Rev A.03",
+      "single_conformer_reason": null,
+      "standard_state_correction_kcal": 0.0,
+      "concentration_correction_kcal": 0.0,
+      "corrected_G_kcal": -10.0
+    }
+  },
+  "states": [
+    {
+      "id": "R",
+      "kind": "minimum",
+      "species": {
+        "R": 1
+      },
+      "elements": {
+        "O": 1,
+        "H": 2
+      },
+      "charge": 0,
+      "G_kcal": 0.0,
+      "relative_G_kcal": 0.0
+    },
+    {
+      "id": "TS1",
+      "kind": "ts",
+      "species": {
+        "TS1": 1
+      },
+      "elements": {
+        "O": 1,
+        "H": 2
+      },
+      "charge": 0,
+      "G_kcal": 20.0,
+      "relative_G_kcal": 20.0
+    },
+    {
+      "id": "I",
+      "kind": "minimum",
+      "species": {
+        "I": 1
+      },
+      "elements": {
+        "O": 1,
+        "H": 2
+      },
+      "charge": 0,
+      "G_kcal": -5.0,
+      "relative_G_kcal": -5.0
+    },
+    {
+      "id": "TS2",
+      "kind": "ts",
+      "species": {
+        "TS2": 1
+      },
+      "elements": {
+        "O": 1,
+        "H": 2
+      },
+      "charge": 0,
+      "G_kcal": 14.999999999999998,
+      "relative_G_kcal": 14.999999999999998
+    },
+    {
+      "id": "P",
+      "kind": "minimum",
+      "species": {
+        "P": 1
+      },
+      "elements": {
+        "O": 1,
+        "H": 2
+      },
+      "charge": 0,
+      "G_kcal": -10.0,
+      "relative_G_kcal": -10.0
+    }
+  ],
+  "steps": [
+    {
+      "reactant": "R",
+      "ts": "TS1",
+      "product": "I",
+      "forward_barrier_kcal": 20.0,
+      "reverse_barrier_kcal": 25.0,
+      "reaction_G_kcal": -5.0,
+      "formulas": {
+        "forward": "G(TS1) - G(R)",
+        "reverse": "G(TS1) - G(I)",
+        "reaction": "G(I) - G(R)"
+      }
+    },
+    {
+      "reactant": "I",
+      "ts": "TS2",
+      "product": "P",
+      "forward_barrier_kcal": 20.0,
+      "reverse_barrier_kcal": 25.0,
+      "reaction_G_kcal": -5.0,
+      "formulas": {
+        "forward": "G(TS2) - G(I)",
+        "reverse": "G(TS2) - G(P)",
+        "reaction": "G(P) - G(I)"
+      }
+    }
+  ],
+  "formulas": {
+    "ensemble": "G_s = -RT ln sum_i d_i exp(-G_si/RT); never sum_i p_i G_si",
+    "composite": "G_si = E_SP,si + (G_qh,freq,si - E_freq,si)",
+    "standard_state": "G_s(target) = G_s(source) + RT ln(C_target/C_source); C_1atm = 1/(R_L_atm T)",
+    "explicit_solvent": "G_s(c) = G_s(target) + RT ln(c_s/C_target)",
+    "state": "G_state = sum_s nu_s G_s; DeltaG_state = G_state - G_reference",
+    "forward": "DeltaG_forward = G_TS - G_reactant",
+    "reverse": "DeltaG_reverse = G_TS - G_product",
+    "reaction": "DeltaG_reaction = G_product - G_reactant",
+    "span": "deltaE = max_ij [G_TS_i - G_I_j + (DeltaG_cycle if TS_i precedes I_j else 0)]; DeltaG_cycle = G_end - G_start"
+  },
+  "catalytic_cycle": true,
+  "note": "Finite supplied conformer ensembles; equilibration, mechanism and cycle closure are reviewed scientific assumptions.",
+  "energetic_span": {
+    "delta_E_kcal": 20.0,
+    "TDTS": [
+      "TS1",
+      "TS2"
+    ],
+    "TDI": [
+      "I",
+      "R"
+    ],
+    "determining_pairs": [
+      {
+        "TDTS": "TS1",
+        "TDI": "R",
+        "cycle_correction_kcal": 0.0,
+        "delta_E_kcal": 20.0
+      },
+      {
+        "TDTS": "TS2",
+        "TDI": "I",
+        "cycle_correction_kcal": 0.0,
+        "delta_E_kcal": 20.0
+      }
+    ],
+    "pairs": [
+      {
+        "TDTS": "TS1",
+        "TDI": "R",
+        "cycle_correction_kcal": 0.0,
+        "delta_E_kcal": 20.0
+      },
+      {
+        "TDTS": "TS1",
+        "TDI": "I",
+        "cycle_correction_kcal": -10.0,
+        "delta_E_kcal": 15.0
+      },
+      {
+        "TDTS": "TS2",
+        "TDI": "R",
+        "cycle_correction_kcal": 0.0,
+        "delta_E_kcal": 14.999999999999998
+      },
+      {
+        "TDTS": "TS2",
+        "TDI": "I",
+        "cycle_correction_kcal": 0.0,
+        "delta_E_kcal": 20.0
+      }
+    ],
+    "reaction_G_kcal": -10.0,
+    "doi": "10.1021/ar1000956",
+    "formula": "deltaE = max_ij [G_TS_i - G_I_j + (DeltaG_cycle if TS_i precedes I_j else 0)]; DeltaG_cycle = G_end - G_start",
+    "note": "Forward-cycle energetic-span approximation, not a full microkinetic model or proof of mechanism. For non-exergonic cycles this is a formal span, not a forward TOF estimate."
+  },
+  "sensitivity": {
+    "perturb_kcal": 1,
+    "baseline": {
+      "pairs": [
+        [
+          "TS1",
+          "R"
+        ],
+        [
+          "TS2",
+          "I"
+        ]
+      ],
+      "delta_E_kcal": 20.0
+    },
+    "variants": [
+      {
+        "perturbed_TS": "TS1",
+        "shift_kcal": -1,
+        "pairs": [
+          [
+            "TS2",
+            "I"
+          ]
+        ],
+        "delta_E_kcal": 20.0,
+        "changed": true
+      },
+      {
+        "perturbed_TS": "TS1",
+        "shift_kcal": 1,
+        "pairs": [
+          [
+            "TS1",
+            "R"
+          ]
+        ],
+        "delta_E_kcal": 21.0,
+        "changed": true
+      },
+      {
+        "perturbed_TS": "TS2",
+        "shift_kcal": -1,
+        "pairs": [
+          [
+            "TS1",
+            "R"
+          ]
+        ],
+        "delta_E_kcal": 20.0,
+        "changed": true
+      },
+      {
+        "perturbed_TS": "TS2",
+        "shift_kcal": 1,
+        "pairs": [
+          [
+            "TS2",
+            "I"
+          ]
+        ],
+        "delta_E_kcal": 21.0,
+        "changed": true
+      }
+    ],
+    "any_changed": true,
+    "scope": "One TS state at a time, +/- x kcal/mol; not simultaneous independent errors. For non-cycles only the highest local forward barrier is compared, not a kinetic RDS."
+  }
+}
