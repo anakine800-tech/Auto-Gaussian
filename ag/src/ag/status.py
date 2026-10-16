@@ -76,20 +76,8 @@ def inventory(transport, cfg=None):
     return username, jobs, occupied(jobs, username)
 
 
-class _UnreadableObservation(ValueError):
-    """Presence cannot be established; retain all previous state evidence."""
-
-
-def _unreadable_status(path, current, error):
-    note = f'无法判断远程文件（权限或其他读取错误）：{error}；状态保持不变，请人工核对。'
-    journal.append(path.parent.parent, 'status', path.name, 'unreadable', note)
-    return {**current, 'note': note}
-
-
 def read_receipt(cfg, manifest, transport, name, job_id):
     raw = require_ok(transport.run(remote.receipt(cfg, manifest, name)), 'completion receipt')
-    if raw == 'unreadable\n':
-        raise _UnreadableObservation(name)
     if raw == 'absent\n':
         return None
     if len(raw.encode()) > 4096:
@@ -124,8 +112,6 @@ def outputs(cfg, manifest, transport):
         name, sep, rest = line.partition(' ')
         if not sep or name not in names or name in result:
             raise ValueError('Invalid output observation')
-        if rest == 'unreadable':
-            raise _UnreadableObservation(name)
         if rest == 'absent':
             result[name] = None
         else:
@@ -197,11 +183,8 @@ def check(cfg, path, transport):
     if current['state'] not in ('submitted', 'running', 'stalled', 'interrupted', 'awaiting_second_observation', 'finished', 'fetched'):
         return current
     job_id = submission.verified_job(path, m, current)
-    try:
-        start = read_receipt(cfg, m, transport, 'ag-start.json', job_id)
-        end = read_receipt(cfg, m, transport, 'ag-exit.json', job_id)
-    except _UnreadableObservation as exc:
-        return _unreadable_status(path, current, exc)
+    start = read_receipt(cfg, m, transport, 'ag-start.json', job_id)
+    end = read_receipt(cfg, m, transport, 'ag-exit.json', job_id)
     result = transport.run(remote.jobs(job_id))
     job = None
     if not result.returncode:
@@ -216,10 +199,7 @@ def check(cfg, path, transport):
     scheduler = job.get('job_state') if job else None
     details = {'scheduler_state': scheduler, 'scheduler_residue': False,
                'receipts': {'start': start, 'exit': end}, 'cput': job.get('resources_used.cput') if job else None}
-    try:
-        observed = outputs(cfg, m, transport)
-    except _UnreadableObservation as exc:
-        return _unreadable_status(path, current, exc)
+    observed = outputs(cfg, m, transport)
     now = time.time()
     # T47: retain the first and latest inactive observations, without changing
     # lifecycle classification or the existing 60-second legacy completion rule.
@@ -298,10 +278,7 @@ def check(cfg, path, transport):
         if marker == 'present\n':
             # Recheck after reading the marker: a resumed writer must not pass
             # using a stale size/mtime observation.
-            try:
-                after = outputs(cfg, m, transport)
-            except _UnreadableObservation as exc:
-                return _unreadable_status(path, current, exc)
+            after = outputs(cfg, m, transport)
             if after == observed:
                 details['scheduler_residue'] = scheduler == 'R'
                 source = ('legacy-marker-stable-scheduler-absent' if scheduler is None
