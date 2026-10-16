@@ -234,7 +234,7 @@ def test_facts_rejections_identify_system_and_fragment(sample, key, value, messa
 
 @pytest.mark.parametrize('route', [ROUTE.replace('HF', 'B3LYP'), ROUTE.replace('STO-3G', '6-31G'),
                                    ROUTE.replace('Water', 'Acetonitrile'), ROUTE.replace('SMD', 'PCM'),
-                                   ROUTE + ' EmpiricalDispersion=GD3BJ'])
+                                   ROUTE + ' EmpiricalDispersion=GD3BJ', ROUTE + ' 5D', ROUTE + ' 10F'])
 def test_protocol_mismatch(sample, route):
     root, _ = sample
     path = root / 'attempts/a-first/facts.json'
@@ -246,6 +246,17 @@ def test_protocol_mismatch(sample, route):
     update_json(path.parent / 'manifest.json', inputs=[
         dict(name='input.gjf', sha256=sha256(input_file.read_bytes()).hexdigest())])
     with pytest.raises(ValueError, match='fragment first: method protocol mismatch'):
+        build(sample)
+
+
+@pytest.mark.parametrize('method', ['MP2', 'CCSD(T)', 'B2PLYP', 'mPW2PLYP', 'DSD-PBEP86', 'PBE0DH', 'PM6'])
+def test_asm_rejects_non_scf_energy_methods(sample, method):
+    root, _ = sample
+    path = root / 'attempts/a-first/facts.json'
+    facts = json.loads(path.read_text())
+    facts['route'] = facts['job_sections'][0]['route'] = ROUTE.replace('HF', method)
+    write_json(path, facts)
+    with pytest.raises(ValueError, match='当前只支持 SCF 能量的方法'):
         build(sample)
 
 

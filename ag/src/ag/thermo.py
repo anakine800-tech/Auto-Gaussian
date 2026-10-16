@@ -1,6 +1,7 @@
 """GoodVibes thermochemistry and explicit finite-ensemble Boltzmann weighting."""
 
 from datetime import datetime, timezone
+from collections import Counter
 from importlib.metadata import version
 from hashlib import sha256
 import json
@@ -13,6 +14,7 @@ from ag.facts import parse_facts, gaussian_log, resolve_attempt
 
 HARTREE_TO_KCAL = 627.509541
 R_HARTREE = 8.3144621 / (HARTREE_TO_KCAL * 4184)
+SPECIES_REVIEW_NOTE = '分子式相同不等于同一物种，是否属于同一物种的构象集合仍由人审阅。'
 
 
 def boltzmann(energies, degeneracies, temperature):
@@ -57,6 +59,35 @@ def _geometry_sha256(frame):
     payload = {'elements': frame.symbols, 'coordinates_angstrom': frame.coordinates}
     return sha256(json.dumps(payload, sort_keys=True, separators=(',', ':'),
                              allow_nan=False).encode('utf-8')).hexdigest()
+
+
+def _frequency_evidence(facts, attempt_id):
+    """Reject unverified frequency thermochemistry, including standalone Freq.
+
+    Normal termination and zero imaginary modes do not establish stationarity
+    or a complete vibrational spectrum. Atomic species only waive the latter.
+    """
+    monatomic = facts.get('n_atoms') == 1
+    required = ['freq_step_converged']
+    if not monatomic:
+        required.append('vibrational_modes_complete')
+    missing = [key for key in required if key not in facts]
+    if missing:
+        raise ValueError(f'{attempt_id}: missing frequency evidence {", ".join(missing)}; '
+                         'run ag facts <attempt> --refresh after reviewing the original log')
+    if facts['freq_step_converged'] is not True:
+        table = json.dumps(facts.get('freq_step_convergence'), ensure_ascii=False)
+        raise ValueError(f'{attempt_id}: requires freq_step_converged is True; '
+                         f"got {facts['freq_step_converged']!r}; freq_step_convergence={table}")
+    if not monatomic and facts['vibrational_modes_complete'] is not True:
+        raise ValueError(f'{attempt_id}: requires vibrational_modes_complete is True; '
+                         f"got {facts['vibrational_modes_complete']!r}; "
+                         f"n_vibrational_modes={facts.get('n_vibrational_modes')}, "
+                         f"expected_vibrational_modes={facts.get('expected_vibrational_modes')}")
+    return {key: facts.get(key) for key in
+            ('freq_step_converged', 'freq_step_convergence', 'vibrational_modes_complete',
+             'n_vibrational_modes', 'expected_vibrational_modes')} | {
+                 'note': '单原子无振动模式；不要求模式完整性。' if monatomic else None}
 
 
 def _pairing_evidence(directory, facts, sp_directory, sp_facts, geometry):
@@ -134,11 +165,26 @@ def _symmetry_evidence(result, log):
                 'note': 'GoodVibes 4.3.0 QCData.symmno; symm=False; missing output defaults to 1'}}
 
 
+def _ensemble_consistency(rows):
+    """List incompatible layers/states instead of weighting unrelated energies."""
+    baseline = rows[0]
+    differences = []
+    for row in rows[1:]:
+        for key, expected in baseline['comparability'].items():
+            actual = row['comparability'][key]
+            if actual != expected:
+                differences.append(f"{row['attempt_id']}: {key}={actual!r}; "
+                                   f"{baseline['attempt_id']} has {expected!r}")
+    if differences:
+        raise ValueError('Incomparable thermo ensemble:\n' + '\n'.join(differences))
+
+
 def calculate_thermo(attempts, *, study=None, temp=298.15, conc=1.0, qs='grimme',
                      s_cutoff=100.0, h_cutoff=100.0, degeneracy=None, spc=None):
     """Compute a table from local logs. Does not write the analysis output."""
     # Imported on command execution, never while CLI/help is registered.
     from goodvibes.thermo import ThermoOptions, calc_bbe
+    from ag._profile_sources import protocol, integration_grid, grid_warnings, integer, nonempty
 
     if version('goodvibes') != '4.3.0':
         raise ValueError('ag thermo requires GoodVibes 4.3.0')
@@ -157,16 +203,38 @@ def calculate_thermo(attempts, *, study=None, temp=298.15, conc=1.0, qs='grimme'
           for k, v in (spc or {}).items()}
     if (set(deg) | set(sp)) - set(directories):
         raise ValueError('A degeneracy/SPC mapping does not match an input Attempt')
+    if sp and len(sp) != len(directories):
+        raise ValueError('SPC must be present for all conformers or none; '
+                         f"with SPC: {', '.join(d.name for d in directories if d in sp)}; "
+                         f"without SPC: {', '.join(d.name for d in directories if d not in sp)}")
     options = ThermoOptions(QS=qs, QH=True, s_freq_cutoff=s_cutoff, h_freq_cutoff=h_cutoff,
                             temperature=temp, concentration=conc,
                             freq_scale_factor=1.0, zpe_scale_factor=1.0)
     rows = []
+    grids = []
     for directory in directories:
         facts, geometries = parse_facts(directory)
         if facts['termination'] != 'normal' or facts.get('n_imag') != 0:
             raise ValueError(f'{directory.name}: requires normal termination and frequencies with n_imag = 0')
         if facts['program'] != 'gaussian':
             raise ValueError(f'{directory.name}: Gaussian frequency output is required')
+        frequency_evidence = _frequency_evidence(facts, directory.name)
+        frequency_protocol = protocol(facts.get('route'))
+        frequency_version = nonempty(facts.get('program_version'), f'{directory.name}: program version')
+        geometry = geometries.get('final.xyz')
+        if not geometry:
+            raise ValueError(f'{directory.name}: missing frequency final geometry')
+        elements = dict(Counter(line.split()[0] for line in geometry.splitlines()[2:] if line.strip()))
+        if sum(elements.values()) != facts.get('n_atoms'):
+            raise ValueError(f'{directory.name}: atom count mismatch')
+        comparability = {'elements': elements,
+                         'charge': integer(facts.get('charge'), f'{directory.name} charge'),
+                         'multiplicity': integer(facts.get('multiplicity'), f'{directory.name} multiplicity', positive=True),
+                         'frequency_protocol': frequency_protocol, 'frequency_program_version': frequency_version,
+                         'single_point_protocol': None, 'single_point_program_version': None}
+        frequency_grid = integration_grid(facts['route'])
+        grids.append((f'{directory.name}/frequency', frequency_grid))
+        sp_grid = None
         weight = deg.get(directory, 1)
         if not isinstance(weight, int) or isinstance(weight, bool) or weight <= 0:
             raise ValueError(f'{directory.name}: degeneracy must be a positive integer')
@@ -184,6 +252,10 @@ def calculate_thermo(attempts, *, study=None, temp=298.15, conc=1.0, qs='grimme'
             sp_facts, _ = parse_facts(sp[directory])
             if sp_facts['termination'] != 'normal' or sp_facts.get('n_imag') not in (0, None):
                 raise ValueError(f'{sp[directory].name}: SPC requires normal termination and no imaginary frequencies')
+            comparability.update(single_point_protocol=protocol(sp_facts.get('route')),
+                single_point_program_version=nonempty(sp_facts.get('program_version'), f'{sp[directory].name}: program version'))
+            sp_grid = integration_grid(sp_facts['route'])
+            grids.append((f'{sp[directory].name}/single_point', sp_grid))
             electronic = sp_facts.get('energies', {}).get('scf')
             if electronic is None:
                 raise ValueError(f'{sp[directory].name}: SPC electronic energy is missing')
@@ -196,6 +268,9 @@ def calculate_thermo(attempts, *, study=None, temp=298.15, conc=1.0, qs='grimme'
         standard_state = R_HARTREE * temp * math.log(8.3144621 * temp / 101.325)
         concentration = R_HARTREE * temp * math.log(conc)
         rows.append({'attempt_id': directory.name, 'degeneracy': weight,
+                     'frequency_evidence': frequency_evidence,
+                     'comparability': comparability,
+                     'integration_grid': {'frequency': frequency_grid, 'single_point': sp_grid},
                      'degeneracy_source': 'explicit --degeneracy/API mapping' if directory in deg else 'default 1',
                      **_symmetry_evidence(result, gaussian_log(directory)),
                      'E': electronic, 'frequency_E': result.scf_energy,
@@ -211,6 +286,7 @@ def calculate_thermo(attempts, *, study=None, temp=298.15, conc=1.0, qs='grimme'
                      'pairing_evidence': pairing,
                      'qh_G': result.qh_gibbs_free_energy + delta,
                      'spc_attempt_id': sp_id, 'spc_correction': delta})
+    _ensemble_consistency(rows)
     populations, average, ensemble = boltzmann(
         [r['qh_G'] for r in rows], [r['degeneracy'] for r in rows], temp)
     minimum = min(r['qh_G'] for r in rows)
@@ -223,6 +299,7 @@ def calculate_thermo(attempts, *, study=None, temp=298.15, conc=1.0, qs='grimme'
                          'rotational_symmetry': 'from_output', 'inertia': 'global'},
             'units': {'energy': 'Hartree', 'entropy': 'Hartree/K', 'pairing_rmsd': 'angstrom', 'relative_G': 'kcal/mol', 'population': 'fraction'},
             'rows': rows, 'weighted_mean_G': average, 'ensemble_G': ensemble,
+            'warnings': grid_warnings(grids), 'species_review_note': SPECIES_REVIEW_NOTE,
             'note': 'H/S/G are RRHO; qh_H/qh_S/qh_G are qRRHO, all at the requested T and concentration, '
                     'with SPC replacing electronic energy in H/G only. frequency_rrho retains frequency-level RRHO. '
                     'qh_G = frequency_rrho_G_1atm + spc_correction + low_frequency_correction '
@@ -268,6 +345,21 @@ def write_analysis(result, study_dir):
         source = row['rotational_symmetry_source']
         lines.append(f"| {row['attempt_id']} | {row['degeneracy_source']} | {source['kind']}; "
                      f"{source['file']}:{source['line'] or '—'}; {source['reported_text'] or source['note']} |")
+    for row in result['rows']:
+        evidence = row.get('frequency_evidence', {})
+        if evidence.get('note'):
+            lines += ['', f"{row['attempt_id']}: {evidence['note']}"]
+    lines += ['', result.get('species_review_note', SPECIES_REVIEW_NOTE), '',
+              '| Attempt | Layer | Protocol | Program version | Integration grid |',
+              '|---|---|---|---|---|']
+    for row in result['rows']:
+        for layer in ('frequency', 'single_point'):
+            comparison = row['comparability']
+            if comparison[f'{layer}_protocol'] is not None:
+                lines.append(f"| {row['attempt_id']} | {layer} | "
+                             f"{json.dumps(comparison[f'{layer}_protocol'], ensure_ascii=False)} | "
+                             f"{comparison[f'{layer}_program_version']} | {row['integration_grid'][layer]} |")
+    lines += ['', *[f'- 警告：{warning}' for warning in result.get('warnings', [])]]
     lines += ['', '| Frequency Attempt | SP Attempt | RMSD (Å) | SP input geometry SHA-256 | Frequency final geometry SHA-256 |',
               '|---|---|---:|---|---|']
     for row in result['rows']:

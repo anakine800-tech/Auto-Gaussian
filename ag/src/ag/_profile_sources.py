@@ -12,7 +12,60 @@ from pathlib import Path
 import re
 
 from ag.geometry import read_xyz
-from ag.thermo import boltzmann, _symmetry_evidence
+from ag.thermo import boltzmann, _symmetry_evidence, _frequency_evidence, _pairing_evidence
+
+# SCF Done is not the final electronic energy for these method families.
+# Keep the accepted names explicit: an unknown method is not evidence of SCF
+# energy semantics. R/U/RO prefixes are accepted without equating protocols.
+SCF_ENERGY_METHODS = frozenset('''
+hf lsda svwn svwn5 slyp blyp bp86 bpw91 bpe bpbe g96lyp g96p86 g96pw91
+pw91lyp pw91p86 pw91pw91 mpwlyp mpwpw91 mpwpbe pbe pbe0 pbepbe pbe1pbe
+b3lyp b3lyp5 b3p86 b3pw91 b1b95 b1lyp b1pw91 b98 b971 b972 b97d b97d3
+mpw1pw91 mpw1lyp mpw1pbe mpw3pbe mpw3lyp mpw1b95 mpwlyp1m
+o3lyp olyp opbe x3lyp cam-b3lyp lc-wpbe wb97 wb97x wb97xd
+m05 m052x m06 m06l m062x m06hf m08hx m08so m11 m11l mn12l mn12sx mn15 mn15l
+tpsstpss tpssh revtpss revtpssh vsxc hcth93 hcth147 hcth407 thcth thcthhyb
+sogga11 sogga11x n12 n12sx hseh1pbe hse1pbe hse2pbe ohse1pbe ohse2pbe
+'''.split())
+NON_SCF_METHOD_PREFIXES = (
+    'mp2', 'mp3', 'mp4', 'mp5', 'cc', 'qcisd', 'cbs', 'g1', 'g2', 'g3', 'g4',
+    'b2', 'mpw2', 'dsd', 'dod', 'revdsd', 'revdod', 'pbe0dh', 'pbeqidh',
+    'pwpb95', 'xyg', 'wb97x2', 'oniom', 'am1', 'pm3', 'pm6', 'pm7',
+    'pddg', 'mndo', 'cndo', 'indo', 'zindo', 'dftb', 'uff', 'dreiding', 'amber',
+    'cis', 'eom', 'bd', 'cas', 'sac', 'td',
+)
+
+
+def _method_variants(method):
+    compact = method.lower().replace('-', '')
+    return [compact] + [compact[len(prefix):] for prefix in ('ro', 'r', 'u')
+                        if compact.startswith(prefix)]
+
+
+def _scf_method_checked(method):
+    variants = _method_variants(method)
+    require(not any(value.startswith(NON_SCF_METHOD_PREFIXES) for value in variants)
+            and any(value in {m.replace('-', '') for m in SCF_ENERGY_METHODS} for value in variants),
+            f'{method}: 当前只支持 SCF 能量的方法 (SCF Done); unsupported or unrecognized method')
+
+
+def integration_grid(route):
+    """Record explicit Int/Integral settings without assuming default equivalence.
+
+    Kept separate from protocol() equality so all its consumers (including
+    asm) retain warning-only grid semantics without a custom dict equality.
+    """
+    route = re.sub(r'\s*([=,])\s*', r'\1', nonempty(route, 'Gaussian route').lower())
+    settings = re.findall(r'(?<!\S)(?:integral|int)\b\s*(?:=\s*(\([^)]*\)|[^\s]+)|(\([^)]*\)))', route)
+    return '; '.join(re.sub(r'\s+', '', a or b).strip('()') for a, b in settings) if settings else 'program_default'
+
+
+def grid_warnings(entries):
+    if len({grid for _, grid in entries}) <= 1:
+        return []
+    return ['积分网格设置不同（仅警告）：' + '; '.join(f'{label}={grid}' for label, grid in entries)
+            + '。program_default 随程序版本而异，未推断与显式网格等价。']
+
 
 DEFAULT_SETTINGS = {
     'temperature_K': 298.15, 'concentration_mol_L': 1.0, 'qs': 'grimme',
@@ -90,9 +143,17 @@ def protocol(route):
     # 6-31+G(d) to the following Opt/Freq keyword and falsely changes protocol.
     route = re.sub(r'\(\s*', '(', route)
     route = re.sub(r'\s*\)', ')', route)
+    # Catch basis-free composite/semiempirical routes and layered ONIOM before
+    # the explicit method/basis diagnostic, as well as extra correlated/TD jobs.
+    tokens = re.findall(r'(?<!\S)([a-z][a-z0-9-]*)(?=[\s/(=]|$)', route)
+    require(not any(value.startswith(NON_SCF_METHOD_PREFIXES)
+                    for token in tokens for value in _method_variants(token)),
+            '当前只支持 SCF 能量的方法 (SCF Done); correlated/composite/double-hybrid/'
+            'semiempirical/ONIOM methods are unsupported')
     pairs = re.findall(r'(?<!\S)([a-z0-9+_()\-]+)/([^\s]+)', route)
     require(len(pairs) == 1, 'Expected one explicit method/basis in Gaussian route')
     method, basis = pairs[0]
+    _scf_method_checked(method)
     require(basis not in {'gen', 'genecp', 'chkbasis'} and 'extrabasis' not in route
             and 'pseudo' not in route and 'iop' not in route,
             'Custom basis/ECP/IOp protocol is not supported by profile')
@@ -108,7 +169,12 @@ def protocol(route):
         require(len(models) == len(solvents) == 1 and len(options) == 2,
                 'SCRF needs explicit model and solvent; custom/read options are unsupported')
         model, solvent = models[0], solvents[0]
+    basis_types = re.findall(r'(?<!\S)(5d|6d|7f|10f)(?!\S)', route)
+    require(not ({'5d', '6d'} <= set(basis_types) or {'7f', '10f'} <= set(basis_types)),
+            'Conflicting basis function types')
+    basis_type = ' '.join(x.upper() for x in ('5d', '6d', '7f', '10f') if x in basis_types)
     return {'method': method, 'basis': basis,
+            'basis_function_type': basis_type or 'basis_default',
             'dispersion': dispersion[0] if dispersion else 'method_default',
             'solvent_model': model, 'solvent': solvent}
 
@@ -186,6 +252,7 @@ def load_species(name, spec, study, analyses, direct_settings):
         nonempty(spec.get('single_conformer_reason'), f'{name}: single_conformer_reason')
     identities, protocols, energies, degeneracies, ids, program_versions = [], [], [], [], [], []
     conformers = []
+    grids = []
     for row in rows:
         require(isinstance(row, dict), f'{name}: each Attempt must be an object')
         aid = row.get('attempt_id')
@@ -195,17 +262,30 @@ def load_species(name, spec, study, analyses, direct_settings):
         program_versions.append(nonempty(facts.get('program_version'), f'{aid}: program version missing; regenerate ag facts'))
         n_imag = facts.get('n_imag')
         require(type(n_imag) is int and n_imag in (0, 1), f'{aid}: n_imag must be 0 or 1')
+        frequency_evidence = _frequency_evidence(facts, aid)
+        frequency_grid = integration_grid(facts['route'])
+        grids.append((f'{aid}/frequency', frequency_grid))
         if n_imag == 1:
             check_review(directory)
         identities.append((elements, facts['charge'], facts['multiplicity'], n_imag))
         sp_protocol, delta = None, 0.0
         sp_id = row.get('spc_attempt_id')
+        pairing = row.get('pairing_evidence') if cached else None
+        sp_grid = None
         if sp_id:
-            _, sp_facts, sp_elements, sp_protocol = attempt_facts(study, sp_id, cached=cached)
+            sp_directory, sp_facts, sp_elements, sp_protocol = attempt_facts(study, sp_id, cached=cached)
+            sp_grid = integration_grid(sp_facts['route'])
+            grids.append((f'{sp_id}/single_point', sp_grid))
             program_versions.append(nonempty(sp_facts.get('program_version'), f'{sp_id}: program version missing; regenerate ag facts'))
             require((elements, facts['charge'], facts['multiplicity']) ==
                     (sp_elements, sp_facts['charge'], sp_facts['multiplicity']),
                     f'{aid}: SPC identity mismatch')
+            if not cached:
+                from ag._parse_outputs import parse_gaussian
+                # Reuse the exact thermo input-hash and fixed-row Kabsch check,
+                # including TS refinement. Parse geometry in memory only.
+                _, geometry = parse_gaussian(gaussian_log(directory), directory / 'outputs' / 'job.pbs.out')
+                pairing = _pairing_evidence(directory, facts, sp_directory, sp_facts, geometry)
             delta = finite(sp_facts.get('energies', {}).get('scf'), 'SP energy') - finite(
                 facts.get('energies', {}).get('scf'), 'frequency energy')
         protocols.append({'frequency': freq_protocol, 'single_point': sp_protocol})
@@ -230,6 +310,10 @@ def load_species(name, spec, study, analyses, direct_settings):
         require(isinstance(provenance, dict) and provenance.get('kind') in
                 {'gaussian_output', 'goodvibes_default'}, f'{aid}: missing rotational symmetry source')
         conformers.append({'attempt_id': aid, 'qh_G_hartree': energy,
+                          'frequency_evidence': frequency_evidence,
+                          'pairing_evidence': pairing,
+                          'spc_attempt_id': sp_id,
+                          'integration_grid': {'frequency': frequency_grid, 'single_point': sp_grid},
                           'qh_H_hartree': enthalpy, 'qh_S_hartree_per_K': entropy,
                           **symmetry, 'nosymm': bool(re.search(r'\bnosymm\b', facts['route'], re.I))})
         energies.append(energy)
@@ -258,4 +342,5 @@ def load_species(name, spec, study, analyses, direct_settings):
             'lowest_conformer_G_hartree': min(energies), 'conformers': conformers,
             'multiplicity': multiplicity, 'n_imag': n_imag, 'settings': settings,
             'protocol': protocols[0], 'attempts': ids, 'program_version': program_versions[0],
+            'warnings': grid_warnings(grids),
             'single_conformer_reason': spec.get('single_conformer_reason')}

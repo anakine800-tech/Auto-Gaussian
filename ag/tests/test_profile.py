@@ -28,6 +28,7 @@ def source(tmp_path, name, kcal, *, ts=False, formula=None, charge=0, settings=N
         facts = {'schema': 'ag-facts/1', 'program': 'gaussian', 'program_version': 'Gaussian 16 Rev A.03', 'termination': 'normal',
                  'n_atoms': len(elements), 'charge': charge, 'multiplicity': 1,
                  'n_imag': 1 if ts else 0, 'route': route, 'final_geometry': 'final.xyz',
+                 'freq_step_converged': True, 'vibrational_modes_complete': True,
                  'energies': {'scf': kcal / HARTREE_TO_KCAL}}
         dump(directory / 'facts.json', facts)
         (directory / 'final.xyz').write_text(f'{len(elements)}\nSynthetic test\n' + ''.join(f'{e} 0 0 {i}\n' for i, e in enumerate(elements)))
@@ -299,6 +300,7 @@ def test_protocol_whitespace_preserves_keyword_boundaries(route, keywords):
     assert protocol(route.format(keywords=keywords)) == {
         'method': 'b3lyp', 'basis': '6-31+g(d)', 'dispersion': 'gd3bj',
         'solvent_model': 'smd', 'solvent': 'water',
+        'basis_function_type': 'basis_default',
     }
 
 
@@ -426,7 +428,7 @@ def test_profile_with_monatomic_species(tmp_path, capsys, cached_atom):
 
     species = {}
     for name, fixture in [('water', 'water_opt_freq.log'), ('ts', 'water_opt_freq.log'),
-                          ('F', 'fluoride_freq_synthetic.log'), ('F_shift', 'fluoride_freq_synthetic.log')]:
+                          ('F', 'fluoride_freq_converged_synthetic.log'), ('F_shift', 'fluoride_freq_converged_synthetic.log')]:
         directory = attempt(tmp_path, name, fixture)
         log = directory / 'outputs/input.log'
         # Keep molecular Opt Freq versus atomic Freq, as in the L3 inputs.
