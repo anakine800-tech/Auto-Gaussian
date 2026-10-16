@@ -60,8 +60,12 @@ JSON facts 的依据包含 `field` 和该字段在 facts.json 的 `line`，不�
 | `ts_reference` | IRC 第 0 点与 TS facts 的能量、差值、TS facts 来源 |
 | `stop_reason` | completed / max_points / corrector_failed / truncated |
 | `last_accepted_point` | 最后一个非零已接受点号，无则 null |
-| `path_geometry` | 输出 XYZ 文件名 path、frame_index_base=0、frame_count |
+| `path_geometry` | 输出 XYZ 文件名 path、frame_index_base=0、frame_count，以及可选的 sha256 |
 | `points` | 起点及按日志顺序接受的路径点；不包括失败的试探点 |
+
+`path_geometry.sha256` 为对应 `<stem>.forward.xyz` / `<stem>.reverse.xyz` 文件原始字节的
+SHA-256（64 位小写十六进制），在写出前由待写 XYZ 字节计算。该字段为可选字段，
+旧报告没有此字段仍合法，前端应显示“未核对哈希”；不回写已有报告，schema 保持 `ag-irc-review/1`。
 
 每个 `points[]`：
 

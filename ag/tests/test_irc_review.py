@@ -1,12 +1,13 @@
 """Synthetic water motions; no private logs or live configuration."""
 
+from contextlib import contextmanager
 from hashlib import sha256
 import json
 from pathlib import Path
 
 import pytest
 
-from ag import cli, geometry as geo, irc_review as ir
+from ag import cli, fragments, geometry as geo, irc_review as ir
 from ag._irc import parse_irc, parse_irc_points
 from ag.facts import parse_facts
 from test_asm import attempt, update_json, write_json
@@ -126,6 +127,90 @@ def test_complete_two_directions_readonly_hashes_frames_and_lines(sample):
 def math_distance(frame, i, j):
     import math
     return math.dist(frame.coordinates[i], frame.coordinates[j])
+
+
+@pytest.mark.parametrize('missing', [None, ('geometry', 2)])
+def test_path_hashes_bind_pending_and_written_xyz_bytes(sample, monkeypatch, missing):
+    change_log(sample, missing=missing)
+    writer = ir._write_outputs
+    pending_hashes = {}
+
+    def check_before_write(parent, payloads):
+        assert len(payloads) == 4
+        assert all(not (parent / name).exists() for name in payloads)
+        report = json.loads(payloads['review.json'])
+        for direction, item in report['directions'].items():
+            path = item['path_geometry']
+            pending_hashes[direction] = sha256(payloads[path['path']]).hexdigest()
+            assert path['sha256'] == pending_hashes[direction]
+        writer(parent, payloads)
+
+    monkeypatch.setattr(ir, '_write_outputs', check_before_write)
+    result = build(sample)
+    assert json.loads((sample / 'analyses/review.json').read_bytes()) == result
+    for direction, item in result['directions'].items():
+        path = item['path_geometry']
+        actual = sha256((sample / 'analyses' / path['path']).read_bytes()).hexdigest()
+        assert path['sha256'] == pending_hashes[direction] == actual
+
+
+@pytest.mark.parametrize('case,json_hash,md_hash,forward_hash', [
+    ('complete', '4a0ae374a82491eed8606f67751802fa99d5be607bba9825fecb334cca68546b',
+     '8f35802df6477fb215629861b80ed6e6aad959fc684e4d245e179a477b5cb459',
+     'c7749aed2d8b7e4640bfdd2e15171e4261c9c50ce1b571becfb94e885c4c6ea6'),
+    ('failure', '112371df6a9b445b21298724d7f0ca57781be14e476bc4a19775ab8b8887994a',
+     '0efd5119c8321ff91e3613ede60fc06912129fd82e641534572e32ac5122aa6b',
+     'c7749aed2d8b7e4640bfdd2e15171e4261c9c50ce1b571becfb94e885c4c6ea6'),
+    ('missing_geometry', '52c748461444d8e90fe2d20153af8bdfaf34440135fd4c06e9a341c76d9bdcb4',
+     '28db495f99d2559279c3f27e653d3868c3b56f2648b60aeaa2c8caaa03d04a34',
+     '107f66cdc975bb0d338a69d72fd4769fe9b05da521c37a341547af30c9646a8a'),
+])
+def test_outputs_match_main_bytes_except_path_hashes(sample, monkeypatch, case, json_hash, md_hash, forward_hash):
+    # Captured from unmodified main 0cccf9598e4d751138144dc43b39e1742547c45f.
+    # Pin release metadata and platform-dependent SVD rounding in this byte test.
+    monkeypatch.setattr(ir, '__version__', '4.2.2')
+    monkeypatch.setattr(ir, 'aligned_rmsd', lambda a, b: 0.0)
+    if case == 'failure':
+        change_log(sample, ending='failure')
+    elif case == 'missing_geometry':
+        change_log(sample, missing=('geometry', 2))
+    build(sample)
+    directory = sample / 'analyses'
+    raw = (directory / 'review.json').read_bytes()
+    report = json.loads(raw)
+    # Remove only the two new field lines; preserve all other JSON bytes.
+    for item in report['directions'].values():
+        digest = item['path_geometry']['sha256']
+        field = f',\n        "sha256": "{digest}"'.encode()
+        assert raw.count(field) == 1
+        raw = raw.replace(field, b'', 1)
+    assert sha256(raw).hexdigest() == json_hash
+    for suffix, expected in [('md', md_hash), ('forward.xyz', forward_hash),
+                             ('reverse.xyz', '9ea94164f0c54e6f07d0f15a76350d1b772baf4925faf41bfba219a950cf1b91')]:
+        assert sha256((directory / ('review.' + suffix)).read_bytes()).hexdigest() == expected
+
+
+@pytest.mark.parametrize('fail_at', [1, 2, 3, 4])
+def test_output_write_failure_rolls_back_all_four_files(sample, monkeypatch, fail_at):
+    before = snapshot(sample)
+    fdopen = fragments.os.fdopen
+    count = 0
+
+    class BrokenWriter:
+        def write(self, content):
+            raise OSError('synthetic disk failure')
+
+    @contextmanager
+    def fail(fd, *args, **kwargs):
+        nonlocal count
+        count += 1
+        with fdopen(fd, *args, **kwargs) as handle:
+            yield BrokenWriter() if count == fail_at else handle
+
+    monkeypatch.setattr(fragments.os, 'fdopen', fail)
+    with pytest.raises(OSError, match='synthetic disk failure'):
+        build(sample)
+    assert snapshot(sample) == before
 
 
 @pytest.mark.parametrize('case,status', [('supported', 'met_by_endpoint_optimization'), ('identity', 'not_met'),

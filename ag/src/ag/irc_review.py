@@ -1,5 +1,6 @@
 """Local per-direction IRC evidence checks; scientific review remains human."""
 
+from hashlib import sha256
 import json
 import math
 from pathlib import Path
@@ -329,6 +330,7 @@ def review(*, ts, forward, reverse, pairs, out, study=None, forward_reference=No
         directions[direction], frames = _direction(evidence, source_ts, sources[direction], endpoints[direction], references[direction],
                                                    comparison, direction, pairs, threshold, noise, xyz.name)
         payloads[xyz.name] = ''.join(xyz_text(f.symbols, f.coordinates) for f in frames).encode()
+        directions[direction]['path_geometry']['sha256'] = sha256(payloads[xyz.name]).hexdigest()
     result = dict(schema='ag-irc-review/1', ag_version=__version__, notice=NOTICE,
                   ts=source_ts['directory'].name, protocol=source_ts['protocol'], pairs=[list(p) for p in pairs],
                   units=dict(energy='hartree', relative_energy='kcal/mol', distance='angstrom'),
