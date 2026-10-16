@@ -1,5 +1,40 @@
 # Changelog
 
+## v4.2.0
+
+发布准备中，tag 和 GitHub release 由负责人在本 PR 合并后创建。本节汇总 v4.1.0 之后已合并的 #268–#276；本次仅更新版本号和文档。T62、T63 在本任务开工时尚未合并，不纳入本版本。
+
+### 提交与资源
+
+- T51 将单作业上限 `max_cores` 与运行加排队（含挂起）的总额度 `max_committed_cores` 分开，后者最多为前者的 4 倍；按集群统计全部本人作业，包含非 ag 提交的作业。删除严格模式及提交时的 `pbsnodes` 核验，排队额度不再被节点核验降回单作业上限。ag 只在提交时检查额度，不限制运行中核数；调度器可能使运行核数达到 `max_committed_cores`。[#271](https://github.com/anakine800-tech/Auto-Gaussian/pull/271)
+- T51 为每次 SSH/scp 调用追加本地结构化日志，记录耗时、结果及错误类别，便于核对连接失败时间线；不保存连接信息或原始 stderr，日志写入失败不改变操作结果或重试语义。[#271](https://github.com/anakine800-tech/Auto-Gaussian/pull/271)
+- **升级提示：** 两台电脑分别检查本机配置：`max_cores` 是单个作业上限，`max_committed_cores` 是运行加排队总额度，范围为 `max_cores` 至 `4 × max_cores`；后者不是单独的排队额度，也不保证运行中核数不超过 `max_cores`。[#271](https://github.com/anakine800-tech/Auto-Gaussian/pull/271)
+
+### 取回与解析
+
+- T52 在普通 `ag fetch` 和 `--incomplete` 成功后自动运行本地 facts 解析，减少忘记手动解析造成的结果缺失；绝不覆盖已有 `facts.json`。内容相同保留原字节和 mtime，冲突或解析失败通过 `facts.status` 与提示报告，不把已成功的取回改成失败。`--no-facts` 可关闭；`--add-missing` 和缺依赖时跳过自动解析，不自动刷新证据。[#276](https://github.com/anakine800-tech/Auto-Gaussian/pull/276)
+
+### 模板
+
+- T50 在 CREST/xTB 模板固定 `OPENBLAS_NUM_THREADS=1`、`OMP_MAX_ACTIVE_LEVELS=1`，保留原 OpenMP 核数，抑制嵌套并行导致的 OpenBLAS 警告和日志膨胀；Gaussian 模板不变，既有 Attempt 的脚本不重写。[#268](https://github.com/anakine800-tech/Auto-Gaussian/pull/268)
+
+### 证据清单
+
+- T49 修复中文说明与裸路径边界，保留带引号或链接包裹的中文文件名，并支持递归展开 `analyses` 内的目录引用；记录 `expanded_from`，避免漏掉签字依据或把目录误判为缺失文件。非路径长说明不再触发文件名过长错误；显式错误仍定位到来源。[#269](https://github.com/anakine800-tech/Auto-Gaussian/pull/269)
+- T49b 修复 Attempt 相对文件名和 study 快照引用的解析基准：JSON 中特定字段的裸文件名在源目录不存在时忽略；文本可回退到 study 根目录并记录 `resolved_from`，两处指向不同文件时报歧义。符号链接、越界及缺失显式引用仍拒绝；L3 保存卡片的仓库相对链接仍越界，详见交接文档。[#275](https://github.com/anakine800-tech/Auto-Gaussian/pull/275)
+
+### 分析
+
+- T53 新增本地 `ag ensemble`，把 dedup 候选、路线、已保存的 SP/Opt facts 和可选 thermo 数据汇总为 JSON 与 Markdown，便于逐候选审阅与前端读取。保留未匹配和歧义，不跨不可比较路线混排能量，不重算布居或代替科学验收。[#270](https://github.com/anakine800-tech/Auto-Gaussian/pull/270)
+
+### Skills 与文档
+
+- T58 新增 kinetics 动力学解释卡片，补充 S8 SMD/标准态核对、F4 核时估算与 Gaussian 报错速查，帮助区分模型换算、方法适用性和执行诊断；不新增隧穿程序或核时额度拦截。[#274](https://github.com/anakine800-tech/Auto-Gaussian/pull/274)
+- T59 提供私有 study 的开题包、文献记录及逐轮讨论模板，明确来源、未知项、方法依据和首轮范围，供负责人审阅签字后交接计算。[#273](https://github.com/anakine800-tech/Auto-Gaussian/pull/273)
+- T60 新增轻量文献整理脚本，支持归一化、合并去重、Crossref 元数据核实及 CSV/Markdown 导出；保留冲突和失败状态，DOI 元数据核实不等于全文、SI 或科学结论核实。[#272](https://github.com/anakine800-tech/Auto-Gaussian/pull/272)
+
+真实环境验证的结果见各 PR 评论（部分详细对照见 PR 正文）；尚待合并后执行的验证不能视为通过，发布不等于科学验收。
+
 ## v4.1.0
 
 发布准备中，tag 和 GitHub release 由负责人在本 PR 合并后创建。本节汇总 v4.0.0 之后已合并的 #252–#266；本次仅更新版本号和文档。
