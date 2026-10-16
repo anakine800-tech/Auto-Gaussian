@@ -1,5 +1,32 @@
 # Changelog
 
+## v4.2.1
+
+发布准备中；后端与前端的版本 PR 经审阅、负责人合并后，由负责人在各自的合并提交上创建 v4.2.1 tag 和 release。逐项核对 v4.2.0 之后已合并的 T62、T64、T65、T66、T68、T69、T70、T72；前端 T71 已合并，配合前端 v4.2.1 使用。
+
+### 执行与恢复
+
+- T62 的五项小修保留：L123 按原因文字识别 IRC 校正失败；`FactsConflictError` 让自动 facts 按异常类型识别冲突；离线文献核实沿用缓存查询日期，缺失/无效日期仍为未核实；显式 `analyses/` 引用不再多报 `resolved_from`；SMD 输出说明改引 Gaussian 官方依据。[#278](https://github.com/anakine800-tech/Auto-Gaussian/pull/278)
+- **T62 的远程观察命令改动在真实集群上导致运行中作业状态读为 unreadable，已由 T65 回退。** 回退恢复此前的 receipt、输出观察及 status 行为，其余五项小修保留；现场根因尚未确定，不把回退描述为权限诊断问题已修复。T65 评论记录真实观察路径恢复正常；带诊断信息的观察命令须在非研究 study 上真实验证后再合并。[#281](https://github.com/anakine800-tech/Auto-Gaussian/pull/281)
+- T66 兼容 Slurm 清除队列记录后的精确 `Invalid job id specified` 诊断，允许继续进入不完整取回的记账核验；仍须 sacct 确认匹配的确切作业及受支持终态，SSH/其他查询错误不视为无记录。真实缺输出场景已安全取回，计算本身仍是非正常结束。[#282](https://github.com/anakine800-tech/Auto-Gaussian/pull/282)
+
+### 证据与分析
+
+- T64 将证据清单引用分为缺失、越界、analyses 外现存引用及无同名候选的裸名。缺失/越界完整列出，须显式 `--accept-unresolved` 才生成清单；其余两类只记信息。普通 JSON 支持 study 根目录回退，歧义、study 内符号链接及专用证据指针错误仍拒绝，旧签字不改写。[#280](https://github.com/anakine800-tech/Auto-Gaussian/pull/280)
+- T69 新增纯本地 `ag channel-coverage`：从明确分配通道的 CSV 和集合清单汇总通道/产物分支的候选及计算覆盖，提示采样不均衡，保留歧义、未匹配及能量可比性限制；报告不判定采样完备或科学合格。[#283](https://github.com/anakine800-tech/Auto-Gaussian/pull/283)
+- T70 为 `ag ensemble` 增加可选二面角分组、近边界标记、关键距离和分组最低能候选汇总，便于逐候选审阅。不传参数时输出行为不变；不合并、删除或重排候选，`ag-ensemble/1` 不变。前端 T71 提供相应列、筛选与汇总跳转。[#285](https://github.com/anakine800-tech/Auto-Gaussian/pull/285)、[Frontend #15](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/15)
+
+### 验证与已知限制
+
+- T68 用 23 个合成 XYZ 检查 RDKit 推断：22 个常规样例的连接、总电荷及可指派立体身份通过检查，有限样例不能外推到任意含硼/离子体系。**R1 尚未修复：** nitronate 的局域形式电荷/键级可能变为另一共振表示，总电荷与身份相容，不是电子密度证据。**R2 尚未修复：** B–O 不确定接触时，topology 顶层可能因确定边片段数变化返回 changed，而 irc-compare 保留 unknown；必须读取详细警告，不能仅凭顶层状态签字。三项严格预期失败持续记录这两类限制，详见 [风险报告](docs/research/rdkit-inference-risk.md)。[#284](https://github.com/anakine800-tech/Auto-Gaussian/pull/284)
+
+### 文档与开发流程
+
+- T72 在文献记录中补充检索覆盖表与可选的逐 TS 证据表，分开记录双向 IRC 完成和端点身份；开题模板说明通道表 CSV 位置、列名及多清单分隔规则，有限检索与访问缺口不等于没有先例。[#286](https://github.com/anakine800-tech/Auto-Gaussian/pull/286)
+- 按负责人 2026-10-16 决定，开发机可连接集群，全部开发及合并前真实验证在开发机完成；计算机只负责 HSS 计算。涉及证据清单、远程命令、提交、状态、取回的改动必须在工单明确对象和步骤，合并前以非研究 study 验证，提交由负责人点击确认；HSS 仅观察。测试范围与例外见 [开发手册](docs/DEVELOPING.md#测试与敏感信息)。
+
+真实验证结果见各 PR 评论，尤其 T65、T66 的恢复与取回记录；未记录通过的场景仍为未验证。发布不等于科学验收，本发布任务不推进研究、不补签。
+
 ## v4.2.0
 
 发布准备中，tag 和 GitHub release 由负责人在本 PR 合并后创建。本节汇总 v4.1.0 之后已合并的 #268–#276；本次仅更新版本号和文档。T62、T63 在本任务开工时尚未合并，不纳入本版本。
@@ -34,6 +61,8 @@
 - T60 新增轻量文献整理脚本，支持归一化、合并去重、Crossref 元数据核实及 CSV/Markdown 导出；保留冲突和失败状态，DOI 元数据核实不等于全文、SI 或科学结论核实。[#272](https://github.com/anakine800-tech/Auto-Gaussian/pull/272)
 
 真实环境验证的结果见各 PR 评论（部分详细对照见 PR 正文）；尚待合并后执行的验证不能视为通过，发布不等于科学验收。
+
+更正（2026-10-16）：v4.2.0 tag（`34d88fc`）实际包含 T63（[#279](https://github.com/anakine800-tech/Auto-Gaussian/pull/279)，`ag dedup` 可选局部构象判别，不加参数时行为不变），本节原文写作未包含。
 
 ## v4.1.0
 
