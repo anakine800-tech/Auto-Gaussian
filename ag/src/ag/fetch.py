@@ -6,12 +6,59 @@ import os
 from pathlib import Path
 import tempfile
 import re
+import sys
 import time
 import fcntl
 from ag import attempt, journal, state, study, remote, status, submission, slurm, __version__
 from ag.config import for_manifest
 from ag.transport import TransportError, SSHTransport, bound_transport, require_ok
 from ag.submit import metadata
+
+
+def _facts_reason(exc, path, *, conflict=False):
+    """Keep one bounded diagnostic without exposing local absolute paths."""
+    message = str(exc).splitlines()[0] if str(exc) else ''
+    root = path.parent.parent
+    # SSH redaction needs connection configuration; automatic facts is local.
+    # Replace study paths first (including quoted paths with spaces), then
+    # discard any other absolute path and the remainder of its diagnostic.
+    for prefix in sorted({str(root.absolute()), str(root.resolve())}, key=len, reverse=True):
+        message = message.replace(prefix + os.sep, '')
+        message = message.replace(prefix, '.')
+    message = re.sub(r'(?<![\w./])(?:/|[A-Za-z]:[\\/]|\\\\).*', '[path omitted]', message)
+    return (message if conflict else f'{type(exc).__name__}: {message}')[:300]
+
+
+def auto_facts(path, *, skip=None):
+    """Best-effort local parsing after a successful CLI fetch; never refresh."""
+    path = Path(path)
+    if skip is not None:
+        result = dict(status='skipped', reason=skip)
+    else:
+        try:
+            from ag.facts import build_facts
+            existed = (path / 'facts.json').exists()
+            build_facts(path, refresh=False)
+            result = dict(status='unchanged' if existed else 'written')
+        except ImportError:
+            result = dict(status='skipped', reason='dependency-unavailable')
+        except Exception as exc:
+            # build_facts has no distinct conflict exception. Match its refusal
+            # header, not arbitrary ValueErrors (e.g. malformed output/geometry).
+            conflict = (isinstance(exc, ValueError) and str(exc).startswith('差异分类')
+                        and 'facts.json 内容不同，拒绝写入；' in str(exc))
+            result = dict(status='conflict' if conflict else 'failed',
+                          reason=_facts_reason(exc, path, conflict=conflict))
+    if result['status'] == 'conflict':
+        print('取回已成功；facts 与已有证据冲突，未覆盖；请人工核对后使用 ag facts --refresh。', file=sys.stderr)
+    elif result['status'] == 'failed':
+        print('取回已成功；自动 facts 解析失败，请核对 facts.reason 后手动运行 ag facts。', file=sys.stderr)
+    try:
+        journal.append(path.parent.parent, 'facts', path.name, 'auto', result)
+    except Exception:
+        # A full/unwritable journal must not turn a completed fetch into failure.
+        print('取回已成功；自动 facts 的 journal 记录写入失败，请保留本次输出并人工核对。', file=sys.stderr)
+    return result
 
 
 class _IncompleteSSHTransport(SSHTransport):
