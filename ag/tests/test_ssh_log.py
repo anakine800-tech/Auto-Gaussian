@@ -13,6 +13,11 @@ from ag.transport import Result, SSHTransport, SSHConnectionError, TransportErro
 from test_core import cfg, prepared
 
 
+@pytest.fixture(autouse=True)
+def reset_log_warning(monkeypatch):
+    monkeypatch.setattr(SSHTransport._log_call, '_warning_emitted', False, raising=False)
+
+
 def rows(cfg):
     files = list((Path(cfg['_config_dir']) / 'ssh-log').glob('*.jsonl'))
     assert len(files) == 1
@@ -87,8 +92,12 @@ def test_read_retry_logs_each_call(cfg, monkeypatch, first):
     assert [r['outcome'] for r in data] == [first, 'ok']
 
 
-@pytest.mark.parametrize('failure', ['directory_link', 'file_link', 'unwritable', 'write', 'close'])
-def test_logging_failure_never_changes_operation(cfg, tmp_path, monkeypatch, capsys, failure):
+@pytest.mark.parametrize('failure,category', [
+    ('directory_link', 'symlink'), ('file_link', 'symlink'),
+    ('unwritable', 'permission'), ('fifo', 'not_regular'), ('directory', 'not_regular'),
+    ('write', 'io'), ('close', 'io'),
+])
+def test_logging_failure_never_changes_operation(cfg, tmp_path, monkeypatch, capsys, failure, category):
     directory = Path(cfg['_config_dir']) / 'ssh-log'
     target = tmp_path / 'untouched'
     if failure == 'directory_link':
@@ -98,6 +107,10 @@ def test_logging_failure_never_changes_operation(cfg, tmp_path, monkeypatch, cap
         directory.mkdir()
         target.write_text('untouched')
         (directory / f'default-{datetime.now(timezone.utc).strftime("%Y-%m")}.jsonl').symlink_to(target)
+    elif failure in ('fifo', 'directory'):
+        directory.mkdir()
+        file = directory / f'default-{datetime.now(timezone.utc).strftime("%Y-%m")}.jsonl'
+        os.mkfifo(file) if failure == 'fifo' else file.mkdir()
     elif failure == 'unwritable':
         original = os.open
         def denied(path, *a, **k):
@@ -116,9 +129,14 @@ def test_logging_failure_never_changes_operation(cfg, tmp_path, monkeypatch, cap
             raise OSError('synthetic private detail')
         monkeypatch.setattr(os, 'close', failed)
     monkeypatch.setattr(subprocess, 'run', lambda *a, **k: Result(stdout='success'))
+    first = SSHTransport(cfg)
+    assert first.run(remote.jobs()).stdout == 'success'
+    assert first.run(remote.identity()).stdout == 'success'
     assert SSHTransport(cfg).run(remote.jobs()).stdout == 'success'
     warning = capsys.readouterr().err
     assert warning.count('Warning:') == 1 and 'private detail' not in warning
+    assert f'({category})' in warning
+    assert str(directory) not in warning
     if failure == 'directory_link':
         assert not list(target.iterdir())
     if failure == 'file_link':
@@ -173,3 +191,21 @@ def test_append_preserves_history_and_restricts_existing_permissions(cfg, monkey
     assert stat.S_IMODE(file.stat().st_mode) == 0o600
     assert [json.loads(line)['operation'] for line in file.read_text().splitlines()] == ['jobs', 'identity']
     assert older.read_text() == 'historical marker'
+
+
+@pytest.mark.parametrize('linked_component', ['config', 'ancestor'])
+def test_configured_symlink_location_logs_normally(cfg, tmp_path, monkeypatch, capsys, linked_component):
+    original = Path(cfg['_config_dir'])
+    link = tmp_path / 'configured-location'
+    if linked_component == 'config':
+        link.symlink_to(original, target_is_directory=True)
+        cfg['_config_dir'] = str(link)
+    else:
+        link.symlink_to(original.parent, target_is_directory=True)
+        cfg['_config_dir'] = str(link / original.name)
+    monkeypatch.setattr(subprocess, 'run', lambda *a, **k: Result(stdout='success'))
+    transport = SSHTransport(cfg)
+    assert transport.run(remote.identity()).stdout == 'success'
+    assert transport.run(remote.jobs()).stdout == 'success'
+    assert [row['operation'] for row in rows(cfg)] == ['identity', 'jobs']
+    assert not capsys.readouterr().err
