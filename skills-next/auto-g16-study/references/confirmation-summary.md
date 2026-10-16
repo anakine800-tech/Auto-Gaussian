@@ -13,7 +13,8 @@ Study：<study_id>；卡片：<manifest.card.name>；Skills 提交：<git_commit
 每个 Gaussian 输入的 Link0：<逐个列出 `%nprocshared`、`%mem`、不带路径的 `%chk`>。
 CREST / xTB 没有 Gaussian route，明确写“不适用”并列完整程序参数；本地 RDKit 和 thermo 不提交，不用此摘要。
 
-集群当前该用户全部计入作业核数：<由 ag 获取>；本批新增核数：<合计>；**提交后集群总核数：<两者合计> / 配置上限 <resources.max_cores>**。
+当前占用 <N> 核（运行 <R>、排队 <Q>；按集群上本人全部作业统计，含挂起、其他电脑和非 ag 提交的作业）；本批新增 <B> 核；**提交后合计 <T> / 上限 <resources.max_committed_cores> 核**。单作业不超过 <resources.max_cores> 核。
+ag 不限制运行中的核数：集群空闲时，排队作业可能同时运行，最多 <T> 核。以上数字由 ag 获取，Slurm 包含本地台账中尚未被调度器显示的预留。
 若当前工具不能提供可靠的总核数，报告缺口，不能以估计的 0 代填；不要绕过 ag 查询。
 
 同一卡片、同一方法才合并为一张批量摘要；每个 Attempt 一行。若总核数超过上限，拆成可容纳的批次，待先前作业完成后再展示并确认下一批。

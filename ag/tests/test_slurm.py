@@ -1,4 +1,4 @@
-"""T16 offline coverage: scheduler outcomes, cluster binding and strict capacity."""
+"""T16 offline coverage: scheduler outcomes, cluster binding and committed capacity."""
 from copy import deepcopy
 from hashlib import sha256
 import json
@@ -81,8 +81,8 @@ def test_config_legacy_named_and_strict(multi, cfg):
     assert config.scheduler_kind(config.select_cluster(legacy)) == 'pbs'
     loaded = config.load_config(write_config(multi))
     assert config.select_cluster(loaded, 'batch')['resources']['max_committed_cores'] == 44
-    multi['clusters']['batch']['resources']['max_committed_cores'] = 45
-    with pytest.raises(ValueError): config.load_config(write_config(multi))
+    multi['clusters']['batch']['resources']['max_committed_cores'] = 176
+    assert config.load_config(write_config(multi))['clusters']['batch']['resources']['max_committed_cores'] == 176
 
 
 @pytest.mark.parametrize('key,value', [('exclusive', True), ('partition', '--exclusive'), ('account', 'a;evil'), ('qos', 'a\nb')])
@@ -149,7 +149,7 @@ def test_running_and_all_user_cores(multi, tmp_path, monkeypatch):
     assert 'slurm_accounting' not in fake.operations()
     fake.queue = Result(stdout='456|web-job|fixture|PENDING|40|00:00|fixture\n789_1|array|fixture|RUNNING|4|00:00|fixture\n')
     assert status.inventory(fake, fake.cfg)[2] == 44
-    assert submit.capacity(fake.cfg, fake, []) == (44, 'Slurm 无硬件保证；运行加排队按 max_cores 严格统计')
+    assert submit.capacity(fake.cfg) == 44
     p2, _ = prepare(multi, tmp_path, label='more')
     monkeypatch.setattr('ag.confirm.confirm', lambda *a: pytest.fail('over cap must refuse before dialog'))
     with pytest.raises(ValueError, match='Core limit'): submit.submit(multi, [p2.name], fake)

@@ -28,7 +28,7 @@
 6. 取消只针对 manifest 记录的确切作业号及其所属集群（PBS 用 qdel，Slurm 用 scancel）。每次都要确认。提交后的绑定记录使用一次性写入的 `submission.json`（提交 manifest），与不可变 `manifest.json` 的哈希及 `status.json` 交叉核验。历史 PBS Attempt 继续使用原有 `status.json` 确切作业号，集群固定为 `default`。
 7. 只运行 `ag/templates/` 中经过审阅的程序模板，模板参数只接受白名单内的取值。不得让 LLM 拼接或执行任意远程命令。
 8. 远程只允许在配置的根目录（本地配置里 SDL 根目录下的 `ag/` 子目录）内操作；拒绝符号链接和越界路径。
-9. 运行中的核数不超过 resources.max_cores（当前 44 核）：每次提交前用 pbsnodes 核验集群总核数不超过该值，由硬件保证。运行加排队的总核数不超过 resources.max_committed_cores（当前 88 核）。统计时包括该用户在集群上的全部作业。核验失败或集群总核数超过 max_cores 时，按 max_cores 严格检查（排队也计入）。核数按集群分别统计；没有硬件保证的集群（包括全部 Slurm 集群）运行加排队不超过该集群的 max_cores。
+9. 核数按集群分别统计，包括该用户在该集群上的全部作业（含其他电脑、手动或非 ag 提交的作业，挂起和排队都计入）。单个作业不超过 resources.max_cores；运行加排队的总核数不超过 resources.max_committed_cores（不超过 4 × max_cores）。ag 只在提交时检查，不限制排队作业何时开始运行，运行中的核数可能达到 max_committed_cores；这是负责人接受的取舍。
 10. 不提交任何密钥、私钥、密码、IP、主机名、用户名、本机或服务器绝对路径、未发表的研究数据、Gaussian 输出或 checkpoint。公开仓库中的测试日志只允许脱敏后的小分子（如正丁烷、水）结果。
 
 ## 4. 防止回到旧模式的规则

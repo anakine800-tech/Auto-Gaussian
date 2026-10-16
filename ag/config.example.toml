@@ -8,6 +8,9 @@ ag_root = "<absolute SDL root>/ag"
 [scheduler]
 queue = "<queue>"
 [resources]
+# Per-job and tier cap (PBS: 1..44; Slurm: positive integer).
+# Running + queued cap: max_cores..4*max_cores; defaults to max_cores.
+# ag does not limit concurrently running cores.
 max_cores = 44
 [resources.tiers.mini]
 cores = 4

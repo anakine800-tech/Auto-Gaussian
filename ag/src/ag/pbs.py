@@ -1,4 +1,4 @@
-"""Shared PBS node parsing for monitoring and submission capacity checks."""
+"""PBS node parsing for monitoring displays."""
 import re
 
 from ag.remote import job_id as validate_job_id
