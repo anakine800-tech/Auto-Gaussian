@@ -9,9 +9,92 @@ import sys
 from . import geometry as geo
 
 
+def _atoms(value, count=None):
+    fields = value.split(",")
+    if (any(not re.fullmatch(r"[1-9][0-9]*", field.strip()) for field in fields)
+            or (count is not None and len(fields) != count)):
+        raise ValueError(f"expected {count or 'one or more'} positive 1-based atom indices")
+    atoms = [int(field) for field in fields]
+    if len(set(atoms)) != len(atoms):
+        raise ValueError("atom indices must not repeat")
+    return atoms
+
+
+def descriptor_definitions(dihedral_bins=(), report_distance=(), contact_atoms=(), contact_cutoff=None):
+    """Parse opt-in descriptors; None preserves the legacy output exactly."""
+    if not (dihedral_bins or report_distance or contact_atoms or contact_cutoff is not None):
+        return None
+    result = {"dihedral_bins": [], "distance_pairs": [], "contact_atoms": [],
+              "contact_cutoff": 3.0 if contact_cutoff is None else geo.nonnegative(contact_cutoff)}
+    if contact_cutoff is not None and not contact_atoms:
+        raise ValueError("--contact-cutoff requires --contact-atoms")
+    for value in dihedral_bins:
+        try:
+            indices, spec = value.split(":")
+            angles, named, labels = spec.partition("@")
+            atoms = _atoms(indices, 4)
+            boundaries = [geo.finite_number(x) for x in angles.split(",")]
+            if (any(x < -180 or x > 180 for x in boundaries)
+                    or any(a >= b for a, b in zip(boundaries, boundaries[1:]))
+                    or boundaries[-1] - boundaries[0] >= 360):
+                raise ValueError("boundaries must increase in [-180, 180] and be distinct modulo 360")
+            names = ([x.strip() for x in labels.split(",")] if named else
+                     [f"bin{i + 1}" for i in range(len(boundaries))])
+            if (len(names) != len(boundaries) or any(not x or "@" in x for x in names)
+                    or len(set(names)) != len(names)):
+                raise ValueError("provide one nonempty, unique name per bin")
+            result["dihedral_bins"].append({"atoms": atoms, "boundaries": boundaries, "names": names})
+        except ValueError as exc:
+            raise ValueError(f"--dihedral-bins {value!r}: {exc}") from exc
+    for value in report_distance:
+        try:
+            result["distance_pairs"].append(_atoms(value, 2))
+        except ValueError as exc:
+            raise ValueError(f"--report-distance {value!r}: {exc}") from exc
+    selected = set()
+    for value in contact_atoms:
+        try:
+            selected.update(_atoms(value))
+        except ValueError as exc:
+            raise ValueError(f"--contact-atoms {value!r}: {exc}") from exc
+    result["contact_atoms"] = sorted(selected)
+    return result
+
+
+def frame_descriptors(frame, definitions, index):
+    """Validate every requested index before inference or energy filtering."""
+    def check(atoms, label):
+        if any(i > len(frame.coordinates) for i in atoms):
+            raise ValueError(f"frame {index + 1}, {label} {atoms}: atom index out of range")
+
+    angles, bins = [], []
+    near_boundary = False
+    for definition in definitions["dihedral_bins"]:
+        atoms, boundaries = definition["atoms"], definition["boundaries"]
+        check(atoms, "dihedral")
+        try:
+            angle = geo.dihedral(frame.coordinates, atoms)
+        except ValueError as exc:
+            raise ValueError(f"frame {index + 1}, dihedral {atoms}: {exc}") from exc
+        angles.append(angle)
+        bins.append(geo.dihedral_bin(angle, boundaries))
+        near_boundary |= any(geo.periodic_difference(angle, edge) < 5 for edge in boundaries)
+    distances = []
+    for pair in definitions["distance_pairs"]:
+        check(pair, "distance")
+        distances.append(geo.atom_distance(frame.coordinates, pair))
+    check(definitions["contact_atoms"], "contact atoms")
+    return {"dihedrals": angles, "bins": bins, "near_boundary": near_boundary,
+            "distances": distances,
+            "contacts": geo.contact_fingerprint(frame.coordinates, definitions["contact_atoms"],
+                                                definitions["contact_cutoff"])}
+
+
 def deduplicate(frames, charge, rmsd, de, window, chem, bonds, align, routes=None, representative=None,
-                hydrogens="polar"):
+                hydrogens="polar", descriptors=None, kept_by_bins=None):
     rmsd, de, window = map(geo.nonnegative, (rmsd, de, window))
+    local = ([frame_descriptors(frame, descriptors, i) for i, frame in enumerate(frames)]
+             if descriptors is not None else [{} for frame in frames])
     molecules, heavy, rejected = {}, {}, []
     first = geo.infer_molecule(frames[0], charge, chem, bonds)
     key = geo.graph_key(first, chem)
@@ -20,12 +103,12 @@ def deduplicate(frames, charge, rmsd, de, window, chem, bonds, align, routes=Non
         try:
             mol = first if index == 0 else geo.infer_molecule(frame, charge, chem, bonds)
         except (ValueError, RuntimeError):
-            rejected.append({**geo.record(frame, index, None), "reason": "bond_inference_failed"})
+            rejected.append({**geo.record(frame, index, None), **local[index], "reason": "bond_inference_failed"})
             continue
         if geo.graph_key(mol, chem) != key:
-            rejected.append({**geo.record(frame, index, None), "reason": "graph_changed"})
+            rejected.append({**geo.record(frame, index, None), **local[index], "reason": "graph_changed"})
         elif geo.stereo_key(mol, chem) != stereo:
-            rejected.append({**geo.record(frame, index, None), "reason": "stereo_changed"})
+            rejected.append({**geo.record(frame, index, None), **local[index], "reason": "stereo_changed"})
         else:
             molecules[index] = geo.rms_molecule(mol, chem, hydrogens)
             heavy[index] = geo.heavy_molecule(mol, chem)
@@ -39,12 +122,14 @@ def deduplicate(frames, charge, rmsd, de, window, chem, bonds, align, routes=Non
     kept = []
     order = list(molecules) if not comparable else sorted(molecules, key=lambda i: (frames[i].energy, i))
     for index in order:
-        item = geo.record(frames[index], index, relative[index])
+        item = {**geo.record(frames[index], index, relative[index]), **local[index]}
         if routes is None and relative[index] > window:
             rejected.append({**item, "reason": "energy_window"})
             continue
         duplicate = None
         for previous in kept:
+            if descriptors is not None and local[index]["bins"] != local[previous]["bins"]:
+                continue
             if not comparable or abs(relative[index] - relative[previous]) < de:
                 distance = geo.best_rms(molecules[index], molecules[previous], chem, align)
                 if distance < rmsd:
@@ -58,16 +143,35 @@ def deduplicate(frames, charge, rmsd, de, window, chem, bonds, align, routes=Non
             else:
                 kept.append(index)
         else:
+            if descriptors is not None:
+                item["max_periodic_dihedral_difference"] = max(
+                    (geo.periodic_difference(a, b) for a, b in
+                     zip(local[index]["dihedrals"], local[duplicate[0]]["dihedrals"])), default=None)
             rejected.append({**item, "reason": "duplicate", "representative": duplicate[0] + 1,
                              "rmsd": duplicate[1], "heavy_rmsd": duplicate[2]})
-    records = [{**geo.record(frames[index], index, relative[index]), "xyz_frame": position + 1}
+    records = [{**geo.record(frames[index], index, relative[index]), **local[index], "xyz_frame": position + 1}
                for position, index in enumerate(kept)]
+    if descriptors is not None and kept_by_bins is not None:
+        # Review final representatives across bins regardless of energy difference;
+        # this report does not change the original --de/window decisions.
+        for position, index in enumerate(kept):
+            for previous in kept[:position]:
+                if local[index]["bins"] == local[previous]["bins"]:
+                    continue
+                distance = geo.best_rms(molecules[index], molecules[previous], chem, align)
+                if distance < rmsd:
+                    kept_by_bins.append({"indices": [previous + 1, index + 1], "rmsd": distance,
+                                         "bins": [local[previous]["bins"], local[index]["bins"]]})
     if routes is not None:
+        duplicates = {r["index"]: r for r in rejected if r.get("reason") == "duplicate"}
         for record in records:
             members = [record["index"]] + [r["index"] for r in rejected
                        if r.get("representative") == record["index"]]
             record["sources"] = sorted({routes[i - 1] for i in members})
-            record["members"] = [{**geo.record(frames[i - 1], i - 1, relative[i - 1]),
+            record["members"] = [{**geo.record(frames[i - 1], i - 1, relative[i - 1]), **local[i - 1],
+                                  **({"max_periodic_dihedral_difference":
+                                      duplicates[i]["max_periodic_dihedral_difference"]}
+                                     if descriptors is not None and i in duplicates else {}),
                                   "route": routes[i - 1]} for i in members]
         for record in rejected:
             record["sources"] = [routes[record["index"] - 1]]
@@ -102,15 +206,20 @@ def run(args):
             frames = geo.load_frames(args.inputs, args.energies, args.energy_unit)
         de = 0.05 if args.de is None else args.de
         window = 3.0 if args.window is None else args.window
+        descriptors = descriptor_definitions(args.dihedral_bins, args.report_distance,
+                                             args.contact_atoms, args.contact_cutoff)
+        kept_by_bins = []
         kept, rejected, selected = deduplicate(frames, args.charge, args.rmsd, de,
                                               window, Chem, rdDetermineBonds, rdMolAlign, routes, args.representative,
-                                              args.hydrogens)
+                                              args.hydrogens, descriptors, kept_by_bins)
         stem = geo.output_stem(args.out, "dedup")
         xyz_path, json_path = stem.with_suffix(".xyz"), stem.with_suffix(".json")
         result = {"charge": args.charge, "rmsd_threshold": args.rmsd, "hydrogens": args.hydrogens,
                   "de_kcal": None if routes is not None and args.representative != "lowest" else de,
                   "window_kcal": None if routes is not None and args.representative != "lowest" else window, "xyz_file": xyz_path.name,
                   "kept": kept, "excluded": rejected}
+        if descriptors is not None:
+            result.update(descriptors=descriptors, kept_by_bins=kept_by_bins)
         if routes is not None:
             result.update(energy_basis=("shared_hartree" if args.representative == "lowest" else "per_source_not_comparable"),
                           representative_method=args.representative or "first", routes=sorted(set(routes)))
@@ -145,6 +254,14 @@ def register(subparsers):
     parser.add_argument("--rmsd", type=float, default=0.125, help="Selected-atom RMSD in angstrom")
     parser.add_argument("--de", type=float, help="Duplicate energy tolerance in kcal/mol (default 0.05; positional inputs or --source --representative lowest)")
     parser.add_argument("--window", type=float, help="Energy window in kcal/mol (default 3; positional inputs or --source --representative lowest)")
+    parser.add_argument("--dihedral-bins", action="append", default=[], metavar="A,B,C,D:b1,b2[@names]",
+                        help="Periodic boundaries in degrees; different bin tuples never merge (repeatable)")
+    parser.add_argument("--report-distance", action="append", default=[], metavar="I,J",
+                        help="Report a 1-based XYZ atom-pair distance without changing merging (repeatable)")
+    parser.add_argument("--contact-atoms", action="append", default=[], metavar="I,J,K",
+                        help="Report contacts touching these 1-based atoms; repeated sets are united")
+    parser.add_argument("--contact-cutoff", type=float, metavar="ANGSTROM",
+                        help="Strict contact distance cutoff (default 3.0; requires --contact-atoms)")
     parser.add_argument("--out", type=Path, required=True,
                         help="Output directory: point to the study's analyses/ outside the repository")
     parser.add_argument("--json", action="store_true")
