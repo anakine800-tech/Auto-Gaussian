@@ -193,6 +193,48 @@ ag review check <ATTEMPT_ID> --json
 manifest 保持原样；准备时已有卡片的 Attempt 不接受替换，已有 review.md 也不会被覆盖。
 完整性检查通过不表示科学审阅通过或 study 完成。
 
+## 签字证据清单：review manifest
+
+```bash
+ag review manifest --study '<STUDY_DIR>' --json
+# 签字人逐条核对 unresolved_references 后：
+ag review manifest --study '<STUDY_DIR>' --accept-unresolved --json
+```
+
+也支持位置参数 `ag review manifest '<STUDY_DIR>'`。命令无需配置或网络，
+独占创建 `analyses/review-manifest-<UTC时间>.json`，记录 study.md、全部 facts.json/review.md
+及递归引用的 analyses 文件的大小和 SHA-256；已有清单、签字及证据不改写。
+生成清单不是科学签字，签字仍须绑定清单路径及返回的 SHA-256。
+
+Markdown/文本中的显式 `analyses/` 前缀保留 T62 的 study 根目录语义。其余文本
+和普通 JSON 引用先按源文件目录解析，非绝对且不以 `./`、`../` 开头
+的路径允许回退到 study 根目录；两处存在且不是同一文件时拒绝，根目录回退记录
+`resolved_from: study_root`。目录引用展开成员，记录 `expanded_from`。
+普通 JSON 描述文字不推断成文件；远程 URL 不下载。
+
+引用分成以下四类，按每次出现的位置记录，不按目标去重：
+
+| 类别 | 处理 |
+| --- | --- |
+| `missing` | 无法解析的路径；裸文件名在源目录和根目录都找不到、但 analyses 任意位置有同名文件时也属此类，不猜测选择该文件。 |
+| `escapes_study` | 字面规范化后越出 study；不访问外部目标，也不检查外部路径的符号链接。 |
+| `outside_analyses` | study 内存在但在 analyses 外的显式引用，不新增收录；保存在信息性 `referenced_outside_analyses` 列表。 |
+| `unqualified_name` | 不含 `/` 的裸名，源目录、根目录都找不到且 analyses 下无同名文件；不收录，保存在信息性 `unqualified_names` 列表。 |
+
+前两类进入 `unresolved_references`，包含相对源文件 `source`、行号或 JSON 字段
+`location`、原文 `value`（绝对路径替换成 `<absolute path>`）和 `reason`。
+列表非空时终端逐条列出，退出码 **4**，不写清单；核对后显式加 `--accept-unresolved`
+才写入，并保存完整列表、`unresolved_accepted: true`、UTC 确认时间
+`unresolved_accepted_at`。每次重新运行重新收集，不沿用上次确认。
+信息性条目无需确认，不改变退出码；终端每类只显示条数（JSON 中为
+`outside_analyses_count` / `unqualified_name_count`），详情保存在清单中。
+
+study 内符号链接、歧义、非法显式路径、空分析目录、收集期间证据哈希变化仍是硬错误，
+不能用接受参数绕过。JSON 的 `thermo`、`frozen_evidence` 保留原解析基准，
+缺失或越界仍硬拒绝，不获得普通 JSON 回退或裸名豁免。
+已签 `ag-review-manifest/1` 只哈希、不展开；schema 名保持不变。
+没有上述新分类条目时清单格式不变。
+
 ## 本地开发与验证
 
 从仓库根目录运行 `python -m pytest ag/tests`，测试通过替身模拟远程操作。

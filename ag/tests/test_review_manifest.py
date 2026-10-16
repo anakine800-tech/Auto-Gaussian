@@ -79,8 +79,9 @@ def test_manifest_collision_uses_exclusive_create(tmp_path, monkeypatch):
 def test_missing_reference_is_not_omitted(tmp_path, reference):
     root = study(tmp_path)
     (root / 'study.md').write_text(reference)
-    with pytest.raises(ValueError, match='Missing referenced'):
+    with pytest.raises(inventory.UnresolvedReferences) as error:
         inventory.create(root)
+    assert error.value.references[0]['reason'] == 'missing'
     assert not list((root / 'analyses').glob('review-manifest-*.json'))
 
 
@@ -88,7 +89,7 @@ def test_missing_transitive_thermo_reference(tmp_path):
     root = study(tmp_path)
     (root / 'study.md').write_text('`analyses/reaction.json`')
     (root / 'analyses/reaction.json').write_text('{"species":{"water":{"thermo":"missing.json"}}}')
-    with pytest.raises(ValueError, match='Missing referenced'):
+    with pytest.raises(ValueError, match='Invalid evidence reference.*missing'):
         inventory.create(root)
 
 
@@ -107,7 +108,7 @@ def test_manifest_rejects_escaping_or_linked_evidence(tmp_path, kind):
         target.symlink_to(outside)
     else:
         (root / 'attempts/linked').symlink_to(tmp_path, target_is_directory=True)
-    with pytest.raises(ValueError, match='escapes|Symbolic links'):
+    with pytest.raises(ValueError, match='Unresolved|Symbolic links'):
         inventory.create(root)
     assert not list((root / 'analyses').glob('review-manifest-*.json'))
     assert outside.read_text() == '{}'
@@ -227,7 +228,7 @@ def test_directory_expansion_rejects_unsafe_or_empty_targets(tmp_path, kind):
         (folder / 'linked.txt').symlink_to(outside / ('a.txt' if kind == 'file_link' else 'missing.txt'))
     elif kind == 'outside_study':
         reference = '[batch](../outside/)'
-        error = 'escapes'
+        error = 'Unresolved'
     else:
         if kind == 'only_empty_subdirectory':
             (folder / 'empty').mkdir()
@@ -281,7 +282,7 @@ def test_prior_signed_manifest_is_hashed_without_expansion(tmp_path, reference):
 @pytest.mark.parametrize('reference', [
     '../attempts/water-a/', '../attempts/water-a', '../analyses/../attempts/water-a/',
 ])
-def test_review_directory_link_inside_study_outside_analyses_is_ignored(tmp_path, reference):
+def test_review_directory_link_outside_analyses_is_information_only(tmp_path, reference):
     root = study(tmp_path)
     review = root / 'reviews/review.md'
     review.parent.mkdir()
@@ -319,11 +320,12 @@ def test_bare_references_require_forward_boundary(tmp_path, prefix):
 
 
 @pytest.mark.parametrize('path', ['analyses/missing', 'analyses/missing.log', 'analyses/missing.sdf'])
-def test_arbitrary_bare_missing_references_still_fail(tmp_path, path):
+def test_arbitrary_explicit_missing_paths_require_acceptance(tmp_path, path):
     root = study(tmp_path)
     (root / 'study.md').write_text(path)
-    with pytest.raises(ValueError, match='Missing referenced analysis output'):
+    with pytest.raises(inventory.UnresolvedReferences) as error:
         inventory.create(root)
+    assert error.value.references[0]['reason'] == 'missing'
 
 
 @pytest.mark.parametrize('description', ['Long description ' * 40, 'first line\nsecond line', '汉' * 86])
@@ -403,19 +405,23 @@ def test_explicit_json_basename_still_requires_evidence(tmp_path, key):
     root = study(tmp_path)
     (root / 'study.md').write_text('[report](analyses/report.json)')
     (root / 'analyses/report.json').write_text(json.dumps({key: 'missing.json'}))
-    with pytest.raises(ValueError, match='Missing referenced'):
+    with pytest.raises(ValueError, match='Invalid evidence reference.*missing'):
         inventory.create(root)
 
 
 @pytest.mark.parametrize('key', ['file', 'source', 'path', 'definition'])
-def test_json_path_with_slash_does_not_gain_text_fallback(tmp_path, key):
+def test_json_path_with_slash_falls_back_without_including_attempt_files(tmp_path, key):
     root = study(tmp_path)
     (root / 'study.md').write_text('[report](analyses/report.json)')
     (root / 'analyses/report.json').write_text(json.dumps({key: 'batch/item.xyz'}))
     (root / 'batch').mkdir()
     (root / 'batch/item.xyz').write_text('synthetic')
-    with pytest.raises(ValueError, match='Missing referenced'):
-        inventory.create(root)
+    result = inventory.create(root)
+    assert result['referenced_outside_analyses'] == [dict(
+        source='analyses/report.json', location=f'$["{key}"]', path='batch/item.xyz',
+        resolved_from='study_root')]
+    assert 'unresolved_references' not in result
+    assert 'batch/item.xyz' not in {e['path'] for e in result['files']}
 
 
 @pytest.mark.parametrize('suffix', ['md', 'txt'])
@@ -468,8 +474,9 @@ def test_dot_relative_text_never_uses_study_root_fallback(tmp_path, value):
     (root / 'study.md').write_text('[snapshot](analyses/nested/snapshot.md)')
     (root / 'analyses/nested/snapshot.md').write_text(f'[item]({value})')
     (root / 'analyses/y.json').write_text('{}')
-    with pytest.raises(ValueError, match='Missing referenced'):
+    with pytest.raises(inventory.UnresolvedReferences) as error:
         inventory.create(root)
+    assert error.value.references[0]['reason'] == 'missing'
 
 
 def test_fallback_directory_marks_members_and_preserves_direct_reference_origin(tmp_path):
@@ -515,3 +522,199 @@ def test_other_text_reference_still_records_real_root_fallback(tmp_path):
     (root / 'analyses/nested/snapshot.md').write_text('[item](bundle/../analyses/y.json)')
     entries = {e['path']: e for e in inventory.create(root)['files']}
     assert entries['analyses/y.json']['resolved_from'] == 'study_root'
+
+
+@pytest.mark.parametrize('homonyms', [False, True])
+@pytest.mark.parametrize('positional', [False, True])
+def test_cli_diagnostic_references_require_only_relevant_confirmation(tmp_path, capsys, homonyms, positional):
+    root = study(tmp_path)
+    (root / 'analyses/reports').mkdir()
+    (root / 'study.md').write_text('[report](analyses/reports/notes.md)')
+    (root / 'analyses/reports/notes.md').write_text(
+        '`manifest.json`\n`final_input.xyz`\n[card](reaction-plan.md#step)\n'
+        '[other](../../../other-study/analyses/review.md)\n')
+    if homonyms:
+        (root / 'analyses/elsewhere').mkdir()
+        for name in ('manifest.json', 'final_input.xyz', 'reaction-plan.md'):
+            (root / 'analyses/elsewhere' / name).write_text('{}')
+    before = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in root.rglob('*') if p.is_file()}
+    command = ['review', 'manifest', *([] if positional else ['--study']), str(root), '--json']
+    assert cli.main(command) == 4
+    output = capsys.readouterr()
+    result = json.loads(output.out)
+    refs = result['unresolved_references']
+    assert len(refs) == (4 if homonyms else 1)
+    assert [e['reason'] for e in refs].count('missing') == (3 if homonyms else 0)
+    assert [e['reason'] for e in refs].count('escapes_study') == 1
+    assert all(e['source'] == 'analyses/reports/notes.md' for e in refs)
+    assert all(e['location'] in {'line 1', 'line 2', 'line 3', 'line 4'} for e in refs)
+    assert '--accept-unresolved' in result['error']
+    assert not list((root / 'analyses').glob('review-manifest-*.json'))
+    assert ('unqualified_name: 3' in output.err) is not homonyms
+    assert cli.main([*command, '--accept-unresolved']) == 0
+    accepted = json.loads(capsys.readouterr().out)
+    saved = json.loads((root / accepted['manifest']).read_text())
+    assert saved['schema'] == 'ag-review-manifest/1'
+    assert saved['unresolved_references'] == refs
+    assert saved['unresolved_accepted'] is True
+    assert datetime.fromisoformat(saved['unresolved_accepted_at']).tzinfo is not None
+    assert saved['unresolved_accepted_at'] == saved['created_at']
+    assert len(saved.get('unqualified_names', [])) == (0 if homonyms else 3)
+    assert before == {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in before}
+    assert not any('elsewhere' in e['path'] for e in saved['files'])
+
+
+def test_information_only_references_do_not_require_acceptance(tmp_path, capsys):
+    root = study(tmp_path)
+    (root / 'study.md').write_text('[file](attempts/water-a/final.xyz)\n`unqualified.xyz`')
+    (root / 'attempts/water-a/final.xyz').write_text('synthetic')
+    assert cli.main(['review', 'manifest', str(root)]) == 0
+    output = capsys.readouterr()
+    result = json.loads(output.out)
+    saved = json.loads((root / result['manifest']).read_text())
+    assert saved['referenced_outside_analyses'] == [dict(
+        source='study.md', location='line 1', path='attempts/water-a/final.xyz')]
+    assert saved['unqualified_names'] == [dict(source='study.md', location='line 2', value='unqualified.xyz')]
+    assert 'unresolved_accepted' not in saved and 'unresolved_references' not in saved
+    assert 'referenced_outside_analyses' not in result and 'unqualified_names' not in result
+    assert result['outside_analyses_count'] == result['unqualified_name_count'] == 1
+    assert output.err.count('无需确认') == 2
+    assert 'unqualified.xyz' not in output.out + output.err
+    assert not any(e['path'].endswith('final.xyz') for e in saved['files'])
+
+
+@pytest.mark.parametrize('kind', ['md', 'txt', 'json'])
+@pytest.mark.parametrize('homonym', [False, True])
+def test_unqualified_name_never_selects_a_recursive_homonym(tmp_path, kind, homonym):
+    root = study(tmp_path)
+    (root / 'study.md').write_text(f'[report](analyses/report.{kind})')
+    value = 'result[0].xyz'
+    text = json.dumps({'path': value}) if kind == 'json' else f'`{value}`'
+    (root / f'analyses/report.{kind}').write_text(text)
+    (root / 'analyses/nested').mkdir()
+    (root / 'analyses/nested' / (value if homonym else 'result0.xyz')).write_text('synthetic')
+    if homonym:
+        with pytest.raises(inventory.UnresolvedReferences) as error:
+            inventory.create(root)
+        assert error.value.references[0]['value'] == value
+        assert error.value.references[0]['reason'] == 'missing'
+    else:
+        result = inventory.create(root)
+        assert result['unqualified_names'][0]['value'] == value
+        assert 'unresolved_references' not in result
+        assert all('nested' not in e['path'] for e in result['files'])
+
+
+@pytest.mark.parametrize(('target', 'kind'), [
+    ('analyses/batch/item.json', 'root_only'), ('analyses/batch', 'root_only'),
+    ('analyses/batch/item.json', 'ambiguous'), ('analyses/batch', 'ambiguous'),
+    ('analyses/batch/item.json', 'same_file'),
+])
+def test_json_source_and_root_resolution(tmp_path, target, kind):
+    root = study(tmp_path)
+    (root / 'study.md').write_text('[report](analyses/report.json)')
+    (root / 'analyses/report.json').write_text(json.dumps({'path': target}))
+    file = root / 'analyses/batch/item.json'
+    file.parent.mkdir()
+    file.write_text('{}')
+    if kind != 'root_only':
+        other = root / 'analyses/analyses/batch/item.json'
+        other.parent.mkdir(parents=True)
+        if kind == 'same_file':
+            other.hardlink_to(file)
+        else:
+            other.write_bytes(file.read_bytes())
+    if kind == 'ambiguous':
+        with pytest.raises(ValueError, match='Ambiguous.*report.json'):
+            inventory.create(root, accept_unresolved=True)
+    else:
+        result = inventory.create(root)
+        path = 'analyses/batch/item.json' if kind == 'root_only' else 'analyses/analyses/batch/item.json'
+        entry = next(e for e in result['files'] if e['path'] == path)
+        assert entry.get('resolved_from') == ('study_root' if kind == 'root_only' else None)
+        if target.endswith('batch'):
+            assert entry['expanded_from'] == ['analyses/batch']
+
+
+@pytest.mark.parametrize('key', ['thermo', 'frozen_evidence'])
+@pytest.mark.parametrize('value', ['missing.json', 'batch/item.json', '../../outside.json'])
+@pytest.mark.parametrize('accept', [False, True])
+def test_strict_pointers_cannot_be_accepted_or_gain_fallback(tmp_path, key, value, accept):
+    root = study(tmp_path)
+    (root / 'batch').mkdir()
+    (root / 'batch/item.json').write_text('{}')
+    (root / 'study.md').write_text('[report](analyses/report.json)')
+    (root / 'analyses/report.json').write_text(json.dumps({key: value}))
+    with pytest.raises(ValueError, match='Invalid evidence reference') as error:
+        inventory.create(root, accept_unresolved=accept)
+    assert not isinstance(error.value, inventory.UnresolvedReferences)
+    assert not list((root / 'analyses').glob('review-manifest-*.json'))
+
+
+@pytest.mark.parametrize('absolute', [False, True])
+def test_escaped_references_do_not_probe_outside_symlinks(tmp_path, monkeypatch, absolute):
+    root = study(tmp_path)
+    value = str(root.parent / 'external-link/report.json') if absolute else '../external-link/report.json'
+    monkeypatch.setattr(Path, 'is_symlink', lambda *_: pytest.fail('escaped reference probed filesystem'))
+    monkeypatch.setattr(Path, 'exists', lambda *_: pytest.fail('escaped reference probed filesystem'))
+    assert inventory._analysis_reference(root, root / 'study.md', value, True) == (None, 'escapes_study')
+
+
+def test_absolute_unresolved_path_is_redacted_in_cli_and_saved_manifest(tmp_path, capsys):
+    root = study(tmp_path)
+    value = str(root.parent / 'external-link' / 'private-name.json')
+    (root / 'study.md').write_text(f'[report](<{value}>)')
+    for accept in (False, True):
+        command = ['review', 'manifest', str(root)] + (['--accept-unresolved'] if accept else [])
+        assert cli.main(command) == (0 if accept else 4)
+        output = capsys.readouterr()
+        assert value not in output.out + output.err
+        result = json.loads(output.out)
+        assert result['unresolved_references'][0]['value'] == '<absolute path>'
+        if accept:
+            assert value not in (root / result['manifest']).read_text()
+
+
+@pytest.mark.parametrize('accept', [False, True])
+@pytest.mark.parametrize('reference', ['analyses/link/../absent.json', 'analyses/link/../../outside.json'])
+def test_internal_symlink_remains_hard_even_when_normalization_hides_it(tmp_path, accept, reference):
+    root = study(tmp_path)
+    (root / 'analyses/link').symlink_to(root.parent, target_is_directory=True)
+    (root / 'study.md').write_text(f'[{reference}]({reference})')
+    with pytest.raises(ValueError, match='Symbolic links'):
+        inventory.create(root, accept_unresolved=accept)
+    assert not list((root / 'analyses').glob('review-manifest-*.json'))
+
+
+@pytest.mark.parametrize('accept', [False, True])
+def test_changed_evidence_is_hard_error_before_unresolved_confirmation(tmp_path, monkeypatch, accept):
+    root = study(tmp_path)
+    (root / 'study.md').write_text('analyses/missing.json')
+    original = Path.read_bytes
+    reads = 0
+    def changed(path):
+        nonlocal reads
+        data = original(path)
+        if path == root / 'study.md':
+            reads += 1
+            if reads == 2:
+                return data + b'changed'
+        return data
+    monkeypatch.setattr(Path, 'read_bytes', changed)
+    with pytest.raises(ValueError, match='Evidence changed while collecting'):
+        inventory.create(root, accept_unresolved=accept)
+    assert not list((root / 'analyses').glob('review-manifest-*.json'))
+
+
+def test_no_reference_changes_preserve_legacy_manifest_bytes(tmp_path, monkeypatch):
+    (tmp_path / 'analyses').mkdir()
+    (tmp_path / 'study.md').write_text('Structure confirmation pending\n')
+    class Clock:
+        @staticmethod
+        def now(tz):
+            return datetime(2026, 1, 1, tzinfo=timezone.utc)
+    monkeypatch.setattr(inventory, 'datetime', Clock)
+    monkeypatch.setattr(inventory, 'ag_provenance', lambda: {'git_commit': 'c' * 40, 'dirty': False})
+    result = inventory.create(tmp_path)
+    # Captured from main after T49b with the same clock, provenance and input.
+    assert result['sha256'] == 'd7fb1a628ef83d555b20a93750580463e53bd2701ad4ff44f7d11829b1070857'
