@@ -121,3 +121,5 @@ stable 仅表示对所测扰动稳定，不证明全局最低电子态或单参�
 - 排队不是启动失败；日志正常终止与优化驻点分别核对。来源：`archive/skills/auto-g16-rtwin-pbs/references/environment-and-failures.md`。
 - 输出截断不能证明频率完成；一个虚频还需方向审核，TS 需双向 IRC 与端点识别；断开片段的近自由运动不等于普通单分子极小点。来源：[archive/skills/auto-g16-ts-irc/SKILL.md](../../../archive/skills/auto-g16-ts-irc/SKILL.md)。
 - 从最终几何加 `Opt=CalcFC Freq` 曾解决频率阶段位移未收敛；仅为已有实例，不是所有虚频的通用修复。新旧 Attempt 用 `reoptimized_from` 关联，不能自动重提。来源：study `butane-l1-20261013`，`lessons/05-calcfc-reoptimization.md`。
+
+报错定位入口：[Gaussian 报错速查](../../auto-g16-study/references/gaussian-errors.md)（按特征、原因、首选处理与 ag 操作查阅）。

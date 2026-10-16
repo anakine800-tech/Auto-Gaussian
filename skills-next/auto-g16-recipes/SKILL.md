@@ -19,6 +19,7 @@ description: 为 ag 新架构提供 Opt+Freq、单点、RDKit 或 CREST 初筛�
 | [crest-screen](cards/crest-screen.md) | 主族闭壳层单分子构象搜索 | 已签结构、可用 CREST 模板 |
 | [thermo](cards/thermo.md) | 同一物种的相对自由能与布居 | 合格 Opt+Freq、最终去重集合及简并度 |
 | [profile](cards/profile.md) | 守恒的反应能量曲线、催化循环能量跨度与 TS 扰动 | 同口径物种系综、已审阅 TS、完整状态组成 |
+| [kinetics](cards/kinetics.md) | Eyring 时间尺度、可逆性、通道选择性与隧穿边界 | 同口径自由能、参考盆地及快交换/浓度假设经审阅 |
 | [failure-diagnosis](cards/failure-diagnosis.md) | 已有结果的诊断与新 Attempt 建议 | 本地 facts、输出及原输入 |
 
 每张卡片固定八节：**适用范围、前置条件、输入模板、资源建议、提交前检查清单、结果判据清单、常见失败与处理、常见坑**。本地任务不产生提交，但仍按第 5 节检查分析输入。
