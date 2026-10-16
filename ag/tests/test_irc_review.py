@@ -217,10 +217,48 @@ def test_reject_wrong_evidence(sample, case, message):
     assert not (sample / 'analyses/review.json').exists()
 
 
-def test_endpoint_graph_provenance_alternative(sample):
-    edit_input(sample, 'forward-opt', lambda s: s.replace('1.100000', '1.200000'))
+@pytest.mark.parametrize('parent', ['forward', 'reverse', None])
+def test_rotated_endpoint_requires_matching_provenance_and_records_rmsd(sample, parent):
+    original = rows(1.1, 1.9)
+    rotated = [f'{symbol} {3 - float(y):.6f} {-2 + float(x):.6f} {float(z) + 1:.6f}'
+               for symbol, x, y, z in (row.split() for row in original)]
+    edit_input(sample, 'forward-opt', lambda s: s.replace('\n'.join(original), '\n'.join(rotated)))
+    if parent is not None:
+        update_json(sample / 'attempts/forward-opt/manifest.json',
+                    parents=[{'attempt_id': parent, 'relation': 'endpoint_of'}])
+    if parent != 'forward':
+        with pytest.raises(ValueError, match='Endpoint input geometry'):
+            build(sample)
+        return
+    result = build(sample)
+    endpoint = result['directions']['forward']['criteria']['endpoint']
+    assert endpoint['status'] == 'met'
+    assert endpoint['input_max_displacement_angstrom'] > 1
+    assert endpoint['input_aligned_rmsd_angstrom'] < 1e-12
+    assert endpoint['provenance'] == 'endpoint_of_and_alignment'
+    assert endpoint['provenance_note'] == '来源关系加对齐核对'
+    assert result['thresholds']['endpoint_aligned_rmsd_angstrom'] == 1e-3
+    markdown = (sample / 'analyses/review.md').read_text()
+    assert 'input_aligned_rmsd_angstrom' in markdown and '来源关系加对齐核对' in markdown
+
+
+@pytest.mark.parametrize('change', ['bond_length', 'row_swap'])
+def test_endpoint_provenance_cannot_excuse_a_different_structure_or_mapping(sample, change):
+    original = rows(1.1, 1.9)
+    replacement = rows(1.2, 1.9) if change == 'bond_length' else (original[0], original[2], original[1])
+    edit_input(sample, 'forward-opt', lambda s: s.replace('\n'.join(original), '\n'.join(replacement)))
     update_json(sample / 'attempts/forward-opt/manifest.json', parents=[{'attempt_id': 'forward', 'relation': 'endpoint_of'}])
-    assert build(sample)['directions']['forward']['criteria']['endpoint']['provenance'] == 'endpoint_of'
+    with pytest.raises(ValueError, match='aligned RMSD <= 1e-3'):
+        build(sample)
+    assert not (sample / 'analyses/review.json').exists()
+
+
+def test_endpoint_direct_coordinate_path_is_reported_without_provenance(sample):
+    endpoint = build(sample)['directions']['forward']['criteria']['endpoint']
+    assert endpoint['provenance'] == 'coordinates'
+    assert endpoint['provenance_note'] == '坐标一致'
+    assert endpoint['input_max_displacement_angstrom'] == 0
+    assert endpoint['input_aligned_rmsd_angstrom'] < 1e-12
 
 
 @pytest.mark.parametrize('path', ['attempts/forward/outputs/input.log', 'attempts/forward/inputs/input.gjf',

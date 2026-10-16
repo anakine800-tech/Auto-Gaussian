@@ -118,3 +118,10 @@ ag irc-review --ts <TS Attempt> --forward <IRC Attempt> --reverse <IRC Attempt>
 - 不修改 `skills-next/tests/test_skill_format.py`。T81 已获批为所有卡片兼容第 1 节前可选的 `## 要点`；T79 按同一格式保留 IRC 要点。
 - T81 合并前，`test_card_has_eight_sections[irc]` 失败属于预期，不绕开；其余测试必须通过。
 - T81 合并后 rebase，再跑一次全量测试，然后推送并请求审阅。
+
+
+## 审阅修订（负责人 2026-10-16）
+
+- 末点来源后备路径不能只凭 `endpoint_of` 声明放行：还须按固定行序对齐后 RMSD ≤ 1e-3 Å（复用 `aligned_rmsd`）；原逐原子坐标偏差 ≤ 1e-4 Å 的路径保留。
+- 报告记录 RMSD 与所用路径（坐标一致 / 来源关系加对齐核对）。补测不同取向的同一结构通过、来源声明与实际结构不符时拒绝。
+- 在 PR 记录 L3 027/028 的实际来源路径与偏差或 RMSD；本次修改跑相关测试，后续以 CI 为准。

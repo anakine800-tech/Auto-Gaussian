@@ -114,8 +114,13 @@ XYZ 第 0 帧为该方向 TS 起点，其后依次存有几何的已接受点，
    预期距离与 TS 相差 < 0.05 Å 的原子对为 unknown。全部满足才 met；任一明确不满足为
    not_met，否则缺 reference/末点/不能区分为 unknown。来源包含 TS、reference 与末点日志位置。
 4. `endpoint` 记录 facts 字段、失败/缺失字段、身份和末点来源。
-   端点输入逐原子坐标偏差须 ≤ 1e-4 Å，或 manifest 的 `endpoint_of` 关联须指向该方向
-   （即 `ag graph` 使用的来源记录）。均不满足则报错，缺末点几何也不能建立关联。
+   优先检查端点输入逐原子坐标偏差 ≤ 1e-4 Å，满足时 `provenance=coordinates`（坐标一致）。
+   否则须同时满足：manifest 的 `endpoint_of` 关联指向该方向（即 `ag graph` 使用的来源记录），
+   且输入与最后已接受点按固定行序刚体对齐的全原子 RMSD ≤ 1e-3 Å，复用 `aligned_rmsd`，不交换原子。
+   后备路径记为 `provenance=endpoint_of_and_alignment`（来源关系加对齐核对）；
+   只有来源声明而结构不同仍报错，缺末点几何也不能建立关联。
+   两条路径均记录 `input_max_displacement_angstrom`、`input_aligned_rmsd_angstrom` 和中文 `provenance_note`；
+   顶层 `thresholds.endpoint_aligned_rmsd_angstrom=0.001`。两条来源路径都不成立则报错，不写出报告。
    检查独立 Opt+Freq、normal、opt_converged、freq_step_converged、完整模式数及 n_imag=0。
    同时保留 facts 自带的 frequency_convergence、fact_sources 与 job_sections；旧 facts 缺少时为 null。
    若端点日志存在，绑定其哈希并列出终止、优化、频率的 log_lines 作为人工回查位置；

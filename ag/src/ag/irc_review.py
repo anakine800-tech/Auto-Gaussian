@@ -92,8 +92,14 @@ def _endpoint(evidence, endpoint, irc, last, comparison, direction, reference):
     parents = endpoint['manifest'].get('parents', [])
     graph_match = any(p.get('attempt_id') == irc['directory'].name and p.get('relation') == 'endpoint_of'
                       for p in parents)
-    require(displacement <= 1e-4 or graph_match,
-            'Endpoint input geometry differs from last accepted point and has no endpoint_of provenance')
+    # A declared parent can be wrong; it cannot excuse a different structure.
+    # Fixed-row rigid alignment permits a changed coordinate frame only.
+    rmsd = aligned_rmsd(endpoint['input'], last['frame'])
+    coordinate_match = displacement <= 1e-4
+    require(coordinate_match or (graph_match and rmsd <= 1e-3),
+            'Endpoint input geometry differs from last accepted point; require displacement <= 1e-4 Å '
+            'or endpoint_of provenance AND aligned RMSD <= 1e-3 Å '
+            f'(displacement={displacement:.6g} Å, aligned RMSD={rmsd:.6g} Å)')
     fields = ('termination', 'opt_converged', 'freq_step_converged',
               'vibrational_modes_complete', 'n_vibrational_modes', 'expected_vibrational_modes', 'n_imag')
     facts = endpoint['facts']
@@ -145,7 +151,9 @@ def _endpoint(evidence, endpoint, irc, last, comparison, direction, reference):
     return dict(status=status, facts=checks, failed_fields=failed, missing_fields=missing, identity=identity,
                 log=log_source, log_lines=log_lines, frequency_convergence=_fact(evidence, endpoint, 'freq_step_convergence'),
                 fact_sources=facts.get('fact_sources'), job_sections=facts.get('job_sections'),
-                input_max_displacement_angstrom=displacement, provenance='coordinates' if displacement <= 1e-4 else 'endpoint_of',
+                input_max_displacement_angstrom=displacement, input_aligned_rmsd_angstrom=rmsd,
+                provenance='coordinates' if coordinate_match else 'endpoint_of_and_alignment',
+                provenance_note='坐标一致' if coordinate_match else '来源关系加对齐核对',
                 manifest=evidence.reference(endpoint['directory'] / 'manifest.json'),
                 reasons=failed + [f'缺少 {key}' for key in missing] + ([] if identity['status'] == 'met' else ['端点身份未确认']))
 
@@ -326,7 +334,8 @@ def review(*, ts, forward, reverse, pairs, out, study=None, forward_reference=No
                   units=dict(energy='hartree', relative_energy='kcal/mol', distance='angstrom'),
                   thresholds=dict(energy_drop_kcal_mol=threshold, energy_noise_kcal_mol=noise,
                                   energy_jump_kcal_mol=ENERGY_JUMP_KCAL, rmsd_jump_angstrom=RMSD_JUMP_ANGSTROM,
-                                  indistinguishable_pair_angstrom=.05, endpoint_input_angstrom=1e-4),
+                                  indistinguishable_pair_angstrom=.05, endpoint_input_angstrom=1e-4,
+                                  endpoint_aligned_rmsd_angstrom=1e-3),
                   directions=directions, inputs=[evidence.reference(path) for path in sorted(evidence.saved)])
     evidence.verify()
     payloads[target.name] = (json.dumps(result, ensure_ascii=False, indent=2, allow_nan=False) + '\n').encode()
