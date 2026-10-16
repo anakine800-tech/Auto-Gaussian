@@ -39,6 +39,15 @@
 已审阅初猜的约束 CREST，加定向构造初猜的约束 CREST（directed）；两路都带
 已审阅原子对约束。记录共用引擎和约束偏向，不把两路一致当作完备覆盖。
 
+定向初猜可用 structures 的 [build_complex.py](../../auto-g16-structures/scripts/build_complex.py)：
+先用 `sites` 列出客体候选供人选择；六个内坐标和 P2/P1/A、D/X/Y 参照原子全部
+由人指定并写进 study，也可用 `measure` 复用已审阅复合物摆法。`build` 仅作刚体变换，
+进攻面标签只校验，不推断 CIP；重叠即拒绝，不自动转动或枚举。产物及原子来源映射、
+实测/接触报告和经 `crest_input.validate` 校验的约束草稿位于
+`analyses/complex-build/NAME/`；力常数必须人给。产出默认走上述约束 CREST（directed），
+限主族单个配位接触，多配位点、过渡金属及 f 区元素不在范围内；具体参数见
+[定向复合物构建](../../auto-g16-structures/SKILL.md#定向复合物构建)。
+
 以下是约束文件骨架，所有占位符须替换为已审阅数值；力常数、单位、约束势与
 实际距离偏差的记录方式见 [CREST 约束构象搜索](crest-screen.md#约束构象搜索)。
 
