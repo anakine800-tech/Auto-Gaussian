@@ -222,8 +222,12 @@ def _end_evidence(cfg, path, manifest, current, transport):
         username = require_ok(transport.run(remote.identity()), 'identity').strip()
         remote.slurm_token(username)
         result = transport.run(remote.slurm_jobs(job))
-        # Unlike normal status, require a successful, empty exact-job query.
-        active = slurm.parse_queue(require_ok(result, 'squeue exact job'))
+        # Match status: a purged exact job may produce this diagnostic instead
+        # of an empty queue. Only sacct below can establish terminal evidence.
+        if result.returncode and result.returncode != 255 and 'Invalid job id specified' in result.stderr:
+            active = []
+        else:
+            active = slurm.parse_queue(require_ok(result, 'squeue exact job'))
         if active:
             raise ValueError('Job still present in squeue; incomplete fetch refused')
         raw = require_ok(transport.run(remote.slurm_accounting(job)), 'sacct exact job')

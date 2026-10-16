@@ -51,6 +51,7 @@ class IncompleteFake:
         self.queue = Result(153, stderr='qstat: Unknown Job Id Error')
         self.slurm_queue = Result()
         self.accounting_state = 'TIMEOUT'
+        self.accounting = None
         self.receipt = 'absent\n'
         self.corrupt = False
         self.failure = None
@@ -83,7 +84,7 @@ class IncompleteFake:
         if command.operation == 'slurm_jobs':
             return self.slurm_queue
         if command.operation == 'slurm_accounting':
-            return Result(stdout=f"123|{self.manifest['attempt_id']}|fixture|{self.accounting_state}|1:9|00:05:00|8\n")
+            return self.accounting or Result(stdout=f"123|{self.manifest['attempt_id']}|fixture|{self.accounting_state}|1:9|00:05:00|8\n")
         if command.operation == 'completion_marker':
             return Result(stdout='absent\n')
         raise AssertionError(command.operation)
@@ -235,14 +236,25 @@ def slurm_finished(multi, tmp_path):
 
 
 @pytest.mark.parametrize('terminal', ['TIMEOUT', 'CANCELLED', 'FAILED', 'OUT_OF_MEMORY', 'NODE_FAIL', 'COMPLETED'])
-def test_slurm_terminal_with_missing_outputs(multi, slurm_finished, terminal):
+@pytest.mark.parametrize('purged', [False, True])
+def test_slurm_terminal_with_missing_outputs(multi, slurm_finished, terminal, purged):
     path, _, fake = slurm_finished
     fake.accounting_state = terminal
+    if purged:
+        fake.slurm_queue = Result(1, stderr='squeue: error: Invalid job id specified\n')
     before = (path / 'status.json').read_bytes()
     result = fetch.fetch(multi, path, fake, incomplete=True)
     assert result['missing'] == ['job.slurm.out', 'job.slurm.err']
     assert (path / 'status.json').read_bytes() == before
     assert fetch.incomplete_record(path)[1]['end_evidence']['accounting']['state'] == terminal
+    queries = [c for c in fake.calls if c.operation in ('slurm_jobs', 'slurm_accounting')]
+    assert [c.operation for c in queries] == ['slurm_jobs', 'slurm_accounting'] * 2
+    assert all(' -j 123 ' in c.text for c in queries)
+    assert fake.downloaded == ['water.log']
+    assert (path / 'outputs/water.log').read_bytes() == fake.files['water.log']
+    with pytest.raises(FileExistsError, match='record already exists'):
+        fetch.fetch(multi, path, fake, incomplete=True)
+    assert fake.downloaded == ['water.log']
 
 
 @pytest.mark.parametrize('failure', ['active', 'nonterminal', 'complete_all', 'ssh', 'cancelled'])
@@ -530,3 +542,91 @@ def test_fetch_lock_is_staged_and_excluded_from_review_manifest(cfg, interrupted
     assert (path / 'facts.json').relative_to(path.parent.parent).as_posix() in selected
     assert lock.relative_to(path.parent.parent).as_posix() not in selected
     assert all('.partial' not in name for name in selected)
+
+
+@pytest.mark.parametrize('late', [False, True])
+@pytest.mark.parametrize('failure', ['empty', 'duplicate', 'job', 'owner', 'name',
+                                    'running', 'pending', 'error', 'ssh'])
+def test_slurm_purged_requires_matching_terminal_accounting(multi, slurm_finished, failure, late):
+    path, manifest, fake = slurm_finished
+    fake.slurm_queue = Result(1, stderr='squeue: error: Invalid job id specified\n')
+    row = f"123|{manifest['attempt_id']}|fixture|TIMEOUT|1:9|00:05:00|8\n"
+    bad = {
+        'empty': Result(),
+        'duplicate': Result(stdout=row * 2),
+        'job': Result(stdout=row.replace('123|', '456|')),
+        'owner': Result(stdout=row.replace('|fixture|', '|other|')),
+        'name': Result(stdout=row.replace(manifest['attempt_id'], 'water-other')),
+        'running': Result(stdout=row.replace('TIMEOUT', 'RUNNING')),
+        'pending': Result(stdout=row.replace('TIMEOUT', 'PENDING')),
+        'error': Result(1, stderr='sacct: accounting unavailable'),
+        'ssh': Result(255, stderr='synthetic SSH failure'),
+    }[failure]
+    if late:
+        fake.after_download = lambda: setattr(fake, 'accounting', bad)
+    else:
+        fake.accounting = bad
+    before = (path / 'status.json').read_bytes()
+    with pytest.raises((ValueError, TransportError)):
+        fetch.fetch(multi, path, fake, incomplete=True)
+    assert_unpublished(path)
+    assert (path / 'status.json').read_bytes() == before
+    operations = [c.operation for c in fake.calls]
+    assert operations.count('slurm_jobs') == operations.count('slurm_accounting') == (2 if late else 1)
+    assert fake.downloaded == (['water.log'] if late else [])
+
+
+@pytest.mark.parametrize('late', [False, True])
+@pytest.mark.parametrize('queue', [
+    Result(1, stderr='squeue: controller unavailable'),
+    Result(1, stdout='Invalid job id specified'),
+    Result(1, stderr='squeue: Invalid job id'),
+    Result(255, stderr='synthetic SSH failure'),
+    Result(255, stderr='Invalid job id specified'),
+    Result(stdout='invalid queue output', stderr='Invalid job id specified'),
+])
+def test_slurm_queue_errors_never_enable_fetch(multi, slurm_finished, queue, late):
+    path, _, fake = slurm_finished
+    if late:
+        fake.after_download = lambda: setattr(fake, 'slurm_queue', queue)
+    else:
+        fake.slurm_queue = queue
+    before = (path / 'status.json').read_bytes()
+    with pytest.raises((ValueError, TransportError)):
+        fetch.fetch(multi, path, fake, incomplete=True)
+    assert_unpublished(path)
+    assert (path / 'status.json').read_bytes() == before
+    operations = [c.operation for c in fake.calls]
+    assert operations.count('slurm_jobs') == (2 if late else 1)
+    assert operations.count('slurm_accounting') == (1 if late else 0)
+    assert fake.downloaded == (['water.log'] if late else [])
+
+
+@pytest.mark.parametrize('failure', ['exit255', 'exception'])
+def test_slurm_exact_query_ssh_failure_never_retries(multi, slurm_finished, monkeypatch, failure):
+    from ag.transport import SSHConnectionError, SSHTransport
+    path, manifest, fake = slurm_finished
+    selected = config.for_manifest(multi, manifest)
+    commands = []
+    def execute(self, argv, timeout):
+        command = argv[-1]
+        commands.append(command)
+        if command == remote.slurm_jobs('123').text:
+            if failure == 'exception':
+                raise SSHConnectionError('synthetic connection failure')
+            return Result(255, stderr='Invalid job id specified')
+        if command == remote.identity().text:
+            return Result(stdout='fixture\n')
+        for name in remote.output_names(manifest):
+            if command == remote.incomplete_output_observation(selected, manifest, name).text:
+                return fake.run(remote.incomplete_output_observation(selected, manifest, name))
+        pytest.fail('unexpected command after failed exact query')
+    monkeypatch.setattr(SSHTransport, '_execute', execute)
+    monkeypatch.setattr('ag.transport.time.sleep', lambda *a: pytest.fail('must not retry'))
+    before = (path / 'status.json').read_bytes()
+    with pytest.raises(TransportError):
+        fetch.fetch(multi, path, SSHTransport(selected, read_only=True), incomplete=True)
+    assert commands.count(remote.slurm_jobs('123').text) == 1
+    assert remote.slurm_accounting('123').text not in commands
+    assert (path / 'status.json').read_bytes() == before
+    assert_unpublished(path)
