@@ -15,7 +15,8 @@ from urllib.parse import unquote, urlsplit, quote
 REFERENCES = Path(__file__).resolve().parents[1] / 'references'
 SPECIES_REPORT = 'analyses/intake/species-check.json'
 DRAFTS = ('analyses/intake/study.md.draft', 'analyses/intake/channels.csv.draft')
-PLACEHOLDER = re.compile(r'<(?!https?://)[^<>\n]+>|\b(?:TODO|TBD)\b')
+PLACEHOLDER = re.compile(r'<(?!https?://)[^<>\n]+>')
+TODO = re.compile(r'\b(?:TODO|TBD)\b')
 PENDING = re.compile(r'待确认|待答|转述待核实|未确认|未签')
 TOKEN = re.compile(r'\[[^\]\n]*\]\(<?([^\n)>]+)>?\)|`([^`\n]+)`')
 HASH = re.compile(r'(?<![0-9a-fA-F])[0-9a-fA-F]{64}(?![0-9a-fA-F])')
@@ -95,8 +96,12 @@ def tables(text):
 
 def has_placeholder(text):
     # Markdown link angle brackets are delimiters, not template placeholders.
-    text = re.sub(r'\]\(<[^>]+>\)', '](link)', text)
-    return bool(PLACEHOLDER.search(text))
+    text = re.sub(r'\]\(<[^>]+>\)', '](link)', clean(text))
+    # Match only prompts actually used by the current template. Applying the
+    # angle-bracket regex to prose would mistake inequalities for empty fields.
+    template = clean((REFERENCES / 'intake-template.md').read_text(encoding='utf-8'))
+    placeholders = set(PLACEHOLDER.findall(template))
+    return bool(TODO.search(text)) or any(value in text for value in placeholders)
 
 
 def filled(text):

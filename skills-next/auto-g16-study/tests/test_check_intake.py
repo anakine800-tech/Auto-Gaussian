@@ -5,6 +5,7 @@ import importlib.util
 import io
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 
@@ -263,3 +264,55 @@ def test_channel_csv_quotes_commas_and_escaped_pipes(tmp_path):
     with (root / check.DRAFTS[1]).open(newline='') as stream:
         row = next(csv.DictReader(stream))
     assert row['product_branch'] == '甲烷,模型' and 'A|B' in row['note']
+
+
+@pytest.mark.parametrize('location', ['paragraph', 'table_cell'])
+def test_inequalities_are_filled_prose(tmp_path, location):
+    root = make_study(tmp_path)
+    inequality = 'ΔG‡ < 3 kcal/mol，ee > 95%'
+    if location == 'paragraph':
+        edit(root, '## 1. 研究目标与范围', '## 1. 研究目标与范围\n\n' + inequality)
+    else:
+        edit(root, '不主张研究精度', inequality)
+    report = run(root, draft=True)
+    assert report['all_present'], report['checks']
+    assert inequality in (root / check.DRAFTS[0]).read_text()
+
+
+@pytest.mark.parametrize('marker', ['<填写>', '<逐物种核对>', '<明确列出>', 'TODO', 'TBD'])
+def test_actual_template_placeholders_and_todos_remain_missing(tmp_path, marker):
+    root = make_study(tmp_path)
+    edit(root, '不主张研究精度', marker)
+    report = run(root, draft=True)
+    assert finding(report, 'section.1') == 'missing'
+    assert not report['all_present']
+    assert not any((root / name).exists() for name in check.DRAFTS)
+
+
+def test_new_template_placeholder_is_loaded_at_runtime(tmp_path, monkeypatch):
+    references = tmp_path / 'references'
+    shutil.copytree(check.REFERENCES, references)
+    monkeypatch.setattr(check, 'REFERENCES', references)
+    root = make_study(tmp_path / 'study')
+    marker = '<请补充新增的验收说明>'
+    edit(root, '不主张研究精度', marker)
+    assert run(root)['all_present']  # An unlisted angle-bracket string is prose.
+    with (references / 'intake-template.md').open('a', encoding='utf-8') as stream:
+        stream.write('\n新增填写项：' + marker + '\n')
+    report = check.run(root, 'analyses/intake/check-new-template.json', draft=True)
+    assert finding(report, 'section.1') == 'missing'
+    assert not report['all_present']
+    assert not any((root / name).exists() for name in check.DRAFTS)
+
+
+@pytest.mark.parametrize('ignored', [
+    '<!-- <填写> TODO TBD -->',
+    '```text\n<填写> TODO TBD\n```',
+    '~~~text\n<填写> TODO TBD\n~~~',
+])
+def test_placeholders_in_comments_and_code_blocks_are_ignored(tmp_path, ignored):
+    root = make_study(tmp_path)
+    edit(root, '## 1. 研究目标与范围', '## 1. 研究目标与范围\n\n' + ignored)
+    assert not check.has_placeholder(ignored)
+    report = run(root, draft=True)
+    assert report['all_present'], report['checks']
