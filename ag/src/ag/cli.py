@@ -165,7 +165,7 @@ def main(argv=None):
     parser.add_argument('--version', action='version', version=__version__)
     subparsers = parser.add_subparsers(dest='command')
     register(subparsers)
-    for name in ('facts', 'thermo', 'dedup', 'cluster', 'graph', 'irc_compare', 'profile', 'coverage', 'scan_peak', 'topology', 'mode_review', 'fragments', 'ensemble', 'channel_coverage'):
+    for name in ('facts', 'thermo', 'dedup', 'cluster', 'graph', 'irc_compare', 'profile', 'coverage', 'scan_peak', 'topology', 'mode_review', 'fragments', 'ensemble', 'channel_coverage', 'asm'):
         module_name = f'ag.{name}'
         try:
             module = import_module(module_name)
