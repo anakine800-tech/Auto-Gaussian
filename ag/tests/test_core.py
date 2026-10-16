@@ -174,7 +174,7 @@ def test_cancel_submission(cfg, prepared, monkeypatch):
     monkeypatch.setattr(confirm, 'confirm', lambda *args: False)
     with pytest.raises(submit.UserCancelled):
         submit.submit(cfg, [p.name], fake)
-    assert fake.operations() == ['identity', 'jobs', 'nodes']
+    assert fake.operations() == ['identity', 'jobs']
     assert not (p / '.submit-claim').exists()
     assert state.read(p)['state'] == 'prepared'
 

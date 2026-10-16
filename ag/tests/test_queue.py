@@ -58,6 +58,8 @@ def test_committed_config_invalid(cfg, value):
 
 def test_committed_bounds_follow_max_cores(cfg):
     cfg['resources'].update(max_cores=8, max_committed_cores=32)
+    for tier in cfg['resources']['tiers'].values():
+        tier['cores'] = min(tier['cores'], 8)
     assert config.load_config(write_config(cfg))['resources']['max_committed_cores'] == 32
     cfg['resources']['max_committed_cores'] = 33
     with pytest.raises(config.ConfigError):
@@ -71,15 +73,13 @@ def test_queue_admits_40_plus_32_and_shows_summary(cfg, tmp_path, monkeypatch, c
     dialogs = []
     monkeypatch.setattr(confirm, 'confirm', lambda text: dialogs.append(text) or True)
     assert submit.submit(cfg, ids, fake)[0]['state'] == 'submitted'
-    line = '当前占用 40 核（运行 40、排队 0），提交后合计 72 / 上限 88 核；集群空闲不足时作业将在 PBS 中排队'
+    line = '提交后合计 72 / 上限 88 核。'
     assert line in dialogs[0]
     output = capsys.readouterr()
     assert line in output.err and output.out == ''
-    assert fake.operations().count('nodes') == 1
-    # The submission adds only T10's already-whitelisted read.
+    assert fake.operations().count('nodes') == 0
     assert {c.operation for c in fake.calls} == {
-        'identity', 'jobs', 'nodes', 'create_attempt', 'upload', 'metadata', 'submit'}
-    assert all(c == remote.nodes() for c in fake.calls if c.operation == 'nodes')
+        'identity', 'jobs', 'create_attempt', 'upload', 'metadata', 'submit'}
 
 
 @pytest.mark.parametrize('cores,count', [(28, 2), (8, 7)])
@@ -101,26 +101,25 @@ def test_queue_rejects_40_plus_56_before_confirmation(cfg, tmp_path, monkeypatch
     Result(stdout='bad output'), Result(),
     Result(stdout='node-a\n    state = free\n    np = 0\n'),
 ])
-def test_strict_fallback_rejects_40_plus_8(cfg, prepared, monkeypatch, capsys, nodes):
+def test_node_observation_does_not_affect_admission(cfg, prepared, monkeypatch, capsys, nodes):
     cfg['resources']['max_committed_cores'] = 88
     fake = QueueFake(cfg)
     fake.nodes = nodes
-    monkeypatch.setattr(confirm, 'confirm', lambda text: pytest.fail('over strict cap'))
-    with pytest.raises(ValueError, match='40 occupied.*8 requested / 44'):
-        submit.submit(cfg, [prepared[0].name], fake)
-    assert '严格模式' in capsys.readouterr().err
-    assert 'create_attempt' not in fake.operations()
+    monkeypatch.setattr(confirm, 'confirm', lambda text: True)
+    assert submit.submit(cfg, [prepared[0].name], fake)[0]['state'] == 'submitted'
+    assert '严格模式' not in capsys.readouterr().err
+    assert 'nodes' not in fake.operations()
 
 
-def test_strict_fallback_can_submit_within_cap(cfg, prepared, monkeypatch, capsys):
+def test_unavailable_nodes_do_not_reduce_cap(cfg, prepared, monkeypatch, capsys):
     cfg['resources']['max_committed_cores'] = 88
     fake = QueueFake(cfg, occupied=32)
     fake.nodes = Result(1)
     dialogs = []
     monkeypatch.setattr(confirm, 'confirm', lambda text: dialogs.append(text) or True)
     submit.submit(cfg, [prepared[0].name], fake)
-    assert '严格模式：pbsnodes' in dialogs[0]
-    assert '提交后合计 40 / 上限 44 核' in dialogs[0]
+    assert '严格模式' not in dialogs[0]
+    assert '提交后合计 40 / 上限 88 核' in dialogs[0]
 
 
 @pytest.mark.parametrize('occupied,allowed', [(36, True), (40, False)])
@@ -149,7 +148,7 @@ def test_unreadable_qstat_always_refuses(cfg, prepared, monkeypatch, reply):
     assert 'create_attempt' not in fake.operations()
 
 
-def test_single_job_cannot_exceed_running_cap(cfg, prepared, monkeypatch):
+def test_single_job_cannot_exceed_job_cap(cfg, prepared, monkeypatch):
     cfg['resources'].update(max_cores=4, max_committed_cores=16)
     fake = QueueFake(cfg, occupied=0, nodes=4)
     monkeypatch.setattr(confirm, 'confirm', lambda text: pytest.fail('single job too large'))
@@ -188,31 +187,31 @@ def test_batch_counts_missing_qsub_and_new_external_jobs(cfg, tmp_path, monkeypa
         'submitted', 'failed_presubmit', 'prepared']
 
 
-def test_batch_reuses_confirmed_hardware_result(cfg, tmp_path, monkeypatch, capsys):
+def test_batch_never_queries_hardware(cfg, tmp_path, monkeypatch, capsys):
     cfg['resources']['max_committed_cores'] = 88
     ids = prepare_batch(cfg, tmp_path, 16, 3)
     fake = QueueFake(cfg)
     fake.node_snapshots = [fake.nodes, TransportError('must not query nodes again')]
     monkeypatch.setattr(confirm, 'confirm', lambda text: True)
     assert len(submit.submit(cfg, ids, fake)) == 3
-    assert fake.operations().count('nodes') == 1
+    assert fake.operations().count('nodes') == 0
     assert fake.operations().count('identity') == 1
     assert fake.operations().count('jobs') == 4
     assert '严格模式' not in capsys.readouterr().err
 
 
 @pytest.mark.parametrize('nodes', [Result(1), Result(stdout='node-a\n    state = free\n    np = 88\n')])
-def test_batch_retains_confirmed_strict_cap(cfg, tmp_path, monkeypatch, nodes):
+def test_batch_rechecks_committed_cap_without_nodes(cfg, tmp_path, monkeypatch, nodes):
     cfg['resources']['max_committed_cores'] = 88
     ids = prepare_batch(cfg, tmp_path, 8, 2)
     fake = QueueFake(cfg, occupied=24)
     fake.node_snapshots = [nodes, fake.nodes]
-    # First job is still invisible, and another client adds 8 cores.
-    fake.job_snapshots = [job_text(cores=n) for n in (24, 24, 32)]
+    # First job is still invisible, and another client increases occupancy.
+    fake.job_snapshots = [job_text(cores=n) for n in (24, 24, 73)]
     monkeypatch.setattr(confirm, 'confirm', lambda text: True)
     with pytest.raises(ValueError, match='Core limit changed'):
         submit.submit(cfg, ids, fake)
-    assert fake.operations().count('nodes') == 1
+    assert fake.operations().count('nodes') == 0
     assert fake.submitted_count == 1
     assert [state.read(attempt.find(cfg, id_))['state'] for id_ in ids] == [
         'submitted', 'failed_presubmit']
@@ -233,7 +232,7 @@ def test_unreadable_qstat_after_confirmation_stops(cfg, prepared, monkeypatch, r
         submit.submit(cfg, [prepared[0].name], fake)
     assert 'create_attempt' not in fake.operations()
     assert state.read(prepared[0])['state'] == 'failed_presubmit'
-    assert fake.operations().count('nodes') == 1
+    assert fake.operations().count('nodes') == 0
 
 
 @pytest.mark.parametrize('scheduler_state', ['R', 'E', 'Q', 'H', 'W', 'T', 'S', 'C'])
@@ -252,8 +251,8 @@ def test_breakdown_monitor_and_submit_match(cfg, scheduler_state):
 
 @pytest.mark.parametrize('nodes,cap', [
     ('node-a\n    state = free\n    np = 44\n', 88),
-    ('node-a\n    state = free\n    np = 88\n', 44),
-    ('node-a\n    state = free\n    np = 44\nnode-b\n    state = down\n    np = 8\n', 44),
+    ('node-a\n    state = free\n    np = 88\n', 88),
+    ('node-a\n    state = free\n    np = 44\nnode-b\n    state = down\n    np = 8\n', 88),
 ])
 @pytest.mark.parametrize('cores', [44, 45, 72, 88, 96])
 def test_monitor_warns_at_effective_cap(cfg, cores, nodes, cap):
@@ -290,7 +289,8 @@ def test_confirmation_splits_running_and_queued_for_all_own_jobs(cfg, prepared, 
     monkeypatch.setattr(confirm, 'confirm', lambda text: dialogs.append(text) or False)
     with pytest.raises(submit.UserCancelled):
         submit.submit(cfg, [prepared[0].name], fake)
-    assert '当前占用 40 核（运行 16、排队 24），提交后合计 48 / 上限 88 核' in dialogs[0]
+    assert '当前占用 40 核（运行 16、排队 24；' in dialogs[0]
+    assert '提交后合计 48 / 上限 88 核' in dialogs[0]
     assert not (prepared[0] / '.submit-claim').exists()
 
 
@@ -306,7 +306,7 @@ def test_batch_completed_job_does_not_reserve_cores(cfg, tmp_path, monkeypatch):
 
 @pytest.mark.parametrize('source', ['exec_host', 'jobs'])
 @pytest.mark.parametrize('slots', ['', ',0', '0,', '0,,2', '7-0', 'x', '0-7,7-12'])
-def test_combined_slot_parse_failure_keeps_strict_cap(
+def test_display_slot_parse_failure_does_not_reduce_cap(
         cfg, prepared, monkeypatch, capsys, source, slots):
     cfg['resources']['max_committed_cores'] = 88
     fake = QueueFake(cfg)
@@ -315,13 +315,11 @@ def test_combined_slot_parse_failure_keeps_strict_cap(
     else:
         fake.nodes = Result(stdout=f'n1\n    state = free\n    np = 44\n'
                                    f'    jobs = {slots}/101.srv\n')
-    monkeypatch.setattr(confirm, 'confirm', lambda text: pytest.fail('over strict cap'))
-    with pytest.raises(ValueError, match='40 occupied.*8 requested / 44'):
-        submit.submit(cfg, [prepared[0].name], fake)
-    assert '严格模式：pbsnodes' in capsys.readouterr().err
-    assert 'create_attempt' not in fake.operations()
-    assert fake.submitted_count == 0
-    assert not (prepared[0] / '.submit-claim').exists()
+    monkeypatch.setattr(confirm, 'confirm', lambda text: True)
+    assert submit.submit(cfg, [prepared[0].name], fake)[0]['state'] == 'submitted'
+    assert '严格模式' not in capsys.readouterr().err
+    assert 'nodes' not in fake.operations()
+    assert fake.submitted_count == 1
 
 
 @pytest.mark.parametrize('source', ['exec_host', 'jobs'])

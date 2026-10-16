@@ -40,7 +40,9 @@ def doctor(cfg, transport):
                 accounting_note=('No historical jobs visible; accounting availability remains unverified' if history_available is False else None),
                 cluster=cfg.get('_cluster', 'default'), ssh=True, identity=True, scheduler=True, allowed_root=True,
                 programs=list(paths), occupied_cores=used,
-                max_cores=cfg['resources']['max_cores'], inventory_seconds=round(latency, 3))
+                max_cores=cfg['resources']['max_cores'],
+                max_committed_cores=cfg['resources'].get('max_committed_cores', cfg['resources']['max_cores']),
+                inventory_seconds=round(latency, 3))
 
 
 def storage(cfg, transport):

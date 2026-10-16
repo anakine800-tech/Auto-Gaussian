@@ -1,5 +1,9 @@
 """Bounded SSH/scp transport, replaceable with an inert test implementation."""
 from dataclasses import dataclass
+from datetime import datetime, timezone
+import errno
+import json
+import stat
 import os
 import re
 import shlex
@@ -69,6 +73,26 @@ def redact_stderr(value, cfg):
     return value[:4096]
 
 
+def error_class(detail, outcome):
+    """Classify redacted stderr only; never include arbitrary error text."""
+    if outcome == 'ok':
+        return 'none'
+    value = detail.lower()
+    for category, patterns in (
+        ('connection_refused', ('connection refused',)),
+        ('connection_timeout', ('connection timed out', 'connection timeout', 'operation timed out')),
+        ('connection_reset', ('connection reset', 'connection closed', 'broken pipe')),
+        ('host_key', ('host key', 'host identification has changed', 'host [redacted] verification failed', 'host [redacted] has changed')),
+        ('permission_denied', ('permission denied',)),
+        ('operation_not_permitted', ('operation not permitted',)),
+        ('name_resolution', ('could not resolve', 'name or service not known', 'name resolution', 'nodename nor servname')),
+        ('network_unreachable', ('network is unreachable', 'network unreachable', 'no route to host')),
+    ):
+        if any(pattern in value for pattern in patterns):
+            return category
+    return 'other'
+
+
 # The live T1 SSH-255 incident motivated one bounded retry for observations.
 # Submit/cancel retain the original single-attempt transport, including reads.
 READ_OPERATIONS = frozenset({'identity', 'queues', 'nodes', 'jobs', 'root_check', 'executable',
@@ -86,6 +110,46 @@ class SSHTransport:
         self.options = ['-F', cfg['ssh']['config_file'], '-o', 'BatchMode=yes',
                         '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=15']
 
+    def _log_call(self, tool, operation, attempt, outcome, returncode, duration, detail):
+        # Diagnose refused connections without persisting endpoint/command data.
+        at = datetime.now(timezone.utc)
+        cluster = self.cfg.get('_cluster', 'default')
+        row = dict(at=at.isoformat(), cluster=cluster, tool=tool, operation=operation,
+                   attempt=attempt, outcome=outcome, returncode=returncode,
+                   duration_s=round(duration, 3), error_class=error_class(detail, outcome))
+        directory_fd = file_fd = None
+        failed = False
+        try:
+            directory = Path(self.cfg['_config_dir']) / 'ssh-log'
+            # Reject redirected directories, including any symlinked ancestor.
+            if any(part.is_symlink() for part in (directory, *directory.parents)):
+                raise OSError(errno.ELOOP, 'Symbolic link')
+            directory.mkdir(mode=0o700, exist_ok=True)
+            directory_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            file_fd = os.open(f'{cluster}-{at:%Y-%m}.jsonl',
+                              os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW | os.O_NONBLOCK,
+                              0o600, dir_fd=directory_fd)
+            if not stat.S_ISREG(os.fstat(file_fd).st_mode):
+                raise OSError(errno.EINVAL, 'Not a regular log file')
+            os.fchmod(file_fd, 0o600)
+            data = (json.dumps(row, ensure_ascii=False) + '\n').encode('utf-8')
+            if os.write(file_fd, data) != len(data):
+                raise OSError(errno.EIO, 'Incomplete log write')
+        except OSError:
+            failed = True
+        finally:
+            for fd in (file_fd, directory_fd):
+                if fd is not None:
+                    try:
+                        os.close(fd)
+                    except OSError:
+                        failed = True
+        if failed:
+            try:
+                print('Warning: could not write local SSH log; operation continues.', file=sys.stderr)
+            except OSError:
+                pass  # Even an unavailable warning stream cannot alter the operation.
+
     def _execute(self, argv, timeout):
         try:
             p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
@@ -95,6 +159,29 @@ class SSHTransport:
         except OSError as exc:
             raise TransportError('Could not start SSH/scp locally') from exc
         return Result(p.returncode, p.stdout, redact_stderr(p.stderr, self.cfg))
+
+    def _logged_execute(self, argv, timeout, operation, attempt):
+        # Keep both existing hooks intact: incomplete fetch overrides _perform
+        # to stop at the first failure, and transport fakes replace _execute.
+        started = time.monotonic()
+        outcome, returncode, detail = 'start_failed', None, ''
+        try:
+            try:
+                result = self._execute(argv, timeout)
+            except SSHConnectionError as exc:
+                outcome = 'timeout'
+                detail = redact_stderr(getattr(exc.__cause__, 'stderr', '') or '', self.cfg)
+                raise
+            except TransportError as exc:
+                detail = redact_stderr(str(exc.__cause__ or exc), self.cfg)
+                raise
+            returncode = result.returncode
+            outcome = 'ok' if returncode == 0 else 'exit'
+            detail = result.stderr  # _execute already redacts subprocess stderr.
+            return result
+        finally:
+            self._log_call(argv[0], operation, attempt, outcome, returncode,
+                           time.monotonic() - started, detail)
 
     def record_to(self, paths):
         self.error_paths = list(paths)
@@ -134,16 +221,24 @@ class SSHTransport:
             raise ValueError('Transport requires a fixed remote command')
         if self.read_only and command.operation not in READ_OPERATIONS:
             raise ValueError('Read-only transport refuses remote writes')
-        return self._perform(lambda: self._execute(
-            ['ssh', *self.options, self.cfg['ssh']['host'], '--', command.text], command.timeout))
+        index = 0
+
+        def run_once():
+            nonlocal index
+            index += 1
+            return self._logged_execute(
+                ['ssh', *self.options, self.cfg['ssh']['host'], '--', command.text],
+                command.timeout, command.operation, index)
+
+        return self._perform(run_once)
 
     def upload(self, local, manifest, name):
         if self.read_only:
             raise ValueError('Read-only transport refuses uploads')
         require_ok(self.run(remote.upload_check(self.cfg, manifest, name)), 'upload precheck')
         dest = remote.attempt_dir(self.cfg, manifest) + '/' + remote.filename(name)
-        require_ok(self._perform(lambda: self._execute(
-            ['scp', *self.options, str(local), self.cfg['ssh']['host'] + ':' + dest], 60)), 'upload')
+        require_ok(self._perform(lambda: self._logged_execute(
+            ['scp', *self.options, str(local), self.cfg['ssh']['host'] + ':' + dest], 60, 'upload', 1)), 'upload')
 
     def download(self, manifest, name, local):
         local = Path(local)
@@ -151,13 +246,15 @@ class SSHTransport:
             raise ValueError('Download destination already exists')
         src = remote.attempt_dir(self.cfg, manifest) + '/' + remote.filename(name)
         candidate = None
+        index = 0
 
         def download_once():
-            nonlocal candidate
+            nonlocal candidate, index
+            index += 1
             # A failed scp may leave bytes behind. Each try uses a fresh local
             # destination so neither a partial nor a published file is replaced.
             candidate = Path(tempfile.mkdtemp(prefix='.download-', dir=local.parent)) / name
-            return self._execute(['scp', *self.options, self.cfg['ssh']['host'] + ':' + src, str(candidate)], 60)
+            return self._logged_execute(['scp', *self.options, self.cfg['ssh']['host'] + ':' + src, str(candidate)], 60, 'download', index)
 
         require_ok(self._perform(download_once), 'download')
         os.link(candidate, local)

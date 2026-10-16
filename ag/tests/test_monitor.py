@@ -50,7 +50,7 @@ def cfg(tmp_path):
     ssh.write_text('Host fixture\n  User fixture\n')
     root = tmp_path / 'studies'
     root.mkdir()
-    return {'ssh': {'host': 'fixture', 'config_file': str(ssh)},
+    return {'_config_dir': str(tmp_path), 'ssh': {'host': 'fixture', 'config_file': str(ssh)},
             'local': {'studies_root': str(root)}, 'resources': {'max_cores': 44}}
 
 

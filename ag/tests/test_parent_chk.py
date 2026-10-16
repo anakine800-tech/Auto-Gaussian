@@ -340,7 +340,7 @@ def test_no_attachment_regression(cfg, prepared, monkeypatch):
     fake = Fake(cfg)
     monkeypatch.setattr(confirm, 'confirm', lambda text: True)
     submit.submit(cfg, [p.name], fake)
-    assert fake.operations() == ['identity', 'jobs', 'nodes', 'jobs', 'create_attempt',
+    assert fake.operations() == ['identity', 'jobs', 'jobs', 'create_attempt',
                                  'upload', 'metadata', 'upload', 'metadata', 'submit']
 
 
@@ -414,7 +414,7 @@ def test_cancellation_does_not_copy_or_consume(cfg, parent, tmp_path, monkeypatc
     monkeypatch.setattr(confirm, 'confirm', lambda text: False)
     with pytest.raises(submit.UserCancelled):
         submit.submit(cfg, [p.name], fake)
-    assert fake.operations() == ['identity', 'jobs', 'parent_chk_metadata', 'nodes']
+    assert fake.operations() == ['identity', 'jobs', 'parent_chk_metadata']
     assert state.read(p)['state'] == 'prepared' and not (p / '.submit-claim').exists()
 
 

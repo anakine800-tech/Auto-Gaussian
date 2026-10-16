@@ -119,16 +119,22 @@ studies_root = "<ABS_LOCAL_STUDIES_ROOT_OUTSIDE_GIT>"
 - `programs.xtb.root` 下应有 `bin/xtb`、`bin/crest` 和运行时所需的 `share/xtb`。
 - `local.studies_root` 必须在任何 Git checkout 之外；`local.python` 记录所选化学环境的
   解释器。该字段不会自动切换当前 shell 的 Python，运行 `ag` 前仍需激活正确环境。
-- 样例中的 `resources.max_cores` 为 44；保留 `mini`、`simple`、`general`、`complex`
-  四档定义。`queue` 填管理员确认可用的队列。
+- `resources.max_cores` 限制单个作业和各资源档位；PBS 为 1–44，Slurm 为正整数。
+  保留 `mini`、`simple`、`general`、`complex` 四档定义；`queue` 填管理员确认可用的队列。
 - `resources.max_committed_cores` 是运行加排队的总额度，必须为整数，介于
   `max_cores` 和 `4 × max_cores` 之间；省略时等于 `max_cores`，保持原有额度。
   上面两个整数占位符替换后不要保留尖括号。单个作业仍受 `max_cores` 限制。
-- 每次提交前通过已有的 `pbsnodes -a` 核验集群总核数；不超过 `max_cores`
-  时允许排队并使用总额度，否则（含核验失败）回退到 `max_cores` 严格检查并说明原因。
-  `qstat -f` 无法统计时拒绝提交。确认对话框及终端摘要会列出运行、排队和提交后总数。
+- PBS 和 Slurm 都按该用户在该集群上的全部运行及排队作业（含挂起、其他电脑和非 ag
+  作业）检查总额度；Slurm 另计本地台账中尚未被调度器显示的预留。提交不读取 `pbsnodes`，
+  `qstat` / `squeue` 无法统计时仍拒绝。确认期间每个作业提交前重新检查占用。
+  确认对话框及终端摘要显示运行、排队、提交后合计和上限。ag 不限制运行中的核数：
+  集群空闲时，排队作业可能同时运行，运行中的核数可能达到总额度。
+- 每次 SSH/scp 调用（含只读重试）追加到配置目录内 `ssh-log/<集群名>-<YYYY-MM>.jsonl`。
+  日志只含 UTC 时间、集群名、工具、操作类型、尝试序号、结果、返回码、耗时和错误类别，
+  不含连接信息、命令、路径或 stderr 原文。文件权限为 0600，拒绝符号链接；
+  写入失败仅警告，不改变原操作或重试规则，不自动删除历史日志。
 - `ag monitor` 的 `ag-monitor/1` 输出在 `own` 中增量提供 `cores_running`、
-  `cores_queued`、`committed_cap`；`core_cap` 保留运行上限含义，`over-cap`
+  `cores_queued`、`committed_cap`；`core_cap` 表示单作业上限，`over-cap`
   按 `committed_cap` 判断。旧缓存可以缺少这些增量字段。
 
 ### 4. 用 ag doctor 验证
@@ -144,7 +150,7 @@ ag doctor --json
 它不会创建远程探测文件、提交作业、运行计算程序或清理服务器。
 
 通过时退出码为 0，JSON 中 `ok`、`ssh`、`identity`、`scheduler`、`allowed_root`
-为 `true`，并列出 `programs`、`occupied_cores`、`max_cores` 和 `inventory_seconds`。
+为 `true`，并列出 `programs`、`occupied_cores`、`max_cores`、`max_committed_cores` 和 `inventory_seconds`。
 `occupied_cores` 用于展示当前用户作业占用；提交时仍会重新核算容量。
 
 doctor 通过只说明上述环境检查通过；它不验证科学方法、真实计算成功或研究完成，
