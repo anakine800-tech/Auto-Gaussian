@@ -69,7 +69,10 @@ def parse_nodes(text, jobs):
                 slot, sep, job_id = fragment.strip().partition('/')
                 slots.append(slot)
                 if sep:
-                    validate_job_id(job_id)
+                    # Node slots can belong to array children; this is display
+                    # parsing only and must not widen remote command arguments.
+                    if not re.fullmatch(r'\d+\[\d+\](?:\.[A-Za-z0-9][A-Za-z0-9_.-]*)?', job_id):
+                        validate_job_id(job_id)
                     used += slot_count(','.join(slots))
                     slots = []
             if slots:

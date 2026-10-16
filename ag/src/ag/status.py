@@ -17,7 +17,13 @@ def parse_jobs(text):
         if not line.strip():
             continue
         if line.startswith('Job Id:'):
-            current = {'job_id': remote.job_id(line.split(':', 1)[1].strip())}
+            job_id = line.split(':', 1)[1].strip()
+            # Queue observations may contain other users' arrays. Keep this
+            # separate from the exact ordinary IDs allowed in remote commands.
+            if re.fullmatch(r'\d+\[\d*\](?:\.[A-Za-z0-9][A-Za-z0-9_.-]*)?', job_id):
+                current = {'job_id': job_id, 'array': True}
+            else:
+                current = {'job_id': remote.job_id(job_id)}
             jobs.append(current)
             last_key = None
         elif current is not None and re.match(r'^\s+[^\s=]+\s+=\s*', line):
@@ -38,7 +44,14 @@ def occupied(jobs, username):
     for job in jobs:
         if not job.get('Job_Owner') or not job.get('job_state'):
             raise ValueError('Scheduler record lacks owner/state; cannot count cores')
-        if job['Job_Owner'].split('@')[0] != username or job['job_state'] == 'C':
+        if job['Job_Owner'].split('@')[0] != username:
+            continue
+        # A parent request does not establish the resources of all children.
+        # Reject even retained C records so unknown reconciliation cannot bind
+        # an array to an Attempt through inventory.
+        if job.get('array'):
+            raise ValueError('本人有 PBS 数组作业，无法可靠统计已占用核数，拒绝提交；请在数组作业结束后再提交')
+        if job['job_state'] == 'C':
             continue
         # Include E/T/W/S as well: these may still occupy or reserve resources.
         nodes = job.get('Resource_List.nodes')
