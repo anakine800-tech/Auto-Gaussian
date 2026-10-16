@@ -163,5 +163,5 @@
 ## CREST/xTB 的 OpenBLAS 警告撑大日志
 现象：SCNet 小分子 CREST 的 `job.slurm.err` 出现约 159 万行 OpenBLAS/OpenMP 警告，约 194 MB；`crest.out` 无该警告。
 原因：OpenMP 并行中调用 pthread OpenBLAS，嵌套并行反复报警；不能把其他程序错误一并忽略。
-修复：T50 固定 `OPENBLAS_NUM_THREADS=1` 和 `OMP_MAX_ACTIVE_LEVELS=1`，保留原 OpenMP 核数；单次真实验证中 stderr 降为 0 字节，结构与能量对应仍待核验。
-以后：按 CREST/xTB 官方线程建议审阅模板，BLAS 与 OpenMP 分开控制；离线渲染通过不等于真实运行或科学验收。随机采样的真实验证，按“结构对应和能量接近”来验收，不要求逐帧一致。
+修复：T50 固定 `OPENBLAS_NUM_THREADS=1` 和 `OMP_MAX_ACTIVE_LEVELS=1`，保留原 OpenMP 核数；单次真实验证中 stderr 降为 0 字节；无手性小分子按获批镜像口径完成结构与能量对应，待监督方复核。
+以后：按 CREST/xTB 官方线程建议审阅模板，BLAS 与 OpenMP 分开控制；离线渲染通过不等于真实运行或科学验收。随机采样的真实验证，按“结构对应和能量接近”来验收，不要求逐帧一致。无手性体系的构象对照要允许镜像；手性体系（如 HSS）不做镜像合并，与已签的能量口径一致。
