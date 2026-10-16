@@ -161,3 +161,20 @@ def test_performance_200_frames_20_heavy_atoms(tmp_path):
     assert len(kept) == 200
     assert not excluded
     assert elapsed < 60
+
+
+def test_legacy_fixture_output_bytes(tmp_path, monkeypatch, capsys):
+    """SHA-256 recorded on main f34f732; fix filenames, not output contents."""
+    import hashlib
+    raw = DATA.read_bytes()
+    monkeypatch.chdir(tmp_path)
+    Path("butane.xyz").write_bytes(raw)
+    monkeypatch.setattr(g, "output_stem", lambda *args: Path("dedup-compat"))
+    assert main(["dedup", "butane.xyz", "--charge", "0", "--out", ".", "--json"]) == 0
+    payloads = [Path("dedup-compat.json").read_bytes(), Path("dedup-compat.xyz").read_bytes(),
+                capsys.readouterr().out.encode()]
+    assert [hashlib.sha256(data).hexdigest() for data in payloads] == [
+        "2c66dc2cb9b49b47445175c69bbd62d358fd13a705f65a35d65f38e06157138d",
+        "05fc6d3150d1a19eecd3ea203f45164e8767e2d1ffc8a727f1b0e3aa00ca0f9f",
+        "1de885e4c27822dacb3cf68d0176473a4c3213cae4f293dddbcbf6dbd1ddd08f",
+    ]
