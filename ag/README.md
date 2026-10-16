@@ -412,6 +412,56 @@ CSV 必须含 `channel_id,product_branch,ensemble_manifests`，可选 `note`；
 最低候选依 thermo > opt > sp > xTB 的可用能量选择；多清单 xTB 零点无法比较时
 保留各清单最低值并说明原因。字段及计数口径见 [ag-channel-coverage/1](../docs/ag-channel-coverage-1.md)。
 
+## 本地分析命令：thermo / profile 输入一致性
+
+`ag thermo` 只汇总同一组成、电荷、多重度且频率层方法/程序版本一致的构象集合。
+单点修正必须全有或全无；全有时单点层的方法/程序版本也必须一致。
+不一致时列出 Attempt 和差异字段，不生成布居表。
+**分子式相同不等于同一物种，是否属于同一物种的构象集合仍由人审阅。**
+
+`thermo` 与 `profile`（缓存 thermo、直接 Attempt 两条通路）共用频率证据检查：
+`freq_step_converged is True`、`vibrational_modes_complete is True`，独立 Freq 同样适用。
+明确失败时附收敛表或实际/预期模式数；未知值不按通过处理。
+旧 facts 缺字段时提示先人工核对原日志，再运行 `ag facts <attempt> --refresh`，分析不改写 facts。
+单原子只豁免模式完整性，并在 JSON/Markdown 注明无振动模式；仍要求频率阶段明确收敛。
+thermo 的零虚频要求、profile 的唯一 TS 虚频及方向审阅要求保持不变。
+
+profile 直接 Attempt 的 SPC（包括 TS 精化）复用 thermo 配对检查：
+核对 manifest 绑定的 SP 输入字节、固定原子行序、全部原子的 proper Kabsch 对齐，
+RMSD ≤ 0.001 Å；不做反射或原子置换，SP 输入不能是优化、IRC 或扫描。
+JSON/Markdown 记录 RMSD、SP 输入及频率最终几何 SHA-256；缓存 thermo 保留其原有配对证据。
+
+`protocol()` 增加 `basis_function_type`：显式 5D/6D、7F/10F 参与方案比较，
+未指定记 `basis_default`，不推断与某个显式形式等价。
+积分设置由 `integration_grid()` 单独读取 Int/Integral 写法，记录在每个构象的
+`integration_grid.frequency/single_point` 中；未指定为 `program_default`。
+同一集合、频率与 SP 层或整个 profile 的网格设置不同时，仅在 JSON/Markdown 警告；
+不参与 `protocol()` 相等比较。默认网格依程序版本而异，不推断与显式网格等价。
+
+电子能目前来自 `SCF Done`，因此 `protocol()` 只接受 `SCF_ENERGY_METHODS` 常量中的
+HF/普通 DFT 名称（大小写不敏感，支持 R/U/RO 前缀及方法名中的连字符；前缀不在方案比较中消去）：
+
+```text
+HF LSDA SVWN SVWN5 SLYP BLYP BP86 BPW91 BPE BPBE G96LYP G96P86 G96PW91
+PW91LYP PW91P86 PW91PW91 MPWLYP MPWPW91 MPWPBE PBE PBE0 PBEPBE PBE1PBE
+B3LYP B3LYP5 B3P86 B3PW91 B1B95 B1LYP B1PW91 B98 B971 B972 B97D B97D3
+MPW1PW91 MPW1LYP MPW1PBE MPW3PBE MPW3LYP MPW1B95 MPWLYP1M
+O3LYP OLYP OPBE X3LYP CAM-B3LYP LC-WPBE WB97 WB97X WB97XD
+M05 M052X M06 M06L M062X M06HF M08HX M08SO M11 M11L MN12L MN12SX MN15 MN15L
+TPSSTPSS TPSSH REVTPSS REVTPSSH VSXC HCTH93 HCTH147 HCTH407 THCTH THCTHHYB
+SOGGA11 SOGGA11X N12 N12SX HSEH1PBE HSE1PBE HSE2PBE OHSE1PBE OHSE2PBE
+```
+
+保留普通 DFT 的内置色散及显式 `EmpiricalDispersion` / `Em` 设置。
+这份名单只界定能量提取能力，不替代科学方法表或程序自身支持范围。
+`NON_SCF_METHOD_PREFIXES` 拒绝以下方法族及其派生写法：MP2/MP3/MP4/MP5、CC、QCISD、
+CBS、G1/G2/G3/G4、B2（含 B2PLYP）、mPW2（含 mPW2PLYP）、DSD/DOD/revDSD/revDOD、
+PBE0DH/PBEQIDH、PWPB95、XYG、wB97X-2、ONIOM、AM1/PM3/PM6/PM7、PDDG、MNDO、
+CNDO/INDO/ZINDO、DFTB、UFF/Dreiding/Amber、CIS、EOM、BD、CAS、SAC、TD。
+未知名称也拒绝并提示“当前只支持 SCF 能量的方法”，不将相关能、复合能或激发态能误当 SCF 能。
+共享 `protocol()` 的 `ag asm` 与 T79 `ag irc-review` 同样受方法限制和基函数形式比较影响；
+T79 若晚于此改动合并，需要 rebase 并验证其协议比较和测试。
+
 ## 本地分析命令：畸变–相互作用分析
 
 `ag asm split` 按人工指定的原子编号导出片段 XYZ，保留 `original_atoms` 映射；

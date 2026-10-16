@@ -6,7 +6,7 @@ from pathlib import Path
 import re
 
 from ag._profile_sources import (DEFAULT_SETTINGS, finite, integer, load_species,
-                                 nonempty, read_json, require)
+                                 nonempty, read_json, require, grid_warnings)
 from ag.thermo import HARTREE_TO_KCAL, R_HARTREE
 
 R_KCAL = R_HARTREE * HARTREE_TO_KCAL
@@ -407,6 +407,10 @@ def calculate_profile(definition, *, perturb=None):
               'species': species, 'states': rows, 'steps': step_table(rows), 'formulas': FORMULAS,
               'catalytic_cycle': cycle,
               'note': 'Finite supplied conformer ensembles; equilibration, mechanism and cycle closure are reviewed scientific assumptions.'}
+    result['warnings'] = grid_warnings([
+        (f"{name}/{conformer['attempt_id']}/{layer}", grid)
+        for name, item in species.items() for conformer in item['conformers']
+        for layer, grid in conformer['integration_grid'].items() if grid is not None])
     if cycle:
         result['energetic_span'] = energetic_span(rows)
     if perturb is not None:
@@ -442,6 +446,24 @@ def markdown(result):
               '|---|---:|---:|---:|---|']
     for name, item in result['species'].items():
         lines.append(f"| {cell(name)} | {item['ensemble_G_hartree']:.10f} | {item['standard_state_correction_kcal']:.6f} | {item['concentration_correction_kcal']:.6f} | {cell(item['single_conformer_reason'] or '—')} |")
+    lines += ['', '## 输入一致性证据', '',
+              '| Species | Attempt | Layer | Protocol | Integration grid |', '|---|---|---|---|---|']
+    for name, item in result['species'].items():
+        for conformer in item['conformers']:
+            for layer, grid in conformer['integration_grid'].items():
+                if grid is not None:
+                    lines.append(f"| {cell(name)} | {cell(conformer['attempt_id'])} | {layer} | "
+                                 f"{cell(json.dumps(item['protocol'][layer]))} | {cell(grid)} |")
+    lines += ['', *[f'- 警告：{cell(warning)}' for warning in result.get('warnings', [])], '',
+              '| Frequency Attempt | SP Attempt | RMSD (Å) | SP input geometry SHA-256 | Frequency final geometry SHA-256 |',
+              '|---|---|---:|---|---|']
+    for item in result['species'].values():
+        for conformer in item['conformers']:
+            evidence = conformer['pairing_evidence']
+            if evidence is not None:
+                lines.append(f"| {cell(conformer['attempt_id'])} | {cell(conformer['spc_attempt_id'])} | "
+                             f"{evidence['rmsd_angstrom']:.10g} | {evidence['sp_input_geometry_sha256']} | "
+                             f"{evidence['frequency_final_geometry_sha256']} |")
     lines += ['', '## Formulas', '']
     lines += [f'- {name}: `{formula}`' for name, formula in result['formulas'].items()]
     for step in result['steps']:
@@ -519,6 +541,11 @@ def markdown(result):
             if source.get('file'):
                 evidence += f" ({source['file']}:{source.get('line')})"
             lines.append(f"| {cell(name)} | {cell(conformer['attempt_id'])} | {conformer['rotational_symmetry_number']} | {cell(evidence)} | {conformer['nosymm']} | {conformer['RT_ln_sigma_kcal']:.6f} |")
+    for name, item in result['species'].items():
+        for conformer in item['conformers']:
+            note = conformer.get('frequency_evidence', {}).get('note')
+            if note:
+                lines += ['', f"{cell(name)}/{cell(conformer['attempt_id'])}: {cell(note)}", '']
     return '\n'.join(lines + [''])
 
 

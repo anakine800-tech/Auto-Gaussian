@@ -53,6 +53,12 @@ def peroxide(tmp_path, name='peroxide', *, twisted=False):
                       A                      A                      A
  Frequencies --  1000.0000              3000.0000              3200.0000
 
+         Item               Value     Threshold  Converged?
+ Maximum Force            0.000000     0.000450     YES
+ RMS     Force            0.000000     0.000300     YES
+ Maximum Displacement     0.000000     0.001800     YES
+ RMS     Displacement     0.000000     0.001200     YES
+
  - Thermochemistry -
  Temperature   298.150 Kelvin.  Pressure   1.00000 Atm.
  Molecular mass:    34.00000 amu.
