@@ -1,4 +1,4 @@
-# Auto-Gaussian v4.2.1
+# Auto-Gaussian v4.2.2
 
 Auto-Gaussian 是人在回路中的计算化学助手：LLM 按 Skills 规划研究，人签字和确认，`ag` 负责安全把关与确定性计算。
 
@@ -214,7 +214,7 @@ TS 必须恰好一个虚频且振动方向与反应坐标一致；只有双向 I
 
 ## 前端
 
-ag 4.2.1 配合前端 [Auto-Gaussian-Frontend](https://github.com/anakine800-tech/Auto-Gaussian-Frontend) v4.2.1 使用；T71 已合并，双方版本 PR 合并后由负责人发布，启动方式见其 README。
+ag 4.2.2 配合前端 [Auto-Gaussian-Frontend](https://github.com/anakine800-tech/Auto-Gaussian-Frontend) v4.2.1 使用；本轮前端没有改动，不发前端版本，启动方式见其 README。
 已只读核对前端 main（`e224d5a`）：结果表读取 `route`、`termination`、`energies.scf`、`energies.g`、`n_imag` 和 `frequencies_low`，这些字段未改名或删除；缺失值显示为空。
 分析页将 profile 作为完整 JSON 展示，没有专用剖面字段依赖。`ag-facts/1` 和 `ag-profile/1` 保持不变，新增字段不影响读取；分段解析修正可能改变旧值，不能把字段兼容理解成重新解析后数值必然不变。
 默认只读，读取本地 study、结果与保存的监控快照。`--enable-actions` 显式开启经本机 ag 执行的准备、提交、状态刷新、取回和取消；不绕过 Mac 确认，也不直接执行远程命令。
@@ -256,10 +256,11 @@ Slurm 核时预算来自 ag 本地台账，不等于平台余额。
 
 ### 已知限制
 
+- 二维扫描的前端能量面显示尚未支持；Gaussian 二维扫描与人工指定候选的 `scan-peak` 已在后端提供（T75，[#289](https://github.com/anakine800-tech/Auto-Gaussian/pull/289)）。
 - study 内保存的卡片副本若含指向仓库文档的相对链接，生成证据清单时会因越出 study 被拒绝；签字前需将这些链接改为仓库 URL 或删除链接。
 - `fetch --incomplete` 的“缺少声明输出”分支目前只有离线测试覆盖；两次真实取回的声明输出均存在。
 
-- PBS 队列解析支持数组父/子作业，节点显示支持数组子作业槽位；其他用户的数组不会阻断本人核数统计和监控。本人有数组记录时，因无法可靠统计核数，`ag submit` 和 `ag doctor` 会明确拒绝，`ag monitor` 也会报错。已完成但仍保留在 `qstat` 中的本人数组记录（C 状态）也会导致拒绝，须等记录消失后再提交。ag 不提交或取消数组作业，命令参数仍只接受普通作业号；未知格式仍报错。逗号组合槽位范围已支持（#243）。
+- PBS 队列解析支持数组父/子作业，节点显示支持数组子作业槽位；其他用户的数组不会阻断本人核数统计和监控。本人有数组记录时，因无法可靠统计核数，`ag submit` 和 `ag doctor` 会明确拒绝，`ag monitor` 也会报错。已完成但仍保留在 `qstat` 中的本人数组记录（C 状态）也会导致拒绝，须等记录消失后再提交。ag 不提交或取消数组作业，命令参数仍只接受普通作业号；未知格式仍报错。逗号组合槽位范围已支持（#243）；数组行为见 T77（[#291](https://github.com/anakine800-tech/Auto-Gaussian/pull/291)）。
 - 分子很大时，少数极性氢的局部变化会被整体 RMSD 平均稀释，灵敏度下降；仍需结合相关二面角、氢键模式和结构审阅，不能仅凭去重报告证明等价。
 - IRC StepSize 的单位须按本机 Gaussian 手册和实际输出核实，记录实际打印的步长及坐标类型，不把不同版本中的单位描述通用化。
 - `profile` 要求极小点与 TS 交替的离散路径，不能表达无势垒步骤；不得虚构 TS 来凑齐曲线。
@@ -279,5 +280,6 @@ python ag/tools/scan_sensitive.py --staged
 - **v4.0 → v4.1.0**：ag + Skills 文件状态架构与后续解析、分析工具、卡片和不完整取回更新，详见 [CHANGELOG.md](CHANGELOG.md)。[REDESIGN-PLAN](docs/REDESIGN-PLAN.md) 作为设计记录保留。
 - **v4.2.0**：更新提交额度与 SSH 日志、取回后自动 facts、CREST/xTB 线程设置、证据引用解析、ensemble 和研究准备文档；升级前检查本机资源配置，详见 [CHANGELOG.md](CHANGELOG.md#v420)。
 - **v4.2.1**：T62 保留小修、T64 证据引用分类、T65 远程观察回退、T66 Slurm 不完整取回、T68 RDKit 风险报告、T69 通道覆盖、T70 局部构象描述与 T72 文献模板；配合前端 T71，详见 [CHANGELOG.md](CHANGELOG.md#v421)。
+- **v4.2.2**：T73 topology 不确定接触修复、T74 SSH 日志与命令示例引用修复、T75 Gaussian 二维扫描、T76 畸变–相互作用分析、T77 PBS 数组观察兼容；前端保持 v4.2.1，详见 [CHANGELOG.md](CHANGELOG.md#v422)。
 
 许可：[MIT](LICENSE)。
