@@ -164,9 +164,60 @@ def test_full_command_snapshots():
                 remote.incomplete_output_observation(cfg, m, 'water.log'),
                 remote.receipt(cfg, m, 'ag-exit.json')]
     assert [sha256(c.text.encode()).hexdigest() for c in commands] == [
-        '5a567c8242262cf7f996b6afb54e54807cc2af40188bac10519640bb574d1cd7',
-        '501814738ad4cd39c22025c7a0e031d66ebdb9251d529594a9add3ae4675364c',
-        '03f3064eead952be2c263de87681b2146000fa2200581472e58ddee10796b39e',
+        '9508b826bc7608d7c47d7fba8abf1820d908c8a7686e4dd00e975db0a056ee6a',
+        '904c622f89a3c9ce0f312078ca7aa5b2b40bb318b32e307b2e0c07377d0dacc6',
+        '3440a743aab86b4c8313f636cc1c60c76ae1bbd1c2cc7620f8451d601a67cff1',
     ]
     for command in commands:
         assert subprocess.run(['sh', '-n'], input=command.text, text=True).returncode == 0
+
+
+LS_FAILURES = [
+    ("ls: cannot access /x: No such file or directory", 'absent'),
+    ("ls: cannot access '/x': No such file or directory", 'absent'),
+    ("No such file or directory", 'absent'),
+    ("ls: cannot access /x: Permission denied", 'unreadable'),
+    ("ls: cannot access '/x': Permission denied", 'unreadable'),
+    ("ls: cannot access /x: Input/output error", 'unreadable'),
+]
+
+
+def run_with_ls_failure(command, diagnostic):
+    # Run the complete generated shell command. Only ls is faked, so locale,
+    # quoting, case matching and the incomplete-fetch parent checks still run.
+    fake_ls = "ls() { printf '%s\\n' \"$AG_TEST_LS_ERROR\" >&2; return 2; }; "
+    return subprocess.run(['sh', '-c', fake_ls + command.text], capture_output=True, text=True,
+                          env={**os.environ, 'AG_TEST_LS_ERROR': diagnostic})
+
+
+@pytest.mark.parametrize('kind', ['output', 'incomplete', 'receipt'])
+@pytest.mark.parametrize('diagnostic,expected', LS_FAILURES)
+def test_ls_diagnostic_formats(cfg, prepared, kind, diagnostic, expected):
+    _, m = prepared
+    cfg['remote'] = {k: str(Path(v).resolve()) for k, v in cfg['remote'].items()}
+    Path(remote.attempt_dir(cfg, m)).mkdir(parents=True)
+    command = (remote.output_observation(cfg, m) if kind == 'output' else
+               remote.incomplete_output_observation(cfg, m, 'water.log') if kind == 'incomplete' else
+               remote.receipt(cfg, m, 'ag-exit.json'))
+    result = run_with_ls_failure(command, diagnostic)
+    lines = ([f'{name} {expected}' for name in remote.output_names(m)]
+             if kind == 'output' else [expected])
+    assert result.stdout == '\n'.join(lines) + '\n'
+    assert result.stderr == ''
+    assert result.returncode == (1 if kind == 'incomplete' and expected == 'unreadable' else 0)
+
+
+@pytest.mark.parametrize('diagnostic', [row[0] for row in LS_FAILURES[:2]])
+def test_missing_exit_receipt_formats_allow_running_status(cfg, prepared, diagnostic):
+    path, _, fake = submitted(prepared, cfg)
+    original = fake.run
+    def run(command):
+        if command.operation == 'receipt':
+            result = run_with_ls_failure(command, diagnostic)
+            return Result(result.returncode, result.stdout, result.stderr)
+        return original(command)
+    fake.run = run
+    result = status.check(cfg, path, fake)
+    assert result['state'] == 'running'
+    assert state.read(path)['state'] == 'running'
+    assert '无法判断' not in result['note']

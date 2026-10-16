@@ -431,7 +431,7 @@ def test_remote_allowlist_and_paths(cfg, prepared):
                             f'if test -f {q} && test -r {q}; then '
                             f"stat -c '%s %y' -- {q}; else printf 'unreadable\\n'; false; fi; else "
                             'case "$ag_observation" in '
-                            "*': No such file or directory') "
+                            "*'No such file or directory') "
                             f'if test ! -L {q} && test -d {parent} && test -x {parent}; then '
                             "printf 'absent\\n'; else printf 'unreadable\\n'; false; fi;; "
                             "*) printf 'unreadable\\n'; false;; esac; fi; "
