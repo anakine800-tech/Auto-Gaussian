@@ -1,4 +1,4 @@
-"""One-dimensional scan definitions and local point extraction.
+"""Scan definitions and local point extraction (Gaussian: one or two axes).
 
 Missing point evidence stays unknown; optimization iterations are not scan points.
 xTB output semantics checked against grimme-lab/xtb v6.7.1:
@@ -64,7 +64,7 @@ def input_geometry(geometry):
 
 def modredundant(text, geometry):
     symbols, coordinates = input_geometry(geometry)
-    scan, frozen = None, []
+    scans, frozen = [], []
     for line in text.splitlines():
         fields = line.split()
         if not fields or fields[0] not in COUNTS:
@@ -78,20 +78,36 @@ def modredundant(text, geometry):
         if action == 'F' and len(fields) == n + 2:
             frozen.append({**definition, 'value': start})
         elif action == 'S' and len(fields) == n + 4:
-            if scan is not None:
-                raise ValueError('Only one S line is supported')
+            if len(scans) == 2:
+                raise ValueError('At most two S lines are supported')
             if not re.fullmatch(r'[0-9]+', fields[-2]) or not 1 <= int(fields[-2]) <= 50:
                 raise ValueError('Scan steps must be 1–50')
             if not re.fullmatch(NUMBER, fields[-1]):
                 raise ValueError('Scan step size must be finite and nonzero')
+            # Gaussian L101 rejects integer tokens here, even when numerically valid.
+            if '.' not in fields[-1]:
+                raise ValueError('Scan step size must include a decimal point; '
+                                 'write 5.0 instead of 5 (e.g. -5.0, .5, 0.04)')
             step = finite_number(fields[-1])
             if step == 0:
                 raise ValueError('Scan step size must be finite and nonzero')
             steps = int(fields[-2])
-            scan = dict(coordinate=definition, start=start, steps=steps, step_size=step,
-                        end=finite_number(start + steps * step), expected_points=steps + 1)
+            scans.append(dict(coordinate=definition, start=start, steps=steps, step_size=step,
+                              end=finite_number(start + steps * step), expected_points=steps + 1))
         else:
             raise ValueError('ModRedundant permits only F or S steps step_size')
+    scan = scans[0] if scans else None
+    if len(scans) == 2:
+        # Reversed/permuted definitions on the same atoms cannot be independent axes.
+        if set(scans[0]['coordinate']['atoms']) == set(scans[1]['coordinate']['atoms']):
+            raise ValueError('Two scan coordinates must not use all the same atoms')
+        expected = math.prod(s['expected_points'] for s in scans)
+        if any(s['steps'] > 20 for s in scans):
+            raise ValueError(f'2D scan steps must be 1–20 per dimension; declared {expected} points')
+        if expected > 144:
+            raise ValueError(f'2D scan declares {expected} points; maximum is 144')
+        scan = dict(dimensions=2, coordinates=[{k: v for k, v in s.items() if k != 'expected_points'}
+                                             for s in scans], expected_points=expected)
     return {'scan': scan, 'frozen_coordinates': frozen}
 
 
@@ -100,7 +116,14 @@ def summary(science):
     def label(c):
         return c['kind'] + ' ' + ' '.join(f'{i}({e})' for i, e in zip(c['atoms'], c['elements']))
     text = ''
-    if scan:
+    if scan and scan.get('dimensions') == 2:
+        for i, axis in enumerate(scan['coordinates'], 1):
+            text += (f"Scan dimension {i}: {label(axis['coordinate'])} | Start: {axis['start']:g} | "
+                     f"Steps: {axis['steps']} | Step size: {axis['step_size']:g} | "
+                     f"End: {axis['end']:g} {axis['coordinate']['unit']}\n\n")
+        text += (f"Total scan points: {scan['expected_points']}\n\n"
+                 '每个点都是一次约束优化，耗时约为一维扫描的点数倍。\n\n')
+    elif scan:
         text += (f"Scan: {label(scan['coordinate'])} | Start: {scan['start']:g} | "
                  f"Steps: {scan['steps']} | Step size: {scan['step_size']:g} | "
                  f"End: {scan['end']:g} {scan['coordinate']['unit']}\n\n")
@@ -112,6 +135,8 @@ def summary(science):
 
 
 def _result(definition, observations, energy_kind):
+    if definition.get('dimensions') == 2:
+        return _result_2d(definition, observations, energy_kind)
     points, frames = [], []
     expected = definition['expected_points']
     if len(observations) > expected:
@@ -134,6 +159,67 @@ def _result(definition, observations, energy_kind):
             point['geometry_frame'] = len(frames)
         points.append(point)
     return {**definition, 'points': points, 'energy_kind': energy_kind,
+            'geometries': 'scan_points.xyz' if frames else None}, xyz_text(frames)
+
+
+def saddle_candidates(grid):
+    """Axis-aligned saddle hints only; finite converged center and four neighbors."""
+    def usable(p):
+        return p is not None and p['converged'] is True and p['energy_hartree'] is not None
+    candidates = []
+    for i in range(1, len(grid) - 1):
+        for j in range(1, len(grid[i]) - 1):
+            points = [grid[i][j], grid[i - 1][j], grid[i + 1][j], grid[i][j - 1], grid[i][j + 1]]
+            if not all(usable(p) for p in points):
+                continue
+            center, a, b, c, d = (finite_number(p['energy_hartree']) for p in points)
+            if ((center > a and center > b and center < c and center < d)
+                    or (center < a and center < b and center > c and center > d)):
+                candidates.append(points[0])
+    return candidates
+
+
+def _result_2d(definition, observations, energy_kind):
+    if len(observations) > definition['expected_points']:
+        raise ValueError('More scan points than declared; cannot assign coordinate values')
+    axes = definition['coordinates']
+    targets = [[axis['start'] + i * axis['step_size'] for i in range(axis['steps'] + 1)] for axis in axes]
+    grid = [[None for _ in targets[1]] for _ in targets[0]]
+    frames, symbols = [], None
+    for frame, energy, converged in observations:
+        # Without measured geometry there is no evidence for a cell assignment.
+        if frame is None:
+            raise ValueError('Missing 2D scan point geometry; cannot assign grid cell')
+        if symbols is not None and frame.symbols != symbols:
+            raise ValueError('Scan atom order/count changed')
+        symbols = frame.symbols
+        indices, measured = [], []
+        for axis, values in zip(axes, targets):
+            c = axis['coordinate']
+            if any(j > len(symbols) for j in c['atoms']) or [symbols[j - 1] for j in c['atoms']] != c['elements']:
+                raise ValueError('Scan geometry differs from coordinate definition')
+            actual = value(c, frame.coordinates)
+            distances = [abs((actual - target + 180) % 360 - 180) if c['kind'] == 'D'
+                         else abs(actual - target) for target in values]
+            closest = min(distances)
+            matches = [i for i, distance in enumerate(distances)
+                       if math.isclose(distance, closest, rel_tol=0, abs_tol=1e-10)]
+            half_step = abs(axis['step_size']) / 2
+            # value() rounds to 10 decimals: never round a half-step onto a cell.
+            if (len(matches) != 1 or closest >= half_step
+                    or math.isclose(closest, half_step, rel_tol=0, abs_tol=1e-10)):
+                raise ValueError('2D scan coordinate cannot uniquely match a target within half a step')
+            indices.append(matches[0])
+            measured.append(actual)
+        i, j = indices
+        if grid[i][j] is not None:
+            raise ValueError(f'Duplicate 2D scan grid cell [{i + 1}, {j + 1}]')
+        frames.append(replace(frame, energy=energy, comment=f'scan grid point {i + 1},{j + 1}'))
+        grid[i][j] = dict(point=[i + 1, j + 1], target_values=[targets[0][i], targets[1][j]],
+                          coordinate_values=measured, energy_hartree=energy, converged=converged,
+                          geometry_frame=len(frames))
+    return {**definition, 'points': grid, 'energy_kind': energy_kind,
+            'saddle_candidates': [p['point'] for p in saddle_candidates(grid)],
             'geometries': 'scan_points.xyz' if frames else None}, xyz_text(frames)
 
 
@@ -164,7 +250,9 @@ def parse_gaussian_scan(text, definition):
         else:
             current[kind] = item
     # An interrupted final optimization must not borrow the previous point.
-    if current.get('energy') is not None and len(observations) < definition['expected_points']:
+    # A still-running 2D optimization may be between cells: leave it unknown.
+    if (definition.get('dimensions') != 2 and current.get('energy') is not None
+            and len(observations) < definition['expected_points']):
         observations.append((current.get('geometry'), current['energy'], None))
     return _result(definition, observations, 'scf')
 
