@@ -348,7 +348,11 @@ def test_default_output_hash(tmp_path, monkeypatch, capsys):
                  '--rmsd', '0', '--out', str(group), '--json']) == 0
     merged = Path(json.loads(capsys.readouterr().out)['output'])
     out = group / 'ensemble.json'
-    payload = json.loads(merged.read_text().replace(str(source), 'butane.xyz'))
+    payload = json.loads(merged.read_text())
+    # Normalize decoded fields: source paths may contain JSON-escaped Unicode.
+    for record in payload['kept']:
+        for item in (record, *record['members']):
+            item['source'] = 'butane.xyz'
     (merged.parent / payload['xyz_file']).rename(merged.parent / 'merged.xyz')
     payload['xyz_file'] = 'merged.xyz'
     merged = merged.with_name('merged.json')
@@ -356,7 +360,7 @@ def test_default_output_hash(tmp_path, monkeypatch, capsys):
     result = ensemble.build(merged, out, study=str(root))
     assert 'descriptors' not in result and 'bin_summary' not in result
     assert all('local' not in c for c in result['candidates'])
-    assert sha256(out.read_bytes()).hexdigest() == '23d28fc71572e5e4e6fdd404b9fd66f9919b58c2947f567737770187ce180cb8'
+    assert sha256(out.read_bytes()).hexdigest() == '4c0ebaf5aa991fba5d18f0916100d89f04e856e42275cca8e6713aafddf50c9a'
     assert sha256(out.with_suffix('.md').read_bytes()).hexdigest() == 'c5b51ec5068f15cd45009a99bdf94835e03dffd5845c149bf7ce0493860565eb'
 
 
