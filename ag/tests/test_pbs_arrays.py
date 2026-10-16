@@ -1,8 +1,10 @@
-"""T77 synthetic Torque records; no live connections or real identifiers.
+"""T77 Torque records; no live connections or real identifiers.
 
-Initial read-only observation found no arrays. Parent/child syntax follows
+Initial read-only observation found no arrays. A later owner-submitted minimal
+array exposed a running parent in qstat -f; LIVE_PARENT_SHAPE retains only its
+relevant fields with fictional identifiers. Children and array_state_count
+remain synthetic. Parent/child syntax follows
 https://docs.adaptivecomputing.com/torque/4-2-7/Content/topics/2-jobs/multiJobSubmission.htm
-All field values below are fictional, not captured research or queue data.
 """
 import time
 
@@ -19,6 +21,30 @@ from test_queue import QueueFake
 ARRAY_IDS = ['9100[]', '9100[].fixture', '9100[0]', '9100[5].fixture',
              '9100[12].fixture-1.example']
 ARRAY_ERROR = '本人有 PBS 数组作业，无法可靠统计已占用核数，拒绝提交；请在数组作业结束后再提交'
+
+
+# Sanitized field subset from the manual 2026-10-16 sleep-array observation.
+# The live parent had job_array_request but no array_state_count attribute.
+LIVE_PARENT_SHAPE = '''Job Id: 9100[].fixture
+    Job_Name = array-fixture
+    Job_Owner = fixture@fixture
+    job_state = R
+    Resource_List.nodes = 1:ppn=1
+    job_array_request = 1-2
+'''
+
+
+def test_observed_parent_shape_refuses_own_and_ignores_other_array(cfg):
+    parsed = status.parse_jobs(LIVE_PARENT_SHAPE)
+    assert parsed[0]['array'] is True
+    assert parsed[0]['job_array_request'] == '1-2'
+    assert 'array_state_count' not in parsed[0]
+    fake = Fake(cfg)
+    fake.qstat = Result(stdout=LIVE_PARENT_SHAPE)
+    with pytest.raises(ValueError, match=ARRAY_ERROR):
+        doctor.doctor(cfg, fake)
+    fake.qstat = Result(stdout=job_text() + LIVE_PARENT_SHAPE.replace('fixture@fixture', 'other@fixture'))
+    assert doctor.doctor(cfg, fake)['occupied_cores'] == 8
 
 
 def array_job(job_id='9100[].fixture', owner='other', state_='Q', name='array-fixture'):
