@@ -161,6 +161,19 @@ doctor 通过只说明上述环境检查通过；它不验证科学方法、真�
 当前只读传输对 SSH 连接失败/超时最多间隔 15 秒重试一次；这不允许重提作业，
 真实环境意外仍须按 [AGENTS.md](../AGENTS.md) 停下来报告。
 
+## 取回输出：fetch
+
+`ag fetch <ATTEMPT_ID> --json` 成功后自动在本地调用 `build_facts(refresh=False)`，
+`--incomplete` 成功后也会解析，并保留不完整结果标记及原状态。新增的 `facts` 字段报告
+`written`（首次写入）、`unchanged`（已有内容相同）、`conflict`（差异拒绝写入）、
+`failed`（解析异常）或 `skipped`。可用 `--no-facts` 跳过；`--add-missing` 始终跳过，
+缺少化学依赖也跳过，reason 分别为 `no-facts`、`add-missing`、`dependency-unavailable`。
+每次成功取回后向 study journal 追加 `action=facts`、`result=auto`、`detail=facts` 记录，
+包括跳过结果；补取原有记录不变。失败摘要仅保留首行、至多 300 字，study 内路径相对化，
+其他绝对路径截去。冲突或解析失败会在 stderr 提示，但不回滚取回、不改变状态，退出码仍为 0。
+已有 facts 内容相同时保留原字节和修改时间；不同时绝不自动覆盖。请人工核对差异后才使用
+`ag facts <ATTEMPT_ID> --refresh`。journal 写入失败也只提示，请保留 JSON 输出以供核对。
+
 ## 本地审阅与旧 Attempt
 
 `ag review init <ATTEMPT_ID> --json` 从准备时保存的卡片生成审阅骨架，
