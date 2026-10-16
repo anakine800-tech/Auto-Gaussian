@@ -113,11 +113,9 @@ def observation(cfg, transport, username):
     cap = cfg['resources']['max_cores']
     committed_cap = cfg['resources'].get('max_committed_cores', cap)
     running, queued = status.core_breakdown(jobs, username)
-    # Match submit's strict fallback when hardware cannot bound running cores.
-    warning_cap = cap if sum(n['cores_total'] for n in nodes) > cap else committed_cap
-    if used > warning_cap:
+    if used > committed_cap:
         warnings.append(dict(kind='over-cap', job_id=None, study=None, attempt=None,
-                             detail=f'本人占用 {used} 核，超过上限 {warning_cap} 核'))
+                             detail=f'本人占用 {used} 核，超过上限 {committed_cap} 核'))
     if cfg.get('_cluster'):
         for row in own + warnings:
             if row.get('job_id'):
@@ -262,11 +260,12 @@ def slurm_observation(cfg, transport, username):
             warnings.append(dict(kind=kind, job_id=cfg['_cluster'] + ':' + record['job_id'],
                                  study=record['study'], attempt=record['attempt'], detail='运行 ag status 核对；不会自动重提或取消'))
     cap = cfg['resources']['max_cores']
-    if running + queued > cap:
+    committed_cap = cfg['resources'].get('max_committed_cores', cap)
+    if running + queued > committed_cap:
         warnings.append(dict(kind='over-cap', job_id=None, study=None, attempt=None,
-                             detail=f'本人运行加排队 {running + queued} 核，超过上限 {cap} 核'))
+                             detail=f'本人运行加排队 {running + queued} 核，超过上限 {committed_cap} 核'))
     return dict(own=dict(cores_in_use=running + queued, cores_running=running, cores_queued=queued,
-                         core_cap=cap, committed_cap=cap, jobs=own),
+                         core_cap=cap, committed_cap=committed_cap, jobs=own),
                 cluster=dict(nodes=[], queues=[], cores_total=0, cores_used=0,
                              hardware_capacity_known=False, name=cfg['_cluster'], scheduler='slurm',
                              storage_kib=storage_kib, expiry_warning=expiry,

@@ -7,7 +7,6 @@ from ag import attempt, cards, confirm, journal, parent_chk, remote, state, stat
 from ag.config import for_manifest, scheduler_kind
 from ag.transport import bound_transport
 from ag.locks import claim, submission_lock
-from ag.pbs import parse_nodes
 from ag.transport import require_ok, TransportError
 
 
@@ -32,25 +31,9 @@ def metadata(transport, cfg, manifest, name, *, checkpoint=False):
     return int(lines[0]), digest
 
 
-def capacity(cfg, transport, jobs):
-    """Fall back to the strict cap when hardware capacity cannot be verified."""
-    limit = cfg['resources']['max_cores']
-    if scheduler_kind(cfg) == 'slurm':
-        return limit, 'Slurm 无硬件保证；运行加排队按 max_cores 严格统计'
-    reason = None
-    try:
-        nodes = parse_nodes(require_ok(transport.run(remote.nodes()), 'pbsnodes'), jobs)
-        if not nodes or any(node['cores_total'] <= 0 for node in nodes):
-            raise ValueError('No positive node capacity')
-        total = sum(node['cores_total'] for node in nodes)
-        if total > limit:
-            reason = f'集群总核数 {total} 超过 max_cores={limit}'
-    except (ValueError, TransportError):
-        reason = 'pbsnodes 核验失败或无法解析节点核数'
-    cap = limit if reason else cfg['resources'].get('max_committed_cores', limit)
-    if reason:
-        print(f'严格模式：{reason}；排队也计入 {cap} 核上限', file=sys.stderr, flush=True)
-    return cap, reason
+def capacity(cfg):
+    """Admission counts all running and queued cores, independent of hardware."""
+    return cfg['resources'].get('max_committed_cores', cfg['resources']['max_cores'])
 
 
 def submit(cfg, ids, transport):
@@ -92,7 +75,7 @@ def submit(cfg, ids, transport):
             held = budget.unobserved_cores(cfg, jobs, budget_ledger)
             used += held
             queued += held
-        cap, reason = capacity(cfg, transport, jobs)
+        cap = capacity(cfg)
         requested = sum(m['cores'] for _, m, _ in prepared)
         if used + requested > cap:
             raise ValueError(f'Core limit exceeded: {used} occupied + {requested} requested / {cap} cap')
@@ -104,12 +87,11 @@ def submit(cfg, ids, transport):
         for path, m, _ in prepared:
             if path.name in attachments:
                 text += '\n' + path.name + ' | ' + parent_chk.summary(m['parent_chk'], attachments[path.name][1])
-        text += (f'\n当前占用 {used} 核（运行 {running}、排队 {queued}），'
-                 f'提交后合计 {used + requested} / 上限 {cap} 核；集群空闲不足时作业将在 {scheduler_kind(cfg).upper()} 中排队')
+        text += (f'\n当前占用 {used} 核（运行 {running}、排队 {queued}；按集群上本人全部作业统计，含其他电脑和非 ag 提交的作业），'
+                 f'\n提交后合计 {used + requested} / 上限 {cap} 核。'
+                 f'\nag 不限制运行中的核数：集群空闲时，排队作业可能同时运行，最多 {used + requested} 核。')
         if budget_text:
             text += '\n' + budget_text
-        if reason:
-            text += f'\n严格模式：{reason}；排队也计入上限'
         # Keep stdout machine-readable for ag submit --json.
         print(text, file=sys.stderr, flush=True)
         if not confirm.confirm(text):
@@ -130,8 +112,6 @@ def submit(cfg, ids, transport):
             qsub_started = False
             try:
                 # Other scheduler clients can submit during the confirmation window.
-                # Keep the confirmed hardware result for this batch: an intermittent
-                # pbsnodes failure must not consume an otherwise valid Attempt.
                 if is_slurm:
                     jobs = slurm.parse_queue(require_ok(transport.run(remote.slurm_jobs(user=username)), 'squeue'))
                     fresh_used = sum(slurm.core_breakdown(jobs, username))

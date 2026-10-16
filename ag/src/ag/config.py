@@ -88,12 +88,12 @@ def validate_cluster(cfg):
     if type(limit) is not int or limit < 1 or (scheduler == 'pbs' and limit > 44):
         raise ConfigError('max_cores must be positive (PBS maximum: 44)')
     committed = cfg['resources'].get('max_committed_cores', limit)
-    if type(committed) is not int or not ((limit <= committed <= 4 * limit) if scheduler == 'pbs' else (1 <= committed <= limit)):
-        raise ConfigError('max_committed_cores must be an integer: PBS max_cores..4*max_cores; Slurm 1..max_cores')
+    if type(committed) is not int or not limit <= committed <= 4 * limit:
+        raise ConfigError('max_committed_cores must be an integer: max_cores..4*max_cores')
     cfg['resources']['max_committed_cores'] = committed
     for name in ('mini', 'simple', 'general', 'complex'):
         tier = cfg['resources']['tiers'][name]
-        if (type(tier['cores']) is not int or not 1 <= tier['cores'] <= (44 if scheduler == 'pbs' else limit)
+        if (type(tier['cores']) is not int or not 1 <= tier['cores'] <= limit
                 or type(tier['mem_gb']) is not int or tier['mem_gb'] < 1
                 or (scheduler == 'pbs' and tier['mem_gb'] > 120)):
             raise ConfigError(f'Invalid resource tier: {name}')

@@ -18,6 +18,9 @@ g16root = "<absolute Gaussian executable directory>"
 [clusters.default.programs.xtb]
 root = "<absolute xtb and crest installation root>"
 [clusters.default.resources]
+# Per-job and tier cap (PBS: 1..44; Slurm: positive integer).
+# Running + queued cap: max_cores..4*max_cores; defaults to max_cores.
+# ag does not limit concurrently running cores.
 max_cores = 44
 max_committed_cores = 88
 [clusters.default.resources.tiers.mini]
@@ -58,6 +61,9 @@ modules = ["<Gaussian module name>"]
 root = "<absolute xtb and crest installation root>"
 [clusters.batch.resources]
 # Example limits only; replace with the intended local allowance.
+# Per-job and tier cap (PBS: 1..44; Slurm: positive integer).
+# Running + queued cap: max_cores..4*max_cores; defaults to max_cores.
+# ag does not limit concurrently running cores.
 max_cores = 44
 max_committed_cores = 44
 budget_core_hours = 100
