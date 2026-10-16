@@ -50,7 +50,9 @@ def occupied(jobs, username):
         # Reject even retained C records so unknown reconciliation cannot bind
         # an array to an Attempt through inventory.
         if job.get('array'):
-            raise ValueError('本人有 PBS 数组作业，无法可靠统计已占用核数，拒绝提交；请在数组作业结束后再提交')
+            raise ValueError(
+                '本人有 PBS 数组作业，无法可靠统计已占用核数，拒绝提交；'
+                '已完成但仍保留在 qstat 中的本人数组记录也会导致拒绝，请等记录消失后再提交')
         if job['job_state'] == 'C':
             continue
         # Include E/T/W/S as well: these may still occupy or reserve resources.

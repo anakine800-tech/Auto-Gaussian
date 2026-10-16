@@ -20,7 +20,8 @@ from test_queue import QueueFake
 
 ARRAY_IDS = ['9100[]', '9100[].fixture', '9100[0]', '9100[5].fixture',
              '9100[12].fixture-1.example']
-ARRAY_ERROR = '本人有 PBS 数组作业，无法可靠统计已占用核数，拒绝提交；请在数组作业结束后再提交'
+ARRAY_ERROR = ('本人有 PBS 数组作业，无法可靠统计已占用核数，拒绝提交；'
+               '已完成但仍保留在 qstat 中的本人数组记录也会导致拒绝，请等记录消失后再提交')
 
 
 # Sanitized field subset from the manual 2026-10-16 sleep-array observation.
