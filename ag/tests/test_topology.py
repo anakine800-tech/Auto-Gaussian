@@ -335,6 +335,182 @@ def test_fragment_uncertainty_is_not_a_bond(chemistry):
     assert report['status'] == 'unknown'
     assert report['fragments']['submitted']['count'] == 2
     assert report['ambiguous_bonds']
+    assert report['fragments']['fragments_if_uncertain_bonded'] == {'submitted': 1, 'final': 1}
+    assert report['fragments']['fragment_change_depends_on_uncertain_contacts'] is False
+
+
+@pytest.mark.parametrize('element', ['B', 'C'])
+@pytest.mark.parametrize('distance,definite_count', [(1.5, 1), (3.5, 2)])
+@pytest.mark.parametrize('reverse', [False, True])
+def test_fragment_change_dependent_on_uncertain_contact(tmp_path, chemistry, element, distance, definite_count, reverse):
+    before = geo.Frame((element, 'O'), ((0., 0., 0.), (distance, 0., 0.)))
+    after = replace(before, coordinates=((0., 0., 0.), (2., 0., 0.)))
+    expected = [definite_count, 2]
+    bonded = [definite_count, 1]
+    if reverse:
+        before, after = after, before
+        expected.reverse()
+        bonded.reverse()
+    report = topology.analyze(attempt(tmp_path, before, after))
+    fragments = report['fragments']
+    assert report['status'] == 'unknown'
+    assert [fragments[side]['count'] for side in ('submitted', 'final')] == expected
+    assert fragments['fragments_if_uncertain_bonded'] == dict(zip(('submitted', 'final'), bonded))
+    assert fragments['fragment_change_depends_on_uncertain_contacts'] is True
+    from rdkit import Chem
+    table = Chem.GetPeriodicTable()
+    ratio = 2. / (table.GetRcovalent(element) + table.GetRcovalent('O'))
+    reason = report['reasons'][-1]
+    assert f"{'submitted' if reverse else 'final'} 原子 1–2 ({element}–O)" in reason
+    assert f'距离 2.000000 Å，半径比 {ratio:.6f}' in reason
+    assert '片段数是否变化取决于这些接触是否算作成键' in reason
+    assert '变化是否依赖不确定接触：是' in topology.markdown(report)
+
+
+@pytest.mark.parametrize('reverse', [False, True])
+@pytest.mark.parametrize('change', ['proton_transfer', 'bond_break'])
+def test_definite_bond_change_survives_uncertain_fragment_counts(tmp_path, chemistry, reverse, change):
+    from ag import irc_compare
+    # O-H -> N-H (or separated H), plus an independent B-O uncertain contact.
+    before = geo.Frame(('O', 'N', 'H', 'B', 'O'),
+                       ((0., 0., 0.), (4., 0., 0.), (1., 0., 0.), (0., 10., 0.), (3.5, 10., 0.)))
+    hydrogen = (3., 0., 0.) if change == 'proton_transfer' else (8., 0., 0.)
+    after = replace(before, coordinates=(before.coordinates[0], before.coordinates[1], hydrogen,
+                                        before.coordinates[3], (2.2, 10., 0.)))
+    if reverse:
+        before, after = after, before
+    upstream = irc_compare.compare_endpoint({'frame': after, 'facts': {}},
+                                           {'frame': before, 'facts': {}}, 0)
+    assert upstream['status'] == irc_compare.MISMATCH
+    assert upstream['bond_differences']
+    assert all(row['endpoint_state'] != 'uncertain' and row['reference_state'] != 'uncertain'
+               for row in upstream['bond_differences'])
+    assert upstream['ambiguous_bonds'][0]['atoms'] == [4, 5]
+    report = topology.analyze(attempt(tmp_path, before, after))
+    assert report['status'] == 'changed'
+    assert report['bond_differences'] == upstream['bond_differences']
+    assert report['reasons'][:-1] == upstream['reasons']
+    assert '连接关系不同' in report['reasons'][0]
+    assert '4–5 (B–O)' in report['reasons'][-1] and '距离 2.200000 Å' in report['reasons'][-1]
+    assert '片段数是否变化取决于这些接触是否算作成键' in report['reasons'][-1]
+    fragments = report['fragments']
+    assert fragments['fragment_change_depends_on_uncertain_contacts'] is True
+    definite_counts = [4, 4] if change == 'proton_transfer' else [4, 5]
+    bonded_counts = [4, 3] if change == 'proton_transfer' else [4, 4]
+    if reverse:
+        definite_counts.reverse()
+        bonded_counts.reverse()
+    assert [fragments[side]['count'] for side in ('submitted', 'final')] == definite_counts
+    assert fragments['fragments_if_uncertain_bonded'] == dict(zip(('submitted', 'final'), bonded_counts))
+    if change == 'proton_transfer':
+        assert {tuple(row['atoms']) for row in report['bond_differences']} == {(1, 3), (2, 3)}
+        assert report['proton_differences'] == [dict(hydrogen=3,
+            reference_owners=[2] if reverse else [1], endpoint_owners=[1] if reverse else [2])]
+    summary = topology.markdown(report)
+    assert '- 状态：changed' in summary and '变化是否依赖不确定接触：是' in summary
+
+
+@pytest.mark.parametrize('reverse', [False, True])
+def test_definite_boron_oxygen_break_stays_changed(chemistry, reverse):
+    before = geo.Frame(('B', 'O'), ((0., 0., 0.), (1.5, 0., 0.)))
+    after = replace(before, coordinates=((0., 0., 0.), (3.5, 0., 0.)))
+    if reverse:
+        before, after = after, before
+    report = topology.compare_minimum(before, after, 0)
+    assert report['status'] == 'changed'
+    assert set(report['fragments']) == {'submitted', 'final'}
+
+
+@pytest.mark.parametrize('reverse', [False, True])
+def test_both_fragment_treatments_change_in_same_direction(tmp_path, chemistry, reverse):
+    # Independent B-O pairs: one stays uncertain; the other definitely splits.
+    before = geo.Frame(('B', 'O', 'B', 'O'), ((0., 0., 0.), (2.2, 0., 0.), (0., 10., 0.), (1.5, 10., 0.)))
+    after = replace(before, coordinates=before.coordinates[:-1] + ((3.5, 10., 0.),))
+    if reverse:
+        before, after = after, before
+    report = topology.analyze(attempt(tmp_path, before, after))
+    assert report['status'] == 'changed'
+    assert report['fragments']['fragment_change_depends_on_uncertain_contacts'] is False
+    assert report['fragments']['fragments_if_uncertain_bonded'] == (
+        {'submitted': 3, 'final': 2} if reverse else {'submitted': 2, 'final': 3})
+    assert '两种处理下连通片段数均同向变化' in report['reasons'][-1]
+    assert '变化是否依赖不确定接触：否' in topology.markdown(report)
+
+
+@pytest.mark.parametrize('reverse', [False, True])
+def test_opposite_fragment_change_directions_stay_unknown(chemistry, reverse):
+    before = geo.Frame(('B', 'O', 'B', 'O'), ((0., 0., 0.), (1.5, 0., 0.), (0., 10., 0.), (3.5, 10., 0.)))
+    after = replace(before, coordinates=((0., 0., 0.), (2.2, 0., 0.), (0., 10., 0.), (2.2, 10., 0.)))
+    if reverse:
+        before, after = after, before
+    report = topology.compare_minimum(before, after, 0)
+    assert report['status'] == 'unknown'
+    fragments = report['fragments']
+    assert fragments['fragment_change_depends_on_uncertain_contacts'] is True
+    delta = fragments['final']['count'] - fragments['submitted']['count']
+    bonded = fragments['fragments_if_uncertain_bonded']
+    assert delta * (bonded['final'] - bonded['submitted']) < 0
+    assert all(pair in report['reasons'][-1] for pair in ('1–2 (B–O)', '3–4 (B–O)'))
+
+
+def test_intrafragment_uncertain_contact_is_not_listed_as_cause(chemistry):
+    before = geo.Frame(('B', 'O', 'C', 'C', 'C'),
+                       ((0., 0., 0.), (1.5, 0., 0.), (0., 10., 0.), (1.52, 10., 0.), (1.52, 11.1, 0.)))
+    after = replace(before, coordinates=(before.coordinates[0], (2.2, 0., 0.), *before.coordinates[2:]))
+    report = topology.compare_minimum(before, after, 0)
+    assert report['status'] == 'unknown'
+    assert '1–2 (B–O)' in report['reasons'][-1]
+    assert '3–5 (C–C)' not in report['reasons'][-1]
+
+
+@pytest.mark.parametrize('ratio,definite_count,bonded_count', [
+    (0.5, 2, 1), (0.6, 1, 1), (1.19, 1, 1), (1.2, 2, 1),
+    (1.35, 2, 1), (1.5, 2, 1), (1.51, 2, 2)])
+def test_fragment_treatments_preserve_radius_boundaries(chemistry, ratio, definite_count, bonded_count):
+    from rdkit import Chem
+    distance = 2 * Chem.GetPeriodicTable().GetRcovalent('H') * ratio
+    frame = geo.Frame(('H', 'H'), ((0., 0., 0.), (distance, 0., 0.)))
+    assert topology.fragments(frame)['count'] == definite_count
+    assert topology.fragments(frame, _include_uncertain=True)['count'] == bonded_count
+    if ratio < 0.6:
+        reference = replace(frame, coordinates=((0., 0., 0.), (0.62, 0., 0.)))
+        report = topology.compare_minimum(reference, frame, 0)
+        assert report['status'] == 'unknown'
+        assert '半径比 0.500000' in report['reasons'][-1]
+
+
+@pytest.mark.parametrize('name,expected_sha256', [
+    ('water', 'c9fd8fa3099cdabe32d09aca07538928b161e25905b89b85616cd960f4e3002e'),
+    ('two_waters', '5f827c59ff7d2899a98dbd1a14a5f948f20bf291679a96fc9e50c59c240aa837'),
+    ('water_exchange', '0f0569e57841361930cb0013b83491590c11d31183b1250b0c8f5166cc628656'),
+    ('acetone_bf3_split', 'b07fc8dfe68022743adce5c42f016a74b9ffe3687fed16cd3eba1c114e71075d'),
+    ('proton_transfer', '3f9c7a6efd42d026a7bf6db50cd095f3763516e8779748050b7dda4d01e40624'),
+    ('boron_mirror', '84da7149aa529d0cd48b0a795c685de9a37c0bcc07aedda5e7bdab1c3d1d7e0c'),
+])
+def test_no_uncertain_contacts_preserve_main_json_bytes(tmp_path, chemistry, name, expected_sha256):
+    # Baseline: main/v4.2.1 at 3ee74fc; exact CLI serialization, version fields excluded.
+    charge = 0
+    if name == 'water':
+        before = after = WATER
+    elif name in ('two_waters', 'water_exchange'):
+        before = after = two_waters()
+        if name == 'water_exchange':
+            coordinates = list(before.coordinates)
+            coordinates[1], coordinates[4] = coordinates[4], coordinates[1]
+            after = replace(before, coordinates=tuple(coordinates))
+    else:
+        fixture_names = {'acetone_bf3_split': ('acetone_bf3', 'acetone_bf3_separated'),
+                         'proton_transfer': ('enolate_hf', 'enolate_protonated_f'),
+                         'boron_mirror': ('boron_adjacent', 'boron_adjacent_mirror')}
+        before, after = (geo.read_xyz(Path(__file__).parent / 'fixtures' / 'inference' / (stem + '.xyz'))[0]
+                         for stem in fixture_names[name])
+        charge = -1 if name == 'proton_transfer' else 0
+    report = topology.analyze(attempt(tmp_path, before, after, charge=charge))
+    assert set(report['fragments']) == {'submitted', 'final'}
+    for key in ('ag_version', 'ag_provenance'):
+        report.pop(key)
+    data = (json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False) + '\n').encode()
+    assert sha256(data).hexdigest() == expected_sha256
 
 
 def test_ts_does_not_report_connectivity_fragments(tmp_path, chemistry, monkeypatch):

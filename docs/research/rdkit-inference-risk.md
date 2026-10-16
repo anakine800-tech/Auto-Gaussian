@@ -110,6 +110,21 @@ C–N 从单键变双键，原 N=O 从双键变单键，总电荷一直为 -1，
 和“化学片段已解离”。相关实现见
 [topology.py](../../ag/src/ag/topology.py) 与 [irc_compare.py](../../ag/src/ag/irc_compare.py)。
 
+**已由 T73 修复。** 以下为修复后的口径，以上 T68 原始观察保留：
+`topology` 对提交和最终结构分别按不确定接触“相连／不相连”计算片段数；
+只有两种处理都出现同向变化才因片段数判为 `changed`，两者都不变则继续原有比较，
+其他情况保留片段数不确定性，原因列明跨确定片段的不确定接触编号、元素、距离和半径比。
+按 T73 v2 审阅修订：若 `compare_endpoint` 已因确定的 `bond_differences` 返回 `changed`，
+顶层保持 `changed`，追加片段数不确定性的说明；没有这种确定键变化时才保留 `unknown`。
+B–O=2.2 Å 样例由 `changed` 改为 `unknown`，与原有 `irc-compare` 一致；
+原 R2 strict xfail 改为正常回归断言，R1 的两个 xfail 保持不变。
+`fragments.submitted/final` 仍是确定边结果；存在不确定接触时才补充
+`fragments_if_uncertain_bonded` 和 `fragment_change_depends_on_uncertain_contacts`，
+无不确定接触的 JSON 保持原字节（版本来源字段除外）。阈值、默认 `ag fragments`
+输出、`irc-compare` 和既有证据不变。本修复不判断任何已签 study 是否受影响；
+合并后由 HSS 主会话按 [T73 工单](../redesign-tasks/T73-topology-uncertain.md)
+在 study 外新建临时报告，逐项比较并交监督方判断。
+
 ### 可用范围与人工核对重点
 
 在本次固定样例、正确电荷、正确原子映射和正常键长下，可以使用工具提供的连接变化、

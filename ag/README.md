@@ -244,6 +244,13 @@ study 内符号链接、歧义、非法显式路径、空分析目录、收集�
 CLI 子命令模块通过 `register(subparsers)` 注册，用 `set_defaults(func=handler)`
 指定处理函数；确定性本地工具与远程作业控制分别维护，科学判据放在 `skills-next/` 的卡片中。
 
+## 本地分析命令：结构比较（topology）
+
+`ag topology <ATTEMPT_ID> --out <NEW_REPORT.json>` 中，片段数只有在不确定接触按
+“相连／不相连”两种处理均同向变化时才据此判为 `changed`；若片段数结论依赖这些接触，
+列出接触证据，并在没有已确定的键变化时保留 `unknown`，已有确定键变化则保留 `changed`。
+两种处理都不变则继续原有连接/立体比较，状态不代替科学审阅。
+
 ## 本地分析命令：构象局部判别（dedup）
 
 `ag dedup` 可按使用者指定的二面角分组保留局部不同的构象，避免局部转动被整体
