@@ -182,3 +182,21 @@ manifest 保持原样；准备时已有卡片的 Attempt 不接受替换，已�
 
 CLI 子命令模块通过 `register(subparsers)` 注册，用 `set_defaults(func=handler)`
 指定处理函数；确定性本地工具与远程作业控制分别维护，科学判据放在 `skills-next/` 的卡片中。
+
+## 本地分析命令：构象集合清单
+
+`ag ensemble` 汇总已保存的 dedup、Attempt facts 和可选热化学表，生成同名 JSON 与 Markdown。
+相对路径在提供 `--study` 时相对 study 根目录；输出必须位于 `analyses/` 内、与 merged JSON
+和它绑定的 XYZ 同目录，任一输出已存在就拒绝。
+
+```bash
+ag ensemble --study '<STUDY_DIR>' --merged analyses/group/merged.json \
+  --out analyses/group/ensemble.json --label '构象集合' \
+  --route crest=sample-001 --sp sp-001 sp-002 --opt opt-001 opt-002 \
+  --thermo analyses/thermo.json
+```
+
+`--sp` 也可给一个只含本 study Attempt ID 的 JSON 列表。匹配保持输入原子顺序，
+不对齐或改编号；多重匹配保留歧义。不同路线的 xTB 能量不可比较时，只列路线内相对能。
+热化学数值直接复制，不重算布居、不选代表构象、不作科学验收。
+字段与空值语义见 [ag-ensemble/1](../docs/ag-ensemble-1.md)。
