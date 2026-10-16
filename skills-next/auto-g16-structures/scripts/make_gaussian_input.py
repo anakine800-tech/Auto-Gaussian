@@ -35,7 +35,13 @@ def load_rdkit():
     return Chem, AllChem, Descriptors, rdMolDescriptors
 
 
-def read_molecule(source: str, Chem):
+def read_molecule(source: str, Chem, *, preserve_explicit_h: bool = False):
+    # Intake needs source atom order; all existing callers keep the exact default path.
+    smiles_options = ()
+    if preserve_explicit_h:
+        params = Chem.SmilesParserParams()
+        params.removeHs = False
+        smiles_options = (params,)
     import_diagnostics = None
     path = Path(source).expanduser()
     if path.exists():
@@ -70,14 +76,14 @@ def read_molecule(source: str, Chem):
             if not line:
                 fail(f"No SMILES found in {path}")
             smiles = line.split()[0]
-            mol = Chem.MolFromSmiles(smiles)
+            mol = Chem.MolFromSmiles(smiles, *smiles_options)
             if mol is None:
                 fail(f"Could not parse SMILES from {path}")
         else:
             fail("Supported file inputs are .cdx, .cdxml, .mol, .mdl, .sdf, .smi, .smiles, and .txt")
         return mol, str(path), import_diagnostics
 
-    mol = Chem.MolFromSmiles(source)
+    mol = Chem.MolFromSmiles(source, *smiles_options)
     if mol is None:
         fail("Input is neither an existing structure file nor a valid SMILES string")
     return mol, "SMILES argument", import_diagnostics
