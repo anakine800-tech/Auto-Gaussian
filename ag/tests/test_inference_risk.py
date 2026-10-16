@@ -354,13 +354,13 @@ def test_ambiguous_boron_contact_retains_warning_and_irc_unknown(tmp_path, capsy
     assert signature(infer(after, 0)) == signature(separated_oracle('acetone_bf3'))
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
-    'T68-R2: topology promotes an uncertain B-O contact to changed solely '
-    'because definite-edge fragment counts differ; irc-compare stays unknown. '
-    'Warnings survive, but the top-level status loses uncertainty.'))
 def test_ambiguous_boron_fragment_change_should_remain_unknown():
     report = topology.compare_minimum(frame('acetone_bf3'), frame('acetone_bf3_stretched'), 0)
     assert report['status'] == 'unknown'
+    assert report['fragments']['fragments_if_uncertain_bonded'] == {'submitted': 1, 'final': 1}
+    assert report['fragments']['fragment_change_depends_on_uncertain_contacts'] is True
+    assert any('3–4 (O–B)' in reason and '2.200000 Å' in reason and '1.466667' in reason
+               for reason in report['reasons'])
 
 
 def generate_fixtures(directory):

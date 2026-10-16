@@ -13,7 +13,7 @@ from ag.facts import ag_provenance
 from ag.study import local_path
 
 
-def _references(path, data):
+def _references(path, data, *, root=None):
     """Explicit Markdown paths and JSON analysis links; never infer from prose."""
     if path.name == 'facts.json' or path.suffix.lower() not in {'.md', '.json', '.txt'}:
         return []
@@ -43,8 +43,18 @@ def _references(path, data):
             value = next(group for group in match.groups() if group is not None)
             explicit = index < 2 or bool(re.fullmatch(
                 r'[^\n]+\.(?:json|md|csv|tsv|txt|xyz|pdf|png|svg|html)', value))
-            refs.append((value, explicit, f'line {text.count(chr(10), 0, match.start()) + 1}', ''))
+            location = f'line {text.count(chr(10), 0, match.start()) + 1}'
             plain[match.start():match.end()] = ' ' * (match.end() - match.start())
+            if index == 2 and any(char.isspace() for char in value):
+                # Keep existing quoted evidence (including spaced names) under
+                # the same source/root and safety rules. A missing code span is
+                # prose; never extract an analyses/ argument from its command.
+                reference = _analysis_reference(root or path.parent, path, value, explicit,
+                                                location, analysis_names=set())
+                if reference is not None and reference[0] is None and reference[1] in {
+                        'missing', 'unqualified_name'}:
+                    continue
+            refs.append((value, explicit, location, ''))
     # Quoted paths stay intact; ASCII-only bare paths stop before surrounding prose.
     refs += [(match.group(1).rstrip('.,;'), True,
               f'line {text.count(chr(10), 0, match.start()) + 1}', '') for match in re.finditer(
@@ -175,7 +185,7 @@ def create(directory, *, accept_unresolved=False):
         data = local_path(root, path).read_bytes()
         files[path] = dict(path=path.relative_to(root).as_posix(), size=len(data),
                            sha256=sha256(data).hexdigest())
-        for value, explicit, field, key in _references(path, data):
+        for value, explicit, field, key in _references(path, data, root=root):
             reference = _analysis_reference(root, path, value, explicit, field, key, analysis_names)
             if reference is None:
                 continue

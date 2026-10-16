@@ -232,3 +232,19 @@ IRC 连通证明的是所审阅势能面的路径连接，不代表真实动力�
 - 增加的检查分别防止缺旁观物种造成假反应能、混协议造成假排序、把零/多虚频当 TS、混用加权平均 G、重复浓度修正和覆盖旧分析等具体错误，不引入通用合同或审批流程。
 
 数值回归采用 Lv 等人模型循环的图 2（[Nat. Commun. 13, 36, DOI:10.1038/s41467-021-27813-4](https://doi.org/10.1038/s41467-021-27813-4)）：未加括号数值的 TDI −9.3、TDTS 23.9，跨度 33.2 kcal/mol；括号数值为 −8.5、23.7，跨度 32.2 kcal/mol。仅转录图中标有数值的点，不编造没有数值标注的 model_TS3。这是文献数值算术回归，不将文献方法当作本工具 Gaussian 输入通路的完整验收。
+
+### 畸变–相互作用分析
+
+已有可比的复合物与片段单点时，可用 `ag asm` 做电子能分解。先人工指定片段原子列表、
+电荷和多重度，再用 `ag asm split <Attempt> --geometry input --atoms 1-3 --name first --out analyses/first.xyz --study <study>`
+导出片段；优化或 TS 的最终坐标改用 `--geometry final`，读取 `final_input.xyz`。
+保留 `original_atoms` 映射，按升序坐标准备片段单点，沿用复合物的方法和溶剂模型。
+计算仍走正常 prepare / 人工确认提交流程，本命令不会准备或提交计算。
+
+将人工定义保存到 analyses JSON 后运行
+`ag asm summary --definition analyses/asm-definition.json --out analyses/asm.json --study <study>`。
+只支持单重态；核对片段覆盖、电荷、几何、方法和版本，输出 E_int 和有参照片段的 E_dist。
+全部片段都有弛豫参照时才给总畸变能与 ΔE；两个竞争体系比较固定为 b − a，
+同名片段的 ΔΔE_dist 直接相减其复合物几何下的能量，不要求参照。
+这只是电子能分解，不含零点能、热校正或 BSSE 校正，不代替选择性模型、TS/IRC 验证或科学签字。
+签字前同时引用 JSON/Markdown；几何通过报告内的路径和 SHA-256 间接绑定，须复算核对。

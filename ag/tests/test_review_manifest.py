@@ -718,3 +718,85 @@ def test_no_reference_changes_preserve_legacy_manifest_bytes(tmp_path, monkeypat
     result = inventory.create(tmp_path)
     # Captured from main after T49b with the same clock, provenance and input.
     assert result['sha256'] == 'd7fb1a628ef83d555b20a93750580463e53bd2701ad4ff44f7d11829b1070857'
+
+
+@pytest.mark.parametrize('command', [
+    # Existing rdkit-screen and ts card examples reproduced as missing on T67.
+    'ag coverage --merged analyses/dedup-TIMESTAMP.json --energies attempts/SP_A attempts/SP_B '
+    '--window 3 --out analyses/coverage-01.md',
+    'ag mode-review <attempt> --study <dir> --pair 1-2 --pair 2-3 --mode 1 '
+    '--amplitude 0.3 --out analyses/mode-review.json',
+    'ag facts.json',
+    'ag\tfacts.json',
+])
+def test_missing_backtick_commands_do_not_select_their_arguments(tmp_path, command):
+    root = study(tmp_path)
+    (root / 'study.md').write_text(f'`analyses/evidence.json`\n`{command}`\n')
+    evidence = root / 'analyses/evidence.json'
+    evidence.write_text('{}')
+    for name in ('dedup-TIMESTAMP.json', 'coverage-01.md', 'mode-review.json'):
+        (root / 'analyses' / name).write_text('{}')
+    result = inventory.create(root)
+    assert {entry['path'] for entry in result['files']} == {
+        'study.md', 'analyses/evidence.json',
+        'attempts/water-a/facts.json', 'attempts/water-a/review.md',
+        'attempts/water-b/facts.json', 'attempts/water-b/review.md',
+    }
+    assert next(e for e in result['files'] if e['path'] == 'analyses/evidence.json')['sha256'] == sha256(evidence.read_bytes()).hexdigest()
+    assert not result.get('unresolved_references') and not result.get('unqualified_names')
+
+
+@pytest.mark.parametrize('placement', ['source', 'root', 'ambiguous', 'directory'])
+def test_spaced_backtick_references_keep_existing_resolution(tmp_path, placement):
+    root = study(tmp_path)
+    report = root / 'analyses/nested/report.md'
+    report.parent.mkdir()
+    (root / 'study.md').write_text('[report](analyses/nested/report.md)')
+    value = 'quoted result.csv' if placement != 'directory' else 'analyses/quoted directory'
+    report.write_text(f'`{value}`')
+    source = (root if placement == 'directory' else report.parent) / value
+    fallback = root / value
+    if placement in {'source', 'ambiguous'}:
+        source.write_text('energy\n0\n')
+    if placement in {'root', 'ambiguous'}:
+        fallback.write_text('root-relative evidence')
+    if placement == 'directory':
+        source.mkdir()
+        (source / 'result.csv').write_text('energy\n0\n')
+    if placement == 'ambiguous':
+        with pytest.raises(ValueError, match='Ambiguous evidence reference'):
+            inventory.create(root)
+        return
+    result = inventory.create(root)
+    if placement == 'root':
+        assert result['referenced_outside_analyses'] == [dict(
+            source='analyses/nested/report.md', location='line 1', path=value,
+            resolved_from='study_root')]
+    else:
+        target = source / 'result.csv' if placement == 'directory' else source
+        entry = next(e for e in result['files'] if e['path'] == target.relative_to(root).as_posix())
+        assert entry['sha256'] == sha256(target.read_bytes()).hexdigest()
+    assert not result.get('unresolved_references')
+
+
+def test_missing_spaced_markdown_link_still_requires_acceptance(tmp_path):
+    root = study(tmp_path)
+    (root / 'study.md').write_text('[evidence](<analyses/quoted missing.csv>)')
+    with pytest.raises(inventory.UnresolvedReferences) as error:
+        inventory.create(root)
+    assert error.value.references[0]['reason'] == 'missing'
+
+
+def test_spaced_backtick_escape_still_does_not_probe_outside_study(tmp_path, monkeypatch):
+    value = '../external folder/report.json'
+    monkeypatch.setattr(Path, 'is_symlink', lambda *_: pytest.fail('escaped reference probed filesystem'))
+    monkeypatch.setattr(Path, 'exists', lambda *_: pytest.fail('escaped reference probed filesystem'))
+    assert inventory._references(tmp_path / 'study.md', f'`{value}`'.encode(), root=tmp_path) == [
+        (value, True, 'line 1', '')]
+
+
+def test_spaced_backtick_symlink_is_not_treated_as_a_command(tmp_path):
+    root = study(tmp_path)
+    (root / 'analyses/linked folder').symlink_to(root.parent, target_is_directory=True)
+    with pytest.raises(ValueError, match='Symbolic links'):
+        inventory._references(root / 'study.md', b'`analyses/linked folder/missing.json`', root=root)

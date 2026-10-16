@@ -302,6 +302,13 @@ study 内符号链接、歧义、非法显式路径、空分析目录、收集�
 CLI 子命令模块通过 `register(subparsers)` 注册，用 `set_defaults(func=handler)`
 指定处理函数；确定性本地工具与远程作业控制分别维护，科学判据放在 `skills-next/` 的卡片中。
 
+## 本地分析命令：结构比较（topology）
+
+`ag topology <ATTEMPT_ID> --out <NEW_REPORT.json>` 中，片段数只有在不确定接触按
+“相连／不相连”两种处理均同向变化时才据此判为 `changed`；若片段数结论依赖这些接触，
+列出接触证据，并在没有已确定的键变化时保留 `unknown`，已有确定键变化则保留 `changed`。
+两种处理都不变则继续原有连接/立体比较，状态不代替科学审阅。
+
 ## 本地分析命令：构象局部判别（dedup）
 
 `ag dedup` 可按使用者指定的二面角分组保留局部不同的构象，避免局部转动被整体
@@ -404,3 +411,20 @@ CSV 必须含 `channel_id,product_branch,ensemble_manifests`，可选 `note`；
 阈值只提示候选、SP、Opt 数的相对不均衡，不判定覆盖是否足够。
 最低候选依 thermo > opt > sp > xTB 的可用能量选择；多清单 xTB 零点无法比较时
 保留各清单最低值并说明原因。字段及计数口径见 [ag-channel-coverage/1](../docs/ag-channel-coverage-1.md)。
+
+## 本地分析命令：畸变–相互作用分析
+
+`ag asm split` 按人工指定的原子编号导出片段 XYZ，保留 `original_atoms` 映射；
+`ag asm summary` 核对已有 Gaussian 电子能、几何、电子态和方法口径后，汇总相互作用能、
+可选参照下的畸变能及两个竞争体系的差值（b − a）。片段电荷与多重度由人指定。
+
+```sh
+ag asm split '<ATTEMPT>' --study '<STUDY_DIR>' --geometry input \
+  --atoms 1-3 --name first --out analyses/first.xyz
+ag asm summary --study '<STUDY_DIR>' --definition analyses/asm-definition.json \
+  --out analyses/asm.json
+```
+
+`input` 取提交几何，`final` 取 `final_input.xyz`；坐标逐原子核对，不做对齐或重排。
+所有文件限同一 study，输出独占创建。只用电子能，不含零点能、热校正或 BSSE 校正，
+不判断选择性来源。定义、公式及几何哈希的间接证据绑定见 [ag-asm/1](../docs/ag-asm-1.md)。
