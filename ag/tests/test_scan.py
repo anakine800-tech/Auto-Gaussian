@@ -336,6 +336,20 @@ def test_invalid_requested_peak_does_not_export(tmp_path, capsys, point):
     assert not destination.exists()
 
 
+@pytest.mark.parametrize('energies', [ENERGIES, [-150, -149.999, -149.998]])
+def test_1d_grid_point_argument_has_explicit_error(tmp_path, capsys, energies):
+    scan, frames = synthetic_scan(energies)
+    (tmp_path / 'manifest.json').write_text('{}')
+    source = tmp_path / 'scan_points.xyz'
+    source.write_text(xyz_text(frames))
+    scan['geometries_sha256'] = sha256(source.read_bytes()).hexdigest()
+    (tmp_path / 'facts.json').write_text(json.dumps({'scan': scan}))
+    destination = tmp_path / 'peak.xyz'
+    assert cli.main(['scan-peak', str(tmp_path), '--point', '2,2', '--out', str(destination)]) == 1
+    assert '一维扫描只接受单个整数 --point' in capsys.readouterr().err
+    assert not destination.exists()
+
+
 def test_monotonic_cli_does_not_export(tmp_path, capsys):
     scan, frames = synthetic_scan([-150, -149.999, -149.998])
     (tmp_path / 'manifest.json').write_text('{}')

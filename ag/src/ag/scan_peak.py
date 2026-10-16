@@ -26,6 +26,8 @@ def aligned_rmsd(left, right):
 def select_peak(scan, frames, point=None):
     if scan.get('dimensions') == 2:
         return select_saddle(scan, frames, point)
+    if point is not None and type(point) is not int:
+        raise ValueError('一维扫描只接受单个整数 --point')
     points = scan['points']
     if len(points) < 3:
         raise ValueError('At least three scan points are needed; 扫描范围或扫描坐标不合适，拒绝导出。')
