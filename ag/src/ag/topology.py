@@ -60,12 +60,12 @@ def _contacts(frame):
     return result
 
 
-def fragments(frame):
-    """Connected components of definite radius-rule bonds, including explicit H."""
+def fragments(frame, *, _include_uncertain=False):
+    """Default: definite radius-rule bonds, including H; optionally test uncertain edges."""
     from rdkit import Chem
     neighbors = {i: set() for i in range(1, len(frame.symbols) + 1)}
     for (i, j), evidence in _pairs(frame, Chem).items():
-        if evidence['state'] == 'bonded':
+        if evidence['state'] == 'bonded' or (_include_uncertain and evidence['state'] == 'uncertain'):
             neighbors[i].add(j)
             neighbors[j].add(i)
     components, remaining = [], set(neighbors)
@@ -84,7 +84,8 @@ def fragments(frame):
         formula = ''.join(element + (str(counts[element]) if counts[element] > 1 else '') for element in order)
         components.append(dict(atoms=sorted(atoms), formula=formula))
     return dict(count=len(components), components=components,
-                rule='仅以半径比 [0.6, 1.2) 的确定相连边统计；不确定接触不合并片段。',
+                rule=('确定相连边和不确定接触均合并片段，仅供比较两种处理。' if _include_uncertain else
+                      '仅以半径比 [0.6, 1.2) 的确定相连边统计；不确定接触不合并片段。'),
                 formula_note='分子式按显式原子计数，使用 Hill 顺序；不推断片段电荷或补氢。')
 
 
@@ -93,9 +94,46 @@ _fragments = fragments
 
 
 def _check_fragments_and_mapping(result, submitted, final, charge):
-    fragment_results = {name: _fragments(frame) for name, frame in (('submitted', submitted), ('final', final))}
+    from rdkit import Chem
+    frames = {'submitted': submitted, 'final': final}
+    fragment_results = {name: _fragments(frame) for name, frame in frames.items()}
     result['fragments'] = fragment_results
     before, after = (fragment_results[name]['count'] for name in ('submitted', 'final'))
+    uncertain = {name: {pair: evidence for pair, evidence in _pairs(frame, Chem).items()
+                        if evidence['state'] == 'uncertain'} for name, frame in frames.items()}
+    if any(uncertain.values()):
+        # T68-R2: definite-edge counts alone promoted a stretched B-O contact
+        # from unknown to changed. Require both treatments to agree in direction.
+        bonded = {name: _fragments(frame, _include_uncertain=True)['count'] for name, frame in frames.items()}
+        fragment_results['fragments_if_uncertain_bonded'] = bonded
+        delta, bonded_delta = after - before, bonded['final'] - bonded['submitted']
+        depends = not (delta == bonded_delta == 0 or delta * bonded_delta > 0)
+        fragment_results['fragment_change_depends_on_uncertain_contacts'] = depends
+        if depends:
+            result['status'] = 'unknown'
+            contacts = []
+            table = Chem.GetPeriodicTable()
+            for name, frame in frames.items():
+                membership = {atom: index for index, component in enumerate(fragment_results[name]['components'])
+                              for atom in component['atoms']}
+                for (i, j), evidence in uncertain[name].items():
+                    if membership[i] == membership[j]:
+                        continue
+                    elements = [frame.symbols[index - 1] for index in (i, j)]
+                    ratio = evidence['distance'] / sum(table.GetRcovalent(element) for element in elements)
+                    contacts.append(f"{name} 原子 {i}–{j} ({'–'.join(elements)})，"
+                                    f"距离 {evidence['distance']:.6f} Å，半径比 {ratio:.6f}")
+            result['reasons'].append(
+                f"不确定接触按不相连处理时片段数 {before} → {after}，"
+                f"按相连处理时 {bonded['submitted']} → {bonded['final']}；"
+                '片段数是否变化取决于这些接触是否算作成键（变化方向也可能不同）：' + '；'.join(contacts) + '。')
+            return
+        if delta * bonded_delta > 0:
+            result['status'] = 'changed'
+            result['reasons'].append(
+                f"两种处理下连通片段数均同向变化：不确定接触按不相连处理 {before} → {after}；"
+                f"按相连处理 {bonded['submitted']} → {bonded['final']}。")
+            return
     if before != after:
         result['status'] = 'changed'
         result['reasons'].append(f'按半径比规则的连通片段数变化：{before} → {after}。')
@@ -244,7 +282,16 @@ def markdown(result):
              '- ' + result['orientation_note'],
              '- endpoint 表示最终几何，reference 表示提交几何。',
              '- 阈值：半径比 < 0.6 为过近接触；[0.6, 1.2) 相连；[1.2, 1.5] 不确定；> 1.5 分离。',
-             '- TS 模式不使用上述成键判定阈值。', '', '## 来源与 SHA-256', '']
+             '- TS 模式不使用上述成键判定阈值。']
+    fragments = result.get('fragments', {})
+    if 'fragments_if_uncertain_bonded' in fragments:
+        bonded = fragments['fragments_if_uncertain_bonded']
+        depends = fragments['fragment_change_depends_on_uncertain_contacts']
+        lines.append(f"- 片段数（不确定接触按不相连／相连处理）："
+                     f"{fragments['submitted']['count']} → {fragments['final']['count']}／"
+                     f"{bonded['submitted']} → {bonded['final']}；"
+                     f"变化是否依赖不确定接触：{'是' if depends else '否'}。")
+    lines.extend(['', '## 来源与 SHA-256', ''])
     for role, source in result['sources'].items():
         lines.append(f"- {role}：`{source['file']}`；SHA-256 `{source['sha256']}`")
     lines.extend(['', '## 判定说明', ''] + ['- ' + item for item in result['reasons'] + result['limitations']])
