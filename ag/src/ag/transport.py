@@ -118,11 +118,12 @@ class SSHTransport:
                    attempt=attempt, outcome=outcome, returncode=returncode,
                    duration_s=round(duration, 3), error_class=error_class(detail, outcome))
         directory_fd = file_fd = None
-        failed = False
+        failure = None
         try:
-            directory = Path(self.cfg['_config_dir']) / 'ssh-log'
-            # Reject redirected directories, including any symlinked ancestor.
-            if any(part.is_symlink() for part in (directory, *directory.parents)):
+            # The configured location may legitimately traverse a symlink. Keep
+            # the log directory/file themselves protected against redirection.
+            directory = Path(self.cfg['_config_dir']).resolve() / 'ssh-log'
+            if directory.is_symlink():
                 raise OSError(errno.ELOOP, 'Symbolic link')
             directory.mkdir(mode=0o700, exist_ok=True)
             directory_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
@@ -135,18 +136,27 @@ class SSHTransport:
             data = (json.dumps(row, ensure_ascii=False) + '\n').encode('utf-8')
             if os.write(file_fd, data) != len(data):
                 raise OSError(errno.EIO, 'Incomplete log write')
-        except OSError:
-            failed = True
+        except RuntimeError:
+            # pathlib.resolve reports symlink loops this way on older Python.
+            failure = 'symlink'
+        except OSError as exc:
+            failure = {errno.ELOOP: 'symlink', errno.EACCES: 'permission',
+                       errno.EPERM: 'permission', errno.EROFS: 'permission',
+                       errno.EINVAL: 'not_regular', errno.EISDIR: 'not_regular',
+                       errno.ENXIO: 'not_regular', errno.ENOTDIR: 'not_regular'}.get(exc.errno, 'io')
         finally:
             for fd in (file_fd, directory_fd):
                 if fd is not None:
                     try:
                         os.close(fd)
                     except OSError:
-                        failed = True
-        if failed:
+                        failure = failure or 'io'
+        # A monitor process can create several transports; warn once across all
+        # of them, including when the warning stream itself is unavailable.
+        if failure and not getattr(SSHTransport._log_call, '_warning_emitted', False):
+            SSHTransport._log_call._warning_emitted = True
             try:
-                print('Warning: could not write local SSH log; operation continues.', file=sys.stderr)
+                print(f'Warning: could not write local SSH log ({failure}); operation continues.', file=sys.stderr)
             except OSError:
                 pass  # Even an unavailable warning stream cannot alter the operation.
 
