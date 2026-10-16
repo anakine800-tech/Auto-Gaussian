@@ -187,8 +187,10 @@ def test_definition_rejections(sample, change, message):
     elif change == 'overlap':
         data['systems'][0]['fragments'][1]['atoms'] = '1,2,4,6'
     elif change == 'charge':
-        update_json(root / 'attempts/a-complex/facts.json', charge=1)
-        attempt_charge(root / 'attempts/a-complex', 1)
+        # Even charges keep these singlet fixtures valid so the intended
+        # bookkeeping error, rather than electron parity, is exercised.
+        update_json(root / 'attempts/a-complex/facts.json', charge=2)
+        attempt_charge(root / 'attempts/a-complex', 2)
     elif change == 'declared_charge':
         first['charge'] = 1
     elif change == 'multiplicity':
@@ -198,10 +200,10 @@ def test_definition_rejections(sample, change, message):
     elif change == 'names':
         data['systems'][1]['fragments'][0]['name'] = 'different'
     elif change == 'identity':
-        for name, charge in [('b-first', 1), ('b-second', -1)]:
+        for name, charge in [('b-first', 2), ('b-second', -2)]:
             update_json(root / f'attempts/{name}/facts.json', charge=charge)
             attempt_charge(root / 'attempts' / name, charge)
-        for fragment, charge in zip(data['systems'][1]['fragments'], [1, -1]):
+        for fragment, charge in zip(data['systems'][1]['fragments'], [2, -2]):
             fragment['charge'] = charge
     else:
         data['systems'][1]['label'] = 'a'

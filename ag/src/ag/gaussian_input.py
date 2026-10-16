@@ -8,6 +8,48 @@ import math
 import re
 
 
+ELEMENTS = ('H He Li Be B C N O F Ne Na Mg Al Si P S Cl Ar K Ca Sc Ti V Cr Mn Fe Co Ni Cu Zn '
+            'Ga Ge As Se Br Kr Rb Sr Y Zr Nb Mo Tc Ru Rh Pd Ag Cd In Sn Sb Te I Xe Cs Ba La Ce '
+            'Pr Nd Pm Sm Eu Gd Tb Dy Ho Er Tm Yb Lu Hf Ta W Re Os Ir Pt Au Hg Tl Pb Bi Po At Rn '
+            'Fr Ra Ac Th Pa U Np Pu Am Cm Bk Cf Es Fm Md No Lr Rf Db Sg Bh Hs Mt Ds Rg Cn Nh Fl Mc Lv Ts Og').split()
+ATOMIC_NUMBERS = {symbol: number for number, symbol in enumerate(ELEMENTS, 1)}
+NUMBER = r'[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?'
+
+
+def cartesian(rows, *, first_line, prefix=''):
+    """Reject invalid atoms/coordinates before they waste a queued calculation.
+
+    Return canonical identities for comparison/counting, preserving input bytes.
+    Gaussian and XYZ callers supply the original file's one-based line number.
+    """
+    symbols = []
+    for line, row in enumerate(rows, first_line):
+        where = f'{prefix}line {line}: '
+        fields = row.split()
+        if len(fields) != 4:
+            raise ValueError(where + 'Expected finite Cartesian coordinates: element and three numbers')
+        atom, *xyz = fields
+        symbol = atom.capitalize() if re.fullmatch(r'[A-Za-z]{1,2}', atom) else None
+        if re.fullmatch(r'\d+', atom) and 1 <= int(atom) <= len(ELEMENTS):
+            symbol = ELEMENTS[int(atom) - 1]
+        if symbol not in ATOMIC_NUMBERS:
+            raise ValueError(where + f'Expected a real element or atomic number 1–118; got {atom!r}. '
+                             'Dummy atoms (Bq/X) and isotope/atom-label syntax are unsupported')
+        if not all(re.fullmatch(NUMBER, value) and math.isfinite(float(value)) for value in xyz):
+            raise ValueError(where + 'Expected finite Cartesian coordinates')
+        symbols.append(symbol)
+    return symbols
+
+
+def check_electrons(symbols, charge, multiplicity, *, location):
+    electrons = sum(ATOMIC_NUMBERS[symbol] for symbol in symbols) - charge
+    if electrons < 0:
+        raise ValueError(f'{location}: electron count {electrons} is negative (multiplicity {multiplicity})')
+    if electrons % 2 == multiplicity % 2:
+        raise ValueError(f'{location}: electron count {electrons} and multiplicity {multiplicity} '
+                         'have incompatible parity')
+
+
 def _qst_mode(route):
     modes = set(re.findall(r'\bqst[23]\b', route.lower()))
     if not modes:
@@ -25,36 +67,21 @@ def _qst_mode(route):
     return mode.upper()
 
 
-def _qst_structures(sections, mode):
+def _qst_structures(sections, mode, section_lines):
     count = int(mode[-1])
     if len(sections) != 1 + 2 * count:
         raise ValueError(f'{mode} requires exactly {count} title + charge/multiplicity + coordinate groups')
-    # Canonical element identities also allow Gaussian atomic-number rows.
-    elements = ('H He Li Be B C N O F Ne Na Mg Al Si P S Cl Ar K Ca Sc Ti V Cr Mn Fe Co Ni Cu Zn '
-                'Ga Ge As Se Br Kr Rb Sr Y Zr Nb Mo Tc Ru Rh Pd Ag Cd In Sn Sb Te I Xe Cs Ba La Ce '
-                'Pr Nd Pm Sm Eu Gd Tb Dy Ho Er Tm Yb Lu Hf Ta W Re Os Ir Pt Au Hg Tl Pb Bi Po At Rn '
-                'Fr Ra Ac Th Pa U Np Pu Am Cm Bk Cf Es Fm Md No Lr Rf Db Sg Bh Hs Mt Ds Rg Cn Nh Fl Mc Lv Ts Og').split()
     structures = []
-    number = r'[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?'
     for i in range(count):
         title, block = sections[1 + 2 * i:3 + 2 * i]
         rows = block.splitlines()
         match = re.fullmatch(r'\s*([+-]?\d+)\s+(\d+)\s*', rows[0])
         prefix = f'{mode} group {i + 1}: '
+        line = section_lines[2 + 2 * i]
         if not title.strip() or not match or int(match[2]) < 1 or len(rows) < 2:
-            raise ValueError(prefix + 'expected title, charge/multiplicity and coordinates')
-        symbols = []
-        for row in rows[1:]:
-            if not re.fullmatch(rf'\s*(?:[A-Z][a-z]?|\d+)\s+{number}\s+{number}\s+{number}\s*', row):
-                raise ValueError(prefix + 'expected finite Cartesian coordinates')
-            atom, *xyz = row.split()
-            if atom.isdigit() and 1 <= int(atom) <= len(elements):
-                atom = elements[int(atom) - 1]
-            if atom not in elements:
-                raise ValueError(prefix + 'expected a real element or atomic number')
-            if not all(math.isfinite(float(value)) for value in xyz):
-                raise ValueError(prefix + 'expected finite Cartesian coordinates')
-            symbols.append(atom)
+            raise ValueError(prefix + f'line {line}: expected title, charge/multiplicity and coordinates')
+        symbols = cartesian(rows[1:], first_line=line + 1, prefix=prefix)
+        check_electrons(symbols, int(match[1]), int(match[2]), location=prefix + f'line {line}')
         structure = dict(title=title.strip(), charge=int(match[1]), multiplicity=int(match[2]),
                          geometry='\n'.join(rows[1:]), n_atoms=len(symbols), elements=symbols)
         if structures:
@@ -125,8 +152,12 @@ def validate(text, cores, mem_gb, *, parent_chk=False):
             raise ValueError('%oldchk requires a distinct explicit %chk')
     if parent_chk and link.get('oldchk') != 'parent.chk':
         raise ValueError('Parent chk attachment requires %oldchk=parent.chk')
-    rest = '\n'.join(lines[index:]).strip()
+    untrimmed = '\n'.join(lines[index:])
+    rest = untrimmed.strip()
+    first_line = index + 1 + untrimmed[:len(untrimmed) - len(untrimmed.lstrip())].count('\n')
     sections = re.split(r'\n\s*\n', rest)
+    section_lines = [first_line] + [first_line + rest[:match.end()].count('\n')
+                                    for match in re.finditer(r'\n\s*\n', rest)]
     if len(sections) < 3 or not sections[0].lstrip().startswith('#') or not sections[1].strip():
         raise ValueError('Expected route, title, charge/multiplicity and Cartesian coordinates')
     route = ' '.join(sections[0].split())
@@ -142,7 +173,7 @@ def validate(text, cores, mem_gb, *, parent_chk=False):
         for word in re.findall(r'\b[A-Za-z][A-Za-z0-9]*\b', option[1])]
     modredundant = 'modredundant' in opt_options
     if mode:
-        structures = _qst_structures(sections, mode)
+        structures = _qst_structures(sections, mode, section_lines)
         first = structures[0]
         return dict(charge=first['charge'], multiplicity=first['multiplicity'], route=route,
                     geometry=first['geometry'], n_atoms=first['n_atoms'], qst_mode=mode,
@@ -153,11 +184,9 @@ def validate(text, cores, mem_gb, *, parent_chk=False):
     geom = sections[2].splitlines()
     match = re.fullmatch(r'\s*(-?\d+)\s+(\d+)\s*', geom[0])
     if not match or int(match[2]) < 1 or len(geom) < 2:
-        raise ValueError('Invalid charge/multiplicity or missing coordinates')
-    number = r'[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?'
-    for row in geom[1:]:
-        if not re.fullmatch(rf'\s*(?:[A-Z][a-z]?|\d+)\s+{number}\s+{number}\s+{number}\s*', row):
-            raise ValueError('Expected finite Cartesian coordinates')
+        raise ValueError(f'line {section_lines[2]}: Invalid charge/multiplicity or missing coordinates')
+    symbols = cartesian(geom[1:], first_line=section_lines[2] + 1)
+    check_electrons(symbols, int(match[1]), int(match[2]), location=f'line {section_lines[2]}')
     scan_data = {}
     if len(sections) > 3:
         if not modredundant or 'ts' in opt_options or len(sections) != 4:
