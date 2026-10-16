@@ -134,6 +134,67 @@ conda run -n chem python scripts/check_species.py --study STUDY \
 不能用接受备注扩展计算能力。沿用既有结构里程碑和证据清单，确认前不开始文献检索或采样。
 脚本不签字、不修改结构源、不修改 `study.md`；原有预览/构象脚本保持原行为与输出位置。
 
+## 定向复合物构建
+
+[scripts/build_complex.py](scripts/build_complex.py) 是 T86 的纯本地例外入口：
+两份已审阅三维 XYZ，各自须按 `<1.2 × 共价半径和` 规则为单个连通分子，
+仅构造主族的一个 A–D 配位接触；拒绝过渡金属、镧系和锕系，不做多配位点或自动对接。
+不调用普通单分子力场脚本，不推断电荷、多重度、位点选择或 CIP 优先级。
+需要当前 ag、NumPy 和 RDKit；从仓库根运行时可用 `PYTHONPATH=ag/src`，
+已安装 ag 的 chem 环境也可运行。XYZ 的三个笛卡尔分量须有限，平面分子允许；
+XYZ 本身不能证明化学身份、质子化或电子态，须先按 T80 核验和人工确认。
+
+三个子命令（路径相对于 `--study`，只读命令省略该选项时以当前目录为根）：
+
+```sh
+python skills-next/auto-g16-structures/scripts/build_complex.py sites \
+  --study STUDY --guest structures/guest.xyz
+python skills-next/auto-g16-structures/scripts/build_complex.py measure \
+  --study STUDY --complex structures/reviewed-complex.xyz --host-range 4-7 \
+  --host-atoms 3,2,1 --guest-atoms 3,2,1
+python skills-next/auto-g16-structures/scripts/build_complex.py build \
+  --study STUDY --name directed-01 \
+  --host structures/host.xyz --host-charge Q_HOST --host-atoms P2,P1,A \
+  --guest structures/guest.xyz --guest-charge Q_GUEST --guest-atoms D,X,Y \
+  --r R --theta1 THETA1 --theta2 THETA2 --phi1 PHI1 --phi2 PHI2 --phi3 PHI3 \
+  --multiplicity MULT --force-constant FORCE_CONSTANT
+```
+
+`sites` 只列出 O/N/S/P/卤素等候选、相连原子、几何杂化提示和 D–X–Y / syn–anti
+可用参照，供人勾选；几何提示不是键级或真实孤对方向判定。参照候选为空时须换一组
+符合条件的显式原子，工具不补原子或自动选择。`measure` 的 host-range 是整体 XYZ
+中连续的主体段，客体为其余原子且保留原顺序；两组三原子编号始终是**各自组分内**
+从 1 开始，输出 JSON 的 `build_parameters` 可直接粘入 build 命令。
+
+六参数及参照原子全部由人指定并写进 study：r = A–D（Å），theta1 = P1–A–D，
+theta2 = A–D–X，phi1 = P2–P1–A–D，phi2 = P1–A–D–X，phi3 = A–D–X–Y（角度为度）。
+D–X、X–Y 须相连；参照平面共线或近共线（归一化垂直分量 < 1e-6）报出对应原子组。
+主体坐标不动，客体仅旋转加平移；重测参数偏差 < 1e-6 Å/度（扭角按周期差），
+客体全部内部原子间距偏差 < 1e-8 Å，并保留可复现的双精度输出。
+
+可加 `--face Re|Si --face-center C --face-priority a,b,c`：三个相连原子按**人给的**
+CIP 优先级排序，从 A 看 a→b→c 顺时针为 Re。只校验，不据标签摆放或自行推断 CIP；
+需核对三角形环绕中心、中心距平面 ≤ 0.1 Å（防止给四面体/锥形中心误标进攻面），
+A 距平面 < 0.3 Å 拒绝；期望与实测不一致也拒绝。`--syn-anti-ref REF` 须与 X 相连
+且不同于 D/X，按二面角 A–D–X–REF 的绝对值 < 90° 标 syn，否则 anti。
+报告生成如 `O7-syn(C9)-Re` 的组分内编号标签，并列出各部分依据。
+
+除声明 A–D 外，全部主体–客体原子对按共价半径比 < 1.2 拒绝（含 topology
+视为不确定的极短接触）；可加正数 `--vdw-factor F`，再拒绝 vdW 半径比 < F 的接触。
+全部违规对及最近 10 个接触均列出；发现重叠不自动转动、修几何或枚举。
+力常数必须显式给出且为正数，无默认值；单位/约束势说明沿用
+[CREST 约束构象搜索](../auto-g16-recipes/cards/crest-screen.md#约束构象搜索)。
+草稿含 A–D 距离；加 `--constrain-angle` 才含 A–D–X 角，编号转换成复合物编号。
+写出后直接调用 `ag.crest_input.validate`，通过才成功。
+
+输出到新的 `analyses/complex-build/NAME/`：`complex.xyz`、`constraints.inp`、
+`atoms.csv`、`build.json`、`build.md`；主体原子在前，客体在后。报告含输入相对路径与
+SHA-256、全部参数及实测、标签依据、接触检查、各组分与总电荷及多重度。
+重叠/标签拒绝时退出 2，仅保留 `build.json` 和 `build.md`，不发布结构或约束文件；
+输入/几何错误直接退出 2。已有目录（含拒绝或部分失败）、符号链接和越界路径均拒绝。
+产出默认作为人工审阅后**约束 CREST** 的起点，也可按已签方案直接准备 DFT 优化；
+它不证明稳定复合物或 TS，不修改 study、不签字，也不提交计算。
+
 ## Migration and validation
 
 Source files are credited in each script header; applicable chemistry notes
