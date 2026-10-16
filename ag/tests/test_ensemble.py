@@ -327,8 +327,8 @@ def test_evidence_changed_during_collection_refused(sample, monkeypatch):
     assert not sample[2].exists()
 
 
-def test_default_output_hash(sample, monkeypatch):
-    """Baseline from main 36e6c1f; freeze only time, provenance and fixture paths."""
+def test_default_output_hash(tmp_path, monkeypatch, capsys):
+    """Main 477a594 baseline: fixed XYZ avoids platform-dependent RDKit embedding."""
     from datetime import datetime, timezone
 
     class FixedTime:
@@ -338,8 +338,17 @@ def test_default_output_hash(sample, monkeypatch):
 
     monkeypatch.setattr(ensemble, 'datetime', FixedTime)
     monkeypatch.setattr(ensemble, 'ag_provenance', lambda: {'version': 'fixture', 'commit': 'fixture', 'dirty': False})
-    root, merged, out, _ = sample
-    payload = json.loads(merged.read_text().replace(str(root), 'synthetic-study'))
+    root = tmp_path / 'synthetic-study'
+    group = root / 'analyses' / 'group'
+    group.mkdir(parents=True)
+    (root / 'study.md').write_text('# Synthetic study\n')
+    source = Path(__file__).parent / 'data' / 'butane.xyz'
+    # Keep all fixed frames; do not include floating RMSD results in the input hash.
+    assert main(['dedup', '--source', f'crest={source}', '--charge', '0',
+                 '--rmsd', '0', '--out', str(group), '--json']) == 0
+    merged = Path(json.loads(capsys.readouterr().out)['output'])
+    out = group / 'ensemble.json'
+    payload = json.loads(merged.read_text().replace(str(source), 'butane.xyz'))
     (merged.parent / payload['xyz_file']).rename(merged.parent / 'merged.xyz')
     payload['xyz_file'] = 'merged.xyz'
     merged = merged.with_name('merged.json')
@@ -347,8 +356,8 @@ def test_default_output_hash(sample, monkeypatch):
     result = ensemble.build(merged, out, study=str(root))
     assert 'descriptors' not in result and 'bin_summary' not in result
     assert all('local' not in c for c in result['candidates'])
-    assert sha256(out.read_bytes()).hexdigest() == '35f3d76921a6135db44c3b7594a9e8f0ca032cf1e06c5045a7f67446248ddb5d'
-    assert sha256(out.with_suffix('.md').read_bytes()).hexdigest() == '979d92878924ca134d14da7f0d5c0494902842d8819fb1d204875abd535055b8'
+    assert sha256(out.read_bytes()).hexdigest() == '23d28fc71572e5e4e6fdd404b9fd66f9919b58c2947f567737770187ce180cb8'
+    assert sha256(out.with_suffix('.md').read_bytes()).hexdigest() == 'c5b51ec5068f15cd45009a99bdf94835e03dffd5845c149bf7ce0493860565eb'
 
 
 def test_local_descriptors_and_layer_summary(sample):
