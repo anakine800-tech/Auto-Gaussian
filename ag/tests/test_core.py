@@ -402,6 +402,8 @@ def test_remote_allowlist_and_paths(cfg, prepared):
     for c in commands:
         assert not any(token in shlex.split(c.text) for token in ('rm', 'rmdir', 'mv', 'cp', '>', '>>'))
         assert subprocess.run(['sh', '-n'], input=c.text, text=True).returncode == 0
+        if c.operation == 'output_observation':
+            continue  # Nested shell case/substitution covered by full snapshots below.
         tokens = shlex.shlex(c.text, posix=True, punctuation_chars=True)
         expect_command = True
         for token in tokens:
@@ -423,11 +425,17 @@ def test_remote_allowlist_and_paths(cfg, prepared):
     checks = ' && '.join('test ! -L ' + shlex.quote(str(part))
                          for part in reversed((Path(p), *Path(p).parents[:-1])))
     command = remote.incomplete_output_observation(cfg, m, 'water.log')
-    assert command.text == (f'{checks} && test -d {parent} && test -x {parent} && '
-                            f'if test -e {q}; then test -f {q} && test -r {q} && '
-                            f"stat -c '%s %y' -- {q}; else "
-                            f'test ! -L {q} && test -d {parent} && test -x {parent} && '
-                            "printf 'absent\\n'; fi")
+    assert command.text == (f'{checks} && '
+                            f'if test -d {parent} && test -x {parent}; then '
+                            f"if ag_observation=$(LC_ALL=C ls -d -- {q} 2>&1); then "
+                            f'if test -f {q} && test -r {q}; then '
+                            f"stat -c '%s %y' -- {q}; else printf 'unreadable\\n'; false; fi; else "
+                            'case "$ag_observation" in '
+                            "*'No such file or directory') "
+                            f'if test ! -L {q} && test -d {parent} && test -x {parent}; then '
+                            "printf 'absent\\n'; else printf 'unreadable\\n'; false; fi;; "
+                            "*) printf 'unreadable\\n'; false;; esac; fi; "
+                            "else printf 'unreadable\\n'; false; fi")
     from ag.transport import READ_OPERATIONS
     assert command.operation == 'output_observation' and command.operation in READ_OPERATIONS
     with pytest.raises(ValueError): remote.attempt_dir(cfg, {**m, 'remote_dir': '../escape'})

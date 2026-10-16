@@ -113,9 +113,9 @@ SMD 溶剂化自由能包括自洽体相静电项及空腔、色散、溶剂结�
 唯一的实验分解。依据为 Marenich–Cramer–Truhlar 原文 §2，
 [DOI:10.1021/jp810292n](https://pubs.acs.org/jpcbfk/article/113/18/6378/1427431/Universal-Solvation-Model-Based-on-Solute-Electron)。
 Gaussian 的 SMD 输出若标明 `SMD-CDS` 已计入上方总能量，不再加 CDS，
-也不再加一份完整 ΔG_solv。输出形式可核对原始论文 SI p. S29 的
-[DOI:10.1039/C4CY01031K](https://pubs.rsc.org/en/content/articlelanding/2015/cy/c4cy01031k)；
-仅借其打印格式，不借其金属体系方法或数值。记录实际采用的能量行和来源段。
+也不再加一份完整 ΔG_solv。输出形式可核对 Gaussian 官方
+[SCRF 说明页的 SMD 输出示例](https://gaussian.com/scrf/)；
+记录实际采用的能量行和来源段。
 
 | 已审阅组合 | 正确组装（逐物种） | 不可重复项 |
 |---|---|---|

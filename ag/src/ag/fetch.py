@@ -36,17 +36,14 @@ def auto_facts(path, *, skip=None):
         result = dict(status='skipped', reason=skip)
     else:
         try:
-            from ag.facts import build_facts
+            from ag.facts import FactsConflictError, build_facts
             existed = (path / 'facts.json').exists()
             build_facts(path, refresh=False)
             result = dict(status='unchanged' if existed else 'written')
         except ImportError:
             result = dict(status='skipped', reason='dependency-unavailable')
         except Exception as exc:
-            # build_facts has no distinct conflict exception. Match its refusal
-            # header, not arbitrary ValueErrors (e.g. malformed output/geometry).
-            conflict = (isinstance(exc, ValueError) and str(exc).startswith('差异分类')
-                        and 'facts.json 内容不同，拒绝写入；' in str(exc))
+            conflict = isinstance(exc, FactsConflictError)
             result = dict(status='conflict' if conflict else 'failed',
                           reason=_facts_reason(exc, path, conflict=conflict))
     if result['status'] == 'conflict':

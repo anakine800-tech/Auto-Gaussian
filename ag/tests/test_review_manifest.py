@@ -429,13 +429,13 @@ def test_snapshot_reference_falls_back_to_study_root(tmp_path, suffix, reference
     (root / f'analyses/snapshot.{suffix}').write_text(reference.format(path=target))
     entries = {e['path']: e for e in inventory.create(root)['files']}
     if target.startswith('analyses/'):
-        assert entries[target]['resolved_from'] == 'study_root'
+        assert 'resolved_from' not in entries[target]
     else:
         assert target not in entries
     assert 'resolved_from' not in entries[f'analyses/snapshot.{suffix}']
 
 
-@pytest.mark.parametrize('target', ['analyses/y.json', 'y.json', 'structures/x.xyz'])
+@pytest.mark.parametrize('target', ['y.json', 'structures/x.xyz'])
 def test_snapshot_ambiguous_reference_is_rejected_even_outside_analyses(tmp_path, target):
     root = study(tmp_path)
     (root / 'study.md').write_text('[snapshot](analyses/snapshot.md)')
@@ -457,7 +457,8 @@ def test_snapshot_hardlinks_to_same_file_are_not_ambiguous(tmp_path):
     (root / 'analyses/y.json').write_text('{}')
     (root / 'analyses/analyses/y.json').hardlink_to(root / 'analyses/y.json')
     entries = {e['path']: e for e in inventory.create(root)['files']}
-    assert 'resolved_from' not in entries['analyses/analyses/y.json']
+    assert 'resolved_from' not in entries['analyses/y.json']
+    assert 'analyses/analyses/y.json' not in entries
 
 
 @pytest.mark.parametrize('value', ['./analyses/y.json', '../analyses/y.json'])
@@ -478,7 +479,7 @@ def test_fallback_directory_marks_members_and_preserves_direct_reference_origin(
     (root / 'study.md').write_text('[direct](analyses/batch/item.json) [snapshot](analyses/z.md)')
     (root / 'analyses/z.md').write_text('[batch](analyses/batch/)')
     entries = {e['path']: e for e in inventory.create(root)['files']}
-    assert entries['analyses/batch/item.json']['resolved_from'] == 'study_root'
+    assert 'resolved_from' not in entries['analyses/batch/item.json']
     assert entries['analyses/batch/item.json']['expanded_from'] == ['analyses/batch']
 
 
@@ -489,3 +490,28 @@ def test_bare_json_filename_retains_long_path_error(tmp_path, key):
     (root / 'analyses/report.json').write_text(json.dumps({key: 'x' * 256 + '.xyz'}))
     with pytest.raises(ValueError, match='255 bytes'):
         inventory.create(root)
+
+
+@pytest.mark.parametrize('reference', ['[item](analyses/y.json)', '`analyses/y.json`', 'analyses/y.json'])
+def test_analysis_prefix_ignores_source_directory_shadow(tmp_path, reference):
+    root = study(tmp_path)
+    (root / 'study.md').write_text('[snapshot](analyses/snapshot.md)')
+    (root / 'analyses/snapshot.md').write_text(reference)
+    (root / 'analyses/y.json').write_text('{}')
+    (root / 'analyses/analyses').mkdir()
+    (root / 'analyses/analyses/y.json').write_text('{"unrelated": true}')
+    entries = {e['path']: e for e in inventory.create(root)['files']}
+    assert entries['analyses/y.json']['sha256'] == sha256(b'{}').hexdigest()
+    assert 'resolved_from' not in entries['analyses/y.json']
+    assert 'analyses/analyses/y.json' not in entries
+
+
+def test_other_text_reference_still_records_real_root_fallback(tmp_path):
+    root = study(tmp_path)
+    (root / 'study.md').write_text('[snapshot](analyses/nested/snapshot.md)')
+    (root / 'analyses/nested').mkdir()
+    (root / 'analyses/y.json').write_text('{}')
+    (root / 'bundle').mkdir()
+    (root / 'analyses/nested/snapshot.md').write_text('[item](bundle/../analyses/y.json)')
+    entries = {e['path']: e for e in inventory.create(root)['files']}
+    assert entries['analyses/y.json']['resolved_from'] == 'study_root'

@@ -71,7 +71,8 @@ def _analysis_reference(root, source, value, explicit, field='reference', key=''
     try:
         relative = value.removeprefix('./')
         is_text = source.suffix.lower() in {'.md', '.txt'}
-        base = root if not is_text and relative.startswith('analyses/') else source.parent
+        base = root if (value.startswith('analyses/') or
+                        (not is_text and relative.startswith('analyses/'))) else source.parent
         analyses = root / 'analyses'
         mentions_analysis = 'analyses' in Path(value).parts
 
