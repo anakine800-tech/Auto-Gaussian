@@ -1,10 +1,17 @@
 # T75：Gaussian 二维弛豫扫描
 
+版本：v2（2026-10-16 负责人修订）。一维行为不变的唯一例外是：准备时要求
+Gaussian 一维、二维 S 行步长含小数点，整数写法直接拒绝并提示改法；
+`5.0`、`-5.0`、`.5`、`0.04` 放行。原验证的 `5` 在 Gaussian L101 已报错，
+此次校验提前拦截该事故。有效一维输入的摘要、facts 和导出回归不变。
+推送并等 CI 通过后，新开 Attempt 按原设置验证，只把角度步长改为 `5.0`；
+原失败 Attempt 保留。提交仍须负责人点击确认，每个 Attempt 只提交一次。
+
 ## 分支与目标
 
 - 分支：`codex/t75-2d-scan`；基于 v4.2.1 合并后的最新 main，一张任务单一个 PR。**开发机做。**
 - **开工条件：** v4.2.1（T67）已合并并打 tag。
-- **目标：** 支持 Gaussian `Opt=ModRedundant` 中**两条** `S` 行的二维弛豫扫描：准备时校验并在确认摘要里显示网格；取回后 `ag facts` 把各点放进二维网格；`ag scan-peak` 对二维扫描只导出人工指定、且满足鞍点提示条件的网格点。一维扫描的所有行为**完全不变**。
+- **目标：** 支持 Gaussian `Opt=ModRedundant` 中**两条** `S` 行的二维弛豫扫描：准备时校验并在确认摘要里显示网格；取回后 `ag facts` 把各点放进二维网格；`ag scan-peak` 对二维扫描只导出人工指定、且满足鞍点提示条件的网格点。一维扫描行为除 v2 的步长小数点校验外不变。
 - **为什么：** 成键和另一个坐标（例如质子或硼转移、第二根键）耦合时，一维扫描的局部极大可能偏离真实的鞍点区域。二维扫描能看清能量面，给 TS 初猜一个更有依据的起点。BCB 和 HSS 后续的 TS 搜索都可能用到。
 - **范围：** 只做 Gaussian。xTB 的 `$scan` 多行是依次或同步扫描，不是网格，**继续只允许一行**。前端目前不读 `scan` 字段，本单不做前端；能量面的图另开工单。
 - 资料：`ag/src/ag/_scan.py`（`modredundant`、`summary`、`_result`、`parse_gaussian_scan`）、`ag/src/ag/gaussian_input.py`、`ag/src/ag/facts.py`（扫描部分）、`ag/src/ag/scan_peak.py`、`skills-next/auto-g16-recipes/cards/ts.md`、`docs/redesign-tasks/T33-scan-local-maxima.md`。
@@ -35,7 +42,7 @@
 
 ## 不允许
 
-- 不改变一维扫描（Gaussian 和 xTB）的输入校验、摘要、facts 输出和 `scan-peak` 结果；用现有夹具对比，facts 中扫描部分逐字节一致。
+- 除 v2 的 Gaussian 步长小数点校验外，不改变一维扫描（Gaussian 和 xTB）的输入校验、摘要、facts 输出和 `scan-peak` 结果；用现有夹具对比，facts 中扫描部分逐字节一致。
 - 不按输出顺序推断网格编号；不对缺失点插值。
 - 不改提交、取回、模板。
 

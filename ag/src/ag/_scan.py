@@ -84,6 +84,10 @@ def modredundant(text, geometry):
                 raise ValueError('Scan steps must be 1–50')
             if not re.fullmatch(NUMBER, fields[-1]):
                 raise ValueError('Scan step size must be finite and nonzero')
+            # Gaussian L101 rejects integer tokens here, even when numerically valid.
+            if '.' not in fields[-1]:
+                raise ValueError('Scan step size must include a decimal point; '
+                                 'write 5.0 instead of 5 (e.g. -5.0, .5, 0.04)')
             step = finite_number(fields[-1])
             if step == 0:
                 raise ValueError('Scan step size must be finite and nonzero')

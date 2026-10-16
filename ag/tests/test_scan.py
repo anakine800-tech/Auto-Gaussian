@@ -22,7 +22,7 @@ def definition():
     return modredundant('B 1 2 S 6 0.1', GEOMETRY)['scan']
 
 
-@pytest.mark.parametrize('line', ['B 1 2 S 6 0.1', 'A 3 1 2 S 50 -1', 'D 3 1 2 4 S 1 2e0',
+@pytest.mark.parametrize('line', ['B 1 2 S 6 0.1', 'A 3 1 2 S 50 -1.0', 'D 3 1 2 4 S 1 2.0e0',
                                  'B 1 2 F', 'B 1 2 S 5 .1\nA 3 1 2 F\nD 3 1 2 4 F'])
 def test_modredundant_valid(line):
     data = gaussian_input.validate(GJF + line + '\n\n', 8, 12)
@@ -41,6 +41,27 @@ def test_modredundant_valid(line):
 def test_modredundant_invalid(line):
     with pytest.raises(ValueError):
         gaussian_input.validate(GJF + line + '\n\n', 8, 12)
+
+
+@pytest.mark.parametrize('prefix', ['', 'B 1 2 S 2 0.04\n'])
+@pytest.mark.parametrize('step', ['5', '-5', '5e0'])
+def test_scan_step_requires_decimal_point(cfg, tmp_path, prefix, step):
+    study.init(cfg, 'smoke')
+    source = tmp_path / 'peroxide.gjf'
+    source.write_text(GJF + prefix + f'A 3 1 2 S 2 {step}\n\n')
+    with pytest.raises(ValueError, match=r'decimal point; write 5\.0 instead of 5'):
+        attempt.prepare(cfg, method_basis='兜底方法：合成测试', study_name='smoke',
+                        template='gaussian', input_path=source, tier='simple',
+                        walltime='00:30:00', label='scan')
+
+
+@pytest.mark.parametrize('prefix', ['', 'B 1 2 S 2 0.04\n'])
+@pytest.mark.parametrize('step', ['5.0', '-5.0', '.5', '0.04'])
+def test_scan_decimal_steps_accepted(prefix, step):
+    science = gaussian_input.validate(GJF + prefix + f'A 3 1 2 S 2 {step}\n\n', 8, 12)
+    scan = science['scan']
+    axis = scan['coordinates'][1] if prefix else scan
+    assert axis['step_size'] == float(step)
 
 
 @pytest.mark.parametrize('route', ['opt', 'sp', 'opt=(ts,modredundant)', 'opt=(qst2,modredundant)',
@@ -528,11 +549,11 @@ def test_2d_saddle_is_strict_in_both_axes():
 
 
 @pytest.mark.parametrize('lines, message', [
-    (GRID_LINES + '\nA 3 1 2 S 2 1', 'At most two'),
+    (GRID_LINES + '\nA 3 1 2 S 2 1.0', 'At most two'),
     ('B 1 2 S 2 .1\nB 1 2 S 2 .1', 'same atoms'),
     ('B 1 2 S 2 .1\nB 2 1 S 2 .1', 'same atoms'),
-    ('A 3 1 2 S 2 1\nA 1 2 3 S 2 1', 'same atoms'),
-    ('D 3 1 2 4 S 2 1\nD 4 2 1 3 S 2 1', 'same atoms'),
+    ('A 3 1 2 S 2 1.0\nA 1 2 3 S 2 1.0', 'same atoms'),
+    ('D 3 1 2 4 S 2 1.0\nD 4 2 1 3 S 2 1.0', 'same atoms'),
     ('B 1 2 S 20 .1\nB 1 3 S 20 .1', '441'),
     ('B 1 2 S 21 .1\nB 1 3 S 1 .1', '1–20'),
 ])
@@ -596,7 +617,7 @@ def test_2d_facts_and_peak_cli(tmp_path, capsys, json_output):
 def test_2d_negative_steps_and_periodic_dihedral():
     import math
     geom = 'H 0 1 0\nO 0 0 0\nO 1.4 0 0\nH 1.4 -0.984807753 0.173648178'
-    spec = modredundant('D 1 2 3 4 S 2 10\nB 2 3 S 2 -.1', geom)['scan']
+    spec = modredundant('D 1 2 3 4 S 2 10.0\nB 2 3 S 2 -.1', geom)['scan']
     log = ''
     for i, j in reversed(GRID_ORDERS[0]):
         theta = math.radians(spec['coordinates'][0]['start'] + i * 10)
@@ -612,7 +633,7 @@ def test_2d_negative_steps_and_periodic_dihedral():
 
 
 def test_2d_periodic_alias_is_ambiguous():
-    spec = modredundant('D 3 1 2 4 S 1 360\nB 1 2 S 1 .1', GEOMETRY)['scan']
+    spec = modredundant('D 3 1 2 4 S 1 360.0\nB 1 2 S 1 .1', GEOMETRY)['scan']
     with pytest.raises(ValueError, match='uniquely'):
         parse_gaussian_scan(gaussian_log(ENERGIES[:1], [True]), spec)
 
@@ -672,7 +693,7 @@ def test_1d_bytes_match_pre_t75_main(tmp_path, program):
 def test_2d_angle_and_small_coordinate_deviations():
     import math
     geom = 'O 0 0 0\nH 1 0 0\nH 0 1 0'
-    spec = modredundant('B 1 2 S 2 .1\nA 2 1 3 S 2 10', geom)['scan']
+    spec = modredundant('B 1 2 S 2 .1\nA 2 1 3 S 2 10.0', geom)['scan']
     text = ''
     for i, j in reversed(GRID_ORDERS[0]):
         # Simulate the finite precision of real Cartesian orientations.
