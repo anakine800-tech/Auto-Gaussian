@@ -62,14 +62,81 @@ def test_relative_links_exist(skill):
             assert (path.parent / destination).is_file(), f"Broken link in {path.name}: {target}"
 
 
+def check_card_sections(text, card):
+    headings = re.findall(r"(?m)^## (.+)$", text)
+    if "要点" in headings:
+        # The optional overview must not hide duplicate or misplaced sections.
+        assert headings[0] == "要点" and headings.count("要点") == 1
+        overview = re.match(r"\A# [^\n]+\n[ \t\n]*## 要点\n(.*?)(?=^## )", text, re.M | re.S)
+        assert overview, f"要点须紧接卡片标题：{card}"
+        body = overview.group(1).strip()
+        item = r"(?m)^(?:[-*+] |\d+[.)] )\S[^\n]*(?:\n[ \t]+\S[^\n]*)*"
+        assert 3 <= len(re.findall(item, body)) <= 5, f"要点须为 3–5 条列表：{card}"
+        assert not re.sub(item, "", body).strip(), f"要点须使用列表形式：{card}"
+        headings = headings[1:]
+    assert headings == [f"{i}. {name}" for i, name in enumerate(SECTIONS, 1)]
+    bodies = re.split(r"(?m)^## .+$", text)[1:]
+    assert all(body.strip() for body in bodies), f"Empty section: {card}"
+
+
 @pytest.mark.parametrize("card", CARDS)
 def test_card_has_eight_sections(card):
     path = ROOT / "auto-g16-recipes" / "cards" / f"{card}.md"
     text = path.read_text(encoding="utf-8")
-    headings = re.findall(r"(?m)^## (.+)$", text)
-    assert headings == [f"{i}. {name}" for i, name in enumerate(SECTIONS, 1)]
-    bodies = re.split(r"(?m)^## .+$", text)[1:]
-    assert all(body.strip() for body in bodies), f"Empty section: {card}"
+    check_card_sections(text, card)
+
+
+@pytest.mark.parametrize("overview", [
+    "",
+    "## 要点\n\n" + "- point\n" * 3 + "\n",
+    "## 要点\n\n" + "- point\n" * 5 + "\n",
+    "## 要点\n\n" + "* point\n  continuation\n\n" * 4,
+    "## 要点\n\n1. first\n2. second\n3. third\n\n",
+])
+def test_card_sections_accept_optional_keypoints(overview):
+    sections = "".join(f"## {i}. {name}\n\nbody\n\n" for i, name in enumerate(SECTIONS, 1))
+    check_card_sections("# Card\n\n" + overview + sections, "synthetic")
+
+
+@pytest.mark.parametrize("case", [
+    "before-title", "after-preface", "after-first", "at-end", "duplicate",
+    "empty", "two", "six", "plain-text", "mixed-text", "empty-item",
+    "missing-numbered-section", "reordered-numbered-sections", "empty-numbered-section",
+])
+def test_card_sections_reject_invalid_keypoints(case):
+    overview = "## 要点\n\n" + "- point\n" * 3 + "\n"
+    sections = [f"## {i}. {name}\n\nbody\n\n" for i, name in enumerate(SECTIONS, 1)]
+    prefix = "# Card\n\n"
+    if case == "before-title":
+        prefix = overview + prefix
+        overview = ""
+    elif case == "after-preface":
+        prefix += "preface\n\n"
+    elif case == "after-first":
+        sections.insert(1, overview)
+        overview = ""
+    elif case == "at-end":
+        sections.append(overview)
+        overview = ""
+    elif case == "duplicate":
+        overview += overview
+    elif case in {"empty", "two", "six"}:
+        count = {"empty": 0, "two": 2, "six": 6}[case]
+        overview = "## 要点\n\n" + "- point\n" * count + "\n"
+    elif case == "plain-text":
+        overview = "## 要点\n\nfirst\nsecond\nthird\n\n"
+    elif case == "mixed-text":
+        overview += "not a list item\n\n"
+    elif case == "empty-item":
+        overview += "- \n\n"
+    elif case == "missing-numbered-section":
+        sections.pop()
+    elif case == "reordered-numbered-sections":
+        sections[0], sections[1] = sections[1], sections[0]
+    elif case == "empty-numbered-section":
+        sections[0] = sections[0].replace("body", "")
+    with pytest.raises(AssertionError):
+        check_card_sections(prefix + overview + "".join(sections), "synthetic")
 
 
 def test_files_have_no_private_addresses_or_user_paths():
