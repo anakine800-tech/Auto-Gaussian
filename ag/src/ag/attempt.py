@@ -138,12 +138,31 @@ def prepare(cfg, *, study_name, template, input_path, tier, walltime, label, par
         if mdopt:
             if name in render.declaration('crest')['mdopt_outputs']:
                 raise ValueError('CREST --mdopt input must not collide with an output filename')
+            # Check coordinates against original XYZ line numbers before the
+            # existing ensemble parser checks matching frames and its limits.
+            cursor = 0
+            while cursor < len(rows):
+                if not rows[cursor].strip():
+                    cursor += 1
+                    continue
+                if not rows[cursor].strip().isdigit() or int(rows[cursor]) < 1:
+                    raise ValueError(f'line {cursor + 1}: Invalid XYZ atom count')
+                end = cursor + int(rows[cursor]) + 2
+                if end > len(rows):
+                    raise ValueError(f'line {cursor + 1}: Truncated XYZ frame')
+                gaussian_input.cartesian(rows[cursor + 2:end], first_line=cursor + 3)
+                cursor = end
             frames = crest_input.xyz_ensemble(data.decode())
             rows = [str(len(frames[0][0])), ''] + frames[0][1]
         if not rows or not rows[0].isdigit() or int(rows[0]) < 1 or len(rows) != int(rows[0]) + 2:
             raise ValueError('Invalid XYZ atom count')
-        # The same Cartesian grammar prevents malformed input from becoming a shell option.
-        synthetic = f'%nprocshared={resource["cores"]}\n%mem=1GB\n# HF/STO-3G\n\nxyz\n\n{params.get("--chrg", "0")} {int(params.get("--uhf", "0")) + 1}\n' + '\n'.join(rows[2:]) + '\n\n'
+        symbols = gaussian_input.cartesian(rows[2:], first_line=3)
+        charge, multiplicity = int(params.get('--chrg', '0')), int(params.get('--uhf', '0')) + 1
+        gaussian_input.check_electrons(symbols, charge, multiplicity,
+                                      location='XYZ --chrg/--uhf parameters')
+        # Retain the existing parser/resource checks and summary normalization;
+        # the preflight above reports new errors against XYZ, not this wrapper.
+        synthetic = f'%nprocshared={resource["cores"]}\n%mem=1GB\n# HF/STO-3G\n\nxyz\n\n{charge} {multiplicity}\n' + '\n'.join(rows[2:]) + '\n\n'
         science = gaussian_input.validate(synthetic, **resource)
         if mdopt:
             science['n_frames'] = len(frames)
