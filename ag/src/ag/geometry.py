@@ -224,3 +224,70 @@ def nonnegative(value):
     if number < 0:
         raise ValueError("Thresholds must be nonnegative")
     return number
+
+
+def periodic_difference(left, right):
+    """Smallest unsigned angular difference in degrees, in [0, 180].
+
+    Algorithm adapted from archive/skills/auto-g16-conformer-search/scripts/
+    conformer_core.py; no legacy command or contract is used.
+    """
+    return abs((left - right + 180.0) % 360.0 - 180.0)
+
+
+def dihedral(coordinates, atoms):
+    """Signed A-B-C-D torsion in [-180, 180), using 1-based XYZ indices.
+
+    Reject degenerate planes instead of assigning collinear atoms a family.
+    """
+    a, b, c, d = (coordinates[i - 1] for i in atoms)
+
+    def unit(vector):
+        length = math.hypot(*vector)
+        if length == 0:
+            raise ValueError("undefined dihedral: coincident atoms")
+        return tuple(x / length for x in vector)
+
+    def dot(u, v):
+        return sum(x * y for x, y in zip(u, v))
+
+    axis = unit(tuple(z - y for y, z in zip(b, c)))
+    left = unit(tuple(x - y for x, y in zip(a, b)))
+    right = unit(tuple(w - z for z, w in zip(c, d)))
+    v = tuple(x - dot(left, axis) * y for x, y in zip(left, axis))
+    w = tuple(x - dot(right, axis) * y for x, y in zip(right, axis))
+    if min(math.hypot(*v), math.hypot(*w)) < 1e-12:
+        raise ValueError("undefined dihedral: collinear atoms")
+    cross = (axis[1] * v[2] - axis[2] * v[1],
+             axis[2] * v[0] - axis[0] * v[2],
+             axis[0] * v[1] - axis[1] * v[0])
+    return (math.degrees(math.atan2(dot(cross, w), dot(v, w))) + 180) % 360 - 180
+
+
+def dihedral_bin(angle, boundaries):
+    """1-based half-open bins; last bin wraps from last to first boundary.
+
+    Boundaries are validated by the caller, ascending and unique modulo 360.
+    An exact boundary belongs to the bin starting at that boundary.
+    """
+    offset = (angle - boundaries[0]) % 360
+    for i, edge in enumerate(boundaries[1:], 1):
+        if offset < edge - boundaries[0]:
+            return i
+    return len(boundaries)
+
+
+def atom_distance(coordinates, atoms):
+    """Euclidean distance in angstrom for a 1-based pair."""
+    return math.dist(*(coordinates[i - 1] for i in atoms))
+
+
+def contact_fingerprint(coordinates, atoms, cutoff):
+    """Sorted unique 1-based pairs touching selected atoms and closer than cutoff.
+
+    Includes bonded pairs and hydrogens; excludes self-pairs. No bond inference.
+    """
+    pairs = {tuple(sorted((i, j))) for i in atoms
+             for j in range(1, len(coordinates) + 1) if i != j
+             and atom_distance(coordinates, (i, j)) < cutoff}
+    return [list(pair) for pair in sorted(pairs)]
