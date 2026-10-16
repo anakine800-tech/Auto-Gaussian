@@ -1,10 +1,13 @@
 # T73：`ag topology` 不确定接触不再把顶层状态提升为 changed（修 R2）
 
+版本：v2（2026-10-16）。按负责人转达的审阅意见修订，取代 v1：片段数不确定性不能覆盖
+`compare_endpoint` 已确定的键变化；新增确定变化与不确定接触并存的回归要求。
+
 ## 分支与目标
 
 - 分支：`codex/t73-topology-uncertain`；基于 v4.2.1 合并后的最新 main，一张任务单一个 PR。**开发机做。**
 - **开工条件：** v4.2.1（T67）已合并并打 tag。
-- **目标：** 修 T68 报告里的 R2。现在 B–O 等接触落在不确定区间（共价半径和的 1.2–1.5 倍）时，`compare_endpoint` 正确给出 unknown，但随后 `_check_fragments_and_mapping` 只按“确定相连”的边数片段，得到片段数变化，把顶层状态改成 `changed`。修改后：**片段数变化只有在不确定接触按“相连”和按“不相连”两种处理下都成立时，才报 `changed`；否则顶层为 `unknown`，并写明是哪几个不确定接触导致的。**
+- **目标：** 修 T68 报告里的 R2。现在 B–O 等接触落在不确定区间（共价半径和的 1.2–1.5 倍）时，`compare_endpoint` 正确给出 unknown，但随后 `_check_fragments_and_mapping` 只按“确定相连”的边数片段，得到片段数变化，把顶层状态改成 `changed`。修改后：**片段数变化只有在不确定接触按“相连”和按“不相连”两种处理下都成立时，才据此报 `changed`；否则保留不确定性，并写明是哪几个不确定接触导致的。若 `compare_endpoint` 已因确定的 `bond_differences` 返回 changed，则保持 changed，不因片段数不确定而降级。**
 - **为什么：** 顶层 `changed` 会被理解为“确定发生了断键/成键”，掩盖了下面的 unknown。HSS 的 M1 里有 B–O 接触，正是这种情况；`ag irc-compare` 在同一例子里已经正确保留 unknown，两个命令的口径应当一致。
 - 资料：`docs/research/rdkit-inference-risk.md` 的 R2 一节；`ag/src/ag/topology.py`（`fragments`、`_check_fragments_and_mapping`、`compare_minimum`）；`ag/src/ag/irc_compare.py`（`_pairs` 的状态划分）；`ag/tests/test_inference_risk.py` 中 R2 的 strict xfail。
 
@@ -24,7 +27,7 @@
 2. **判定：**
    - 两种处理下片段数都发生变化（且方向一致）→ `changed`，原因写明片段数；
    - 两种处理下都不变 → 按原来的逻辑继续（不改变现在不涉及不确定接触的结果）；
-   - 其余情况（是否变化取决于不确定接触怎么算）→ 顶层 `unknown`，原因列出相关的不确定接触（原子编号、元素、距离、比值），并说明“片段数是否变化取决于这些接触是否算作成键”。
+   - 其余情况（是否变化取决于不确定接触怎么算）→ 没有已确定的键变化时顶层为 `unknown`；若 `compare_endpoint` 已因确定的 `bond_differences` 返回 changed，则保持 `changed`。两种情况都在原因中追加相关的不确定接触（原子编号、元素、距离、比值），并说明“片段数是否变化取决于这些接触是否算作成键”；两个新增字段照常输出。
 3. **报告字段：** `fragments` 下保留现有的 `submitted`、`final`（确定相连边的结果，含义不变）；新增 `fragments_if_uncertain_bonded`（两个结构的片段数），以及 `fragment_change_depends_on_uncertain_contacts`（布尔）。Markdown 摘要相应加一行。
 4. **不改变的结果：** 没有不确定接触的结构，JSON 输出除 `ag_version`、`ag_provenance` 外与 main 逐字节一致（用现有夹具对比）；`same_connectivity_graph` 的同元素互换检查逻辑不变。
 5. 与 `irc-compare` 口径核对：在 T68 的 B–O 2.2 Å 例子上，两个命令都给出 unknown。
@@ -39,6 +42,7 @@
 
 - T68 的 B–O 2.2 Å 例子：顶层 `unknown`，原因列出 B–O 接触；原 strict xfail 改为正常断言并通过。
 - 确定断键（例如 B–O 拉到 3.5 Å，比值 > 1.5）：仍为 `changed`。
+- 确定质子转移（片段数 delta=0）或确定断键，并存影响片段数的不确定接触：保持 `changed`，原因同时保留确定键变化与不确定接触；正、反方向均覆盖。
 - 两种处理下片段数都变化：`changed`。
 - 无不确定接触的现有夹具：输出与 main 一致（哈希对比，排除版本字段）。
 - 开发中跑 topology 和 inference-risk 相关测试；推送前本地跑一次全量 `PYTHONPATH=ag/src python -m pytest ag/tests skills-next -q -rs`，之后以 CI 为准。敏感扫描与 `git diff --cached --check`。

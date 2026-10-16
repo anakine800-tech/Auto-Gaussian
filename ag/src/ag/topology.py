@@ -110,7 +110,10 @@ def _check_fragments_and_mapping(result, submitted, final, charge):
         depends = not (delta == bonded_delta == 0 or delta * bonded_delta > 0)
         fragment_results['fragment_change_depends_on_uncertain_contacts'] = depends
         if depends:
-            result['status'] = 'unknown'
+            # Fragment uncertainty must not erase definite bond changes already
+            # reported by compare_endpoint (e.g. a separate proton transfer).
+            if not (result['status'] == 'changed' and result['bond_differences']):
+                result['status'] = 'unknown'
             contacts = []
             table = Chem.GetPeriodicTable()
             for name, frame in frames.items():

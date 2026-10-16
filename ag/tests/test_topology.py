@@ -368,6 +368,49 @@ def test_fragment_change_dependent_on_uncertain_contact(tmp_path, chemistry, ele
 
 
 @pytest.mark.parametrize('reverse', [False, True])
+@pytest.mark.parametrize('change', ['proton_transfer', 'bond_break'])
+def test_definite_bond_change_survives_uncertain_fragment_counts(tmp_path, chemistry, reverse, change):
+    from ag import irc_compare
+    # O-H -> N-H (or separated H), plus an independent B-O uncertain contact.
+    before = geo.Frame(('O', 'N', 'H', 'B', 'O'),
+                       ((0., 0., 0.), (4., 0., 0.), (1., 0., 0.), (0., 10., 0.), (3.5, 10., 0.)))
+    hydrogen = (3., 0., 0.) if change == 'proton_transfer' else (8., 0., 0.)
+    after = replace(before, coordinates=(before.coordinates[0], before.coordinates[1], hydrogen,
+                                        before.coordinates[3], (2.2, 10., 0.)))
+    if reverse:
+        before, after = after, before
+    upstream = irc_compare.compare_endpoint({'frame': after, 'facts': {}},
+                                           {'frame': before, 'facts': {}}, 0)
+    assert upstream['status'] == irc_compare.MISMATCH
+    assert upstream['bond_differences']
+    assert all(row['endpoint_state'] != 'uncertain' and row['reference_state'] != 'uncertain'
+               for row in upstream['bond_differences'])
+    assert upstream['ambiguous_bonds'][0]['atoms'] == [4, 5]
+    report = topology.analyze(attempt(tmp_path, before, after))
+    assert report['status'] == 'changed'
+    assert report['bond_differences'] == upstream['bond_differences']
+    assert report['reasons'][:-1] == upstream['reasons']
+    assert '连接关系不同' in report['reasons'][0]
+    assert '4–5 (B–O)' in report['reasons'][-1] and '距离 2.200000 Å' in report['reasons'][-1]
+    assert '片段数是否变化取决于这些接触是否算作成键' in report['reasons'][-1]
+    fragments = report['fragments']
+    assert fragments['fragment_change_depends_on_uncertain_contacts'] is True
+    definite_counts = [4, 4] if change == 'proton_transfer' else [4, 5]
+    bonded_counts = [4, 3] if change == 'proton_transfer' else [4, 4]
+    if reverse:
+        definite_counts.reverse()
+        bonded_counts.reverse()
+    assert [fragments[side]['count'] for side in ('submitted', 'final')] == definite_counts
+    assert fragments['fragments_if_uncertain_bonded'] == dict(zip(('submitted', 'final'), bonded_counts))
+    if change == 'proton_transfer':
+        assert {tuple(row['atoms']) for row in report['bond_differences']} == {(1, 3), (2, 3)}
+        assert report['proton_differences'] == [dict(hydrogen=3,
+            reference_owners=[2] if reverse else [1], endpoint_owners=[1] if reverse else [2])]
+    summary = topology.markdown(report)
+    assert '- 状态：changed' in summary and '变化是否依赖不确定接触：是' in summary
+
+
+@pytest.mark.parametrize('reverse', [False, True])
 def test_definite_boron_oxygen_break_stays_changed(chemistry, reverse):
     before = geo.Frame(('B', 'O'), ((0., 0., 0.), (1.5, 0., 0.)))
     after = replace(before, coordinates=((0., 0., 0.), (3.5, 0., 0.)))
