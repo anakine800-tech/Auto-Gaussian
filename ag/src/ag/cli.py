@@ -7,11 +7,11 @@ from ag import __version__
 from ag.config import load_config, select_cluster, for_manifest
 
 
-CONFIG_COMMANDS = ('init', 'prepare', 'submit', 'status', 'fetch', 'cancel', 'list', 'doctor', 'monitor', 'review', 'clusters')
+CONFIG_COMMANDS = ('init', 'prepare', 'submit', 'status', 'fetch', 'snapshot', 'cancel', 'list', 'doctor', 'monitor', 'review', 'clusters')
 
 
 def core_command(args):
-    from ag import attempt, cancel, doctor, fetch, status, study, submit
+    from ag import attempt, cancel, doctor, fetch, snapshot, status, study, submit
     from ag.transport import SSHTransport
     cfg = args.config
     command = args.command
@@ -52,6 +52,9 @@ def core_command(args):
         # Select from immutable Attempt identity before constructing SSH options.
         if command == 'doctor':
             cfg = select_cluster(cfg, getattr(args, 'cluster', 'default'))
+        elif command == 'snapshot':
+            path = snapshot.find(cfg, args.id, args.study)
+            cfg = for_manifest(cfg, attempt.read_manifest(path))
         elif command in ('fetch', 'cancel'):
             cfg = for_manifest(cfg, attempt.read_manifest(attempt.find(cfg, args.id)))
         elif command == 'submit':
@@ -59,7 +62,7 @@ def core_command(args):
             if len(names) != 1:
                 raise ValueError('Submit one cluster per confirmed batch')
             cfg = for_manifest(cfg, attempt.read_manifest(attempt.find(cfg, args.ids[0])))
-        transport = None if command == 'status' else SSHTransport(cfg, read_only=command in ('doctor', 'fetch'))
+        transport = None if command == 'status' else SSHTransport(cfg, read_only=command in ('doctor', 'fetch', 'snapshot'))
         if command == 'doctor':
             result = doctor.doctor(cfg, transport)
         elif command == 'submit':
@@ -74,6 +77,8 @@ def core_command(args):
                 selected = for_manifest(cfg, attempt.read_manifest(path))
                 transport = SSHTransport(selected, read_only=True)
                 result.append(dict(attempt_id=id_, **status.check(selected, path, transport)))
+        elif command == 'snapshot':
+            result = snapshot.capture(cfg, path, transport, max_bytes=args.max_bytes)
         elif command == 'fetch':
             path = attempt.find(cfg, args.id)
             result = fetch.fetch(cfg, path, transport,
@@ -85,6 +90,8 @@ def core_command(args):
             result = cancel.cancel(cfg, attempt.find(cfg, args.id), transport)
     if command == 'status' and not args.json:
         print(status.format_status(result))
+    elif command == 'snapshot' and not args.json:
+        print(snapshot.format_snapshot(result))
     else:
         print(json.dumps(result, ensure_ascii=False, indent=2))
     if command == 'doctor' and result.get('ok') is False:
@@ -144,6 +151,12 @@ def register(subparsers):
             p.add_argument('--param', action='append', default=[], help='Template option, e.g. --param=--gfn=2 or --param=--quick')
         elif name == 'submit':
             p.add_argument('ids', nargs='+')
+        elif name == 'snapshot':
+            from ag.snapshot import DEFAULT_MAX_BYTES
+            p.add_argument('id')
+            p.add_argument('--study')
+            p.add_argument('--max-bytes', type=int, default=DEFAULT_MAX_BYTES,
+                           help='Copy at most this many trailing log bytes (default: 20000000)')
         elif name in ('fetch', 'cancel'):
             p.add_argument('id')
             if name == 'fetch':

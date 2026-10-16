@@ -161,6 +161,26 @@ doctor 通过只说明上述环境检查通过；它不验证科学方法、真�
 当前只读传输对 SSH 连接失败/超时最多间隔 15 秒重试一次；这不允许重提作业，
 真实环境意外仍须按 [AGENTS.md](../AGENTS.md) 停下来报告。
 
+## 运行中日志快照：snapshot
+
+`ag snapshot <ATTEMPT_ID> [--study <study>] [--max-bytes 20000000] [--json]`
+只读复制已提交、有绑定作业号且尚未取回的 Attempt 的主程序日志。Gaussian 的日志名
+由输入 stem 决定，xTB 为 `xtb.out`、CREST 为 `crest.out`，均取模板声明的第一项输出；
+不接受远程路径。已取回（含不完整取回）的 Attempt 请直接看 `outputs/`。
+
+每次独占创建 `<Attempt>/snapshots/<UTC时间戳>/`，包含原始日志字节和 `snapshot.json`：
+读取时间、读取前远程大小/mtime、实际字节数、截断标记、本地 SHA-256、作业号及最近
+本地状态。默认最多 20,000,000 字节；超过上限只保留读取前文件末尾的指定字节数。
+读取使用 Linux `/proc/self/fd`、GNU `stat`/`tail`/`head` 和 `base64`，无远程临时文件；
+拒绝链接、非普通文件、文件替换和短读。正在写入的日志不是原子文件系统快照。
+
+Gaussian 摘要列出片段中的 SCF 次数/末次能量、Step number 记录数/末次步号、末次
+四项收敛表原文、末次正常/错误终止标记及是否看见 Freq 输出标记。截断后仅统计片段，
+丢弃开头可能不完整的一行；未见标记不代表相应阶段未开始。xTB/CREST 只保存主日志。
+**运行中快照，不是结果，不能用于签字或分析。** 快照不写 `outputs/`，不更新状态、
+journal、取回标记或 facts；不主动调用 `ag status`。后续 fetch/facts/证据清单不消费
+这些快照。SSH 经现有 transport 记录到脱敏 ssh-log，操作类别为 `output_observation`。
+
 ## 取回输出：fetch
 
 `ag fetch <ATTEMPT_ID> --json` 成功后自动在本地调用 `build_facts(refresh=False)`，
