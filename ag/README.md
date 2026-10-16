@@ -464,6 +464,22 @@ T79 若晚于此改动合并，需要 rebase 并验证其协议比较和测试�
 
 ## 本地分析命令：畸变–相互作用分析
 
+`ag irc-review` 按 IRC 卡片四条判据分别核对 forward/reverse，并导出逐点电子能、
+目标键长、日志行号与路径 XYZ。判据①只能给出工具部分的结论；仍需人工审阅连续性与化学身份。
+
+```sh
+ag irc-review --study '<STUDY_DIR>' --ts '<TS_ATTEMPT>' \
+  --forward '<FORWARD_IRC>' --reverse '<REVERSE_IRC>' --pair 1-2 \
+  --forward-reference '<EXPECTED_FORWARD>' --reverse-reference '<EXPECTED_REVERSE>' \
+  --forward-endpoint '<FORWARD_OPT_FREQ>' --reverse-endpoint '<REVERSE_OPT_FREQ>' \
+  --irc-compare analyses/endpoint-comparison.json --out analyses/irc-review.json
+```
+
+缺失 reference、端点或比对证据对应 `unknown`。默认降能阈值保持 3 kcal/mol；正降能不足阈值且
+其他三项工具核对通过时记 `met_by_endpoint_optimization`，不改变实际降能。
+四个输出文件均须不存在；签字 study 的只读核对可显式写到 study 外的新报告，输入仍限同一 study。
+详见 [ag-irc-review/1](../docs/ag-irc-review-1.md)；`--energy-noise` 默认容许 0.01 kcal/mol 上升噪声。
+
 `ag asm split` 按人工指定的原子编号导出片段 XYZ，保留 `original_atoms` 映射；
 `ag asm summary` 核对已有 Gaussian 电子能、几何、电子态和方法口径后，汇总相互作用能、
 可选参照下的畸变能及两个竞争体系的差值（b − a）。片段电荷与多重度由人指定。
