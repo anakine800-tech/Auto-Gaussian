@@ -211,6 +211,37 @@ def incomplete_output_observation(cfg, manifest, name):
                    "printf 'absent\\n'; fi")
 
 
+def log_snapshot(cfg, manifest, max_bytes):
+    """Observe only the declared primary log, with no remote temporary file.
+
+    The descriptor identity checks prevent a replaced path/link from selecting
+    another file. Bound the initial-size window so an appending writer cannot
+    exceed the byte limit. Base64 preserves bytes through the text transport.
+    Reuse output_observation's read-only category, as T47 does above.
+    """
+    # Shell/utility byte offsets use signed 64-bit integers; reject overflow.
+    if type(max_bytes) is not int or not 1 <= max_bytes <= 2**63 - 1:
+        raise ValueError('max-bytes must be a positive signed 64-bit integer')
+    p = attempt_dir(cfg, manifest) + '/' + output_names(manifest)[0]
+    q = quote(p)
+    checks = path_checks(p)
+    return Command('output_observation',
+                   f'{checks} && test -f {q} && test -r {q} && '
+                   f"ag_meta=$(stat -c '%s %Y %d:%i' -- {q}) && "
+                   'set -- $ag_meta && test "$#" -eq 3 && '
+                   'ag_size=$1 && ag_mtime=$2 && ag_file=$3 && '
+                   f'if test "$ag_size" -gt {max_bytes}; then '
+                   f'ag_start=$((ag_size - {max_bytes} + 1)); ag_count={max_bytes}; '
+                   'else ag_start=1; ag_count=$ag_size; fi && '
+                   f'( {checks} && test -f /proc/self/fd/3 && '
+                   'test "$(stat -Lc %d:%i -- /proc/self/fd/3)" = "$ag_file" && '
+                   "printf '%s\\n' \"$ag_size\" \"$ag_mtime\" && "
+                   '{ tail -c +"$ag_start" -- /proc/self/fd/3 | head -c "$ag_count" | base64; } && '
+                   f'{checks} && test "$(stat -c %d:%i -- {q})" = "$ag_file" && '
+                   'test "$(stat -Lc %s -- /proc/self/fd/3)" -ge "$ag_size" '
+                   f') 3< {q}')
+
+
 def completion_marker(cfg, manifest):
     from ag.render import declaration
     name = output_names(manifest)[0]
