@@ -10,6 +10,7 @@ import sys
 import tomllib
 
 from ag import coverage, geometry as geo
+from ag.dedup import descriptor_definitions, frame_descriptors
 from ag.facts import ag_provenance, resolve_attempt
 from ag.fragments import _write_outputs
 from ag.study import identifier, local_path
@@ -231,7 +232,37 @@ def _layer(evidence, values, layer, frames, payload, candidates, unmatched):
         candidate[layer] = result if ambiguous or valid else None
 
 
-def build(merged, out, *, study=None, label=None, routes=(), sp=(), opt=(), thermo=None):
+def _bin_summary(candidates):
+    groups = {}
+    for candidate in candidates:
+        groups.setdefault(tuple(candidate['local']['bins']), []).append(candidate)
+    summary = []
+    for bins, rows in groups.items():
+        lowest, lowest_layer = None, None
+        # Compare only within the highest available layer in this group. Never
+        # compare a thermo energy against an electronic energy from another layer.
+        for layer, key in [('thermo', 'qh_G'), ('opt', 'energy_hartree'),
+                           ('sp', 'energy_hartree'), ('xtb', 'xtb_relative_kcal')]:
+            values = []
+            for row in rows:
+                if layer == 'xtb':
+                    energy = row[key]
+                else:
+                    data = row[layer] or {}
+                    energy = None if data.get('ambiguous') else data.get(key)
+                if energy is not None:
+                    values.append((energy, row['candidate']))
+            if values:
+                lowest, lowest_layer = min(values)[1], layer
+                break
+        summary.append({'bins': list(bins), 'count': len(rows),
+                        'lowest_candidate': lowest, 'lowest_layer': lowest_layer})
+    return summary
+
+
+def build(merged, out, *, study=None, label=None, routes=(), sp=(), opt=(), thermo=None,
+          dihedral_bins=(), report_distance=()):
+    definitions = descriptor_definitions(dihedral_bins, report_distance)
     root = _root(merged, study)
     # Explicit --study makes relative file arguments study-relative; otherwise
     # the merged argument is relative to the invoking working directory.
@@ -284,6 +315,13 @@ def build(merged, out, *, study=None, label=None, routes=(), sp=(), opt=(), ther
                        sources=list(r['sources']), route_members=m, xtb_relative_kcal=None,
                        sp=None, opt=None, thermo=None, missing=[], notes=[])
                   for r, h, m in zip(records, hashes, route_members)]
+    if definitions is not None:
+        for index, (candidate, frame) in enumerate(zip(candidates, frames)):
+            local = frame_descriptors(frame, definitions, index)
+            candidate['local'] = {key: local[key] for key in
+                                  ('dihedrals', 'bins', 'near_boundary', 'distances')}
+            candidate['local']['bins'] = [definition['names'][number - 1]
+                for definition, number in zip(definitions['dihedral_bins'], local['bins'])]
     references = {'xtb': None, 'sp': None, 'opt': None}
     warnings = []
     if payload['energy_basis'] == 'shared_hartree':
@@ -340,6 +378,9 @@ def build(merged, out, *, study=None, label=None, routes=(), sp=(), opt=(), ther
                   units={'energy': 'Hartree', 'relative': 'kcal/mol', 'population': 'fraction'},
                   routes=[{'label': r, 'attempts': ids} for r, ids in route_attempts.items()],
                   references=references, warnings=warnings, candidates=candidates, unmatched_attempts=unmatched)
+    if definitions is not None:
+        result['descriptors'] = {key: definitions[key] for key in ('dihedral_bins', 'distance_pairs')}
+        result['bin_summary'] = _bin_summary(candidates)
     content = json.dumps(result, ensure_ascii=False, indent=2, allow_nan=False) + '\n'
     evidence.verify()
     _write_outputs(out.parent, {out.name: content.encode(), out.with_suffix('.md').name: markdown(result).encode()})
@@ -359,6 +400,9 @@ def markdown(result):
              *('警告：' + cell(w) for w in result['warnings']), '',
              '| 编号 | 来源路线 | xTB 相对能（或路线内） | SP 相对能 | Opt 状态 / 虚频数 | qh_G 相对值 | 布居 | 缺失层 | 备注 |',
              '| --- | --- | --- | --- | --- | --- | --- | --- | --- |']
+    if 'descriptors' in result:
+        lines[-2] += ' 分组 | 近边界 | 距离（Å） |'
+        lines[-1] += ' --- | --- | --- |'
     for row in result['candidates']:
         xtb = row['xtb_relative_kcal']
         if result['energy_basis'] == 'per_source_not_comparable':
@@ -367,7 +411,17 @@ def markdown(result):
         status = 'ambiguous' if opt.get('ambiguous') else f"{cell(opt.get('termination'))} / {cell(opt.get('n_imaginary'))}"
         values = [row['candidate'], ', '.join(row['sources']), xtb, sp.get('relative_kcal'), status,
                   thermo.get('relative_G_kcal'), thermo.get('population'), ', '.join(row['missing']), '; '.join(row['notes'])]
+        if 'descriptors' in result:
+            local = row['local']
+            values += [', '.join(local['bins']), local['near_boundary'],
+                       ', '.join(str(v) for v in local['distances'])]
         lines.append('| ' + ' | '.join(cell(v) for v in values) + ' |')
+    if 'descriptors' in result:
+        lines += ['', '## 分组汇总', '', '| 分组 | 候选数 | 最低能候选 | 能量层 |',
+                  '| --- | --- | --- | --- |']
+        for row in result['bin_summary']:
+            values = [', '.join(row['bins']), row['count'], row['lowest_candidate'], row['lowest_layer']]
+            lines.append('| ' + ' | '.join(cell(v) for v in values) + ' |')
     lines += ['', '未匹配 Attempt：', '']
     lines += [f"- {cell(r['layer'])} {cell(r['attempt'])}: {cell(r['reason'])}" for r in result['unmatched_attempts']] or ['- 无']
     return '\n'.join(lines) + '\n'
@@ -376,7 +430,8 @@ def markdown(result):
 def run(args):
     try:
         result = build(args.merged, args.out, study=args.study, label=args.label,
-                       routes=args.route, sp=args.sp, opt=args.opt, thermo=args.thermo)
+                       routes=args.route, sp=args.sp, opt=args.opt, thermo=args.thermo,
+                       dihedral_bins=args.dihedral_bins, report_distance=args.report_distance)
     except ImportError:
         print('ensemble requires RDKit in the selected Python environment', file=sys.stderr)
         return 2
@@ -397,4 +452,8 @@ def register(subparsers):
     parser.add_argument('--sp', nargs='+', default=[], help='Attempt IDs or one JSON list file')
     parser.add_argument('--opt', nargs='+', default=[], help='Opt+Freq Attempt IDs')
     parser.add_argument('--thermo', type=Path)
+    parser.add_argument('--dihedral-bins', action='append', default=[], metavar='A,B,C,D:b1,b2[@names]',
+                        help='Report periodic dihedral bins in degrees (repeatable)')
+    parser.add_argument('--report-distance', action='append', default=[], metavar='I,J',
+                        help='Report a 1-based XYZ atom-pair distance in angstrom (repeatable)')
     parser.set_defaults(func=run)
