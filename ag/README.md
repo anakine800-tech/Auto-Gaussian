@@ -174,6 +174,59 @@ doctor 通过只说明上述环境检查通过；它不验证科学方法、真�
 已有 facts 内容相同时保留原字节和修改时间；不同时绝不自动覆盖。请人工核对差异后才使用
 `ag facts <ATTEMPT_ID> --refresh`。journal 写入失败也只提示，请保留 JSON 输出以供核对。
 
+## 弛豫扫描与 TS 初猜
+
+Gaussian 的 Cartesian 输入后可使用 `Opt=ModRedundant` 扫描段，B/A/D 为键长、
+键角、二面角，F 冻结行照旧；不得与 TS/QST 混用。一条 S 行保持原有 1–50 步、
+摘要、facts 和 `scan-peak` 行为；xTB `$scan` 继续只允许一行（1–100 点）。
+Gaussian 两条 S 行表示二维网格：每维 1–20 步，包含起点，
+`(n1+1)×(n2+1)` 不超过 144 点。两坐标不能共用全部原子（包括反向和重排）。
+准备摘要分别显示两维起点、步数、步长、终点、单位和总点数；每点都是一次约束优化。
+两维扫描的耗时约为把一个一维扫描重复另一维点数次，需相应估算 walltime。
+
+`manifest.json` 的 `science.scan` 一维格式不变；二维格式如下（坐标顺序与 S 行一致）：
+
+| 字段 | 含义 |
+| --- | --- |
+| `dimensions` | 固定为 `2`。 |
+| `coordinates` | 两个定义；每个含 `coordinate`、`start`、`steps`、`step_size`、`end`。 |
+| `coordinates[k].coordinate` | `kind`（B/A/D）、`atoms`（1-based 原子编号）、`elements`、`unit`（angstrom/degree）。 |
+| `expected_points` | 两维各自 `steps + 1` 的乘积。 |
+
+取回后 `ag facts <attempt>` 的 `scan` 保留这些定义并新增：
+
+| 字段 | 含义 |
+| --- | --- |
+| `points` | `(n1+1)×(n2+1)` 的嵌套数组；`points[i-1][j-1]` 为网格点 `[i,j]`，缺失为 `null`，不插值。 |
+| 每个非空点 | `point: [i,j]`（1-based）、`target_values`、`coordinate_values`（两维实测值）、`energy_hartree`、`converged`、`geometry_frame`（1-based XYZ 帧号）。 |
+| `energy_kind` | Gaussian 为 `scf`；未报告能量为 `null`。 |
+| `saddle_candidates` | 候选网格编号列表，如 `[[2,2]]`；仅作初猜提示，不是 TS 判定。 |
+| `geometries`、`geometries_sha256` | `scan_points.xyz` 及其 SHA-256；无几何时前者为 `null`，后者不出现。 |
+
+只将有 `Optimization completed/stopped` 证据的二维点定位；未结束的最后一次优化
+不作为完成点，其格子仍未知。按各点几何实测两个坐标，各自唯一对到最近目标，
+偏差必须严格小于半步长；半步边界按坐标的十位小数精度保守拒绝。
+二面角以 360° 周期比较，因此跨 ±180° 可定位；周期别名无法唯一定位则拒绝。
+无几何、无法匹配、重复占格或点数超出声明都使整个扫描报错。
+网格编号不依赖 Gaussian 遍历顺序；XYZ 帧保留输出顺序，以 `geometry_frame` 关联。
+
+鞍点提示要求内部点自身及上下左右四点都有能量且收敛，沿一个方向严格极大、
+另一方向严格极小；边界和有缺失/未收敛邻点的点不列出。
+
+```bash
+ag scan-peak <attempt> --point 2,2 --out <new-seed.xyz> --json
+```
+
+二维必须人工指定候选，未指定或指定非候选均拒绝并列出全部候选；一维仍默认导出
+最高严格局部峰，可用 `--point <序号>` 选择其他局部峰。导出仍为 XYZ，报告仍包含
+`peak`、`relative_energy_reference`、`neighbors_before/after`、`warnings`、`jumps`、
+`warning_thresholds`、`note`、`out`；二维另注明 `dimensions: 2`，使用 `coordinates` 和
+`saddle_candidates` 替代一维的 `coordinate` 和 `local_maxima`。候选含相对能，
+以全部已收敛点最低能为零（kcal/mol）；before/after 分别为两维负/正方向的紧邻点。
+跳变检查沿网格边进行。已有输出拒绝覆盖，XYZ 哈希须与 facts 相符。
+完整科学判据见 [TS 卡片](../skills-next/auto-g16-recipes/cards/ts.md)：初猜仍需 TS 优化、
+频率方向审阅和双向 IRC。
+
 ## 本地审阅与旧 Attempt
 
 `ag review init <ATTEMPT_ID> --json` 从准备时保存的卡片生成审阅骨架，
