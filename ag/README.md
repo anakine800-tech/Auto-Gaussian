@@ -312,3 +312,20 @@ ag ensemble --study '<STUDY_DIR>' --merged analyses/group/merged.json \
 不对齐或改编号；多重匹配保留歧义。不同路线的 xTB 能量不可比较时，只列路线内相对能。
 热化学数值直接复制，不重算布居、不选代表构象、不作科学验收。
 字段与空值语义见 [ag-ensemble/1](../docs/ag-ensemble-1.md)。
+
+## 本地分析命令：通道采样覆盖
+
+`ag channel-coverage` 按明确填写的 CSV 通道表汇总 `ag-ensemble/1` 清单，
+同时报告通道与产物分支的候选、路线、SP、Opt、热化学、歧义和未匹配记录数量。
+
+```bash
+ag channel-coverage --study '<STUDY_DIR>' --channels analyses/channels.csv \
+  --out analyses/channel-coverage.json --imbalance-ratio 0.5
+```
+
+CSV 必须含 `channel_id,product_branch,ensemble_manifests`，可选 `note`；
+清单相对 study 根目录，多个用分号分隔。CSV 和输出均位于 `analyses/` 下，
+同名 JSON/Markdown 已存在就拒绝；只读本地已保存记录，无需集群。
+阈值只提示候选、SP、Opt 数的相对不均衡，不判定覆盖是否足够。
+最低候选依 thermo > opt > sp > xTB 的可用能量选择；多清单 xTB 零点无法比较时
+保留各清单最低值并说明原因。字段及计数口径见 [ag-channel-coverage/1](../docs/ag-channel-coverage-1.md)。
