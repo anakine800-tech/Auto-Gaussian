@@ -136,6 +136,9 @@ class SSHTransport:
             data = (json.dumps(row, ensure_ascii=False) + '\n').encode('utf-8')
             if os.write(file_fd, data) != len(data):
                 raise OSError(errno.EIO, 'Incomplete log write')
+        except RuntimeError:
+            # pathlib.resolve reports symlink loops this way on older Python.
+            failure = 'symlink'
         except OSError as exc:
             failure = {errno.ELOOP: 'symlink', errno.EACCES: 'permission',
                        errno.EPERM: 'permission', errno.EROFS: 'permission',

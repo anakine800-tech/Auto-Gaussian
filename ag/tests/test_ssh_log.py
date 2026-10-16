@@ -209,3 +209,15 @@ def test_configured_symlink_location_logs_normally(cfg, tmp_path, monkeypatch, c
     assert transport.run(remote.jobs()).stdout == 'success'
     assert [row['operation'] for row in rows(cfg)] == ['identity', 'jobs']
     assert not capsys.readouterr().err
+
+
+def test_config_symlink_loop_does_not_change_operation(cfg, tmp_path, monkeypatch, capsys):
+    loop = tmp_path / 'config-loop'
+    loop.symlink_to(loop, target_is_directory=True)
+    cfg['_config_dir'] = str(loop)
+    monkeypatch.setattr(subprocess, 'run', lambda *a, **k: Result(stdout='success'))
+    for _ in range(2):
+        assert SSHTransport(cfg).run(remote.identity()).stdout == 'success'
+    warning = capsys.readouterr().err
+    assert warning.count('Warning:') == 1 and '(symlink)' in warning
+    assert str(loop) not in warning
