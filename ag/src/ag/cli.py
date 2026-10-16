@@ -116,7 +116,10 @@ def register(subparsers):
                 child.add_argument('--json', action='store_true', default=argparse.SUPPRESS)
             from ag._review_manifest import run as review_manifest
             child = actions.add_parser('manifest', help='Freeze a signature evidence inventory')
-            child.add_argument('--study', required=True, help='Local study directory')
+            child.add_argument('directory', nargs='?', help='Local study directory')
+            child.add_argument('--study', help='Local study directory (alternative to positional)')
+            child.add_argument('--accept-unresolved', action='store_true',
+                               help='Confirm the listed unresolved references before writing')
             child.add_argument('--json', action='store_true', default=argparse.SUPPRESS)
             child.set_defaults(func=review_manifest)
         elif name == 'monitor':

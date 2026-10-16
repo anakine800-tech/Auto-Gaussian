@@ -44,7 +44,7 @@ v4.2.0 汇总 v4.1.0 后已合并的 T49、T49b、T50–T53、T58–T60（#268�
 
 ## 已知问题与后续工作
 
-- L3 保存的卡片副本仍含指向仓库文档的相对链接；T49b 后生成证据清单仍因越出 study 被拒绝，尚无完整清单。签字前需按既有证据审阅流程处理为仓库 URL 或删除链接，再重新核对；不能把引用解析修复当作 L3 验收完成。[#275](https://github.com/anakine800-tech/Auto-Gaussian/pull/275)
+- 证据清单对缺失/越界引用列出 `unresolved_references`，退出码 4 且不写入；签字人核对后用 `--accept-unresolved` 生成，不需改写历史卡片副本。study 内存在的 analyses 外引用和无 analyses 同名文件的裸名只记信息条目、汇总数量；普通 JSON 支持源目录/study 根目录回退与歧义拒绝。study 内符号链接、专用证据指针缺失/越界、收集期间改动仍硬拒绝，详见 [review manifest](../ag/README.md#签字证据清单review-manifest)。
 - T51：ag 不限制运行中核数，只在提交时按集群核对全部本人作业的运行加排队总额度；运行核数可能达到 `max_committed_cores`。两台电脑升级时分别检查 `max_cores`（单作业）与 `max_committed_cores`（运行加排队，最多 `4 × max_cores`）的新含义。[#271](https://github.com/anakine800-tech/Auto-Gaussian/pull/271)
 
 2026-10-14 卡片审阅的后续清单（按 T48 审阅确认更新）；T36–T47 完成不表示以下事项全部完成：

@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import re
+import sys
 from urllib.parse import unquote, urlsplit
 
 from ag.facts import ag_provenance
@@ -51,12 +52,28 @@ def _references(path, data):
     return refs
 
 
-def _analysis_reference(root, source, value, explicit, field='reference', key=''):
+class UnresolvedReferences(ValueError):
+    """The complete list needs human review before an inventory can be written."""
+
+    def __init__(self, references, outside_analyses, unqualified_names):
+        self.references = references
+        self.outside_analyses = outside_analyses
+        self.unqualified_names = unqualified_names
+        super().__init__('Unresolved evidence references; 核对后加 --accept-unresolved 重新运行')
+
+
+def _analysis_reference(root, source, value, explicit, field='reference', key='', analysis_names=None):
     def invalid(reason):
         if explicit:
             raise ValueError(f'Invalid evidence reference in {source.relative_to(root)} '
                              f'(field {field}): {reason}') from None
         return None
+
+    def unresolved(reason):
+        if key in {'thermo', 'frozen_evidence'}:
+            raise ValueError(f'Invalid evidence reference in {source.relative_to(root)} '
+                             f'(field {field}): {reason}')
+        return None, reason
 
     if '\n' in value or '\r' in value:
         return invalid('path contains a newline')
@@ -71,36 +88,36 @@ def _analysis_reference(root, source, value, explicit, field='reference', key=''
     try:
         relative = value.removeprefix('./')
         is_text = source.suffix.lower() in {'.md', '.txt'}
-        base = root if (value.startswith('analyses/') or
-                        (not is_text and relative.startswith('analyses/'))) else source.parent
+        strict = source.suffix.lower() == '.json' and key in {'thermo', 'frozen_evidence'}
+        # Retain T62's explicit text analyses/ prefix; ordinary JSON uses the
+        # source/root ambiguity check approved for T64.
+        base = root if ((is_text and value.startswith('analyses/')) or
+                        (strict and relative.startswith('analyses/'))) else source.parent
         analyses = root / 'analyses'
         mentions_analysis = 'analyses' in Path(value).parts
 
         def checked(base):
             raw = base / value
-            # Check before normalization; resolving first could hide a symlink.
-            for part in (raw, *raw.parents):
-                if part.is_symlink():
-                    raise ValueError('Symbolic links are not allowed in evidence references')
+            # Classify lexical escapes without probing paths outside this study.
             candidate = Path(os.path.abspath(raw))
             if not candidate.is_relative_to(root):
-                if mentions_analysis or (explicit and (source.is_relative_to(analyses) or candidate.is_dir())):
-                    raise ValueError(f'Evidence reference escapes study: {value}')
-                return None
+                return candidate
+            # Keep raw components: normalizing a link/.. first could hide a link.
+            for part in (raw, *raw.parents):
+                if Path(os.path.abspath(part)).is_relative_to(root) and part.is_symlink():
+                    raise ValueError('Symbolic links are not allowed in evidence references')
             return candidate
 
         candidate = checked(base)
-        if candidate is None:
-            return None
-        # These ag output fields may name an Attempt file, not analysis evidence.
-        # Validate path syntax and symlinks first, retaining the existing errors.
-        if (source.suffix.lower() == '.json' and key in {'file', 'source', 'path', 'definition'}
-                and '/' not in value and not candidate.exists()):
-            return None
+        if not candidate.is_relative_to(root):
+            return unresolved('escapes_study')
         resolved_from = None
-        if is_text and not Path(value).is_absolute() and not value.startswith(('./', '../')):
+        # Ordinary JSON follows the same source/root resolution as text. Explicit
+        # ./ and ../ retain their source-relative meaning; strict pointers keep
+        # their original base and never gain this fallback.
+        if not strict and not Path(value).is_absolute() and not value.startswith(('./', '../')):
             fallback = checked(root)
-            if fallback is not None and fallback != candidate and fallback.exists():
+            if fallback != candidate and fallback.exists():
                 if candidate.exists():
                     if not candidate.samefile(fallback):
                         raise ValueError(f'Ambiguous evidence reference in {source.relative_to(root)} '
@@ -108,15 +125,22 @@ def _analysis_reference(root, source, value, explicit, field='reference', key=''
                 else:
                     candidate = fallback
                     resolved_from = 'study_root'
-        if not candidate.is_relative_to(analyses):
-            return None
-        # JSON often contains labels, units, or log basenames. Only an existing
-        # analysis file or explicit local path is an analysis-output reference.
-        if not (explicit or mentions_analysis or candidate.is_file()):
+        # Keep ordinary JSON labels out of the reference lists.
+        if not (explicit or mentions_analysis or
+                (candidate.is_relative_to(analyses) and candidate.is_file())):
             return None
         candidate = local_path(root, candidate)
+        if not candidate.exists():
+            if not strict and '/' not in value:
+                if analysis_names is None:
+                    analysis_names = {p.name for p in analyses.rglob('*') if p.is_file()}
+                if value not in analysis_names:
+                    return None, 'unqualified_name'
+            return unresolved('missing')
+        if not candidate.is_relative_to(analyses):
+            return (candidate, resolved_from) if explicit else None
         if not (candidate.is_file() or candidate.is_dir()):
-            raise ValueError(f'Missing referenced analysis output: {candidate.relative_to(root)}')
+            raise ValueError(f'Evidence must be a regular file: {candidate.relative_to(root)}')
         return candidate, resolved_from
     except OSError as exc:
         if exc.errno != errno.ENAMETOOLONG:
@@ -124,21 +148,25 @@ def _analysis_reference(root, source, value, explicit, field='reference', key=''
         return invalid('path exceeds the filesystem length limit (ENAMETOOLONG)')
 
 
-def create(directory):
+def create(directory, *, accept_unresolved=False):
     root = Path(directory).expanduser().absolute()
     root = local_path(root, root)
     if not (root / 'study.md').is_file() or not (root / 'analyses').is_dir():
         raise ValueError('Expected a study directory with study.md and analyses/')
     pending = {root / 'study.md'}
+    analysis_names = set()
     # Refuse linked subtrees rather than silently omitting their evidence.
     for path in root.rglob('*'):
         if path.is_symlink():
             raise ValueError('Symbolic links are not allowed in study evidence')
+        if path.is_relative_to(root / 'analyses') and path.is_file():
+            analysis_names.add(path.name)
         if path.name in {'facts.json', 'review.md'}:
             if not path.is_file():
                 raise ValueError(f'Evidence must be a regular file: {path.relative_to(root)}')
             pending.add(path)
     files, expanded_from, resolved_from = {}, {}, {}
+    unresolved_references, referenced_outside_analyses, unqualified_names = [], [], []
     while pending:
         path = min(pending)
         pending.remove(path)
@@ -148,10 +176,27 @@ def create(directory):
         files[path] = dict(path=path.relative_to(root).as_posix(), size=len(data),
                            sha256=sha256(data).hexdigest())
         for value, explicit, field, key in _references(path, data):
-            reference = _analysis_reference(root, path, value, explicit, field, key)
+            reference = _analysis_reference(root, path, value, explicit, field, key, analysis_names)
             if reference is None:
                 continue
             referenced, origin = reference
+            if referenced is None:
+                # Preserve the original spelling/anchor, but never disclose absolute paths.
+                absolute = Path(unquote(urlsplit(value.strip()).path)).is_absolute()
+                entry = dict(source=path.relative_to(root).as_posix(), location=field,
+                             value='<absolute path>' if absolute else value)
+                if origin == 'unqualified_name':
+                    unqualified_names.append(entry)
+                else:
+                    unresolved_references.append(dict(**entry, reason=origin))
+                continue
+            if not referenced.is_relative_to(root / 'analyses'):
+                entry = dict(source=path.relative_to(root).as_posix(), location=field,
+                             path=referenced.relative_to(root).as_posix())
+                if origin:
+                    entry['resolved_from'] = origin
+                referenced_outside_analyses.append(entry)
+                continue
             if referenced.is_dir():
                 members = []
                 for child in sorted(referenced.rglob('*')):
@@ -180,10 +225,19 @@ def create(directory):
             entry['resolved_from'] = resolved_from[path]
         if sha256(local_path(root, path).read_bytes()).hexdigest() != entry['sha256']:
             raise ValueError(f'Evidence changed while collecting: {entry["path"]}')
+    if unresolved_references and not accept_unresolved:
+        raise UnresolvedReferences(unresolved_references, referenced_outside_analyses, unqualified_names)
     now = datetime.now(timezone.utc)
     manifest = dict(schema='ag-review-manifest/1', created_at=now.isoformat(),
                     ag_provenance=ag_provenance(),
                     files=sorted(files.values(), key=lambda item: item['path']))
+    if unqualified_names:
+        manifest['unqualified_names'] = unqualified_names
+    if referenced_outside_analyses:
+        manifest['referenced_outside_analyses'] = referenced_outside_analyses
+    if unresolved_references:
+        manifest.update(unresolved_references=unresolved_references,
+                        unresolved_accepted=True, unresolved_accepted_at=now.isoformat())
     name = 'review-manifest-' + now.strftime('%Y%m%dT%H%M%S%fZ') + '.json'
     destination = local_path(root, root / 'analyses' / name)
     content = (json.dumps(manifest, indent=2, ensure_ascii=False, allow_nan=False) + '\n').encode('utf-8')
@@ -197,6 +251,27 @@ def create(directory):
 
 
 def run(args):
-    result = create(args.study)
+    directory = args.study or args.directory
+    if not directory or (args.study and args.directory):
+        raise ValueError('Specify one study directory: <study> or --study <study>')
+    try:
+        result = create(directory, accept_unresolved=args.accept_unresolved)
+    except UnresolvedReferences as exc:
+        result = dict(error=str(exc), exit_code=4, unresolved_references=exc.references)
+        if exc.unqualified_names:
+            result['unqualified_names'] = exc.unqualified_names
+        if exc.outside_analyses:
+            result['referenced_outside_analyses'] = exc.outside_analyses
+        code = 4
+    else:
+        code = 0
+    # Information-only entries remain in the saved inventory; the terminal
+    # reports counts so source-file descriptions do not flood the review list.
+    for key, label in [('referenced_outside_analyses', 'outside_analyses'),
+                       ('unqualified_names', 'unqualified_name')]:
+        entries = result.pop(key, [])
+        if entries:
+            result[label + '_count'] = len(entries)
+            print(f'{label}: {len(entries)} 条（仅供参考，无需确认）', file=sys.stderr)
     print(json.dumps(result, ensure_ascii=False, indent=2))
-    return 0
+    return code
