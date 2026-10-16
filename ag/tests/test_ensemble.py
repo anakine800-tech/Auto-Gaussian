@@ -325,3 +325,188 @@ def test_evidence_changed_during_collection_refused(sample, monkeypatch):
     with pytest.raises(ValueError, match='changed'):
         build(sample)
     assert not sample[2].exists()
+
+
+def test_default_output_hash(tmp_path, monkeypatch, capsys):
+    """Main 477a594 baseline: fixed XYZ avoids platform-dependent RDKit embedding."""
+    from datetime import datetime, timezone
+
+    class FixedTime:
+        @staticmethod
+        def now(tz):
+            return datetime(2026, 10, 16, tzinfo=timezone.utc)
+
+    monkeypatch.setattr(ensemble, 'datetime', FixedTime)
+    monkeypatch.setattr(ensemble, 'ag_provenance', lambda: {'version': 'fixture', 'commit': 'fixture', 'dirty': False})
+    root = tmp_path / 'synthetic-study'
+    group = root / 'analyses' / 'group'
+    group.mkdir(parents=True)
+    (root / 'study.md').write_text('# Synthetic study\n')
+    source = Path(__file__).parent / 'data' / 'butane.xyz'
+    # Keep all fixed frames; do not include floating RMSD results in the input hash.
+    assert main(['dedup', '--source', f'crest={source}', '--charge', '0',
+                 '--rmsd', '0', '--out', str(group), '--json']) == 0
+    merged = Path(json.loads(capsys.readouterr().out)['output'])
+    out = group / 'ensemble.json'
+    payload = json.loads(merged.read_text())
+    # Normalize decoded fields: source paths may contain JSON-escaped Unicode.
+    for record in payload['kept']:
+        for item in (record, *record['members']):
+            item['source'] = 'butane.xyz'
+    (merged.parent / payload['xyz_file']).rename(merged.parent / 'merged.xyz')
+    payload['xyz_file'] = 'merged.xyz'
+    merged = merged.with_name('merged.json')
+    write_json(merged, payload)
+    result = ensemble.build(merged, out, study=str(root))
+    assert 'descriptors' not in result and 'bin_summary' not in result
+    assert all('local' not in c for c in result['candidates'])
+    assert sha256(out.read_bytes()).hexdigest() == '4c0ebaf5aa991fba5d18f0916100d89f04e856e42275cca8e6713aafddf50c9a'
+    assert sha256(out.with_suffix('.md').read_bytes()).hexdigest() == 'c5b51ec5068f15cd45009a99bdf94835e03dffd5845c149bf7ce0493860565eb'
+
+
+def test_local_descriptors_and_layer_summary(sample):
+    import math
+
+    root, merged, out, frames = sample
+    payload = json.loads(merged.read_text())
+    payload['energy_basis'] = 'shared_hartree'
+    # Candidate numbers deliberately differ from XYZ frame numbers.
+    for row in payload['kept']:
+        row['index'] *= 10
+    write_json(merged, payload)
+    sp, opt = [], []
+    for i, frame in enumerate(frames):
+        sp.append(f'sp-{i}')
+        attempt(root, frame, sp[-1], -160 - i * .01)
+        if i in (1, 2, 3, 4):
+            opt.append(f'opt-{i}')
+            attempt(root, frame, opt[-1], -159 - i * .01, 'B3LYP/6-31G(d) Opt Freq')
+    thermo = table(sample, [
+        {'attempt_id': f'opt-{i}', 'qh_G': -158 - i * .01,
+         'relative_G_kcal': 2 - i, 'population': .5} for i in (1, 2)])
+    result = build(sample, sp=sp, opt=opt, thermo=thermo,
+                   dihedral_bins=['1,2,3,4:-112,-48,132@gauche-,gauche+,trans'],
+                   report_distance=['1,4', '5,14'])
+    assert result['schema'] == 'ag-ensemble/1'
+    assert result['descriptors'] == {
+        'dihedral_bins': [{'atoms': [1, 2, 3, 4], 'boundaries': [-112, -48, 132],
+                           'names': ['gauche-', 'gauche+', 'trans']}],
+        'distance_pairs': [[1, 4], [5, 14]]}
+    expected = ['trans', 'gauche-', 'gauche-', 'gauche+', 'gauche+', 'trans']
+    for i, (candidate, frame) in enumerate(zip(result['candidates'], frames)):
+        local = candidate['local']
+        mol = Chem.MolFromXYZBlock(geo.xyz_text([frame]))
+        angle = rdMolTransforms.GetDihedralDeg(mol.GetConformer(), 0, 1, 2, 3)
+        assert local == {'dihedrals': [pytest.approx(angle)], 'bins': [expected[i]],
+                         'near_boundary': i in (1, 2), 'distances': [
+                             pytest.approx(math.dist(frame.coordinates[a - 1], frame.coordinates[b - 1]))
+                             for a, b in [(1, 4), (5, 14)]]}
+    assert result['bin_summary'] == [
+        {'bins': ['trans'], 'count': 2, 'lowest_candidate': 60, 'lowest_layer': 'sp'},
+        {'bins': ['gauche-'], 'count': 2, 'lowest_candidate': 30, 'lowest_layer': 'thermo'},
+        {'bins': ['gauche+'], 'count': 2, 'lowest_candidate': 50, 'lowest_layer': 'opt'}]
+    text = out.with_suffix('.md').read_text()
+    assert '分组 | 近边界 | 距离（Å）' in text and '## 分组汇总' in text
+    assert '| gauche- | 2 | 30 | thermo |' in text
+    assert json.loads(out.read_text()) == result
+
+
+@pytest.mark.parametrize('shared', [False, True])
+def test_distance_only_and_xtb_fallback(sample, shared):
+    payload = json.loads(sample[1].read_text())
+    if shared:
+        payload['energy_basis'] = 'shared_hartree'
+        # Tie energies; choose candidate number, not encounter order.
+        payload['kept'][0]['index'] = 10
+        payload['kept'][1]['energy'] = payload['kept'][0]['energy']
+        write_json(sample[1], payload)
+    result = build(sample, report_distance=['1,4'])
+    assert result['descriptors'] == {'dihedral_bins': [], 'distance_pairs': [[1, 4]]}
+    for c in result['candidates']:
+        assert c['local']['bins'] == c['local']['dihedrals'] == []
+        assert c['local']['near_boundary'] is False
+    assert result['bin_summary'] == [{'bins': [], 'count': 6,
+        'lowest_candidate': 2 if shared else None, 'lowest_layer': 'xtb' if shared else None}]
+
+
+def test_repeated_definitions_and_escaped_names_cli(sample, capsys):
+    _, merged, out, _ = sample
+    assert main(['ensemble', '--merged', str(merged), '--out', str(out),
+                 '--dihedral-bins', '1,2,3,4:-90,90',
+                 '--dihedral-bins', '1,2,3,4:-90,90@<cis>,trans|other',
+                 '--report-distance', '1,4', '--report-distance', '2,3']) == 0
+    result = json.loads(out.read_text())
+    assert [c['local']['bins'] for c in result['candidates']] == [
+        ['bin2', 'trans|other'], ['bin2', 'trans|other'], ['bin1', '<cis>'],
+        ['bin1', '<cis>'], ['bin1', '<cis>'], ['bin2', 'trans|other']]
+    assert [g['count'] for g in result['bin_summary']] == [3, 3]
+    text = capsys.readouterr().out
+    assert '&lt;cis&gt;' in text and 'trans&#124;other' in text
+    assert text == out.with_suffix('.md').read_text()
+
+
+@pytest.mark.parametrize('option,value', [
+    ('--dihedral-bins', '1,2,3:-90,90'),
+    ('--dihedral-bins', '1,2,2,4:-90,90'),
+    ('--dihedral-bins', '1,2,3,4:90,-90'),
+    ('--dihedral-bins', '1,2,3,4:-180,180'),
+    ('--dihedral-bins', '1,2,3,4:-90,90@one'),
+    ('--dihedral-bins', '1,2,3,4:nan,90'),
+    ('--report-distance', '0,2'), ('--report-distance', '1,1'),
+    ('--report-distance', '1,2,3'),
+])
+def test_descriptor_parameter_errors_match_dedup(sample, capsys, option, value):
+    from ag.dedup import descriptor_definitions
+
+    kwargs = {option[2:].replace('-', '_'): [value]}
+    with pytest.raises(ValueError) as error:
+        descriptor_definitions(**kwargs)
+    assert main(['ensemble', '--merged', str(sample[1]), '--out', str(sample[2]), option, value]) == 1
+    assert capsys.readouterr().err.strip() == f'ensemble: {error.value}'
+    assert not sample[2].exists() and not sample[2].with_suffix('.md').exists()
+
+
+@pytest.mark.parametrize('kind', ['dihedral', 'distance', 'collinear'])
+def test_descriptor_frame_errors_match_dedup(sample, kind, capsys):
+    from ag.dedup import descriptor_definitions, frame_descriptors
+
+    _, merged, out, frames = sample
+    if kind == 'collinear':
+        frames[2] = replace(frames[2], coordinates=(
+            (0, 0, 0), (1, 0, 0), (2, 0, 0), (3, 0, 0), *frames[2].coordinates[4:]))
+        payload = json.loads(merged.read_text())
+        xyz = merged.parent / payload['xyz_file']
+        xyz.write_text(geo.xyz_text(frames))
+        payload['xyz_sha256'] = sha256(xyz.read_bytes()).hexdigest()
+        write_json(merged, payload)
+    option = '--report-distance' if kind == 'distance' else '--dihedral-bins'
+    value = {'distance': '1,99', 'dihedral': '1,2,3,99:-90,90',
+             'collinear': '1,2,3,4:-90,90'}[kind]
+    definitions = descriptor_definitions(**{option[2:].replace('-', '_'): [value]})
+    index = 2 if kind == 'collinear' else 0
+    with pytest.raises(ValueError) as error:
+        frame_descriptors(frames[index], definitions, index)
+    assert main(['ensemble', '--merged', str(merged), '--out', str(out), option, value]) == 1
+    assert capsys.readouterr().err.strip() == f'ensemble: {error.value}'
+    assert f'frame {index + 1}' in str(error.value)
+    assert not out.exists() and not out.with_suffix('.md').exists()
+
+
+def test_summary_uses_available_same_layer_without_ambiguity(sample):
+    root, _, _, frames = sample
+    for name in ('sp-a', 'sp-b'):
+        attempt(root, frames[0], name, -999)
+    attempt(root, frames[1], 'sp', -200)
+    attempt(root, frames[2], 'opt', -100, 'B3LYP/6-31G(d) Opt Freq')
+    thermo = table(sample, [{'attempt_id': 'opt', 'qh_G': None,
+                            'relative_G_kcal': None, 'population': None}])
+    result = build(sample, report_distance=['1,4'], sp=['sp-a', 'sp-b', 'sp'],
+                   opt=['opt'], thermo=thermo)
+    assert result['bin_summary'] == [{'bins': [], 'count': 6,
+                                     'lowest_candidate': 3, 'lowest_layer': 'opt'}]
+
+
+def test_contact_atoms_not_supported(sample):
+    with pytest.raises(SystemExit) as error:
+        main(['ensemble', '--merged', str(sample[1]), '--out', str(sample[2]), '--contact-atoms', '1,4'])
+    assert error.value.code == 2

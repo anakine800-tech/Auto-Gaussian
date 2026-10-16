@@ -313,6 +313,23 @@ ag ensemble --study '<STUDY_DIR>' --merged analyses/group/merged.json \
 热化学数值直接复制，不重算布居、不选代表构象、不作科学验收。
 字段与空值语义见 [ag-ensemble/1](../docs/ag-ensemble-1.md)。
 
+需要在集合中查看局部构象时，可重复传入与 `dedup` 相同的定义：
+
+```bash
+ag ensemble --study '<STUDY_DIR>' --merged analyses/group/merged.json \
+  --out analyses/group/ensemble-local.json \
+  --dihedral-bins '1,2,3,4:-90,90@s-cis,s-trans' \
+  --report-distance 5,14 --report-distance 1,4
+```
+
+原子编号与分组名称须按实际 XYZ 和已审阅定义替换。每个候选的 `local` 报告
+二面角（度）、组名、距分界小于 5° 的标记和距离（Å），Markdown 同步展示。
+`bin_summary` 按组合计数，在组内首个有能量的 thermo → opt → sp → xTB 层级中
+选最低能候选；等能取最小编号，无可比能量时为 null。仅报告距离时组合为 `[]`。
+此汇总不改变候选集合或科学验收状态；不支持 `--contact-atoms`。
+不传上述参数时，保持原有 JSON/Markdown 输出，不自动继承 merged 的描述符。
+新增字段仍属于 `ag-ensemble/1`，具体语义见上述字段文档。
+
 ## 本地分析命令：通道采样覆盖
 
 `ag channel-coverage` 按明确填写的 CSV 通道表汇总 `ag-ensemble/1` 清单，
