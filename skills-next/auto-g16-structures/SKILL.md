@@ -195,6 +195,77 @@ SHA-256、全部参数及实测、标签依据、接触检查、各组分与总�
 产出默认作为人工审阅后**约束 CREST** 的起点，也可按已签方案直接准备 DFT 优化；
 它不证明稳定复合物或 TS，不修改 study、不签字，也不提交计算。
 
+## TS 立体标签
+
+在参照产物已按 T80 核验并由人签字后，用 `scripts/ts_stereo_label.py` 比较
+TS 的局部手性，按**产物**的 CIP 标注构型。参照支持 `.cdxml/.mol/.sdf`，
+每个四面体中心必须指定；催化剂参照及映射可选，须成对提供。结构身份、签字和
+映射由研究者核对，脚本不从几何推断键级，也不把成功输出当作签字或 TS 验证。
+
+```sh
+python skills-next/auto-g16-structures/scripts/ts_stereo_label.py \
+  --study STUDY --name stereo-01 --ts ts-a,ts-b \
+  --product structures/product.mol --product-map analyses/product-atoms.csv \
+  --catalyst structures/catalyst.mol --catalyst-map analyses/catalyst-atoms.csv \
+  --channels analyses/channels.csv
+```
+
+除 `--study` 外，文件路径均相对于 study 根目录；Attempt 使用 `attempts/` 下的
+目录名。默认 `--geometry final` 只读各 Attempt 的 `final_input.xyz`，缺失就报错，
+不回退到其他几何。检查初猜时显式加 `--geometry input`：读取不可变 manifest 的
+`science.geometry`；QST3 取 `science.structures[2].geometry`（第三组 TS 初猜），
+QST2 没有 TS 初猜组，拒绝此选项。两种模式都不证明结构已优化或反应方向正确。
+
+映射 CSV 列为 `reference_atom,ts_atom`，两者均从 **1** 开始，以读入源文件的原子
+行序及 TS Cartesian 行序为准。保留源中显式 H；隐含 H（含没有独立原子行的 H
+计数）用 `H@<参照中心序号>`。例如中心 2 的未画出氢映射到 TS 第 19 个原子：
+
+```csv
+reference_atom,ts_atom
+2,7
+1,3
+3,8
+4,9
+H@2,19
+```
+
+只需覆盖每个中心及全部四个邻居，可以保留其他原子映射。映射须一一对应，
+越界、缺邻居或元素不一致报错；同元素交换不能靠元素检查识别，必须人工核对。
+XYZ 不含同位素信息，同位素身份同样依赖人工映射核验。参照限制沿用本 Skill 的
+闭壳层主族单分子范围；TS 可含其他片段，只比较已映射邻居。
+
+按参照 RDKit 的邻居顺序（隐含 H 最后），将中心至四个 TS 邻居的向量归一化为
+`u1…u4`，计算 `v = det(u1−u4,u2−u4,u3−u4)/(16/(3√3))`，范围约 −1 到 1。
+参照符号由同序手性标记确定：CCW 为正、CW 为负，因此二维 ChemDraw/MOL 图
+不需要生成三维参照。依据：[RDKit 原子手性及邻居顺序](https://www.rdkit.org/docs/cppapi/classRDKit_1_1Atom.html)。
+符号相同沿用参照 CIP，相反交换 R/S；阈值 `--min-chirality` 默认 0.05，须在
+`(0,1]`；`|v|` 小于阈值记 `unknown`，重合坐标报错，不能猜构型。
+
+参照 CIP 使用 [RDKit accurate CIP labeler](https://www.rdkit.org/docs/source/rdkit.Chem.rdCIPLabeler.html)。
+假手性 r/s、相对/混合立体组记 `needs_review`；另在参照副本上移除其他立体信息，
+若不能保留该中心的 CIP，也记 `needs_review`，避免其他中心翻转后优先级变化使
+简单 R/S 交换失效。几何符号关系仍保留供审阅，不从 TS 重新计算 CIP。
+催化剂的局部符号相反会醒目警告；未知或需审阅的中心不能算自检通过。
+
+产物标签固定为 `元素+参照原子序号:构型`，按参照原子序号递增、以分号连接，
+例如 `C12:R;C15:S`。通道表至少含唯一非空 `channel_id` 和非空 `product_branch`；
+后者须与完整标签**逐字一致**（顺序相同、不加内部空格）。已有 `R`/`S` 等其他
+写法会报告无匹配，不自行解释；同一标签对应多个通道会报告多重匹配。
+
+输出独占写入 `analyses/ts-labels/NAME/labels.json` 和 `labels.md`：每个中心的
+参照/TS 序号、邻居顺序、体积、关系、标签及原因，催化剂自检，以及所有输入的
+相对路径和 SHA-256。提供通道表时另写 `channel-suggestions.csv`，字段为
+`attempt,product_configuration,suggested_channel_id,status,note`；状态恒为
+`pending_confirmation`。只有完整构型唯一匹配且催化剂无异常时才填建议通道，
+无匹配、多重匹配或有 unknown/needs_review 时留空并说明。
+人审核后另行维护通道归属；草稿不是 `ag channel-coverage` 的输入，不含 ensemble
+清单，不修改通道表或 study.md，`ag channel-coverage` 仍不推断归属。
+
+已有目录（包括部分失败输出）、符号链接、越界路径和输入在读取期间变化均拒绝。
+HSS 合并前对照由其主会话负责：将最小输入按原字节复制到 study 外的私有临时
+study 布局（不用符号链接），用该临时目录作为 `--study`，使报告留在原 study 外；
+与人工通道判断对照后只向监督方汇报，不把研究结构、结果或报告放进 PR。
+
 ## Migration and validation
 
 Source files are credited in each script header; applicable chemistry notes
