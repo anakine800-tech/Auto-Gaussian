@@ -31,6 +31,7 @@ def termination(text, marker, pbs_text='', *, line_offset=0):
     causes = []
     for pattern, label in (
         (r'Number of steps exceeded', '优化步数用完'),
+        (r'Maximum number of corrector steps exceeded', 'IRC 校正失败'),
         (r'Wrong number of Negative eigenvalues', 'TS 曲率不符：负本征值数与期望不符'),
         (r'Convergence failure|SCF(?: has)? not converged', 'SCF 不收敛'),
     ):

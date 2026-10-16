@@ -205,6 +205,10 @@ def _difference_summary(previous, current):
             + '既有值变化的键：' + (', '.join(changed) or '无') + '\n')
 
 
+class FactsConflictError(ValueError):
+    """Parsed facts differ from existing evidence and require explicit refresh."""
+
+
 def build_facts(attempt_dir, *, refresh=False):
     """The ag facts write entry point; preserve exact old bytes before refresh."""
     directory = Path(attempt_dir)
@@ -237,7 +241,7 @@ def build_facts(attempt_dir, *, refresh=False):
                 old.decode('utf-8', errors='replace').splitlines(keepends=True),
                 content.decode('utf-8').splitlines(keepends=True),
                 fromfile='facts.json (existing)', tofile='facts.json (parsed)'))
-            raise ValueError(_difference_summary(previous, facts)
+            raise FactsConflictError(_difference_summary(previous, facts)
                              + 'facts.json 内容不同，拒绝写入；人工确认差异后使用 --refresh。\n'
                              + f'旧 SHA-256: {sha256(old).hexdigest()}\n'
                              f'新 SHA-256: {sha256(content).hexdigest()}\n' + diff)

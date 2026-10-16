@@ -264,3 +264,16 @@ def test_incomplete_no_facts_skips_parser(cfg, interrupted, monkeypatch, capsys)
     assert (path / 'status.json').read_bytes() == before
     assert not (path / 'facts.json').exists()
     assert_record(path, result)
+
+
+@pytest.mark.parametrize('error,expected', [
+    (facts.FactsConflictError('wording may change'), 'conflict'),
+    (ValueError('差异分类 facts.json 内容不同，拒绝写入；'), 'failed'),
+])
+def test_auto_facts_conflict_uses_type_not_message(ready, monkeypatch, error, expected):
+    path, _ = ready
+    def fail(*args, **kwargs):
+        raise error
+    monkeypatch.setattr(facts, 'build_facts', fail)
+    assert isinstance(facts.FactsConflictError(), ValueError)
+    assert fetch.auto_facts(path)['status'] == expected

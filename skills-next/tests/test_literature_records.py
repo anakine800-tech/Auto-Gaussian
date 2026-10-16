@@ -30,7 +30,7 @@ def block_network(monkeypatch):
 @pytest.fixture
 def payload():
     raw = json.loads((FIXTURES / "crossref.json").read_text())
-    return {"status": "ok", "message": raw["message"]["items"][0]}
+    return {"status": "ok", "query_date": "2001-02-03", "message": raw["message"]["items"][0]}
 
 
 @pytest.fixture
@@ -136,7 +136,7 @@ def test_network_failures_replace_stale_verified(records, failure):
 
 def test_offline_absence_not_false_404(records, payload):
     assert mod.verify_records(records, offline=True)[0]["verification"]["status"] == "network_error"
-    result = mod.verify_records(records, offline=True, cache={DOI: {"http_status": 404}})
+    result = mod.verify_records(records, offline=True, cache={DOI: {"http_status": 404, "query_date": "2001-02-03"}})
     assert result[0]["verification"]["status"] == "not_found"
     result = mod.verify_records(records, offline=True, cache={DOI: payload})
     assert "非实时" in result[0]["verification"]["method"]
@@ -289,3 +289,27 @@ def test_same_export_paths_are_rejected(tmp_path, records):
     source.write_text(json.dumps(records))
     assert mod.main(["export", str(source), "--csv", str(output), "--markdown", str(output)]) == 2
     assert not output.exists()
+
+
+@pytest.mark.parametrize('query_date', [None, '', 'bad', '2001-02-30', 2001])
+@pytest.mark.parametrize('not_found', [False, True])
+def test_undated_cache_is_unverified(records, payload, query_date, not_found):
+    cached = {"http_status": 404} if not_found else payload
+    cached.pop("query_date", None)
+    if query_date is not None:
+        cached["query_date"] = query_date
+    v = mod.verify_records(records, offline=True, cache={DOI: cached})[0]["verification"]
+    assert v["status"] == "unverified" and v["date"] == ""
+    assert "缓存" in v["method"]
+    assert any("日期未知" in detail for detail in v["details"])
+
+
+def test_offline_verification_keeps_query_date_in_exports(records, payload):
+    result = mod.verify_records(records, offline=True, cache={DOI: payload})
+    v = result[0]["verification"]
+    assert v["status"] == "verified" and v["date"] == "2001-02-03"
+    assert "缓存" in v["method"]
+    assert "2001-02-03" in mod.export_csv(result)
+    assert "2001-02-03" in mod.export_markdown(result)
+    missing = mod.verify_records(records, offline=True)[0]["verification"]
+    assert missing["date"] == "" and missing["status"] == "network_error"

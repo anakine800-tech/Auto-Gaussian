@@ -193,7 +193,7 @@ def verify_records(records, *, mailto="", timeout=20, offline=False, cache=None,
         if not doi:
             v["details"] = ["无 DOI，待人工确认"]
             continue
-        v.update(date=datetime.now(timezone.utc).date().isoformat(),
+        v.update(date="" if offline else datetime.now(timezone.utc).date().isoformat(),
                  method="Crossref（离线缓存比对，非实时查询）" if offline else "Crossref")
         try:
             if offline:
@@ -201,8 +201,19 @@ def verify_records(records, *, mailto="", timeout=20, offline=False, cache=None,
                     v.update(status="network_error", details=["offline_cache_missing；未查询，不能判为 not_found"])
                     continue
                 payload = cache[doi]
-                if payload == {"http_status": 404}:
-                    v.update(status="not_found", details=["cached HTTP 404；非实时结果"])
+                # query_date is the cache's lookup date, never a publication or
+                # metadata-update date. Undated old caches cannot verify freshness.
+                query_date = payload.get("query_date") if isinstance(payload, dict) else None
+                if isinstance(query_date, str) and re.fullmatch(r"\d{4}-\d\d-\d\d", query_date):
+                    try:
+                        v["date"] = datetime.strptime(query_date, "%Y-%m-%d").date().isoformat()
+                    except ValueError:
+                        pass
+                if not v["date"]:
+                    v["details"] = ["offline_cache_date_missing_or_invalid；查询日期未知，未核实"]
+                if isinstance(payload, dict) and payload.get("http_status") == 404:
+                    v.update(status="not_found" if v["date"] else "unverified",
+                             details=v["details"] + ["cached HTTP 404；非实时结果"])
                     continue
             else:
                 payload = fetcher(crossref_url(doi, mailto), timeout)
@@ -214,7 +225,9 @@ def verify_records(records, *, mailto="", timeout=20, offline=False, cache=None,
             mismatch = ["doi"] if actual["doi"] != doi else []
             for variant in [r] + r.get("variants", []):
                 mismatch.extend(compare_record(variant, actual))
-            v.update(status="mismatch" if mismatch else "verified", details=sorted(set(mismatch)))
+            v.update(status=("unverified" if offline and not v["date"] else
+                             "mismatch" if mismatch else "verified"),
+                     details=v["details"] + sorted(set(mismatch)))
         except error.HTTPError as exc:
             v.update(status="not_found" if exc.code == 404 else "network_error",
                      details=["HTTP 429 rate_limited" if exc.code == 429 else f"HTTP {exc.code}"])
@@ -320,7 +333,7 @@ def main(argv=None):
         if name == "verify":
             sub.add_argument("--mailto", default="", help="contact email, never saved")
             sub.add_argument("--timeout", type=float, default=20)
-            sub.add_argument("--cache", type=Path, help="offline JSON object: normalized DOI -> Crossref response or {http_status:404}")
+            sub.add_argument("--cache", type=Path, help="offline JSON: normalized DOI -> Crossref response or {http_status:404}, each with query_date (YYYY-MM-DD); undated caches stay unverified")
     args = parser.parse_args(argv)
     try:
         if args.command == "normalize":

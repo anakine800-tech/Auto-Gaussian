@@ -304,6 +304,8 @@ def test_xtb_program_error_overrides_scheduler_marker(tmp_path):
     (' Convergence failure -- run terminated.', '502', 'L502: SCF 不收敛', 2),
     (' SCF has not converged', '9999', 'L9999: SCF 不收敛', 2),
     (' Optimization stopped.', '9999', 'L9999: 优化未完成（原因见日志）', 3),
+    (' Maximum number of corrector steps exceeded', '123', 'L123: IRC 校正失败', 2),
+    (' Maximum number of corrector steps exceeded', None, 'IRC 校正失败', 2),
     (' No recognized cause', '123', 'L123', 3),
     (' No recognized cause', '502', 'L502', 3),
     (' SCF has not converged', None, 'SCF 不收敛', 2),
