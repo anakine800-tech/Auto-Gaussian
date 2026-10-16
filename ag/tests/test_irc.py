@@ -353,3 +353,51 @@ def test_missing_facts_not_generated_and_multiframe_rejected(tmp_path):
 def test_missing_charge_does_not_invent_a_graph():
     r, _ = sn2()
     assert compare_endpoint(r, r, None)['status'] == UNKNOWN
+
+
+def test_point_data_keeps_accepted_current_geometry_and_absolute_lines():
+    from ag._irc import parse_irc_points
+    current = orientation(.07).replace(' Standard orientation:', ' CURRENT STRUCTURE\n Cartesian Coordinates (Ang):')
+    current = current.replace('           0       ', '                   ')
+    text = 'preamble\n' + irc_log('failure').replace(' Point Number: 2 Path Number: 1\n',
+                                                   ' Point Number: 2 Path Number: 1\n' + current)
+    parsed = parse_irc_points(text)
+    assert [p['point'] for p in parsed['points']] == [1, 2]
+    last = parsed['points'][-1]
+    assert last['energy_hartree'] == -75.2
+    assert '0.0700000000' in last['geometry'] and '9.0000000000' not in last['geometry']
+    assert 'CURRENT STRUCTURE' in text.splitlines()[last['geometry_line'] - 1]
+    assert 'SCF Done:' in text.splitlines()[last['energy_line'] - 1]
+
+
+def test_point_zero_checkpoint_and_no_borrowing():
+    from ag._irc import parse_irc_points
+    text = irc_log().replace(' Charge =', ' Energy From Chk = -75.0\n Point Number: 0 Path Number: 1\n Charge =')
+    text += ' Point Number: 3 Path Number: 1\n'
+    data = parse_irc_points(text)
+    assert data['points'][0]['energy_hartree'] == -75
+    assert data['points'][0]['energy_kind'] == 'scf_from_checkpoint'
+    assert data['points'][-1]['energy_hartree'] is None and data['points'][-1]['geometry'] is None
+    assert parse_irc_points('not an IRC') is None
+
+
+def test_point_parser_link1_isolation_and_duplicates():
+    from ag._irc import parse_irc_points
+    text = irc_log() + ' #p HF/STO-3G Opt\n --------------------------\n' + orientation(5)
+    data = parse_irc_points(text)
+    assert len(data['points']) == 2 and '0.0200000000' in data['points'][-1]['geometry']
+    with pytest.raises(ValueError, match='Duplicate accepted'):
+        parse_irc_points(irc_log() + ' Point Number: 2 Path Number: 1\n')
+
+
+def test_truncated_accepted_table_cannot_consume_next_accepted_geometry():
+    from ag._irc import parse_irc_points
+    current = orientation(.07).replace(' Standard orientation:', ' CURRENT STRUCTURE\n Cartesian Coordinates (Ang):')
+    current = current.replace('           0       ', '                   ')
+    text = (' #p HF/STO-3G IRC=(Forward,CalcFC)\n --------------------\n'
+            ' SCF Done: E(RHF) = -75.0 A.U.\n Point Number: 1 Path Number: 1\n'
+            ' CURRENT STRUCTURE\n Cartesian Coordinates (Ang):\n --------------------\n header cut\n'
+            ' SCF Done: E(RHF) = -75.1 A.U.\n Point Number: 2 Path Number: 1\n' + current)
+    points = parse_irc_points(text)['points']
+    assert points[0]['geometry'] is None
+    assert '0.0700000000' in points[1]['geometry']

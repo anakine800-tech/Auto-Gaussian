@@ -110,3 +110,90 @@ def parse_irc(text):
             'energies': list(points.values()), 'energy_kind': 'scf', 'end_geometry': None,
             'end_geometry_source': 'last_reported_path_point' if endpoint else None,
             'end_geometry_warning': 'Both directions in one log; last reported point only' if direction == 'both' else None}, endpoint
+
+
+def parse_irc_points(text):
+    """Return accepted points (including an explicitly printed zero) with lines.
+
+    Separate from parse_irc to preserve historical facts byte for byte. LQA's
+    CURRENT STRUCTURE is the accepted geometry, not the last trial orientation.
+    Missing data is never borrowed across point markers; later Link1 jobs and
+    unaccepted corrector trials cannot replace an accepted point.
+    """
+    from cclib.parser.utils import PeriodicTable
+
+    routes = list(re.finditer(
+        r'(?m)^[ \t]*(#(?!\s+OF\b)[^\n]*(?:\n(?!\s*-{5,})[^\n]+)*)\n\s*-{5,}', text))
+    indices = [i for i, match in enumerate(routes) if re.search(r'\birc\b', match[1], re.I)]
+    start, end = 0, len(text)
+    if indices:
+        index = indices[-1]
+        start = routes[index].start()
+        end = routes[index + 1].start() if index + 1 < len(routes) else len(text)
+    section = text[start:end]
+    facts, _ = parse_irc(section)
+    if facts is None:
+        return None
+    base = text.count('\n', 0, start)
+
+    def line(offset):
+        return base + section.count('\n', 0, offset) + 1
+
+    def geometry(match, columns):
+        rows = [row.split() for row in match['atoms'].splitlines()]
+        table = PeriodicTable().element
+        if not rows or any(len(row) != columns or int(row[0]) != i + 1
+                           or not 0 < int(row[1]) < len(table) for i, row in enumerate(rows)):
+            return None
+        return xyz_text([table[int(row[1])] for row in rows],
+                        [[number(x) for x in row[-3:]] for row in rows])
+
+    orientation = re.compile(
+        r'(?:Standard|Input|Z-Matrix) orientation:\s*\n\s*-+\n[^\n]*\n[^\n]*\n\s*-+\n'
+        r'(?P<atoms>(?:[ \t]*\d+[ \t]+\d+[ \t]+-?\d+[ \t]+[^\n]+\n)+)\s*-+', re.S)
+    current_structure = re.compile(
+        r'\s*CURRENT STRUCTURE\s*\n\s*Cartesian Coordinates \(Ang\):\s*\n'
+        r'\s*-+\n[^\n]*\n[^\n]*\n\s*-+\n(?P<atoms>(?:[ \t]*\d+[ \t]+\d+[ \t]+[^\n]+\n)+)\s*-+', re.S)
+    markers = list(re.finditer(r'Point Number:\s*(\d+)\s+Path Number:\s*(\d+)', section, re.I))
+    points, previous, seen = [], 0, set()
+    for index, marker in enumerate(markers):
+        point, path = int(marker[1]), int(marker[2])
+        if (path, point) in seen:
+            raise ValueError('Duplicate accepted IRC point; geometry association is ambiguous')
+        seen.add((path, point))
+        block = section[previous:marker.start()]
+        energies = list(re.finditer(r'SCF Done:.*?=\s*(' + NUMBER + ')', block))
+        energy_kind = 'scf'
+        if not energies and point == 0:
+            energies = list(re.finditer(r'Energy From Chk\s*=\s*(' + NUMBER + ')', block, re.I))
+            energy_kind = 'scf_from_checkpoint'
+        orientations = list(orientation.finditer(block))
+        xyz = geometry(orientations[-1], 6) if orientations else None
+        geometry_line = line(previous + orientations[-1].start()) if orientations else None
+        geometry_kind = 'preceding_orientation' if xyz else None
+        # A present but malformed accepted table must not fall back to a trial.
+        next_marker = markers[index + 1].start() if index + 1 < len(markers) else len(section)
+        tail = section[marker.end():next_marker]
+        if re.match(r'\s*CURRENT STRUCTURE', tail):
+            structure = current_structure.match(tail)
+            xyz = geometry(structure, 5) if structure else None
+            geometry_line = line(marker.end() + len(tail) - len(tail.lstrip()))
+            geometry_kind = 'current_structure'
+        points.append(dict(point=point, path=path, point_line=line(marker.start()),
+                           energy_hartree=number(energies[-1][1]) if energies else None,
+                           energy_line=line(previous + energies[-1].start()) if energies else None,
+                           energy_kind=energy_kind if energies else None,
+                           geometry=xyz, geometry_line=geometry_line, geometry_kind=geometry_kind))
+        previous = marker.end()
+    patterns = {
+        'corrector_failed': r'Maximum number of corrector steps exce(?:e)?ded|corrector[^\n]*(?:failed|failure)|(?:failed|failure)[^\n]*corrector',
+        'path_complete_reported': r'Calculation of\s+(?:FORWARD|REVERSE)\s+path complete',
+        'max_points': r'Maximum points per path\s*=\s*\d+|MaxPoints\s*=\s*\d+',
+        'reached_max_points': r'(?:maximum number of (?:IRC )?points|MaxPoints)[^\n]*(?:reached|exce(?:e)?ded)',
+        'normal_termination': r'Normal termination of Gaussian',
+        'error_termination': r'Error termination',
+    }
+    return dict(points=points, facts=facts, section_start_line=base + 1,
+                section_end_line=base + len(section.splitlines()),
+                evidence_lines={key: [line(m.start()) for m in re.finditer(pattern, section, re.I)]
+                                for key, pattern in patterns.items()})

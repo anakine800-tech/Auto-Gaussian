@@ -1,5 +1,12 @@
 # IRC 双向路径与端点
 
+## 要点
+
+- 两侧沿同一已审核 TS、同一方法和原子映射出发，分别创建 Attempt；见[前置条件](#2-前置条件)。
+- RCFC 读取父 Freq 的力常数，必须保持父 TS Input 坐标框架；见[输入模板](#3-输入模板)。
+- 两个方向分别核对连续性、降能、目标键长中点及独立端点极小点与身份；见[结果判据](#6-结果判据清单)。
+- 正常退出、MaxPoints 或部分轨迹不能单独作为完成证据；工具核对后仍需人工审阅；见[结果判据](#6-结果判据清单)。
+
 ## 1. 适用范围
 
 从已审核的一阶鞍点沿同一主族闭壳层势能面追踪两个方向，并识别连接的极小点。**IRC 必须两个方向都走完并识别端点后才能声称验证。** 一次正常退出或仅一个方向不满足此标准。“走完”按第 6 节逐方向核对，允许满足全部四条判据的有限步 IRC 加独立端点 Opt+Freq。
@@ -98,11 +105,24 @@ prepare 纯本地；submit 在 Mac 确认弹窗展示父 ID、来源文件名、
    关键键长及 SCF/电子态连续性；有校正器失败或输出截断时不能截掉异常部分声称完成。
 2. 最后一个路径点的能量比 TS 至少低 **3 kcal/mol**。这是默认判据，计算方案可另定，
    所用阈值及依据须写进 review；比较同一方法、溶剂与电子态下的电子能，不混入端点 G/qRRHO。
+   降能为正但低于阈值、且①工具部分未发现问题、③④均满足时，可记为“由端点优化补证”，
+   写明实际降能、阈值和端点证据；阈值不因此调低，①的人工审阅仍须完成。
 3. 目标成键或断键的键长已从 TS 值越过它与该侧预期端点值之间的中点。
    记录目标原子对、端点参考来源、TS/最后路径点/预期端点的键长及中点；
    向该侧成键时最后键长须小于中点，断键时须大于中点，多个目标原子对逐项核对。
 4. 从最后一个路径点出发，独立的 Opt+Freq 已收敛为极小点，满足频率阶段收敛、
    完整模式数和零虚频；并由下述 `irc-compare` 比对与人工审阅确认是该侧预期物种。
+
+`ag irc-review` 将上述四条按方向核对并导出 JSON、Markdown 和逐点 XYZ；
+`reference` 是人指定的该侧预期端点，原子顺序须与 TS 一致，不能预设 forward 的化学身份。
+
+```text
+ag irc-review --study <study_dir> --ts <ts_id> --forward <forward_irc_id> --reverse <reverse_irc_id> --pair <I-J> --forward-reference <expected_forward_id> --reverse-reference <expected_reverse_id> --forward-endpoint <forward_opt_id> --reverse-endpoint <reverse_opt_id> --irc-compare analyses/<compare>.json --out analyses/<new_review>.json
+```
+
+判据①最高仅为 `tool_checks_passed`；②可为 `met_by_endpoint_optimization`，实际降能仍按路径末点计算。
+缺 reference、端点优化或身份报告时对应项为 `unknown`。输出“工具核对完成，待人工审阅”不是验证结论；
+须继续核对 SCF/电子态连续性、逐点几何及端点身份。路径数据格式见 [ag-irc-review/1](../../../docs/ag-irc-review-1.md)。
 
 - 达到 MaxPoints 但满足以上四条，算该方向走完；任意一条不满足或缺证据，仍写“IRC 未完成”。两侧必须分别满足四条，保留与同一 TS 的原子映射和来源；缺一侧就不能声称验证。
 - 用 `ag graph --study <study_dir> --json` 核对 TS → 两个方向 → 端点优化的 Attempt 来源。`ag graph` 仅为来源图；另用 `ag irc-compare --ts <ts_id> --forward <forward_endpoint_opt_id> --reverse <reverse_endpoint_opt_id> --reactant <reactant_id> --product <product_id> --out <新报告.json>` 获取保留原子编号的连接、质子和立体差异。这里 forward/reverse 传入各侧独立 Opt+Freq 的 Attempt，而非未经优化的最后路径点。工具的“匹配 / 不匹配 / 无法确定”仍须人工审阅，写入 review；来源图不能替代此比较。缺少可审阅的几何或匹配证据就保持未验证。
@@ -134,8 +154,10 @@ C（021/022）将 StepSize 从 10 缩至 5、MaxCycle 从 20 增至 40；D（023
 C/D 同批提交，并非沿阶梯依次尝试；各组 MaxPoints=50，C 接受 24/6 点后在第 25/7 点仍校正失败，D 则 44/6 点双向正常结束。
 在此例中解决校正失败的是逐点重算 Hessian，单靠缩小步长或增加 MaxCycle 不够；D 的 IRC CPU 核时约为 C 的 1.4 倍。
 D 两侧末点分别经 027/028 独立 Opt+Freq，均收敛、模式完整且零虚频；irc-compare 与人工审阅确认 forward 为产物复合物、reverse 为反应物复合物。
-按第 6 节 T46 判据，D 满足③目标键长越过中点及④端点极小点与身份确认；②仅 forward 满足，reverse 末点降能低于默认阈值；
-①虽无校正失败，仍缺完整连续性审阅记录；L3 历史流程验收签字不等于满足四条判据，不能据此声称按 T46 双向完成。
+T79 在 2026-10-16 对本地日志只读核对：D 两侧①工具部分通过，③两对目标键长均越过中点，④由 027/028 与已有 irc-compare 支持。
+D forward 末点降能 26.411921 kcal/mol；reverse 为 0.281638 kcal/mol，低于默认 3 kcal/mol，按修订后的②记为“由端点优化补证”，阈值不变。
+两侧工具汇总均为“工具核对完成，待人工审阅”；①仍缺完整连续性审阅记录，不能据此声称双向完成。
+A/B/C 的已接受点数和后续校正失败、015/016 的首点失败均与上述历史记录一致；这些组没有末点优化证据，④为 unknown。
 以上经验仅适用于 B3LYP-D3(BJ)/6-31+G(d) 气相小体系，不作为默认参数。
 
 端点仍有虚频或优化不收敛，转 [失败诊断](failure-diagnosis.md)。双分子步骤与复合物按 [complex](complex.md) 卡片执行，仅开放以已审阅原子对为约束的采样；通用对接搜索不开放。出现两个片段时，按 [complex](complex.md) 卡片识别组分，先请人确认每个片段的身份、电荷与多重度，再决定与复合物还是分离物种比较；不能直接当普通单分子超分子优化，也不能把片段电子能之和叫反应自由能。其他片段数同样先审阅组分并说明适用范围。缺所需能力或证据时写具体阻塞，停止依赖它的工作。
