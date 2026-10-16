@@ -77,6 +77,63 @@ Optional GaussView inspection can still use the frozen
 invoked by this Skill. `runtime_config.py` is omitted: no retained operation
 needs its machine paths or remote settings.
 
+## 开题物种核验
+
+开题按 study Skill 的 [0a–0d](../auto-g16-study/SKILL.md#每次调用的固定流程)
+推进。`check_species.py` 只核验起始物、产物、催化剂、试剂及需配平的副产物、
+添加剂；中间体留给后续流程。图片仅供对照，不从图片直接生成坐标。
+
+在私有 study 写 UTF-8 的 `analyses/intake/species.csv`，每个物种一行：
+
+```csv
+species_id,role,source_file,second_source,expected_formula,expected_charge,multiplicity,expected_cip,stereo_basis,note
+butane,reactant,structures/butane.smi,smiles:CCCC,C4H10,0,1,none,无四面体中心,第二来源的出处另记
+```
+
+必填列为 `species_id,role,source_file,expected_formula,expected_charge,multiplicity`。
+role 仅为 `reactant/product/catalyst/reagent/byproduct/additive`；物种 ID 与开题模板一致，
+使用字母、数字、下划线、连字符，最长 80 字符。源文件接受 `.cdxml/.cdx/.mol/.sdf/.smi`，
+所有文件路径相对于 study 根目录，拒绝符号链接、绝对路径和 `..`。
+第二来源为 study 内文件或 `smiles:` 文本；记录真实出处，两个派生文件一致不证明来源独立。
+预期分子式由人从原件读取，使用 Hill 顺序，电荷另列；多重度只接受研究者提供的值。
+缺失预期值或多重度保留未知，不猜测；可选 `stereo_basis` 和 `note` 保留依据及人工备注。
+
+`expected_cip` 使用 `2:R;4:S`；`none` 表示预期无四面体立体中心，空表示未给。
+编号是源文件读入顺序**从 1 开始**的原子序号，不是规范 SMILES 顺序、ChemDraw 对象 ID
+或旧 preview 的零基编号。新脚本保留 SMILES 中独立的 `[H]` 原子；`[C@H]` 的 H 计数
+不单独占序号。MOL/SDF 原子块、ChemDraw 直接读入顺序均保留，在新预览图逐原子标号。
+不按不同来源的原子序号或 CIP 标签排列顺序比较身份。
+
+```sh
+conda run -n chem python scripts/check_species.py --study STUDY
+# 可显式指定输入；重复核验必须换输出目录，旧报告保留：
+conda run -n chem python scripts/check_species.py --study STUDY \
+  --species analyses/intake/species.csv --reaction analyses/intake/reaction.csv \
+  --output-dir analyses/intake-v2
+```
+
+默认读取 `analyses/intake/species.csv`；存在默认 `reaction.csv` 时自动核对，
+或用 `--reaction` 指定。反应表列为 `species_id,side,coefficient`，side 为 `left/right`，
+系数为正整数、小数或分数，两侧均须列出。按实际结构（含隐式氢）
+精确计算元素和电荷，差额定义为右减左；只报告缺失副产物等可能性，不自动补组分。
+
+输出为 `analyses/intake/species-check.json`、`.md` 及 `<species_id>/preview.png`；
+已有任何目标文件或物种目录即拒绝，部分失败输出也保留并要求换名。
+报告列出源原子数、源中显式 H 原子数、补氢后总原子数、电荷、组分、CIP/未指定中心、
+读入诊断、所有输入文件的 study 相对路径及 SHA-256。补氢只在内存中计数，不生成 3D。
+第二来源比较仅在副本上统一普通显式/隐式氢表示并忽略原子映射标签，保留同位素与立体；
+报告构造、电荷、立体差异，构造/质子化不同时立体对照记未知，不强造原子对应。
+
+各项为 `match/mismatch/unknown`，物种为 `all_match/has_mismatch/incomplete/out_of_scope`。
+未提供第二来源或预期 CIP 会得到 `unknown`，汇总为 `incomplete`；不可静默当作通过。
+超出既有 `validate_scope` 或非单重态的物种记 `out_of_scope`，继续核验其余物种；
+不可读结构记 `incomplete` 并输出占位预览。轴手性等局限仍须人工审阅。
+命令退出 0 只表示报告成功写出，不能解释为各项匹配或结构签字。
+
+展示报告和预览后，由人解决或明确接受未决项并写理由；`out_of_scope` 仍暂停依赖计算，
+不能用接受备注扩展计算能力。沿用既有结构里程碑和证据清单，确认前不开始文献检索或采样。
+脚本不签字、不修改结构源、不修改 `study.md`；原有预览/构象脚本保持原行为与输出位置。
+
 ## Migration and validation
 
 Source files are credited in each script header; applicable chemistry notes
