@@ -31,7 +31,7 @@ def _references(path, data):
             elif isinstance(item, str):
                 yield item, (key in {'thermo', 'frozen_evidence'}
                              or (key in {'path', 'file', 'source', 'definition'}
-                                 and bool(Path(item).suffix))), field
+                                 and bool(Path(item).suffix))), field, key
         return list(strings(value))
     refs, plain = [], list(text)
     patterns = [r'!?\[[^\]\n]*\]\(\s*(?:<([^>]+)>|([^\s)]+))(?:\s+"[^"]*")?\s*\)',
@@ -42,16 +42,16 @@ def _references(path, data):
             value = next(group for group in match.groups() if group is not None)
             explicit = index < 2 or bool(re.fullmatch(
                 r'[^\n]+\.(?:json|md|csv|tsv|txt|xyz|pdf|png|svg|html)', value))
-            refs.append((value, explicit, f'line {text.count(chr(10), 0, match.start()) + 1}'))
+            refs.append((value, explicit, f'line {text.count(chr(10), 0, match.start()) + 1}', ''))
             plain[match.start():match.end()] = ' ' * (match.end() - match.start())
     # Quoted paths stay intact; ASCII-only bare paths stop before surrounding prose.
     refs += [(match.group(1).rstrip('.,;'), True,
-              f'line {text.count(chr(10), 0, match.start()) + 1}') for match in re.finditer(
+              f'line {text.count(chr(10), 0, match.start()) + 1}', '') for match in re.finditer(
         r'(?<![A-Za-z0-9_/.])((?:\.{1,2}/)*analyses/[A-Za-z0-9._/-]+)', ''.join(plain))]
     return refs
 
 
-def _analysis_reference(root, source, value, explicit, field='reference'):
+def _analysis_reference(root, source, value, explicit, field='reference', key=''):
     def invalid(reason):
         if explicit:
             raise ValueError(f'Invalid evidence reference in {source.relative_to(root)} '
@@ -70,19 +70,43 @@ def _analysis_reference(root, source, value, explicit, field='reference'):
         return invalid('path component exceeds 255 bytes')
     try:
         relative = value.removeprefix('./')
-        base = root if relative.startswith('analyses/') else source.parent
-        raw = base / value
-        # Check symlinks before lexical normalization; resolving first could hide one.
-        for part in (raw, *raw.parents):
-            if part.is_symlink():
-                raise ValueError('Symbolic links are not allowed in evidence references')
-        candidate = Path(os.path.abspath(raw))
+        is_text = source.suffix.lower() in {'.md', '.txt'}
+        base = root if not is_text and relative.startswith('analyses/') else source.parent
         analyses = root / 'analyses'
         mentions_analysis = 'analyses' in Path(value).parts
-        if not candidate.is_relative_to(root):
-            if mentions_analysis or (explicit and (source.is_relative_to(analyses) or candidate.is_dir())):
-                raise ValueError(f'Evidence reference escapes study: {value}')
+
+        def checked(base):
+            raw = base / value
+            # Check before normalization; resolving first could hide a symlink.
+            for part in (raw, *raw.parents):
+                if part.is_symlink():
+                    raise ValueError('Symbolic links are not allowed in evidence references')
+            candidate = Path(os.path.abspath(raw))
+            if not candidate.is_relative_to(root):
+                if mentions_analysis or (explicit and (source.is_relative_to(analyses) or candidate.is_dir())):
+                    raise ValueError(f'Evidence reference escapes study: {value}')
+                return None
+            return candidate
+
+        candidate = checked(base)
+        if candidate is None:
             return None
+        # These ag output fields may name an Attempt file, not analysis evidence.
+        # Validate path syntax and symlinks first, retaining the existing errors.
+        if (source.suffix.lower() == '.json' and key in {'file', 'source', 'path', 'definition'}
+                and '/' not in value and not candidate.exists()):
+            return None
+        resolved_from = None
+        if is_text and not Path(value).is_absolute() and not value.startswith(('./', '../')):
+            fallback = checked(root)
+            if fallback is not None and fallback != candidate and fallback.exists():
+                if candidate.exists():
+                    if not candidate.samefile(fallback):
+                        raise ValueError(f'Ambiguous evidence reference in {source.relative_to(root)} '
+                                         f'(field {field}): {value}')
+                else:
+                    candidate = fallback
+                    resolved_from = 'study_root'
         if not candidate.is_relative_to(analyses):
             return None
         # JSON often contains labels, units, or log basenames. Only an existing
@@ -92,7 +116,7 @@ def _analysis_reference(root, source, value, explicit, field='reference'):
         candidate = local_path(root, candidate)
         if not (candidate.is_file() or candidate.is_dir()):
             raise ValueError(f'Missing referenced analysis output: {candidate.relative_to(root)}')
-        return candidate
+        return candidate, resolved_from
     except OSError as exc:
         if exc.errno != errno.ENAMETOOLONG:
             raise
@@ -113,7 +137,7 @@ def create(directory):
             if not path.is_file():
                 raise ValueError(f'Evidence must be a regular file: {path.relative_to(root)}')
             pending.add(path)
-    files, expanded_from = {}, {}
+    files, expanded_from, resolved_from = {}, {}, {}
     while pending:
         path = min(pending)
         pending.remove(path)
@@ -122,10 +146,11 @@ def create(directory):
         data = local_path(root, path).read_bytes()
         files[path] = dict(path=path.relative_to(root).as_posix(), size=len(data),
                            sha256=sha256(data).hexdigest())
-        for value, explicit, field in _references(path, data):
-            referenced = _analysis_reference(root, path, value, explicit, field)
-            if referenced is None:
+        for value, explicit, field, key in _references(path, data):
+            reference = _analysis_reference(root, path, value, explicit, field, key)
+            if reference is None:
                 continue
+            referenced, origin = reference
             if referenced.is_dir():
                 members = []
                 for child in sorted(referenced.rglob('*')):
@@ -139,13 +164,19 @@ def create(directory):
                     raise ValueError(f'Empty referenced analysis directory: {referenced.relative_to(root)}')
                 for child in members:
                     expanded_from.setdefault(child, set()).add(referenced.relative_to(root).as_posix())
+                    if origin:
+                        resolved_from[child] = origin
                     pending.add(child)
-            elif referenced not in files:
+            else:
+                if origin:
+                    resolved_from[referenced] = origin
                 pending.add(referenced)
     # Catch evidence edited during collection before publishing a mixed inventory.
     for path, entry in files.items():
         if path in expanded_from:
             entry['expanded_from'] = sorted(expanded_from[path])
+        if path in resolved_from:
+            entry['resolved_from'] = resolved_from[path]
         if sha256(local_path(root, path).read_bytes()).hexdigest() != entry['sha256']:
             raise ValueError(f'Evidence changed while collecting: {entry["path"]}')
     now = datetime.now(timezone.utc)
