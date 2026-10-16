@@ -586,3 +586,34 @@ def test_pbs_unused_program_fields_remain_compatible(cfg):
     cfg['programs']['gaussian']['legacy_note'] = 'unused fixture metadata'
     loaded = config.load_config(write_config(cfg))
     assert loaded['programs']['gaussian']['legacy_note'] == 'unused fixture metadata'
+
+
+@pytest.mark.parametrize('terminal', ['COMPLETED', 'FAILED', 'CANCELLED', 'TIMEOUT', 'OUT_OF_MEMORY', 'NODE_FAIL'])
+def test_status_purged_exact_job_uses_accounting(multi, tmp_path, monkeypatch, terminal):
+    p, _, fake = submitted(multi, tmp_path, monkeypatch)
+    fake.exact = Result(1, stderr='squeue: error: Invalid job id specified\n')
+    fake.accounting = Result(stdout=f'123|water-001-sp|fixture|{terminal}|1:9|00:05:00|8\n')
+    result = status.check(multi, p, fake)
+    assert result['state'] == 'finished' and result['completion_source'] == 'sacct'
+    assert result['scheduler_state'] == terminal
+    assert fake.operations() == ['identity', 'slurm_jobs', 'slurm_accounting']
+    assert all(' -j 123 ' in c.text for c in fake.calls if c.operation.startswith('slurm_'))
+
+
+@pytest.mark.parametrize('queue', [
+    Result(1, stderr='squeue: controller unavailable'),
+    Result(1, stdout='Invalid job id specified'),
+    Result(1, stderr='squeue: Invalid job id'),
+    Result(255, stderr='synthetic SSH failure'),
+    Result(255, stderr='Invalid job id specified'),
+    Result(stdout='invalid queue output', stderr='Invalid job id specified'),
+])
+def test_status_other_queue_errors_stop(multi, tmp_path, monkeypatch, queue):
+    from ag.transport import TransportError
+    p, _, fake = submitted(multi, tmp_path, monkeypatch)
+    fake.exact = queue
+    before = (p / 'status.json').read_bytes()
+    with pytest.raises((ValueError, TransportError)):
+        status.check(multi, p, fake)
+    assert (p / 'status.json').read_bytes() == before
+    assert fake.operations() == ['identity', 'slurm_jobs']
