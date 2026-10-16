@@ -1,0 +1,8 @@
+{
+  "status": "ok",
+  "message": {"items": [
+    {"DOI": "HTTPS://DOI.ORG/10.9999/SYNTHETIC-A", "title": ["Synthetic <i>water</i> study"], "author": [{"given": "Ada", "family": "Example"}], "published-print": {"date-parts": [[2024, 1, 1]]}, "update-to": [{"type": "correction", "DOI": "10.9999/synthetic-note"}], "relation": {"is-version-of": [{"id": "10.9999/synthetic-preprint"}]}},
+    {"title": ["Untitled sample study"], "author": [{"given": "Ada", "family": "Example"}], "issued": {"date-parts": [[2023]]}},
+    {"title": ["Untitled sample study"], "issued": {"date-parts": [[2022]]}}
+  ]}
+}

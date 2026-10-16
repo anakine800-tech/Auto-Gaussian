@@ -19,6 +19,7 @@ SKILLS = tuple(ROOT / f"auto-g16-{name}" for name in (
 CARDS = (
     "opt-freq", "sp", "rdkit-screen", "crest-screen", "thermo", "failure-diagnosis",
     "reaction-plan", "ts", "irc", "profile", "complex",
+    "kinetics",
 )
 SECTIONS = (
     "适用范围", "前置条件", "输入模板", "资源建议", "提交前检查清单",

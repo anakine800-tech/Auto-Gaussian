@@ -101,3 +101,33 @@ SCF 失败、内存或时长不足时按 failure-diagnosis 审阅已有事实。
 
 - 单点电子能与低层级热修正必须分列，标准态按每个独立物种处理，不能把一次修正加到整个反应上。来源：`skills/auto-g16-rtwin-pbs/references/scientific-workflows.md`。
 - 旧预览输入中的方法只是占位示例，不能无依据用于正式研究。来源：`skills/auto-g16-view-rt-win/references/chemistry-boundaries.md`。
+
+### S8：SMD 能量项与复合自由能
+
+为防止把已包含的溶剂项或标准态项重复相加，区分“单点模型能量”和
+“分子热修正”。改编自 `archive/skills/auto-g16-rtwin-pbs/references/scientific-workflows.md`
+的复合热化学分项；当前 qRRHO 与独立 Attempt 规则优先。
+
+SMD 溶剂化自由能包括自洽体相静电项及空腔、色散、溶剂结构等 CDS 项；
+后者用经验表面张力描述，也吸收部分短程非体相静电效应，不能把两项当作
+唯一的实验分解。依据为 Marenich–Cramer–Truhlar 原文 §2，
+[DOI:10.1021/jp810292n](https://pubs.acs.org/jpcbfk/article/113/18/6378/1427431/Universal-Solvation-Model-Based-on-Solute-Electron)。
+Gaussian 的 SMD 输出若标明 `SMD-CDS` 已计入上方总能量，不再加 CDS，
+也不再加一份完整 ΔG_solv。输出形式可核对原始论文 SI p. S29 的
+[DOI:10.1039/C4CY01031K](https://pubs.rsc.org/en/content/articlelanding/2015/cy/c4cy01031k)；
+仅借其打印格式，不借其金属体系方法或数值。记录实际采用的能量行和来源段。
+
+| 已审阅组合 | 正确组装（逐物种） | 不可重复项 |
+|---|---|---|
+| 气相频率热修正 + 溶液 SMD 单点 | `G_sol = E_SP,SMD + (G_qRRHO,gas − E_low,gas)` | 括号只留气相分子热修正；不另加 SMD 溶剂化项；这是假定气相几何/热修正可用于溶液的近似，须单独说明适用性 |
+| SMD 几何/Freq + 同溶剂 SMD 精化单点 | `G_sol = E_SP,SMD + (G_qRRHO,low,SMD − E_low,SMD)` | 从低层级 G 中减去与其匹配、已含 SMD 的低层级能量，只替换一次；不叠加两个层级的溶剂化能 |
+
+这里 `E_*,SMD` 表示包含相应 SMD 项的程序模型能量，不是完整有限温度溶液 G。
+SP/Freq 必须正确配对；以上公式描述科学组合，不表示当前工具支持任意混合协议。
+气相 Freq 与溶液 SP 的组合若被工具协议检查拒绝，记录能力缺口，不能改 route
+元数据或伪造输出来通过。已签溶液几何/Freq 方案不能自动改成气相方案。
+
+SMD 的相同浓度气→液溶剂化项不自动替代 Gaussian 分子热化学的 1 atm→1 M
+转换；需否加 `RT ln(R_gas T c°/p°)` 取决于输入 G 的实际标准态。
+GoodVibes 或来源 G 已按 1 M 处理时不再加；具体分项与离子结论限定见
+[thermo 的 S8](thermo.md#s8标准态账目与离子适用性)。

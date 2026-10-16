@@ -144,7 +144,7 @@ def test_bare_path_stops_at_ascii_boundary(tmp_path, suffix):
 def test_bare_path_preserves_dotted_names(tmp_path, extension):
     path = tmp_path / 'study.md'
     name = f'analyses/a.json.backup.{extension}'
-    assert inventory._references(path, (name + '说明').encode()) == [(name, True, 'line 1')]
+    assert inventory._references(path, (name + '说明').encode()) == [(name, True, 'line 1', '')]
 
 
 @pytest.mark.parametrize('reference', ['`analyses/a.json说明`', '[a](analyses/a.json说明)'])
@@ -306,7 +306,7 @@ def test_review_directory_link_inside_study_outside_analyses_is_ignored(tmp_path
 ])
 def test_bare_references_use_ascii_boundaries_without_extension_filter(tmp_path, text, path):
     root = study(tmp_path)
-    assert inventory._references(root / 'study.md', text.encode()) == [(path, True, 'line 1')]
+    assert inventory._references(root / 'study.md', text.encode()) == [(path, True, 'line 1', '')]
     (root / 'study.md').write_text(text)
     (root / path).write_bytes(b'{}')
     result = inventory.create(root)
@@ -380,3 +380,112 @@ def test_unrelated_filesystem_error_is_not_ignored(tmp_path, monkeypatch):
     monkeypatch.setattr(Path, 'is_symlink', denied)
     with pytest.raises(PermissionError):
         inventory._analysis_reference(tmp_path, tmp_path / 'study.md', 'description', False)
+
+
+@pytest.mark.parametrize('key', ['file', 'source', 'path', 'definition'])
+@pytest.mark.parametrize('exists', [False, True])
+def test_json_attempt_basename_only_counts_when_present_beside_source(tmp_path, key, exists):
+    root = study(tmp_path)
+    (root / 'study.md').write_text('[topology](analyses/topology.json)')
+    (root / 'analyses/topology.json').write_text(json.dumps({
+        'schema': 'ag-topology/1', 'sources': {'final': {key: 'final.xyz'}}}))
+    (root / 'attempts/water-a/final.xyz').write_text('1\nsynthetic\nH 0 0 0\n')
+    if exists:
+        (root / 'analyses/final.xyz').write_text('1\nsynthetic\nH 0 0 0\n')
+    entries = {e['path']: e for e in inventory.create(root)['files']}
+    assert ('analyses/final.xyz' in entries) is exists
+    assert 'attempts/water-a/final.xyz' not in entries
+    assert len(entries) == 6 + exists
+
+
+@pytest.mark.parametrize('key', ['thermo', 'frozen_evidence'])
+def test_explicit_json_basename_still_requires_evidence(tmp_path, key):
+    root = study(tmp_path)
+    (root / 'study.md').write_text('[report](analyses/report.json)')
+    (root / 'analyses/report.json').write_text(json.dumps({key: 'missing.json'}))
+    with pytest.raises(ValueError, match='Missing referenced'):
+        inventory.create(root)
+
+
+@pytest.mark.parametrize('key', ['file', 'source', 'path', 'definition'])
+def test_json_path_with_slash_does_not_gain_text_fallback(tmp_path, key):
+    root = study(tmp_path)
+    (root / 'study.md').write_text('[report](analyses/report.json)')
+    (root / 'analyses/report.json').write_text(json.dumps({key: 'batch/item.xyz'}))
+    (root / 'batch').mkdir()
+    (root / 'batch/item.xyz').write_text('synthetic')
+    with pytest.raises(ValueError, match='Missing referenced'):
+        inventory.create(root)
+
+
+@pytest.mark.parametrize('suffix', ['md', 'txt'])
+@pytest.mark.parametrize('reference', ['[item]({path})', '`{path}`'])
+@pytest.mark.parametrize('target', ['structures/x.xyz', 'analyses/y.json'])
+def test_snapshot_reference_falls_back_to_study_root(tmp_path, suffix, reference, target):
+    root = study(tmp_path)
+    (root / 'structures').mkdir()
+    (root / target).write_text('{}')
+    (root / 'study.md').write_text(f'[snapshot](analyses/snapshot.{suffix})')
+    (root / f'analyses/snapshot.{suffix}').write_text(reference.format(path=target))
+    entries = {e['path']: e for e in inventory.create(root)['files']}
+    if target.startswith('analyses/'):
+        assert entries[target]['resolved_from'] == 'study_root'
+    else:
+        assert target not in entries
+    assert 'resolved_from' not in entries[f'analyses/snapshot.{suffix}']
+
+
+@pytest.mark.parametrize('target', ['analyses/y.json', 'y.json', 'structures/x.xyz'])
+def test_snapshot_ambiguous_reference_is_rejected_even_outside_analyses(tmp_path, target):
+    root = study(tmp_path)
+    (root / 'study.md').write_text('[snapshot](analyses/snapshot.md)')
+    (root / 'analyses/snapshot.md').write_text(f'[item]({target})')
+    for parent in (root, root / 'analyses'):
+        path = parent / target
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('{}')  # Equal bytes do not make distinct files identical.
+    with pytest.raises(ValueError, match='Ambiguous evidence reference.*snapshot.md.*line 1'):
+        inventory.create(root)
+    assert not list((root / 'analyses').glob('review-manifest-*.json'))
+
+
+def test_snapshot_hardlinks_to_same_file_are_not_ambiguous(tmp_path):
+    root = study(tmp_path)
+    (root / 'study.md').write_text('[snapshot](analyses/snapshot.md)')
+    (root / 'analyses/snapshot.md').write_text('[item](analyses/y.json)')
+    (root / 'analyses/analyses').mkdir()
+    (root / 'analyses/y.json').write_text('{}')
+    (root / 'analyses/analyses/y.json').hardlink_to(root / 'analyses/y.json')
+    entries = {e['path']: e for e in inventory.create(root)['files']}
+    assert 'resolved_from' not in entries['analyses/analyses/y.json']
+
+
+@pytest.mark.parametrize('value', ['./analyses/y.json', '../analyses/y.json'])
+def test_dot_relative_text_never_uses_study_root_fallback(tmp_path, value):
+    root = study(tmp_path)
+    (root / 'analyses/nested').mkdir()
+    (root / 'study.md').write_text('[snapshot](analyses/nested/snapshot.md)')
+    (root / 'analyses/nested/snapshot.md').write_text(f'[item]({value})')
+    (root / 'analyses/y.json').write_text('{}')
+    with pytest.raises(ValueError, match='Missing referenced'):
+        inventory.create(root)
+
+
+def test_fallback_directory_marks_members_and_preserves_direct_reference_origin(tmp_path):
+    root = study(tmp_path)
+    (root / 'analyses/batch').mkdir()
+    (root / 'analyses/batch/item.json').write_text('{}')
+    (root / 'study.md').write_text('[direct](analyses/batch/item.json) [snapshot](analyses/z.md)')
+    (root / 'analyses/z.md').write_text('[batch](analyses/batch/)')
+    entries = {e['path']: e for e in inventory.create(root)['files']}
+    assert entries['analyses/batch/item.json']['resolved_from'] == 'study_root'
+    assert entries['analyses/batch/item.json']['expanded_from'] == ['analyses/batch']
+
+
+@pytest.mark.parametrize('key', ['file', 'source', 'path', 'definition'])
+def test_bare_json_filename_retains_long_path_error(tmp_path, key):
+    root = study(tmp_path)
+    (root / 'study.md').write_text('[report](analyses/report.json)')
+    (root / 'analyses/report.json').write_text(json.dumps({key: 'x' * 256 + '.xyz'}))
+    with pytest.raises(ValueError, match='255 bytes'):
+        inventory.create(root)
