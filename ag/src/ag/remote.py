@@ -158,15 +158,9 @@ def receipt(cfg, manifest, name):
         raise ValueError('Only start/exit receipts may be read')
     p = attempt_dir(cfg, manifest) + '/' + name
     q = quote(p)
-    return Command('receipt', f'{path_checks(p)} && '
-                   f'if ag_observation=$(LC_ALL=C ls -d -- {q} 2>&1); then '
-                   f'if test -f {q} && test -r {q}; then '
-                   f'test "$(stat -c %s -- {q})" -le 4096 && head -c 4096 -- {q} && '
-                   f'test "$(stat -c %s -- {q})" -le 4096; '
-                   "else printf 'unreadable\\n'; fi; else "
-                   'case "$ag_observation" in '
-                   "*'No such file or directory') printf 'absent\\n';; "
-                   "*) printf 'unreadable\\n';; esac; fi")
+    return Command('receipt', f'{path_checks(p)} && if test ! -e {q}; then '
+                   f"printf 'absent\\n'; else test -f {q} && "
+                   f'test "$(stat -c %s -- {q})" -le 4096 && head -c 4096 -- {q} && test "$(stat -c %s -- {q})" -le 4096; fi')
 
 
 def output_names(manifest):
@@ -190,37 +184,31 @@ def output_observation(cfg, manifest):
     for name in output_names(manifest):
         p = attempt_dir(cfg, manifest) + '/' + name
         q = quote(p)
-        # Only ls -d's C-locale ENOENT confirms absence; EACCES/EIO and an
-        # unreadable regular file must not advance the lifecycle as missing.
-        commands.append(f'{path_checks(p)} && '
-                        f"if ag_observation=$(LC_ALL=C ls -d -- {q} 2>&1); then "
-                        f'if test -f {q} && test -r {q}; then '
-                        f"printf '%s ' {quote(name)} && stat -c '%s %y' -- {q}; "
-                        f"else printf '%s unreadable\\n' {quote(name)}; fi; else "
-                        'case "$ag_observation" in '
-                        f"*'No such file or directory') printf '%s absent\\n' {quote(name)};; "
-                        f"*) printf '%s unreadable\\n' {quote(name)};; esac; fi")
+        commands.append(f'{path_checks(p)} && if test ! -e {q}; then '
+                        f"printf '%s absent\\n' {quote(name)}; else test -f {q} && "
+                        f"printf '%s ' {quote(name)} && stat -c '%s %y' -- {q}; fi")
     return Command('output_observation', ' && '.join(f'{{ {c}; }}' for c in commands))
 
 
 def incomplete_output_observation(cfg, manifest, name):
-    """Read-only presence check; unknown access is distinct from absence."""
+    """Strict, read-only presence check for one declared output.
+
+    T47: test ! -e alone mistakes an inaccessible parent for a missing file.
+    Keep the existing status observer unchanged; reuse its read-only operation
+    category, not its weaker absence test. Nonzero means unverifiable.
+    """
     filename(name)
     if name not in output_names(manifest):
         raise ValueError('Expected a declared output filename')
     directory = attempt_dir(cfg, manifest)
     p = directory + '/' + name
     q, parent = quote(p), quote(directory)
-    return Command('output_observation', f'{path_checks(p)} && '
-                   f'if test -d {parent} && test -x {parent}; then '
-                   f"if ag_observation=$(LC_ALL=C ls -d -- {q} 2>&1); then "
-                   f'if test -f {q} && test -r {q}; then '
-                   f"stat -c '%s %y' -- {q}; else printf 'unreadable\\n'; false; fi; else "
-                   'case "$ag_observation" in '
-                   "*'No such file or directory') "
-                   f'if test ! -L {q} && test -d {parent} && test -x {parent}; then '
-                   "printf 'absent\\n'; else printf 'unreadable\\n'; false; fi;; "
-                   "*) printf 'unreadable\\n'; false;; esac; fi; else printf 'unreadable\\n'; false; fi")
+    return Command('output_observation',
+                   f'{path_checks(p)} && test -d {parent} && test -x {parent} && '
+                   f'if test -e {q}; then test -f {q} && test -r {q} && '
+                   f"stat -c '%s %y' -- {q}; else "
+                   f"test ! -L {q} && test -d {parent} && test -x {parent} && "
+                   "printf 'absent\\n'; fi")
 
 
 def completion_marker(cfg, manifest):
