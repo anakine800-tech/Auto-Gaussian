@@ -5,7 +5,7 @@ description: 在 ag 新架构中创建、恢复和推进主族闭壳层计算研
 
 # Auto-G16 Study
 
-科学判断由 LLM 和人完成，确定性的作业操作交给 `ag`。study 放在配置 `local.studies_root`，不放仓库；连接与远程根从本地配置读取，不写入 Skill。仅使用已审阅的 `ag` 模板，不自行编写远程命令或作业脚本。
+科学判断由 LLM 和人完成，确定性的作业操作交给 `ag`。study 放在配置 `local.studies_root`，不放仓库；连接与远程根从本地配置读取，不写入 Skill。仅使用已审阅的 `ag` 模板和命令，不自行编写远程命令或作业脚本；唯一例外是 AGENTS.md 第 7 条规定的、逐次授权的只读查看。
 
 新建或恢复在 `scnet` 上运行 Gaussian 的研究时，按[研究模板](references/study-md-template.md)的“计算平台与软件许可”填写负责人决定；正式作业前核对正丁烷单点全流程验证记录。
 

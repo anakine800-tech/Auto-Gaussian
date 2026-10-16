@@ -129,6 +129,8 @@ Slurm 取回前后均只读核对 squeue 无此作业及 sacct 终态（TIMEOUT�
 **白名单测试必须同步更新**：参考 `test_core.py::test_remote_allowlist_and_paths`、`test_slurm.py` 和相应功能测试，断言完整命令、操作集合及坏参数拒绝。
 覆盖链接替换、越界、SSH 255 和响应丢失；远端助手兼容目标 Python，不能拿本机版本替代。
 
+AGENTS.md 第 7 条的例外只覆盖 ag 暂无对应命令时、限定在单个 Attempt 范围内且逐次展示完整命令并获负责人明确同意的临时只读查看，不是开发捷径；仍须遵守该条的命令白名单、路径限制、输出处理和 study.md 记录要求。出现重复需要时，应开工单做成 ag 的正式只读命令，经监督方审阅并在合并前完成真实验证；正式命令可用后，立即停用对应的例外用法。
+
 ### 程序模板
 
 新增受审阅的 `ag/templates/` 程序体和 `.toml` 参数/输出声明，并同步 render、prepare/CLI、配置校验及 facts 解析入口。
