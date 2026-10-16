@@ -202,6 +202,57 @@ manifest 保持原样；准备时已有卡片的 Attempt 不接受替换，已�
 CLI 子命令模块通过 `register(subparsers)` 注册，用 `set_defaults(func=handler)`
 指定处理函数；确定性本地工具与远程作业控制分别维护，科学判据放在 `skills-next/` 的卡片中。
 
+## 本地分析命令：构象局部判别（dedup）
+
+`ag dedup` 可按使用者指定的二面角分组保留局部不同的构象，避免局部转动被整体
+RMSD 稀释。所有新选项均为可选；不加时保留原来的行为与输出格式。
+分组组合相同后，仍按原来的 RMSD、能量差和能量窗口判断。
+
+```bash
+ag dedup conformers.xyz --charge 0 --out study/analyses \
+  --dihedral-bins '1,2,3,4:-90,90@s-cis,s-trans' \
+  --dihedral-bins '5,6,7,8:-60,60,180@rot0,rot120,rot-120' \
+  --report-distance 9,10 --contact-atoms 9,10 --contact-cutoff 3.0 --json
+```
+
+编号是 XYZ 中从 1 开始的原子序号（不含前两行）。示例的 1–2–3–4 表示酰基
+二面角，5–6–7–8 表示新键转子，9、10 可替换为要审阅的 B···O 原子对。
+这些编号仅为示意，须按实际结构和已审阅的分组定义替换；不会自动推断构象家族。
+跨来源模式 `--source A=route-a.xyz --source B=route-b.xyz` 支持同样的选项，
+仍沿用已有的几何合并或 `--representative lowest` 同方法 Hartree 能量口径。
+各来源须使用相同的原子编号含义；局部描述符按原始 XYZ 编号计算，不跟随 RMSD
+的对称原子重排重新映射。
+
+- `--dihedral-bins A,B,C,D:b1,b2,...[@name1,name2,...]` 可重复。
+  分界必须在 −180° 到 180° 内严格升序，并在周期意义下互异（不能同时列 −180 和 180）。
+  第 1 组为 `[b1,b2)`，依次递推，最后一组从最后分界跨周期到第一个分界；
+  恰在分界的角属于从该分界开始的组。每个分界对应一个组名，省略时为 `bin1` 等。
+  例如 `-90,90` 的第 2 组包含 +179° 与 −179°。
+- `--report-distance I,J` 可重复，按定义顺序报告 Å 距离，不影响合并。
+- `--contact-atoms I,J,K,...` 可重复，取所有编号的并集；
+  `--contact-cutoff X` 默认为 3.0 Å，可为非负有限数，重复时最后一个值生效。
+  接触包括至少一端在所选集合中、距离严格小于阈值的所有原子对，
+  包括成键对和氢，排除自身，去重并按编号排序；它只供审阅，不影响合并。
+  指定 cutoff 时须同时给 contact-atoms，避免误以为仅给阈值就会生成接触指纹。
+
+JSON 仅在启用新选项时增加下列字段：
+
+- 顶层 `descriptors`：`dihedral_bins`（atoms、boundaries、names）、
+  `distance_pairs`、合并后的 `contact_atoms` 和 `contact_cutoff`。
+- `kept` 与 `excluded` 各行及跨来源 `members`：`dihedrals`（有符号度数，
+  范围 `[−180,180)`）、`bins`（从 1 开始的组号）、`distances`（Å）均按定义顺序排列；
+  `contacts` 为排序后的 `[i,j]` 列表。
+  `near_boundary` 在任一二面角距任一分界的周期差小于 5° 时为 true，供人工筛查，
+  不调整分组。未请求的数组为空，未请求二面角时 near_boundary 为 false。
+- 被合并行另有 `max_periodic_dihedral_difference`（与实际代表构象比较的最大周期差，
+  单位为度，未请求二面角时为 null）；跨来源的被合并成员也保留此值。
+- 顶层 `kept_by_bins`：最终保留代表中 RMSD 低于阈值但组号组合不同的所有配对，
+  含原始全局 `indices`、`rmsd` 和双方 `bins`。此审阅列表不按能量差过滤，
+  不表示每对都仅因分组而保留；不包含已被同组合代表合并或被能量窗口排除的帧。
+
+重复或越界编号、错误分界/组名、共线或重合导致未定义的二面角均报错，
+不会跳过坏定义或给它默认组号。所有帧先验证描述符再筛选，即使帧随后可能被能量窗口排除。
+
 ## 本地分析命令：构象集合清单
 
 `ag ensemble` 汇总已保存的 dedup、Attempt facts 和可选热化学表，生成同名 JSON 与 Markdown。
