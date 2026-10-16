@@ -507,7 +507,9 @@ def test_no_uncertain_contacts_preserve_main_json_bytes(tmp_path, chemistry, nam
         charge = -1 if name == 'proton_transfer' else 0
     report = topology.analyze(attempt(tmp_path, before, after, charge=charge))
     assert set(report['fragments']) == {'submitted', 'final'}
-    for key in ('ag_version', 'ag_provenance'):
+    # T89 adds evidence only; keep the original baseline hashes unchanged.
+    for key in ('ag_version', 'ag_provenance', 'resonance_check',
+                'resonance_equivalent', 'bond_differences_resonance_equivalent'):
         report.pop(key)
     data = (json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False) + '\n').encode()
     assert sha256(data).hexdigest() == expected_sha256

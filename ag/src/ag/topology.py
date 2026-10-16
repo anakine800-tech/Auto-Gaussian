@@ -141,7 +141,7 @@ def _check_fragments_and_mapping(result, submitted, final, charge):
         result['status'] = 'changed'
         result['reasons'].append(f'按半径比规则的连通片段数变化：{before} → {after}。')
         return
-    if not result['bond_differences']:
+    if not result['bond_differences'] or result.get('bond_differences_resonance_equivalent'):
         return
     # compare_endpoint can return before exposing graph keys on a distance
     # mismatch. Compute the canonical keys here without altering IRC behavior.
@@ -180,9 +180,13 @@ def compare_minimum(submitted, final, charge):
         if 'stereo_keys' in evidence:
             unresolved = any(row['endpoint'] in (None, '?') or row['reference'] in (None, '?')
                              for row in evidence['stereo_differences'])
+            resonance_unknown = (evidence['resonance_check']['status'] == 'unknown' or
+                evidence.get('resonance_stereo_check', {}).get('status') == 'unknown')
             result['bond_order_and_stereo_assessment'] = {
-                'status': 'unknown' if unresolved else 'evaluated',
-                'reason': '存在无法指派的立体中心。' if unresolved else 'RDKit 已推断键级与可指派立体身份；见差异。'}
+                'status': 'unknown' if unresolved or resonance_unknown else 'evaluated',
+                'reason': ('共振或立体身份未能确定；见差异与判定说明。' if resonance_unknown else
+                           '存在无法指派的立体中心。' if unresolved else
+                           'RDKit 已推断键级与可指派立体身份；见差异。')}
         else:
             result['bond_order_and_stereo_assessment']['reason'] = (
                 '未完成键级/立体身份比较（距离差异、不确定接触、缺电荷或 RDKit 推断失败）；'
@@ -300,6 +304,8 @@ def markdown(result):
     lines.extend(['', '## 判定说明', ''] + ['- ' + item for item in result['reasons'] + result['limitations']])
     # Include complete evidence so the Markdown alone is reviewable.
     for field in ('geometries', *DIFFERENCES, 'bond_order_and_stereo_assessment',
+                  'resonance_check', 'resonance_equivalent', 'bond_differences_resonance_equivalent',
+                  'resonance_stereo_check',
                   'graph_keys', 'stereo_keys', 'fragments', 'same_connectivity_graph',
                   'uncertain_contacts', 'pair_distances', 'distance_report_status'):
         value = result['sources']['submitted'].get(field) if field == 'geometries' else result.get(field)

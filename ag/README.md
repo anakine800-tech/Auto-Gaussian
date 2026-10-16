@@ -308,6 +308,9 @@ CLI 子命令模块通过 `register(subparsers)` 注册，用 `set_defaults(func
 “相连／不相连”两种处理均同向变化时才据此判为 `changed`；若片段数结论依赖这些接触，
 列出接触证据，并在没有已确定的键变化时保留 `unknown`，已有确定键变化则保留 `changed`。
 两种处理都不变则继续原有连接/立体比较，状态不代替科学审阅。
+`topology` / `irc-compare` 在含全部 H 的编号连接与逐片段总电荷相同时，双向枚举共振式：
+等价时保留原始键级差异并记录 `resonance_check`、`resonance_equivalent` 和
+`bond_differences_resonance_equivalent`；达到每向 1000 式上限或失败保留 unknown，立体比较独立进行。
 
 ## 本地分析命令：构象局部判别（dedup）
 
