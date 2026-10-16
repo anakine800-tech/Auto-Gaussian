@@ -115,6 +115,10 @@ F、H、CH₂OH、CH₂Cl，随后 CH₂OH 支链变为 CH₂Br，中心映射�
 |---|---|---|---|
 | <填写> | <填写> | <填写> | <填写> |
 
+计算阶段需要用 `ag channel-coverage`（T69）时，把通道表另存为 `analyses/` 下的 CSV，
+列为 `channel_id, product_branch, ensemble_manifests, note`（多个清单用分号分隔），
+与 `study.md` 中的通道表保持一致；以 `study.md` 为准。
+
 ## 6. 机理假设与证据表
 
 | 假设（编号、步骤与通道） | 预测：如果成立应看到什么 | 支持证据及位置 | 反对证据及位置 | 证据级别 | 计算上怎么区分 | 状态 |
