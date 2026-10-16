@@ -382,3 +382,229 @@ def test_face_and_syn_label_combined():
     result = build.site_labels(host, guest, 1, 2, 1, face='Si', face_center=1, face_priority='2,3,4', syn_anti_ref=3)
     assert result['label'] == 'O2-anti(H3)-Si'
     assert result['face']['priority'] == [2, 3, 4]
+
+
+def enumeration_args(root, **changes):
+    options = vars(arguments(root))
+    options.pop('command')
+    options.pop('guest_atoms')
+    for key in ('face', 'face_center', 'face_priority', 'syn_anti_ref'):
+        options.pop(key)
+    options.update(phi2='grid', site=[GUEST_ATOMS])
+    options.update(changes)
+    argv = ['enumerate']
+    for key, value in options.items():
+        flag = '--' + key.replace('_', '-')
+        if value is True:
+            argv.append(flag)
+        elif value is not None and value is not False:
+            argv.extend(f'{flag}={item}' for item in (value if isinstance(value, list) else [value]))
+    return build.parser().parse_args(argv)
+
+
+def test_enumerate_single_site_counts_mapping_and_saved_validation(tmp_path):
+    prepare(tmp_path)
+    report = build.run_enumerate(enumeration_args(tmp_path, constrain_angle=True))
+    assert report['statistics'] == dict(total_combinations=12, rejected=0, rejection_reasons={},
+                                      before_dedup=12, after_dedup=6, duplicates=6)
+    folder = output(tmp_path)
+    assert len(crest_input.xyz_ensemble((folder / 'candidates.xyz').read_text())) == 6
+    crest_input.validate((folder / 'constraints.inp').read_text(), 14)
+    assert 'distance: 1, 7,' in (folder / 'constraints.inp').read_text()
+    assert 'angle: 1, 7, 6,' in (folder / 'constraints.inp').read_text()
+    group = report['groups'][0]
+    assert group['ensemble_validated'] and group['constraints_validated']
+    assert group['atoms'] == dict(distance=[1, 7], angle=[1, 7, 6])
+    assert json.loads((folder / 'enumerate.json').read_text()) == report
+    rows = list(csv.DictReader((folder / 'candidates.csv').open()))
+    assert len(rows) == 12 and {row['group_id'] for row in rows} == {'1'}
+    assert [float(row['phi2']) for row in rows] == list(range(-180, 180, 30))
+    assert rows[1]['representative'] == 'candidate-0001'
+    assert rows[1]['kept'] == 'False' and rows[0]['kept'] == 'True'
+    atoms = list(csv.DictReader((folder / 'atoms.csv').open()))
+    assert len(atoms) == 14 and atoms[6]['source_index'] == '3'
+    host = geo.read_xyz(tmp_path / 'host.xyz')[0]
+    saved = geo.read_xyz(folder / 'candidates.xyz')
+    for frame, candidate in zip(saved, (c for c in report['candidates'] if c['kept'])):
+        assert frame.coordinates[:4] == host.coordinates
+        assert frame.energy is None  # Candidate IDs must never look like energies.
+        assert candidate['candidate_id'] in frame.comment and 'site=O3' in frame.comment
+        assert all(key + '=' in frame.comment for key in build.PARAMETERS)
+        assert max(candidate['deviations'].values()) < 1e-6
+        assert candidate['guest_distance_max_error'] < 1e-8
+    assert str(tmp_path) not in (folder / 'enumerate.json').read_text()
+
+
+def test_enumerate_two_sites_two_grids_cap_before_output(tmp_path):
+    prepare(tmp_path)
+    args = enumeration_args(tmp_path, site=['3,2,1', '3,2,4'], phi1='grid')
+    with pytest.raises(ValueError, match='288 combinations.*narrow'):
+        build.run_enumerate(args)
+    assert not output(tmp_path).exists()
+    args.max_candidates = 288
+    report = build.run_enumerate(args)
+    assert report['statistics']['total_combinations'] == 288
+    assert len(report['candidates']) == 288
+    assert len(report['groups']) == 1 and report['groups'][0]['site_ids'] == [1, 2]
+    assert report['statistics']['rejected'] > 0
+    assert 'unexpected_bond' in report['statistics']['rejection_reasons']
+    assert report['statistics']['before_dedup'] + report['statistics']['rejected'] == 288
+
+
+def test_enumerate_group_specific_inputs_and_no_cross_group_dedup(tmp_path):
+    prepare(tmp_path)
+    guest = geo.Frame(('O', 'C', 'O'), ((-1.3, 0., 0.), (0., 0., 0.), (.6, 1.15, 0.)))
+    write_frame(tmp_path / 'guest.xyz', guest)
+    args = enumeration_args(tmp_path, site=['1,2,3', '3,2,1'], r=6, phi2='grid:180', dedup_rmsd=100)
+    report = build.run_enumerate(args)
+    assert report['statistics']['after_dedup'] == 2
+    assert report['statistics']['duplicates'] == 2
+    assert len(report['groups']) == 2
+    folder = output(tmp_path)
+    assert not (folder / 'candidates.xyz').exists() and not (folder / 'constraints.inp').exists()
+    for group_id, group in enumerate(report['groups'], 1):
+        assert group['site_ids'] == [group_id]
+        assert group['candidates_file'] == f'candidates-group-{group_id}.xyz'
+        assert group['constraints_file'] == f'constraints-group-{group_id}.inp'
+        assert group['atoms']['distance'] == [1, 5 if group_id == 1 else 7]
+        assert len(crest_input.xyz_ensemble((folder / group['candidates_file']).read_text())) == 1
+        crest_input.validate((folder / group['constraints_file']).read_text(), 7)
+        candidates = [c for c in report['candidates'] if c['group_id'] == group_id]
+        assert candidates[1]['representative'] == candidates[0]['candidate_id']
+
+
+@pytest.mark.parametrize('constrain_angle,group_count', [(False, 1), (True, 2)])
+def test_enumerate_groups_by_only_constrained_atoms(tmp_path, constrain_angle, group_count):
+    prepare(tmp_path)
+    guest = geo.Frame(('O', 'C', 'C', 'C'), ((0., 0., 0.), (1.3, 0., 0.), (1.3, 1.3, 0.), (0., 1.3, 0.)))
+    write_frame(tmp_path / 'guest.xyz', guest)
+    report = build.run_enumerate(enumeration_args(tmp_path, site=['1,2,3', '1,4,3'], r=6,
+                                                  phi2='grid:180', constrain_angle=constrain_angle))
+    assert len(report['groups']) == group_count
+    assert [s['group_id'] for s in report['sites']] == ([1, 2] if constrain_angle else [1, 1])
+
+
+def test_enumerate_face_and_syn_anti_rejections_are_recorded(tmp_path):
+    prepare(tmp_path)
+    report = build.run_enumerate(enumeration_args(tmp_path, r=5, phi2=40, phi3='grid',
+                                                  site=['3,2,1:face=Re:center=2:priority=3,1,4:ref=1']))
+    assert report['statistics']['rejection_reasons']['face_mismatch'] > 0
+    assert report['statistics']['after_dedup'] > 0
+    for candidate in report['candidates']:
+        if candidate['kept']:
+            assert candidate['site']['face']['label'] == 'Re'
+            assert candidate['site']['syn_anti']['label'] in {'syn', 'anti'}
+        if candidate['site'] and candidate['site']['face']['label'] != 'Re':
+            assert candidate['status'] == 'rejected'
+            assert 'face_mismatch' in candidate['rejection_reasons']
+    bad = build.run_enumerate(enumeration_args(tmp_path, name='bad-ref', site=['3,2,1:ref=3']))
+    assert bad['statistics']['rejection_reasons']['label_error'] == 12
+    assert not (output(tmp_path, 'bad-ref') / 'candidates.xyz').exists()
+
+
+def test_enumerate_all_clashes_exit_nonzero_and_preserve_reports(tmp_path, capsys):
+    prepare(tmp_path)
+    args = enumeration_args(tmp_path, vdw_factor=10)
+    # Use the public CLI for its all-rejected exit status.
+    argv = ['enumerate']
+    for key, value in vars(args).items():
+        if key == 'command' or value is None or value is False:
+            continue
+        for item in value if isinstance(value, list) else [value]:
+            argv.append('--' + key.replace('_', '-') + '=' + str(item))
+    assert build.main(argv) == 2
+    report = json.loads(capsys.readouterr().out)
+    assert report['statistics']['rejected'] == 12
+    assert report['statistics']['rejection_reasons']['vdw_overlap'] == 12
+    assert report['statistics']['before_dedup'] == report['statistics']['after_dedup'] == 0
+    assert not (output(tmp_path) / 'candidates.xyz').exists()
+    assert (output(tmp_path) / 'enumerate.md').exists() and (output(tmp_path) / 'candidates.csv').exists()
+    before = {p.name: p.read_bytes() for p in output(tmp_path).iterdir()}
+    with pytest.raises(ValueError, match='already exists'):
+        build.run_enumerate(args)
+    assert before == {p.name: p.read_bytes() for p in output(tmp_path).iterdir()}
+
+
+def test_enumerate_identical_inputs_produce_identical_output_bytes(tmp_path):
+    for name in ('first', 'second'):
+        root = tmp_path / name
+        root.mkdir()
+        prepare(root)
+        build.run_enumerate(enumeration_args(root, site=['3,2,1', '3,2,4']))
+    first, second = (output(tmp_path / name) for name in ('first', 'second'))
+    assert {p.name: p.read_bytes() for p in first.iterdir()} == {p.name: p.read_bytes() for p in second.iterdir()}
+
+
+def test_heavy_kabsch_uses_fixed_rows_excludes_h_and_never_reflects():
+    points = ((0., 0., 0.), (1., 0., 0.), (0., 2., 0.), (0., 0., 3.), (1., 1., 1.))
+    symbols = ('C', 'O', 'C', 'N', 'H')
+    changed_h = (*points[:-1], (30., 40., 50.))
+    assert build.heavy_rmsd(points, changed_h, symbols) < 1e-12
+    moved = transformed(geo.Frame(symbols, points), np.random.default_rng(90))
+    assert build.heavy_rmsd(points, moved.coordinates, symbols) < 1e-12
+    reflected = np.asarray(points) * [-1, 1, 1]
+    assert build.heavy_rmsd(points, reflected, symbols) > .3
+    swapped = (points[2], points[1], points[0], *points[3:])
+    assert build.heavy_rmsd(points, swapped, symbols) > .3
+
+
+@pytest.mark.parametrize('changes,error', [
+    ({'phi2': 30}, 'at least one'), ({'phi2': 'grid:0'}, 'positive'),
+    ({'phi2': 'grid:nan'}, 'finite'), ({'phi2': 'grid:1e-300'}, 'combinations'),
+    ({'dedup_rmsd': 0}, 'positive'), ({'max_candidates': 0}, 'positive'),
+    ({'site': ['3,2,1:face=Re']}, 'together'), ({'site': ['3,2,1:ref=0']}, '1-based'),
+    ({'site': ['3,2,1:ref=1:ref=4']}, 'unique'), ({'site': ['3,2,1:unknown=1']}, 'unique'),
+    ({'site': ['3,2,1:face=bad:center=2:priority=3,1,4']}, 'together'),
+])
+def test_enumerate_bad_input_no_output(tmp_path, changes, error):
+    prepare(tmp_path)
+    with pytest.raises(ValueError, match=error):
+        build.run_enumerate(enumeration_args(tmp_path, **changes))
+    assert not output(tmp_path).exists()
+
+
+def test_grid_half_open_range_and_non_dividing_step():
+    assert build.grid_values(build.torsion_grid('grid')) == list(range(-180, 180, 30))
+    assert build.grid_values(build.torsion_grid('grid:100')) == [-180., -80., 20., 120.]
+    assert build.grid_values(build.torsion_grid('31.5')) == [31.5]
+
+
+
+def test_enumerate_heavy_geometry_rotational_duplicates(tmp_path):
+    prepare(tmp_path)
+    water = geo.Frame(('O', 'H', 'H'), ((0., 0., 0.), (.96, 0., 0.), (-.24, .93, 0.)))
+    write_frame(tmp_path / 'host.xyz', water)
+    report = build.run_enumerate(enumeration_args(tmp_path, host_atoms='2,3,1', r=5))
+    # With the host's only heavy atom on A-D, phi2 rotations are equivalent
+    # under the requested all-heavy-atom alignment (host H are excluded).
+    assert report['statistics']['before_dedup'] == 12
+    assert report['statistics']['after_dedup'] == 1
+    assert all(c['representative'] == 'candidate-0001' for c in report['candidates'])
+    assert all(c['representative_rmsd'] < 1e-12 for c in report['candidates'][1:])
+
+
+@pytest.mark.parametrize('validator,filename', [('validate', 'constraints.inp'), ('xyz_ensemble', 'candidates.xyz')])
+def test_enumerate_revalidates_delivered_files(tmp_path, monkeypatch, validator, filename):
+    prepare(tmp_path)
+    original = getattr(crest_input, validator)
+    def fail_saved(text, *args):
+        path = output(tmp_path) / filename
+        if path.exists():
+            assert path.read_text() == text
+            raise ValueError('delivered file rejected')
+        return original(text, *args)
+    monkeypatch.setattr(crest_input, validator, fail_saved)
+    with pytest.raises(ValueError, match='delivered file rejected'):
+        build.run_enumerate(enumeration_args(tmp_path))
+    assert not (output(tmp_path) / 'enumerate.json').exists()
+    with pytest.raises(ValueError, match='already exists'):
+        build.run_enumerate(enumeration_args(tmp_path))
+
+
+@pytest.mark.parametrize('changes', [{'host': '../host.xyz'}, {'host': '/outside.xyz'}, {'name': '../escape'}, {'guest': 'link.xyz'}])
+def test_enumerate_reuses_safe_paths(tmp_path, changes):
+    prepare(tmp_path)
+    (tmp_path / 'link.xyz').symlink_to(tmp_path / 'guest.xyz')
+    with pytest.raises(ValueError, match='relative|symlink|name must'):
+        build.run_enumerate(enumeration_args(tmp_path, **changes))
+    assert not output(tmp_path).exists()

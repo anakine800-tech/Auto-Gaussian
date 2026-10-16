@@ -42,11 +42,32 @@
 定向初猜可用 structures 的 [build_complex.py](../../auto-g16-structures/scripts/build_complex.py)：
 先用 `sites` 列出客体候选供人选择；六个内坐标和 P2/P1/A、D/X/Y 参照原子全部
 由人指定并写进 study，也可用 `measure` 复用已审阅复合物摆法。`build` 仅作刚体变换，
-进攻面标签只校验，不推断 CIP；重叠即拒绝，不自动转动或枚举。产物及原子来源映射、
+进攻面标签只校验，不推断 CIP；单次 `build` 重叠即拒绝，不自动转动或枚举。产物及原子来源映射、
 实测/接触报告和经 `crest_input.validate` 校验的约束草稿位于
 `analyses/complex-build/NAME/`；力常数必须人给。产出默认走上述约束 CREST（directed），
 限主族单个配位接触，多配位点、过渡金属及 f 区元素不在范围内；具体参数见
 [定向复合物构建](../../auto-g16-structures/SKILL.md#定向复合物构建)。
+
+人已勾选多个位点/面时，可用 `enumerate`：r、theta1、theta2 固定，三个 phi
+分别指定固定值或 `grid[:步长]`（默认 30°，范围 [−180°, 180°)，至少一个网格）。
+先按位点数 × 网格组合数检查默认 200 上限，超限报错要求缩小范围，不随机抽样。
+复用 `build` 的六参数/刚体/标签核对，剔除重叠与进攻面不符的组合并记录原因；
+按约束原子组合分组后，仅组内以固定行序全部重原子 Kabsch RMSD < 0.3 Å 去重，
+保留先出现者；不交换原子、不作镜像，氢朝向及局部差异仍须人工检查。
+`candidates.csv`、`enumerate.json` / `.md` 保留所有候选、组号、去重代表、
+输入哈希、剔除原因与统计；`atoms.csv` 保留原子来源。每组分别配套
+`candidates-group-N.xyz` 与 `constraints-group-N.inp`；一组时沿用无 group 后缀名。
+约束原子不同的组不能混用文件；空组不写 XYZ，全部剔除退出非零，仍保留报告。
+
+逐组审阅后，可用上文产出的同组 XYZ / INP 交给现有 `ag prepare`：
+
+```text
+ag prepare --study <study_id> --template crest --input <candidates-group-N.xyz> --constraints <constraints-group-N.inp> --param=--mdopt --param=--gfn2 --param=--chrg=<总电荷> --param=--uhf=0 --tier <档位> --walltime <时限> --label <组与来源> --card crest-screen --method-basis <已审阅依据>
+```
+
+`--mdopt` 是多帧同方法优化，不能称为完整搜索；也可按已签方案选取单帧，
+每帧新 Attempt 运行不带 `--mdopt` 的约束 CREST 多起点采样。逐组文件均经
+`crest_input.xyz_ensemble` / `crest_input.validate` 校验，仍须人工审阅与提交确认。
 
 以下是约束文件骨架，所有占位符须替换为已审阅数值；力常数、单位、约束势与
 实际距离偏差的记录方式见 [CREST 约束构象搜索](crest-screen.md#约束构象搜索)。
