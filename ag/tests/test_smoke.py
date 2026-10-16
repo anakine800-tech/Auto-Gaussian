@@ -64,7 +64,7 @@ def test_dedup_help_and_run_without_config(monkeypatch, tmp_path, capsys):
     ["prepare", "--method-basis", "兜底方法：合成测试", "--study", "study",
      "--template", "gaussian", "--input", "input.gjf",
      "--tier", "simple", "--walltime", "00:30:00", "--label", "sp"],
-    ["submit", "attempt"], ["status"], ["fetch", "attempt"],
+    ["submit", "attempt"], ["status"], ["fetch", "attempt"], ["snapshot", "attempt"],
     ["cancel", "attempt"], ["list"], ["doctor"],
 ])
 def test_core_commands_still_require_config(monkeypatch, tmp_path, capsys, argv):
