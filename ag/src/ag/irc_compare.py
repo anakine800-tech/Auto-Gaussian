@@ -90,7 +90,12 @@ def compare_endpoint(endpoint, reference, charge):
     from rdkit.Chem import rdDetermineBonds
 
     result = {'status': UNKNOWN, 'reasons': [], 'bond_differences': [],
-              'ambiguous_bonds': [], 'proton_differences': [], 'stereo_differences': []}
+              'ambiguous_bonds': [], 'proton_differences': [], 'stereo_differences': [],
+              'resonance_equivalent': False, 'bond_differences_resonance_equivalent': False,
+              'resonance_check': {'executed': False, 'status': 'not_checked',
+                  'reason': '前置连接、电荷或推断检查尚未通过。',
+                  'enumerated': {'endpoint': 0, 'reference': 0},
+                  'limit': geo.RESONANCE_MAX_STRUCTURES, 'limit_reached': False}}
     left, right = endpoint['frame'], reference['frame']
     if left.symbols != right.symbols:
         result.update(status=MISMATCH, reasons=['元素序列或原子数不同，不能沿用原子编号映射'])
@@ -168,14 +173,57 @@ def compare_endpoint(endpoint, reference, charge):
                                                  'reference': stereo_b.get(atom)})
     result['graph_keys'] = {'endpoint': geo.graph_key(a, Chem), 'reference': geo.graph_key(b, Chem)}
     result['stereo_keys'] = {'endpoint': geo.stereo_key(a, Chem), 'reference': geo.stereo_key(b, Chem)}
-    if result['bond_differences'] or result['graph_keys']['endpoint'] != result['graph_keys']['reference']:
+    check = result['resonance_check'] = geo.resonance_equivalence(a, b, Chem)
+    equivalent = check['status'] == 'equivalent'
+    result['resonance_equivalent'] = equivalent
+    result['bond_differences_resonance_equivalent'] = equivalent and bool(result['bond_differences'])
+    stereo_differences = result['stereo_differences']
+    stereo_key_mismatch = result['stereo_keys']['endpoint'] != result['stereo_keys']['reference']
+    if equivalent:
+        # Isomeric SMILES also contains localized bond orders/charges. Compare
+        # both geometries in EACH proven representation so this difference
+        # cannot masquerade as stereo, nor hide a center or E/Z double bond
+        # present in only one representation. Raw keys remain in the report.
+        normalized = []
+        try:
+            for label, template in (('endpoint', a), ('reference', b)):
+                copies = []
+                for original in (a, b):
+                    mol = Chem.Mol(template)
+                    mol.RemoveAllConformers()
+                    mol.AddConformer(Chem.Conformer(original.GetConformer()))
+                    Chem.RemoveStereochemistry(mol)
+                    Chem.AssignStereochemistryFrom3D(mol, replaceExistingTags=True)
+                    copies.append(mol)
+                centers_a, centers_b = (_stereo(mol, Chem) for mol in copies)
+                differences = [dict(atom=atom, endpoint=centers_a.get(atom), reference=centers_b.get(atom))
+                    for atom in sorted(centers_a.keys() | centers_b.keys())
+                    if centers_a.get(atom) != centers_b.get(atom) or centers_a.get(atom) == '?']
+                normalized.append(dict(representation=label, stereo_differences=differences,
+                    stereo_keys=dict(zip(('endpoint', 'reference'), (geo.stereo_key(mol, Chem) for mol in copies)))))
+        except (ValueError, RuntimeError):
+            result['resonance_stereo_check'] = dict(status='unknown', representations=normalized)
+            result['reasons'].extend([check['reason'], '共振表示下的立体比较失败，不能确认构型一致。'])
+            return result
+        result['resonance_stereo_check'] = dict(status='evaluated', representations=normalized)
+        stereo_differences = [row for item in normalized for row in item['stereo_differences']]
+        stereo_key_mismatch = any(item['stereo_keys']['endpoint'] != item['stereo_keys']['reference']
+                                  for item in normalized)
+    representation_differs = (result['bond_differences'] or
+        result['graph_keys']['endpoint'] != result['graph_keys']['reference'] or
+        check['status'] == 'not_equivalent')
+    if check['status'] == 'unknown':
+        result['reasons'].append(check['reason'])
+    elif representation_differs and not equivalent:
         result.update(status=MISMATCH, reasons=['推断的连接、键级或形式电荷不同'])
-    elif any(item['endpoint'] in (None, '?') or item['reference'] in (None, '?') for item in result['stereo_differences']):
+    elif any(item['endpoint'] in (None, '?') or item['reference'] in (None, '?') for item in stereo_differences):
         result['reasons'].append('至少一个立体中心无法指派，不能确认构型一致')
-    elif result['stereo_differences'] or result['stereo_keys']['endpoint'] != result['stereo_keys']['reference']:
+    elif stereo_differences or stereo_key_mismatch:
         result.update(status=MISMATCH, reasons=['立体中心或双键立体构型不同'])
     else:
         result.update(status=MATCH, reasons=['元素、按编号连接/键级、质子归属与可指派立体身份一致'])
+    if equivalent:
+        result['reasons'].append(check['reason'])
     return result
 
 
@@ -205,7 +253,8 @@ def compare(ts, forward, reverse, reactant, product):
             before = bond.get('reference_state', 'bonded' if bond.get('reference_order') else 'separated')
             after = bond.get('endpoint_state', 'bonded' if bond.get('endpoint_order') else 'separated')
             bond['change'] = 'formed' if before == 'separated' else 'broken' if after == 'separated' else 'order_changed'
-        return {key: evidence[key] for key in ('bond_differences', 'ambiguous_bonds', 'proton_differences', 'stereo_differences')}
+        return {key: evidence[key] for key in ('bond_differences', 'ambiguous_bonds', 'proton_differences', 'stereo_differences',
+            'resonance_check', 'resonance_equivalent', 'bond_differences_resonance_equivalent')}
     reaction_changes = {'reference_reactant_to_product': changes(reactant, product)}
     if len(selected) == 1:
         by_side = {side: sources[direction] for direction, side in selected[0].items()}

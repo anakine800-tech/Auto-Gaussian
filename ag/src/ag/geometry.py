@@ -101,6 +101,77 @@ def graph_key(mol, chem):
     return chem.MolToSmiles(chem.RemoveHs(mol), isomericSmiles=False)
 
 
+# A truncated enumeration cannot establish that two localized graphs agree.
+RESONANCE_MAX_STRUCTURES = 1000
+
+
+def resonance_equivalence(left, right, chem):
+    """Compare localized graphs at fixed atom indices, including every H.
+
+    This is an electronic-representation check only; callers must still check
+    geometry connectivity, electronic-state metadata and stereochemistry.
+    UNCONSTRAINED_ANIONS includes the less favored C-local nitronate forms.
+    Inputs are copied: inference, graph keys, conformers and stereo stay intact.
+    """
+    result = dict(executed=False, status='not_needed', reason='编号键级和形式电荷一致。',
+                  enumerated={'endpoint': 0, 'reference': 0},
+                  limit=RESONANCE_MAX_STRUCTURES, limit_reached=False,
+                  atoms=[], bonds=[], formal_charge_differences=[], fragment_charges=[])
+
+    def signature(mol):
+        return ({tuple(sorted((b.GetBeginAtomIdx() + 1, b.GetEndAtomIdx() + 1))):
+                 b.GetBondTypeAsDouble() for b in mol.GetBonds()},
+                tuple(a.GetFormalCharge() for a in mol.GetAtoms()))
+
+    bonds_a, charges_a = signature(left)
+    bonds_b, charges_b = signature(right)
+    if (tuple(a.GetAtomicNum() for a in left.GetAtoms()) !=
+            tuple(a.GetAtomicNum() for a in right.GetAtoms()) or bonds_a.keys() != bonds_b.keys()):
+        result.update(status='not_equivalent', reason='含全部 H 的编号元素或连接不同。')
+        return result
+    result['bonds'] = [list(pair) for pair in sorted(bonds_a) if bonds_a[pair] != bonds_b[pair]]
+    result['formal_charge_differences'] = [dict(atom=i + 1, endpoint=a, reference=b)
+        for i, (a, b) in enumerate(zip(charges_a, charges_b)) if a != b]
+    result['atoms'] = sorted({i for pair in result['bonds'] for i in pair} |
+                             {row['atom'] for row in result['formal_charge_differences']})
+    for component in chem.GetMolFrags(left):
+        result['fragment_charges'].append(dict(atoms=[i + 1 for i in component],
+            endpoint=sum(charges_a[i] for i in component), reference=sum(charges_b[i] for i in component)))
+    if any(row['endpoint'] != row['reference'] for row in result['fragment_charges']):
+        result.update(status='not_equivalent', reason='按原子归属核对的片段总电荷不同。')
+        return result
+    if not result['atoms']:
+        return result
+    result['executed'] = True
+    matches = []
+    try:
+        for name, mol, target in (('endpoint', left, (bonds_b, charges_b)),
+                                  ('reference', right, (bonds_a, charges_a))):
+            supplier = chem.ResonanceMolSupplier(chem.Mol(mol),
+                flags=chem.ResonanceFlags.UNCONSTRAINED_ANIONS,
+                maxStructs=RESONANCE_MAX_STRUCTURES)
+            count = len(supplier)
+            result['enumerated'][name] = count
+            # RDKit does not expose whether maxStructs cut off another form.
+            # Even a match in the capped prefix is conservatively unknown.
+            result['limit_reached'] |= count >= RESONANCE_MAX_STRUCTURES
+            if supplier.WasCanceled() or count == 0:
+                raise ValueError('incomplete resonance enumeration')
+            matches.append(any(signature(form) == target for form in supplier))
+    except Exception as exc:
+        # RDKit may raise several C++/Python exception types; never accept on
+        # failure and do not expose molecule contents from exception messages.
+        result.update(status='unknown', reason=f'共振枚举失败（{type(exc).__name__}）；不能确认等价。')
+        return result
+    if result['limit_reached']:
+        result.update(status='unknown', reason='共振枚举达到上限；不能确认等价。')
+    elif any(matches):
+        result.update(status='equivalent', reason='键级 / 电荷位置差异经判断为共振等价。')
+    else:
+        result.update(status='not_equivalent', reason='双向枚举未找到对应的编号键级与形式电荷。')
+    return result
+
+
 def stereo_key(mol, chem):
     return chem.MolToSmiles(chem.RemoveHs(mol), isomericSmiles=True)
 
