@@ -292,10 +292,10 @@ def test_formula_and_route_parser():
     for value in ('', 'C0H2', 'C(OH)2', 'H2O.xxx'):
         with pytest.raises(ValueError):
             parse_formula(value)
-    assert protocol('#p B3LYP/6-31G(d) SCRF=(SMD, Solvent=Water) freq')['solvent'] == 'water'
+    assert protocol('#p B3LYP/6-31G(d) SCRF=(SMD, Solvent=Water) freq', 1)['solvent'] == 'water'
     for route in ('#p b3lyp/gen freq', '#p b3lyp/6-31g scrf=read freq', '#p pm6 freq'):
         with pytest.raises(ValueError):
-            protocol(route)
+            protocol(route, 1)
 
 
 @pytest.mark.parametrize('keywords', ['Opt Freq', 'Freq'])
@@ -305,17 +305,17 @@ def test_formula_and_route_parser():
     '#p B3LYP/6-31+G(d) scrf = ( smd , solvent = water ) EmpiricalDispersion=GD3BJ {keywords}',
 ])
 def test_protocol_whitespace_preserves_keyword_boundaries(route, keywords):
-    assert protocol(route.format(keywords=keywords)) == {
-        'method': 'b3lyp', 'basis': '6-31+g(d)', 'dispersion': 'gd3bj',
+    assert protocol(route.format(keywords=keywords), 1) == {
+        'method': 'rb3lyp', 'basis': '6-31+g(d)', 'dispersion': 'gd3bj',
         'solvent_model': 'smd', 'solvent': 'water',
         'basis_function_type': 'basis_default',
     }
 
 
 def test_protocol_whitespace_does_not_erase_basis_differences():
-    small = protocol('#p B3LYP/6-31+G(d) Opt Freq')
-    assert small == protocol('#p B3LYP / 6-31+G( d ) Freq')
-    large = protocol('#p B3LYP / 6-311++G( d , p ) Freq')
+    small = protocol('#p B3LYP/6-31+G(d) Opt Freq', 1)
+    assert small == protocol('#p B3LYP / 6-31+G( d ) Freq', 1)
+    large = protocol('#p B3LYP / 6-311++G( d , p ) Freq', 1)
     assert large['basis'] == '6-311++g(d,p)'
     assert small != large
 

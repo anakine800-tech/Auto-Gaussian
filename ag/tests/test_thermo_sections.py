@@ -35,18 +35,20 @@ ROUTE = 'HF/STO-3G EmpiricalDispersion=GD3BJ SCRF=(SMD,Solvent=Water)'
 
 
 def synthetic(tmp_path, *, opt=ROUTE, freq=ROUTE, tail=False, standalone=False,
-              opt_print='', freq_print=''):
-    directory = attempt(tmp_path, fixture=None)
-    body = (' Gaussian 16, Revision A.03,\n' + GEOMETRY + freq_print
+              opt_print='', freq_print='', name='water', multiplicity=1, charge=0):
+    directory = attempt(tmp_path, name, fixture=None)
+    geometry = GEOMETRY.replace('Charge = 0 Multiplicity = 1',
+                                f'Charge = {charge} Multiplicity = {multiplicity}')
+    body = (' Gaussian 16, Revision A.03,\n' + geometry + freq_print
             + ' SCF Done:  E(RHF) =  -75.000000000 A.U. after 1 cycles\n'
             + FREQUENCIES + TABLE + THERMAL)
     text = '' if standalone else section(' #p ' + opt + ' Opt',
-        body=GEOMETRY + opt_print + ' SCF Done:  E(RHF) =  -77.000000 A.U. after 1 cycles\n'
+        body=geometry + opt_print + ' SCF Done:  E(RHF) =  -77.000000 A.U. after 1 cycles\n'
         + ' Step number 1\n' + TABLE + ' Optimization completed.\n')
     text += section(' #p ' + freq + ' Fr\n eq Integral=UltraFine',
                     body=body, explicit=not standalone)
     if tail:
-        text += section(' #p HF/6-31G SP', explicit=True, body=GEOMETRY
+        text += section(' #p HF/6-31G SP', explicit=True, body=geometry
                         + ' SCF Done:  E(RHF) =  -99.000000 A.U. after 1 cycles\n'
                         + ' Rotational symmetry number  9.0000\n')
     (directory / 'outputs/input.log').write_text(text)
@@ -81,7 +83,7 @@ def test_matching_sections_bind_thermo_and_profile_to_actual_freq(tmp_path, tail
     (ROUTE.replace('Water', 'Toluene'), ['solvent']),
     (ROUTE + ' 6D', ['basis_function_type']),
     ('B3LYP/6-31G', ['method', 'basis', 'dispersion', 'solvent_model', 'solvent']),
-    (ROUTE.replace('HF/', 'RHF/'), ['method']),
+    (ROUTE.replace('HF/', 'UHF/'), ['method']),
 ])
 @pytest.mark.parametrize('consumer', ['thermo', 'profile'])
 def test_opt_freq_differences_are_listed_and_rejected(tmp_path, freq, fields, consumer):

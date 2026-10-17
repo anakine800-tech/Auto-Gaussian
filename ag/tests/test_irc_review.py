@@ -165,7 +165,7 @@ def test_path_hashes_bind_pending_and_written_xyz_bytes(sample, monkeypatch, mis
      '28db495f99d2559279c3f27e653d3868c3b56f2648b60aeaa2c8caaa03d04a34',
      '107f66cdc975bb0d338a69d72fd4769fe9b05da521c37a341547af30c9646a8a'),
 ])
-def test_outputs_match_main_bytes_except_path_hashes(sample, monkeypatch, case, json_hash, md_hash, forward_hash):
+def test_outputs_match_main_bytes_except_path_hashes_and_spin_prefix(sample, monkeypatch, case, json_hash, md_hash, forward_hash):
     # Captured from unmodified main 0cccf9598e4d751138144dc43b39e1742547c45f.
     # Pin release metadata and platform-dependent SVD rounding in this byte test.
     monkeypatch.setattr(ir, '__version__', '4.2.2')
@@ -178,6 +178,10 @@ def test_outputs_match_main_bytes_except_path_hashes(sample, monkeypatch, case, 
     directory = sample / 'analyses'
     raw = (directory / 'review.json').read_bytes()
     report = json.loads(raw)
+    # T99 completes the implicit singlet prefix; only that label may change.
+    assert report['protocol']['method'] == 'rhf'
+    assert raw.count(b'"method": "rhf"') == 1
+    raw = raw.replace(b'"method": "rhf"', b'"method": "hf"', 1)
     # Remove only the two new field lines; preserve all other JSON bytes.
     for item in report['directions'].values():
         digest = item['path_geometry']['sha256']

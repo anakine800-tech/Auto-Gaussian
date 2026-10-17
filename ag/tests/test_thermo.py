@@ -16,7 +16,8 @@ def conformers(tmp_path):
 
 
 
-def sp_input(sp, frequency, *, coordinates=None, symbols=None, route='# HF/3-21G SP'):
+def sp_input(sp, frequency, *, coordinates=None, symbols=None, route='# HF/3-21G SP',
+             multiplicity=1, charge=0):
     from ag.facts import build_facts
     from ag.geometry import read_xyz
     build_facts(frequency)
@@ -25,7 +26,7 @@ def sp_input(sp, frequency, *, coordinates=None, symbols=None, route='# HF/3-21G
         coordinates = frame.coordinates
     if symbols is None:
         symbols = frame.symbols
-    text = '%nprocshared=8\n%mem=8GB\n' + route + '\n\nSP\n\n0 1\n'
+    text = '%nprocshared=8\n%mem=8GB\n' + route + f'\n\nSP\n\n{charge} {multiplicity}\n'
     text += ''.join(f'{symbol} {x:.12f} {y:.12f} {z:.12f}\n'
                     for symbol, (x, y, z) in zip(symbols, coordinates)) + '\n'
     (sp / 'inputs').mkdir(exist_ok=True)

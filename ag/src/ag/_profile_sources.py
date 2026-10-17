@@ -17,7 +17,8 @@ from ag.thermo import (boltzmann, _symmetry_evidence, _frequency_evidence, _pair
 
 # SCF Done is not the final electronic energy for these method families.
 # Keep the accepted names explicit: an unknown method is not evidence of SCF
-# energy semantics. R/U/RO prefixes are accepted without equating protocols.
+# energy semantics. Explicit R/U/RO prefixes remain distinct after completing
+# omitted prefixes from the multiplicity.
 SCF_ENERGY_METHODS = frozenset('''
 hf lsda svwn svwn5 slyp blyp bp86 bpw91 bpe bpbe g96lyp g96p86 g96pw91
 pw91lyp pw91p86 pw91pw91 mpwlyp mpwpw91 mpwpbe pbe pbe0 pbepbe pbe1pbe
@@ -132,7 +133,22 @@ def local_path(study, base, value):
     return path
 
 
-def protocol(route):
+def normalized_method(method, multiplicity):
+    """Complete only an omitted spin prefix; explicit R/U/RO stay distinct.
+
+    Gaussian may echo an unprefixed Opt functional as R... in internal Freq.
+    Match a complete supported base name first: e.g. revTPSS is a functional,
+    not an R-prefixed evTPSS. A missing spin state cannot supply a default.
+    """
+    integer(multiplicity, 'method multiplicity', positive=True)
+    method = nonempty(method, 'method').lower()
+    if method.replace('-', '') in {m.replace('-', '') for m in SCF_ENERGY_METHODS}:
+        return ('r' if multiplicity == 1 else 'u') + method
+    _scf_method_checked(method)
+    return method
+
+
+def protocol(route, multiplicity):
     """Conservative Gaussian route extraction; ambiguous/custom protocols fail.
 
     Do not guess Gen/GenECP contents or SCRF=Read dielectric/basis data. Job
@@ -174,7 +190,7 @@ def protocol(route):
     require(not ({'5d', '6d'} <= set(basis_types) or {'7f', '10f'} <= set(basis_types)),
             'Conflicting basis function types')
     basis_type = ' '.join(x.upper() for x in ('5d', '6d', '7f', '10f') if x in basis_types)
-    return {'method': method, 'basis': basis,
+    return {'method': normalized_method(method, multiplicity), 'basis': basis,
             'basis_function_type': basis_type or 'basis_default',
             'dispersion': dispersion[0] if dispersion else 'method_default',
             'solvent_model': model, 'solvent': solvent}
@@ -260,12 +276,12 @@ def _printed_solvent(block, offset, label):
     return {'values': result, 'blocks': locations} if result is not None else None
 
 
-def _section_protocol(section, block, label):
+def _section_protocol(section, block, label, multiplicity):
     route = section.get('route') or ''
     require(len(re.findall(r'\bscrf\b', route, re.I)) <= 1, 'Ambiguous solvent settings')
     check = r'\bscrf\b\s*=?\s*(?:\(\s*check\s*\)|check\b)'
     inherited_solvent = bool(re.search(check, route, re.I))
-    method = protocol(re.sub(check, '', route, flags=re.I) if inherited_solvent else route)
+    method = protocol(re.sub(check, '', route, flags=re.I) if inherited_solvent else route, multiplicity)
     require(method['dispersion'].strip('()') not in {'check', 'read'},
             f'{label}: unsupported inherited dispersion; explicit or recognized printed evidence is required')
     solvent = _printed_solvent(block, section['start_line'] - 1, label) if block is not None else None
@@ -335,7 +351,8 @@ def section_source(facts, attempt_id, *, frequency=True, directory=None):
         blocks = {s['index']: gaussian_section_text(text, s) for s in sections}
     route = section.get('route')
     try:
-        method, evidence = _section_protocol(section, blocks.get(index), f'{attempt_id}: section {index}')
+        method, evidence = _section_protocol(section, blocks.get(index), f'{attempt_id}: section {index}',
+                                             facts.get('multiplicity'))
     except ValueError as exc:
         raise ValueError(f'{attempt_id}: section {index} protocol: {exc}') from exc
     if frequency:
@@ -354,7 +371,8 @@ def section_source(facts, attempt_id, *, frequency=True, directory=None):
                 continue
             try:
                 opt, opt_evidence = _section_protocol(other, blocks.get(other['index']),
-                                                      f"{attempt_id}: Opt section {other['index']}")
+                                                      f"{attempt_id}: Opt section {other['index']}",
+                                                      facts.get('multiplicity'))
             except ValueError as exc:
                 raise ValueError(f"{attempt_id}: Opt section {other['index']} protocol: {exc}") from exc
             participants.append((other, opt, opt_evidence))
@@ -448,6 +466,17 @@ def check_review(directory):
             f'{directory.name}: TS review must pass and confirm imaginary-mode direction')
 
 
+def _normalized_cached_source(source, multiplicity):
+    """Compare legacy source labels without changing the saved thermo report."""
+    if not isinstance(source, dict) or not isinstance(source.get('protocol'), dict):
+        return source
+    method = source['protocol'].get('method')
+    if not isinstance(method, str):
+        return source
+    return {**source, 'protocol': {**source['protocol'],
+                                  'method': normalized_method(method, multiplicity)}}
+
+
 def load_species(name, spec, study, analyses, direct_settings):
     require(isinstance(spec, dict), f'{name}: expected species object')
     require(set(spec) <= {'thermo', 'attempts', 'single_conformer_reason', 'formula', 'charge'},
@@ -530,8 +559,9 @@ def load_species(name, spec, study, analyses, direct_settings):
             if (len(facts['job_sections']) > 1 or row.get('frequency_source') is not None
                     or 'printed_conditions' in frequency_source
                     or sp_id and (len(sp_facts['job_sections']) > 1 or 'printed_conditions' in electronic_source)):
-                require(row.get('frequency_source') == frequency_source
-                        and row.get('electronic_energy_source') == electronic_source,
+                require(_normalized_cached_source(row.get('frequency_source'), facts.get('multiplicity')) == frequency_source
+                        and _normalized_cached_source(row.get('electronic_energy_source'),
+                            (sp_facts if sp_id else facts).get('multiplicity')) == electronic_source,
                         f'{aid}: cached thermo section sources differ or are missing; regenerate ag thermo')
             energy = finite(row.get('qh_G'), f'{aid}: qh_G')
             enthalpy = finite(row.get('qh_H'), f'{aid}: qh_H')

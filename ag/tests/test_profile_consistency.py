@@ -20,7 +20,7 @@ from test_thermo import conformers, sp_input
 ])
 def test_only_scf_energy_methods_are_accepted(method):
     with pytest.raises(ValueError, match='当前只支持 SCF 能量的方法'):
-        protocol(f'#p {method}/6-31G(d) SP')
+        protocol(f'#p {method}/6-31G(d) SP', 1)
 
 
 @pytest.mark.parametrize('route', ['# G4', '# PM6 Opt Freq', '# CBS-QB3',
@@ -28,14 +28,18 @@ def test_only_scf_energy_methods_are_accepted(method):
                                   '# B3LYP/6-31G(d) TD', '# HF/6-31G MP2'])
 def test_unsupported_routes_without_simple_method_basis(route):
     with pytest.raises(ValueError, match='当前只支持 SCF 能量的方法'):
-        protocol(route)
+        protocol(route, 1)
 
 
-@pytest.mark.parametrize('method', ['HF', 'RHF', 'UHF', 'ROHF', 'B3LYP', 'RB3LYP',
-                                   'PBE1PBE', 'B97D3', 'wB97XD', 'CAM-B3LYP', 'M06-2X'])
-def test_scf_methods_keep_dispersion_support(method):
-    value = protocol(f'#p {method}/6-31G(d) EmpiricalDispersion=GD3BJ 5D 7F')
-    assert value['method'] == method.lower() and value['dispersion'] == 'gd3bj'
+@pytest.mark.parametrize('method,expected', [
+    ('HF', 'rhf'), ('RHF', 'rhf'), ('UHF', 'uhf'), ('ROHF', 'rohf'),
+    ('B3LYP', 'rb3lyp'), ('RB3LYP', 'rb3lyp'), ('PBE1PBE', 'rpbe1pbe'),
+    ('B97D3', 'rb97d3'), ('wB97XD', 'rwb97xd'), ('CAM-B3LYP', 'rcam-b3lyp'),
+    ('M06-2X', 'rm06-2x'),
+])
+def test_scf_methods_keep_dispersion_support(method, expected):
+    value = protocol(f'#p {method}/6-31G(d) EmpiricalDispersion=GD3BJ 5D 7F', 1)
+    assert value['method'] == expected and value['dispersion'] == 'gd3bj'
     assert value['basis_function_type'] == '5D 7F'
 
 
@@ -45,7 +49,7 @@ def test_grid_aliases_and_default_are_recorded_separately(keyword):
     assert integration_grid('# HF/3-21G') == 'program_default'
     assert integration_grid('# HF/3-21G Int Freq') == 'program_default'
     assert integration_grid(f'# HF/3-21G {keyword}') == 'ultrafine'
-    assert protocol(f'# HF/3-21G {keyword}') == protocol('# HF/3-21G')
+    assert protocol(f'# HF/3-21G {keyword}', 1) == protocol('# HF/3-21G', 1)
 
 
 @pytest.mark.parametrize('ts', [False, True])
