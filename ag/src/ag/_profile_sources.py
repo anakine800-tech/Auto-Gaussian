@@ -12,7 +12,8 @@ from pathlib import Path
 import re
 
 from ag.geometry import read_xyz
-from ag.thermo import boltzmann, _symmetry_evidence, _frequency_evidence, _pairing_evidence
+from ag.thermo import (boltzmann, _symmetry_evidence, _frequency_evidence, _pairing_evidence,
+                       _frequency_input, _frequency_thermo)
 
 # SCF Done is not the final electronic energy for these method families.
 # Keep the accepted names explicit: an unknown method is not evidence of SCF
@@ -191,12 +192,67 @@ def settings_checked(settings):
     return settings
 
 
-def attempt_facts(study, attempt_id, *, cached):
+def section_source(facts, attempt_id, *, frequency=True):
+    """Bind a thermo layer to the section that supplied its facts.
+
+    The first route and last SCF can belong to different jobs. Never relabel
+    one layer with another job's protocol, or guess checkpoint-only settings.
+    """
+    sections = facts.get('job_sections')
+    sources = facts.get('fact_sources', {})
+    require(isinstance(sections, list) and bool(sections),
+            f'{attempt_id}: missing job section evidence; regenerate ag facts')
+    key = 'n_imag' if frequency else 'energies.scf'
+    index = sources.get(key)
+    selected = [s for s in sections if s.get('index') == index]
+    require(type(index) is int and len(selected) == 1,
+            f'{attempt_id}: ambiguous {key} section source; regenerate ag facts')
+    section = selected[0]
+    require(section.get('termination') == 'normal',
+            f'{attempt_id}: section {index} has non-normal termination')
+    route = section.get('route')
+    try:
+        method = protocol(route)
+    except ValueError as exc:
+        raise ValueError(f'{attempt_id}: section {index} protocol: {exc}') from exc
+    if frequency:
+        require(bool(re.search(r'\bfreq\b', route, re.I)),
+                f'{attempt_id}: section {index} has no explicit Freq route')
+        keys = ('freq_step_converged', 'freq_step_convergence', 'vibrational_modes_complete',
+                'n_vibrational_modes', 'expected_vibrational_modes', 'frequencies_low', 'imag_modes')
+        keys += tuple('energies.' + k for k in ('zpe', 'e_thermal', 'h', 'g')
+                      if facts.get('energies', {}).get(k) is not None)
+        require(all(sources.get(k) == index for k in keys if k in facts or k.startswith('energies.')),
+                f'{attempt_id}: frequency/thermal facts have inconsistent section sources')
+        differences = []
+        for other in sections:
+            if other['index'] == index or not re.search(r'\bopt\b', other.get('route') or '', re.I):
+                continue
+            try:
+                opt = protocol(other['route'])
+            except ValueError as exc:
+                raise ValueError(f"{attempt_id}: Opt section {other['index']} protocol: {exc}") from exc
+            differences.extend(f"{key}: Opt section {other['index']}={opt[key]!r}; "
+                               f"Freq section {index}={value!r}"
+                               for key, value in method.items() if opt[key] != value)
+        require(not differences, f'{attempt_id}: inconsistent Opt/Freq protocols:\n' + '\n'.join(differences))
+    return {'attempt_id': attempt_id, 'section_index': index,
+            'start_line': section['start_line'], 'end_line': section['end_line'],
+            'route': route, 'protocol': method}
+
+
+def attempt_facts(study, attempt_id, *, cached, frequency=True):
     require(isinstance(attempt_id, str) and re.fullmatch(r'[A-Za-z0-9_-]+', attempt_id),
             'Expected a local Attempt ID')
     directory = local_path(study, study / 'attempts', attempt_id)
     if cached and (directory / 'facts.json').is_file():
         facts = read_json(directory / 'facts.json')
+        require(facts.get('termination') == 'normal', f'{attempt_id}: non-normal termination')
+        if frequency:
+            require(type(facts.get('n_imag')) is int and facts['n_imag'] in (0, 1),
+                    f'{attempt_id}: n_imag must be 0 or 1')
+            _frequency_evidence(facts, attempt_id)
+        source = section_source(facts, attempt_id, frequency=frequency)
         geometry = local_path(study, directory, facts.get('final_geometry'))
         frames = read_xyz(geometry)
         require(len(frames) == 1, f'{attempt_id}: expected one final geometry')
@@ -205,13 +261,21 @@ def attempt_facts(study, attempt_id, *, cached):
         from ag._parse_outputs import parse_gaussian
         from ag.facts import gaussian_log
         facts, geometry = parse_gaussian(gaussian_log(directory), directory / 'outputs' / 'job.pbs.out')
+        require(facts.get('termination') == 'normal', f'{attempt_id}: non-normal termination')
+        if frequency:
+            require(type(facts.get('n_imag')) is int and facts['n_imag'] in (0, 1),
+                    f'{attempt_id}: n_imag must be 0 or 1')
+            _frequency_evidence(facts, attempt_id)
+        source = section_source(facts, attempt_id, frequency=frequency)
+        if frequency:
+            _, geometry = _frequency_input(directory, facts, source)
         require(geometry is not None, f'{attempt_id}: missing final geometry')
         elements = Counter(line.split()[0] for line in geometry.splitlines()[2:] if line.strip())
     require(facts.get('termination') == 'normal', f'{attempt_id}: non-normal termination')
     require(facts.get('n_atoms') == sum(elements.values()), f'{attempt_id}: atom count mismatch')
     integer(facts.get('charge'), f'{attempt_id} charge')
     integer(facts.get('multiplicity'), f'{attempt_id} multiplicity', positive=True)
-    return directory, facts, dict(elements), protocol(facts.get('route'))
+    return directory, facts, dict(elements), source['protocol']
 
 
 def check_review(directory):
@@ -241,7 +305,7 @@ def load_species(name, spec, study, analyses, direct_settings):
         settings = settings_checked(dict(direct_settings))
         rows = spec['attempts']
         require(isinstance(rows, list) and rows, f'{name}: empty Attempt ensemble')
-        from goodvibes.thermo import ThermoOptions, calc_bbe
+        from goodvibes.thermo import ThermoOptions
         from ag.facts import gaussian_log
         require(version('goodvibes') == '4.3.0', 'profile requires GoodVibes 4.3.0')
         options = ThermoOptions(QS=settings['qs'], QH=True,
@@ -258,12 +322,14 @@ def load_species(name, spec, study, analyses, direct_settings):
         aid = row.get('attempt_id')
         require(aid not in ids, f'{name}: duplicate Attempt')
         directory, facts, elements, freq_protocol = attempt_facts(study, aid, cached=cached)
+        frequency_source = section_source(facts, aid)
+        electronic_source = frequency_source
         ids.append(aid)
         program_versions.append(nonempty(facts.get('program_version'), f'{aid}: program version missing; regenerate ag facts'))
         n_imag = facts.get('n_imag')
         require(type(n_imag) is int and n_imag in (0, 1), f'{aid}: n_imag must be 0 or 1')
         frequency_evidence = _frequency_evidence(facts, aid)
-        frequency_grid = integration_grid(facts['route'])
+        frequency_grid = integration_grid(frequency_source['route'])
         grids.append((f'{aid}/frequency', frequency_grid))
         if n_imag == 1:
             check_review(directory)
@@ -272,24 +338,39 @@ def load_species(name, spec, study, analyses, direct_settings):
         sp_id = row.get('spc_attempt_id')
         pairing = row.get('pairing_evidence') if cached else None
         sp_grid = None
+        if not cached:
+            block, geometry = _frequency_input(directory, facts, frequency_source)
+            result = _frequency_thermo(block, options, facts['program_version'])
         if sp_id:
-            sp_directory, sp_facts, sp_elements, sp_protocol = attempt_facts(study, sp_id, cached=cached)
-            sp_grid = integration_grid(sp_facts['route'])
+            sp_directory, sp_facts, sp_elements, sp_protocol = attempt_facts(
+                study, sp_id, cached=cached, frequency=False)
+            electronic_source = section_source(sp_facts, sp_id, frequency=False)
+            sp_grid = integration_grid(electronic_source['route'])
             grids.append((f'{sp_id}/single_point', sp_grid))
             program_versions.append(nonempty(sp_facts.get('program_version'), f'{sp_id}: program version missing; regenerate ag facts'))
             require((elements, facts['charge'], facts['multiplicity']) ==
                     (sp_elements, sp_facts['charge'], sp_facts['multiplicity']),
                     f'{aid}: SPC identity mismatch')
+            sp_energy = finite(sp_facts.get('energies', {}).get('scf'), 'SP energy')
+            if cached:
+                # Preserve the cached-layer finite-energy checks. A multi-job
+                # facts SCF can be a trailing SP, so use the bound thermo value.
+                finite(row.get('frequency_E') if len(facts['job_sections']) > 1 else
+                       facts.get('energies', {}).get('scf'), 'frequency energy')
             if not cached:
-                from ag._parse_outputs import parse_gaussian
                 # Reuse the exact thermo input-hash and fixed-row Kabsch check,
                 # including TS refinement. Parse geometry in memory only.
-                _, geometry = parse_gaussian(gaussian_log(directory), directory / 'outputs' / 'job.pbs.out')
                 pairing = _pairing_evidence(directory, facts, sp_directory, sp_facts, geometry)
-            delta = finite(sp_facts.get('energies', {}).get('scf'), 'SP energy') - finite(
-                facts.get('energies', {}).get('scf'), 'frequency energy')
+                delta = sp_energy - finite(result.scf_energy, 'frequency energy')
         protocols.append({'frequency': freq_protocol, 'single_point': sp_protocol})
         if cached:
+            # Old multi-section caches may have labeled Freq data with Opt's
+            # route. Require explicit binding instead of silently endorsing it.
+            if (len(facts['job_sections']) > 1 or row.get('frequency_source') is not None
+                    or sp_id and len(sp_facts['job_sections']) > 1):
+                require(row.get('frequency_source') == frequency_source
+                        and row.get('electronic_energy_source') == electronic_source,
+                        f'{aid}: cached thermo section sources differ or are missing; regenerate ag thermo')
             energy = finite(row.get('qh_G'), f'{aid}: qh_G')
             enthalpy = finite(row.get('qh_H'), f'{aid}: qh_H')
             entropy = finite(row.get('qh_S'), f'{aid}: qh_S')
@@ -297,11 +378,10 @@ def load_species(name, spec, study, analyses, direct_settings):
                         ('rotational_symmetry_number', 'rotational_symmetry_source')}
         else:
             require(set(row) <= {'attempt_id', 'degeneracy', 'spc_attempt_id'}, f'{aid}: unknown Attempt field')
-            result = calc_bbe.from_options(str(gaussian_log(directory)), options)
             energy = finite(getattr(result, 'qh_gibbs_free_energy', None), f'{aid}: qh_G') + delta
             enthalpy = finite(getattr(result, 'qh_enthalpy', None), f'{aid}: qh_H') + delta
             entropy = finite(getattr(result, 'qh_entropy', None), f'{aid}: qh_S')
-            symmetry = _symmetry_evidence(result, gaussian_log(directory))
+            symmetry = _symmetry_evidence(result, gaussian_log(directory), frequency_source)
         # Prevent mismatched qh/RRHO or SPC columns from inventing an entropy term.
         require(math.isclose(enthalpy - settings['temperature_K'] * entropy, energy,
                              rel_tol=0, abs_tol=1e-6), f'{aid}: qh_H - T*qh_S disagrees with qh_G')
@@ -311,11 +391,12 @@ def load_species(name, spec, study, analyses, direct_settings):
                 {'gaussian_output', 'goodvibes_default'}, f'{aid}: missing rotational symmetry source')
         conformers.append({'attempt_id': aid, 'qh_G_hartree': energy,
                           'frequency_evidence': frequency_evidence,
+                          'frequency_source': frequency_source, 'electronic_energy_source': electronic_source,
                           'pairing_evidence': pairing,
                           'spc_attempt_id': sp_id,
                           'integration_grid': {'frequency': frequency_grid, 'single_point': sp_grid},
                           'qh_H_hartree': enthalpy, 'qh_S_hartree_per_K': entropy,
-                          **symmetry, 'nosymm': bool(re.search(r'\bnosymm\b', facts['route'], re.I))})
+                          **symmetry, 'nosymm': bool(re.search(r'\bnosymm\b', frequency_source['route'], re.I))})
         energies.append(energy)
         degeneracies.append(integer(row.get('degeneracy', 1), f'{aid}: degeneracy', positive=True))
     require(all(x == identities[0] for x in identities), f'{name}: mixed conformer identities or n_imag')

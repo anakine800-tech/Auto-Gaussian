@@ -1,5 +1,6 @@
 """Synthetic regression cases for incompatible conformer ensembles."""
 import pytest
+import re
 
 import ag.thermo as thermo
 from test_facts import attempt
@@ -7,6 +8,13 @@ from test_thermo import conformers, sp_input
 
 
 def alter_facts(monkeypatch, directory, **changes):
+    if 'route' in changes:
+        # Mutate the actual synthetic route echo, since consumers now use the
+        # owning job section rather than the top-level summary route.
+        route = changes.pop('route')
+        path = directory / 'outputs/input.log'
+        path.write_text(re.sub(r'(?ms)(^[ \t]*-{5,}\n)[ \t]*#.*?(\n[ \t]*-{5,}[ \t]*$)',
+                               lambda m: m[1] + ' ' + route + m[2], path.read_text(), count=1))
     original = thermo.parse_facts
 
     def parse(path):
@@ -19,7 +27,8 @@ def alter_facts(monkeypatch, directory, **changes):
 
 
 def test_water_and_butane_cannot_form_one_ensemble(tmp_path):
-    water = attempt(tmp_path)
+    from test_thermo_sections import explicit_water
+    water = explicit_water(attempt(tmp_path))
     anti, _ = conformers(tmp_path)
     with pytest.raises(ValueError, match='Incomparable thermo ensemble:.*\n.*elements'):
         thermo.calculate_thermo([water, anti])
@@ -61,6 +70,8 @@ def test_each_composite_layer_is_compared(tmp_path, monkeypatch, layer, field, v
     sp_g = attempt(tmp_path, 'sp-g', 'butane_gauche_freq.log')
     sp_input(sp_a, anti)
     sp_input(sp_g, gauche)
+    if field == 'route' and layer == 'frequency':
+        value = value.replace(' SP', ' Freq')
     alter_facts(monkeypatch, gauche if layer == 'frequency' else sp_g, **{field: value})
     with pytest.raises(ValueError, match=layer + ('_protocol' if field == 'route' else '_program_version')):
         thermo.calculate_thermo([anti, gauche], spc={str(anti): str(sp_a), str(gauche): str(sp_g)})

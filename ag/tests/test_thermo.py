@@ -163,7 +163,8 @@ def test_duplicate_and_bad_mappings(tmp_path):
 
 def test_analysis_collision_does_not_overwrite(tmp_path, monkeypatch):
     import ag.thermo as thermo
-    result = calculate_thermo([attempt(tmp_path)])
+    from test_thermo_sections import explicit_water
+    result = calculate_thermo([explicit_water(attempt(tmp_path))])
     class FrozenClock:
         @staticmethod
         def now(tz):
@@ -253,8 +254,9 @@ def test_pairing_rejects_missing_or_incompatible_evidence(tmp_path, kind):
 @pytest.mark.parametrize('stretch,accepted', [(1.001, True), (1.01, False)])
 def test_pairing_rmsd_threshold(tmp_path, stretch, accepted):
     import numpy as np
-    water = attempt(tmp_path)
-    sp = attempt(tmp_path, 'sp')
+    from test_thermo_sections import explicit_water
+    water = explicit_water(attempt(tmp_path))
+    sp = explicit_water(attempt(tmp_path, 'sp'))
     frame = sp_input(sp, water)
     sp_input(sp, water, coordinates=np.array(frame.coordinates) * stretch)
     if accepted:
@@ -289,7 +291,8 @@ def test_rrho_qrrho_and_correction_decomposition(tmp_path, temp, conc):
 
 
 def test_symmetry_and_degeneracy_sources(tmp_path):
-    water = attempt(tmp_path)
+    from test_thermo_sections import explicit_water
+    water = explicit_water(attempt(tmp_path))
     row = calculate_thermo([water], degeneracy={str(water): 2})['rows'][0]
     assert row['degeneracy'] == 2 and row['degeneracy_source'].startswith('explicit')
     assert row['rotational_symmetry_number'] == 2

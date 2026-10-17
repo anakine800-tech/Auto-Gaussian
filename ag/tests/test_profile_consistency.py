@@ -64,8 +64,9 @@ def test_profile_rejects_anti_frequency_with_gauche_sp_input(tmp_path, ts):
 
 
 def test_profile_reports_rotated_sp_pairing_and_hashes(tmp_path):
-    water = attempt(tmp_path)
-    sp = attempt(tmp_path, 'sp')
+    from test_thermo_sections import explicit_water
+    water = explicit_water(attempt(tmp_path))
+    sp = explicit_water(attempt(tmp_path, 'sp'))
     frame = sp_input(sp, water)
     rotation = np.array([[0, -1, 0], [1, 0, 0], [0, 0, 1]])
     sp_input(sp, water, coordinates=np.array(frame.coordinates) @ rotation + [1, 2, 3])

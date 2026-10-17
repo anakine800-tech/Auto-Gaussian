@@ -13,6 +13,9 @@ from ag.thermo import HARTREE_TO_KCAL, R_HARTREE
 
 
 def dump(path, data):
+    # Synthetic cached single-job facts keep their route/source records aligned.
+    if data.get('schema') == 'ag-facts/1' and len(data.get('job_sections', [])) == 1:
+        data['job_sections'][0]['route'] = data['route']
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data))
 
@@ -30,6 +33,11 @@ def source(tmp_path, name, kcal, *, ts=False, formula=None, charge=0, settings=N
                  'n_imag': 1 if ts else 0, 'route': route, 'final_geometry': 'final.xyz',
                  'freq_step_converged': True, 'vibrational_modes_complete': True,
                  'energies': {'scf': kcal / HARTREE_TO_KCAL}}
+        facts['job_sections'] = [dict(index=1, start_line=1, end_line=10,
+            route=route, termination='normal', start_kind='launch', internal_step=None)]
+        facts['fact_sources'] = {key: 1 for key in ('n_imag', 'energies.scf',
+            'freq_step_converged', 'vibrational_modes_complete',
+            'n_vibrational_modes', 'expected_vibrational_modes')}
         dump(directory / 'facts.json', facts)
         (directory / 'final.xyz').write_text(f'{len(elements)}\nSynthetic test\n' + ''.join(f'{e} 0 0 {i}\n' for i, e in enumerate(elements)))
         if ts:
@@ -315,8 +323,9 @@ def test_protocol_whitespace_does_not_erase_basis_differences():
 def test_direct_attempts_real_local_minimum_and_ts_logs(tmp_path):
     from test_facts import attempt
     from goodvibes.thermo import calc_bbe, ThermoOptions
-    attempt(tmp_path, 'minimum', 'water_opt_freq.log')
-    ts = attempt(tmp_path, 'ts', 'water_opt_freq.log')
+    from test_thermo_sections import explicit_water
+    explicit_water(attempt(tmp_path, 'minimum', 'water_opt_freq.log'))
+    ts = explicit_water(attempt(tmp_path, 'ts', 'water_opt_freq.log'))
     ts_log = ts / 'outputs' / 'input.log'
     ts_log.write_text(ts_log.read_text().replace('2017.6012', '-2017.6012'))
     (ts / 'review.md').write_text('Synthetic frequency sign test only\nprofile_review: pass\nimaginary_mode_matches: true\n')
@@ -369,9 +378,10 @@ def test_literature_nhc_cycle_numeric_points(values, expected):
 def test_existing_ag_thermo_output_with_direct_ts_and_composite(tmp_path):
     from test_facts import attempt
     from ag.thermo import calculate_thermo
-    low = attempt(tmp_path, 'low')
-    sp = attempt(tmp_path, 'sp')
-    ts = attempt(tmp_path, 'ts')
+    from test_thermo_sections import explicit_water
+    low = explicit_water(attempt(tmp_path, 'low'))
+    sp = explicit_water(attempt(tmp_path, 'sp'))
+    ts = explicit_water(attempt(tmp_path, 'ts'))
     ts_log = ts / 'outputs' / 'input.log'
     ts_log.write_text(ts_log.read_text().replace('2017.6012', '-2017.6012'))
     (ts / 'review.md').write_text('Synthetic TS\nprofile_review: pass\nimaginary_mode_matches: true\n')
@@ -430,6 +440,9 @@ def test_profile_with_monatomic_species(tmp_path, capsys, cached_atom):
     for name, fixture in [('water', 'water_opt_freq.log'), ('ts', 'water_opt_freq.log'),
                           ('F', 'fluoride_freq_converged_synthetic.log'), ('F_shift', 'fluoride_freq_converged_synthetic.log')]:
         directory = attempt(tmp_path, name, fixture)
+        if fixture == 'water_opt_freq.log':
+            from test_thermo_sections import explicit_water
+            explicit_water(directory)
         log = directory / 'outputs/input.log'
         # Keep molecular Opt Freq versus atomic Freq, as in the L3 inputs.
         text = log.read_text().replace('B3LYP/STO-3G', 'B3LYP/6-31+G(d)')

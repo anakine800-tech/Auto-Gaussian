@@ -9,6 +9,7 @@ import math
 import re
 from pathlib import Path
 import sys
+from tempfile import TemporaryDirectory
 
 from ag.facts import parse_facts, gaussian_log, resolve_attempt
 
@@ -151,18 +152,65 @@ def _pairing_evidence(directory, facts, sp_directory, sp_facts, geometry):
                                     'parsed floating-point coordinates before alignment'}
 
 
-def _symmetry_evidence(result, log):
+def _symmetry_evidence(result, log, source=None):
     # xyz is the QCData object calc_bbe actually used for rotational entropy.
     sigma = result.xyz.symmno
     if not isinstance(sigma, int) or isinstance(sigma, bool) or sigma < 1:
         raise ValueError('GoodVibes rotational symmetry number must be a positive integer')
     reported = [(i, line.strip()) for i, line in enumerate(log.read_text().splitlines(), 1)
+                if (source is None or source['start_line'] <= i <= source['end_line'])
                 if line.strip().startswith('Rotational symmetry number')]
     return {'rotational_symmetry_number': sigma,
             'rotational_symmetry_source': {'kind': 'gaussian_output' if reported else 'goodvibes_default',
                 'file': log.name, 'line': reported[-1][0] if reported else None,
                 'reported_text': reported[-1][1] if reported else None,
                 'note': 'GoodVibes 4.3.0 QCData.symmno; symm=False; missing output defaults to 1'}}
+
+
+def _frequency_input(directory, facts, source):
+    """Read only the selected section; no geometry/energy from adjacent jobs."""
+    from ag._parse_outputs import (gaussian_job_sections, gaussian_section_text,
+                                   _parse_gaussian_section)
+    log = gaussian_log(directory)
+    text = log.read_text(errors='replace')
+    sections, _ = gaussian_job_sections(text)
+    selected = [s for s in sections if s['index'] == source['section_index']]
+    if (len(selected) != 1 or any(selected[0][key] != source[key]
+            for key in ('route', 'start_line', 'end_line'))):
+        raise ValueError(f'{directory.name}: frequency section differs from facts; regenerate ag facts')
+    section = selected[0]
+    block = gaussian_section_text(text, section)
+    scoped, geometry = _parse_gaussian_section(block, internal=section['start_kind'] == 'internal')
+    if scoped['termination'] != 'normal':
+        raise ValueError(f'{directory.name}: non-normal frequency section termination')
+    for key in ('n_atoms', 'charge', 'multiplicity', 'n_imag', 'freq_step_converged',
+                'vibrational_modes_complete'):
+        if scoped.get(key) != facts.get(key):
+            raise ValueError(f'{directory.name}: frequency section {key} differs from facts')
+    _frequency_evidence(scoped, directory.name)
+    return block, geometry
+
+
+def _frequency_thermo(block, options, program_version):
+    """Use GoodVibes' unchanged calculation on one Gaussian section.
+
+    Its whole-file parser can otherwise take monatomic energy/symmetry from a
+    trailing SP. Temporary input is outside the study and is never an output.
+    """
+    from goodvibes.io import parse_gaussian_thermo
+    from goodvibes.thermo import calc_bbe
+    # Internal job steps omit the launch banner. GoodVibes needs that banner
+    # even with its Gaussian-specific parser. Reuse only the already checked
+    # log-wide program version, never another section's route or numeric data.
+    if not re.search(r'Gaussian[^\n]*Revision', block):
+        match = re.fullmatch(r'Gaussian (\d{2}) Rev ([A-Z]\.\d{2})', program_version)
+        if match is None:
+            raise ValueError('Cannot identify Gaussian version for frequency section')
+        block = f' Gaussian {match[1]}, Revision {match[2]},\n' + block
+    with TemporaryDirectory(prefix='ag-thermo-section-') as temp:
+        path = Path(temp) / 'frequency.log'
+        path.write_text(block)
+        return calc_bbe.from_options(parse_gaussian_thermo(str(path)), options)
 
 
 def _ensemble_consistency(rows):
@@ -183,8 +231,8 @@ def calculate_thermo(attempts, *, study=None, temp=298.15, conc=1.0, qs='grimme'
                      s_cutoff=100.0, h_cutoff=100.0, degeneracy=None, spc=None):
     """Compute a table from local logs. Does not write the analysis output."""
     # Imported on command execution, never while CLI/help is registered.
-    from goodvibes.thermo import ThermoOptions, calc_bbe
-    from ag._profile_sources import protocol, integration_grid, grid_warnings, integer, nonempty
+    from goodvibes.thermo import ThermoOptions
+    from ag._profile_sources import section_source, integration_grid, grid_warnings, integer, nonempty
 
     if version('goodvibes') != '4.3.0':
         raise ValueError('ag thermo requires GoodVibes 4.3.0')
@@ -213,15 +261,16 @@ def calculate_thermo(attempts, *, study=None, temp=298.15, conc=1.0, qs='grimme'
     rows = []
     grids = []
     for directory in directories:
-        facts, geometries = parse_facts(directory)
+        facts, _ = parse_facts(directory)
         if facts['termination'] != 'normal' or facts.get('n_imag') != 0:
             raise ValueError(f'{directory.name}: requires normal termination and frequencies with n_imag = 0')
         if facts['program'] != 'gaussian':
             raise ValueError(f'{directory.name}: Gaussian frequency output is required')
         frequency_evidence = _frequency_evidence(facts, directory.name)
-        frequency_protocol = protocol(facts.get('route'))
+        frequency_source = section_source(facts, directory.name)
+        frequency_protocol = frequency_source['protocol']
+        block, geometry = _frequency_input(directory, facts, frequency_source)
         frequency_version = nonempty(facts.get('program_version'), f'{directory.name}: program version')
-        geometry = geometries.get('final.xyz')
         if not geometry:
             raise ValueError(f'{directory.name}: missing frequency final geometry')
         elements = dict(Counter(line.split()[0] for line in geometry.splitlines()[2:] if line.strip()))
@@ -232,13 +281,13 @@ def calculate_thermo(attempts, *, study=None, temp=298.15, conc=1.0, qs='grimme'
                          'multiplicity': integer(facts.get('multiplicity'), f'{directory.name} multiplicity', positive=True),
                          'frequency_protocol': frequency_protocol, 'frequency_program_version': frequency_version,
                          'single_point_protocol': None, 'single_point_program_version': None}
-        frequency_grid = integration_grid(facts['route'])
+        frequency_grid = integration_grid(frequency_source['route'])
         grids.append((f'{directory.name}/frequency', frequency_grid))
         sp_grid = None
         weight = deg.get(directory, 1)
         if not isinstance(weight, int) or isinstance(weight, bool) or weight <= 0:
             raise ValueError(f'{directory.name}: degeneracy must be a positive integer')
-        result = calc_bbe.from_options(str(gaussian_log(directory)), options)
+        result = _frequency_thermo(block, options, frequency_version)
         needed = ('scf_energy', 'zpe', 'enthalpy', 'qh_enthalpy', 'qh_gibbs_free_energy',
                   'entropy', 'qh_entropy', 'gibbs_free_energy')
         if any(not isinstance(getattr(result, key, None), (float, int))
@@ -246,21 +295,23 @@ def calculate_thermo(attempts, *, study=None, temp=298.15, conc=1.0, qs='grimme'
             raise ValueError(f'{directory.name}: GoodVibes could not calculate complete thermochemistry')
         delta = 0.0
         electronic = result.scf_energy
+        electronic_source = frequency_source
         sp_id = None
         pairing = None
         if directory in sp:
             sp_facts, _ = parse_facts(sp[directory])
             if sp_facts['termination'] != 'normal' or sp_facts.get('n_imag') not in (0, None):
                 raise ValueError(f'{sp[directory].name}: SPC requires normal termination and no imaginary frequencies')
-            comparability.update(single_point_protocol=protocol(sp_facts.get('route')),
+            electronic_source = section_source(sp_facts, sp[directory].name, frequency=False)
+            comparability.update(single_point_protocol=electronic_source['protocol'],
                 single_point_program_version=nonempty(sp_facts.get('program_version'), f'{sp[directory].name}: program version'))
-            sp_grid = integration_grid(sp_facts['route'])
+            sp_grid = integration_grid(electronic_source['route'])
             grids.append((f'{sp[directory].name}/single_point', sp_grid))
             electronic = sp_facts.get('energies', {}).get('scf')
             if electronic is None:
                 raise ValueError(f'{sp[directory].name}: SPC electronic energy is missing')
             pairing = _pairing_evidence(directory, facts, sp[directory], sp_facts,
-                                        geometries.get('final.xyz'))
+                                        geometry)
             delta = electronic - result.scf_energy
             sp_id = sp[directory].name
         # GoodVibes already applies the requested concentration in translation.
@@ -269,10 +320,11 @@ def calculate_thermo(attempts, *, study=None, temp=298.15, conc=1.0, qs='grimme'
         concentration = R_HARTREE * temp * math.log(conc)
         rows.append({'attempt_id': directory.name, 'degeneracy': weight,
                      'frequency_evidence': frequency_evidence,
+                     'frequency_source': frequency_source, 'electronic_energy_source': electronic_source,
                      'comparability': comparability,
                      'integration_grid': {'frequency': frequency_grid, 'single_point': sp_grid},
                      'degeneracy_source': 'explicit --degeneracy/API mapping' if directory in deg else 'default 1',
-                     **_symmetry_evidence(result, gaussian_log(directory)),
+                     **_symmetry_evidence(result, gaussian_log(directory), frequency_source),
                      'E': electronic, 'frequency_E': result.scf_energy,
                      'ZPE': result.zpe, 'H': result.enthalpy + delta,
                      'S': result.entropy, 'G': result.gibbs_free_energy + delta,
@@ -360,6 +412,13 @@ def write_analysis(result, study_dir):
                              f"{json.dumps(comparison[f'{layer}_protocol'], ensure_ascii=False)} | "
                              f"{comparison[f'{layer}_program_version']} | {row['integration_grid'][layer]} |")
     lines += ['', *[f'- 警告：{warning}' for warning in result.get('warnings', [])]]
+    lines += ['', '| Attempt | Layer | Source attempt | Section | Log lines |',
+              '|---|---|---|---:|---|']
+    for row in result['rows']:
+        for key in ('frequency_source', 'electronic_energy_source'):
+            source = row[key]
+            lines.append(f"| {row['attempt_id']} | {key} | {source['attempt_id']} | "
+                         f"{source['section_index']} | {source['start_line']}–{source['end_line']} |")
     lines += ['', '| Frequency Attempt | SP Attempt | RMSD (Å) | SP input geometry SHA-256 | Frequency final geometry SHA-256 |',
               '|---|---|---:|---|---|']
     for row in result['rows']:

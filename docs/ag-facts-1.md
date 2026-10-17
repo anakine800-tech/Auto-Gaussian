@@ -73,3 +73,21 @@ ag facts <Attempt> --reparse
 
 普通 `ag facts` 的相同内容不写入行为，以及原 `--refresh` 的归档兼容行为保持。
 `--refresh` 与 `--reparse` 互斥。T99 的解析错误处理流程使用 `--reparse`。
+
+## thermo / profile 的段来源
+
+顶层 `route` 保留首段含义，不代表频率段口径。thermo / profile 通过
+`fact_sources.n_imag` 选择 `job_sections` 中的 Freq 段，并核对频率、收敛与热校正
+字段来自同一段。GoodVibes 只接收这段的频率、能量、质量、转动和对称性数据；
+内部段缺少启动 banner 时仅补入已核对的日志级程序版本，计算选项和公式不变。
+
+`frequency_source` 和 `electronic_energy_source` 记录 Attempt、段号、原日志行范围、
+完整 route 和 protocol。无 SPC 时电子能取 Freq 段；显式 SPC 时按其
+`fact_sources.energies.scf` 指向的段取值，仍执行原配对检查。不会自动使用同一日志
+尾随 SP 的能量替换频率电子能。配对使用 Freq 段的实际几何。
+
+同一 Attempt 的 Opt/Freq 方法、基组、基函数类型、溶剂模型、溶剂或色散不一致，
+列出差异并拒绝；积分网格仍仅警告，不作为口径等价推断。T82 的保守 protocol
+解析保持不变：`SCRF=Check` 等缺少显式口径的 Freq 段不能借用 Opt route，
+R/U 前缀不自动等同。旧版 facts 缺少段来源时需要重新生成；多段 thermo 缓存
+缺少与当前 facts 一致的来源记录时需要重新运行 thermo。单段 Freq 的数值不变。
