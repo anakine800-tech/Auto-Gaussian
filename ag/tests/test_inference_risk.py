@@ -310,13 +310,14 @@ def test_wrong_total_charge_errors_in_inference_and_is_unknown_in_comparison(nam
 
 
 @pytest.mark.parametrize('name', ('nitronate', 'nitronate_hf'))
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
-    'T68-R1: infer_molecule does not preserve the declared C-local nitronate '
-    'bond orders/formal charges; it chooses an O-local resonance form. '
-    'This is representation loss, not proof of wrong chemical identity.'))
-def test_declared_localized_nitronate_representation_is_preserved(name):
+def test_xyz_inference_selects_a_legal_resonance_form(name):
+    # T89 removes the two strict R1 xfails: XYZ cannot encode which localized
+    # electron drawing a human chose. This limitation remains, not a promise
+    # that inference will reproduce the C-local representation in the oracle.
     actual = infer(frame(name), -1)
-    assert signature(actual) == signature(oracle(name))
+    assert signature(actual) in [signature(mol) for mol in acceptable_oracles(name)]
+    assert Chem.GetFormalCharge(actual) == -1
+    assert set(bonds(actual)) == set(bonds(oracle(name)))
 
 
 @pytest.mark.parametrize('name', ('enolate', 'borate'))
