@@ -95,3 +95,12 @@
 - fchk 不取回；high 的 cube 取回策略与确认摘要估算一致。
 - 在 `test_multiwfn_template.py` 覆盖旧模板输出不变、1/3/50 帧、缺失/越界帧数。
 - RTwin 的 3 帧 IGM 验证须逐帧通过 status 与 fetch。其他 remote 函数及 fetch/status/transport 不在扩展范围。
+
+## 10-17 第二项范围补充（监督方批准，负责人在开发对话中转述）
+
+- 先核对 2026.10.1 手册是否需要逐片段对输出。已核对 §3.23.5 印刷页 306：超过两片段时，选项 6 每次只计算指定的两个片段；§3.23.6 印刷页 308 的 IGMH 用法相同。同版本源码确认原生表会覆盖固定文件名，因此保留逐对独立目录与输出。
+- 在上述条件成立时，允许仅为 `multiwfn` 修改 `remote.py::output_observation()`，以固定只读循环压缩命令；帧数、片段对来自 prepare manifest，文件名模式来自 `multiwfn.toml`，不使用远端枚举。
+- 循环只用现有观察同类只读命令，返回格式不变；在同一组合成文件上与原展开写法逐字节比较。旧 gaussian/xtb/crest 命令用金标准断言保持完全不变。
+- 50 帧、4 片段、最长可用路径的命令小于 64 KiB。现有配置没有字符串长度上限；测试采用 Linux PATH_MAX 的 4095 字节路径和 80 字符 ID，并覆盖异常长配置时明确拒绝超长命令。
+- 测试仅放 `test_multiwfn_template.py`，不修改 status/fetch/transport。真实验证仍使用 RTwin 三帧作业，status/fetch 必须逐帧核对。
+- PR 描述注明“监督方 10-17 批准的第二项范围补充”。

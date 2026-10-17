@@ -256,3 +256,102 @@ def test_prepare_cli_and_old_inputs_still_required(nci_cfg,tmp_path,monkeypatch,
     assert cli.main(['prepare','--study','smoke','--template','gaussian','--tier','mini',
                      '--walltime','00:05:00','--label','cli','--method-basis','兜底方法：测试'])==1
     assert '--input is required' in capsys.readouterr().err
+
+
+
+def _expanded_observation(cfg, manifest):
+    # Frozen pre-T92 implementation, used against the very same synthetic files.
+    commands = []
+    for name in remote.output_names(manifest):
+        p = remote.attempt_dir(cfg, manifest) + '/' + name
+        q = remote.quote(p)
+        commands.append(f'{remote.path_checks(p)} && if test ! -e {q}; then '
+                        f"printf '%s absent\\n' {remote.quote(name)}; else test -f {q} && "
+                        f"printf '%s ' {remote.quote(name)} && stat -c '%s %y' -- {q}; fi")
+    return ' && '.join(f'{{ {c}; }}' for c in commands)
+
+
+@pytest.mark.parametrize('scheduler,template,mode,golden', [
+    ('pbs', 'gaussian', '', 'a0310f5db216fc84e885deb807cb5bfc0c1f8ff07236a1ce32a1302fdce2bc96'),
+    ('pbs', 'xtb', '', 'ffa12f7e112062260511209f4abed4b06c4da48d940af6d6e41955ab920d9096'),
+    ('pbs', 'xtb', 'scan', '4eb8dae179628fc0f1c78141dbc70fbe5af7f964ab578c868f49a8dfce9a4459'),
+    ('pbs', 'crest', '', 'fd43f2ade028d49bef844891ab7c8e975b65f28d6a1a86ee0700dfeff7658562'),
+    ('pbs', 'crest', 'mdopt', 'ace046dca8a546ffc7ca0f22f40231b6b0f8ccbff49b31f8f89f825e55ff01b3'),
+    ('slurm', 'gaussian', '', '56a25d99064396eb51c76167ee9816e5b50fdb34328f983fbe7209c5078f7787'),
+    ('slurm', 'xtb', '', 'd384984eb9ab33491e724f4b01e25ad556e839f24cb0d566df5d3f416704320c'),
+    ('slurm', 'xtb', 'scan', 'f6ce333be1e1da981f9e1b55c94c7bea739096c85003c85043a32c881185413e'),
+    ('slurm', 'crest', '', '8d3e63566467e219e57346208d4c5d5aa18bd842d4ee5cd6e1bf01a171c5aaa4'),
+    ('slurm', 'crest', 'mdopt', '2fd618b8fc51f9357df9107184c4548dfe4a80bd0e63328f44eb4ad24fff7335'),
+])
+def test_old_observation_command_golden(scheduler, template, mode, golden):
+    cfg = {'remote': {'ag_root': '/ag-fixture/ag'}}
+    m = dict(template=template, scheduler=scheduler, study_id='fixture', attempt_id='fixture-001',
+             remote_dir='fixture/fixture-001', template_params={'--mdopt': ''} if mode == 'mdopt' else {},
+             science={'scan': {'steps': 3}} if mode == 'scan' else {},
+             inputs=[{'name': 'molecule.gjf' if template == 'gaussian' else 'molecule.xyz'}])
+    command = remote.output_observation(cfg, m)
+    assert command == remote.Command('output_observation', _expanded_observation(cfg, m))
+    assert sha256(command.text.encode()).hexdigest() == golden
+
+
+@pytest.mark.parametrize('deep', [False, True])
+def test_observation_max_frames_fragments_linux_path_under_64k(nci_cfg, tmp_path, deep):
+    _, m = prepare_nci(nci_cfg, tmp_path, frames=50,
+                      csv_text='fragment,atoms\na,1-2\nb,3\nc,4-5\nd,6\n')
+    m = deepcopy(m)
+    m.update(study_id='s'*80, attempt_id='a'*80)
+    m['remote_dir'] = m['study_id'] + '/' + m['attempt_id']
+    names = remote.output_names(m)
+    assert len(names) == 1002
+    cfg = deepcopy(nci_cfg)
+    # config has no numeric path cap. Exercise Linux PATH_MAX (4096 incl NUL)
+    # at the longest output, both many short and maximum-size path components.
+    length = 4095 - len('/ag/' + m['remote_dir'] + '/' + max(names, key=len))
+    part = '/a' if deep else '/' + 'a'*255
+    allowed = (part * (length // len(part))) + ('/' + 'b'*(length % len(part)-1) if length % len(part) > 1 else 'b' if length % len(part) else '')
+    cfg['remote']['allowed_root'] = allowed
+    cfg['remote']['ag_root'] = allowed + '/ag'
+    config.validate_cluster(cfg)
+    assert len(remote.attempt_dir(cfg, m) + '/' + max(names, key=len)) == 4095
+    command = remote.output_observation(cfg, m)
+    assert len(command.text.encode()) < 64*1024
+    assert command.operation == 'output_observation'
+    assert subprocess.run(['sh', '-n'], input=command.text.encode(), capture_output=True).returncode == 0
+    # A config string has no finite maximum; reject a command that cannot fit,
+    # without changing the configuration rules or old-template commands.
+    cfg['remote']['ag_root'] = '/' + 'x'*40000 + '/ag'
+    with pytest.raises(ValueError, match='64 KiB'):
+        remote.output_observation(cfg, m)
+
+
+@pytest.mark.skipif(sys.platform != 'linux', reason='Observation equality requires GNU stat; Linux CI executes it')
+@pytest.mark.parametrize('bad_path', [None, 'symlink', 'dangling', 'directory', 'parent_symlink'])
+def test_observation_loop_matches_expanded_bytes(nci_cfg, tmp_path, bad_path):
+    _, m = prepare_nci(nci_cfg, tmp_path, frames=3,
+                      csv_text='fragment,atoms\na,1-2\nb,3\nc,4-5\nd,6\n')
+    work = Path(remote.attempt_dir(nci_cfg, m))
+    work.mkdir(parents=True)
+    names = remote.output_names(m)
+    for i, name in enumerate(names):
+        if i % 3 != 2:
+            (work/name).write_bytes(b'' if i % 3 == 1 else b'synthetic observation\n')
+    target = work/names[2]  # The same absent/regular/empty inputs for both commands.
+    if bad_path in ('symlink', 'dangling'):
+        target.symlink_to(work/(names[0] if bad_path == 'symlink' else 'missing'))
+    elif bad_path == 'directory':
+        target.mkdir()
+    elif bad_path == 'parent_symlink':
+        real = work.with_name(work.name+'-actual')
+        work.rename(real)
+        work.symlink_to(real, target_is_directory=True)
+    before = {p.relative_to(work): sha256(p.read_bytes()).hexdigest()
+              for p in work.iterdir() if p.is_file() and not p.is_symlink()}
+    old = subprocess.run(['sh', '-c', _expanded_observation(nci_cfg, m)], capture_output=True)
+    new = subprocess.run(['sh', '-c', remote.output_observation(nci_cfg, m).text], capture_output=True)
+    assert (new.returncode, new.stdout, new.stderr) == (old.returncode, old.stdout, old.stderr)
+    assert (new.returncode == 0) == (bad_path is None)
+    if bad_path is None:
+        assert len(new.stdout.splitlines()) == len(names)
+        assert names[-1].encode() in new.stdout
+    assert before == {p.relative_to(work): sha256(p.read_bytes()).hexdigest()
+                      for p in work.iterdir() if p.is_file() and not p.is_symlink()}
