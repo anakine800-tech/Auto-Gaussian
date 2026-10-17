@@ -88,6 +88,16 @@ ag facts <Attempt> --reparse
 
 同一 Attempt 的 Opt/Freq 方法、基组、基函数类型、溶剂模型、溶剂或色散不一致，
 列出差异并拒绝；积分网格仍仅警告，不作为口径等价推断。T82 的保守 protocol
-解析保持不变：`SCRF=Check` 等缺少显式口径的 Freq 段不能借用 Opt route，
-R/U 前缀不自动等同。旧版 facts 缺少段来源时需要重新生成；多段 thermo 缓存
-缺少与当前 facts 一致的来源记录时需要重新运行 thermo。单段 Freq 的数值不变。
+解析保持不变，段来源检查额外接受有本段打印证据的继承条件：`SCRF=Check`
+或 route 未写溶剂时，读取本段完整 PCM 参数块中的模型、原子半径、溶剂名、
+静态及高频介电常数和其余参数。SMD 使用打印的 `SMD-Coulomb` 标识。
+Freq 与每个 Opt 段的打印参数必须逐项一致，不借用 Opt route；缺块、缺字段、
+无法解析、同段重复块冲突或段间差异都拒绝。显式溶剂 route 也须与本段打印块一致。
+不解析自定义 Generic/Read 溶剂。参数数值按打印精度精确比较，不设容差。
+
+来源记录的 `printed_conditions.solvent` 保存参数和每个打印块的原日志行范围；
+`compared_opt_sections` 记录比较过的 Opt 段及打印证据。省略的色散或基函数类型
+只能用本段可识别的 `R6Disp` / `Standard basis` 打印证据确认，证据不足仍拒绝；
+方法和基组仍须显式写明，Gen/ChkBasis 等不猜测。R/U 前缀不自动等同。
+旧版 facts 缺少段来源时需要重新生成；多段或含打印继承证据的 thermo 缓存
+缺少一致的来源记录时需要重新运行 thermo。气相及单段 Freq 的计算数值不变。

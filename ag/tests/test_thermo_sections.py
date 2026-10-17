@@ -34,13 +34,14 @@ THERMAL = ''' Molecular mass:    18.01056 amu.
 ROUTE = 'HF/STO-3G EmpiricalDispersion=GD3BJ SCRF=(SMD,Solvent=Water)'
 
 
-def synthetic(tmp_path, *, opt=ROUTE, freq=ROUTE, tail=False, standalone=False):
+def synthetic(tmp_path, *, opt=ROUTE, freq=ROUTE, tail=False, standalone=False,
+              opt_print='', freq_print=''):
     directory = attempt(tmp_path, fixture=None)
-    body = (' Gaussian 16, Revision A.03,\n' + GEOMETRY
+    body = (' Gaussian 16, Revision A.03,\n' + GEOMETRY + freq_print
             + ' SCF Done:  E(RHF) =  -75.000000000 A.U. after 1 cycles\n'
             + FREQUENCIES + TABLE + THERMAL)
     text = '' if standalone else section(' #p ' + opt + ' Opt',
-        body=GEOMETRY + ' SCF Done:  E(RHF) =  -77.000000 A.U. after 1 cycles\n'
+        body=GEOMETRY + opt_print + ' SCF Done:  E(RHF) =  -77.000000 A.U. after 1 cycles\n'
         + ' Step number 1\n' + TABLE + ' Optimization completed.\n')
     text += section(' #p ' + freq + ' Fr\n eq Integral=UltraFine',
                     body=body, explicit=not standalone)
@@ -112,7 +113,7 @@ def test_single_freq_preserves_goodvibes_numbers_and_settings(tmp_path):
 
 def test_checkpoint_only_solvent_never_borrows_opt_protocol(tmp_path):
     directory = synthetic(tmp_path, freq='HF/STO-3G SCRF=Check')
-    with pytest.raises(ValueError, match='section 2 protocol: SCRF needs explicit'):
+    with pytest.raises(ValueError, match='SCRF=Check requires a complete printed solvent'):
         calculate_thermo([directory])
 
 
@@ -177,11 +178,195 @@ def test_cached_multisection_thermo_requires_matching_sources(tmp_path):
 def explicit_water(directory):
     """Synthetic explicit Freq echo for existing numerical/identity tests.
 
-    The original fixture's SCRF=Check is now correctly unsupported by T82's
-    explicit-protocol rule. Change only the echo, preserving all numeric data.
+    The original fixture's SCRF=Check lacks a printed solvent block. Change
+    only the echo for these unrelated checks, preserving all numeric data.
     """
     path = directory / 'outputs/input.log'
     path.write_text(path.read_text().replace(
         '#P Geom=AllCheck Guess=TCheck SCRF=Check GenChk RB3LYP/STO-3G Freq',
         '#P B3LYP/STO-3G Freq'))
     return directory
+
+
+def solvent_block(model='SMD', *, solvent='Water', epsilon='78.355300',
+                  epsilon_infinite='1.777849'):
+    radii = 'SMD-Coulomb' if model == 'SMD' else 'UFF (Universal Force Field)'
+    return (f' Polarizable Continuum Model (PCM)\n'
+            f' =================================\n'
+            f' Model                : PCM.\n'
+            f' Atomic radii         : {radii}.\n'
+            f' Polarization charges : Total charges.\n'
+            f' Charge compensation  : None.\n'
+            f' Solution method      : On-the-fly selection.\n'
+            f' Cavity type          : Scaled VdW (van der Waals Surface) (Alpha=1.100).\n'
+            f' Cavity algorithm     : GePol (No added spheres)\n'
+            f'                        Default sphere list used, NSphG=    3.\n'
+            f'                        Lebedev-Laikov grids with approx.  5.0 points / Ang**2.\n'
+            f'                        Smoothing algorithm: York/Karplus (Gamma=1.0000).\n'
+            f'                        Polarization charges: spherical gaussians, with\n'
+            f'                                              point-specific exponents (IZeta= 3).\n'
+            f'                        Self-potential: point-specific (ISelfS= 7).\n'
+            f'                        Self-field    : sphere-specific E.n sum rule (ISelfD= 2).\n'
+            f' Solvent              : {solvent}, Eps= {epsilon} Eps(inf)= {epsilon_infinite}\n'
+            f' ---------------------------------------------------------------------\n')
+
+
+def inherited_solvent(tmp_path, model, *, opt_print=None, freq_print=None, freq_route=None):
+    route = ROUTE.replace('SMD', model)
+    return synthetic(tmp_path, opt=route,
+        freq=freq_route or route.replace(f'SCRF=({model},Solvent=Water)', 'SCRF=Check'),
+        opt_print=solvent_block(model) if opt_print is None else opt_print,
+        freq_print=solvent_block(model) if freq_print is None else freq_print)
+
+
+@pytest.mark.parametrize('model', ['SMD', 'PCM'])
+@pytest.mark.parametrize('check', ['SCRF=Check', 'SCRF=(Check)', 'SCRF(Check)', ''])
+def test_own_matching_printed_solvent_binds_freq_and_cached_profile(tmp_path, model, check):
+    directory = inherited_solvent(tmp_path, model,
+        freq_route='HF/STO-3G EmpiricalDispersion=GD3BJ ' + check)
+    build_facts(directory)
+    before = {p: p.read_bytes() for p in directory.rglob('*') if p.is_file()}
+    table = calculate_thermo([directory])
+    source = table['rows'][0]['frequency_source']
+    assert source['section_index'] == 2
+    assert source['protocol']['solvent_model'] == model.lower()
+    assert source['protocol']['solvent'] == 'water'
+    assert source['protocol']['solvent_parameters']['epsilon'] == 78.3553
+    assert source['protocol']['solvent_parameters']['epsilon_infinite'] == 1.777849
+    assert source['printed_conditions']['solvent']['values'] == source['compared_opt_sections'][0]['printed_conditions']['solvent']['values']
+    location = source['printed_conditions']['solvent']['blocks'][0]
+    assert source['start_line'] < location['start_line'] < location['end_line'] < source['end_line']
+    assert source['compared_opt_sections'][0]['printed_conditions']['solvent']['blocks'][0]['end_line'] < source['start_line']
+    assert table['rows'][0]['electronic_energy_source'] == source
+    analyses = tmp_path / 'analyses'
+    analyses.mkdir()
+    (analyses / 'thermo.json').write_text(json.dumps(table))
+    result = load_species('water', {'thermo': 'thermo.json', 'single_conformer_reason': 'synthetic'},
+                          tmp_path, analyses, DEFAULT_SETTINGS)
+    assert result['conformers'][0]['frequency_source'] == source
+    assert result['ensemble_G_hartree'] == table['ensemble_G']
+    assert before == {p: p.read_bytes() for p in directory.rglob('*') if p.is_file()}
+
+
+@pytest.mark.parametrize('model', ['SMD', 'PCM'])
+@pytest.mark.parametrize('change', ['solvent', 'epsilon', 'epsilon_infinite', 'radii',
+                                   'other_parameter', 'missing_freq', 'missing_opt',
+                                   'malformed', 'missing_field', 'unterminated', 'conflicting_repeat'])
+def test_inherited_solvent_requires_complete_identical_own_blocks(tmp_path, model, change):
+    opt, freq = solvent_block(model), solvent_block(model)
+    if change == 'solvent':
+        freq = freq.replace('Water', 'Toluene')
+    elif change == 'epsilon':
+        freq = freq.replace('78.355300', '78.355301')
+    elif change == 'epsilon_infinite':
+        freq = freq.replace('1.777849', '1.777850')
+    elif change == 'radii':
+        freq = freq.replace('SMD-Coulomb' if model == 'SMD' else 'UFF', 'Bondi')
+    elif change == 'other_parameter':
+        freq = freq.replace('Total charges', 'Apparent charges')
+    elif change == 'missing_freq':
+        freq = ''
+    elif change == 'missing_opt':
+        opt = ''
+    elif change == 'malformed':
+        freq = freq.replace('78.355300', '*********')
+    elif change == 'missing_field':
+        freq = '\n'.join(line for line in freq.splitlines() if 'Atomic radii' not in line) + '\n'
+    elif change == 'unterminated':
+        freq = freq.rsplit(' -----', 1)[0]
+    elif change == 'conflicting_repeat':
+        freq += freq.replace('78.355300', '2.374100')
+    directory = inherited_solvent(tmp_path, model, opt_print=opt, freq_print=freq)
+    # cclib may reject malformed/truncated blocks before extracting modes.
+    # Also exercise the scoped parser directly to verify its own rejection.
+    if change in {'malformed', 'unterminated'}:
+        from ag._profile_sources import _printed_solvent
+        with pytest.raises(ValueError, match='printed|parameter'):
+            _printed_solvent(freq, 0, 'synthetic')
+    diagnostic = 'solvent|parameter|inconsistent Opt/Freq|n_imag'
+    with pytest.raises(ValueError, match=diagnostic):
+        calculate_thermo([directory])
+    with pytest.raises(ValueError, match=diagnostic):
+        load_species('water', {'attempts': [{'attempt_id': 'water'}], 'single_conformer_reason': 'synthetic'},
+                     tmp_path, tmp_path / 'analyses', DEFAULT_SETTINGS)
+
+
+def test_repeated_identical_solvent_blocks_and_numeric_format_are_accepted(tmp_path):
+    directory = inherited_solvent(tmp_path, 'SMD', opt_print=solvent_block() * 2,
+        freq_print=solvent_block(epsilon='7.83553E+01'))
+    source = calculate_thermo([directory])['rows'][0]['frequency_source']
+    assert len(source['compared_opt_sections'][0]['printed_conditions']['solvent']['blocks']) == 2
+
+
+@pytest.mark.parametrize('setting,diagnostic,field,expected', [
+    ('EmpiricalDispersion=GD2', ' R6Disp:  Grimme-D2 Dispersion energy= -0.001 Hartrees.\n', 'dispersion', 'gd2'),
+    ('5D 7F', ' Standard basis: STO-3G (5D, 7F)\n', 'basis_function_type', '5D 7F'),
+])
+@pytest.mark.parametrize('missing', [False, True])
+def test_other_omitted_conditions_require_same_section_print(tmp_path, setting, diagnostic, field, expected, missing):
+    directory = synthetic(tmp_path, opt='HF/STO-3G ' + setting, freq='HF/STO-3G',
+                          opt_print=diagnostic, freq_print='' if missing else diagnostic)
+    if missing:
+        with pytest.raises(ValueError, match='missing or conflicting same-section printed ' + field):
+            calculate_thermo([directory])
+    else:
+        source = calculate_thermo([directory])['rows'][0]['frequency_source']
+        assert source['protocol'][field] == expected
+        assert source['printed_conditions'][field]['lines'][0] > source['start_line']
+
+
+@pytest.mark.parametrize('route', ['Freq SCRF=Check', 'HF/ChkBasis SCRF=Check',
+                                  'HF/STO-3G EmpiricalDispersion=Check SCRF=Check'])
+def test_unsupported_checkpoint_conditions_are_not_guessed(tmp_path, route):
+    directory = inherited_solvent(tmp_path, 'SMD', freq_route=route)
+    with pytest.raises(ValueError, match='explicit method/basis|Custom basis|unsupported inherited dispersion'):
+        calculate_thermo([directory])
+
+
+def test_gas_phase_single_and_two_section_numeric_behavior_unchanged(tmp_path):
+    rows = []
+    for name, standalone in [('single', True), ('two', False)]:
+        directory = synthetic(tmp_path / name, opt='HF/STO-3G', freq='HF/STO-3G', standalone=standalone)
+        rows.append(calculate_thermo([directory])['rows'][0])
+    for field in ('E', 'ZPE', 'H', 'S', 'G', 'qh_H', 'qh_S', 'qh_G'):
+        assert rows[0][field] == rows[1][field]
+    for row in rows:
+        assert row['comparability']['frequency_protocol']['solvent_model'] == 'none'
+        assert 'printed_conditions' not in row['frequency_source']
+
+
+def test_multiple_opt_sections_cannot_hide_inherited_dispersion_difference(tmp_path):
+    printed = ' R6Disp:  Grimme-D2 Dispersion energy= -0.001 Hartrees.\n'
+    directory = synthetic(tmp_path, opt='HF/STO-3G', freq='HF/STO-3G',
+                          opt_print=printed, freq_print=printed)
+    log = directory / 'outputs/input.log'
+    text = log.read_text()
+    boundary = text.index(' --Link1--')
+    log.write_text(text[:boundary] + section(' #p HF/STO-3G EmpiricalDispersion=GD3 Opt',
+        explicit=True, body=GEOMETRY + printed.replace('Grimme-D2', 'Grimme-D3')) + text[boundary:])
+    with pytest.raises(ValueError, match='dispersion: Opt section 2=.*gd3.*Freq section 3=.*gd2'):
+        calculate_thermo([directory])
+
+
+def test_printed_conditions_cannot_bind_to_stale_section_ranges(tmp_path):
+    directory = inherited_solvent(tmp_path, 'SMD')
+    facts = build_facts(directory)
+    log = directory / 'outputs/input.log'
+    log.write_text('\n' + log.read_text())
+    with pytest.raises(ValueError, match='job sections differ from facts'):
+        section_source(facts, 'water', directory=directory)
+
+
+def test_checkpoint_solvent_does_not_hide_ambiguous_route(tmp_path):
+    directory = inherited_solvent(tmp_path, 'SMD', freq_route=ROUTE + ' SCRF=Check')
+    with pytest.raises(ValueError, match='Ambiguous solvent settings'):
+        calculate_thermo([directory])
+
+
+def test_matching_checkpoint_solvent_does_not_relax_freq_convergence(tmp_path):
+    directory = inherited_solvent(tmp_path, 'SMD')
+    log = directory / 'outputs/input.log'
+    before, after = log.read_text().rsplit(TABLE, 1)
+    log.write_text(before + TABLE.replace('YES', 'NO', 1) + after)
+    with pytest.raises(ValueError, match='freq_step_converged'):
+        calculate_thermo([directory])

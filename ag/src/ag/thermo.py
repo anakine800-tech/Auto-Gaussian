@@ -267,7 +267,7 @@ def calculate_thermo(attempts, *, study=None, temp=298.15, conc=1.0, qs='grimme'
         if facts['program'] != 'gaussian':
             raise ValueError(f'{directory.name}: Gaussian frequency output is required')
         frequency_evidence = _frequency_evidence(facts, directory.name)
-        frequency_source = section_source(facts, directory.name)
+        frequency_source = section_source(facts, directory.name, directory=directory)
         frequency_protocol = frequency_source['protocol']
         block, geometry = _frequency_input(directory, facts, frequency_source)
         frequency_version = nonempty(facts.get('program_version'), f'{directory.name}: program version')
@@ -302,7 +302,8 @@ def calculate_thermo(attempts, *, study=None, temp=298.15, conc=1.0, qs='grimme'
             sp_facts, _ = parse_facts(sp[directory])
             if sp_facts['termination'] != 'normal' or sp_facts.get('n_imag') not in (0, None):
                 raise ValueError(f'{sp[directory].name}: SPC requires normal termination and no imaginary frequencies')
-            electronic_source = section_source(sp_facts, sp[directory].name, frequency=False)
+            electronic_source = section_source(sp_facts, sp[directory].name,
+                                               frequency=False, directory=sp[directory])
             comparability.update(single_point_protocol=electronic_source['protocol'],
                 single_point_program_version=nonempty(sp_facts.get('program_version'), f'{sp[directory].name}: program version'))
             sp_grid = integration_grid(electronic_source['route'])
