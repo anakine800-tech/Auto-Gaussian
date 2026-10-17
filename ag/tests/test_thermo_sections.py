@@ -298,6 +298,27 @@ def test_repeated_identical_solvent_blocks_and_numeric_format_are_accepted(tmp_p
     assert len(source['compared_opt_sections'][0]['printed_conditions']['solvent']['blocks']) == 2
 
 
+@pytest.mark.parametrize('model', ['SMD', 'PCM'])
+def test_solver_and_derivative_diagnostics_do_not_change_solvent_conditions(tmp_path, model):
+    original = solvent_block(model)
+    first = (' 1st derivatives      : Analytical E(r).r(x)/FMM algorithm (CHGder, D1EAlg=3).\n'
+             '                        Cavity 1st derivative terms included.\n')
+    second = (' 2nd derivatives      : Analytical E(r).r(xy)/FMM algorithm (CHGder, D2EAlg=3).\n'
+              '                        Cavity 2nd derivative terms included.\n')
+    opt = original.replace(' Solvent ', first + ' Solvent ')
+    freq = original.replace(' Solvent ', first + second + ' Solvent ').replace(
+        'On-the-fly selection.', 'Matrix inversion.')
+    directory = inherited_solvent(tmp_path, model, opt_print=opt + freq, freq_print=freq)
+    source = calculate_thermo([directory])['rows'][0]['frequency_source']
+    printed = source['printed_conditions']['solvent']
+    diagnostics = printed['blocks'][0]['evaluation_diagnostics']
+    assert '2nd derivatives' in diagnostics
+    assert diagnostics['solution method'] == 'matrix inversion.'
+    assert '2nd derivatives' not in printed['values']['other_parameters']
+    assert 'solution method' not in printed['values']['other_parameters']
+    assert printed['values'] == source['compared_opt_sections'][0]['printed_conditions']['solvent']['values']
+
+
 @pytest.mark.parametrize('setting,diagnostic,field,expected', [
     ('EmpiricalDispersion=GD2', ' R6Disp:  Grimme-D2 Dispersion energy= -0.001 Hartrees.\n', 'dispersion', 'gd2'),
     ('5D 7F', ' Standard basis: STO-3G (5D, 7F)\n', 'basis_function_type', '5D 7F'),

@@ -243,6 +243,11 @@ def _printed_solvent(block, offset, label):
                 f'{label}: invalid printed solvent dielectric constants')
         require(radii != 'smd-coulomb' or printed_model in {'pcm', 'iefpcm'},
                 f'{label}: unsupported SMD electrostatic model')
+        # Opt/Freq can print different solver-selection and derivative-order
+        # diagnostics for identical solvent parameters. These describe how
+        # the job evaluates the model, not the model/solvent inherited by chk.
+        diagnostics = {key: fields.pop(key) for key in
+                       ('solution method', '1st derivatives', '2nd derivatives') if key in fields}
         values = {'model': 'smd' if radii == 'smd-coulomb' else printed_model.replace('c-pcm', 'cpcm'),
                   'solvent': solvent[1], 'epsilon': epsilon, 'epsilon_infinite': epsilon_infinite,
                   'printed_model': printed_model, 'atomic_radii': radii,
@@ -250,7 +255,8 @@ def _printed_solvent(block, offset, label):
         require(result is None or result == values,
                 f'{label}: conflicting printed solvent parameter blocks within section')
         result = values
-        locations.append({'start_line': offset + start + 1, 'end_line': offset + end + 1})
+        locations.append({'start_line': offset + start + 1, 'end_line': offset + end + 1,
+                          'evaluation_diagnostics': diagnostics})
     return {'values': result, 'blocks': locations} if result is not None else None
 
 

@@ -96,6 +96,8 @@ Freq 与每个 Opt 段的打印参数必须逐项一致，不借用 Opt route；
 不解析自定义 Generic/Read 溶剂。参数数值按打印精度精确比较，不设容差。
 
 来源记录的 `printed_conditions.solvent` 保存参数和每个打印块的原日志行范围；
+块中的求解器选择、一阶/二阶导数实现诊断保存在 `evaluation_diagnostics`，
+不当作溶剂条件比较（Opt/Freq 的求解方式和导数阶数可变，模型和溶剂参数不变）。
 `compared_opt_sections` 记录比较过的 Opt 段及打印证据。省略的色散或基函数类型
 只能用本段可识别的 `R6Disp` / `Standard basis` 打印证据确认，证据不足仍拒绝；
 方法和基组仍须显式写明，Gen/ChkBasis 等不猜测。R/U 前缀不自动等同。
