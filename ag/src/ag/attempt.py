@@ -101,7 +101,7 @@ def all_attempts(cfg, name=None):
     return result
 
 
-def prepare(cfg, *, study_name, template, input_path, tier, walltime, label, params=None, parents=None, method_basis, constraints=None, cluster='default', card=None, parent_chk=None):
+def prepare(cfg, *, study_name, template, input_path, tier, walltime, label, params=None, parents=None, method_basis, constraints=None, cluster='default', card=None, parent_chk=None, analysis=None, grid=None, fragments=None):
     cfg = select_cluster(cfg, cluster)
     s = study.locate(cfg, study_name)
     if not (s / 'study.md').is_file() or not (s / 'attempts').is_dir():
@@ -110,9 +110,19 @@ def prepare(cfg, *, study_name, template, input_path, tier, walltime, label, par
     if tier not in ('mini', 'simple', 'general', 'complex'):
         raise ValueError('Invalid resource tier')
     resource = cfg['resources']['tiers'][tier]
-    source = Path(input_path)
-    name = filename(source.name)
-    data = source.read_bytes()
+    if template != 'multiwfn' and any(v is not None for v in (analysis, grid, fragments)):
+        raise ValueError('--analysis/--grid/--fragments require the multiwfn template')
+    if template == 'multiwfn':
+        if params:
+            raise ValueError('Use --analysis and --grid, not custom Multiwfn parameters')
+        params = {'--analysis': analysis, '--grid': grid}
+        name, data = None, None
+    else:
+        if input_path is None:
+            raise ValueError('--input is required for this template')
+        source = Path(input_path)
+        name = filename(source.name)
+        data = source.read_bytes()
     params = dict(params or {})
     if constraints is not None and template not in ('crest', 'xtb'):
         raise ValueError('--constraints is only supported for the crest or xtb template')
@@ -123,7 +133,13 @@ def prepare(cfg, *, study_name, template, input_path, tier, walltime, label, par
     if parent_chk is not None:
         from ag.parent_chk import declare
         attachment = declare(cfg, s, template, parents or [], parent_chk)
-    if template == 'gaussian':
+    nci_files = None
+    if template == 'multiwfn':
+        from ag.nci_report import prepare_inputs
+        science, nci_files = prepare_inputs(cfg, params, input_path, fragments, attachment, cores=resource['cores'])
+        name = 'ensemble.xyz' if analysis == 'igm' else 'parent-context.json'
+        data = nci_files[name]
+    elif template == 'gaussian':
         if source.suffix.lower() != '.gjf':
             raise ValueError('Gaussian input must have .gjf extension')
         science = gaussian_input.validate(data.decode(), **resource, parent_chk=attachment is not None)
@@ -208,7 +224,7 @@ def prepare(cfg, *, study_name, template, input_path, tier, walltime, label, par
     if attachment is not None:
         m['parent_chk'] = attachment
     script = 'job.slurm' if m['scheduler'] == 'slurm' else 'job.pbs'
-    files = {name: data, script: render.render(cfg, m, name).encode()}
+    files = {**(nci_files or {name: data}), script: render.render(cfg, m, name).encode()}
     if constraint_data is not None:
         files['constraints.inp'] = constraint_data
     m['inputs'], m['bundle_sha256'] = bundle(files)
@@ -243,6 +259,15 @@ def verified_files(cfg, path, manifest):
     records, digest = bundle(files)
     if records != m['inputs'] or digest != m['bundle_sha256']:
         raise ValueError('Input bundle differs from confirmed manifest')
+    if m['template'] == 'multiwfn':
+        from ag.nci_report import verify_prepared
+        name = verify_prepared(cfg, m, files)
+        if files[script] != render.render(cfg, m, name).encode():
+            raise ValueError('Prepared script differs from current reviewed template/configuration')
+        if 'parent_chk' in m:
+            from ag.parent_chk import resolve
+            resolve(cfg, m)
+        return files
     names = set(files) - {script}
     constraint_option = {'crest': '--cinp', 'xtb': '--input'}.get(m['template'])
     constrained = constraint_option and m['template_params'].get(constraint_option) == 'constraints.inp'
@@ -290,7 +315,7 @@ def summary(cfg, m):
     from ag import budget
     budget_line = budget.summary(cfg, budget.requested(m)) if m.get('scheduler') == 'slurm' else ''
     geometry = f"```text\n{science['geometry']}\n```\n\n"
-    if science.get('n_frames'):
+    if science.get('n_frames') and m['template'] == 'crest':
         geometry = (f"CREST mdopt ensemble: {science['n_frames']} frames; first frame preview below. "
                     "Review every frame in the hashed input XYZ before submission.\n\n" + geometry)
     if science.get('qst_mode'):
@@ -306,6 +331,9 @@ def summary(cfg, m):
                               for row in science['largest_displacements']) + '\n\n'
     from ag._scan import summary as scan_summary
     geometry += scan_summary(science)
+    if m['template'] == 'multiwfn':
+        from ag.nci_report import summary as nci_summary
+        geometry += nci_summary(m) + '\n\n'
     attachment_summary = ''
     if 'parent_chk' in m:
         from ag.parent_chk import summary

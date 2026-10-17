@@ -43,8 +43,8 @@ def _parent(cfg, parent_id, source_name):
 
 
 def declare(cfg, study, template, parents, value):
-    if template != 'gaussian':
-        raise ValueError('--parent-chk requires the gaussian template')
+    if template not in ('gaussian', 'multiwfn'):
+        raise ValueError('--parent-chk requires the gaussian or multiwfn template')
     parent_id, separator, name = value.partition(':')
     if not separator or parent_id not in [p['attempt_id'] for p in parents]:
         raise ValueError('--parent-chk must also appear in --parent')
@@ -108,8 +108,8 @@ def resolve(cfg, child, jobs=None):
     attachment = child['parent_chk']
     if set(attachment) != {'attempt_id', 'source_name', 'target_name', 'cluster'}:
         raise ValueError('Invalid parent chk declaration')
-    if child['template'] != 'gaussian' or attachment['target_name'] != 'parent.chk':
-        raise ValueError('Only Gaussian parent.chk attachments are supported')
+    if child['template'] not in ('gaussian', 'multiwfn') or attachment['target_name'] != 'parent.chk':
+        raise ValueError('Only Gaussian or Multiwfn parent.chk attachments are supported')
     if attachment['attempt_id'] not in [p['attempt_id'] for p in child['parents']]:
         raise ValueError('Parent chk must also appear in --parent')
     parent, job = _parent(cfg, attachment['attempt_id'], attachment['source_name'])
