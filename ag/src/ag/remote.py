@@ -165,6 +165,17 @@ def receipt(cfg, manifest, name):
 
 def output_names(manifest):
     from ag.render import declaration
+    if manifest['template'] == 'multiwfn':
+        from ag.nci_report import layout
+        frames, pairs = layout(manifest)
+        declared = declaration('multiwfn')
+        names = list(declared['outputs'])
+        for frame in range(1, frames + 1):
+            names.extend(n.format(frame=frame) for n in declared['frame_outputs'])
+            for left, right in pairs:
+                names.extend(n.format(frame=frame, left=left, right=right)
+                             for n in declared['pair_outputs'])
+        return [filename(name) for name in names]
     stem = PurePosixPath(next(r['name'] for r in manifest['inputs'] if r['name'] not in ('job.pbs', 'job.slurm', 'constraints.inp'))).stem
     declared = declaration(manifest['template'])
     # Scan output selection only; keep existing commands and non-scan files unchanged.

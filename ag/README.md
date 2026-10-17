@@ -517,3 +517,12 @@ ag asm summary --study '<STUDY_DIR>' --definition analyses/asm-definition.json \
 `input` 取提交几何，`final` 取 `final_input.xyz`；坐标逐原子核对，不做对齐或重排。
 所有文件限同一 study，输出独占创建。只用电子能，不含零点能、热校正或 BSSE 校正，
 不判断选择性来源。定义、公式及几何哈希的间接证据绑定见 [ag-asm/1](../docs/ag-asm-1.md)。
+
+## Multiwfn 非共价相互作用分析
+
+`ag prepare --template multiwfn --analysis igm|igmh --grid low|medium|high --fragments <CSV>`
+在 default PBS 运行固定版本 Multiwfn 2026.10.1。IGM 接收最多 50 帧 XYZ；IGMH 复用正常结束
+Gaussian 父 Attempt 的 chk，作业内 formchk，fchk 留远程。片段 2–4 个，由人确认。
+`ag fetch <Attempt> --no-facts` 后用 `ag nci-report <Attempt> --out analyses/<new>.json`，
+输出原子/原子对贡献、片段汇总、版本与输入输出哈希；不代表相互作用能量分解。
+配置、命令示例、格点与文件大小、完整输出名单和 JSON 字段见 [ag-nci/1](../docs/ag-nci-1.md)。

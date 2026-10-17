@@ -593,3 +593,63 @@ def test_slurm_parent_copy_retains_binding_and_budget(multi, parent, tmp_path, m
         assert budget.totals(fake.cfg) == (0, 8 * 30 * 60)
         assert 'nodes' not in fake.operations() and 'jobs' not in fake.operations()
         assert attempt.read_manifest(path) == manifest
+
+
+@pytest.fixture
+def multiwfn_child(cfg, parent, tmp_path, monkeypatch):
+    from ag import nci_report
+    cfg['programs']['multiwfn'] = str(tmp_path / 'Multiwfn')
+    fragment_file = tmp_path / 'fragments.csv'
+    fragment_file.write_text('fragment,atoms\noxygen,1\nhydrogen,2-3\n')
+    context = dict(attempt_id=parent[0].name, manifest_sha256='a'*64,
+                   log_file='outputs/water.log', log_sha256='b'*64,
+                   route='# HF/STO-3G', method_basis='兜底方法：合成测试',
+                   charge=0, multiplicity=1, geometry='O 0 0 0\nH 0 0 1\nH 0 1 0', symbols=['O','H','H'])
+    monkeypatch.setattr(nci_report, '_parent_context', lambda *a: context)
+    return child(cfg, tmp_path, parent, template='multiwfn', input_path=None,
+                 analysis='igmh', grid='medium', fragments=fragment_file)
+
+
+def test_multiwfn_existing_exclusive_chk_copy(cfg, parent, multiwfn_child, monkeypatch):
+    p, m = multiwfn_child
+    fake = CheckpointFake(cfg, parent[1])
+    original = fake.source.read_bytes()
+    monkeypatch.setattr(confirm, 'confirm', lambda _: True)
+    submit.submit(cfg, [p.name], fake)
+    assert fake.source.read_bytes() == original
+    assert (Path(remote.attempt_dir(cfg, m)) / 'parent.chk').read_bytes() == original
+    assert fake.operations().count('copy_parent_chk') == 1
+    assert fake.operations().count('parent_chk_metadata') == 3
+    with pytest.raises(ValueError, match='consumed'):
+        submit.submit(cfg, [p.name], fake)
+
+
+@pytest.mark.parametrize('failure', ['same_attempt', 'other_study', 'other_cluster', 'scheduler_present', 'different_target'])
+def test_multiwfn_parent_checks_unchanged(cfg, parent, multiwfn_child, failure):
+    _, original = multiwfn_child
+    m = deepcopy(original)
+    jobs = None
+    if failure == 'same_attempt':
+        m['attempt_id'] = parent[0].name
+    elif failure == 'other_study':
+        m['study_id'] = 'different'
+    elif failure == 'other_cluster':
+        m['parent_chk']['cluster'] = 'different'
+    elif failure == 'different_target':
+        m['parent_chk']['target_name'] = 'different.chk'
+    else:
+        jobs = [{'job_id': '42.fixture'}]
+    with pytest.raises(ValueError):
+        parent_chk.resolve(cfg, m, jobs)
+
+
+def test_multiwfn_chk_hash_mismatch_retains_single_attempt(cfg, parent, multiwfn_child, monkeypatch):
+    p, _ = multiwfn_child
+    fake = CheckpointFake(cfg, parent[1])
+    fake.corrupt = True
+    monkeypatch.setattr(confirm, 'confirm', lambda _: True)
+    with pytest.raises(ValueError, match='hash/size changed'):
+        submit.submit(cfg, [p.name], fake)
+    assert fake.operations().count('copy_parent_chk') == 1
+    assert 'submit' not in fake.operations()
+    assert state.read(p)['state'] == 'failed_presubmit'

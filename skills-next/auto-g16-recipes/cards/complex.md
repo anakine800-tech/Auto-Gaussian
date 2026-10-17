@@ -138,6 +138,26 @@ profile 定义沿用其卡片，`reference` 指向分离反应物组成的状态
 当前 profile 要求 minimum/ts 交替，不能为塞入无势垒缔合而虚构 TS；
 这种复合物在同零点的补充能量表中报告，并注明该边未由 profile 表达。
 
+### 非共价相互作用分析
+
+先以 IGM（前分子密度）筛选已审阅的 1–50 帧同原子顺序 XYZ，关键 TS 再用 IGMH。
+默认使用几何 Opt 层级的 Gaussian 波函数；单点波函数为明确选择的可选项。
+IGMH 父 Attempt 须正常结束，先 fetch 父日志，再复用其 chk；几何实际取自 chk。
+片段以 `fragment,atoms` CSV 定义，通常两个、最多四个，完整覆盖原子且不得重叠，须人确认。
+
+```text
+ag prepare --study <study_id> --template multiwfn --analysis igm --grid medium --fragments <fragments.csv> --input <reviewed-frames.xyz> --tier mini --walltime 00:30:00 --label igm --card complex --method-basis <已审阅依据>
+ag prepare --study <study_id> --template multiwfn --analysis igmh --grid medium --fragments <fragments.csv> --parent <parent_id> --relation nci_from --parent-chk <parent_id>:<name.chk> --tier simple --walltime 01:00:00 --label igmh --card complex --method-basis <已审阅依据>
+ag fetch <nci_attempt> --no-facts
+ag nci-report <nci_attempt> --out analyses/<new-report>.json
+```
+
+仅 default PBS 的 Multiwfn 2026.10.1；仍须逐次人工提交确认。`low/medium/high` 固定格点，
+包括 high 在内均取回 δg_inter 与 sign(λ₂)ρ 两份 cube（high 约 48.4 MB/帧，另加文本）；
+fchk 留远程。核对版本、实际线程数、完整数值表和各帧输出，再由人解释贡献分布。
+结果仅为相互作用的可视化与半定量分析，不是能量分解，也不证明 TS/IRC 或结合能通过。
+原子对指数与多片段 cube 积分不能混为一谈；详见 [ag-nci/1](../../../docs/ag-nci-1.md)。
+
 ## 4. 资源建议
 
 复合物比单个组分大，按 [opt-freq](opt-freq.md#4-资源建议) 和
