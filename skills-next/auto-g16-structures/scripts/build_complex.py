@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import argparse
 import csv
+from collections import Counter
+from decimal import Decimal, ROUND_CEILING
+from itertools import product
 from dataclasses import replace
 import json
 import math
@@ -389,6 +392,241 @@ def run_build(args):
     return report
 
 
+def torsion_grid(text):
+    """Count before materializing, so an oversized grid cannot exhaust memory."""
+    if text == 'grid' or text.startswith('grid:'):
+        step = geo.finite_number(text[5:] if ':' in text else 30)
+        if step <= 0:
+            raise ValueError('grid step must be positive')
+        count = int((Decimal(360) / Decimal(str(step))).to_integral_value(rounding=ROUND_CEILING))
+        return dict(mode='grid', step=step, start=-180, stop=180, count=count)
+    return dict(mode='fixed', value=geo.finite_number(text), count=1)
+
+
+def grid_values(definition):
+    if definition['mode'] == 'fixed':
+        return [definition['value']]
+    step = Decimal(str(definition['step']))
+    return [float(Decimal(-180) + i * step) for i in range(definition['count'])]
+
+
+def enumeration_site(text, host, guest, host_atoms):
+    fields = text.split(':')
+    _, gi = check_references(host, guest, host_atoms, fields[0])
+    options = {}
+    for field in fields[1:]:
+        key, separator, value = field.partition('=')
+        if not separator or not value or key not in {'face', 'center', 'priority', 'ref'} or key in options:
+            raise ValueError('site options must be unique face/center/priority/ref assignments')
+        options[key] = value
+    if set(options) & {'face', 'center', 'priority'}:
+        if not {'face', 'center', 'priority'} <= set(options) or options['face'] not in {'Re', 'Si'}:
+            raise ValueError('site face=Re|Si, center and priority must be supplied together')
+        refs(options['priority'], len(guest.symbols), 'site priority')
+    for key in ('center', 'ref'):
+        if key in options:
+            if not re.fullmatch(r'[1-9]\d*', options[key]) or int(options[key]) > len(guest.symbols):
+                raise ValueError(f'site {key} must be a 1-based guest atom index')
+            options[key] = int(options[key])
+    return dict(request=text, guest_atoms=fields[0], guest_D_X_Y=list(gi),
+                face=options.get('face'), face_center=options.get('center'),
+                face_priority=options.get('priority'), syn_anti_ref=options.get('ref'))
+
+
+def heavy_rmsd(first, second, symbols):
+    """Fixed-row, all-component heavy-atom Kabsch; no permutation or reflection."""
+    indices = [i for i, symbol in enumerate(symbols) if symbol != 'H']
+    if not indices:
+        raise ValueError('heavy-atom RMSD requires at least one heavy atom')
+    a, b = np.asarray(first)[indices], np.asarray(second)[indices]
+    a, b = a - a.mean(axis=0), b - b.mean(axis=0)
+    u, _, vt = np.linalg.svd(a.T @ b)
+    rotation = u @ np.diag([1, 1, 1 if np.linalg.det(u @ vt) >= 0 else -1]) @ vt
+    return float(np.sqrt(np.mean(np.sum((a @ rotation - b) ** 2, axis=1))))
+
+
+def enumeration_markdown(report):
+    stats = report['statistics']
+    lines = [f"# {report['name']}: {report['status']}", '',
+             f"总电荷 {report['charge']}；多重度 {report['multiplicity']}（人提供）。", '',
+             '主体在前、客体在后，原子从 1 编号；参数单位 Å / 度。', '',
+             f"总组合 {stats['total_combinations']}；剔除 {stats['rejected']}；"
+             f"去重前 {stats['before_dedup']}；合并 {stats['duplicates']}；保留 {stats['after_dedup']}。", '',
+             f"剔除原因分布（一个候选可有多个原因）：`{json.dumps(stats['rejection_reasons'], ensure_ascii=False)}`", '',
+             f"网格定义：`{json.dumps(report['grids'])}`", '',
+             f"固定参数：`{json.dumps(report['fixed_parameters'])}`", '',
+             f"组内全部重原子固定行序 Kabsch RMSD < {report['dedup_rmsd']} Å 合并，保留先出现者；不交换原子、不作镜像。", '',
+             f"重叠：除 A–D 外共价半径比 < 1.2 剔除；vdW 因子 {report['vdw_factor']}。", '']
+    for entry in report['inputs']:
+        lines.append(f"- 输入 `{entry['path']}`；SHA-256 `{entry['sha256']}`")
+    lines += ['', '## 约束分组', '']
+    for group in report['groups']:
+        lines.append(f"- 组 {group['group_id']}：位点 {group['site_ids']}；约束原子 `{json.dumps(group['atoms'])}`；"
+                     f"保留 {group['kept_count']}；候选 `{group['candidates_file']}`；约束 `{group['constraints_file']}`。")
+    lines += ['', '## 候选', '', '| 编号 | 组 | 位点标签 | 状态 | 原因 | 去重代表 |', '|---|---:|---|---|---|---|']
+    for candidate in report['candidates']:
+        lines.append(f"| {candidate['candidate_id']} | {candidate['group_id']} | {candidate['site_label']} | "
+                     f"{candidate['status']} | {', '.join(candidate['rejection_reasons'])} | {candidate['representative'] or ''} |")
+    lines += ['', '详细参数、实测与核对偏差、标签依据、违规接触见 enumerate.json；逐候选参数见 candidates.csv。',
+              '各组 XYZ 只能与该组约束配套交给 CREST；空组不写 XYZ。全部剔除时退出 2。',
+              '这是人工选择位点的定向初猜，须审阅后用于约束 CREST；不证明稳定复合物、采样完备或 TS。', '']
+    return '\n'.join(lines)
+
+
+def run_enumerate(args):
+    root = study_root(args.study)
+    if not re.fullmatch(r'[\w-]{1,80}', args.name):
+        raise ValueError('name must contain 1–80 letters, digits, underscores or hyphens')
+    relative = f'analyses/complex-build/{args.name}'
+    if safe_path(root, relative).exists():
+        raise ValueError('output directory already exists; choose a new name')
+    if args.multiplicity < 1:
+        raise ValueError('multiplicity must be a positive integer supplied by the researcher')
+    for key in ('force_constant', 'dedup_rmsd', 'vdw_factor'):
+        value = getattr(args, key)
+        if value is not None and (not math.isfinite(value) or value <= 0):
+            raise ValueError(f'{key.replace("_", "-")} must be finite and positive')
+    if args.max_candidates < 1:
+        raise ValueError('max-candidates must be positive')
+    grids = {key: torsion_grid(getattr(args, key)) for key in PARAMETERS[3:]}
+    if not any(grid['mode'] == 'grid' for grid in grids.values()):
+        raise ValueError('at least one dihedral must use grid')
+    total = len(args.site) * math.prod(grid['count'] for grid in grids.values())
+    if total > args.max_candidates:
+        raise ValueError(f'{total} combinations exceed max-candidates={args.max_candidates}; narrow the sites or grids (缩小范围); no sampling performed')
+    inputs = {}
+    host, guest = read_frame(root, args.host, inputs), read_frame(root, args.guest, inputs)
+    hi = refs(args.host_atoms, len(host.symbols), 'host-atoms')
+    n_host, a = len(host.symbols), hi[-1]
+    selected = [enumeration_site(text, host, guest, args.host_atoms) for text in args.site]
+    values = [grid_values(grids[key]) for key in PARAMETERS[3:]]
+    groups, group_keys = [], {}
+    for site_id, site in enumerate(selected, 1):
+        d, x, _ = site['guest_D_X_Y']
+        # One CREST invocation has one constraint file. Group by the actual
+        # constrained atoms to prevent attaching another site's restraint.
+        key = (a, n_host + d, n_host + x) if args.constrain_angle else (a, n_host + d)
+        if key not in group_keys:
+            group_id = len(groups) + 1
+            group_keys[key] = group_id
+            constraint = f'$constrain\n  force constant={args.force_constant:.17g}\n  distance: {a}, {n_host + d}, {args.r:.17g}\n'
+            atoms = dict(distance=[a, n_host + d])
+            if args.constrain_angle:
+                constraint += f'  angle: {a}, {n_host + d}, {n_host + x}, {args.theta2:.17g}\n'
+                atoms['angle'] = [a, n_host + d, n_host + x]
+            constraint += '$end\n'
+            crest_input.validate(constraint, n_host + len(guest.symbols))
+            groups.append(dict(group_id=group_id, site_ids=[], atoms=atoms, text=constraint,
+                               kept_count=0, ensemble_validated=False, constraints_validated=False))
+        site.update(site_id=site_id, group_id=group_keys[key])
+        groups[site['group_id'] - 1]['site_ids'].append(site_id)
+    kept = {group['group_id']: [] for group in groups}
+    candidates, reasons = [], Counter()
+    fixed = {key: getattr(args, key) for key in PARAMETERS[:3]}
+    symbols = host.symbols + guest.symbols
+    for site in selected:
+        d, x, _ = site['guest_D_X_Y']
+        for angles in product(*values):
+            parameters = dict(fixed, **dict(zip(PARAMETERS[3:], angles)))
+            placed, measured, deviations, error = build_geometry(host, guest, args.host_atoms, site['guest_atoms'], parameters)
+            contacts = contact_report(host, placed, a, d, args.vdw_factor)
+            rejected = {reason for contact in contacts['violations'] for reason in contact['violations']}
+            labels, errors = None, []
+            try:
+                labels = site_labels(host, placed, a, d, x, site['face'], site['face_center'], site['face_priority'], site['syn_anti_ref'])
+                if site['face'] and labels['face']['label'] != site['face']:
+                    rejected.add('face_mismatch')
+                    errors.append(f"face mismatch: requested {site['face']}, measured {labels['face']['label']}")
+            except ValueError as exc:
+                rejected.add('label_error')
+                errors.append(str(exc))
+            candidate_id = f'candidate-{len(candidates) + 1:04d}'
+            candidate = dict(candidate_id=candidate_id, site_id=site['site_id'], group_id=site['group_id'],
+                             site_label=labels['label'] if labels else f'{guest.symbols[d - 1]}{d}', site=labels,
+                             parameters=parameters, measured=measured, deviations=deviations,
+                             guest_distance_max_error=error, contacts=contacts, errors=errors,
+                             status='rejected' if rejected else 'kept', kept=not rejected,
+                             rejection_reasons=sorted(rejected), representative=None, representative_rmsd=None)
+            if rejected:
+                reasons.update(rejected)
+            else:
+                for representative, other in kept[site['group_id']]:
+                    rmsd = heavy_rmsd(host.coordinates + placed.coordinates, host.coordinates + other.coordinates, symbols)
+                    if rmsd < args.dedup_rmsd:
+                        candidate.update(status='duplicate', kept=False, representative=representative['candidate_id'], representative_rmsd=rmsd)
+                        break
+                else:
+                    candidate['representative'] = candidate_id
+                    kept[site['group_id']].append((candidate, placed))
+            candidates.append(candidate)
+    rejected_count = sum(candidate['status'] == 'rejected' for candidate in candidates)
+    kept_count = sum(len(entries) for entries in kept.values())
+    statistics = dict(total_combinations=total, rejected=rejected_count, rejection_reasons=dict(sorted(reasons.items())),
+                      before_dedup=total - rejected_count, after_dedup=kept_count, duplicates=total - rejected_count - kept_count)
+    report = dict(name=args.name, status='enumerated' if kept_count else 'rejected',
+                  inputs=list(inputs.values()), charge=args.host_charge + args.guest_charge, multiplicity=args.multiplicity,
+                  component_charges=dict(host=args.host_charge, guest=args.guest_charge), host_P2_P1_A=list(hi),
+                  sites=selected, grids=grids, fixed_parameters=fixed, statistics=statistics,
+                  max_candidates=args.max_candidates, dedup_rmsd=args.dedup_rmsd, vdw_factor=args.vdw_factor,
+                  groups=groups, candidates=candidates, rdkit_version=rdBase.rdkitVersion)
+    ensembles = {}
+    for group in groups:
+        suffix = '' if len(groups) == 1 else f"-group-{group['group_id']}"
+        group.update(candidates_file=f'candidates{suffix}.xyz', constraints_file=f'constraints{suffix}.inp',
+                     kept_count=len(kept[group['group_id']]))
+        text = ''.join(xyz_text(host, placed, candidate['candidate_id'] + f" group={group['group_id']} site={candidate['site_label']} " +
+                               ' '.join(f'{key}={candidate["parameters"][key]:.17g}' for key in PARAMETERS),
+                               report['charge'], args.multiplicity) for candidate, placed in kept[group['group_id']])
+        if text:
+            crest_input.xyz_ensemble(text)
+            ensembles[group['group_id']] = text
+    for entry in report['inputs']:
+        input_bytes(root, entry['path'], inputs)
+    safe_path(root, 'analyses/complex-build').mkdir(parents=True, exist_ok=True)
+    safe_path(root, relative).mkdir()
+
+    def write(name, text):
+        with safe_path(root, relative + '/' + name).open('x') as stream:
+            stream.write(text)
+
+    for group in groups:
+        write(group['constraints_file'], group['text'])
+        crest_input.validate(safe_path(root, relative + '/' + group['constraints_file']).read_text(), len(symbols))
+        group['constraints_validated'] = True
+        if group['group_id'] in ensembles:
+            write(group['candidates_file'], ensembles[group['group_id']])
+            path = safe_path(root, relative + '/' + group['candidates_file'])
+            crest_input.xyz_ensemble(path.read_text())
+            written = geo.read_xyz(path)
+            expected = kept[group['group_id']]
+            if len(written) != len(expected) or any(frame.coordinates != host.coordinates + placed.coordinates
+                                                    for frame, (_, placed) in zip(written, expected)):
+                raise ValueError('serialized coordinates changed; partial output retained')
+            group['ensemble_validated'] = True
+        else:
+            group['candidates_file'] = None
+    with safe_path(root, relative + '/atoms.csv').open('x', newline='') as stream:
+        writer = csv.writer(stream)
+        writer.writerow(['complex_index', 'component', 'source_file', 'source_index', 'element'])
+        for component, frame, source, offset in [('host', host, args.host, 0), ('guest', guest, args.guest, n_host)]:
+            for index, symbol in enumerate(frame.symbols, 1):
+                writer.writerow([offset + index, component, source, index, symbol])
+    with safe_path(root, relative + '/candidates.csv').open('x', newline='') as stream:
+        writer = csv.writer(stream)
+        writer.writerow(['candidate_id', 'group_id', 'site_id', 'site_label', *PARAMETERS,
+                         'nearest_host_atom', 'nearest_guest_atom', 'nearest_distance', 'status', 'kept',
+                         'representative', 'representative_rmsd', 'rejection_reasons', 'errors'])
+        for candidate in candidates:
+            nearest = candidate['contacts']['nearest_10'][0]
+            writer.writerow([candidate['candidate_id'], candidate['group_id'], candidate['site_id'], candidate['site_label'],
+                             *(candidate['parameters'][key] for key in PARAMETERS), nearest['host_atom'], nearest['guest_atom'],
+                             nearest['distance'], candidate['status'], candidate['kept'], candidate['representative'],
+                             candidate['representative_rmsd'], ';'.join(candidate['rejection_reasons']), ';'.join(candidate['errors'])])
+    write('enumerate.json', json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False) + '\n')
+    write('enumerate.md', enumeration_markdown(report))
+    return report
+
+
 def parser():
     result = argparse.ArgumentParser(description=__doc__)
     commands = result.add_subparsers(dest='command', required=True)
@@ -414,6 +652,21 @@ def parser():
     build.add_argument('--syn-anti-ref', type=int)
     build.add_argument('--vdw-factor', type=geo.finite_number)
     build.add_argument('--constrain-angle', action='store_true')
+    enumerate_cmd = commands.add_parser('enumerate', help='Enumerate human-selected sites and torsion grids locally')
+    for name in ('study', 'name', 'host', 'guest', 'host-atoms'):
+        enumerate_cmd.add_argument('--' + name, required=True)
+    enumerate_cmd.add_argument('--site', action='append', required=True,
+                               help='D,X,Y[:face=Re|Si:center=N:priority=a,b,c][:ref=N]; repeat for selected sites')
+    for name in ('host-charge', 'guest-charge', 'multiplicity'):
+        enumerate_cmd.add_argument('--' + name, required=True, type=int)
+    for name in (*PARAMETERS[:3], 'force-constant'):
+        enumerate_cmd.add_argument('--' + name, required=True, type=geo.finite_number)
+    for name in PARAMETERS[3:]:
+        enumerate_cmd.add_argument('--' + name, required=True, help='Fixed degrees or grid[:step], default grid step 30')
+    enumerate_cmd.add_argument('--constrain-angle', action='store_true')
+    enumerate_cmd.add_argument('--vdw-factor', type=geo.finite_number)
+    enumerate_cmd.add_argument('--dedup-rmsd', type=geo.finite_number, default=0.3)
+    enumerate_cmd.add_argument('--max-candidates', type=int, default=200)
     return result
 
 
@@ -421,8 +674,8 @@ def main(argv=None):
     cli = parser()
     args = cli.parse_args(argv)
     try:
-        if args.command == 'build':
-            report = run_build(args)
+        if args.command in {'build', 'enumerate'}:
+            report = run_build(args) if args.command == 'build' else run_enumerate(args)
             print(json.dumps(report, ensure_ascii=False, allow_nan=False))
             return 2 if report['status'] == 'rejected' else 0
         root, inputs = study_root(args.study), {}

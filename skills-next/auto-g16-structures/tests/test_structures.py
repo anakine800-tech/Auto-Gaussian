@@ -53,7 +53,9 @@ def frames(path):
 def test_smiles_summary(tmp_path, smiles, formula, atoms, cip):
     report = run("prepare_preview.py", smiles, "--study", tmp_path, "--name", "review", "--multiplicity", 1)
     assert report["formula"] == formula
-    assert report["explicit_h_atom_count"] == atoms
+    assert report["explicit_h_atom_count"] == report["atom_count_with_h"] == atoms
+    assert report["source_explicit_h_atom_count"] == 0
+    assert report["deprecated_fields"] == {"explicit_h_atom_count": "历史字段名，实为补氢后总原子数；请改用 atom_count_with_h"}
     assert [c["cip"] for c in report["chiral_centers"]] == cip
     assert report["charge"] == 0
     assert (tmp_path / "structures/review/preview.png").is_file()
@@ -98,6 +100,10 @@ def test_chemdraw_identity(tmp_path, fixture, formula, atoms, smiles, cip):
     assert result.returncode == 0, result.stderr
     imported = json.loads(next((tmp_path / "structures/inspect").glob("*.json")).read_text())
     assert imported["canonical_isomeric_smiles"] == smiles
+    for summary in (report, imported):
+        assert summary["explicit_h_atom_count"] == summary["atom_count_with_h"] == (15 if cip else 14)
+        assert summary["source_explicit_h_atom_count"] == (1 if cip else 0)
+        assert "explicit_h_atom_count" in summary["deprecated_fields"]
     assert all((tmp_path / "structures/inspect" / name).is_file() for name in imported["review_artifacts"].values())
     screen = generate(tmp_path, source)
     assert screen["identity"]["canonical_isomeric_smiles"] == smiles
@@ -210,3 +216,13 @@ def test_formula_and_atom_count_drift_stop(tmp_path, monkeypatch):
     with pytest.raises(SystemExit, match="atom count"):
         conformers.command_generate(args)
     assert not (tmp_path / "structures/screen").exists()
+
+
+@pytest.mark.parametrize("source", ["[H]OC", "[2H]OC", "[H][C@@](C)(O)CC"])
+def test_preview_counts_source_h_without_changing_legacy_identity(tmp_path, source):
+    legacy, _, diagnostics = make.read_molecule(source, Chem)
+    identity = structure_stereo_invariants(legacy, Chem, rdMolDescriptors, diagnostics)
+    report = run("prepare_preview.py", source, "--study", tmp_path, "--name", "explicit", "--multiplicity", 1)
+    assert report["source_explicit_h_atom_count"] == 1
+    assert report["explicit_h_atom_count"] == report["atom_count_with_h"] == Chem.AddHs(legacy).GetNumAtoms()
+    assert all(report[key] == value for key, value in identity.items())

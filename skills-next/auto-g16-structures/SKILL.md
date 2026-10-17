@@ -26,9 +26,14 @@ stereo annotations or change the source drawing to make an error disappear.
    are accepted. `inspect_chemdraw.py` offers the same study/name/multiplicity
    options for ChemDraw-specific review artifacts.
 2. Present `summary.json` and `preview.png`: canonical isomeric SMILES, formula,
-   source atom count, explicit-H atom count, charge, supplied multiplicity, CIP
+   source atom count, `source_explicit_h_atom_count` (drawn/source H atoms),
+   `atom_count_with_h` (total after adding H), charge, supplied multiplicity, CIP
    centers, import diagnostics and warnings. Atom indices are zero-based. Source
    atom count may differ from the Cartesian count because implicit H are expanded.
+   The legacy `explicit_h_atom_count` remains the total after adding H for
+   compatibility; `deprecated_fields` directs new consumers to `atom_count_with_h`.
+   Source H counting matches T80: standalone `[H]` counts, `[C@H]` H counts do not
+   create separate source atoms. Other identity fields/artifacts retain their behavior.
    If MOL/SDF roundtrip loses stereo, retain the original source or `stereo.smi`.
 3. **Ask the researcher to confirm the structure (milestone 1).** Record their
    confirmation in `study.md` before screening. A successful script is not a
@@ -144,7 +149,7 @@ conda run -n chem python scripts/check_species.py --study STUDY \
 已安装 ag 的 chem 环境也可运行。XYZ 的三个笛卡尔分量须有限，平面分子允许；
 XYZ 本身不能证明化学身份、质子化或电子态，须先按 T80 核验和人工确认。
 
-三个子命令（路径相对于 `--study`，只读命令省略该选项时以当前目录为根）：
+单次构建的三个子命令（路径相对于 `--study`，只读命令省略该选项时以当前目录为根）：
 
 ```sh
 python skills-next/auto-g16-structures/scripts/build_complex.py sites \
@@ -194,6 +199,55 @@ SHA-256、全部参数及实测、标签依据、接触检查、各组分与总�
 输入/几何错误直接退出 2。已有目录（含拒绝或部分失败）、符号链接和越界路径均拒绝。
 产出默认作为人工审阅后**约束 CREST** 的起点，也可按已签方案直接准备 DFT 优化；
 它不证明稳定复合物或 TS，不修改 study、不签字，也不提交计算。
+
+### 人选位点的系统枚举
+
+T90 的 `enumerate` 接收人勾选的一个或多个 `--site`，复用上述几何构建、
+刚体、六参数重测、进攻面和 syn/anti 核对。r、theta1、theta2 固定；每个 phi
+是固定度数或 `grid[:步长]`（默认 30°，从 −180° 起，严格小于 180°），至少一个
+phi 为网格。不自动选位点，不随机抽样。位点顺序优先，然后 phi1、phi2、phi3
+升序笛卡尔积（phi3 最快）。默认总组合上限 200，按位点数 × 网格组合数在
+任何输出前检查，超限报告总数并要求缩小范围；可显式用 `--max-candidates` 调整。
+
+```sh
+python skills-next/auto-g16-structures/scripts/build_complex.py enumerate \
+  --study STUDY --name directed-grid \
+  --host structures/host.xyz --host-charge Q_HOST --host-atoms P2,P1,A \
+  --guest structures/guest.xyz --guest-charge Q_GUEST --site D,X,Y \
+  --r R --theta1 THETA1 --theta2 THETA2 --phi1 PHI1 --phi2 grid --phi3 PHI3 \
+  --multiplicity MULT --force-constant FORCE_CONSTANT
+```
+
+位点可写 `--site 'D,X,Y:face=Re:center=C:priority=a,b,c:ref=REF'`，face/center/priority
+须一起提供，ref 可独立提供，含义与 `build` 相同。重复 `--site` 枚举其他位点/面。
+`--vdw-factor`、`--constrain-angle` 与单次构建相同。重叠、进攻面不符或标签核对
+失败只剔除该组合并记录原因；不旋转修复、不静默删记录。
+
+先按实际约束原子组合分组：A–D 相同，启用角度约束时 A–D–X 也相同的位点
+归一组。只在组内对通过检查的候选作全部组分重原子、固定行序 Kabsch 对齐，
+RMSD < `--dedup-rmsd`（默认 0.3 Å）保留先出现者。不交换对称原子、不作镜像，
+也不含氢；氢朝向或局部差异仍须人工检查，此去重不作科学覆盖验收。
+
+新目录 `analyses/complex-build/NAME/` 内保留所有组合的 `candidates.csv`，
+含编号、组号、位点、六参数、最近接触、状态/是否保留、去重代表及剔除原因；
+`atoms.csv` 保留源原子映射；`enumerate.json` / `.md` 记录输入哈希、网格、
+约束分组及各组位点/约束原子、总组合/剔除原因/去重前后统计，以及逐候选核对细节。
+每个非空组输出 `candidates-group-N.xyz` 与 `constraints-group-N.inp`；只有一组
+时用 `candidates.xyz` 与 `constraints.inp`。XYZ 注释含编号、位点标签、六参数，
+不伪造能量。逐组通过 `crest_input.xyz_ensemble` 和 `crest_input.validate`。
+空组保留约束草稿和原因报告，不写 XYZ，JSON 的 candidates_file 为 null；
+全部剔除时退出 2。已有目录仍拒绝，包括先前失败目录。
+
+审阅每组候选及约束后，可将**同组** XYZ / INP 交给现有入口：
+
+```text
+ag prepare --study <study_id> --template crest --input <candidates-group-N.xyz> --constraints <constraints-group-N.inp> --param=--mdopt --param=--gfn2 --param=--chrg=<总电荷> --param=--uhf=0 --tier <档位> --walltime <时限> --label <组与来源> --card crest-screen --method-basis <已审阅依据>
+```
+
+一组时替换为无 group 后缀的文件。`--mdopt` 仅作该组候选的同方法优化，不等于
+完整 CREST 搜索；按已签方案，可将审阅后的单帧逐一用于不带 `--mdopt` 的约束
+CREST 多起点采样，每帧新 Attempt。方法/溶剂沿用 [crest-screen](../auto-g16-recipes/cards/crest-screen.md)，
+不同组不混用约束，不因生成文件而提交或签字。
 
 ## TS 立体标签
 

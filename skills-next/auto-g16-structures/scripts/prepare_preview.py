@@ -28,10 +28,15 @@ def prepare(source, study, name, multiplicity):
         warnings.append("Boron may require UFF fallback; review the force field and geometry after screening.")
     if not roundtrip["stereo_preserved"]:
         warnings.append("MOL/SDF serialization changes stereochemistry; use the original source or stereo.smi downstream.")
+    # Count source H with the T80 reader while retaining all legacy identity/artifacts.
+    source_mol, _, _ = read_molecule(source, Chem, preserve_explicit_h=True)
     source_path = Path(source).expanduser()
     report = {**identity, "charge": int(Chem.GetFormalCharge(mol)), "multiplicity": multiplicity,
               "molecular_weight": round(float(Descriptors.MolWt(mol)), 6),
               "explicit_h_atom_count": Chem.AddHs(mol).GetNumAtoms(),
+              "atom_count_with_h": Chem.AddHs(mol).GetNumAtoms(),
+              "source_explicit_h_atom_count": sum(atom.GetAtomicNum() == 1 for atom in source_mol.GetAtoms()),
+              "deprecated_fields": {"explicit_h_atom_count": "历史字段名，实为补氢后总原子数；请改用 atom_count_with_h"},
               "source_sha256": hashlib.sha256(source_path.read_bytes()).hexdigest() if source_path.is_file() else None,
               "cdx_stereo_import": diagnostics[0] if diagnostics else None,
               "molblock_stereo_roundtrip": roundtrip, "warnings": warnings,
