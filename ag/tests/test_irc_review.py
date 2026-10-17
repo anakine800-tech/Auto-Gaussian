@@ -431,6 +431,16 @@ def test_existing_irc_facts_and_parser_bytes(tmp_path):
         text = irc_log(ending)
         (directory / 'outputs/water.log').write_text(text)
         values = [parse_irc(text), parse_facts(directory)]
+        # T99 adds parser metadata and warns that this unframed synthetic
+        # route has unknown type. Preserve the old byte baseline for all
+        # scientific fields and IRC geometry after checking those exact deltas.
+        from ag import __version__
+        facts = values[1][0]
+        assert facts.pop('parser') == {'ag_version': __version__, 'rules': 'route-join-v1'}
+        assert facts['job_sections'][0]['route'] is None
+        warning = 'Unexpected or unrecognized job section 1 at line 1; '
+        assert facts['parser_warning'].startswith(warning)
+        facts['parser_warning'] = facts['parser_warning'].removeprefix(warning)
         for value, digest in zip(values, expected):
             raw = json.dumps(value, ensure_ascii=False, sort_keys=True, allow_nan=False).encode()
             assert sha256(raw).hexdigest() == digest

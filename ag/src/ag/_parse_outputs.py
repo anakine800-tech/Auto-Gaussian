@@ -139,7 +139,10 @@ def _gaussian_routes(text):
         while end < len(lines) and lines[end].strip() and not separator.fullmatch(lines[end]):
             end += 1
         if end < len(lines) and separator.fullmatch(lines[end]):
-            routes[i] = ' '.join(' '.join(lines[first:end]).split())
+            # Gaussian wraps at a fixed column, including inside keywords.
+            # Remove only its one-space print margin; a real word separator
+            # is retained at the end of a line or after the next margin.
+            routes[i] = ''.join(line.removeprefix(' ') for line in lines[first:end]).strip()
             i = end + 1
         else:
             i = end
@@ -277,6 +280,11 @@ def gaussian_job_sections(text):
         if state == 'normal' and not re.match(
                 r'\s*Normal termination of Gaussian\b', lines[end - 1], re.I):
             state = 'incomplete'
+        if state == 'normal' and not any(
+                row.strip() and not re.match(r'\s*Normal termination of Gaussian\b', row, re.I)
+                for row in lines[start:end]):
+            # A surplus terminal line is not evidence of another completed job.
+            state = 'incomplete'
         sections.append(dict(index=len(sections) + 1, start_line=start + 1, end_line=end,
                              route=section_routes[0] if section_routes else None,
                              termination=state,
@@ -323,17 +331,19 @@ def gaussian_job_sections(text):
     if not sections:
         sections = [dict(index=1, start_line=1, end_line=len(lines), route=None,
                          termination='incomplete', start_kind='unmarked', internal_step=None)]
-    first_route = sections[0]['route'] or ''
-    opt_freq = _route_has(first_route, 'opt') and _route_has(first_route, 'freq')
-    expected = 2 if opt_freq else 1
-    if len(sections) > expected:
-        warnings.append(f'Unexpected job section count: {len(sections)} (route allows at most {expected})')
-    for section in sections[1:]:
-        if not (opt_freq and section['index'] == 2 and section['start_kind'] == 'internal'
-                and section['internal_step'] == 2 and _route_has(section['route'], 'freq')
-                and not _route_has(section['route'], 'opt')):
+    for section in sections:
+        route = section['route'] or ''
+        # A method/basis without a task keyword is Gaussian's default SP.
+        known = any(_route_has(route, word) for word in ('opt', 'freq', 'irc', 'sp', 'scan', 'stable'))
+        known |= bool(re.search(r'\S+/\S+', route))
+        continuation = (section['index'] == 1 or section['start_kind'] == 'link1'
+                        or (section['start_kind'] == 'internal'
+                            and section['internal_step'] == section['index']))
+        if not known or not continuation:
             warnings.append(f"Unexpected or unrecognized job section {section['index']} "
                             f"at line {section['start_line']}")
+        if section['index'] > 1 and not continuation:
+            warnings.append(f"Unexpected job section boundary at line {section['start_line']}")
     return sections, warnings
 
 
@@ -356,7 +366,6 @@ def parse_gaussian(path, pbs_path=None):
     text = path.read_text(errors='replace')
     pbs = pbs_path.read_text(errors='replace') if pbs_path and pbs_path.exists() else ''
     sections, warnings = gaussian_job_sections(text)
-    boundary_warning = bool(warnings)
     blocks = [gaussian_section_text(text, section) for section in sections]
     parsed = [_parse_gaussian_section(block, internal=section['start_kind'] == 'internal')
               for section, block in zip(sections, blocks)]
@@ -381,8 +390,13 @@ def parse_gaussian(path, pbs_path=None):
     facts['route'] = sections[0]['route']
     sources['route'] = 1
     errors = [i for i, section in enumerate(sections) if section['termination'] == 'error']
-    facts['termination'] = ('error' if errors else 'normal' if not boundary_warning and all(
-        section['termination'] == 'normal' for section in sections) else 'incomplete')
+    normal_count = len(re.findall(r'Normal termination of Gaussian\b', text, re.I))
+    facts['termination'] = ('error' if errors else 'normal' if sections
+                            and normal_count == len(sections) and all(
+                                section['termination'] == 'normal' for section in sections)
+                            else 'incomplete')
+    from ag import __version__
+    facts['parser'] = {'ag_version': __version__, 'rules': 'route-join-v1'}
     if errors:
         facts['error_hint'] = termination(
             blocks[errors[-1]], 'Normal termination of Gaussian',

@@ -41,6 +41,8 @@ description: 在 ag 新架构中创建、恢复和推进主族闭壳层计算研
 
 prepare 在 manifest 的 `card` 中记录 `name`、`git_commit`、`dirty` 和原始 `content`，优先读取已部署的 `auto-g16-recipes`（解析软链接），未部署时读取 ag 源码仓库的卡片。摘要显示提交号前 7 位和 dirty；保存文本防止 dirty 内容或后续改卡导致旧判据丢失。旧 Attempt 未记录卡片时，review init 会报错，不猜卡、不改 manifest；由 LLM 手工记录依据。check 只检查完整性和 facts 新鲜度，不代表科学接受。facts 重生成后，须逐行重新核对依据和结论，再把 review 顶部 `<!-- facts: ... -->` 的 JSON 更新为 check 返回的 `current_facts`，重跑 check；不要只改快照消除提示。check 本身不修改文件。
 
+第 5 步审阅发现 facts 解析错误时，先运行 `ag facts <Attempt> --reparse --dry-run --out <study外的新文件.json>` 给负责人看逐字段差异；人同意后正式执行 `--reparse`（旧版归档保留），在 study.md 进度日志记录哪些 Attempt、重新解析原因及旧/新 SHA-256 前 12 位；命令列出的引用旧完整哈希的已签内容须由负责人重新确认，不自动继承旧签字。能量、频率或收敛字段出现非预期变化时停下报告，不直接正式执行。
+
 ## 阶段决策
 
 | 当前阶段 | 下一步 | Skill / 卡片 |
