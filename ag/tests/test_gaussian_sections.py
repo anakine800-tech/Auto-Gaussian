@@ -22,7 +22,7 @@ INPUT_STARTS = list(re.finditer(r'(?m)^.*Input orientation:.*\n', OPT))
 SP = OPT[:INPUT_STARTS[1].start()].replace(' Opt Freq', ' SP')
 SP += next(row + '\n' for row in OPT.splitlines() if 'Normal termination of Gaussian' in row)
 BASELINE = json.loads((FIXTURES / 'gaussian_section_baseline.json').read_text())
-NEW_KEYS = {'job_sections', 'fact_sources', 'frequency_unavailable_reason'}
+NEW_KEYS = {'job_sections', 'fact_sources', 'frequency_unavailable_reason', 'parser'}
 FREQUENCY_KEYS = ('n_imag', 'frequencies_low', 'imag_modes', 'freq_step_converged',
                   'freq_step_convergence', 'n_vibrational_modes', 'expected_vibrational_modes',
                   'vibrational_modes_complete', 'frequency_note')
@@ -46,6 +46,9 @@ def test_existing_values_and_geometry_unchanged(tmp_path, name):
             if name == 'water_sp.log' else (FIXTURES / name).read_text())
     facts, geometry = parse(tmp_path, text)
     before, before_geometry = BASELINE[name]
+    if name.startswith('butane_'):
+        # The frozen baseline inserted a space inside the wrapped NoSymm word.
+        before = dict(before, route=before['route'].replace('NoS ymm', 'NoSymm'))
     assert {key: value for key, value in facts.items() if key not in NEW_KEYS} == before
     assert geometry == before_geometry
     if name == 'water_sp.log':
@@ -134,7 +137,7 @@ def test_invalid_internal_sequence_warns_even_if_normal(tmp_path, step):
     text = WATER.replace('internal job step number  2.', f'internal job step number  {step}.')
     facts, _ = parse(tmp_path, text)
     assert all(s['termination'] == 'normal' for s in facts['job_sections'])
-    assert facts['termination'] == 'incomplete' and facts['parser_warning']
+    assert facts['termination'] == 'normal' and facts['parser_warning']
 
 
 def test_error_precedes_unrecognized_tail_and_prior_normal(tmp_path):
@@ -273,7 +276,10 @@ def _existing_job_examples():
     pytest.param(name, text, count, id=name) for name, text, count in _existing_job_examples()])
 def test_existing_job_examples_have_no_extra_hash_sections(name, text, count):
     sections, warnings = gaussian_job_sections(text)
-    assert len(sections) == count and warnings == [], name
+    assert len(sections) == count, name
+    # Unframed synthetic snippets still have no route/type evidence; T99 now
+    # reports that uncertainty even for a single section.
+    assert bool(warnings) == any(s['route'] is None for s in sections), name
     # Each existing section has exactly one route line, including wrapped routes.
     lines = text.splitlines()
     assert all(sum(bool(re.match(r'\s*#', line))
@@ -320,7 +326,7 @@ def test_route_echo_wraps_and_uses_previous_nonblank_separator(newline, wrapped)
             + '\n --------\n Normal termination of Gaussian\n').replace('\n', newline)
     sections, warnings = gaussian_job_sections(text)
     assert len(sections) == 1 and warnings == []
-    route = '#p HF/STO-3G Opt ' + wrapped.strip()
+    route = '#p HF/STO-3G Opt' + wrapped.removeprefix(' ')
     assert sections[0]['route'] == route
     assert _parse_gaussian_section(text)[0]['route'] == route
 

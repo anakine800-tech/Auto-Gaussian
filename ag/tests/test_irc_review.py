@@ -165,7 +165,7 @@ def test_path_hashes_bind_pending_and_written_xyz_bytes(sample, monkeypatch, mis
      '28db495f99d2559279c3f27e653d3868c3b56f2648b60aeaa2c8caaa03d04a34',
      '107f66cdc975bb0d338a69d72fd4769fe9b05da521c37a341547af30c9646a8a'),
 ])
-def test_outputs_match_main_bytes_except_path_hashes(sample, monkeypatch, case, json_hash, md_hash, forward_hash):
+def test_outputs_match_main_bytes_except_path_hashes_and_spin_prefix(sample, monkeypatch, case, json_hash, md_hash, forward_hash):
     # Captured from unmodified main 0cccf9598e4d751138144dc43b39e1742547c45f.
     # Pin release metadata and platform-dependent SVD rounding in this byte test.
     monkeypatch.setattr(ir, '__version__', '4.2.2')
@@ -178,6 +178,10 @@ def test_outputs_match_main_bytes_except_path_hashes(sample, monkeypatch, case, 
     directory = sample / 'analyses'
     raw = (directory / 'review.json').read_bytes()
     report = json.loads(raw)
+    # T99 completes the implicit singlet prefix; only that label may change.
+    assert report['protocol']['method'] == 'rhf'
+    assert raw.count(b'"method": "rhf"') == 1
+    raw = raw.replace(b'"method": "rhf"', b'"method": "hf"', 1)
     # Remove only the two new field lines; preserve all other JSON bytes.
     for item in report['directions'].values():
         digest = item['path_geometry']['sha256']
@@ -431,6 +435,16 @@ def test_existing_irc_facts_and_parser_bytes(tmp_path):
         text = irc_log(ending)
         (directory / 'outputs/water.log').write_text(text)
         values = [parse_irc(text), parse_facts(directory)]
+        # T99 adds parser metadata and warns that this unframed synthetic
+        # route has unknown type. Preserve the old byte baseline for all
+        # scientific fields and IRC geometry after checking those exact deltas.
+        from ag import __version__
+        facts = values[1][0]
+        assert facts.pop('parser') == {'ag_version': __version__, 'rules': 'route-join-v1'}
+        assert facts['job_sections'][0]['route'] is None
+        warning = 'Unexpected or unrecognized job section 1 at line 1; '
+        assert facts['parser_warning'].startswith(warning)
+        facts['parser_warning'] = facts['parser_warning'].removeprefix(warning)
         for value, digest in zip(values, expected):
             raw = json.dumps(value, ensure_ascii=False, sort_keys=True, allow_nan=False).encode()
             assert sha256(raw).hexdigest() == digest

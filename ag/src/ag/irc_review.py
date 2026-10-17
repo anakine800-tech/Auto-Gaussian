@@ -29,10 +29,11 @@ def _load(evidence, value, *, final=False):
     require(manifest.get('template') == 'gaussian', 'Expected a Gaussian Attempt')
     facts = _json(evidence, directory / 'facts.json')
     frame, science = _geometry(evidence, directory, manifest)
-    require(protocol(facts.get('route')) == protocol(science['route']),
+    method = protocol(science['route'], science['multiplicity'])
+    require(protocol(facts.get('route'), facts.get('multiplicity')) == method,
             f'{directory.name}: facts/input method protocol differs')
     result = dict(directory=directory, manifest=manifest, facts=facts, input=frame,
-                  protocol=protocol(science['route']))
+                  protocol=method)
     if final:
         path = _file(directory, facts.get('final_geometry'))
         result.update(frame=_xyz(evidence, path), geometry_source=evidence.reference(path))

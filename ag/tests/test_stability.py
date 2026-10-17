@@ -157,6 +157,7 @@ def test_stable_prepare_preserves_rejections(cfg, tmp_path, keyword, old, new, e
 # Gaussian build_facts keys from main a426ca9 (including T32), before T30. A literal baseline
 # keeps this regression runnable in source archives without Git or a remote.
 MAIN_GAUSSIAN_FACT_KEYS = {
+    'parser',  # T99 optional parser version/rules metadata
     'job_sections', 'fact_sources', 'frequency_unavailable_reason',  # T42 source metadata
     'schema', 'program', 'units', 'ag_provenance', 'final_geometry', 'final_input_geometry',
     'final_input_geometry_orientation', 'charge', 'energies', 'error_hint',
@@ -189,6 +190,12 @@ def test_stable_route_without_diagnostic_keeps_unknown_fields(tmp_path, route):
     path = tmp_path / 'synthetic.log'
     path.write_text(HEADER.replace('Stable', route) + NORMAL)
     facts = parse_gaussian(path)[0]
+    if route == 'SP\n stable=opt':
+        # Removing only the print margin yields SPstable=opt: this synthetic
+        # input has no real word separator, so do not invent a Stable keyword.
+        assert 'wavefunction_stability' not in facts
+        assert 'wavefunction_stability_line' not in facts
+        return
     assert facts['wavefunction_stability'] == 'unknown'
     assert facts['wavefunction_stability_line'] is None
 
