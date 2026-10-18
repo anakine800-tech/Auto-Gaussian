@@ -24,11 +24,11 @@ def update_json(path, **changes):
     write_json(path, data)
 
 
-def attempt(root, name, rows, energy, route=ROUTE, charge=0):
+def attempt(root, name, rows, energy, route=ROUTE, charge=0, multiplicity=1):
     directory = root / 'attempts' / name
     (directory / 'inputs').mkdir(parents=True)
     text = '%nprocshared=1\n%mem=1GB\n' + route + '\n\nSynthetic water\n\n'
-    text += f'{charge} 1\n' + '\n'.join(rows) + '\n\n'
+    text += f'{charge} {multiplicity}\n' + '\n'.join(rows) + '\n\n'
     (directory / 'inputs/input.gjf').write_text(text)
     manifest = dict(template='gaussian', cores=1, mem_gb=2, inputs=[
         dict(name='input.gjf', sha256=sha256(text.encode()).hexdigest())])
@@ -37,7 +37,7 @@ def attempt(root, name, rows, energy, route=ROUTE, charge=0):
     (directory / 'final_input.xyz').write_text(xyz)
     (directory / 'final.xyz').write_text(xyz)
     facts = dict(schema='ag-facts/1', program='gaussian', termination='normal',
-                 units=dict(energy='Hartree'), n_atoms=len(rows), charge=charge, multiplicity=1,
+                 units=dict(energy='Hartree'), n_atoms=len(rows), charge=charge, multiplicity=multiplicity,
                  energies=dict(scf=energy, g=-999., zpe=99.), route=route,
                  program_version='Gaussian 16 Revision C.01',
                  final_input_geometry='final_input.xyz', final_geometry='final.xyz',

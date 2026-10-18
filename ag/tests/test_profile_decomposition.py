@@ -11,12 +11,17 @@ from ag.thermo import HARTREE_TO_KCAL, R_HARTREE
 from test_profile import definition, dump, source
 
 
-def test_all_legacy_fields_exactly_unchanged(tmp_path):
+def test_all_legacy_fields_unchanged_except_spin_prefix(tmp_path):
     # Snapshot produced by the unmodified profile at 00705b9, using the existing
-    # definition() synthetic example and perturb=1. New keys are the only delta.
+    # definition() synthetic example and perturb=1. Only new keys and the T99
+    # implicit singlet prefix may differ; all legacy numerical values stay exact.
     legacy = json.loads((Path(__file__).parent / 'data/profile_legacy_output.json').read_text())
     path, _ = definition(tmp_path)
     current = calculate_profile(path, perturb=1)
+    for name, item in legacy['species'].items():
+        assert item['protocol']['frequency']['method'] == 'b3lyp'
+        assert current['species'][name]['protocol']['frequency']['method'] == 'rb3lyp'
+        item['protocol']['frequency']['method'] = 'rb3lyp'
 
     def project(old, new):
         if isinstance(old, dict):

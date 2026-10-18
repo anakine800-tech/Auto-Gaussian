@@ -1,21 +1,30 @@
 """Local extraction of reported facts; scientific acceptance belongs to the reviewer."""
 
 from hashlib import sha256
+from datetime import datetime, timezone
 import difflib
 import fcntl
 import json
 import os
 from pathlib import Path
+import re
+import stat
 import subprocess
 import sys
 import tempfile
 import tomllib
 
 
-def resolve_attempt(value, study=None):
+def resolve_attempt(value, study=None, *, strict=False):
+    def resolved(path):
+        if strict:
+            from ag.study import local_path
+            return local_path(path.parent.parent, path)
+        return path.resolve()
+
     path = Path(value).expanduser()
     if (path / 'manifest.json').is_file():
-        return path.resolve()
+        return resolved(path)
     root = Path(study or '.').expanduser()
     if study and not root.is_dir():
         config = Path.home() / '.config' / 'ag' / 'config.toml'
@@ -24,7 +33,7 @@ def resolve_attempt(value, study=None):
     candidate = root / 'attempts' / value
     if not (candidate / 'manifest.json').is_file():
         raise ValueError(f'Attempt not found: {value}; supply its directory or --study')
-    return candidate.resolve()
+    return resolved(candidate)
 
 
 def gaussian_log(attempt_dir):
@@ -294,9 +303,201 @@ def build_facts(attempt_dir, *, refresh=False):
     return facts
 
 
+def _json_bytes(value):
+    return (json.dumps(value, indent=2, ensure_ascii=False, allow_nan=False) + '\n').encode('utf-8')
+
+
+def _facts_object(content):
+    value = json.loads(content)
+    if not isinstance(value, dict) or value.get('schema') != 'ag-facts/1':
+        raise ValueError('Expected an ag-facts/1 JSON object')
+    _json_bytes(value)  # Reject NaN/Infinity, including in the previous version.
+    return value
+
+
+def _field_differences(before, after, path=''):
+    """JSON Pointer paths, including individual array elements and type changes."""
+    if isinstance(before, dict) and isinstance(after, dict):
+        changes = []
+        for key in sorted(before.keys() | after.keys()):
+            pointer = path + '/' + key.replace('~', '~0').replace('/', '~1')
+            if key not in before:
+                changes.append(dict(path=pointer, change='added', new=after[key]))
+            elif key not in after:
+                changes.append(dict(path=pointer, change='removed', old=before[key]))
+            else:
+                changes.extend(_field_differences(before[key], after[key], pointer))
+        return changes
+    if isinstance(before, list) and isinstance(after, list):
+        changes = []
+        for index in range(max(len(before), len(after))):
+            pointer = f'{path}/{index}'
+            if index >= len(before):
+                changes.append(dict(path=pointer, change='added', new=after[index]))
+            elif index >= len(after):
+                changes.append(dict(path=pointer, change='removed', old=before[index]))
+            else:
+                changes.extend(_field_differences(before[index], after[index], pointer))
+        return changes
+    return ([] if _json_bytes(before) == _json_bytes(after) else
+            [dict(path=path, change='changed', old=before, new=after)])
+
+
+def _reparse_references(study, digest):
+    """Reject links before parsing; read only text candidates, never follow links."""
+    from ag.study import local_path
+    references = []
+    pattern = re.compile(r'(?<![0-9A-Fa-f])' + digest + r'(?![0-9A-Fa-f])')
+    def failed(error):
+        raise error
+    for root, dirs, files in os.walk(study, followlinks=False, onerror=failed):
+        for name in dirs + files:
+            path = local_path(study, Path(root) / name)
+            mode = path.stat().st_mode
+            if not stat.S_ISDIR(mode) and not stat.S_ISREG(mode):
+                raise ValueError('Study entries must be regular files or directories')
+            if name in files and path.suffix.lower() in {'.md', '.json', '.csv'}:
+                try:
+                    content = path.read_text(encoding='utf-8')
+                except UnicodeDecodeError:
+                    continue  # Binary data with a text suffix is not a text reference.
+                if pattern.search(content):
+                    references.append(path.relative_to(study).as_posix())
+    return sorted(references)
+
+
+def _archive_stamp():
+    return datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S.%fZ')
+
+
+def _write_synced(handle, content):
+    handle.write(content)
+    handle.flush()
+    os.fsync(handle.fileno())
+
+
+def reparse_facts(attempt_dir, *, dry_run=False, out=None):
+    """Locally reparse fetched evidence, preserving every prior facts version.
+
+    All input/path/reference checks precede writes. Unlike build_facts this
+    operation never exports geometries or edits study/review records.
+    """
+    from ag.study import local_path
+    directory = Path(attempt_dir).expanduser().absolute()
+    study = directory.parent.parent
+    directory = local_path(study, directory)
+    if directory.parent.name != 'attempts':
+        raise ValueError('Reparse requires an Attempt in study/attempts')
+    if dry_run != (out is not None):
+        raise ValueError('--dry-run requires --out; --out is only valid with --dry-run')
+    target = local_path(study, directory / 'facts.json')
+    old = _existing_bytes(target)
+    if old is None:
+        raise ValueError('Reparse requires existing facts.json')
+    previous = _facts_object(old)
+    digest = sha256(old).hexdigest()
+    references = _reparse_references(study, digest)
+    status_path = local_path(study, directory / 'status.json')
+    status_bytes = status_path.read_bytes()
+    status = json.loads(status_bytes)
+    if not isinstance(status, dict) or status.get('state') != 'fetched':
+        raise ValueError('Reparse requires Attempt state fetched')
+    # Every parser input lives under the checked Attempt tree. Gaussian uses
+    # the same input-matched, unambiguous local log selection as ordinary facts.
+    manifest = json.loads((directory / 'manifest.json').read_bytes())
+    if manifest['template'] == 'gaussian':
+        gaussian_log(directory)
+    else:
+        primary = {'xtb': 'xtb.out', 'crest': 'crest.out'}.get(manifest['template'])
+        if primary is None or not (directory / 'outputs' / primary).is_file():
+            raise ValueError('Missing local program log or unsupported template')
+    facts, geometries = parse_facts(directory)
+    facts['ag_provenance'] = ag_provenance()
+    content = _json_bytes(facts)
+    _facts_object(content)
+    for name, geometry in geometries.items():
+        path = local_path(directory, directory / name)
+        existing = _existing_bytes(path)
+        if existing is not None and existing != geometry.encode('utf-8'):
+            raise ValueError(f'{name} differs from parsed geometry; manual review required')
+    result = dict(old_sha256=digest, new_sha256=sha256(content).hexdigest(),
+                  differences=_field_differences(previous, facts),
+                  references_to_old_sha256=references, dry_run=dry_run)
+    if dry_run:
+        destination = Path(out).expanduser().absolute()
+        destination = local_path(destination.parent, destination)
+        if destination.is_relative_to(study) or destination.suffix.lower() != '.json':
+            raise ValueError('--out must be a .json file outside the study')
+        if not destination.parent.is_dir() or destination.exists():
+            raise ValueError('--out parent must exist and output must not exist')
+        with destination.open('xb') as handle:
+            try:
+                _write_synced(handle, content)
+            except BaseException:
+                destination.unlink()  # Only this unpublished preview, never old facts.
+                raise
+        result['out'] = str(destination)
+        return result
+
+    history = local_path(study, directory / 'facts-history')
+    if history.exists() and not history.is_dir():
+        raise ValueError('facts-history must be a directory')
+    archive = history / f'{_archive_stamp()}-{digest[:12]}.json'
+    if archive.exists():
+        raise FileExistsError('facts-history archive already exists; refusing overwrite')
+    # Share the ordinary facts writer lock. Dry-run never creates this file.
+    fd = os.open(directory / '.facts.lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, 'rb') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if _existing_bytes(target) != old or status_path.read_bytes() != status_bytes:
+            raise ValueError('facts.json or status.json changed during reparse')
+        if archive.exists():
+            raise FileExistsError('facts-history archive already exists; refusing overwrite')
+        fd, temporary = tempfile.mkstemp(prefix='.facts-reparse-', dir=directory)
+        try:
+            with os.fdopen(fd, 'wb') as handle:
+                _write_synced(handle, content)
+            staged = Path(temporary).read_bytes()
+            _facts_object(staged)
+            if staged != content:
+                raise ValueError('Temporary facts validation failed')
+            history.mkdir(exist_ok=True)
+            with archive.open('xb') as handle:
+                try:
+                    _write_synced(handle, old)
+                    if sha256(archive.read_bytes()).hexdigest() != digest:
+                        raise ValueError('Archived facts hash mismatch')
+                except BaseException:
+                    archive.unlink()  # Discard only an incomplete copy; source is untouched.
+                    raise
+            history_fd = os.open(history, os.O_RDONLY | os.O_NOFOLLOW)
+            try:
+                os.fsync(history_fd)
+            finally:
+                os.close(history_fd)
+            # Persist the new history directory entry before publishing facts;
+            # otherwise a crash could retain the replacement but lose its archive.
+            directory_fd = os.open(directory, os.O_RDONLY | os.O_NOFOLLOW)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+            if _existing_bytes(target) != old or status_path.read_bytes() != status_bytes:
+                raise ValueError('facts.json or status.json changed during reparse')
+            os.replace(temporary, target)
+        finally:
+            Path(temporary).unlink(missing_ok=True)
+    result['archive'] = archive.relative_to(study).as_posix()
+    return result
+
+
 def _run(args):
     try:
-        facts = build_facts(resolve_attempt(args.attempt, args.study), refresh=args.refresh)
+        if (args.dry_run or args.out is not None) and not args.reparse:
+            raise ValueError('--dry-run and --out require --reparse')
+        directory = resolve_attempt(args.attempt, args.study, strict=args.reparse)
+        facts = (reparse_facts(directory, dry_run=args.dry_run, out=args.out) if args.reparse else
+                 build_facts(directory, refresh=args.refresh))
         print(json.dumps(facts, indent=2, ensure_ascii=False, allow_nan=False))
         return 0
     except ImportError as exc:
@@ -312,6 +513,11 @@ def register(subparsers):
     parser.add_argument('attempt', help='Attempt directory or attempt ID')
     parser.add_argument('--study', help='Study directory or configured study ID')
     parser.add_argument('--json', action='store_true')
-    parser.add_argument('--refresh', action='store_true',
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument('--refresh', action='store_true',
                         help='After human review, archive old facts by SHA-256 and write the new version')
+    modes.add_argument('--reparse', action='store_true',
+                       help='Reparse fetched local logs, archive old facts and report hashes/references')
+    parser.add_argument('--dry-run', action='store_true', help='Preview --reparse outside the study')
+    parser.add_argument('--out', help='New .json file outside the study, required with --dry-run')
     parser.set_defaults(func=_run)
