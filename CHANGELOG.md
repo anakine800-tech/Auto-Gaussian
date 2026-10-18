@@ -1,5 +1,50 @@
 # Changelog
 
+## v4.3.0
+
+### 升级须知
+
+1. 旧版本可能把 route 在关键词中间换行的 Gaussian Opt+Freq 误判为 `incomplete`（T99）。对已有 `facts.json` 且状态为 `fetched` 的 Attempt，先运行 `ag facts <Attempt> --reparse --dry-run --out <study 外的新 JSON>` 查看新 facts 与命令列出的差异，确认后再运行 `ag facts <Attempt> --reparse`。正式执行将旧字节归档到 `facts-history/`，并列出 study 中引用旧哈希的文件；不自动改写这些引用，涉及已签内容须由负责人重新确认。[#308](https://github.com/anakine800-tech/Auto-Gaussian/pull/308)
+2. T82 加强 thermo / profile 的输入一致性与频率证据检查，以前能生成的部分报告升级后可能被拒绝。按报错核对方法和物种口径、收敛与来源，不绕过检查；拒绝不等于软件回归。[#297](https://github.com/anakine800-tech/Auto-Gaussian/pull/297)
+3. Multiwfn 是可选程序，只有使用 `multiwfn` 模板才需要在本机配置 `programs.multiwfn`（多集群配置为 `clusters.default.programs.multiwfn`）。目前仅支持 `default`（PBS）集群；已有 Gaussian / xTB / CREST 用法无需增加该配置。[#307](https://github.com/anakine800-tech/Auto-Gaussian/pull/307)
+
+后端与前端统一为 v4.3.0，配合前端 v4.3.0 使用。本节按 `git log v4.2.2..main --first-parent` 核对全部 15 个功能与文档 PR；本次仅准备版本号和发布文档。两个 T100 PR 均须监督方审阅、负责人合并，再由负责人分别在各自 PR 的确切合并提交上创建 `v4.3.0` tag/release，不直接选择届时的 main。
+
+### 结构与开题
+
+- T80 增加开题物种核验，明确结构身份、显式氢与待确认项，支持结构确认前逐物种检查。[#295](https://github.com/anakine800-tech/Auto-Gaussian/pull/295)
+- T93 增加开题完整性检查、`study.md` 草稿及首批准备交接；止于本地准备，不自动提交或代替人工签字。[#306](https://github.com/anakine800-tech/Auto-Gaussian/pull/306)
+- T86 按人指定的六个内坐标定向构建主族复合物，核对几何、接触与约束，提供可审阅的采样起点。[#301](https://github.com/anakine800-tech/Auto-Gaussian/pull/301)
+- T90 按指定的位点与二面角网格枚举复合物，过滤重叠并在约束组内去重；不同约束组分别导出候选与约束文件，组合数超限时报错，不随机抽样。补充 `atom_count_with_h` 和 `source_explicit_h_atom_count`，保留旧 `explicit_h_atom_count` 的值并标明弃用，避免把补氢后总原子数误当显式氢数。[#305](https://github.com/anakine800-tech/Auto-Gaussian/pull/305)
+- T91 按产物参照标注 TS 立体构型并生成通道归属建议，保留歧义；建议须人确认，不能据此自动接受 TS 或确定选择性。[#304](https://github.com/anakine800-tech/Auto-Gaussian/pull/304)
+
+### 审阅与分析
+
+- T79 新增 `ag irc-review`，逐方向汇总 IRC 完成判据、能量、距离和路径 XYZ，保留停止原因与人工审阅项；工具报告不等于双向 IRC 科学验收。[#296](https://github.com/anakine800-tech/Auto-Gaussian/pull/296)
+- T88 在 IRC 报告中记录导出路径 XYZ 的 SHA-256，供读取方核对实际字节与报告绑定。[#300](https://github.com/anakine800-tech/Auto-Gaussian/pull/300)
+- T89 的 topology / irc-compare 识别固定原子编号下的共振等价，避免把不同局域电荷或键级表示误报为化学变化；枚举失败或超限保留 `unknown`，仍检查立体化学，不据此推断电子密度。[#303](https://github.com/anakine800-tech/Auto-Gaussian/pull/303)
+- T84 新增 `ag snapshot`，只读获取运行中 Attempt 的日志快照，保存到本地 `snapshots/`；快照不是正式取回结果，不用于结果签字。[#302](https://github.com/anakine800-tech/Auto-Gaussian/pull/302)
+- T92 增加 `multiwfn` 模板的 IGM / IGMH 分析，以及本地 `ag nci-report` 的 `ag-nci/1` 报告，汇总来源、网格、原子 / 原子对与片段贡献，便于人工审阅非共价相互作用；不自动作科学解释。[#307](https://github.com/anakine800-tech/Auto-Gaussian/pull/307)
+
+### 一致性与正确性修复
+
+- T82 在可比较的构象集合及 SP/Freq 配对中核对方法、基组、色散、溶剂、基函数形式、程序版本、元素组成、电荷与多重度，拒绝不一致来源、非正常终止、频率阶段未收敛或模式不完整的输入。`thermo` 极小点须为零虚频；`profile` 的 TS 仍允许且要求恰好一个虚频并通过相应审阅，不把不同物种之间的合法反应步骤当作同一构象集合。[#297](https://github.com/anakine800-tech/Auto-Gaussian/pull/297)
+- T83 加强 prepare 的笛卡尔输入检查：有效元素、有限坐标、电子数与多重度一致性；卡片补充数值设置核对，较早发现无效输入。[#299](https://github.com/anakine800-tech/Auto-Gaussian/pull/299)
+- T99 修复 Gaussian route 在 `Fre` / `q` 等关键词中间换行时的拼接与 Opt+Freq 顶层终止误判；热化学来源绑定到实际产生频率的子任务，由 chk 继承的溶剂只认本段打印参数。比较方法时按多重度补全省略的 R/U 前缀，显式 R/U/RO 仍保持区别。[#308](https://github.com/anakine800-tech/Auto-Gaussian/pull/308)
+
+### 规则与文档
+
+- T81 为卡片补充要点与出处，补齐扫描初猜和方法敏感性的决策提示，便于查阅已有规则。[#294](https://github.com/anakine800-tech/Auto-Gaussian/pull/294)
+- T85 增加严格限定的逐条授权只读远程查看例外：仅用于 ag 暂无对应入口的需求，每条命令展示后单独取得同意；正式命令可用后改用正式命令，运行中日志使用 T84 的 `ag snapshot`。[#298](https://github.com/anakine800-tech/Auto-Gaussian/pull/298)
+
+### 已知问题与验证边界
+
+- 取回单个文件仍有固定 60 秒上限；慢速连接下较大的 cube 等文件可能超时，后续改为按传输速率判断。
+- 前端快速比较尚未同步 R/U 前缀规则，单重态的 `M062X` 与 `RM062X` 会被当作不同口径而拒绝比较。正式结论以 ag 报告为准，后端不受此前端限制影响。
+- 组里集群的 PBS 在作业结束后有时仍短暂显示 R，曾观察到约 6 分钟后自行消失；ag 会将其计入已占用核数，只会多算，不保证任意残留都会自行消失。
+
+各项真实验证结果见各 PR 评论；本发布任务不重跑真实计算，发布不等于科学验收。
+
 ## v4.2.2
 
 发布准备中；T73（#288）、T74（#290）、T75（#289）、T76（#292）、T77（#291）均已合并。本节汇总 v4.2.1 之后的这五个 PR。T78 经审阅、负责人合并后，由负责人在本 PR 的合并提交上创建 `v4.2.2` tag 和 release；建 tag 前核对该提交就是发版提交，不直接选择届时的 main。本轮前端没有改动，不发前端版本，继续配合前端 v4.2.1 使用。
