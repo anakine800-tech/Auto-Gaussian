@@ -29,8 +29,9 @@ def test_parse_has_no_writes(tmp_path):
 @pytest.mark.parametrize('stored', [False, True])
 @pytest.mark.parametrize('spc', [False, True])
 def test_thermo_preserves_attempt_bytes_including_spc(tmp_path, stored, spc):
-    directory = attempt(tmp_path)
-    sp = attempt(tmp_path, 'sp') if spc else None
+    from test_thermo_sections import explicit_water
+    directory = explicit_water(attempt(tmp_path))
+    sp = explicit_water(attempt(tmp_path, 'sp')) if spc else None
     if spc:
         sp_input(sp, directory)
         # SPC pairing must work from memory even without exported facts/XYZ.
@@ -47,7 +48,8 @@ def test_thermo_preserves_attempt_bytes_including_spc(tmp_path, stored, spc):
 
 
 def test_thermo_cli_preserves_facts(tmp_path, capsys):
-    directory = attempt(tmp_path)
+    from test_thermo_sections import explicit_water
+    directory = explicit_water(attempt(tmp_path))
     facts.build_facts(directory)
     before = snapshot(directory)
     assert main(['thermo', str(directory), '--json']) == 0

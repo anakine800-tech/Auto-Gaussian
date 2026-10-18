@@ -130,17 +130,14 @@ def _energy_source(facts, geometry):
                      and _route_has(sections[0].get('route'), 'freq')
                      and _route_has(route, 'freq')
                      and not any(_route_has(route, word) for word in ('opt', 'irc', 'scan')))
-    parent_method = protocol(facts.get('route'))
+    parent_method = protocol(facts.get('route'), facts.get('multiplicity'))
     if internal_freq:
-        # Gaussian-generated internal Freq uses SCRF=Check even for gas phase,
-        # and spells a restricted functional as RB3LYP instead of B3LYP.
+        # Gaussian-generated internal Freq uses SCRF=Check even for gas phase.
         # Inherit solvent only within this same-job continuation, never Link1.
         solvent = ('' if parent_method['solvent_model'] == 'none' else
                    f"SCRF=({parent_method['solvent_model']},Solvent={parent_method['solvent']})")
         route = re.sub(r'\bscrf\s*=\s*(?:check\b|\(\s*check\s*\))', solvent, route, flags=re.I)
-    method = protocol(route)
-    if internal_freq and method['method'] == 'r' + parent_method['method']:
-        method['method'] = parent_method['method']
+    method = protocol(route, facts.get('multiplicity'))
     require(method == parent_method, 'Energy section protocol differs from facts route')
     if geometry == 'input':
         # An optimization's last SCF is not the energy of its submitted frame.
@@ -176,7 +173,8 @@ def _load_energy(evidence, value, geometry, context):
             frame, science = _geometry(evidence, directory, manifest)
             require((science['charge'], science['multiplicity']) == (charge, 1),
                     'Input charge/multiplicity differs from facts')
-            require(protocol(science['route']) == method, 'Input protocol differs from energy protocol')
+            require(protocol(science['route'], science['multiplicity']) == method,
+                    'Input protocol differs from energy protocol')
         else:
             key = 'final_input_geometry' if geometry == 'final' else 'final_geometry'
             name = facts.get(key)
