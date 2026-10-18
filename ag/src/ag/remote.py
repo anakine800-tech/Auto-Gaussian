@@ -165,6 +165,17 @@ def receipt(cfg, manifest, name):
 
 def output_names(manifest):
     from ag.render import declaration
+    if manifest['template'] == 'multiwfn':
+        from ag.nci_report import layout
+        frames, pairs = layout(manifest)
+        declared = declaration('multiwfn')
+        names = list(declared['outputs'])
+        for frame in range(1, frames + 1):
+            names.extend(n.format(frame=frame) for n in declared['frame_outputs'])
+            for left, right in pairs:
+                names.extend(n.format(frame=frame, left=left, right=right)
+                             for n in declared['pair_outputs'])
+        return [filename(name) for name in names]
     stem = PurePosixPath(next(r['name'] for r in manifest['inputs'] if r['name'] not in ('job.pbs', 'job.slurm', 'constraints.inp'))).stem
     declared = declaration(manifest['template'])
     # Scan output selection only; keep existing commands and non-scan files unchanged.
@@ -178,6 +189,24 @@ def output_names(manifest):
 
 
 def output_observation(cfg, manifest):
+    if manifest['template'] == 'multiwfn':
+        # T92: expanded per-file guards exceed the SSH argument limit at 50
+        # frames. These fixed lists retain the same checks in the same order.
+        directory = attempt_dir(cfg, manifest)
+        names = ' '.join(quote(filename(name)) for name in output_names(manifest))
+        parts = ' '.join(quote(part) for part in PurePosixPath(directory).parts[1:])
+        body = (f'ag_directory={quote(directory)}; for ag_name in {names}; do '
+                f'ag_parent=; for ag_part in {parts}; do '
+                'ag_parent="$ag_parent/$ag_part"; test ! -L "$ag_parent" || exit; done; '
+                'ag_file="$ag_directory/$ag_name"; test ! -L "$ag_file" || exit; '
+                'if test ! -e "$ag_file"; then printf \'%s absent\\n\' "$ag_name"; '
+                'else test -f "$ag_file" && printf \'%s \' "$ag_name" && '
+                'stat -c \'%s %y\' -- "$ag_file" || exit; fi; done')
+        # Configuration has no path-length cap. Never emit an oversized SSH
+        # argument, even for a syntactically valid but unusably long root.
+        if len(body.encode()) >= 64 * 1024:
+            raise ValueError('Multiwfn observation command exceeds 64 KiB; shorten configured path')
+        return Command('output_observation', body)
     # Query exactly the declared files, including absent ones. Nanosecond mtime
     # detects writes within the same second; no directory traversal or globbing.
     commands = []

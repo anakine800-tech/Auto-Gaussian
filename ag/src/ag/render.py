@@ -10,7 +10,7 @@ TEMPLATES = Path(__file__).resolve().parents[2] / 'templates'
 
 
 def declaration(name):
-    if name not in ('gaussian', 'xtb', 'crest'):
+    if name not in ('gaussian', 'xtb', 'crest', 'multiwfn'):
         raise ValueError('Unknown program template')
     with (TEMPLATES / f'{name}.toml').open('rb') as handle:
         return tomllib.load(handle)
@@ -59,6 +59,8 @@ def render(cfg, manifest, input_name):
     mdopt = m['template'] == 'crest' and '--mdopt' in m['template_params']
     if mdopt:
         p = parameters('crest', {k: v for k, v in m['template_params'].items() if k != '--mdopt'})
+    if m['template'] == 'multiwfn' and (m.get('cluster') != 'default' or m.get('scheduler') != 'pbs'):
+        raise ValueError('Multiwfn is supported only on default PBS')
     work = attempt_dir(cfg, m)
     values = {key: shlex.quote(str(value)) for key, value in dict(
         allowed_root=cfg['remote']['ag_root'], work_dir=work,
@@ -88,6 +90,13 @@ def render(cfg, manifest, input_name):
             and cfg['programs']['gaussian'].get('environment') == 'scnet-a03'):
         program_template = 'gaussian-scnet-a03.sh'
         values['gaussian_parent'] = shlex.quote(str(Path(cfg['programs']['gaussian']['g16root']).parent))
+    if m['template'] == 'multiwfn':
+        from ag.config import multiwfn_executable
+        from ag.nci_report import pipeline
+        executable = multiwfn_executable(cfg['programs'])
+        values['multiwfn_bin'] = ('"$HOME/' + executable[2:] + '"' if executable.startswith('~/')
+                                  else '"' + executable + '"')
+        values['multiwfn_pipeline'] = pipeline(m)
     body = (TEMPLATES / '_guard.sh').read_text() + (TEMPLATES / program_template).read_text()
     # Substitute only the scheduler-specific inputs; PBS scripts retain their
     # original bytes so prepared PBS bundles remain verifiable after upgrade.

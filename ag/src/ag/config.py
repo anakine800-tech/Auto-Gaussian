@@ -21,6 +21,17 @@ def absolute(value, key, *, remote=False):
     return str(path)
 
 
+def multiwfn_executable(programs):
+    """Optional until selected; reject shell syntax while permitting quoted spaces."""
+    value = programs.get('multiwfn')
+    if isinstance(value, dict) and set(value) == {'root'} and isinstance(value['root'], str):
+        value = value['root'].rstrip('/') + '/Multiwfn'
+    if (not isinstance(value, str) or not re.fullmatch(r'(?:/|~/)[A-Za-z0-9_./ -]+', value)
+            or any(part in ('.', '..', '') for part in value.removeprefix('~/').lstrip('/').split('/'))):
+        raise ConfigError('programs.multiwfn requires an absolute or ~/ executable path (or root table)')
+    return value
+
+
 def load_config(path=None, *, local_only=False):
     path = Path(path) if path else Path.home() / '.config/ag/config.toml'
     try:
@@ -118,6 +129,8 @@ def validate_cluster(cfg):
     budget = cfg['resources'].get('budget_core_hours')
     if budget is not None and (type(budget) not in (int, float) or not math.isfinite(budget) or budget <= 0):
         raise ConfigError('budget_core_hours must be a positive finite number')
+    if 'multiwfn' in cfg['programs']:
+        multiwfn_executable(cfg['programs'])
     if scheduler == 'pbs':
         return  # Preserve legacy PBS handling of unused program config fields.
     gaussian = cfg['programs']['gaussian']

@@ -1,0 +1,31 @@
+# Multiwfn 2026.10.1, manual §§2.1.2, 2.2–2.4, 3.23.5–6, 4.20.10–11.
+# Only fixed menus with validated integer atom/fragment indices are bundled.
+# Parent chk is already copied by ag submit's existing exclusive, hash-checked
+# operation before qsub. Do not copy it again or change the parent's files.
+export g16root=$g16root
+export GAUSS_EXEDIR="$$g16root"
+export PATH="$$GAUSS_EXEDIR:$$PATH"
+export LD_LIBRARY_PATH="$$GAUSS_EXEDIR:$${LD_LIBRARY_PATH:-}"
+# Linux recommendation, manual §2.1.2 (not the different macOS recommendation).
+ulimit -s unlimited || printf '%s\n' 'Warning: could not set unlimited stack' >&2
+export OMP_STACKSIZE=1000M
+unset Multiwfnpath
+multiwfn=$multiwfn_bin
+# §2.2: -nt is effective only when a settings file exists. -set pins the
+# hashed, private settings file. An existing input argument avoids the
+# lastfile write in Multiwfn.f90; never enter its interactive file picker.
+ag_nci_pair() {
+    "$$multiwfn" "$$1" -nt $cores -set ../multiwfn-settings.ini -silent < "$$2" || return
+    for ag_file in dg_inter.cub sl2r.cub atmdg.txt IBSIW.txt; do
+        test ! -L "$$ag_file" && test -s "$$ag_file" || return 43
+    done
+    # The native q command is STOP without a textual farewell (Multiwfn.f90).
+    # This wrapper marker means exit 0 AND all expected files; nci-report also
+    # checks version, threads, complete numeric tables and cube contents.
+    printf '%s\n' 'AG_NCI_NORMAL_EXIT'
+}
+ag_nci_run() {
+$multiwfn_pipeline
+    printf '%s\n' 'AG_NCI_COMPLETE'
+}
+ag_run ag_nci_run > multiwfn.out
