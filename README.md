@@ -1,4 +1,4 @@
-# Auto-Gaussian v4.2.2
+# Auto-Gaussian v4.3.0
 
 Auto-Gaussian 是人在回路中的计算化学助手：LLM 按 Skills 规划研究，人签字和确认，`ag` 负责安全把关与确定性计算。
 
@@ -87,7 +87,7 @@ Gaussian、xTB、CREST、调度器及本机 OpenSSH 需另行准备，外部软�
 | `clusters.<CLUSTER>.ssh` | 专用 SSH 配置与别名 |
 | `clusters.<CLUSTER>.remote` | 允许根目录与其 `ag/` 子目录 |
 | `clusters.<CLUSTER>.resources` | 本集群核数、档位及可选核时预算 |
-| `clusters.<CLUSTER>.programs` | Gaussian、xTB/CREST 安装位置及可选 Gaussian 模块 |
+| `clusters.<CLUSTER>.programs` | Gaussian、xTB/CREST 安装位置、可选 Gaussian 模块与 Multiwfn |
 | `clusters.<CLUSTER>.queue` | PBS 队列占位值 |
 | `clusters.<CLUSTER>.partition/account/qos/expires` | Slurm 可选设置与到期日期 |
 
@@ -99,6 +99,8 @@ Gaussian、xTB、CREST、调度器及本机 OpenSSH 需另行准备，外部软�
 资源示例：`mini` 4 核/10 GB、`simple` 8 核/12 GB、`general` 22 核/50 GB、`complex` 44 核/120 GB，均按实际配置调整。
 Gaussian `%nprocshared` 必须等于档位核数，`%mem` 不超过档位内存的 85%。
 SSH 准备说明见 [ag/README.md](ag/README.md)；配置后按需运行 `ag doctor --cluster '<CLUSTER>' --json` 做只读自检。
+
+Multiwfn 为可选程序：只有使用 `multiwfn` 模板时才需配置 `programs.multiwfn`；多集群配置对应 `clusters.default.programs.multiwfn`。值使用仓库外安装记录中的可执行文件位置，不在仓库保存机器路径。目前只支持 `default`（PBS）集群，提供 IGM / IGMH 与本地 `ag nci-report`（`ag-nci/1`）；配置及使用边界见 [Multiwfn 说明](ag/README.md#multiwfn-非共价相互作用分析)。未使用该模板时无需增加配置。
 
 ## 命令一览
 
@@ -214,7 +216,7 @@ TS 必须恰好一个虚频且振动方向与反应坐标一致；只有双向 I
 
 ## 前端
 
-ag 4.2.2 配合前端 [Auto-Gaussian-Frontend](https://github.com/anakine800-tech/Auto-Gaussian-Frontend) v4.2.1 使用；本轮前端没有改动，不发前端版本，启动方式见其 README。
+ag 4.3.0 配合前端 [Auto-Gaussian-Frontend](https://github.com/anakine800-tech/Auto-Gaussian-Frontend) v4.3.0 使用；两边同号发布，启动方式见其 README。
 已只读核对前端 main（`e224d5a`）：结果表读取 `route`、`termination`、`energies.scf`、`energies.g`、`n_imag` 和 `frequencies_low`，这些字段未改名或删除；缺失值显示为空。
 分析页将 profile 作为完整 JSON 展示，没有专用剖面字段依赖。`ag-facts/1` 和 `ag-profile/1` 保持不变，新增字段不影响读取；分段解析修正可能改变旧值，不能把字段兼容理解成重新解析后数值必然不变。
 默认只读，读取本地 study、结果与保存的监控快照。`--enable-actions` 显式开启经本机 ag 执行的准备、提交、状态刷新、取回和取消；不绕过 Mac 确认，也不直接执行远程命令。
@@ -240,7 +242,7 @@ Slurm 核时预算来自 ag 本地台账，不等于平台余额。
 | V-T21 扫描 | **已完成** | ① Gaussian 026 + scan-peak 选中第 9 点，与 TS 的 RMSD 为 0.002 Å；修复前会误选第 2 点。② xTB 789 沿 C–F 严格单调下降，本次扫描范围内无复合物势阱、无能垒，scan-peak 按设计拒绝导出。③ 浅能垒气相离子–分子 SN2 不宜用 xTB 扫描找 TS 初猜；xTB 无峰不代表真实反应无能垒 |
 | V-T22 双路线覆盖 | **已终止** | 不再单独验证，双路线覆盖改由实际研究中的使用来检验；终止不等于覆盖验证通过 |
 | TS 优化中断后接续 | **已验证** | 使用 `final_input.xyz` + 父 chk 的 `Guess=Read Opt=(TS,CalcFC)`；RCFC 不适用于没有 Freq 的中断优化。只证明已验证的 chk 可读，不保证任意中断 chk 完整 |
-| 不完整取回（T47） | **已验证** | PBS 强杀、Slurm TIMEOUT 均已真实验证；取回与来源记录不代表科学成功。缺少声明输出分支仅有离线测试覆盖 |
+| 不完整取回（T47） | **已验证** | PBS 强杀、Slurm TIMEOUT 均已真实验证；取回与来源记录不代表科学成功；T66 已验证 Slurm 缺少声明输出分支，见 [#282](https://github.com/anakine800-tech/Auto-Gaussian/pull/282) |
 
 发布 PR 不自动合并；tag 和 release 由负责人在 GitHub 页面操作。
 
@@ -257,8 +259,13 @@ Slurm 核时预算来自 ag 本地台账，不等于平台余额。
 ### 已知限制
 
 - 二维扫描的前端能量面显示尚未支持；Gaussian 二维扫描与人工指定候选的 `scan-peak` 已在后端提供（T75，[#289](https://github.com/anakine800-tech/Auto-Gaussian/pull/289)）。
-- study 内保存的卡片副本若含指向仓库文档的相对链接，生成证据清单时会因越出 study 被拒绝；签字前需将这些链接改为仓库 URL 或删除链接。
-- `fetch --incomplete` 的“缺少声明输出”分支目前只有离线测试覆盖；两次真实取回的声明输出均存在。
+- 证据清单会列出缺失或越界的说明性引用，须由签字人核对后显式 `--accept-unresolved`，不能静默忽略；不需改写历史卡片副本。study 内符号链接及专用证据指针的安全检查仍保留。
+- T66 已验证 Slurm 缺少声明输出的不完整取回分支，取回成功不等于计算成功；本地 `cancelled` 状态仍不能直接 `ag fetch --incomplete`，取消本身不证明作业已经停止。
+- 取回单个文件仍有固定 60 秒上限，慢速连接下较大的 cube 等文件可能超时；后续改为按传输速率判断。
+- 前端快速比较尚未同步 R/U 前缀规则：单重态 `M062X` 与 `RM062X` 会被误认为口径不同而拒绝比较。正式结论以 ag 报告为准，后端不受此前端限制影响。
+- 组里集群的 PBS 有时在作业结束后仍短暂显示 R，曾观察到约 6 分钟后自行消失；ag 会把残留计入已占用核数，只会多算，不保证所有残留都会自行消失。
+- T89 已支持固定编号下的共振等价识别，但枚举失败或超限保留 `unknown`；拓扑和立体化学仍须人工审阅，不能从共振等价推断电子密度。
+- 升级前查看 [v4.3.0 升级须知](CHANGELOG.md#v430)：T99 的 facts 重新解析须先预览差异并保留旧证据；T82 会拒绝口径不一致或频率证据不合格的输入。
 
 - PBS 队列解析支持数组父/子作业，节点显示支持数组子作业槽位；其他用户的数组不会阻断本人核数统计和监控。本人有数组记录时，因无法可靠统计核数，`ag submit` 和 `ag doctor` 会明确拒绝，`ag monitor` 也会报错。已完成但仍保留在 `qstat` 中的本人数组记录（C 状态）也会导致拒绝，须等记录消失后再提交。ag 不提交或取消数组作业，命令参数仍只接受普通作业号；未知格式仍报错。逗号组合槽位范围已支持（#243）；数组行为见 T77（[#291](https://github.com/anakine800-tech/Auto-Gaussian/pull/291)）。
 - 分子很大时，少数极性氢的局部变化会被整体 RMSD 平均稀释，灵敏度下降；仍需结合相关二面角、氢键模式和结构审阅，不能仅凭去重报告证明等价。
@@ -281,5 +288,6 @@ python ag/tools/scan_sensitive.py --staged
 - **v4.2.0**：更新提交额度与 SSH 日志、取回后自动 facts、CREST/xTB 线程设置、证据引用解析、ensemble 和研究准备文档；升级前检查本机资源配置，详见 [CHANGELOG.md](CHANGELOG.md#v420)。
 - **v4.2.1**：T62 保留小修、T64 证据引用分类、T65 远程观察回退、T66 Slurm 不完整取回、T68 RDKit 风险报告、T69 通道覆盖、T70 局部构象描述与 T72 文献模板；配合前端 T71，详见 [CHANGELOG.md](CHANGELOG.md#v421)。
 - **v4.2.2**：T73 topology 不确定接触修复、T74 SSH 日志与命令示例引用修复、T75 Gaussian 二维扫描、T76 畸变–相互作用分析、T77 PBS 数组观察兼容；前端保持 v4.2.1，详见 [CHANGELOG.md](CHANGELOG.md#v422)。
+- **v4.3.0**：开题核验与准备、定向复合物构建和分组枚举、TS 立体标签、逐方向 IRC 审阅与路径哈希、运行日志快照、共振等价、Multiwfn IGM / IGMH 与 NCI 报告，以及 thermo / profile、输入和 route 解析修复；配合前端 v4.3.0，详见 [CHANGELOG.md](CHANGELOG.md#v430)。
 
 许可：[MIT](LICENSE)。
