@@ -32,13 +32,13 @@ def query(raw, tmp_path, monkeypatch, capsys, *options):
     return code, json.loads(captured.out)
 
 
-def seed_budget(raw, *, used=5400, reserved=900):
+def seed_budget(raw, *, used=5400):
     selected = config.select_cluster(raw, 'batch')
     path = budget.ledger_path(selected)
     path.write_text(json.dumps(dict(cluster='batch', attempts={
         'synthetic-settled': dict(state='settled', used=used, reserved=0,
                                   job_id='private-job-marker', bundle_sha256='private-hash-marker'),
-        'synthetic-unknown': dict(state='reserved', used=0, reserved=reserved),
+        'synthetic-unknown': dict(state='rejected', used=0, reserved=0),
         'synthetic-rejected': dict(state='rejected', used=0, reserved=0)})))
     return path
 
@@ -106,10 +106,9 @@ def test_dual_clusters_allowlist_and_budget(multi, tmp_path, monkeypatch, capsys
     for row in result['clusters']:
         expected = {'name', 'scheduler', 'is_default', 'resources', 'expires', 'programs_enabled'}
         if row['name'] == 'batch':
-            expected.add('budget')
             assert row['scheduler'] == 'slurm' and row['is_default'] is False
             assert row['expires'] == '2027-01-31'
-            assert row['budget'] == dict(core_hours=100.5, used=1.5, reserved=0.25)
+            assert 'budget' not in row
         else:
             assert row['scheduler'] == 'pbs' and row['is_default'] is True
             assert row['resources']['max_committed_cores'] == 88
@@ -150,15 +149,12 @@ def test_optional_budget_and_fresh_ledger(multi, tmp_path, monkeypatch, capsys, 
     code, result = query(multi, tmp_path, monkeypatch, capsys)
     assert code == 0
     row = result['clusters'][0]
-    if configured:
-        assert row['budget'] == dict(core_hours=100, used=0, reserved=0)
-    else:
-        assert 'budget' not in row
+    assert 'budget' not in row
     assert not budget.ledger_path(config.select_cluster(multi, 'batch')).exists()
 
 
 @pytest.mark.parametrize('damage', ['{', 'null', '[]', '{"cluster":"batch","attempts":{}}'])
-def test_unreadable_or_missing_claimed_budget_is_error(multi, tmp_path, monkeypatch, capsys, damage):
+def test_discovery_no_longer_reads_core_hour_budget(multi, tmp_path, monkeypatch, capsys, damage):
     multi['clusters']['batch']['resources']['budget_core_hours'] = 100
     path = seed_budget(multi)
     path.write_text(damage)
@@ -168,8 +164,7 @@ def test_unreadable_or_missing_claimed_budget_is_error(multi, tmp_path, monkeypa
         cluster='batch', scheduler='slurm', attempt_id='water-001-sp')))
     (claim / '.submit-claim').touch()
     code, result = query(multi, tmp_path, monkeypatch, capsys)
-    assert code == 1 and set(result) == {'error', 'exit_code'}
-    assert str(tmp_path) not in result['error']
+    assert code == 0 and all('budget' not in row for row in result['clusters'])
 
 
 def test_error_text_does_not_leak_filesystem_values(monkeypatch, capsys, tmp_path):
@@ -211,7 +206,7 @@ def test_slurm_snapshot_fields_and_local_only_budget(monitored):
     before = path.read_bytes()
     result = monitor.sample(selected, fake)
     assert result['ok']
-    assert result['cluster']['budget'] == dict(core_hours=100, used=1.5, reserved=0.25)
+    assert result['cluster']['budget'] is None
     assert result['cluster']['expires'] == '2027-01-31'
     assert result['cluster']['storage_kib'] == 1024
     assert fake.operations() == ['storage_usage', 'slurm_jobs']
@@ -221,7 +216,7 @@ def test_slurm_snapshot_fields_and_local_only_budget(monitored):
 
 
 @pytest.mark.parametrize('failure', ['scheduler', 'budget'])
-def test_failed_slurm_sample_keeps_last_budget_and_storage(monitored, failure):
+def test_failed_slurm_sample_keeps_last_storage_with_null_budget(monitored, failure):
     selected, fake = monitored
     previous = monitor.sample(selected, fake)
     fake.calls.clear()

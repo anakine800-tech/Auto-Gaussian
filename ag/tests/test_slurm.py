@@ -300,15 +300,13 @@ def test_doctor_padded_history_checks_owner(multi):
         doctor.doctor(cfg, fake)
 
 
-def test_budget_reserves_settles_and_refuses(multi, tmp_path, monkeypatch):
-    multi['clusters']['batch']['resources']['budget_core_hours'] = 20
+def test_budget_reserves_settles_without_balance_rejection(multi, tmp_path, monkeypatch):
+    multi['clusters']['batch']['resources']['budget_core_hours'] = 1
     p, _, fake = submitted(multi, tmp_path, monkeypatch)
     assert budget.totals(fake.cfg) == (0, 12 * 3600)
     p2, _ = prepare(multi, tmp_path, label='next')
     seen = []
     monkeypatch.setattr('ag.confirm.confirm', lambda *a: seen.append(a) or True)
-    with pytest.raises(ValueError, match='budget exceeded'): submit.submit(multi, [p2.name], fake)
-    assert not seen and not (p2 / '.submit-claim').exists()
     fake.accounting = Result(stdout='123|water-001-sp|fixture|COMPLETED|0:0|00:30:00|8\n')
     status.check(multi, p, fake)
     assert budget.totals(fake.cfg) == (4 * 3600, 0)
@@ -317,7 +315,8 @@ def test_budget_reserves_settles_and_refuses(multi, tmp_path, monkeypatch):
     fake.qsub = Result(stdout='124\n')
     submit.submit(multi, [p2.name], fake)
     assert budget.totals(fake.cfg) == (4 * 3600, 12 * 3600)
-    assert '本次最多 12 核时；累计已用 4、预留 0、预算 20' in seen[0][0]
+    assert '本次最多消耗 12 核时（核数 × walltime；实际以平台计费为准）' in seen[0][0]
+    assert '预算' not in seen[0][0] and '累计已用' not in seen[0][0]
 
 
 def test_budget_unknown_keeps_reservation_and_cancel_settles(multi, tmp_path, monkeypatch):
@@ -385,13 +384,15 @@ def test_legacy_config_plus_new_cluster(cfg, multi):
     assert config.select_cluster(loaded, 'batch')['scheduler'] == 'slurm'
 
 
-def test_batch_budget_includes_whole_confirmation(multi, tmp_path, monkeypatch):
+def test_batch_estimate_includes_whole_confirmation_without_budget_gate(multi, tmp_path, monkeypatch, capsys):
     multi['clusters']['batch']['resources']['budget_core_hours'] = 20
     p, _ = prepare(multi, tmp_path)
     q, _ = prepare(multi, tmp_path, label='next')
     fake = SlurmFake(config.select_cluster(multi, 'batch'))
-    monkeypatch.setattr('ag.confirm.confirm', lambda *a: pytest.fail('must refuse entire batch'))
-    with pytest.raises(ValueError, match='budget exceeded'): submit.submit(multi, [p.name, q.name], fake)
+    monkeypatch.setattr('ag.confirm.confirm', lambda *a: False)
+    with pytest.raises(submit.UserCancelled): submit.submit(multi, [p.name, q.name], fake)
+    text = capsys.readouterr().err
+    assert '本次最多消耗 24 核时' in text and '预算' not in text
     assert not (p / '.submit-claim').exists() and not (q / '.submit-claim').exists()
 
 
@@ -544,9 +545,10 @@ def test_ambiguous_unknown_name_stays_unknown(multi, tmp_path, monkeypatch):
     assert budget.totals(fake.cfg) == (0, 12 * 3600)
 
 
-def test_budget_batch_lock_serializes_available_credit(multi, tmp_path, monkeypatch):
+def test_budget_batch_lock_serializes_core_reservations(multi, tmp_path, monkeypatch):
     from concurrent.futures import ThreadPoolExecutor
     multi['clusters']['batch']['resources']['budget_core_hours'] = 20
+    multi['clusters']['batch']['resources']['max_cores'] = 8
     paths = [prepare(multi, tmp_path, label=label)[0] for label in ('one', 'two')]
     allow(monkeypatch)
     def one(path):
@@ -555,7 +557,7 @@ def test_budget_batch_lock_serializes_available_credit(multi, tmp_path, monkeypa
             submit.submit(multi, [path.name], fake)
             return 'submitted'
         except ValueError as exc:
-            assert 'budget exceeded' in str(exc)
+            assert 'Core limit exceeded' in str(exc)
             assert 'submit' not in fake.operations()
             return 'refused'
     with ThreadPoolExecutor(2) as pool:

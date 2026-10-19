@@ -45,6 +45,9 @@
 
 ### 计算平台与软件许可
 
+- SCNet 内部队列安排（仅在决定使用 SCNet 时）：CREST 显式 `--cluster scnet-test` → `wzhctest`；Gaussian 只能 `--cluster scnet` → `wzacnormal`。default 与 SCNet 的选择沿用本 study 的安排。prepare 前核对本机入口及 partition，不把队列名当入口别名；`wzhctest` 不可用、无权限或额度满时报告并等负责人逐次决定，不自动改投正式队列。
+- 实际入口 / partition：<核对本机配置后填写>；资金来源：<负责人核对过的赠送 / 正式专项说明；不明写未知>。该说明不代表实时余额。
+
 - 计算平台与软件版本：<逐项列出集群别名、程序及版本；实际版本在取回后以日志和 facts 核对>。
 - 软件许可使用依据：<记录负责人决定及日期；不把平台开通状态与负责人的科研用途认定混为一谈>。
 - 凡在 `scnet` 上运行 Gaussian，写明：**SCNet Gaussian 16 A.03（平台学习版），负责人于 2026-10-14 认定可用于科研**。

@@ -48,7 +48,7 @@ def scheduler(multi, cluster):
         fake.qstat = Result(stdout=job('101.fixture') + job('123.fixture') + job('199.fixture', cores='1:ppn=4'))
     else:
         fake = SlurmFake(selected)
-        fake.queue = Result(stdout='123|water|fixture|RUNNING|8|00:00|fixture\n199|external|fixture|PENDING|4|00:00|fixture\n')
+        fake.queue = Result(stdout='123|water-003-slurm|fixture|RUNNING|8|00:00|fixture\n199|external|fixture|PENDING|4|00:00|fixture\n')
     return selected, fake
 
 
@@ -127,11 +127,13 @@ def test_budget_only_counts_own_unobserved_reservation(mixed):
     cfg = config.select_cluster(multi, 'batch')
     ledger = budget.read(cfg)
     assert budget.unobserved_cores(cfg, [], ledger) == 8
-    assert budget.unobserved_cores(cfg, [{'job_id': '123'}], ledger) == 0
+    assert budget.unobserved_cores(cfg, [{'job_id': '123', 'name': records['slurm'][0].name}], ledger) == 0
     # A foreign entry cannot turn a same-number PBS job into held Slurm cores.
     path, m = records['pbs']
     ledger['attempts'][path.name] = dict(state='reserved', used=0, reserved=1, bundle_sha256=m['bundle_sha256'])
-    assert budget.unobserved_cores(cfg, [], ledger) == 8
+    with pytest.raises(ValueError, match='cluster mismatch'):
+        budget.unobserved_cores(cfg, [], ledger)
+    del ledger['attempts'][path.name]
     path, _ = records['slurm']
     (path / 'status.json').write_text('{')
     with pytest.raises(ValueError, match=path.name):
@@ -196,7 +198,7 @@ def test_submission_recovers_identity_for_unknown_accounting(mixed):
     (path / 'status.json').write_text(json.dumps(dict(state='unknown', job_id=None)))
     cfg, fake = scheduler(multi, 'batch')
     assert monitor.observation(cfg, fake, 'fixture')['own']['jobs'][0]['attempt'] == path.name
-    assert budget.unobserved_cores(cfg, [{'job_id': '123'}], budget.read(cfg)) == 0
+    assert budget.unobserved_cores(cfg, [{'job_id': '123', 'name': path.name}], budget.read(cfg)) == 0
     assert budget.unobserved_cores(cfg, [], budget.read(cfg)) == 8
 
 

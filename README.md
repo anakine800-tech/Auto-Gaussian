@@ -49,7 +49,7 @@ ag：作业生命周期 + 日志解析、热化学、构象去重、关系图与
 - 确认摘要、实际提交字节和上传后的远程哈希必须一致。
 - 取消只针对绑定记录中的确切作业号与所属集群；历史 PBS Attempt 使用原有状态记录。
 - 只执行审阅过的模板和白名单参数；拒绝任意远程命令、符号链接及根目录之外的路径。
-- 按集群统计该用户全部作业，包含非 ag 作业。PBS 和 Slurm 单作业均受 `max_cores` 限制，运行加排队（含挂起）计入 `max_committed_cores`。ag 不限制运行中的核数；Slurm 配置了核时预算时另行检查。
+- 按集群统计该用户全部作业，包含非 ag 作业。PBS 和 Slurm 单作业均受 `max_cores` 限制，运行加排队（含挂起）计入 `max_committed_cores`。同一 scheduler、规范化 SSH 配置文件和 host 别名的入口共享最小总上限；Slurm 另计全组未观测预留。ag 不限制运行中的核数；核时预算不再拦截提交。
 - 真实主机、用户名、账户、分区、机器路径、凭据和研究数据只留在本机配置及仓库外 study，不进入 Git。
 
 ## 安装
@@ -86,13 +86,26 @@ Gaussian、xTB、CREST、调度器及本机 OpenSSH 需另行准备，外部软�
 | `clusters.<CLUSTER>.scheduler` | `pbs` 或 `slurm` |
 | `clusters.<CLUSTER>.ssh` | 专用 SSH 配置与别名 |
 | `clusters.<CLUSTER>.remote` | 允许根目录与其 `ag/` 子目录 |
-| `clusters.<CLUSTER>.resources` | 本集群核数、档位及可选核时预算 |
+| `clusters.<CLUSTER>.resources` | 本入口单作业上限、总上限及档位；budget_core_hours 仅兼容读取 |
+| `clusters.<CLUSTER>.allowed_templates` | 可选模板名列表；省略允许全部，空列表不允许 prepare；不追溯已有 Attempt |
 | `clusters.<CLUSTER>.programs` | Gaussian、xTB/CREST 安装位置、可选 Gaussian 模块与 Multiwfn |
 | `clusters.<CLUSTER>.queue` | PBS 队列占位值 |
 | `clusters.<CLUSTER>.partition/account/qos/expires` | Slurm 可选设置与到期日期 |
 
 `prepare --cluster '<CLUSTER>'` 固定 Attempt 所属集群；后续操作遵循该绑定，不能靠切换当前配置把作业送往别处。
 `cluster` 子命令是**构象聚类**，并非集群切换命令。
+
+同组入口的 partition/account/qos 不影响分组；远程本人作业只计一次，各入口台账分别保留与结算。
+确认前、确认后都核对全组核数，UNKNOWN 与尚未被 squeue 显示的本地预留仍计入；组内台账损坏、读不出，或缺失但有提交痕迹时拒绝。
+只有台账不存在且全部本地 studies 中该入口没有声明、提交绑定或提交状态痕迹时才按空台账处理；同组其他入口只在内存中按零处理，目标入口由 reserve 创建台账，不迁移历史。不同 SSH 文件或别名不自动合并，doctor 仅按入口名提示“未合并”。
+迁移 study 或切换配置目录必须同时带上各 Slurm 入口的台账。已有提交痕迹但缺账时，从备份或原配置目录找回该入口的台账；找不到则停止并交给负责人核对，不自动重建或归零。
+同组上限不一致时摘要列出各入口数值并采用最小值，单作业仍按目标入口的 max_cores 检查。
+
+仅在决定使用 SCNet 后：CREST 用 `--cluster scnet-test`（`wzhctest`），Gaussian 只能 `--cluster scnet`（`wzacnormal`）。
+prepare 前核对本机入口及 partition；default 与 SCNet 的选择沿用 study 安排。
+给 scnet-test 配置 `allowed_templates = ["crest"]`；独立 xTB 不默认加入，Gaussian 程序配置仍需保留以兼容渲染。
+测试队列不可用、无权限或额度满时，由负责人逐次决定，不自动转投正式队列。
+核时摘要只显示本次最大消耗（核数 × walltime；实际以平台计费为准）；budget_core_hours 可删除，doctor 会提示。
 旧单集群 [config.example.toml](ag/config.example.toml) 仍支持为 `default` PBS 配置。
 `ag clusters --json` 只读列出本机配置的集群及资源档位；它不连接服务器，程序启用标记不等于远程安装验证。
 
@@ -130,7 +143,7 @@ Multiwfn 为可选程序：只有使用 `multiwfn` 模板时才需配置 `progra
 | `ag profile '<PROFILE_JSON>' --json` | 组装已审阅物种的自由能曲线、焓熵分项、Eyring 换算、按产物汇总的选择性、σ 报告及适用时的能量跨度 |
 | `ag review init '<ATTEMPT_ID>' [--card '<CARD>']` / `ag review check '<ATTEMPT_ID>'` | 创建审阅骨架、核对判据及事实快照；旧 manifest 可在审阅时补指定卡片 |
 | `ag review manifest --study '<STUDY_DIR>' --json` | 签字前生成不可覆盖的本地证据清单 |
-| `ag clusters --json` | 本地集群、资源档位和可选预算查询，不返回连接凭据 |
+| `ag clusters --json` | 本地集群和资源档位查询，不返回连接凭据或核时预算 |
 | `ag coverage --merged '<DEDUP_JSON>' --energies '<ENERGY_JSON>' --out '<NEW_REPORT_JSON>' --json` | 按匹配的 DFT 能量统计采样路线重叠与低能覆盖 |
 | `ag scan-peak '<ATTEMPT_ID>' --study '<STUDY_ID>' --point 9 --out '<NEW_GUESS_XYZ>' --json` | 按原扫描点序号选择严格局部极大，导出 TS 初猜 |
 
@@ -227,7 +240,10 @@ T7e 已适配多集群（[Frontend #9](https://github.com/anakine800-tech/Auto-G
 `<STUDIES_ROOT>/.ag-monitor/<CLUSTER>/latest.json`，同时兼容旧单集群的
 `<STUDIES_ROOT>/.ag-monitor/latest.json`；两种 default 来源并存时显示歧义，不能擅自视为最新。
 监控数据始终来自 ag monitor 快照，前端不启动采样器；缺失、过期或失败不当成空闲或零预算。
-Slurm 核时预算来自 ag 本地台账，不等于平台余额。
+Slurm 的 `cluster.budget` 为 null，clusters 查询省略 budget；本地台账仍用于核数预留与结算，不代表平台余额。
+监控所有快照（含初始/失败）均含有效共享 `committed_cap`；`core_cap` 仍为目标入口单作业上限。
+同组入口增加 `own.shared_with`，over-cap 告警计入全组未观测预留；原有运行/排队字段仍表示远程观测值。
+前端对旧快照的回退逻辑、同组作业去重显示留待前端后续处理。
 
 ## 验收状态
 

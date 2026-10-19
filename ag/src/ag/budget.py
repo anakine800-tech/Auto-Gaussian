@@ -1,17 +1,17 @@
-"""Local per-cluster core-hour reservations; ambiguity never frees budget.
+"""Local per-entry accounting; ambiguity never frees reserved cores.
 
 Persist the reservation before remote writes, so a lost sbatch reply cannot
 make the same credit available for another job. Callers serialize with the
 existing submission lock; reconciliation takes that same lock.
 """
 from datetime import date
-from decimal import Decimal
 import json
 import os
 from pathlib import Path
 import re
 import tempfile
-from ag.config import cluster_name, scheduler_kind
+from ag.config import cluster_name, scheduler_kind, shared_clusters
+from ag.transport import redact_stderr
 
 
 def seconds(value):
@@ -34,20 +34,37 @@ def read(cfg):
     path = ledger_path(cfg)
     if path.is_symlink():
         raise ValueError('Budget ledger must not be a symbolic link')
-    value = json.loads(path.read_text()) if path.exists() else dict(cluster=cfg['_cluster'], attempts={})
+    try:
+        contents = path.read_text()
+    except FileNotFoundError:
+        missing = True
+        value = dict(cluster=cfg['_cluster'], attempts={})
+    else:
+        missing = False
+        value = json.loads(contents)
     if value.get('cluster') != cfg['_cluster'] or not isinstance(value.get('attempts'), dict):
         raise ValueError('Invalid cluster budget ledger')
     for aid, row in value['attempts'].items():
         if (not isinstance(row, dict) or row.get('state') not in ('reserved', 'settled', 'rejected')
                 or any(type(row.get(k)) is not int or row[k] < 0 for k in ('used', 'reserved'))):
             raise ValueError(f'Attempt {aid}: invalid budget ledger entry; cannot infer available credit')
-    # A missing/partial ledger after a crash or manual deletion must not reset
-    # already committed spend to zero. No reconstruction from guessed timings.
+    # A missing ledger is empty only for a never-submitted entry. Scan every
+    # local study so deletion cannot silently release another study's cores.
+    # Existing partial-ledger claim checks remain in force; never reconstruct.
     from ag import attempt
-    for path, m, _, _ in attempt.local_records(
-            cfg['local']['studies_root'], cfg['_cluster'], scheduler_kind(cfg)):
-        if (path / '.submit-claim').exists() and m['attempt_id'] not in value['attempts']:
-            raise ValueError(f'Attempt {path.name} (study {m["study_id"]}): claimed Attempt missing from budget ledger; human reconciliation required')
+    try:
+        for path, m, current, job in attempt.local_records(
+                cfg['local']['studies_root'], cfg['_cluster'], scheduler_kind(cfg)):
+            claim = path / '.submit-claim'
+            if (claim.exists() or claim.is_symlink()) and m['attempt_id'] not in value['attempts']:
+                raise ValueError(f'Attempt {path.name} (study {m["study_id"]}): claimed Attempt missing from budget ledger; human reconciliation required')
+            if missing and ((path / 'submission.json').exists() or job is not None or current['state'] != 'prepared'):
+                raise ValueError(f'Attempt {path.name} (study {m["study_id"]}): submission trace missing from budget ledger; human reconciliation required')
+    except (OSError, ValueError, KeyError, AttributeError, TypeError) as exc:
+        if not missing:
+            raise
+        raise ValueError(f'Cluster {cfg["_cluster"]}: budget ledger missing; {redact_stderr(exc, cfg)}；'
+                         '从备份或原配置目录找回该入口的台账；找不到则停止并交给负责人核对') from None
     return value
 
 
@@ -58,33 +75,17 @@ def totals(cfg, *, ledger=None):
 
 
 def public_summary(cfg):
-    """Read local totals in core-hours, without exposing ledger identities."""
-    maximum = cfg['resources'].get('budget_core_hours')
-    if scheduler_kind(cfg) != 'slurm' or maximum is None:
-        return None
-    try:
-        used, reserved = totals(cfg)
-    except (OSError, ValueError, KeyError, AttributeError, TypeError) as exc:
-        # Filesystem/JSON exceptions can contain private paths or values. A
-        # broken ledger must not be displayed as zero available/spent credit.
-        raise ValueError('Cannot read local cluster budget; human reconciliation required') from exc
-    return dict(core_hours=maximum, used=used / 3600, reserved=reserved / 3600)
+    """The local estimate is not a platform balance; stop publishing a budget."""
+    return None
 
 
 def check(cfg, amount, *, ledger=None):
-    used, reserved = totals(cfg, ledger=ledger)
-    maximum = cfg['resources'].get('budget_core_hours')
-    if maximum is not None and Decimal(used + reserved + amount) > Decimal(str(maximum)) * 3600:
-        raise ValueError('Core-hour budget exceeded: used + reserved + requested exceeds budget')
-    return used, reserved, maximum
+    """Retained for callers; budget_core_hours no longer gates submission."""
+    return None
 
 
 def summary(cfg, amount):
-    used, reserved = totals(cfg)
-    maximum = cfg['resources'].get('budget_core_hours')
-    bound = f'{maximum:g}' if maximum is not None else '未设置'
-    return (f'本次最多 {amount / 3600:g} 核时；累计已用 {used / 3600:g}、'
-            f'预留 {reserved / 3600:g}、预算 {bound} 核时（实际费用以平台计费为准）')
+    return f'本次最多消耗 {amount / 3600:g} 核时（核数 × walltime；实际以平台计费为准）'
 
 
 def write(cfg, ledger):
@@ -157,7 +158,7 @@ def unobserved_cores(cfg, jobs, ledger, *, exclude=None):
     without a bound ID is conservatively counted until read-only reconciliation.
     """
     from ag import attempt
-    visible = {job['job_id'] for job in jobs}
+    visible = {job['job_id']: job for job in jobs}
     cores = 0
     for aid, row in ledger['attempts'].items():
         if row['state'] != 'reserved' or aid == exclude:
@@ -165,10 +166,39 @@ def unobserved_cores(cfg, jobs, ledger, *, exclude=None):
         path = attempt.find(cfg, aid)
         record = attempt.local_record(path, cfg['_cluster'], scheduler_kind(cfg))
         if record is None:
-            continue
+            raise ValueError(f'Attempt {aid}: budget/core reservation cluster mismatch')
         m, _, job = record
         if m['bundle_sha256'] != row['bundle_sha256']:
             raise ValueError(f'Attempt {path.name} (study {m["study_id"]}): budget/core reservation identity mismatch')
-        if job not in visible:
+        observed = visible.get(job)
+        if observed is not None and observed.get('name') != m['attempt_id']:
+            raise ValueError(f'Attempt {aid}: scheduler/core reservation identity mismatch')
+        if observed is None:
             cores += m['cores']
+    return cores
+
+
+def shared_ledgers(cfg):
+    """Read peers only, under submit's existing config-directory lock.
+
+    A missing ledger may start empty only without any local submission trace.
+    Reading never creates peer ledgers; reserve() writes only the target entry.
+    """
+    ledgers = {}
+    for name, entry in shared_clusters(cfg).items():
+        try:
+            ledgers[name] = read(entry)
+        except (OSError, ValueError, KeyError, AttributeError, TypeError) as exc:
+            raise ValueError(f'Cluster {name}: cannot read budget-{name}.json ({redact_stderr(exc, entry)})') from None
+    return ledgers
+
+
+def shared_unobserved_cores(cfg, jobs, ledgers, *, exclude=None):
+    cores = 0
+    for name, entry in shared_clusters(cfg).items():
+        try:
+            cores += unobserved_cores(entry, jobs, ledgers[name],
+                                     exclude=exclude if name == cfg['_cluster'] else None)
+        except (OSError, ValueError, KeyError, AttributeError, TypeError) as exc:
+            raise ValueError(f'Cluster {name}: cannot account for budget-{name}.json ({redact_stderr(exc, entry)})') from None
     return cores

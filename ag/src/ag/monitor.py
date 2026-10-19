@@ -10,7 +10,7 @@ import tempfile
 import time
 
 from ag import remote, status, slurm, attempt, budget
-from ag.config import select_cluster, scheduler_kind
+from ag.config import select_cluster, scheduler_kind, committed_cap, shared_clusters
 from ag.pbs import parse_nodes
 from ag.transport import SSHTransport, redact_stderr, require_ok
 
@@ -111,17 +111,18 @@ def observation(cfg, transport, username):
             warnings.append(dict(kind=kind, job_id=item['job_id'], study=item['study'],
                                  attempt=item['attempt'], detail=detail))
     cap = cfg['resources']['max_cores']
-    committed_cap = cfg['resources'].get('max_committed_cores', cap)
+    total_cap = committed_cap(cfg)
     running, queued = status.core_breakdown(jobs, username)
-    if used > committed_cap:
+    if used > total_cap:
         warnings.append(dict(kind='over-cap', job_id=None, study=None, attempt=None,
-                             detail=f'本人占用 {used} 核，超过上限 {committed_cap} 核'))
+                             detail=f'本人占用 {used} 核，超过上限 {total_cap} 核'))
     if cfg.get('_cluster'):
         for row in own + warnings:
             if row.get('job_id'):
                 row['job_id'] = cfg['_cluster'] + ':' + row['job_id']
     return dict(own=dict(cores_in_use=used, core_cap=cap, jobs=own,
-                         cores_running=running, cores_queued=queued, committed_cap=committed_cap),
+                         cores_running=running, cores_queued=queued, committed_cap=total_cap,
+                         **shared_fields(cfg)),
                 cluster=dict(nodes=nodes, queues=queues,
                              cores_total=sum(n['cores_total'] for n in nodes),
                              cores_used=sum(n['cores_used'] for n in nodes)), warnings=warnings)
@@ -170,7 +171,8 @@ def sample(cfg, transport, interval=None):
     now = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
     snapshot = dict(schema='ag-monitor/1', sampled_at=now, interval_seconds=interval,
                     ok=False, error=None, last_ok_at=None,
-                    own=dict(cores_in_use=0, core_cap=cfg['resources']['max_cores'], jobs=[]),
+                    own=dict(cores_in_use=0, core_cap=cfg['resources']['max_cores'],
+                             committed_cap=committed_cap(cfg), jobs=[], **shared_fields(cfg)),
                     cluster=dict(nodes=[], queues=[], cores_total=0, cores_used=0), warnings=[])
     operation = 'Read previous monitor snapshot'
     try:
@@ -202,10 +204,16 @@ def sample(cfg, transport, interval=None):
         snapshot['error'] = redact_stderr(f'{operation}: {exc}', cfg)
     else:
         snapshot.update(ok=True, last_ok_at=now)
+    # Even a failed sample or old cache must use today's configured caps.
+    # Historical usage stays historical; never invent a running/queued split.
+    snapshot['own'].update(core_cap=cfg['resources']['max_cores'], committed_cap=committed_cap(cfg))
+    snapshot['own'].pop('shared_with', None)
+    snapshot['own'].update(shared_fields(cfg))
     if scheduler_kind(cfg) == 'slurm':
         # Missing fields in a first failure or a pre-T19 cache are unknown,
-        # never zero. Preserve the last successful budget/storage on failure.
-        snapshot['cluster'].setdefault('budget', None)
+        # never zero. Preserve the last successful storage value on failure;
+        # obsolete budget totals are removed even from retained old snapshots.
+        snapshot['cluster']['budget'] = None
         snapshot['cluster'].setdefault('storage_kib', None)
         snapshot['cluster']['expires'] = cfg.get('expires')
         snapshot['cluster']['expiry_warning'] = budget.expiry_warning(cfg)
@@ -231,11 +239,13 @@ def run(cfg, interval=None):
 
 def slurm_observation(cfg, transport, username):
     from ag.doctor import storage
+    ledgers = budget.shared_ledgers(cfg)
     budget_summary = budget.public_summary(cfg)
     storage_kib = storage(cfg, transport)
     expiry = budget.expiry_warning(cfg)
     jobs = slurm.parse_queue(require_ok(transport.run(remote.slurm_jobs(user=username)), 'squeue monitor'))
     running, queued = slurm.core_breakdown(jobs, username)
+    held = budget.shared_unobserved_cores(cfg, jobs, ledgers)
     records = local_attempts(Path(cfg['local']['studies_root']), cfg['_cluster'], 'slurm')
     by_job = {}
     for record in records:
@@ -260,16 +270,21 @@ def slurm_observation(cfg, transport, username):
             warnings.append(dict(kind=kind, job_id=cfg['_cluster'] + ':' + record['job_id'],
                                  study=record['study'], attempt=record['attempt'], detail='运行 ag status 核对；不会自动重提或取消'))
     cap = cfg['resources']['max_cores']
-    committed_cap = cfg['resources'].get('max_committed_cores', cap)
-    if running + queued > committed_cap:
+    total_cap = committed_cap(cfg)
+    if running + queued + held > total_cap:
         warnings.append(dict(kind='over-cap', job_id=None, study=None, attempt=None,
-                             detail=f'本人运行加排队 {running + queued} 核，超过上限 {committed_cap} 核'))
+                             detail=f'本人运行加排队 {running + queued} 核、同组本地未观测预留 {held} 核，超过上限 {total_cap} 核'))
     return dict(own=dict(cores_in_use=running + queued, cores_running=running, cores_queued=queued,
-                         core_cap=cap, committed_cap=committed_cap, jobs=own),
+                         core_cap=cap, committed_cap=total_cap, jobs=own, **shared_fields(cfg)),
                 cluster=dict(nodes=[], queues=[], cores_total=0, cores_used=0,
                              hardware_capacity_known=False, name=cfg['_cluster'], scheduler='slurm',
                              storage_kib=storage_kib, expiry_warning=expiry,
                              budget=budget_summary, expires=cfg.get('expires')), warnings=warnings)
+
+
+def shared_fields(cfg):
+    peers = [name for name in shared_clusters(cfg) if name != cfg.get('_cluster', 'default')]
+    return dict(shared_with=peers) if peers else {}
 
 
 def run_clusters(cfg, interval=None):

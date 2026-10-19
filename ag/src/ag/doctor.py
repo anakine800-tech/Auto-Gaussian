@@ -3,11 +3,17 @@ import re
 import time
 import sys
 from ag import remote, status, slurm, budget
-from ag.config import scheduler_kind
+from ag.config import scheduler_kind, unmerged_clusters
 from ag.transport import require_ok
 
 
 def doctor(cfg, transport):
+    if 'budget_core_hours' in cfg['resources']:
+        print('budget_core_hours 已不参与提交检查，可删除', file=sys.stderr, flush=True)
+    unmerged = unmerged_clusters(cfg)
+    if unmerged:
+        names = ', '.join(sorted([cfg.get('_cluster', 'default'), *unmerged]))
+        print(f'疑似同集群入口未合并（SSH 配置文件或 host 别名不同）：{names}', file=sys.stderr, flush=True)
     warning = budget.expiry_warning(cfg)
     if warning:
         print(warning, file=sys.stderr, flush=True)
