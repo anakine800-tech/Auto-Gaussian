@@ -194,11 +194,14 @@ def test_failure_preserves_last_success_without_additional_retry(cfg, identity, 
 
 
 def test_first_failure_is_not_reported_as_success(cfg, identity):
+    cfg['resources']['max_committed_cores'] = 132
     fake = Fake()
     fake.replies['jobs'] = Result(255, stderr='user fixture: failed')
     result = monitor.sample(cfg, fake)
     assert result['ok'] is False and result['last_ok_at'] is None
     assert result['own']['jobs'] == []
+    assert result['own']['core_cap'] == 44
+    assert result['own']['committed_cap'] == 132
 
 
 def test_atomic_latest_and_append_only_rotation(cfg, identity, monkeypatch):

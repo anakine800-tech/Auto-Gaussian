@@ -544,15 +544,19 @@ def test_legacy_parent_is_bound_to_default(cfg, prepared, tmp_path):
 
 
 def bound_slurm_parent(multi, tmp_path, parent):
+    from ag import budget
     source = tmp_path / 'batch.gjf'
     source.write_text(INPUT)
     manifest = attempt.prepare(multi, method_basis='兜底方法：合成测试', study_name='smoke', template='gaussian', input_path=source,
                                tier='simple', walltime='00:30:00', label='batch', cluster='batch')
     path = attempt.find(multi, manifest['attempt_id'])
+    selected = config.select_cluster(multi, 'batch')
+    budget.reserve(selected, manifest, budget.read(selected))
     submission.record(path, manifest, '42')
     state.write(path, 'submitting')
     state.write(path, 'submitted', job_id='batch:42')
     state.write(path, 'finished')
+    budget.settle(selected, manifest, '00:00:00', job_id='42')
     (path / 'final_input.xyz').write_bytes((parent[0] / 'final_input.xyz').read_bytes())
     return path, manifest
 

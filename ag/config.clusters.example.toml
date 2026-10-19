@@ -38,6 +38,8 @@ mem_gb = 120
 
 [clusters.batch]
 scheduler = "slurm"
+# Entry names are local aliases. For SCNet use scnet (Gaussian) and scnet-test
+# (CREST), after verifying wzacnormal / wzhctest respectively in local config.
 # Optional; omit to use the site's scheduler defaults.
 partition = "<partition>"
 account = "<account>"
@@ -66,7 +68,8 @@ root = "<absolute xtb and crest installation root>"
 # ag does not limit concurrently running cores.
 max_cores = 44
 max_committed_cores = 44
-budget_core_hours = 100
+# Legacy budget_core_hours is accepted but ignored by submission checks.
+# Only the requested maximum core-hours is shown; ledgers still record usage.
 [clusters.batch.resources.tiers.mini]
 cores = 4
 mem_gb = 10
@@ -77,5 +80,41 @@ mem_gb = 12
 cores = 22
 mem_gb = 50
 [clusters.batch.resources.tiers.complex]
+cores = 44
+mem_gb = 120
+
+# A second queue entry for the SAME login: copy the exact SSH config_file and
+# host from batch. Different partition/account/qos do not create another cap.
+# The shared cap is the minimum max_committed_cores across matching entries.
+[clusters.batch-test]
+scheduler = "slurm"
+partition = "<test partition>"
+allowed_templates = ["crest"]
+# Omit allowed_templates to allow every reviewed template; [] blocks prepare.
+# Already prepared Attempts retain their original binding and hashed script.
+[clusters.batch-test.ssh]
+config_file = "<absolute SSH configuration file>"
+host = "<Slurm SSH alias>"
+[clusters.batch-test.remote]
+allowed_root = "<absolute allowed root>"
+ag_root = "<absolute allowed root>/ag"
+[clusters.batch-test.programs.gaussian]
+# Required by the existing renderer even when only CREST is allowed.
+g16root = "<absolute Gaussian executable directory>"
+[clusters.batch-test.programs.xtb]
+root = "<absolute xtb and crest installation root>"
+[clusters.batch-test.resources]
+max_cores = 44
+max_committed_cores = 44
+[clusters.batch-test.resources.tiers.mini]
+cores = 4
+mem_gb = 10
+[clusters.batch-test.resources.tiers.simple]
+cores = 8
+mem_gb = 12
+[clusters.batch-test.resources.tiers.general]
+cores = 22
+mem_gb = 50
+[clusters.batch-test.resources.tiers.complex]
 cores = 44
 mem_gb = 120

@@ -4,7 +4,7 @@ from pathlib import Path
 import tempfile
 import sys
 from ag import attempt, cards, confirm, journal, parent_chk, remote, state, status, slurm, submission, budget
-from ag.config import for_manifest, scheduler_kind
+from ag.config import for_manifest, scheduler_kind, committed_cap, shared_cap_summary
 from ag.transport import bound_transport
 from ag.locks import claim, submission_lock
 from ag.transport import require_ok, TransportError
@@ -33,7 +33,7 @@ def metadata(transport, cfg, manifest, name, *, checkpoint=False):
 
 def capacity(cfg):
     """Admission counts all running and queued cores, independent of hardware."""
-    return cfg['resources'].get('max_committed_cores', cfg['resources']['max_cores'])
+    return committed_cap(cfg)
 
 
 def submit(cfg, ids, transport):
@@ -62,7 +62,8 @@ def submit(cfg, ids, transport):
         # Batch confirmation is for a single template and scientific method/card.
         if len({(m['template'], m['science']['route'], m['science']['method_basis']) for _, m, _ in prepared}) != 1:
             raise ValueError('Batch requires the same template, route and method basis')
-        budget_ledger = budget.read(cfg) if is_slurm else None
+        ledgers = budget.shared_ledgers(cfg) if is_slurm else None
+        budget_ledger = ledgers[cfg['_cluster']] if is_slurm else None
         username, jobs, used = status.inventory(transport, cfg)
         attachments = {}
         for path, m, _ in prepared:
@@ -72,7 +73,7 @@ def submit(cfg, ids, transport):
                 attachments[path.name] = (parent, observed)
         running, queued = (slurm.core_breakdown(jobs, username) if is_slurm else status.core_breakdown(jobs, username))
         if is_slurm:
-            held = budget.unobserved_cores(cfg, jobs, budget_ledger)
+            held = budget.shared_unobserved_cores(cfg, jobs, ledgers)
             used += held
             queued += held
         cap = capacity(cfg)
@@ -82,8 +83,15 @@ def submit(cfg, ids, transport):
         if is_slurm:
             budget.check(cfg, sum(budget.requested(m) for _, m, _ in prepared), ledger=budget_ledger)
         budget_text = budget.summary(cfg, sum(budget.requested(m) for _, m, _ in prepared)) if is_slurm else None
-        text = f"Cluster: {cfg['_cluster']}\n" + '\n'.join(f"{m['attempt_id']} | {m['template']} | {m['tier']} {m['cores']} cores | "
-                         f"{m['walltime']} | {cards.label(m)} | SHA256 {m['bundle_sha256'][:12]}\n{attempt.cost_line(m)}" for _, m, _ in prepared)
+        destination = f"Cluster: {cfg['_cluster']}\n"
+        if is_slurm:
+            destination += f"Partition: {cfg.get('partition', 'scheduler default')}\n"
+        text = destination + '\n'.join(f"{m['attempt_id']} | {m['template']} | {m['tier']} {m['cores']} cores | "
+                         f"{m['walltime']} | {cards.label(m)} | SHA256 {m['bundle_sha256'][:12]}" +
+                         ('' if is_slurm else '\n' + attempt.cost_line(m)) for _, m, _ in prepared)
+        shared_text = shared_cap_summary(cfg)
+        if shared_text:
+            text += '\n' + shared_text
         for path, m, _ in prepared:
             if path.name in attachments:
                 text += '\n' + path.name + ' | ' + parent_chk.summary(m['parent_chk'], attachments[path.name][1])
@@ -115,7 +123,10 @@ def submit(cfg, ids, transport):
                 if is_slurm:
                     jobs = slurm.parse_queue(require_ok(transport.run(remote.slurm_jobs(user=username)), 'squeue'))
                     fresh_used = sum(slurm.core_breakdown(jobs, username))
-                    fresh_used += budget.unobserved_cores(cfg, jobs, budget_ledger, exclude=m['attempt_id'])
+                    # Read every peer again; the current reservation is now on
+                    # disk, and earlier batch submissions must remain counted.
+                    fresh_used += budget.shared_unobserved_cores(
+                        cfg, jobs, budget.shared_ledgers(cfg), exclude=m['attempt_id'])
                 else:
                     jobs = status.parse_jobs(require_ok(transport.run(remote.jobs()), 'qstat'))
                     fresh_used = status.occupied(jobs, username)

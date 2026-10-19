@@ -53,6 +53,8 @@ def load_config(path=None, *, local_only=False):
                 if 'default' in cfg['clusters']:
                     raise ConfigError('Legacy configuration and clusters.default are ambiguous')
                 cfg['clusters']['default'] = {key: cfg[key] for key in ('ssh', 'remote', 'scheduler', 'programs', 'resources')}
+                if 'allowed_templates' in cfg:
+                    cfg['clusters']['default']['allowed_templates'] = cfg['allowed_templates']
             for name, cluster in cfg['clusters'].items():
                 cluster_name(name)
                 validate_cluster(cluster)
@@ -110,12 +112,22 @@ def validate_cluster(cfg):
             raise ConfigError(f'Invalid resource tier: {name}')
     if not Path(cfg['ssh']['config_file']).is_file():
         raise ConfigError('SSH configuration file does not exist')
+    if 'allowed_templates' in cfg:
+        from ag.render import declaration
+        allowed_templates = cfg['allowed_templates']
+        if not isinstance(allowed_templates, list) or any(not isinstance(t, str) for t in allowed_templates):
+            raise ConfigError('allowed_templates must be a list of reviewed template names')
+        for template in allowed_templates:
+            try:
+                declaration(template)
+            except ValueError as exc:
+                raise ConfigError('allowed_templates contains an unknown template') from exc
 
     if scheduler == 'slurm':
         for key in ('partition', 'account', 'qos'):
             if key in cfg and (not isinstance(cfg[key], str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]*', cfg[key])):
                 raise ConfigError(f'Invalid Slurm {key}')
-        allowed = {'scheduler', 'ssh', 'remote', 'programs', 'resources', 'partition', 'account', 'qos', 'expires'}
+        allowed = {'scheduler', 'ssh', 'remote', 'programs', 'resources', 'partition', 'account', 'qos', 'expires', 'allowed_templates'}
         if set(cfg) - allowed:
             raise ConfigError('Unsupported Slurm configuration field')
     if 'expires' in cfg:
@@ -161,12 +173,53 @@ def select_cluster(cfg, name='default'):
             raise ConfigError(f'Cluster is not configured: {name}')
         selected = dict(cfg['clusters'][name])
         selected.update(local=cfg['local'], _config_dir=cfg['_config_dir'])
+        selected['_cluster_entries'] = cfg['clusters']
     else:
         if name != 'default':
             raise ConfigError(f'Cluster is not configured: {name}')
         selected = dict(cfg)
     selected['_cluster'] = name
     return selected
+
+
+def cluster_identity(cfg):
+    """Only explicit SSH configuration identity may share an admission cap."""
+    return (scheduler_kind(cfg), Path(cfg['ssh']['config_file']).expanduser().resolve(),
+            cfg['ssh']['host'])
+
+
+def shared_clusters(cfg):
+    """Selected entry plus peers on the same scheduler and SSH login alias.
+
+    Keep ledgers separate; the selected entry carries the other configuration
+    entries so for_manifest() cannot accidentally discard the shared cap.
+    """
+    name = cfg.get('_cluster', 'default')
+    entries = dict(cfg.get('_cluster_entries', {name: cfg}))
+    entries[name] = cfg
+    identity = cluster_identity(cfg)
+    return {other: dict(entry, local=cfg['local'], _config_dir=cfg['_config_dir'], _cluster=other)
+            for other, entry in sorted(entries.items()) if cluster_identity(entry) == identity}
+
+
+def committed_cap(cfg):
+    return min(entry['resources'].get('max_committed_cores', entry['resources']['max_cores'])
+               for entry in shared_clusters(cfg).values())
+
+
+def shared_cap_summary(cfg):
+    entries = shared_clusters(cfg)
+    if len(entries) == 1:
+        return ''
+    limits = ', '.join(f"{name}={entry['resources'].get('max_committed_cores', entry['resources']['max_cores'])}"
+                       for name, entry in entries.items())
+    return f'同集群入口共享总上限 {committed_cap(cfg)} 核（取最小值；{limits}）'
+
+
+def unmerged_clusters(cfg):
+    return sorted(name for name, entry in cfg.get('_cluster_entries', {}).items()
+                  if scheduler_kind(entry) == scheduler_kind(cfg)
+                  and cluster_identity(entry) != cluster_identity(cfg))
 
 
 def for_manifest(cfg, manifest):

@@ -9,6 +9,8 @@ description: 在 ag 新架构中创建、恢复和推进主族闭壳层计算研
 
 新建或恢复在 `scnet` 上运行 Gaussian 的研究时，按[研究模板](references/study-md-template.md)的“计算平台与软件许可”填写负责人决定；正式作业前核对正丁烷单点全流程验证记录。
 
+仅在本次已决定使用 SCNet 时：CREST 用 `--cluster scnet-test`（partition `wzhctest`），Gaussian 只能用 `--cluster scnet`（`wzacnormal`）。default（PBS）与 SCNet 的选择沿用 study 既有安排。准备前只读核对本机入口存在及 partition 正确；队列名不是 `--cluster` 别名，不改变 CLI 默认值。`wzhctest` 不可用、无权限或额度满时停下报告，由负责人逐次决定，不自动改投 `scnet`。
+
 ## 开题参考
 
 - [开题包主模板](references/intake-template.md)：结构、实验、假设与证据、计算范围及 N0 交接。

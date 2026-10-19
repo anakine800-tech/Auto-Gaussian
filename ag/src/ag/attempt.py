@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 import re
 from ag import __version__, cards, crest_input, gaussian_input, journal, render, state, study
-from ag.config import select_cluster, for_manifest, scheduler_kind, cluster_name
+from ag.config import select_cluster, for_manifest, scheduler_kind, cluster_name, shared_cap_summary
 from ag.locks import claim
 from ag.remote import filename
 
@@ -103,6 +103,9 @@ def all_attempts(cfg, name=None):
 
 def prepare(cfg, *, study_name, template, input_path, tier, walltime, label, params=None, parents=None, method_basis, constraints=None, cluster='default', card=None, parent_chk=None, analysis=None, grid=None, fragments=None):
     cfg = select_cluster(cfg, cluster)
+    if 'allowed_templates' in cfg and template not in cfg['allowed_templates']:
+        allowed = ', '.join(cfg['allowed_templates']) or '(none)'
+        raise ValueError(f'Cluster {cluster}: template {template} is not allowed; allowed_templates: {allowed}')
     s = study.locate(cfg, study_name)
     if not (s / 'study.md').is_file() or not (s / 'attempts').is_dir():
         raise ValueError('Initialize the study first')
@@ -313,7 +316,14 @@ def summary(cfg, m):
     cfg = for_manifest(cfg, m)
     science = m['science']
     from ag import budget
-    budget_line = budget.summary(cfg, budget.requested(m)) if m.get('scheduler') == 'slurm' else ''
+    cost = (budget.summary(cfg, budget.requested(m)) if m.get('scheduler') == 'slurm'
+            else cost_line(m))
+    destination = f"Cluster: {m.get('cluster', 'default')}"
+    if m.get('scheduler') == 'slurm':
+        destination += f"\n\nPartition: {cfg.get('partition', 'scheduler default')}"
+    shared_text = shared_cap_summary(cfg)
+    if shared_text:
+        destination += '\n\n' + shared_text
     geometry = f"```text\n{science['geometry']}\n```\n\n"
     if science.get('n_frames') and m['template'] == 'crest':
         geometry = (f"CREST mdopt ensemble: {science['n_frames']} frames; first frame preview below. "
@@ -338,7 +348,7 @@ def summary(cfg, m):
     if 'parent_chk' in m:
         from ag.parent_chk import summary
         attachment_summary = summary(m['parent_chk']) + '\n\n'
-    return (f"### {m['attempt_id']}\n\nCluster: {m.get('cluster', 'default')}\n\n{cost_line(m)}\n{budget_line}\n\nTemplate: {m['template']} | Tier: {m['tier']} | "
+    return (f"### {m['attempt_id']}\n\n{destination}\n\n{cost}\n\nTemplate: {m['template']} | Tier: {m['tier']} | "
             f"Cores: {m['cores']} | Memory: {m['mem_gb']} GB | Walltime: {m['walltime']}\n\n"
             f"{cards.label(m)}\n\nRemote directory: {attempt_dir(cfg, m)}\n\nBundle SHA-256: {m['bundle_sha256']}\n\n"
             f"Method basis: {m['science']['method_basis']}\n\nRoute: {m['science']['route']}\n\n"

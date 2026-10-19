@@ -39,7 +39,7 @@ def test_total_boundary_includes_external_and_held(multi, tmp_path, monkeypatch,
             assert expected in text
         assert text in capsys.readouterr().err
         if scheduler == 'slurm':
-            assert '未设置' in text
+            assert '本次最多消耗 12 核时' in text
             assert budget.totals(selected)[1] > 0
     assert 'nodes' not in fake.operations()
 
