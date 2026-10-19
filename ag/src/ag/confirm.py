@@ -5,7 +5,12 @@ import sys
 SCRIPT = '''on run argv
     set messageText to item 1 of argv
     set actionText to item 2 of argv
-    set answer to display dialog messageText with title "ag" buttons {"取消", actionText} default button "取消" cancel button "取消" giving up after 300
+    if actionText is "取消作业" then
+        set actionText to "终止作业"
+        set answer to display dialog messageText with title "ag" buttons {"保留作业", actionText} default button "保留作业" cancel button "保留作业" with icon caution giving up after 300
+    else
+        set answer to display dialog messageText with title "ag" buttons {"不提交", actionText} default button "不提交" cancel button "不提交" giving up after 300
+    end if
     if gave up of answer then return "cancelled"
     if button returned of answer is actionText then return "confirmed"
     return "cancelled"
@@ -13,10 +18,10 @@ end run'''
 
 
 def confirm(text, action='提交'):
-    if sys.platform != 'darwin':
-        return False
     if action not in ('提交', '取消作业'):
         raise ValueError('Unsupported confirmation action')
+    if sys.platform != 'darwin':
+        return False
     try:
         p = subprocess.run(['osascript', '-e', SCRIPT, '--', text, action],
                            capture_output=True, text=True, timeout=310)

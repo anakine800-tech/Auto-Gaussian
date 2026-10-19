@@ -144,12 +144,12 @@ def test_logging_failure_never_changes_operation(cfg, tmp_path, monkeypatch, cap
 
 
 def test_upload_and_download_operations(cfg, prepared, tmp_path, monkeypatch):
+    from test_fetch import fake_scp
     path, manifest = prepared
     def execute(argv, **kwargs):
-        if argv[0] == 'scp' and ':' in argv[-2]:
-            Path(argv[-1]).write_bytes(b'synthetic')
         return Result()
     monkeypatch.setattr(subprocess, 'run', execute)
+    fake_scp(monkeypatch, [dict(duration=1, writes=[(1, b'synthetic')])])
     t = SSHTransport(cfg)
     t.upload(path / 'inputs/water.gjf', manifest, 'water.gjf')
     t.download(manifest, 'water.log', tmp_path / 'download.log')
@@ -159,21 +159,37 @@ def test_upload_and_download_operations(cfg, prepared, tmp_path, monkeypatch):
 
 
 def test_scp_retry_records_each_attempt(cfg, prepared, tmp_path, monkeypatch):
+    from test_fetch import fake_scp
     _, manifest = prepared
-    calls = []
-    def execute(argv, **kwargs):
-        calls.append(argv)
-        Path(argv[-1]).write_bytes(b'partial' if len(calls) == 1 else b'complete')
-        return Result(255 if len(calls) == 1 else 0, stderr='Connection refused' if len(calls) == 1 else '')
-    monkeypatch.setattr(subprocess, 'run', execute)
-    monkeypatch.setattr('ag.transport.time.sleep', lambda seconds: None)
+    clock = fake_scp(monkeypatch, [
+        dict(duration=1, writes=[(1, b'partial')], returncode=255, stderr='Connection refused'),
+        dict(duration=1, writes=[(1, b'complete')]),
+    ])
     destination = tmp_path / 'result.log'
     SSHTransport(cfg, read_only=True).download(manifest, 'water.log', destination)
     data = rows(cfg)
     assert [(r['tool'], r['operation'], r['attempt'], r['outcome']) for r in data] == [
         ('scp', 'download', 1, 'exit'), ('scp', 'download', 2, 'ok')]
     assert destination.read_bytes() == b'complete'
-    assert Path(calls[0][-1]).read_bytes() == b'partial'
+    assert clock.processes[0].target.read_bytes() == b'partial'
+
+
+@pytest.mark.parametrize('reason', ['stalled', 'hard_limit'])
+def test_download_timeout_details_are_safe_and_do_not_retry(cfg, prepared, monkeypatch, tmp_path, reason):
+    from ag import transport
+    from test_fetch import fake_scp
+    _, manifest = prepared
+    if reason == 'hard_limit':
+        monkeypatch.setattr(transport, 'DOWNLOAD_HARD_LIMIT_SECONDS', 30)
+    clock = fake_scp(monkeypatch, [dict(writes=[(5, b'partial')])])
+    with pytest.raises(SSHConnectionError, match=reason):
+        SSHTransport(cfg, read_only=True).download(manifest, 'water.log', tmp_path / 'output.log')
+    row, = rows(cfg)
+    assert row['outcome'] == 'timeout' and row['timeout_reason'] == reason
+    assert row['transferred_bytes'] == 7
+    assert row['duration_s'] == (65 if reason == 'stalled' else 30)
+    assert len(clock.processes) == 1 and clock.sleeps == []
+    assert str(tmp_path) not in json.dumps(row) and cfg['ssh']['host'] not in json.dumps(row)
 
 
 def test_append_preserves_history_and_restricts_existing_permissions(cfg, monkeypatch):

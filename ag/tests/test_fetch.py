@@ -4,12 +4,88 @@ from hashlib import sha256
 import json
 from pathlib import Path
 import shlex
+import signal
+import subprocess
 
 import pytest
 
 from ag import attempt, cli, fetch, remote, state
 from ag.transport import Result, TransportError
 from test_core import cfg, prepared, finish  # noqa: F401 — shared synthetic fixtures
+
+
+def fake_scp(monkeypatch, plans):
+    """Advance a fake clock and write synthetic chunks at scheduled times."""
+    from ag import transport
+
+    class Clock:
+        now = 0
+        processes = []
+        sleeps = []
+
+        def sleep(self, seconds):
+            self.sleeps.append(seconds)
+            self.now += seconds
+
+    clock = Clock()
+
+    class Process:
+        def __init__(self, argv, **kwargs):
+            assert argv[0] == 'scp'
+            assert kwargs == dict(stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                  text=True, start_new_session=True)
+            self.argv, self.target = argv, Path(argv[-1])
+            self.plan = plans[len(clock.processes)]
+            self.started = clock.now
+            self.returncode = None
+            self.terminated = self.killed = False
+            self.waits = []
+            self.pid = 10000 + len(clock.processes)
+            clock.processes.append(self)
+
+        def communicate(self, timeout=None):
+            if self.returncode is not None:
+                return '', self.plan.get('stderr', '')
+            assert timeout is not None
+            self.waits.append(timeout)
+            end = self.plan.get('duration', float('inf'))
+            elapsed = clock.now - self.started
+            next_elapsed = min(elapsed + timeout, end)
+            for at, data in self.plan.get('writes', []):
+                if at <= next_elapsed:
+                    self.target.write_bytes(data)
+            clock.now = self.started + next_elapsed
+            if next_elapsed >= end:
+                self.returncode = self.plan.get('returncode', 0)
+                return '', self.plan.get('stderr', '')
+            raise subprocess.TimeoutExpired(self.argv, timeout)
+
+        def poll(self):
+            return self.returncode
+
+        def terminate(self):
+            self.terminated = True
+            if not self.plan.get('ignore_terminate'):
+                self.returncode = -15
+
+        def kill(self):
+            self.killed = True
+            self.returncode = -9
+
+    monkeypatch.setattr(transport.subprocess, 'Popen', Process)
+    def killpg(pid, sig):
+        process = next(p for p in clock.processes if p.pid == pid)
+        assert sig in (signal.SIGTERM, signal.SIGKILL)
+        process.terminate() if sig == signal.SIGTERM else process.kill()
+    monkeypatch.setattr(transport.os, 'killpg', killpg)
+    monkeypatch.setattr(transport.time, 'monotonic', lambda: clock.now)
+    monkeypatch.setattr(transport.time, 'sleep', clock.sleep)
+    return clock
+
+
+def download_log(cfg):
+    files = list((Path(cfg['_config_dir']) / 'ssh-log').glob('*.jsonl'))
+    return [json.loads(line) for file in files for line in file.read_text().splitlines()]
 
 
 class ReadOnlyFake:
@@ -235,3 +311,86 @@ def test_add_missing_verifies_all_downloads_before_publishing_any(cfg, fetched):
     assert not (path / 'outputs/job.pbs.out').exists()
     assert state.read(path)['state'] == 'fetched'
     assert not list(path.glob('fetch-add-missing-*.json'))
+
+
+def test_slow_download_beyond_minute_is_verified_before_publication(cfg, prepared, monkeypatch):
+    from ag.transport import SSHTransport
+    path, manifest = prepared
+    finish(path)
+    data = b'synthetic water output' * 100
+    fake = ReadOnlyFake({'water.log': data, 'job.pbs.out': b'done'})
+    clock = fake_scp(monkeypatch, [
+        dict(duration=130, writes=[(t, data[:len(data) * t // 120]) for t in range(10, 121, 10)]),
+        dict(duration=1, writes=[(1, b'done')]),
+    ])
+    transport = SSHTransport(cfg, read_only=True)
+    monkeypatch.setattr(transport, 'run', fake.run)
+    result = fetch.fetch(cfg, path, transport)
+    assert result['state'] == 'fetched' and clock.now == 131
+    assert sha256((path / 'outputs/water.log').read_bytes()).digest() == sha256(data).digest()
+    assert all(row['outcome'] == 'ok' for row in download_log(cfg))
+    assert all(wait <= 5 for p in clock.processes for wait in p.waits)
+
+
+@pytest.mark.parametrize('case,expected_bytes,expected_time', [
+    ('midway', 7, 70), ('connection', 0, 60), ('empty', 0, 60), ('hard_limit', 70, 70),
+])
+@pytest.mark.parametrize('ignore_terminate', [False, True])
+def test_download_timeout_stops_without_retry_or_publication(
+        cfg, prepared, monkeypatch, tmp_path, case, expected_bytes, expected_time, ignore_terminate):
+    from ag import transport
+    _, manifest = prepared
+    assert transport.DOWNLOAD_STALL_SECONDS == 60
+    assert transport.DOWNLOAD_HARD_LIMIT_SECONDS == 86400
+    plan = dict(ignore_terminate=ignore_terminate)
+    if case == 'midway':
+        plan['writes'] = [(10, b'partial')]
+    elif case == 'empty':
+        plan['writes'] = [(5, b'')]
+    elif case == 'hard_limit':
+        monkeypatch.setattr(transport, 'DOWNLOAD_HARD_LIMIT_SECONDS', 70)
+        plan['writes'] = [(t, b'x' * t) for t in range(5, 81, 5)]
+    clock = fake_scp(monkeypatch, [plan])
+    target = tmp_path / 'output.log'
+    reason = 'hard_limit' if case == 'hard_limit' else 'stalled'
+    with pytest.raises(transport.SSHConnectionError, match=reason):
+        transport.SSHTransport(cfg, read_only=True).download(manifest, 'water.log', target)
+    assert not target.exists() and len(clock.processes) == 1 and clock.sleeps == []
+    process, = clock.processes
+    assert process.terminated and process.killed == ignore_terminate
+    assert process.poll() is not None
+    assert clock.now == expected_time + (5 if ignore_terminate else 0)
+    row, = download_log(cfg)
+    assert row['outcome'] == 'timeout' and row['timeout_reason'] == reason
+    assert row['transferred_bytes'] == expected_bytes
+    assert row['error_class'] == 'other'  # same category as the old fixed timeout
+    assert not any(value in json.dumps(row) for value in (str(target), cfg['ssh']['host']))
+
+
+def test_manual_download_after_stall_uses_fresh_destination(cfg, prepared, monkeypatch, tmp_path):
+    from ag.transport import SSHConnectionError, SSHTransport
+    _, manifest = prepared
+    clock = fake_scp(monkeypatch, [dict(writes=[(5, b'partial')]),
+                                   dict(duration=1, writes=[(1, b'complete')])])
+    t = SSHTransport(cfg, read_only=True)
+    target = tmp_path / 'output.log'
+    with pytest.raises(SSHConnectionError, match='stalled'):
+        t.download(manifest, 'water.log', target)
+    t.download(manifest, 'water.log', target)
+    first, second = clock.processes
+    assert first.target != second.target
+    assert first.target.read_bytes() == b'partial' and target.read_bytes() == b'complete'
+    assert clock.sleeps == []
+
+
+def test_download_start_failure_is_logged(cfg, prepared, monkeypatch, tmp_path):
+    from ag.transport import SSHTransport
+    _, manifest = prepared
+    def fail(*args, **kwargs):
+        raise OSError('synthetic local failure')
+    monkeypatch.setattr(subprocess, 'Popen', fail)
+    target = tmp_path / 'output.log'
+    with pytest.raises(TransportError, match='Could not start'):
+        SSHTransport(cfg).download(manifest, 'water.log', target)
+    assert not target.exists()
+    assert download_log(cfg)[0]['outcome'] == 'start_failed'

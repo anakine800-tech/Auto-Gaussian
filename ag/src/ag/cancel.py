@@ -23,7 +23,9 @@ def cancel(cfg, path, transport):
             raise ValueError('Exact-job cancellation already attempted; no retry')
         job = submission.verified_job(path, m, current)
         text = (f"{path.name}\nCluster: {cfg['_cluster']}\nJob: {current['job_id']}\n{m['template']} | {m['tier']} {m['cores']} cores | "
-                f"{m['walltime']} | SHA256 {m['bundle_sha256'][:12]}\n取消此确切作业？")
+                f"{m['walltime']} | SHA256 {m['bundle_sha256'][:12]}\n"
+                f"点「终止作业」将停止 {cfg['_cluster']}:{job}，不会自动重提；"
+                "点「保留作业」或按回车保持运行。")
         if not confirm.confirm(text, '取消作业'):
             journal.append(path.parent.parent, 'cancel', path.name, 'user_cancelled')
             raise UserCancelled('Cancellation declined')

@@ -195,7 +195,7 @@ def check(cfg, path, transport):
         require_ok(transport.run(remote.listing(cfg, m)), 'unknown directory inspection')
         journal.append(path.parent.parent, 'status', path.name, 'unknown', 'No unique scheduler evidence; human review required')
         return {**current, 'note': 'No unique scheduler evidence; remains unknown. Human review required.'}
-    if current['state'] not in ('submitted', 'running', 'stalled', 'interrupted', 'awaiting_second_observation', 'finished', 'fetched'):
+    if current['state'] not in ('submitted', 'running', 'stalled', 'interrupted', 'awaiting_second_observation', 'finished', 'fetched', 'cancelled'):
         return current
     job_id = submission.verified_job(path, m, current)
     start = read_receipt(cfg, m, transport, 'ag-start.json', job_id)
@@ -255,6 +255,11 @@ def check(cfg, path, transport):
                            note=('调度器残留 (PBS R); previous completion evidence retained'
                                  if scheduler == 'R' else 'Previous completion evidence retained; no PBS R residue'),
                            **details)
+    if current['state'] == 'cancelled':
+        # Cancellation acceptance is not proof the writer has stopped. Reuse
+        # the five-minute inactive observations without rewinding lifecycle.
+        note = 'Cancelled; incomplete fetch requires two inactive, stable observations at least 300 seconds apart'
+        return state.write(path, 'cancelled', exit_status=current.get('exit_status'), note=note, **details)
     same = (previous.get('outputs') == observed and previous.get('session_id') == session
             and previous.get('job_id') == job_id and previous.get('at', now + 1) <= now)
     since = current.get('unchanged_since', previous.get('at', now)) if same else now
