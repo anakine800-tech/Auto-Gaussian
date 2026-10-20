@@ -9,7 +9,7 @@ import sys
 
 import pytest
 
-from ag import attempt, cli, config, facts, fetch, parent_chk, remote, state, status, submission
+from ag import attempt, cancel, cli, config, facts, fetch, parent_chk, remote, state, status, submission
 from ag.transport import Result, TransportError
 from test_core import cfg, prepared, seed_submission, job_text
 from test_slurm import multi, prepare
@@ -87,6 +87,8 @@ class IncompleteFake:
             return self.accounting or Result(stdout=f"123|{self.manifest['attempt_id']}|fixture|{self.accounting_state}|1:9|00:05:00|8\n")
         if command.operation == 'completion_marker':
             return Result(stdout='absent\n')
+        if command.operation in ('cancel', 'slurm_cancel'):
+            return Result()
         raise AssertionError(command.operation)
 
     def download(self, manifest, name, local):
@@ -137,7 +139,7 @@ def test_pbs_success_record_state_preservation_and_repeat(cfg, interrupted):
 
 
 @pytest.mark.parametrize('value', ['unknown', 'submitting', 'running', 'submitted', 'stalled',
-                                   'cancelled', 'awaiting_second_observation', 'finished', 'fetched'])
+                                   'awaiting_second_observation', 'finished', 'fetched'])
 def test_pbs_reject_other_states(cfg, interrupted, value):
     path, _, fake = interrupted
     current = state.read(path)
@@ -445,16 +447,13 @@ def test_first_ssh_failure_stops_and_read_only_enforcement_remains(cfg, interrup
 
 
 def test_first_download_ssh_failure_does_not_retry(cfg, prepared, tmp_path, monkeypatch):
-    from ag.transport import SSHTransport
+    from test_fetch import fake_scp
     _, manifest = prepared
-    calls = []
-    monkeypatch.setattr(SSHTransport, '_execute',
-                        lambda self, argv, timeout: calls.append(argv) or Result(255))
-    monkeypatch.setattr('ag.transport.time.sleep', lambda *a: pytest.fail('must not retry'))
+    clock = fake_scp(monkeypatch, [dict(duration=1, returncode=255)])
     transport = fetch._IncompleteSSHTransport(config.for_manifest(cfg, manifest))
     with pytest.raises(TransportError):
         transport.download(manifest, 'water.log', tmp_path / 'download.log')
-    assert len(calls) == 1 and not (tmp_path / 'download.log').exists()
+    assert len(clock.processes) == 1 and clock.sleeps == [] and not (tmp_path / 'download.log').exists()
 
 
 def test_facts_partial_opt_and_last_geometry(cfg, interrupted):
@@ -630,3 +629,171 @@ def test_slurm_exact_query_ssh_failure_never_retries(multi, slurm_finished, monk
     assert remote.slurm_accounting('123').text not in commands
     assert (path / 'status.json').read_bytes() == before
     assert_unpublished(path)
+
+
+@pytest.fixture
+def cancelled(request, cfg, multi, prepared, tmp_path, monkeypatch):
+    kind = getattr(request, 'param', 'pbs')
+    if kind == 'pbs':
+        path, manifest = prepared
+        selected = cfg
+        state.write(path, 'submitting')
+        seed_submission(path)
+    else:
+        path, manifest = prepare(multi, tmp_path)
+        selected = multi
+        state.write(path, 'submitting')
+        submission.record(path, manifest, '123')
+        state.write(path, 'submitted', job_id='batch:123')
+    fake = IncompleteFake(manifest)
+    fake.accounting_state = 'CANCELLED'
+    monkeypatch.setattr(cancel.confirm, 'confirm', lambda *a: True)
+    assert cancel.cancel(selected, path, fake)['state'] == 'cancelled'
+    if kind == 'pbs':
+        assert observe(selected, path, fake, monkeypatch, 1000)['state'] == 'cancelled'
+        assert observe(selected, path, fake, monkeypatch, 1300)['state'] == 'cancelled'
+    fake.calls.clear()
+    return selected, path, manifest, fake
+
+
+@pytest.mark.parametrize('cancelled', ['pbs', 'slurm'], indirect=True)
+def test_cancelled_fetch_binds_outputs_and_preserves_state(cancelled):
+    cfg, path, manifest, fake = cancelled
+    before = (path / 'status.json').read_bytes()
+    result = fetch.fetch(cfg, path, fake, incomplete=True)
+    assert result['state'] == 'cancelled' and result['files'] == ['water.log']
+    assert (path / 'status.json').read_bytes() == before
+    _, record = fetch.incomplete_record(path)
+    assert record['complete'] is True
+    assert record['manifest_sha256'] == sha256((path / 'manifest.json').read_bytes()).hexdigest()
+    assert record['job_id'] == submission.verified_job(path, manifest, state.read(path))
+    assert record['outputs']['water.log']['sha256'] == sha256(fake.files['water.log']).hexdigest()
+    if manifest['scheduler'] == 'slurm':
+        assert record['end_evidence']['accounting']['state'] == 'CANCELLED'
+    else:
+        first, last = record['end_evidence']['observations']
+        assert last['at'] - first['at'] == 300 and first['outputs'] == last['outputs']
+    for options in ({'incomplete': True}, {}, {'add_missing': True}):
+        with pytest.raises(FileExistsError):
+            fetch.fetch(cfg, path, fake, **options)
+    assert fake.downloaded == ['water.log']
+
+
+@pytest.mark.parametrize('failure', ['claim', 'claim_symlink', 'succeeded', 'wrong_attempt',
+                                    'job', 'cluster', 'binding', 'journal_missing', 'malformed'])
+@pytest.mark.parametrize('cancelled', ['pbs', 'slurm'], indirect=True)
+def test_cancelled_local_proof_required_before_remote_calls(cancelled, failure):
+    cfg, path, manifest, fake = cancelled
+    log = path.parent.parent / 'journal.jsonl'
+    if failure in ('claim', 'claim_symlink'):
+        (path / '.cancel-claim').unlink()
+        if failure == 'claim_symlink':
+            (path / '.cancel-claim').symlink_to(path / 'status.json')
+    elif failure == 'binding':
+        value = json.loads((path / 'submission.json').read_text())
+        value['manifest_sha256'] = '0' * 64
+        (path / 'submission.json').write_text(json.dumps(value))
+    elif failure == 'journal_missing':
+        log.unlink()
+    elif failure == 'malformed':
+        log.write_text('invalid journal\n')
+    else:
+        rows = [json.loads(line) for line in log.read_text().splitlines()]
+        row = next(r for r in rows if r['action'] == 'cancel' and r['result'] == 'succeeded')
+        if failure == 'succeeded':
+            row['result'] = 'failed_or_unknown'
+        elif failure == 'wrong_attempt':
+            row['attempt_id'] = 'water-999-other'
+        else:
+            row['detail']['job_id'] = ('other:' if failure == 'cluster' else '') + '456'
+        log.write_text(''.join(json.dumps(row) + '\n' for row in rows))
+    with pytest.raises(ValueError):
+        fetch.fetch(cfg, path, fake, incomplete=True)
+    assert fake.calls == []
+    assert_unpublished(path)
+
+
+@pytest.mark.parametrize('failure', ['receipt', 'active', 'changed', 'hash', 'ssh'])
+@pytest.mark.parametrize('late', [False, True])
+@pytest.mark.parametrize('cancelled', ['pbs', 'slurm'], indirect=True)
+def test_cancelled_rechecks_end_evidence_and_hashes(cancelled, failure, late):
+    cfg, path, manifest, fake = cancelled
+    def change():
+        if failure == 'receipt':
+            key = 'job_id' if manifest['scheduler'] == 'slurm' else 'PBS_JOBID'
+            fake.receipt = json.dumps({key: submission.verified_job(path, manifest, state.read(path)),
+                                      'finished_at': '2026-01-01T00:00:00Z', 'returncode': 0})
+        elif failure == 'active':
+            fake.queue = Result(stdout=job_text(manifest, state_='R'))
+            fake.slurm_queue = Result(stdout=f"123|{manifest['attempt_id']}|fixture|RUNNING|8|00:00|fixture\n")
+        elif failure == 'ssh':
+            fake.failure = 'metadata' if late else 'receipt'
+        elif failure == 'hash':
+            if late:
+                fake.files['water.log'] = b'x' * len(fake.files['water.log'])
+            else:
+                fake.corrupt = True
+        else:
+            fake.files['water.log'] += b'changed'
+    # For Slurm there is no stored size observation; mutate during download.
+    if failure == 'changed' and manifest['scheduler'] == 'slurm' and not late:
+        fake.after_download = change
+    elif late:
+        fake.after_download = change
+    else:
+        change()
+    before = (path / 'status.json').read_bytes()
+    with pytest.raises((ValueError, TransportError)) as error:
+        fetch.fetch(cfg, path, fake, incomplete=True)
+    if failure == 'receipt':
+        assert 'ordinary status/fetch' in str(error.value)
+    assert (path / 'status.json').read_bytes() == before
+    assert_unpublished(path)
+
+
+@pytest.mark.parametrize('failure', ['one', 'too_soon', 'changed_size', 'changed_mtime', 'bad_job', 'future'])
+def test_cancelled_pbs_requires_two_stable_observations(cancelled, failure):
+    cfg, path, manifest, fake = cancelled
+    current = state.read(path)
+    observations = current['incomplete_observations']
+    if failure == 'one':
+        observations.pop()
+    elif failure == 'too_soon':
+        observations[1]['at'] = 1299
+    elif failure == 'changed_size':
+        observations[0]['outputs']['water.log']['size'] += 1
+    elif failure == 'changed_mtime':
+        observations[0]['outputs']['water.log']['mtime'] = '2026-01-02 00:00:00 +0000'
+    elif failure == 'bad_job':
+        observations[0]['job_id'] = '456.fixture'
+    else:
+        observations[1]['at'] = 1400
+    (path / 'status.json').write_text(json.dumps(current))
+    with pytest.raises(ValueError, match='PBS requires'):
+        fetch.fetch(cfg, path, fake, incomplete=True)
+    assert fake.downloaded == []
+    assert_unpublished(path)
+
+
+def test_cancelled_pbs_status_resets_evidence_and_keeps_lifecycle(cancelled, monkeypatch):
+    cfg, path, manifest, fake = cancelled
+    fake.files['water.log'] += b'new'
+    changed = observe(cfg, path, fake, monkeypatch, 1400)
+    assert changed['state'] == 'cancelled' and len(changed['incomplete_observations']) == 1
+    fake.queue = Result(stdout=job_text(manifest, state_='R'))
+    active = observe(cfg, path, fake, monkeypatch, 1500)
+    assert active['state'] == 'cancelled' and active['incomplete_observations'] == []
+    fake.queue = Result(stdout=job_text(manifest, state_='C'))
+    observe(cfg, path, fake, monkeypatch, 1600)
+    stable = observe(cfg, path, fake, monkeypatch, 1900)
+    assert stable['state'] == 'cancelled' and len(stable['incomplete_observations']) == 2
+    assert fetch.fetch(cfg, path, fake, incomplete=True)['state'] == 'cancelled'
+
+
+def test_cancelled_pbs_receipt_returns_to_normal_status_fetch(cancelled, monkeypatch):
+    cfg, path, manifest, fake = cancelled
+    fake.files['job.pbs.out'] = b'done'
+    fake.receipt = json.dumps(dict(PBS_JOBID='123.fixture', finished_at='2026-01-01T00:00:00Z', returncode=0))
+    result = observe(cfg, path, fake, monkeypatch, 1400)
+    assert result['state'] == 'finished' and result['incomplete_observations'] == []
+    assert fetch.fetch(cfg, path, fake)['state'] == 'fetched'

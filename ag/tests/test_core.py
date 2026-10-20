@@ -358,7 +358,9 @@ def test_dialog_non_mac_and_argument_injection(monkeypatch):
     assert confirm.confirm(attack)
     assert attack not in seen[0][0][2]
     assert seen[0][0][-2] == attack
-    assert 'default button "取消"' in confirm.SCRIPT
+    assert 'buttons {"不提交", actionText} default button "不提交" cancel button "不提交"' in confirm.SCRIPT
+    assert 'buttons {"保留作业", actionText} default button "保留作业" cancel button "保留作业" with icon caution' in confirm.SCRIPT
+    assert 'set actionText to "终止作业"' in confirm.SCRIPT
     assert 'giving up after 300' in confirm.SCRIPT
 
 
@@ -658,36 +660,29 @@ def test_read_only_transport_refuses_writes(cfg, prepared, monkeypatch):
 
 
 def test_fetch_retry_preserves_failed_partial_and_never_overwrites(cfg, prepared, monkeypatch, tmp_path):
+    from test_fetch import fake_scp
     _, m = prepared
-    calls, sleeps = [], []
     t = SSHTransport(cfg, read_only=True)
     target = tmp_path / 'downloaded.log'
-    def execute(argv, timeout):
-        partial = Path(argv[-1])
-        calls.append(partial)
-        partial.write_bytes(b'partial' if len(calls) == 1 else b'complete')
-        return Result(255 if len(calls) == 1 else 0)
-    monkeypatch.setattr(t, '_execute', execute)
-    monkeypatch.setattr('ag.transport.time.sleep', sleeps.append)
+    clock = fake_scp(monkeypatch, [dict(duration=1, writes=[(1, b'partial')], returncode=255),
+                                   dict(duration=1, writes=[(1, b'complete')])])
     t.download(m, 'water.log', target)
+    calls = [p.target for p in clock.processes]
     assert target.read_bytes() == b'complete'
     assert calls[0] != calls[1] and calls[0].read_bytes() == b'partial'
-    assert sleeps == [15]
+    assert clock.sleeps == [15]
     with pytest.raises(ValueError): t.download(m, 'water.log', target)
-    assert len(calls) == 2
+    assert len(clock.processes) == 2
 
 
 def test_second_failed_download_is_not_published(cfg, prepared, monkeypatch, tmp_path):
+    from test_fetch import fake_scp
     _, m = prepared
-    calls = []
     t = SSHTransport(cfg, read_only=True)
-    def execute(argv, timeout):
-        calls.append(Path(argv[-1])); calls[-1].write_bytes(b'partial')
-        return Result(255)
-    monkeypatch.setattr(t, '_execute', execute)
-    monkeypatch.setattr('ag.transport.time.sleep', lambda s: None)
+    clock = fake_scp(monkeypatch, [dict(duration=1, writes=[(1, b'partial')], returncode=255)] * 2)
     target = tmp_path / 'unpublished.log'
     with pytest.raises(TransportError): t.download(m, 'water.log', target)
+    calls = [p.target for p in clock.processes]
     assert len(calls) == 2 and not target.exists()
     assert all(p.read_bytes() == b'partial' for p in calls)
 

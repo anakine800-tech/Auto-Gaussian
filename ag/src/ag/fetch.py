@@ -218,6 +218,9 @@ def _presence(cfg, manifest, transport):
 
 def _end_evidence(cfg, path, manifest, current, transport):
     job = submission.verified_job(path, manifest, current)
+    if current['state'] == 'cancelled':
+        if status.read_receipt(cfg, manifest, transport, 'ag-exit.json', job) is not None:
+            raise ValueError('Exit receipt exists; use ordinary status/fetch')
     if manifest.get('scheduler') == 'slurm':
         username = require_ok(transport.run(remote.identity()), 'identity').strip()
         remote.slurm_token(username)
@@ -303,8 +306,27 @@ def _incomplete(cfg, path, transport):
     current = state.read(path)
     manifest = attempt.read_manifest(path)
     required = 'finished' if manifest.get('scheduler') == 'slurm' else 'interrupted'
-    if current['state'] != required:
-        raise ValueError(f'--incomplete requires {required}; cancelled/unknown/active Attempts are refused')
+    if current['state'] not in (required, 'cancelled'):
+        raise ValueError(f'--incomplete requires {required} or verified cancelled; unknown/active Attempts are refused')
+    if current['state'] == 'cancelled':
+        # A mutable cancelled label alone cannot prove that ag issued the
+        # confirmed cancellation for this exact submission.
+        submission.verified_job(path, manifest, current)
+        claim = study.local_path(path.parent.parent, path / '.cancel-claim')
+        if not claim.is_file():
+            raise ValueError('Cancelled incomplete fetch requires .cancel-claim')
+        log = study.local_path(path.parent.parent, path.parent.parent / 'journal.jsonl')
+        succeeded = False
+        if log.is_file():
+            with log.open() as handle:
+                for line in handle:
+                    row = json.loads(line)
+                    if (row.get('action') == 'cancel' and row.get('attempt_id') == path.name
+                            and row.get('result') == 'succeeded' and isinstance(row.get('detail'), dict)
+                            and row['detail'].get('job_id') == current['job_id']):
+                        succeeded = True
+        if not succeeded:
+            raise ValueError('Cancelled incomplete fetch requires matching cancel succeeded journal record')
     root = Path(cfg['local']['studies_root'])
     output = study.local_path(root, path / 'outputs')
     names = remote.output_names(manifest)

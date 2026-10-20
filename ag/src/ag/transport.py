@@ -7,6 +7,7 @@ import stat
 import os
 import re
 import shlex
+import signal
 from pathlib import Path
 import subprocess
 import sys
@@ -14,6 +15,12 @@ import tempfile
 import time
 from typing import Protocol
 from ag import remote
+
+
+# Slow relays must be allowed to make progress beyond a fixed minute, while
+# dead connections and a child that never exits still have bounded lifetimes.
+DOWNLOAD_STALL_SECONDS = 60
+DOWNLOAD_HARD_LIMIT_SECONDS = 24 * 60 * 60
 
 
 @dataclass
@@ -110,13 +117,16 @@ class SSHTransport:
         self.options = ['-F', cfg['ssh']['config_file'], '-o', 'BatchMode=yes',
                         '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=15']
 
-    def _log_call(self, tool, operation, attempt, outcome, returncode, duration, detail):
+    def _log_call(self, tool, operation, attempt, outcome, returncode, duration, detail,
+                  *, timeout_reason=None, transferred_bytes=None):
         # Diagnose refused connections without persisting endpoint/command data.
         at = datetime.now(timezone.utc)
         cluster = self.cfg.get('_cluster', 'default')
         row = dict(at=at.isoformat(), cluster=cluster, tool=tool, operation=operation,
                    attempt=attempt, outcome=outcome, returncode=returncode,
                    duration_s=round(duration, 3), error_class=error_class(detail, outcome))
+        if timeout_reason is not None:
+            row.update(timeout_reason=timeout_reason, transferred_bytes=transferred_bytes)
         directory_fd = file_fd = None
         failure = None
         try:
@@ -257,16 +267,79 @@ class SSHTransport:
         src = remote.attempt_dir(self.cfg, manifest) + '/' + remote.filename(name)
         candidate = None
         index = 0
+        timeout_reason = None
 
         def download_once():
-            nonlocal candidate, index
+            nonlocal candidate, index, timeout_reason
             index += 1
             # A failed scp may leave bytes behind. Each try uses a fresh local
             # destination so neither a partial nor a published file is replaced.
             candidate = Path(tempfile.mkdtemp(prefix='.download-', dir=local.parent)) / name
-            return self._logged_execute(['scp', *self.options, self.cfg['ssh']['host'] + ':' + src, str(candidate)], 60, 'download', index)
+            argv = ['scp', *self.options, self.cfg['ssh']['host'] + ':' + src, str(candidate)]
+            started = last_progress = time.monotonic()
+            transferred = 0
+            outcome, returncode, detail = 'start_failed', None, ''
+            try:
+                try:
+                    process = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                               text=True, start_new_session=True)
+                except OSError as exc:
+                    detail = redact_stderr(str(exc), self.cfg)
+                    raise TransportError('Could not start SSH/scp locally') from exc
+                try:
+                    while True:
+                        now = time.monotonic()
+                        interval = max(0, min(5, DOWNLOAD_STALL_SECONDS - (now - last_progress),
+                                              DOWNLOAD_HARD_LIMIT_SECONDS - (now - started)))
+                        try:
+                            stdout, stderr = process.communicate(timeout=interval)
+                            returncode = process.returncode
+                            outcome = 'ok' if returncode == 0 else 'exit'
+                            detail = redact_stderr(stderr, self.cfg)
+                            return Result(returncode, stdout, detail)
+                        except subprocess.TimeoutExpired:
+                            now = time.monotonic()
+                            size = candidate.stat().st_size if candidate.exists() else 0
+                            if size != transferred:
+                                transferred, last_progress = size, now
+                            if now - started >= DOWNLOAD_HARD_LIMIT_SECONDS:
+                                timeout_reason = 'hard_limit'
+                            elif now - last_progress >= DOWNLOAD_STALL_SECONDS:
+                                timeout_reason = 'stalled'
+                            else:
+                                continue
+                            outcome = 'timeout'
+                            raise subprocess.TimeoutExpired(argv, now - started) from None
+                finally:
+                    # Include scp's SSH child: it can otherwise keep the pipes
+                    # open after scp exits and defeat the timeout while reaping.
+                    if timeout_reason is not None or process.poll() is None:
+                        def stop_group(sig):
+                            try:
+                                os.killpg(process.pid, sig)
+                            except ProcessLookupError:
+                                pass  # The process group already exited.
 
-        require_ok(self._perform(download_once), 'download')
+                        stop_group(signal.SIGTERM)
+                        try:
+                            process.communicate(timeout=5)
+                        except subprocess.TimeoutExpired:
+                            stop_group(signal.SIGKILL)
+                            process.communicate()
+            finally:
+                self._log_call('scp', 'download', index, outcome, returncode,
+                               time.monotonic() - started, detail,
+                               timeout_reason=timeout_reason, transferred_bytes=transferred)
+
+        try:
+            result = self._perform(download_once)
+        except subprocess.TimeoutExpired as exc:
+            # Preserve the connection-error category, but a stalled download
+            # needs human inspection, not the ordinary read-only SSH retry.
+            message = f'Download timed out ({timeout_reason}); stop and inspect locally'
+            self._record_failure(message)
+            raise SSHConnectionError(message) from exc
+        require_ok(result, 'download')
         os.link(candidate, local)
 
 
