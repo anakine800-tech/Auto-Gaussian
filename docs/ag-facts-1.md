@@ -33,7 +33,7 @@ Gaussian 顶层 `termination = normal` 必须同时满足：
 新增可选字段：
 
 ```json
-{"parser": {"ag_version": "4.3.0", "rules": "route-join-v1"}}
+{"parser": {"ag_version": "4.4.0", "rules": "route-join-v1"}}
 ```
 
 `ag_version` 是生成这份 Gaussian facts 的 ag 包版本；`rules` 标识解析规则。
