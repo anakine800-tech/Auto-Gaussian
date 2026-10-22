@@ -48,7 +48,7 @@ def parameters(name, values):
 
 def render(cfg, manifest, input_name):
     from ag.remote import path_checks, attempt_dir
-    from ag.config import for_manifest
+    from ag.config import for_manifest, crest_executable
     cfg = for_manifest(cfg, manifest)
     m = manifest
     if not re.fullmatch(r'\d{2,4}:[0-5]\d:[0-5]\d', m['walltime']) or not int(m['walltime'].replace(':', '')):
@@ -72,6 +72,9 @@ def render(cfg, manifest, input_name):
     if mdopt:
         values['input_name'] = '--mdopt ' + shlex.quote(input_name)
     values.update(parameters=p, path_checks=path_checks(work))
+    # Preserve every byte of the legacy script when no independent path is set.
+    values['crest_command'] = (shlex.quote(crest_executable(cfg['programs']))
+                               if 'crest' in cfg['programs'] else 'crest')
     header = (f"#!/bin/sh\n#PBS -N {m['pbs_job_name']}\n#PBS -q {(cfg['scheduler']['queue'] if isinstance(cfg['scheduler'], dict) else '')}\n"
               f"#PBS -l nodes=1:ppn={m['cores']}\n#PBS -l mem={m['mem_gb']}gb\n"
               f"#PBS -l walltime={m['walltime']}\n#PBS -j oe\n#PBS -r n\n#PBS -o {work}/job.pbs.out\n")

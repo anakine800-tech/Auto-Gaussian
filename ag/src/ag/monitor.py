@@ -10,7 +10,7 @@ import tempfile
 import time
 
 from ag import remote, status, slurm, attempt, budget
-from ag.config import select_cluster, scheduler_kind, committed_cap, shared_clusters
+from ag.config import select_cluster, scheduler_kind, committed_cap, shared_clusters, optional_resource_caps
 from ag.pbs import parse_nodes
 from ag.transport import SSHTransport, redact_stderr, require_ok
 
@@ -207,7 +207,8 @@ def sample(cfg, transport, interval=None):
     # Even a failed sample or old cache must use today's configured caps.
     # Historical usage stays historical; never invent a running/queued split.
     snapshot['own'].update(core_cap=cfg['resources']['max_cores'], committed_cap=committed_cap(cfg))
-    snapshot['own'].pop('shared_with', None)
+    for key in ('shared_with', 'max_queued_cores', 'scheduler_max_running_cores'):
+        snapshot['own'].pop(key, None)
     snapshot['own'].update(shared_fields(cfg))
     if scheduler_kind(cfg) == 'slurm':
         # Missing fields in a first failure or a pre-T19 cache are unknown,
@@ -284,7 +285,7 @@ def slurm_observation(cfg, transport, username):
 
 def shared_fields(cfg):
     peers = [name for name in shared_clusters(cfg) if name != cfg.get('_cluster', 'default')]
-    return dict(shared_with=peers) if peers else {}
+    return dict(optional_resource_caps(cfg), **(dict(shared_with=peers) if peers else {}))
 
 
 def run_clusters(cfg, interval=None):

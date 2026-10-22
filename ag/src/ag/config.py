@@ -32,6 +32,16 @@ def multiwfn_executable(programs):
     return value
 
 
+def crest_executable(programs):
+    """Resolve the optional independent CREST install; legacy layouts stay valid."""
+    if 'crest' not in programs:
+        return programs['xtb']['root'] + '/bin/crest'
+    value = programs['crest']
+    if not isinstance(value, dict) or set(value) != {'executable'}:
+        raise ConfigError('programs.crest requires an executable path')
+    return absolute(value['executable'], 'programs.crest.executable', remote=True)
+
+
 def load_config(path=None, *, local_only=False):
     path = Path(path) if path else Path.home() / '.config/ag/config.toml'
     try:
@@ -97,13 +107,19 @@ def validate_cluster(cfg):
             raise ConfigError(f'Invalid configuration: {section}.{key}')
     if cfg['remote']['ag_root'] != cfg['remote']['allowed_root'] + '/ag':
         raise ConfigError('remote.ag_root must equal remote.allowed_root/ag')
+    crest_executable(cfg['programs'])
     limit = cfg['resources']['max_cores']
-    if type(limit) is not int or limit < 1 or (scheduler == 'pbs' and limit > 44):
-        raise ConfigError('max_cores must be positive (PBS maximum: 44)')
+    if type(limit) is not int or limit < 1:
+        raise ConfigError('max_cores must be a positive integer')
     committed = cfg['resources'].get('max_committed_cores', limit)
-    if type(committed) is not int or not limit <= committed <= 4 * limit:
-        raise ConfigError('max_committed_cores must be an integer: max_cores..4*max_cores')
+    if type(committed) is not int or committed < limit:
+        raise ConfigError('max_committed_cores must be an integer >= max_cores')
     cfg['resources']['max_committed_cores'] = committed
+    for key in ('max_queued_cores', 'scheduler_max_running_cores'):
+        if key in cfg['resources']:
+            value = cfg['resources'][key]
+            if type(value) is not int or value < 1:
+                raise ConfigError(f'{key} must be a positive integer')
     for name in ('mini', 'simple', 'general', 'complex'):
         tier = cfg['resources']['tiers'][name]
         if (type(tier['cores']) is not int or not 1 <= tier['cores'] <= limit
@@ -205,6 +221,20 @@ def shared_clusters(cfg):
 def committed_cap(cfg):
     return min(entry['resources'].get('max_committed_cores', entry['resources']['max_cores'])
                for entry in shared_clusters(cfg).values())
+
+
+def optional_resource_caps(cfg):
+    """Peer entries cannot bypass an explicitly configured queue allowance.
+
+    The scheduler running limit is advisory metadata, never an ag guarantee.
+    """
+    entries = shared_clusters(cfg).values()
+    result = {}
+    for key in ('max_queued_cores', 'scheduler_max_running_cores'):
+        values = [entry['resources'][key] for entry in entries if key in entry['resources']]
+        if values:
+            result[key] = min(values)
+    return result
 
 
 def shared_cap_summary(cfg):

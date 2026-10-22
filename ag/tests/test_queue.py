@@ -43,13 +43,13 @@ def prepare_batch(cfg, tmp_path, cores, count=1):
             for i in range(count)]
 
 
-@pytest.mark.parametrize('value', [44, 88, 176])
+@pytest.mark.parametrize('value', [44, 88, 176, 177, 288])
 def test_committed_config_valid(cfg, value):
     cfg['resources']['max_committed_cores'] = value
     assert config.load_config(write_config(cfg))['resources']['max_committed_cores'] == value
 
 
-@pytest.mark.parametrize('value', [43, 177, 0, -1, True, False, 88.0, '88'])
+@pytest.mark.parametrize('value', [43, 0, -1, True, False, 88.0, '88'])
 def test_committed_config_invalid(cfg, value):
     cfg['resources']['max_committed_cores'] = value
     with pytest.raises(config.ConfigError, match='max_committed_cores'):
@@ -62,8 +62,7 @@ def test_committed_bounds_follow_max_cores(cfg):
         tier['cores'] = min(tier['cores'], 8)
     assert config.load_config(write_config(cfg))['resources']['max_committed_cores'] == 32
     cfg['resources']['max_committed_cores'] = 33
-    with pytest.raises(config.ConfigError):
-        config.load_config(write_config(cfg))
+    assert config.load_config(write_config(cfg))['resources']['max_committed_cores'] == 33
 
 
 def test_queue_admits_40_plus_32_and_shows_summary(cfg, tmp_path, monkeypatch, capsys):

@@ -8,10 +8,15 @@ ag_root = "<absolute SDL root>/ag"
 [scheduler]
 queue = "<queue>"
 [resources]
-# Per-job and tier cap (PBS: 1..44; Slurm: positive integer).
-# Running + queued cap: max_cores..4*max_cores; defaults to max_cores.
-# ag does not limit concurrently running cores.
+# Per-job and tier cap: positive integer, sized for one eligible node.
+# Running + queued cap: integer >= max_cores; defaults to max_cores.
+# Optional queue cap includes held jobs and unobserved reservations.
+# Optional scheduler running cap is advisory; admins must enforce it.
+# ag does not set or verify a scheduler runtime cap.
 max_cores = 44
+# max_committed_cores = 264
+# max_queued_cores = 198
+# scheduler_max_running_cores = 66
 [resources.tiers.mini]
 cores = 4
 mem_gb = 10
@@ -28,6 +33,9 @@ mem_gb = 120
 g16root = "<absolute Gaussian executable directory>"
 [programs.xtb]
 root = "<absolute xtb and crest installation root>"
+# Optional independent CREST executable; otherwise uses the root above/bin/crest.
+# [programs.crest]
+# executable = "<absolute CREST executable>"
 [local]
 python = "<absolute chem Python executable>"
 studies_root = "<absolute local studies directory outside Git>"

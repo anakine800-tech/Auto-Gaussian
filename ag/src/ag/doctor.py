@@ -3,11 +3,15 @@ import re
 import time
 import sys
 from ag import remote, status, slurm, budget
-from ag.config import scheduler_kind, unmerged_clusters
+from ag.config import scheduler_kind, unmerged_clusters, crest_executable, optional_resource_caps
 from ag.transport import require_ok
 
 
 def doctor(cfg, transport):
+    limits = optional_resource_caps(cfg)
+    if "scheduler_max_running_cores" in limits:
+        limits["scheduler_running_note"] = "由调度器执行，ag 未核实；此字段仅记录管理员应实施的运行上限"
+        print(limits["scheduler_running_note"], file=sys.stderr, flush=True)
     if 'budget_core_hours' in cfg['resources']:
         print('budget_core_hours 已不参与提交检查，可删除', file=sys.stderr, flush=True)
     unmerged = unmerged_clusters(cfg)
@@ -36,7 +40,7 @@ def doctor(cfg, transport):
     require_ok(transport.run(remote.root_check(cfg)), 'allowed root')
     paths = {'gaussian': cfg['programs']['gaussian']['g16root'] + '/g16',
              'xtb': cfg['programs']['xtb']['root'] + '/bin/xtb',
-             'crest': cfg['programs']['xtb']['root'] + '/bin/crest'}
+             'crest': crest_executable(cfg['programs'])}
     for name, path in paths.items():
         require_ok(transport.run(remote.executable(path)), f'{name} executable')
     checkpoint = parent_chk_environment(transport)
@@ -48,7 +52,7 @@ def doctor(cfg, transport):
                 programs=list(paths), occupied_cores=used,
                 max_cores=cfg['resources']['max_cores'],
                 max_committed_cores=cfg['resources'].get('max_committed_cores', cfg['resources']['max_cores']),
-                inventory_seconds=round(latency, 3))
+                inventory_seconds=round(latency, 3), **limits)
 
 
 def storage(cfg, transport):

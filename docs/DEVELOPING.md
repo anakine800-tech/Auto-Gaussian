@@ -61,7 +61,8 @@
 声明放在确认之后，是为了让人在弹窗取消时 Attempt 仍保持 prepared、没有声明，之后可正常提交，不因取消而消耗一次提交机会。
 
 核数统计包含该用户在目标集群的全部作业，不能只统计 ag 作业；还要计入已提交但尚未读回的占用。
-PBS 和 Slurm 的单作业上限均为 max_cores；运行加排队（含挂起）总上限均为 max_committed_cores。
+PBS 和 Slurm 的单作业上限均为正整数 max_cores；运行加排队（含挂起）总上限均为 max_committed_cores，不再限制为单作业的四倍。
+可选 max_queued_cores 在提交前和确认后限制排队、挂起和尚未读回的预留；同集群入口取已配置限额的最小值。scheduler_max_running_cores 仅记录调度器应实施的运行限额，ag 不设置或验证该配置。
 提交不再读取节点；每项声明后复查全部本人作业，Slurm 另计本地尚未读回的预留。ag 不限制运行中的核数。
 Slurm 核时预算在远程写入前预留，unknown 不释放；省略预算配置时不检查预算，台账照常记录。
 预算只记录本地 ag 消费，不等于平台余额，也不含外部网页作业的消费。
@@ -136,6 +137,7 @@ AGENTS.md 第 7 条的例外只覆盖 ag 暂无对应命令时、限定在单个
 新增受审阅的 `ag/templates/` 程序体和 `.toml` 参数/输出声明，并同步 render、prepare/CLI、配置校验及 facts 解析入口。
 不是只把文件放进目录：`render.declaration` 的程序白名单也须显式更新。
 复用 `_guard.sh`，私有 scratch、独占回执、只执行一次；不随意 source 平台环境脚本。
+CREST 可选 `programs.crest.executable` 独立绝对路径，doctor 与模板使用同一解析函数；省略时继续使用 xTB 安装根的 bin/crest 并保持原渲染字节。
 用假程序检查成功/非零退出、输出和回执；保持既有 PBS 渲染结果逐字节不变，不重写旧 prepared bundle。
 
 ### 调度器

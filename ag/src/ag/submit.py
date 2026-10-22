@@ -4,7 +4,7 @@ from pathlib import Path
 import tempfile
 import sys
 from ag import attempt, cards, confirm, journal, parent_chk, remote, state, status, slurm, submission, budget
-from ag.config import for_manifest, scheduler_kind, committed_cap, shared_cap_summary
+from ag.config import for_manifest, scheduler_kind, committed_cap, shared_cap_summary, optional_resource_caps
 from ag.transport import bound_transport
 from ag.locks import claim, submission_lock
 from ag.transport import require_ok, TransportError
@@ -77,9 +77,13 @@ def submit(cfg, ids, transport):
             used += held
             queued += held
         cap = capacity(cfg)
+        limits = optional_resource_caps(cfg)
+        queue_cap = limits.get('max_queued_cores')
         requested = sum(m['cores'] for _, m, _ in prepared)
         if used + requested > cap:
             raise ValueError(f'Core limit exceeded: {used} occupied + {requested} requested / {cap} cap')
+        if queue_cap is not None and queued + requested > queue_cap:
+            raise ValueError(f'Queued core limit exceeded: {queued} queued + {requested} requested / {queue_cap} cap')
         if is_slurm:
             budget.check(cfg, sum(budget.requested(m) for _, m, _ in prepared), ledger=budget_ledger)
         budget_text = budget.summary(cfg, sum(budget.requested(m) for _, m, _ in prepared)) if is_slurm else None
@@ -98,6 +102,13 @@ def submit(cfg, ids, transport):
         text += (f'\n当前占用 {used} 核（运行 {running}、排队 {queued}；按集群上本人全部作业统计，含其他电脑和非 ag 提交的作业），'
                  f'\n提交后合计 {used + requested} / 上限 {cap} 核。'
                  f'\nag 不限制运行中的核数：集群空闲时，排队作业可能同时运行，最多 {used + requested} 核。')
+        text += f'\n单作业上限 {cfg["resources"]["max_cores"]} 核。'
+        if queue_cap is not None:
+            text += f'\n当前排队 {queued} / 排队上限 {queue_cap} 核。'
+            text += f'\n提交后排队及未观测预留最多 {queued + requested} / 排队上限 {queue_cap} 核（同集群入口共享）。'
+        if 'scheduler_max_running_cores' in limits:
+            text += (f'\n配置记录的调度器运行上限 {limits["scheduler_max_running_cores"]} 核；'
+                     '由调度器执行，ag 未核实；必须由管理员实施，ag 未设置或验证该限制。')
         if budget_text:
             text += '\n' + budget_text
         # Keep stdout machine-readable for ag submit --json.
@@ -122,22 +133,30 @@ def submit(cfg, ids, transport):
                 # Other scheduler clients can submit during the confirmation window.
                 if is_slurm:
                     jobs = slurm.parse_queue(require_ok(transport.run(remote.slurm_jobs(user=username)), 'squeue'))
-                    fresh_used = sum(slurm.core_breakdown(jobs, username))
+                    fresh_running, fresh_queued = slurm.core_breakdown(jobs, username)
+                    fresh_used = fresh_running + fresh_queued
                     # Read every peer again; the current reservation is now on
                     # disk, and earlier batch submissions must remain counted.
-                    fresh_used += budget.shared_unobserved_cores(
+                    fresh_held = budget.shared_unobserved_cores(
                         cfg, jobs, budget.shared_ledgers(cfg), exclude=m['attempt_id'])
+                    fresh_used += fresh_held
+                    fresh_queued += fresh_held
                 else:
                     jobs = status.parse_jobs(require_ok(transport.run(remote.jobs()), 'qstat'))
-                    fresh_used = status.occupied(jobs, username)
+                    fresh_running, fresh_queued = status.core_breakdown(jobs, username)
+                    fresh_used = fresh_running + fresh_queued
                 # qstat can lag behind successful qsub. Reserve earlier batch jobs
                 # until visible; do not double count them or reserve visible C jobs.
                 visible = {job['job_id'] for job in jobs
                            if (job['owner'] if is_slurm else job['Job_Owner'].split('@')[0]) == username}
                 if not is_slurm:
-                    fresh_used += sum(cores for job_id, cores in submitted.items() if job_id not in visible)
+                    fresh_held = sum(cores for job_id, cores in submitted.items() if job_id not in visible)
+                    fresh_used += fresh_held
+                    fresh_queued += fresh_held
                 if fresh_used + m['cores'] > cap:
                     raise ValueError('Core limit changed during confirmation; stop')
+                if queue_cap is not None and fresh_queued + m['cores'] > queue_cap:
+                    raise ValueError('Queued core limit changed during confirmation; stop')
                 if path.name in attachments:
                     parent, observed = attachments[path.name]
                     if parent_chk.resolve(cfg, m, jobs) != parent:

@@ -101,7 +101,7 @@ def all_attempts(cfg, name=None):
     return result
 
 
-def prepare(cfg, *, study_name, template, input_path, tier, walltime, label, params=None, parents=None, method_basis, constraints=None, cluster='default', card=None, parent_chk=None, analysis=None, grid=None, fragments=None):
+def prepare(cfg, *, study_name, template, input_path, tier, walltime, label, params=None, parents=None, method_basis, constraints=None, cluster='default', card=None, parent_chk=None, analysis=None, grid=None, fragments=None, transport=None):
     cfg = select_cluster(cfg, cluster)
     if 'allowed_templates' in cfg and template not in cfg['allowed_templates']:
         allowed = ', '.join(cfg['allowed_templates']) or '(none)'
@@ -220,6 +220,17 @@ def prepare(cfg, *, study_name, template, input_path, tier, walltime, label, par
         if parent_path.parent.parent != s:
             raise ValueError('Parent must belong to this study')
         study.identifier(parent['relation'].replace('_', '-'))
+    if template == 'crest' and 'crest' in cfg['programs']:
+        # An explicit independent install must work before an immutable bundle
+        # is created. The fixed read-only check never falls back or retries SSH.
+        from ag.config import crest_executable
+        from ag.remote import executable
+        from ag.transport import SSHTransport, require_ok
+        # read_only=True currently enables automatic SSH retries. Disable that
+        # mode to stop on the first failure; this call site runs only the fixed
+        # read-only executable check and never uses upload or write commands.
+        checker = transport if transport is not None else SSHTransport(cfg, read_only=False)
+        require_ok(checker.run(executable(crest_executable(cfg['programs']))), 'crest executable')
     # O_EXCL reserves the numeric sequence, even with concurrent different labels.
     for number in range(1, 1000):
         try:
