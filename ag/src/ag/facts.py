@@ -63,6 +63,121 @@ def _write_geometry(path, geometry):
             raise ValueError(f'{path.name} 与当前日志解析结果不一致，需人工核对') from None
 
 
+
+def parse_counterpoise(log):
+    """Strict two-fragment gas SP reader; never use the last fragment SCF as E_AB.
+
+    Summary labels follow the Gaussian Counterpoise manual (CONFLEX mirror).
+    DCBS/MCBS markers are independently observable in cclib-data's Gaussian03
+    H2FAs--AsH2F.opt-mp2-cp.log; that correlated/Opt file is NOT supported here.
+    G16 A.03 gas-SP live fixtures still have to validate this narrow reader.
+    """
+    from ag._parse_outputs import (NUMBER, number, gaussian_job_sections,
+                                   gaussian_orientation, gaussian_version, termination,
+                                   HARTREE_TO_KCAL)
+    from ag.gaussian_input import counterpoise_route
+    from ag._profile_sources import require, normalized_method
+    raw = log.read_bytes()
+    text = raw.decode('utf-8', errors='replace')
+    lines = text.splitlines()
+    source = dict(path='outputs/' + log.name, sha256=sha256(raw).hexdigest())
+    status = termination(text, 'Normal termination of Gaussian')
+    if status['termination'] != 'normal':
+        refusal = [i for i, line in enumerate(lines, 1)
+                   if line.strip() == 'No SCRF with counterpoise/fragments.']
+        return dict(**status, **gaussian_version(text), counterpoise=None,
+                    counterpoise_unavailable='SCRF incompatible with counterpoise/fragments' if refusal
+                    else 'CP job did not terminate normally',
+                    counterpoise_error_sources=[dict(**source, line=i) for i in refusal]), None, None
+    sections, warnings = gaussian_job_sections(text)
+    require(len(sections) == 1 and sections[0]['termination'] == 'normal' and not warnings,
+            'Counterpoise requires one normally terminated SP section; unknown output format')
+    method = counterpoise_route(sections[0]['route'] or '')
+    markers = []
+    for i, line in enumerate(lines):
+        if re.match(r'\s*Counterpoise:\s*doing\b', line):
+            match = re.fullmatch(r'\s*Counterpoise: doing (DCBS|MCBS) calculation for fragment\s+([12])(?: NewBq=T)?\s*', line)
+            require(match is not None, f'Unknown Counterpoise fragment format at line {i + 1}')
+            markers.append((i, match[1], int(match[2])))
+    require(len(markers) == 4 and {(basis, frag) for _, basis, frag in markers}
+            == {(basis, frag) for basis in ('DCBS', 'MCBS') for frag in (1, 2)},
+            'Expected exactly one DCBS and MCBS calculation per fragment; unknown CP format')
+    starts = [i for i, line in enumerate(lines) if re.match(r'\s*Counterpoise corrected energy\s*=', line)]
+    require(len(starts) == 1 and starts[0] > markers[-1][0],
+            'Expected one G16 Counterpoise summary after fragment calculations; unknown CP format')
+    start = starts[0]
+    specs = [('corrected_energy', r'Counterpoise corrected energy', 'Hartree', ''),
+             ('bsse', r'BSSE energy', 'Hartree', ''),
+             ('sum_fragments', r'sum of fragments', 'Hartree', ''),
+             ('interaction_raw_printed', r'complexation energy', 'kcal/mol', r'\s+kcal/mole \(raw\)'),
+             ('interaction_corrected_printed', r'complexation energy', 'kcal/mol', r'\s+kcal/mole \(corrected\)')]
+    values = {}
+    for offset, (key, label, unit, suffix) in enumerate(specs):
+        i = start + offset
+        match = re.fullmatch(r'\s*' + label + r'\s*=\s*(' + NUMBER + ')' + suffix + r'\s*',
+                            lines[i] if i < len(lines) else '')
+        require(match is not None, f'Unknown/truncated Counterpoise summary at line {i + 1}')
+        values[key] = dict(value=number(match[1]), unit=unit, source=dict(**source, line=i + 1))
+
+    def scf(first, last):
+        matches = [(i, re.fullmatch(r'\s*SCF Done:\s+E\(([^)]+)\)\s*=\s*(' + NUMBER
+                                    + r')\s+A\.U\. after\s+\d+\s+cycles\s*', lines[i]))
+                   for i in range(first, last) if re.match(r'\s*SCF Done:', lines[i])]
+        require(len(matches) == 1 and matches[0][1] is not None,
+                f'Expected one unambiguous SCF energy between lines {first + 1} and {last}')
+        i, match = matches[0]
+        require(normalized_method(match[1], 1) == method['method'], 'CP SCF method differs from route')
+        return dict(value=number(match[2]), unit='Hartree', source=dict(**source, line=i + 1))
+
+    values['uncorrected_energy'] = scf(0, markers[0][0])
+    fragments = {i: dict(index=i) for i in (1, 2)}
+    for position, (first, basis, fragment) in enumerate(markers):
+        last = markers[position + 1][0] if position + 1 < len(markers) else start
+        fragments[fragment][basis.lower()] = scf(first + 1, last)
+        fragments[fragment][basis.lower()]['calculation_source'] = dict(**source, line=first + 1)
+    # Reject mismatched/truncated fragment groups instead of reporting plausible
+    # numbers taken from different cycles. SCF print precision bounds tolerance.
+    own = sum(fragment['mcbs']['value'] for fragment in fragments.values())
+    ghost = sum(fragment['dcbs']['value'] for fragment in fragments.values())
+    raw_energy = values['uncorrected_energy']['value']
+    correction = values['bsse']['value']
+    corrected = values['corrected_energy']['value']
+    require(abs(corrected - raw_energy - correction) <= 1e-8
+            and abs(own - values['sum_fragments']['value']) <= 1e-8
+            and abs(own - ghost - correction) <= 1e-8,
+            'Counterpoise summary/fragment energy sums disagree')
+    require(abs((raw_energy - own) * HARTREE_TO_KCAL - values['interaction_raw_printed']['value']) <= .011
+            and abs((corrected - own) * HARTREE_TO_KCAL - values['interaction_corrected_printed']['value']) <= .011,
+            'Counterpoise printed interaction energies disagree with Hartree values')
+    whole = '\n'.join(lines[:markers[0][0]])
+    states = re.findall(r'(?m)^\s*Charge\s*=\s*(-?\d+)\s+Multiplicity\s*=\s*(\d+)(?: in supermolecule)?[ \t]*$', whole)
+    require(len(states) == 1 and int(states[0][1]) == 1, 'Missing/ambiguous whole-complex charge/multiplicity')
+    fragment_states = [(i, re.fullmatch(r'\s*Charge\s*=\s*(-?\d+)\s+Multiplicity\s*=\s*(\d+) in fragment\s+([12])\.\s*', line))
+                       for i, line in enumerate(whole.splitlines(), 1) if ' in fragment ' in line and 'Charge' in line]
+    require(len(fragment_states) == 2 and all(match is not None for _, match in fragment_states)
+            and {int(match[3]) for _, match in fragment_states} == {1, 2},
+            'Missing/ambiguous printed CP fragment states')
+    for i, match in fragment_states:
+        require(int(match[2]) == 1, 'Only singlet CP fragment output is supported')
+        fragments[int(match[3])].update(charge=int(match[1]), multiplicity=int(match[2]),
+                                      state_source=dict(**source, line=i))
+    input_geometry = gaussian_orientation(whole, 'Input')
+    geometry = gaussian_orientation(whole, 'Standard') or input_geometry
+    require(geometry is not None, 'Missing whole-complex orientation before CP fragments')
+    geometry_kind = 'standard' if gaussian_orientation(whole, 'Standard') else 'input'
+    result = dict(termination='normal', error_hint=None, **gaussian_version(text),
+                  route=sections[0]['route'], n_atoms=int(geometry.splitlines()[0]),
+                  charge=int(states[0][0]), multiplicity=1, energies={'scf': raw_energy},
+                  counterpoise={**values, 'fragments': list(fragments.values()), 'protocol': method},
+                  job_sections=sections, fact_sources={'route': 1, 'energies.scf': 1, 'final_geometry': 1,
+                                                      'final_input_geometry': 1 if input_geometry else None},
+                  final_geometry_orientation=geometry_kind,
+                  final_input_geometry='final_input.xyz' if input_geometry else None,
+                  final_input_geometry_orientation='input' if input_geometry else None,
+                  parser={'rules': 'counterpoise-two-fragment-sp-v1'}, parser_warning=None)
+    return result, geometry, input_geometry
+
+
 def parse_facts(attempt_dir):
     """Return facts and named geometry text in memory; never write evidence."""
     from ag._parse_outputs import (parse_gaussian, parse_crest, parse_xtb,
@@ -88,7 +203,11 @@ def parse_facts(attempt_dir):
                           final_input_geometry=None, parser_warning=f'{primary} confirmed missing')
             annotate_fetch_sources(result, attempt_dir)
             return result, geometries
-    if program == 'gaussian':
+    if program == 'gaussian-cp':
+        facts, geometry, input_geometry = parse_counterpoise(gaussian_log(attempt_dir))
+        if input_geometry:
+            geometries['final_input.xyz'] = input_geometry
+    elif program == 'gaussian':
         log = gaussian_log(attempt_dir)
         facts, geometry = parse_gaussian(log, outputs / ('job.slurm.err' if manifest.get('scheduler') == 'slurm' else 'job.pbs.out'))
         text = log.read_text(errors='replace')
@@ -405,7 +524,7 @@ def reparse_facts(attempt_dir, *, dry_run=False, out=None):
     # Every parser input lives under the checked Attempt tree. Gaussian uses
     # the same input-matched, unambiguous local log selection as ordinary facts.
     manifest = json.loads((directory / 'manifest.json').read_bytes())
-    if manifest['template'] == 'gaussian':
+    if manifest['template'] in ('gaussian', 'gaussian-cp'):
         gaussian_log(directory)
     else:
         primary = {'xtb': 'xtb.out', 'crest': 'crest.out'}.get(manifest['template'])

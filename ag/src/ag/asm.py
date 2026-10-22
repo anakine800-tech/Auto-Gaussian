@@ -157,6 +157,8 @@ def _energy_source(facts, geometry):
 def _load_energy(evidence, value, geometry, context):
     try:
         directory = _attempt(evidence.root, value)
+        from ag.cp_report import reject_cp
+        reject_cp(directory)
         facts_path = directory / 'facts.json'
         facts = _json(evidence, facts_path)
         require(facts.get('program') == 'gaussian' and facts.get('termination') == 'normal',

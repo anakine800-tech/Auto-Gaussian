@@ -1,0 +1,3 @@
+parameters = []
+outputs = ["{stem}.log", "job.pbs.out"]
+completion = "Normal termination of Gaussian"

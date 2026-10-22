@@ -113,8 +113,10 @@ def prepare(cfg, *, study_name, template, input_path, tier, walltime, label, par
     if tier not in ('mini', 'simple', 'general', 'complex'):
         raise ValueError('Invalid resource tier')
     resource = cfg['resources']['tiers'][tier]
-    if template != 'multiwfn' and any(v is not None for v in (analysis, grid, fragments)):
-        raise ValueError('--analysis/--grid/--fragments require the multiwfn template')
+    if template != 'multiwfn' and any(v is not None for v in (analysis, grid)):
+        raise ValueError('--analysis/--grid require the multiwfn template')
+    if fragments is not None and template not in ('multiwfn', 'gaussian-cp'):
+        raise ValueError('--fragments requires the multiwfn or gaussian-cp template')
     if template == 'multiwfn':
         if params:
             raise ValueError('Use --analysis and --grid, not custom Multiwfn parameters')
@@ -132,16 +134,26 @@ def prepare(cfg, *, study_name, template, input_path, tier, walltime, label, par
     if '--cinp' in params or '--input' in params:
         raise ValueError('Use --constraints to supply a validated xTB/CREST constraint file')
     render.parameters(template, params)
+    if template == 'gaussian-cp' and parent_chk is not None:
+        raise ValueError('gaussian-cp does not support parent checkpoints')
     attachment = None
     if parent_chk is not None:
         from ag.parent_chk import declare
         attachment = declare(cfg, s, template, parents or [], parent_chk)
     nci_files = None
+    cp_fragments = None
     if template == 'multiwfn':
         from ag.nci_report import prepare_inputs
         science, nci_files = prepare_inputs(cfg, params, input_path, fragments, attachment, cores=resource['cores'])
         name = 'ensemble.xyz' if analysis == 'igm' else 'parent-context.json'
         data = nci_files[name]
+    elif template == 'gaussian-cp':
+        if source.suffix.lower() != '.gjf' or fragments is None:
+            raise ValueError('gaussian-cp requires a .gjf input and --fragments CSV')
+        cp_fragments = Path(fragments).read_bytes()
+        data, science = gaussian_input.counterpoise_input(data.decode(), cp_fragments, **resource)
+        # Sort after the .gjf so existing output_names still selects its stem.
+        science['counterpoise']['file'] = name + '.fragments.csv'
     elif template == 'gaussian':
         if source.suffix.lower() != '.gjf':
             raise ValueError('Gaussian input must have .gjf extension')
@@ -228,6 +240,8 @@ def prepare(cfg, *, study_name, template, input_path, tier, walltime, label, par
         m['parent_chk'] = attachment
     script = 'job.slurm' if m['scheduler'] == 'slurm' else 'job.pbs'
     files = {**(nci_files or {name: data}), script: render.render(cfg, m, name).encode()}
+    if cp_fragments is not None:
+        files[name + '.fragments.csv'] = cp_fragments
     if constraint_data is not None:
         files['constraints.inp'] = constraint_data
     m['inputs'], m['bundle_sha256'] = bundle(files)
@@ -272,6 +286,11 @@ def verified_files(cfg, path, manifest):
             resolve(cfg, m)
         return files
     names = set(files) - {script}
+    if m['template'] == 'gaussian-cp':
+        fragment_name = m['science']['counterpoise']['file']
+        if fragment_name not in names or 'parent_chk' in m:
+            raise ValueError('Counterpoise requires a fragments CSV and no parent checkpoint')
+        names.remove(fragment_name)
     constraint_option = {'crest': '--cinp', 'xtb': '--input'}.get(m['template'])
     constrained = constraint_option and m['template_params'].get(constraint_option) == 'constraints.inp'
     if constrained:
@@ -301,6 +320,14 @@ def verified_files(cfg, path, manifest):
             raise ValueError('Scientific scan summary differs from submitted input')
     if files[script] != render.render(cfg, m, name).encode():
         raise ValueError('Prepared script differs from current reviewed template/configuration')
+    if m['template'] == 'gaussian-cp':
+        if Path(name).suffix.lower() != '.gjf' or fragment_name != name + '.fragments.csv':
+            raise ValueError('Counterpoise input must be .gjf')
+        _, science = gaussian_input.counterpoise_input(files[name].decode(), files[fragment_name],
+                                                       **resource, prepared=True)
+        science['counterpoise']['file'] = fragment_name
+        if any(m['science'].get(k) != v for k, v in science.items()):
+            raise ValueError('Counterpoise scientific summary differs from submitted input')
     if m['template'] == 'gaussian':
         if 'parent_chk' in m:
             from ag.parent_chk import resolve
@@ -344,6 +371,14 @@ def summary(cfg, m):
     if m['template'] == 'multiwfn':
         from ag.nci_report import summary as nci_summary
         geometry += nci_summary(m) + '\n\n'
+    if m['template'] == 'gaussian-cp':
+        definition = science['counterpoise']
+        geometry += f"Fragments CSV SHA-256: {definition['sha256']}\n\n"
+        for fragment in definition['fragments']:
+            geometry += (f"- Fragment {fragment['index']} ({fragment['fragment']}): "
+                         f"{fragment['n_atoms']} atoms; {fragment['formula']}; "
+                         f"charge / multiplicity: {fragment['charge']} / {fragment['multiplicity']}\n")
+        geometry += '\n'
     attachment_summary = ''
     if 'parent_chk' in m:
         from ag.parent_chk import summary

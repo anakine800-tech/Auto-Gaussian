@@ -249,6 +249,9 @@ def calculate_thermo(attempts, *, study=None, temp=298.15, conc=1.0, qs='grimme'
     deg = {resolve_attempt(str(k), study): v for k, v in (degeneracy or {}).items()}
     sp = {resolve_attempt(str(k), study): resolve_attempt(str(v), study)
           for k, v in (spc or {}).items()}
+    from ag.cp_report import reject_cp
+    for source in set(directories) | set(sp.values()):
+        reject_cp(source)
     if (set(deg) | set(sp)) - set(directories):
         raise ValueError('A degeneracy/SPC mapping does not match an input Attempt')
     if sp and len(sp) != len(directories):

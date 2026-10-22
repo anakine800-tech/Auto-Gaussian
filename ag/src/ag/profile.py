@@ -345,6 +345,17 @@ def calculate_profile(definition, *, perturb=None):
         from ag._profile_sources import local_path, settings_checked
         first = read_json(local_path(study, analyses, tables[0]['thermo']))
         direct_settings = dict(settings_checked(first.get('settings')))
+    from ag.cp_report import reject_cp
+    from ag._profile_sources import local_path
+    for spec in specs.values():
+        if not isinstance(spec, dict):
+            continue  # Existing source validation reports malformed definitions.
+        rows = (read_json(local_path(study, analyses, spec['thermo'])).get('rows', [])
+                if 'thermo' in spec else spec.get('attempts', []))
+        for row in rows if isinstance(rows, list) else []:
+            for key in ('attempt_id', 'spc_attempt_id'):
+                if isinstance(row, dict) and row.get(key):
+                    reject_cp(local_path(study, study / 'attempts', row[key]))
     species = {name: load_species(name, spec, study, analyses, direct_settings)
                for name, spec in specs.items()}
     baseline = next(iter(species.values()))

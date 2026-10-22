@@ -10,7 +10,7 @@ TEMPLATES = Path(__file__).resolve().parents[2] / 'templates'
 
 
 def declaration(name):
-    if name not in ('gaussian', 'xtb', 'crest', 'multiwfn'):
+    if name not in ('gaussian', 'gaussian-cp', 'xtb', 'crest', 'multiwfn'):
         raise ValueError('Unknown program template')
     with (TEMPLATES / f'{name}.toml').open('rb') as handle:
         return tomllib.load(handle)
@@ -85,8 +85,8 @@ def render(cfg, manifest, input_name):
         for key in ('partition', 'account', 'qos'):
             if key in cfg:
                 header += f"#SBATCH --{key}={slurm_token(cfg[key])}\n"
-    program_template = f"{m['template']}.pbs"
-    if (m.get('scheduler') == 'slurm' and m['template'] == 'gaussian'
+    program_template = 'gaussian.pbs' if m['template'] == 'gaussian-cp' else f"{m['template']}.pbs"
+    if (m.get('scheduler') == 'slurm' and m['template'] in ('gaussian', 'gaussian-cp')
             and cfg['programs']['gaussian'].get('environment') == 'scnet-a03'):
         program_template = 'gaussian-scnet-a03.sh'
         values['gaussian_parent'] = shlex.quote(str(Path(cfg['programs']['gaussian']['g16root']).parent))
@@ -103,7 +103,7 @@ def render(cfg, manifest, input_name):
     values.update(workdir_variable='PBS_O_WORKDIR', jobid_variable='PBS_JOBID', receipt_job_key='PBS_JOBID')
     if m.get('scheduler') == 'slurm':
         values.update(workdir_variable='SLURM_SUBMIT_DIR', jobid_variable='SLURM_JOB_ID', receipt_job_key='job_id')
-        if m['template'] == 'gaussian':
+        if m['template'] in ('gaussian', 'gaussian-cp'):
             env = cfg['programs']['gaussian']
             setup = ''
             if env.get('module_init'):
