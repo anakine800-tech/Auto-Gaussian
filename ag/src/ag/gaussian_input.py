@@ -199,3 +199,159 @@ def validate(text, cores, mem_gb, *, parent_chk=False):
     return dict(charge=int(match[1]), multiplicity=int(match[2]), route=route,
                 geometry='\n'.join(geom[1:]), n_atoms=len(geom) - 1, **scan_data,
                 stereochemistry_warning='Review stereochemistry against the source structure.')
+
+
+def counterpoise_fragments(raw, *, geometry, charge, multiplicity):
+    """Validate the two explicit fragments before a CP single point is queued.
+
+    Missing/overlapping atoms or a bond across the split would silently change
+    the interaction being measured. Reuse topology's uncertain band as well.
+    """
+    from collections import Counter
+    import csv
+    from hashlib import sha256
+    from io import StringIO
+    from ag.topology import _frame, _pairs
+    from rdkit import Chem
+
+    symbols = cartesian(geometry.splitlines(), first_line=1)
+    if not symbols:
+        raise ValueError('Counterpoise requires a nonempty geometry')
+    if type(charge) is not int or type(multiplicity) is not int or multiplicity != 1:
+        raise ValueError('Counterpoise overall charge must be an integer and multiplicity must be 1')
+    try:
+        reader = csv.DictReader(StringIO(raw.decode('utf-8-sig')), strict=True)
+        columns = ['fragment', 'atoms', 'charge', 'multiplicity']
+        if reader.fieldnames != columns:
+            raise ValueError('Counterpoise CSV requires exactly fragment,atoms,charge,multiplicity columns')
+        rows = list(reader)
+    except (UnicodeError, csv.Error) as exc:
+        raise ValueError('Invalid counterpoise fragments CSV') from exc
+    if len(rows) != 2:
+        raise ValueError(f'Counterpoise requires exactly 2 fragments; got {len(rows)}')
+    fragments, membership, labels = [], {}, set()
+    for index, row in enumerate(rows, 1):
+        if set(row) != set(columns) or any(value is None for value in row.values()):
+            raise ValueError(f'Fragment {index}: invalid CSV row; quote comma-separated atom indices')
+        label = row['fragment'].strip()
+        if not label or not label.isprintable() or label in labels:
+            raise ValueError(f'Fragment {index}: name must be nonempty, printable and unique')
+        labels.add(label)
+        where = f'Fragment {index} ({label})'
+        atoms = []
+        for token in row['atoms'].split(','):
+            match = re.fullmatch(r'\s*([1-9]\d*)(?:-([1-9]\d*))?\s*', token)
+            if not match:
+                raise ValueError(f'{where}: invalid atom index/range {token!r}; use 1-3,5 syntax')
+            first, last = int(match[1]), int(match[2] or match[1])
+            if not 1 <= first <= last <= len(symbols):
+                raise ValueError(f'{where}: atom range {first}-{last} outside 1-{len(symbols)} or reversed')
+            for atom in range(first, last + 1):
+                if atom in membership:
+                    raise ValueError(f'{where}: atom {atom} already belongs to fragment {membership[atom]}')
+                membership[atom] = index
+                atoms.append(atom)
+        values = []
+        for column in ('charge', 'multiplicity'):
+            value = row[column].strip()
+            if not re.fullmatch(r'[+-]?\d+', value):
+                raise ValueError(f'{where}: {column} must be an integer')
+            values.append(int(value))
+        fragment_charge, fragment_mult = values
+        if fragment_mult != 1:
+            raise ValueError(f'{where}: multiplicity must be 1; got {fragment_mult}')
+        counts = Counter(symbols[atom - 1] for atom in atoms)
+        order = (['C'] + (['H'] if 'H' in counts else []) + sorted(counts.keys() - {'C', 'H'})
+                 if 'C' in counts else sorted(counts))
+        formula = ''.join(symbol + (str(counts[symbol]) if counts[symbol] > 1 else '') for symbol in order)
+        fragments.append(dict(index=index, fragment=label, atoms=sorted(atoms), n_atoms=len(atoms),
+                              formula=formula, charge=fragment_charge, multiplicity=fragment_mult))
+    missing = sorted(set(range(1, len(symbols) + 1)) - membership.keys())
+    if missing:
+        raise ValueError('Counterpoise atoms without a fragment: ' + ', '.join(map(str, missing)))
+    if sum(fragment['charge'] for fragment in fragments) != charge:
+        charges = ', '.join(f"fragment {f['index']} ({f['fragment']}) = {f['charge']}" for f in fragments)
+        raise ValueError(f'Counterpoise fragment charges do not sum to overall charge {charge}: {charges}')
+    # Whole-system even electron count can hide impossible singlet fragments.
+    for fragment in fragments:
+        check_electrons([symbols[i - 1] for i in fragment['atoms']], fragment['charge'], 1,
+                        location=f"Fragment {fragment['index']} ({fragment['fragment']})")
+    for (left, right), evidence in _pairs(_frame(geometry), Chem).items():
+        if membership[left] != membership[right] and evidence['state'] in ('bonded', 'uncertain'):
+            raise ValueError(f"Counterpoise atoms {left}-{right} cross fragments "
+                             f"{membership[left]}-{membership[right]}: {evidence['state']} contact "
+                             f"({evidence['distance']:.6f} angstrom); review the fragment definition")
+    return dict(sha256=sha256(raw).hexdigest(), fragments=fragments)
+
+
+CP_SCRF_ERROR = ('G16 A.03 不支持 Counterpoise 与 SCRF 同用（T105 第 0 节实测）；'
+                 '请做气相 CP，用 ag cp-report --solvent-sp 叠加溶剂相单点')
+
+
+def counterpoise_route(route):
+    """Reject the observed SCRF failure and unsupported CP tasks before prepare."""
+    from ag._profile_sources import protocol
+    if re.search(r'scrf', route, re.I):
+        raise ValueError(CP_SCRF_ERROR)
+    compact = re.sub(r'\s*([=,/])\s*', r'\1', route)
+    compact = re.sub(r'\(\s*', '(', compact)
+    compact = re.sub(r'\s*\)', ')', compact)
+    method = protocol(compact, 1)
+    tokens = re.findall(r'(?:[^()\s]+|\([^()]*\))+', re.sub(r'^\s*#[pnt]?\s*', '', compact, flags=re.I))
+    # The whitelist prevents a second task (e.g. Force/Polar), geometry changes,
+    # checkpoint guesses or hidden route options from becoming a CP SP.
+    allowed = {'sp', 'counterpoise=2', 'nosymm', '5d', '6d', '7f', '10f'}
+    for token in tokens:
+        if '/' in token:
+            continue  # protocol() requires exactly one recognized method/basis.
+        if token.lower() not in allowed and not re.fullmatch(
+                r'(?:scf|int|integral|empiricaldispersion|em)=(?:[a-z0-9+-]+|\([^()]*\))', token, re.I):
+            raise ValueError(f'gaussian-cp only supports a gas-phase Counterpoise=2 single point: {token}')
+    if sum(token.lower() == 'counterpoise=2' for token in tokens) != 1:
+        raise ValueError('gaussian-cp requires exactly one Counterpoise=2')
+    return method
+
+
+def counterpoise_input(text, raw_fragments, cores, mem_gb, *, prepared=False):
+    """Generate labels from the CSV, or revalidate exactly the generated bytes.
+
+    Ordinary Gaussian validate remains unchanged. Only this explicit template
+    accepts the generated fragment state line and atom labels.
+    """
+    sections = re.split(r'\n\s*\n', text.strip())
+    if len(sections) != 3:
+        raise ValueError('gaussian-cp requires one route/title/Cartesian block; no extra sections')
+    route = ' '.join(line for line in sections[0].splitlines() if not line.startswith('%'))
+    method = counterpoise_route(route)
+    if prepared:
+        rows = sections[2].splitlines()
+        states = rows[0].split()
+        if len(states) != 6:
+            raise ValueError('Counterpoise requires overall and two fragment charge/multiplicity pairs')
+        plain_rows = []
+        for index, row in enumerate(rows[1:], 1):
+            match = re.fullmatch(r'([A-Za-z]{1,2}|\d+)\(Fragment=([12])\)(\s+.+)', row)
+            if not match:
+                raise ValueError(f'Counterpoise atom {index}: missing/invalid Fragment label')
+            plain_rows.append(match[1] + match[3])
+        plain = '\n\n'.join([*sections[:2], ' '.join(states[:2])+'\n'+'\n'.join(plain_rows)])+'\n\n'
+        generated, science = counterpoise_input(plain, raw_fragments, cores, mem_gb)
+        if generated != text.encode():
+            raise ValueError('Prepared Counterpoise labels/states differ from fragments CSV')
+        return generated, science
+    science = validate(text, cores, mem_gb)
+    definition = counterpoise_fragments(raw_fragments, geometry=science['geometry'],
+                                      charge=science['charge'], multiplicity=science['multiplicity'])
+    states = [science['charge'], science['multiplicity']]
+    membership = {}
+    for fragment in definition['fragments']:
+        states.extend((fragment['charge'], fragment['multiplicity']))
+        membership.update({atom: fragment['index'] for atom in fragment['atoms']})
+    rows = []
+    for index, row in enumerate(science['geometry'].splitlines(), 1):
+        atom, coordinates = row.split(maxsplit=1)
+        rows.append(f'{atom}(Fragment={membership[index]}) {coordinates}')
+    generated = '\n\n'.join([*sections[:2], ' '.join(map(str, states))+'\n'+'\n'.join(rows)])+'\n\n'
+    science['counterpoise'] = {**definition, 'file': 'fragments.csv'}
+    science['protocol'] = method
+    return generated.encode(), science

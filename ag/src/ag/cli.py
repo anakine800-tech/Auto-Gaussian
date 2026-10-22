@@ -135,11 +135,11 @@ def register(subparsers):
                            help='Sample in the foreground every 60–600 seconds; Ctrl-C exits')
         elif name == 'prepare':
             p.add_argument('--study', required=True)
-            p.add_argument('--template', choices=('gaussian', 'xtb', 'crest', 'multiwfn'), required=True)
+            p.add_argument('--template', choices=('gaussian', 'gaussian-cp', 'xtb', 'crest', 'multiwfn'), required=True)
             p.add_argument('--input', help='Program input; omit for Multiwfn IGMH')
             p.add_argument('--analysis', choices=('igm', 'igmh'))
             p.add_argument('--grid', choices=('low', 'medium', 'high'))
-            p.add_argument('--fragments', help='CSV with fragment,atoms columns (2–4 fragments)')
+            p.add_argument('--fragments', help='Multiwfn: fragment,atoms (2–4); gaussian-cp: fragment,atoms,charge,multiplicity (exactly 2)')
             p.add_argument('--card', help='Recipe name; capture its text, Skills Git commit and dirty state')
             p.add_argument('--constraints', help='xTB/CREST xcontrol file, bundled as constraints.inp')
             p.add_argument('--tier', choices=('mini', 'simple', 'general', 'complex'), required=True)
@@ -181,7 +181,7 @@ def main(argv=None):
     parser.add_argument('--version', action='version', version=__version__)
     subparsers = parser.add_subparsers(dest='command')
     register(subparsers)
-    for name in ('facts', 'thermo', 'dedup', 'cluster', 'graph', 'irc_compare', 'profile', 'coverage', 'scan_peak', 'topology', 'mode_review', 'fragments', 'ensemble', 'channel_coverage', 'asm', 'irc_review', 'nci_report'):
+    for name in ('facts', 'thermo', 'dedup', 'cluster', 'graph', 'irc_compare', 'profile', 'coverage', 'scan_peak', 'topology', 'mode_review', 'fragments', 'ensemble', 'channel_coverage', 'asm', 'irc_review', 'nci_report', 'cp_report'):
         module_name = f'ag.{name}'
         try:
             module = import_module(module_name)

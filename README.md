@@ -306,3 +306,12 @@ python ag/tools/scan_sensitive.py --staged
 - **v4.3.0**：开题核验与准备、定向复合物构建和分组枚举、TS 立体标签、逐方向 IRC 审阅与路径哈希、运行日志快照、共振等价、Multiwfn IGM / IGMH 与 NCI 报告，以及 thermo / profile、输入和 route 解析修复；配合前端 v4.3.0，详见 [CHANGELOG.md](CHANGELOG.md#v430)。
 
 许可：[MIT](LICENSE)。
+
+
+### Counterpoise 诊断（T105）
+
+`gaussian-cp` 为双片段气相单点模板，prepare 校验四列片段 CSV 并生成 Gaussian 片段标签。
+G16 A.03 实测拒绝 CP 与 SCRF 同用，因此在 prepare 阶段拒绝 SCRF。
+本地 `ag cp-report` 输出独立 `ag-cp/1` JSON/Markdown，可核对同几何的普通溶剂 SP、并列 ASM 形变能。
+缺溶剂片段能量时明确记未知，不用气相值替代；CP 不进入 thermo/profile。
+见 [报告格式与验证边界](docs/ag-cp-1.md) 和 [counterpoise 卡](skills-next/auto-g16-recipes/cards/counterpoise.md)。

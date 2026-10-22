@@ -108,3 +108,13 @@ Freq 与每个 Opt 段的打印参数必须逐项一致，不借用 Opt route；
 缺少一致的来源记录时需要重新运行 thermo。比较旧缓存来源时，仅在内存中按同一
 规则规范化方法标签，其余来源字段仍严格匹配，缓存文件不改写。气相及单段 Freq
 的计算数值不变。
+
+
+## gaussian-cp（T105）
+
+只有 `program=gaussian-cp` 新增 `counterpoise` 对象，普通 Gaussian 字段不变。
+其中 `uncorrected_energy`、`corrected_energy`、`bsse`、`sum_fragments` 及 `fragments[].mcbs/dcbs` 为 `{value, unit, source}`，source 包含输出相对路径、SHA-256 和 1-based 行号；片段另保留计算标记行。
+`interaction_raw_printed` / `interaction_corrected_printed` 保留 Gaussian 打印的 kcal/mol 舍入值。
+`energies.scf` 为复合物自身能量，几何来自第一个片段计算之前的完整体系；不使用最后一个片段的 SCF 或几何。
+异常结束时 `counterpoise=null`，说明 unavailable 原因；已知 SCRF 拒绝记录报错来源行。正常但未知/不完整的 CP 格式报错，不产生猜测值。
+详见 [ag-cp/1](ag-cp-1.md)；CP Attempt 作为 thermo、profile 或 ASM 能量来源时提示“CP 单点仅用于 cp-report”。
