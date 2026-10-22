@@ -84,20 +84,20 @@ def test_slurm_unobserved_reservation_and_fresh_recheck(multi, tmp_path, monkeyp
 
 
 @pytest.mark.parametrize('name', ['default', 'batch'])
-@pytest.mark.parametrize('committed', [43, 177])
+@pytest.mark.parametrize('committed', [43, 0, True, 288.0])
 def test_config_committed_bounds(multi, name, committed):
     multi['clusters'][name]['resources']['max_committed_cores'] = committed
     with pytest.raises(ValueError, match='max_committed_cores'):
         config.load_config(write_config(multi))
 
 
-def test_config_slurm_64_256_and_pbs_maximum(multi):
+def test_config_slurm_64_256_and_pbs_48_288(multi):
     multi['clusters']['batch']['resources'].update(max_cores=64, max_committed_cores=256)
     loaded = config.load_config(write_config(multi))
     assert loaded['clusters']['batch']['resources']['max_committed_cores'] == 256
-    multi['clusters']['default']['resources']['max_cores'] = 45
-    with pytest.raises(ValueError, match='max_cores'):
-        config.load_config(write_config(multi))
+    multi['clusters']['default']['resources'].update(max_cores=48, max_committed_cores=288)
+    loaded = config.load_config(write_config(multi))
+    assert loaded['clusters']['default']['resources']['max_committed_cores'] == 288
 
 
 @pytest.mark.parametrize('name', ['default', 'batch'])

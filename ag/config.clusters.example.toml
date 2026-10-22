@@ -17,12 +17,23 @@ ag_root = "<absolute allowed root>/ag"
 g16root = "<absolute Gaussian executable directory>"
 [clusters.default.programs.xtb]
 root = "<absolute xtb and crest installation root>"
+# Optional independent CREST executable; omit to use xtb root/bin/crest.
+# [clusters.default.programs.crest]
+# executable = "<absolute CREST executable>"
 [clusters.default.resources]
-# Per-job and tier cap (PBS: 1..44; Slurm: positive integer).
-# Running + queued cap: max_cores..4*max_cores; defaults to max_cores.
+# default MUST explicitly retain max_cores = 44 in local configuration.
+# Per-job/tier cap: positive integer, no larger than one eligible node.
+# Gaussian runs on one node; size for the smallest eligible node.
+# Running + queued cap: integer >= max_cores; no four-times ceiling.
 # ag does not limit concurrently running cores.
 max_cores = 44
 max_committed_cores = 88
+# Optional examples only; replace with owner-approved limits.
+# max_queued_cores = 66
+# scheduler_max_running_cores = 22
+# Queue caps include held jobs and applicable unobserved reservations.
+# Matching entries share the smallest configured queue cap, even if omitted here.
+# The running cap is enforced by the scheduler; ag has not verified it.
 [clusters.default.resources.tiers.mini]
 cores = 4
 mem_gb = 10
@@ -63,8 +74,9 @@ modules = ["<Gaussian module name>"]
 root = "<absolute xtb and crest installation root>"
 [clusters.batch.resources]
 # Example limits only; replace with the intended local allowance.
-# Per-job and tier cap (PBS: 1..44; Slurm: positive integer).
-# Running + queued cap: max_cores..4*max_cores; defaults to max_cores.
+# Per-job/tier cap: positive integer, no larger than one eligible node.
+# Gaussian runs on one node; size for the smallest eligible node.
+# Running + queued cap: integer >= max_cores; no four-times ceiling.
 # ag does not limit concurrently running cores.
 max_cores = 44
 max_committed_cores = 44

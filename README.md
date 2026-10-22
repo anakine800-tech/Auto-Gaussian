@@ -86,7 +86,7 @@ Gaussian、xTB、CREST、调度器及本机 OpenSSH 需另行准备，外部软�
 | `clusters.<CLUSTER>.scheduler` | `pbs` 或 `slurm` |
 | `clusters.<CLUSTER>.ssh` | 专用 SSH 配置与别名 |
 | `clusters.<CLUSTER>.remote` | 允许根目录与其 `ag/` 子目录 |
-| `clusters.<CLUSTER>.resources` | 本入口单作业上限、总上限及档位；budget_core_hours 仅兼容读取 |
+| `clusters.<CLUSTER>.resources` | 本入口单作业上限、总上限、可选排队上限及档位；budget_core_hours 仅兼容读取 |
 | `clusters.<CLUSTER>.allowed_templates` | 可选模板名列表；省略允许全部，空列表不允许 prepare；不追溯已有 Attempt |
 | `clusters.<CLUSTER>.programs` | Gaussian、xTB/CREST 安装位置、可选 Gaussian 模块与 Multiwfn |
 | `clusters.<CLUSTER>.queue` | PBS 队列占位值 |
@@ -110,6 +110,13 @@ prepare 前核对本机入口及 partition；default 与 SCNet 的选择沿用 s
 `ag clusters --json` 只读列出本机配置的集群及资源档位；它不连接服务器，程序启用标记不等于远程安装验证。
 
 资源示例：`mini` 4 核/10 GB、`simple` 8 核/12 GB、`general` 22 核/50 GB、`complex` 44 核/120 GB，均按实际配置调整。
+
+PBS 和 Slurm 的 `resources.max_cores` 均由配置的正整数决定；default 必须在本机配置里明确写 `max_cores = 44`，代码不再提供 PBS 44 核硬上限。Gaussian 仅在单节点运行，单作业上限不得超过队列中最小可用节点的核数，内存档位也按该节点并为系统留余量。
+`max_committed_cores` 不小于 `max_cores`，总上限由负责人按集群设定，没有四倍上限。可选 `max_queued_cores` 在确认前和确认后限制排队（含挂起、本人非 ag 作业及适用的未观测预留）加本次申请；同集群取所有已配置排队上限的最小值，未配置的入口也不能绕过。
+可选 `scheduler_max_running_cores` 仅记录同时运行上限：**由调度器执行，ag 未核实**，不是 ag 的运行限流。确认框显示单作业上限、排队/排队上限和运行加排队/总上限；未设排队上限时保持原提交行为。
+
+CREST 可选 `programs.crest.executable`（多集群为 `clusters.<CLUSTER>.programs.crest.executable`），用于与 xTB 分开安装的情况。设定后配置校验、doctor 和脚本使用同一个绝对路径，prepare 在创建 Attempt 前执行一次只读可执行检查，失败（含 SSH 错误）立即拒绝、不重试、不回退到旧位置；省略时继续从 xTB 根目录的 `bin/crest` 定位，旧 PBS/Slurm 渲染字节保持不变。
+
 Gaussian `%nprocshared` 必须等于档位核数，`%mem` 不超过档位内存的 85%。
 SSH 准备说明见 [ag/README.md](ag/README.md)；配置后按需运行 `ag doctor --cluster '<CLUSTER>' --json` 做只读自检。
 
