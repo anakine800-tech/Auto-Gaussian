@@ -1,5 +1,39 @@
 # Changelog
 
+## v4.4.0
+
+### 升级须知
+
+1. 迁移 study 或切换配置目录时，必须同时带上各 Slurm 入口的台账。有提交痕迹却缺台账时会拒绝提交，这是防止漏算预留的有意设计；从备份或原配置目录找回，不能自动重建或按零处理。[#310](https://github.com/anakine800-tech/Auto-Gaussian/pull/310)
+2. 新入口若配置独立的 `programs.crest.executable`，prepare 会先通过 SSH 只读检查程序是否可执行；失败即拒绝，不回退到默认安装布局。[#313](https://github.com/anakine800-tech/Auto-Gaussian/pull/313)
+3. 既有配置中的 `budget_core_hours`、`expires` 不作为提交拦截条件，可以删除；保留 `expires` 时仍可显示到期提醒。核时台账继续记录预留和结算，不代表平台余额。[#310](https://github.com/anakine800-tech/Auto-Gaussian/pull/310)
+4. default（组里集群）请在配置中明确写 `max_cores = 44`；PBS 单作业上限现在由配置决定，不再写死为 44。[#313](https://github.com/anakine800-tech/Auto-Gaussian/pull/313)
+5. 取回连续 60 秒无进展或达到 24 小时兜底上限时停止并保留残片，不自动重试，等待人检查；这一变化不等于断点续传。[#311](https://github.com/anakine800-tech/Auto-Gaussian/pull/311)
+
+后端与前端统一为 v4.4.0，配合前端 v4.4.0 使用。本节按 `git log v4.3.0..main --first-parent` 核对全部 4 个 PR：T101 #310、T102 #311、T105 #312、T106 #313。T107 只修改版本与发布文档；两个 PR 均须监督方审阅、负责人合并，再由负责人在各自 PR 的确切合并提交上创建 `v4.4.0` tag/release，不直接选择届时的 main。
+
+### 集群与队列
+
+- T101 按同一调度器、同一规范化 SSH 配置文件及 host 别名识别同一实际集群，多个队列入口合并核数统计：远程本人作业只计一次，全组本地未观测预留均计入，总上限取各入口最小值。确认框显示入口名和 partition，便于确认实际投递目标；核时余额不再拦截提交，只提示本次最多消耗的核时。新增入口级 `allowed_templates`，可将测试入口限制为 CREST；仅约束新 prepare，不改已有 Attempt 绑定。AGENTS.md 第 3.9 条同步多入口规则。[#310](https://github.com/anakine800-tech/Auto-Gaussian/pull/310)
+- T106 将 PBS 单作业核数上限改为可配置，取消总上限不得超过单作业上限四倍的限制；新增可选 `max_queued_cores`，对排队、挂起和未观测预留另设限额。同集群入口取已配置排队限额中的最小值。新增可选独立 CREST 路径 `programs.crest.executable`，支持与 xTB 分开安装；AGENTS.md 第 3.9 条同步修改。ag 仍只做提交准入检查，运行核数可能达到总上限；运行限额说明不代表调度器已经实施。[#313](https://github.com/anakine800-tech/Auto-Gaussian/pull/313)
+
+### 取回与确认
+
+- T102 将固定 60 秒下载上限改为连续 60 秒无进展才超时，另设 24 小时兜底；有进展的大文件可持续取回，超时后不自动重试。由 `ag cancel` 取消的作业，在取消声明、成功 journal、确切作业绑定及独立结束证据齐全时，可通过 `fetch --incomplete` 取回已有输出，仍核对前后哈希且不改 cancelled 状态；PBS 需两次间隔至少 300 秒的稳定、不活跃且无退出回执观察，Slurm 需唯一受支持终态。提交按钮为“不提交 / 提交”，取消按钮为“保留作业 / 终止作业”，默认选项仍在安全一侧。[#311](https://github.com/anakine800-tech/Auto-Gaussian/pull/311)
+
+### 新能力
+
+- T105 新增 `gaussian-cp` 模板（气相 `Counterpoise=2` 单点，固定两个片段）及 `ag cp-report`（`ag-cp/1`），汇总带哈希和原文行号的 BSSE 与相互作用能，供 RC、离子对和 TS 诊断。CP 能量不进入 thermo/profile；G16 A.03 实测拒绝 CP 与 SCRF 同用，因此 prepare 明确拒绝该组合。溶剂叠加保留近似与缺项，不能当作完整溶剂相相互作用能。[#312](https://github.com/anakine800-tech/Auto-Gaussian/pull/312)
+
+### 已知问题与验证边界
+
+- 两个 SSH 身份不同的独立 PBS 集群会触发 doctor 的“疑似同集群入口未合并”提示，这是误报，不改变核数统计或检查退出码；后续修复提示范围。[#310](https://github.com/anakine800-tech/Auto-Gaussian/pull/310)
+- `cp-report --solvent-sp` 目前只接受复合物的溶剂相单点，缺两个片段的溶剂能量时，溶剂相相互作用能显示“未知”。另行支持两个片段在复合物几何下、使用自身基组的 SMD 单点列为后续任务。[#312](https://github.com/anakine800-tech/Auto-Gaussian/pull/312)
+- 取回不支持断点续传；超时保留残片，后续重新下载从新的临时目标开始。[#311](https://github.com/anakine800-tech/Auto-Gaussian/pull/311)
+- PBS 作业结束后可能仍短暂显示 R，ag 继续将残留计入已占用核数；不保证所有残留都会自行消失，不自动取消。
+
+各项真实验证结果见对应 PR 评论；T107 的全量离线测试与 CI 记录见两个发布 PR。本发布任务不重跑真实计算，发版不等于科学验收。
+
 ## v4.3.0
 
 ### 升级须知
