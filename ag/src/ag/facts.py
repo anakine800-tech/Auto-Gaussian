@@ -67,10 +67,11 @@ def _write_geometry(path, geometry):
 def parse_counterpoise(log):
     """Strict two-fragment gas SP reader; never use the last fragment SCF as E_AB.
 
-    Summary labels follow the Gaussian Counterpoise manual (CONFLEX mirror).
-    DCBS/MCBS markers are independently observable in cclib-data's Gaussian03
-    H2FAs--AsH2F.opt-mp2-cp.log; that correlated/Opt file is NOT supported here.
-    G16 A.03 gas-SP live fixtures still have to validate this narrow reader.
+    Validated against T105 G16 A.03 gas-SP logs (2026-10-22): water dimer
+    SHA-256 6bea540a4fb31615d2910b63aba963f03127e51d6cdd0a50176b3eee9a6d4db9;
+    NH4+...H2O SHA-256 3b034d49ebab671a54bfc36e65093d2ebc6305908edb3755da5290171a5f615e.
+    Their full-system/fragment basis labels and five-line summary are retained
+    verbatim in test_counterpoise.py; legacy G03 marker wording is not accepted.
     """
     from ag._parse_outputs import (NUMBER, number, gaussian_job_sections,
                                    gaussian_orientation, gaussian_version, termination,
@@ -93,15 +94,23 @@ def parse_counterpoise(log):
     require(len(sections) == 1 and sections[0]['termination'] == 'normal' and not warnings,
             'Counterpoise requires one normally terminated SP section; unknown output format')
     method = counterpoise_route(sections[0]['route'] or '')
-    markers = []
+    markers, full_system = [], []
     for i, line in enumerate(lines):
         if re.match(r'\s*Counterpoise:\s*doing\b', line):
-            match = re.fullmatch(r'\s*Counterpoise: doing (DCBS|MCBS) calculation for fragment\s+([12])(?: NewBq=T)?\s*', line)
+            if re.fullmatch(r'\s*Counterpoise: doing full-system calculation\.\s*', line):
+                full_system.append(i)
+                continue
+            match = re.fullmatch(
+                r'\s*Counterpoise: doing calculation for fragment\s+([12]) using the basis set of '
+                r'the (full-system, NewBq=T|fragment\.)\s*', line)
             require(match is not None, f'Unknown Counterpoise fragment format at line {i + 1}')
-            markers.append((i, match[1], int(match[2])))
+            basis = 'DCBS' if match[2] == 'full-system, NewBq=T' else 'MCBS'
+            markers.append((i, basis, int(match[1])))
     require(len(markers) == 4 and {(basis, frag) for _, basis, frag in markers}
             == {(basis, frag) for basis in ('DCBS', 'MCBS') for frag in (1, 2)},
             'Expected exactly one DCBS and MCBS calculation per fragment; unknown CP format')
+    require(len(full_system) == 1 and full_system[0] < markers[0][0],
+            'Expected one full-system calculation before CP fragments')
     starts = [i for i, line in enumerate(lines) if re.match(r'\s*Counterpoise corrected energy\s*=', line)]
     require(len(starts) == 1 and starts[0] > markers[-1][0],
             'Expected one G16 Counterpoise summary after fragment calculations; unknown CP format')
@@ -174,7 +183,7 @@ def parse_counterpoise(log):
                   final_geometry_orientation=geometry_kind,
                   final_input_geometry='final_input.xyz' if input_geometry else None,
                   final_input_geometry_orientation='input' if input_geometry else None,
-                  parser={'rules': 'counterpoise-two-fragment-sp-v1'}, parser_warning=None)
+                  parser={'rules': 'counterpoise-two-fragment-sp-v2'}, parser_warning=None)
     return result, geometry, input_geometry
 
 

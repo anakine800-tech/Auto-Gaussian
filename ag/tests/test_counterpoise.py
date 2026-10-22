@@ -1,4 +1,4 @@
-"""Counterpoise fragment validation with synthetic small molecules; no transport."""
+"""Counterpoise validation: synthetic cases and sanitized real small-molecule excerpts."""
 from hashlib import sha256
 
 import pytest
@@ -261,10 +261,11 @@ def synthetic_log(geometry=WATER,charge=0,route=ROUTE,solvent=False):
                        ' Normal termination of Gaussian 16\n')
     # E_AB=-152; monomers=-75.99 each; ghost monomers=-75.991 each.
     # BSSE=0.002 Hartree, raw interaction=-0.02, corrected=-0.018 Hartree.
-    body=' SCF Done:  E(RM062X) =  -152.000000000000 A.U. after 10 cycles\n'
+    body=(' Counterpoise: doing full-system calculation.\n'
+          ' SCF Done:  E(RM062X) =  -152.000000000000 A.U. after 10 cycles\n')
     for basis in ('DCBS','MCBS'):
         for i in (1,2):
-            body+=f' Counterpoise: doing {basis} calculation for fragment   {i}'+(' NewBq=T' if basis=='DCBS' else '')+'\n'
+            body+=f' Counterpoise: doing calculation for fragment   {i} using the basis set of the '+('full-system, NewBq=T' if basis=='DCBS' else 'fragment.')+'\n'
             body+=f' SCF Done:  E(RM062X) =  {(-75.991 if basis=="DCBS" else -75.99):.12f} A.U. after 9 cycles\n'
     body+=(' Counterpoise corrected energy = -151.998000000000\n'
            ' BSSE energy = 0.002000000000\n sum of fragments = -151.980000000000\n'
@@ -293,11 +294,15 @@ def test_cp_facts_source_lines_whole_geometry_and_energies(cfg,tmp_path):
     lambda s:s.replace(' BSSE energy = 0.002000000000\n',''),
     lambda s:s.replace('BSSE energy = 0.002','BSSE energy = 0.003'),
     lambda s:s.replace('sum of fragments','sum of unknowns'),
-    lambda s:s.replace('doing MCBS','doing UNKNOWN'),
+    lambda s:s.replace('the fragment.','the UNKNOWN.'),
     lambda s:s.replace('calculation for fragment   2','calculation for fragment   1'),
     lambda s:s.replace('Normal termination of Gaussian 16','Normal termination of Gaussian 16\ntrailing unrecognized job'),
     lambda s:s.replace('Counterpoise corrected energy','Counterpoise: corrected energy'),
     lambda s:s.replace('RM062X','RB3LYP'),
+    lambda s:s.replace('doing full-system calculation.', 'doing DCBS calculation for fragment   1 NewBq=T'),
+    lambda s:s.replace(' Counterpoise: doing full-system calculation.\n', ''),
+    lambda s:s.replace(' Counterpoise: doing full-system calculation.',
+                       ' Counterpoise: doing full-system calculation.\n Counterpoise: doing full-system calculation.'),
     lambda s:s.replace('-11.30 kcal/mole','-22.30 kcal/mole'),
 ])
 def test_unrecognized_or_inconsistent_cp_output_fails(tmp_path,mutation):
@@ -428,3 +433,183 @@ def test_manifest_tampering_is_caught_after_bundle_recomputed(cfg,tmp_path):
     files={path.name:path.read_bytes() for path in (p/'inputs').iterdir()}
     m['inputs'],m['bundle_sha256']=attempt.bundle(files)
     with pytest.raises(ValueError,match='labels/states differ'):attempt.verified_files(cfg,p,m)
+
+
+# Real G16 A.03 water-dimer CP, 2026-10-22. Selected original lines only;
+# machine/archive/title sections omitted, scientific numbers and label bytes retained.
+# Original SHA-256: 6bea540a4fb31615d2910b63aba963f03127e51d6cdd0a50176b3eee9a6d4db9
+LIVE_WATER_SOURCE_LINES = [79, 85, 86, 87, 105, 106, 107, 108, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 157, 158, 197, 274, 315, 392, 433, 510, 548, 613, 651, 717, 718, 719, 720, 721, 734, 735, 737]
+LIVE_WATER_CP = """ Gaussian 16:  ES64L-G16RevA.03 25-Dec-2016
+ -------------------------------------
+ # M062X/6-31+G(d,p) SP Counterpoise=2
+ -------------------------------------
+ Symbolic Z-matrix:
+ Charge =  0 Multiplicity = 1 in supermolecule
+ Charge =  0 Multiplicity = 1 in fragment      1.
+ Charge =  0 Multiplicity = 1 in fragment      2.
+                          Input orientation:
+ ---------------------------------------------------------------------
+ Center     Atomic      Atomic             Coordinates (Angstroms)
+ Number     Number       Type             X           Y           Z
+ ---------------------------------------------------------------------
+      1          8           0        0.000000    0.000000    0.000000
+      2          1           0        0.957200    0.000000    0.000000
+      3          1           0       -0.239987    0.927297    0.000000
+      4          8           0        2.900000    0.000000    0.000000
+      5          1           0        3.485882    0.756950    0.000000
+      6          1           0        3.485882   -0.756950    0.000000
+ ---------------------------------------------------------------------
+                         Standard orientation:
+ ---------------------------------------------------------------------
+ Center     Atomic      Atomic             Coordinates (Angstroms)
+ Number     Number       Type             X           Y           Z
+ ---------------------------------------------------------------------
+      1          8           0        0.046365    1.544449    0.000000
+      2          1           0        0.046365    0.587249    0.000000
+      3          1           0       -0.880932    1.784436    0.000000
+      4          8           0        0.046365   -1.355551   -0.000000
+      5          1           0       -0.710585   -1.941433   -0.000000
+      6          1           0        0.803315   -1.941433   -0.000000
+ ---------------------------------------------------------------------
+ Counterpoise: doing full-system calculation.
+ Standard basis: 6-31+G(d,p) (6D, 7F)
+ SCF Done:  E(RM062X) =  -152.798813368     A.U. after   12 cycles
+ Counterpoise: doing calculation for fragment   1 using the basis set of the full-system, NewBq=T
+ SCF Done:  E(RM062X) =  -76.3951659986     A.U. after   10 cycles
+ Counterpoise: doing calculation for fragment   2 using the basis set of the full-system, NewBq=T
+ SCF Done:  E(RM062X) =  -76.3958363253     A.U. after   11 cycles
+ Counterpoise: doing calculation for fragment   1 using the basis set of the fragment.
+ SCF Done:  E(RM062X) =  -76.3948728126     A.U. after   12 cycles
+ Counterpoise: doing calculation for fragment   2 using the basis set of the fragment.
+ SCF Done:  E(RM062X) =  -76.3948695133     A.U. after   12 cycles
+ Counterpoise corrected energy =    -152.797553369586
+                   BSSE energy =       0.001259998062
+              sum of fragments =    -152.789742325839
+           complexation energy =      -5.69 kcal/mole (raw)
+           complexation energy =      -4.90 kcal/mole (corrected)
+ Job cpu time:       0 days  0 hours  0 minutes 29.5 seconds.
+ Elapsed time:       0 days  0 hours  0 minutes  8.0 seconds.
+ Normal termination of Gaussian 16 at Thu Oct 22 08:34:46 2026.
+"""
+
+
+def test_live_a03_water_cp_report_and_original_source_lines(cfg, tmp_path):
+    p, m = prepare_cp(cfg, tmp_path)
+    log = p / 'outputs/water.log'
+    log.write_text(LIVE_WATER_CP)
+    parsed = facts.build_facts(p)
+    cp = parsed['counterpoise']
+    assert parsed['termination'] == 'normal'
+    assert cp['uncorrected_energy']['value'] == -152.798813368
+    assert cp['corrected_energy']['value'] == -152.797553369586
+    assert cp['bsse']['value'] == .001259998062
+    assert cp['sum_fragments']['value'] == -152.789742325839
+    assert [(f['dcbs']['value'], f['mcbs']['value']) for f in cp['fragments']] == [
+        (-76.3951659986, -76.3948728126), (-76.3958363253, -76.3948695133)]
+    for key, original in [('uncorrected_energy',197), ('corrected_energy',717), ('bsse',718)]:
+        source = cp[key]['source']
+        assert LIVE_WATER_SOURCE_LINES[source['line']-1] == original
+        assert source['sha256'] == sha256(LIVE_WATER_CP.encode()).hexdigest()
+    result = cp_report.report(str(p))
+    assert result['gas']['bsse']['kcal_mol'] == pytest.approx(.790660805547, rel=0, abs=1e-9)
+    assert result['gas']['interaction_raw']['kcal_mol'] == pytest.approx(-5.69216550284, rel=0, abs=1e-8)
+    assert result['gas']['interaction_corrected']['kcal_mol'] == pytest.approx(-4.90150447642, rel=0, abs=1e-8)
+
+
+# Real G16 A.03 NH4+...H2O CP, 2026-10-22; same omission policy as water.
+# Original SHA-256: 3b034d49ebab671a54bfc36e65093d2ebc6305908edb3755da5290171a5f615e
+LIVE_AMMONIUM_SOURCE_LINES = [79, 85, 86, 87, 105, 106, 107, 108, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 167, 168, 207, 299, 340, 432, 473, 565, 603, 674, 711, 778, 779, 780, 781, 782, 796, 797, 799]
+LIVE_AMMONIUM_CP = """ Gaussian 16:  ES64L-G16RevA.03 25-Dec-2016
+ -------------------------------------
+ # M062X/6-31+G(d,p) SP Counterpoise=2
+ -------------------------------------
+ Symbolic Z-matrix:
+ Charge =  1 Multiplicity = 1 in supermolecule
+ Charge =  1 Multiplicity = 1 in fragment      1.
+ Charge =  0 Multiplicity = 1 in fragment      2.
+                          Input orientation:
+ ---------------------------------------------------------------------
+ Center     Atomic      Atomic             Coordinates (Angstroms)
+ Number     Number       Type             X           Y           Z
+ ---------------------------------------------------------------------
+      1          7           0        0.000000    0.000000    0.000000
+      2          1           0        0.590000    0.590000    0.590000
+      3          1           0        0.590000   -0.590000   -0.590000
+      4          1           0       -0.590000    0.590000   -0.590000
+      5          1           0       -0.590000   -0.590000    0.590000
+      6          8           0        3.200000    0.000000    0.000000
+      7          1           0        3.785882    0.756950    0.000000
+      8          1           0        3.785882   -0.756950    0.000000
+ ---------------------------------------------------------------------
+                         Standard orientation:
+ ---------------------------------------------------------------------
+ Center     Atomic      Atomic             Coordinates (Angstroms)
+ Number     Number       Type             X           Y           Z
+ ---------------------------------------------------------------------
+      1          7           0       -0.000000    0.000000   -1.579608
+      2          1           0        0.590000    0.590000   -0.989608
+      3          1           0       -0.590000   -0.590000   -0.989608
+      4          1           0        0.590000   -0.590000   -2.169608
+      5          1           0       -0.590000    0.590000   -2.169608
+      6          8           0        0.000000    0.000000    1.620392
+      7          1           0        0.756950    0.000000    2.206274
+      8          1           0       -0.756950    0.000000    2.206274
+ ---------------------------------------------------------------------
+ Counterpoise: doing full-system calculation.
+ Standard basis: 6-31+G(d,p) (6D, 7F)
+ SCF Done:  E(RM062X) =  -133.285756136     A.U. after   11 cycles
+ Counterpoise: doing calculation for fragment   1 using the basis set of the full-system, NewBq=T
+ SCF Done:  E(RM062X) =  -56.8668077824     A.U. after    9 cycles
+ Counterpoise: doing calculation for fragment   2 using the basis set of the full-system, NewBq=T
+ SCF Done:  E(RM062X) =  -76.3950969136     A.U. after   10 cycles
+ Counterpoise: doing calculation for fragment   1 using the basis set of the fragment.
+ SCF Done:  E(RM062X) =  -56.8667839440     A.U. after    9 cycles
+ Counterpoise: doing calculation for fragment   2 using the basis set of the fragment.
+ SCF Done:  E(RM062X) =  -76.3948695133     A.U. after   12 cycles
+ Counterpoise corrected energy =    -133.285504897089
+                   BSSE energy =       0.000251238732
+              sum of fragments =    -133.261653457267
+           complexation energy =     -15.12 kcal/mole (raw)
+           complexation energy =     -14.97 kcal/mole (corrected)
+ Job cpu time:       0 days  0 hours  0 minutes 34.2 seconds.
+ Elapsed time:       0 days  0 hours  0 minutes  9.1 seconds.
+ Normal termination of Gaussian 16 at Thu Oct 22 08:41:00 2026.
+"""
+
+
+def test_live_a03_ammonium_cp_report_and_original_source_lines(cfg, tmp_path):
+    p, m = prepare_cp(cfg, tmp_path, geometry=NH4_WATER, charge=1, csv=NH4_CSV)
+    (p / 'outputs/water.log').write_text(LIVE_AMMONIUM_CP)
+    parsed = facts.build_facts(p)
+    cp = parsed['counterpoise']
+    assert parsed['termination'] == 'normal' and parsed['charge'] == 1
+    assert [(f['charge'], f['multiplicity']) for f in cp['fragments']] == [(1,1), (0,1)]
+    assert cp['uncorrected_energy']['value'] == -133.285756136
+    assert cp['corrected_energy']['value'] == -133.285504897089
+    assert cp['bsse']['value'] == .000251238732
+    assert cp['sum_fragments']['value'] == -133.261653457267
+    assert [(f['dcbs']['value'], f['mcbs']['value']) for f in cp['fragments']] == [
+        (-56.8668077824, -56.8667839440), (-76.3950969136, -76.3948695133)]
+    for key, original in [('uncorrected_energy',207), ('corrected_energy',778), ('bsse',779)]:
+        source = cp[key]['source']
+        assert LIVE_AMMONIUM_SOURCE_LINES[source['line']-1] == original
+        assert source['sha256'] == sha256(LIVE_AMMONIUM_CP.encode()).hexdigest()
+    result = cp_report.report(str(p))
+    assert result['gas']['bsse']['kcal_mol'] == pytest.approx(.157654701399, rel=0, abs=1e-9)
+    assert result['gas']['interaction_raw']['kcal_mol'] == pytest.approx(-15.12466086863, rel=0, abs=1e-8)
+    assert result['gas']['interaction_corrected']['kcal_mol'] == pytest.approx(-14.96700605490, rel=0, abs=1e-8)
+
+
+@pytest.mark.parametrize('text', [LIVE_WATER_CP, LIVE_AMMONIUM_CP])
+@pytest.mark.parametrize('old,new', [
+    ('full-system, NewBq=T', 'full-system, NewBq=F'),
+    ('using the basis set of the fragment.', 'using an unknown basis.'),
+    ('Counterpoise: doing calculation for fragment', 'Counterpoise: doing DCBS calculation for fragment'),
+    ('sum of fragments', 'sum of unknowns'),
+])
+def test_live_a03_unknown_labels_still_refused(tmp_path, text, old, new):
+    log = tmp_path / 'changed.log'
+    assert old in text
+    log.write_text(text.replace(old, new))
+    with pytest.raises(ValueError, match='Unknown'):
+        facts.parse_counterpoise(log)

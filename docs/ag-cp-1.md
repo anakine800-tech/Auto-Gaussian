@@ -65,6 +65,15 @@ ASM 的每项来源哈希会核验，输出原报告的对象标签和形变能�
 
 ## 解析与验证边界
 
-正常输出的汇总字段参考 [Gaussian Counterpoise 手册的 CONFLEX 官方译本](https://www.conflex.co.jp/gaussian_support/counterpoise.php)。
-DCBS/MCBS 标记形态可在 [cclib 公开回归日志](https://github.com/cclib/cclib-data/blob/master/Gaussian/Gaussian03/H2FAs--AsH2F.opt-mp2-cp.log) 直接观察；该旧版 MP2/优化样例本身不属于本工具接受的气相 SCF 单点范围，也不作为现场验收。
-合成水夹具只测解析与算术；仍需授权后的两份 G16 A.03 气相 CP 日志固定真实成功格式。缺项、未知格式、重复片段、多个汇总/作业段、能量加和不一致均拒绝，不猜测。
+2026-10-22 已用 G16 A.03 的水二聚体和 NH₄⁺···H₂O 气相 CP 实际日志定稿解析器，并保留两个必要片段的脱敏内联夹具及原行号映射（`ag/tests/test_counterpoise.py`）。
+实际标签为 `Counterpoise: doing full-system calculation.`，以及 `using the basis set of the full-system, NewBq=T`（DCBS）和 `using the basis set of the fragment.`（MCBS）；后接固定五行汇总。旧 G03 的 DCBS/MCBS 标签只曾作旁证，不是 A.03 格式依据，本解析器不接受该标签写法。
+缺项、未知格式、重复片段、多个汇总/作业段、能量加和不一致均拒绝，不猜测。汇总字段也可参考 [Gaussian Counterpoise 手册的 CONFLEX 官方译本](https://www.conflex.co.jp/gaussian_support/counterpoise.php)。
+
+| 气相固定几何 | BSSE (kcal/mol) | 相互作用能（未校正 / 校正，kcal/mol） | 原日志关键行 |
+| --- | ---: | ---: | --- |
+| 水二聚体 | 0.79066081 | -5.69216550 / -4.90150448 | 197、274–651、717–721、737 |
+| NH₄⁺···H₂O | 0.15765470 | -15.12466087 / -14.96700605 | 207、299–711、778–782、799 |
+
+两份原日志 SHA-256 分别为 `6bea540a4fb31615d2910b63aba963f03127e51d6cdd0a50176b3eee9a6d4db9` 和 `3b034d49ebab671a54bfc36e65093d2ebc6305908edb3755da5290171a5f615e`。
+同几何 NH₄⁺···H₂O SMD(DCE) 单点也正常结束并通过溶剂配对；实测报告正确保留两个片段溶剂能量缺项，未计算溶剂相相互作用能。
+这些是工程验证的固定几何结果；只检查量级和内部自洽，不作文献数值对标，不代表结构优化或科学研究验收。
