@@ -116,6 +116,7 @@ PBS 和 Slurm 的 `resources.max_cores` 均由配置的正整数决定；default
 可选 `scheduler_max_running_cores` 仅记录同时运行上限：**由调度器执行，ag 未核实**，不是 ag 的运行限流。确认框显示单作业上限、排队/排队上限和运行加排队/总上限；未设排队上限时保持原提交行为。
 
 CREST 可选 `programs.crest.executable`（多集群为 `clusters.<CLUSTER>.programs.crest.executable`），用于与 xTB 分开安装的情况。设定后配置校验、doctor 和脚本使用同一个绝对路径，prepare 在创建 Attempt 前执行一次只读可执行检查，失败（含 SSH 错误）立即拒绝、不重试、不回退到旧位置；省略时继续从 xTB 根目录的 `bin/crest` 定位，旧 PBS/Slurm 渲染字节保持不变。
+配置独立 CREST 路径后，`ag prepare --template crest` 需要连接目标集群；SSH 不可用时无法 prepare，也不会创建 Attempt。这是准备前核实可执行文件的取舍；未配置独立路径时，prepare 仍保持纯本地行为。
 
 Gaussian `%nprocshared` 必须等于档位核数，`%mem` 不超过档位内存的 85%。
 SSH 准备说明见 [ag/README.md](ag/README.md)；配置后按需运行 `ag doctor --cluster '<CLUSTER>' --json` 做只读自检。

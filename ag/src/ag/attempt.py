@@ -226,6 +226,9 @@ def prepare(cfg, *, study_name, template, input_path, tier, walltime, label, par
         from ag.config import crest_executable
         from ag.remote import executable
         from ag.transport import SSHTransport, require_ok
+        # read_only=True currently enables automatic SSH retries. Disable that
+        # mode to stop on the first failure; this call site runs only the fixed
+        # read-only executable check and never uses upload or write commands.
         checker = transport if transport is not None else SSHTransport(cfg, read_only=False)
         require_ok(checker.run(executable(crest_executable(cfg['programs']))), 'crest executable')
     # O_EXCL reserves the numeric sequence, even with concurrent different labels.
