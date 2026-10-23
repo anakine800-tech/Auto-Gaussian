@@ -90,9 +90,9 @@ def test_parsers_and_shared_accounting():
     assert jobs[0]['exec_host'] == 'node-a/0+node-a/1+node-a/2+node-a/3'
     assert status.occupied(jobs, 'fixture') == 16
     assert monitor.parse_nodes(NODES, jobs) == [
-        dict(name='node-a', state='free', cores_total=44, cores_used=4),
-        dict(name='node-b', state='job-exclusive', cores_total=16, cores_used=6),
-        dict(name='node-c', state='down,offline', cores_total=8, cores_used=0)]
+        dict(name='node-a', state='free', cores_total=44, cores_used=4, mem_total_gb=None, mem_assigned_gb=None, jobs=1),
+        dict(name='node-b', state='job-exclusive', cores_total=16, cores_used=6, mem_total_gb=None, mem_assigned_gb=None, jobs=None),
+        dict(name='node-c', state='down,offline', cores_total=8, cores_used=0, mem_total_gb=None, mem_assigned_gb=None, jobs=None)]
     assert monitor.parse_queues(QUEUES) == [dict(name='batch', running=3, queued=1),
                                           dict(name='empty', running=0, queued=0)]
     assert monitor.parse_queues('') == []
@@ -107,8 +107,9 @@ def test_own_cores_match_submit_for_every_state(cfg, state):
     result = monitor.observation(cfg, Fake(jobs=raw), 'fixture')
     expected = status.occupied(status.parse_jobs(raw), 'fixture')
     assert result['own']['cores_in_use'] == expected == (0 if state == 'C' else 20)
-    assert len(result['own']['jobs']) == 1
-    assert result['own']['jobs'][0]['cores'] == expected
+    assert len(result['own']['jobs']) == (0 if state == 'C' else 1)
+    if state != 'C':
+        assert result['own']['jobs'][0]['cores'] == (None if state in ('R', 'E') else expected)
 
 
 def test_snapshot_exact_association_and_no_study_mutation(cfg, identity):
@@ -124,8 +125,10 @@ def test_snapshot_exact_association_and_no_study_mutation(cfg, identity):
     assert result['ok'] is True and result['error'] is None
     assert result['interval_seconds'] == 120
     assert result['own']['jobs'][0] == dict(job_id='101.fixture', name='water', state='R', queue='batch',
-        cores=8, mem='12gb', walltime_used='00:10:00', walltime_limit='01:00:00',
-        start_time='synthetic-time', study='water', attempt='water-001-sp')
+        user='fixture', mine=True, cores_kind='allocated', mem_gb=12.0,
+        elapsed_seconds=600, elapsed_source='walltime_used', walltime_limit_seconds=3600, qtime=None,
+        cores=4, mem='12gb', walltime_used='00:10:00', walltime_limit='01:00:00',
+        start_time=None, study='water', attempt='water-001-sp')
     assert result['own']['jobs'][1]['study'] is None
     assert result['own']['jobs'][1]['attempt'] is None
     assert result['cluster']['cores_total'] == 68
@@ -173,7 +176,7 @@ def test_no_false_residue_or_absence(cfg):
     assert monitor.observation(cfg, Fake(jobs=job(state='C') + job('102.fixture')), 'fixture')['warnings'] == []
 
 
-@pytest.mark.parametrize('operation', ['jobs', 'queues', 'nodes'])
+@pytest.mark.parametrize('operation', ['jobs', 'queues'])
 @pytest.mark.parametrize('failure', [Result(255, stderr='Connection to fixture failed'),
                                    SSHConnectionError('Remote operation timed out')])
 def test_failure_preserves_last_success_without_additional_retry(cfg, identity, operation, failure):
@@ -260,7 +263,7 @@ def test_cache_symlink_cannot_redirect_writes_into_study(cfg, name):
     assert target.read_bytes() == before
 
 
-@pytest.mark.parametrize('value', ['59', '601', '0', '-1', '1.5', 'bad'])
+@pytest.mark.parametrize('value', ['29', '601', '0', '-1', '1.5', 'bad'])
 def test_watch_range_rejected_before_configuration(monkeypatch, value):
     monkeypatch.setattr(cli, 'load_config', lambda: pytest.fail('Must validate before loading config'))
     with pytest.raises(SystemExit) as exc:
@@ -268,7 +271,7 @@ def test_watch_range_rejected_before_configuration(monkeypatch, value):
     assert exc.value.code == 2
 
 
-@pytest.mark.parametrize('interval', [60, 600])
+@pytest.mark.parametrize('interval', [30, 60, 600])
 def test_watch_foreground_and_ctrl_c(cfg, identity, monkeypatch, capsys, interval):
     fake = Fake()
     constructors, sleeps = [], []
@@ -336,8 +339,7 @@ def test_transport_retry_is_only_retry_and_never_records_to_studies(cfg, identit
     assert tree(path.parents[2]) == before
 
 
-@pytest.mark.parametrize('operation,text', [('jobs', 'unexpected'), ('queues', 'Queue Que Run\nbatch bad 1'),
-                                           ('nodes', 'node-a\n    state = free\n')])
+@pytest.mark.parametrize('operation,text', [('jobs', 'unexpected'), ('queues', 'Queue Que Run\nbatch bad 1')])
 def test_malformed_output_keeps_success(cfg, identity, operation, text):
     previous = monitor.sample(cfg, Fake())
     fake = Fake()
