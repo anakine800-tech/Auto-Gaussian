@@ -46,6 +46,20 @@ prepare 在 manifest 的 `card` 中记录 `name`、`git_commit`、`dirty` 和原
 
 第 5 步审阅发现 facts 解析错误时，先运行 `ag facts <Attempt> --reparse --dry-run --out <study外的新文件.json>` 给负责人看逐字段差异；人同意后正式执行 `--reparse`（旧版归档保留），在 study.md 进度日志记录哪些 Attempt、重新解析原因及旧/新 SHA-256 前 12 位；命令列出的引用旧完整哈希的已签内容须由负责人重新确认，不自动继承旧签字。能量、频率或收敛字段出现非预期变化时停下报告，不直接正式执行。
 
+## 登记对象与采用结果
+
+会话可以运行 `ag catalog object`、`member`、`report-kind`、`show`、`suggest`，
+登记构象 × 电子态、精确 Attempt 归属和 analyses 报告类别；写命令先用 `--dry-run` 核对。
+`suggest` 仅按 parents 打印分组与命令草稿，不证明构象或电子态相同，不自动执行。
+接口和前端字段见 [ag-catalog/1](../../docs/ag-catalog-1.md)。
+
+**`adopt` 只能逐字引用负责人在本 study 当前对话中的原话作为 `--quote`**，不能转述、
+跨会话引用或自行生成；已有签字的结论也须负责人按 study 逐个授权后才补登记。
+CLI 只核对本地记录，不能验证说话者身份。manual_review 警告仍需人工审阅，登记不替代科学签字。
+`retire --reason` 将对象转为历史；后续采用不自动恢复状态。
+catalog 只追加自身日志和生成自身状态，不改 manifest、facts、review.md、study.md 或签字记录。
+日志损坏或状态发布异常立即停止，保留文件并报告；不能自行修复或重复写入采用记录。
+
 ## 阶段决策
 
 | 当前阶段 | 下一步 | Skill / 卡片 |
