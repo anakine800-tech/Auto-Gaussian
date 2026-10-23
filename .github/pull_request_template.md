@@ -43,7 +43,7 @@ For each run provide command, interpreter/profile, commit/tree, date/time, exit 
 
 ## Integration, cleanup, and release deduplication
 
-- [ ] Only intended files were staged; staged diff and sensitive/private scan were reviewed.
+- [ ] Only intended files were staged; staged diff and `python scripts/scan_public.py --staged` were reviewed.
 - [ ] Worktree, local branch, and Codex task cleanup/archive owner is named.
 - [ ] Final complete release validation has not been duplicated; if release-bound, it will run once after exact candidate freeze.
 - [ ] Tag, release, deployment, and any live smoke remain separate exact approvals.

@@ -125,7 +125,7 @@ def test_snapshot_exact_association_and_no_study_mutation(cfg, identity):
     assert result['ok'] is True and result['error'] is None
     assert result['interval_seconds'] == 120
     assert result['own']['jobs'][0] == dict(job_id='101.fixture', name='water', state='R', queue='batch',
-        user='fixture', mine=True, cores_kind='allocated', mem_gb=12.0,
+        user='fixture', mine=True, cores_kind='allocated', mem_gb=12.0, mem_source='scheduler',
         elapsed_seconds=600, elapsed_source='walltime_used', walltime_limit_seconds=3600, qtime=None,
         cores=4, mem='12gb', walltime_used='00:10:00', walltime_limit='01:00:00',
         start_time=None, study='water', attempt='water-001-sp')

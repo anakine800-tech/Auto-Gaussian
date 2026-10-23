@@ -1,6 +1,7 @@
 """T119: synthetic water studies only; no configuration or network access."""
 from concurrent.futures import ProcessPoolExecutor
 from hashlib import sha256
+import fcntl
 import json
 import multiprocessing
 import os
@@ -338,7 +339,7 @@ def test_symlinks_never_followed(water, tmp_path, location):
     obj(water)
     outside = tmp_path / 'outside'
     outside.write_text('unchanged')
-    path = {'catalog': water / 'catalog', 'lock': water / 'catalog/submit.lock',
+    path = {'catalog': water / 'catalog', 'lock': water / 'catalog/catalog.lock',
             'journal': water / 'catalog/journal.jsonl', 'state': water / 'catalog/state.json',
             'attempt': water / 'attempts' / identity,
             'facts': water / 'attempts' / identity / 'facts.json'}[location]
@@ -432,3 +433,46 @@ def test_study_name_uses_only_local_config(water, monkeypatch):
     assert calls == [dict(local_only=True)]
     with pytest.raises(ValueError, match='Study must exist'):
         catalog.show(water.parent / 'absent')
+
+
+@pytest.mark.parametrize('kind', ['coverage', 'ts', 'nci'])
+def test_new_report_kinds_accept_cli_and_preserve_old_events(water, capsys, kind):
+    (water / 'analyses/old.html').write_text('<p>Water</p>')
+    (water / 'analyses/new.html').write_text('<p>Water</p>')
+    catalog.change(water, 'report-kind', report='old.html', kind='formal')
+    old_data, old_events, _ = catalog.read_journal(water)
+    assert cli.main(['catalog', 'report-kind', str(water), '--report', 'new.html', '--kind', kind]) == 0
+    assert json.loads(capsys.readouterr().out)['events'][0]['kind'] == kind
+    data, events, _ = catalog.read_journal(water)
+    assert data.startswith(old_data) and events[:-1] == old_events
+    assert catalog.replay(events)[1] == {'old.html': 'formal', 'new.html': kind}
+    assert catalog.show(water)[0]['report_kinds'] == {'old.html': 'formal', 'new.html': kind}
+
+
+def test_catalog_reads_and_writes_lock_same_file_and_ignore_legacy(water, monkeypatch):
+    directory = water / 'catalog'
+    directory.mkdir()
+    legacy = directory / 'submit.lock'
+    legacy.write_text('legacy lock retained')
+    before = legacy.read_bytes(), legacy.stat().st_mtime_ns
+    calls = []
+    real_flock = fcntl.flock
+    # Check exclusion after the real lock is acquired.
+    def checked_flock(handle, operation):
+        real_flock(handle, operation)
+        if operation != fcntl.LOCK_UN:
+            calls.append((Path(handle.name).name, operation))
+            with (directory / 'catalog.lock').open('rb') as contender:
+                with pytest.raises(BlockingIOError):
+                    real_flock(contender, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    monkeypatch.setattr(catalog.fcntl, 'flock', checked_flock)
+    # A held legacy lock neither blocks nor gets read by the new implementation.
+    with legacy.open('rb') as old:
+        real_flock(old, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        obj(water)
+        catalog.show(water)
+        catalog.suggest(water)
+        obj(water, update=True, dry_run=True)
+    assert calls == [('catalog.lock', fcntl.LOCK_EX)] + [('catalog.lock', fcntl.LOCK_SH)] * 3
+    assert (legacy.read_bytes(), legacy.stat().st_mtime_ns) == before
+    assert (directory / 'catalog.lock').exists()
