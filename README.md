@@ -45,7 +45,7 @@ ag：作业生命周期 + 日志解析、热化学、构象去重、关系图与
 - 每个 Attempt 至多提交一次；`O_EXCL` 原子声明存在即拒绝再次提交。
 - 每个 Attempt 使用新的远程目录；服务器文件不覆盖、不删除、不截断。
 - `UNKNOWN` 只做只读核对，不自动重提；失败后的新 Attempt 仍需人确认。
-- `submit`、`cancel` 必须由人在 Mac 系统对话框亲手确认，无参数、环境变量或配置可绕过。
+- `submit` 必须核对一次性聊天批准记录、明确指定的本机长期规则，或由人在 Mac 系统对话框亲手确认；`cancel` 始终须人点击。显式授权核对失败不回退弹框，不提供跳过核对的入口。
 - 确认摘要、实际提交字节和上传后的远程哈希必须一致。
 - 取消只针对绑定记录中的确切作业号与所属集群；历史 PBS Attempt 使用原有状态记录。
 - 只执行审阅过的模板和白名单参数；拒绝任意远程命令、符号链接及根目录之外的路径。
@@ -132,7 +132,8 @@ Multiwfn 为可选程序：只有使用 `multiwfn` 模板时才需配置 `progra
 | --- | --- |
 | `ag init '<STUDY_ID>'` | 创建 study 骨架 |
 | `ag prepare --study '<STUDY_ID>' ...` | 本地建立独立 Attempt、校验输入并显示确认摘要；三种模板均须显式填写非空 `--method-basis`；`--card` 保存卡片来源 |
-| `ag submit '<ATTEMPT_ID>' ...` | 人点击 Mac 确认后提交；支持批次 |
+| `ag approve --study <S> --attempt <ID> --quote "<逐字原话>"` | 纯本地创建最长 24 小时、一次性批准；批次重复 `--attempt` |
+| `ag submit '<ATTEMPT_ID>' ... [--approval <批准ID> / --policy <规则名>]` | 核对显式批准/规则后提交；省略时人点击 Mac 确认；支持批次 |
 | `ag status '<ATTEMPT_ID>' --json` | 只读查询远程证据并更新本地状态；也可 `--study` |
 | `ag fetch '<ATTEMPT_ID>' [--add-missing \| --incomplete]` | 首次取回、为 fetched 补取，或有结束证据时显式取回不完整输出；拒绝覆盖 |
 | `ag cancel '<ATTEMPT_ID>'` | 人点击 Mac 确认后取消确切作业 |
@@ -193,7 +194,7 @@ ag profile '<STUDY_DIR>/analyses/<PROFILE_JSON>' --name '<NEW_PROFILE_NAME>' --j
 - `fetch --add-missing` 只适用于 fetched：先核对全部声明远程输出与本地已有文件的大小/哈希，不一致就拒绝；只独占写入缺失项，另存补取记录，原 status、manifest 和 fetch journal 保留。补取成功不表示解析或科学审阅完成。
 - `fetch --incomplete`：PBS 必须为 interrupted，并有至少相隔 300 秒、输出大小/mtime 相同、均不活跃且无退出回执的两次 status 观察；Slurm 必须为 finished，取回时重新确认 squeue 无此作业、sacct 有受支持终态。COMPLETED 且输出齐全用普通 fetch。
 - 不完整取回只下载声明中确认存在且可读的输出，逐文件前后核对大小/SHA-256，确认缺失项写入独占的 `fetch-incomplete-<UTC时间>.json`；权限或连接等无法核实就整次失败，暂存证据留在 `.partial`。状态不变，重复取回、普通 fetch 和 `--add-missing` 均拒绝已有不完整取回记录。
-- 不完整 facts 不是正常终止，不能用于 thermo/profile；有绑定完整取回记录的 interrupted 父作业可声明 parent chk，复制检查及 Mac 提交确认不变。chk 是否被 Gaussian 读入需另行验证。
+- 不完整 facts 不是正常终止，不能用于 thermo/profile；有绑定完整取回记录的 interrupted 父作业可声明 parent chk，复制检查及提交授权核对不变。chk 是否被 Gaussian 读入需另行验证。
 - `dedup --hydrogens heavy|polar|all` 默认 `polar`（重原子加 N/O/S/P 上的氢）；反应相关氢若不属该集合，使用 `all`。旧无氢模式记录按 heavy 解释。仅几何来源合并不混排能量；`--representative lowest` 要求同方法、有限 Hartree 能量，并应用能差容差（默认严格小于 0.05 kcal/mol）。ETKDG 候选先经 CREST `--mdopt` 优化后才能与同层级 CREST 能量合并，不能混用力场能量。
 - dedup / cluster 的 RMSD 映射只看元素与连接关系并保持立体中心构型，不受芳香键的 Kekulé 写法限制；连接 / 立体改变的排除规则不变。每对最多枚举 10,000 个映射，超限报错并提示 `--hydrogens heavy`，不截断；改氢模式前仍须审阅相关氢是否重要。dedup 重复记录的 `mapping` 为 `identity`（原编号）或 `symmetry`（等价置换），`rmsd` 为实际采用值。
 - dedup 顶层 `algorithm` 说明按能量升序、同能按输入顺序、归入第一个满足条件的已保留代表，结果依赖顺序；能量不可比的 `--source` 模式按输入顺序。`boundary_pairs` 列出代表间 RMSD < 2 倍阈值的配对，以及已并入项 RMSD > 阈值一半的归属配对，附映射与绝对能差（不可比时为 null），只供复核。
@@ -232,7 +233,7 @@ ln -s '<REPO_ROOT>/skills-next/<SKILL_NAME>' "$HOME/.codex/skills/<SKILL_NAME>"
      --method-basis '<文献先例 DOI 及位置 / 本课题既有方案及来源（不是文献先例，精度未经验证） / 兜底方法声明>'
    ```
 
-4. 获得提交指令后执行 `ag submit`，由人亲手点击 Mac 对话框。`status → fetch → facts` 收集证据；失败时按诊断卡片提出新 Attempt，不自动重提。
+4. 负责人在本 study 当前会话明确批准后，用 `ag approve --study <S> --attempt <ID> --quote "<逐字原话>"` 保存记录，再执行 `ag submit <ID> --approval <批准ID>`；适用已设长期规则时用 `--policy <规则名>`，省略两者时仍由人亲手点击 Mac 对话框。`status → fetch → facts` 收集证据；失败时按诊断卡片提出新 Attempt，不自动重提。
 5. `review init` 后由 LLM 逐项审阅收敛、虚频、结构身份等，`review check` 检查事实来源；优化后重新去重，统一方法与程序版本，再做 `thermo`，需要反应曲线时使用 `profile`。
 6. 人审核最终结果并签字；`study.md` 写入结论与适用边界。续接时读取 `study.md`、`ag list` 和已有文件，不凭对话记忆重复提交。
 
@@ -243,7 +244,7 @@ TS 必须恰好一个虚频且振动方向与反应坐标一致；只有双向 I
 ag 4.4.0 配合前端 [Auto-Gaussian-Frontend](https://github.com/anakine800-tech/Auto-Gaussian-Frontend) v4.4.0 使用；两边同号发布，启动方式见其 README。
 已只读核对前端 main（`e224d5a`）：结果表读取 `route`、`termination`、`energies.scf`、`energies.g`、`n_imag` 和 `frequencies_low`，这些字段未改名或删除；缺失值显示为空。
 分析页将 profile 作为完整 JSON 展示，没有专用剖面字段依赖。`ag-facts/1` 和 `ag-profile/1` 保持不变，新增字段不影响读取；分段解析修正可能改变旧值，不能把字段兼容理解成重新解析后数值必然不变。
-默认只读，读取本地 study、结果与保存的监控快照。`--enable-actions` 显式开启经本机 ag 执行的准备、提交、状态刷新、取回和取消；不绕过 Mac 确认，也不直接执行远程命令。
+默认只读，读取本地 study、结果与保存的监控快照。`--enable-actions` 显式开启经本机 ag 执行的准备、提交、状态刷新、取回和取消；不绕过 ag 的提交授权核对或取消确认，也不直接执行远程命令。
 
 T7e 已适配多集群（[Frontend #9](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/9)）：
 操作模式通过 `ag clusters --json --verify-studies-root` 获取档位并核对目录，新建 Attempt 显式选择集群；

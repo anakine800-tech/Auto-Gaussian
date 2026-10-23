@@ -25,4 +25,4 @@ TS、路径与端点失败语义；其旧传输、重试、取消和 checkpoint 
 没有单独新建恢复流程：真实意外的停止/报告、UNKNOWN、SSH、哈希不一致见
 [不确定状态与失败](unknown-and-failures.md)；同一问题已修两次仍失败的处理、
 最小改变与后续科学验收见 [失败诊断](../../auto-g16-recipes/cards/failure-diagnosis.md)。
-表内操作都是人决定继续后的对应入口；新 Attempt 不等于获准提交，提交仍需 Mac 人工点击。
+表内操作都是人决定继续后的对应入口；新 Attempt 不等于获准提交，提交仍须按 Study 流程取得聊天批准记录、匹配长期规则或 Mac 人工确认。

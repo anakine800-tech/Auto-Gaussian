@@ -29,16 +29,32 @@ def raw_job(manifest, value):
     return validate(value)
 
 
-def record(path, manifest, job, *, scheduler_cluster=None):
+def record(path, manifest, job, *, scheduler_cluster=None, authorization=None):
     value = dict(schema='ag-submission/1', attempt_id=manifest['attempt_id'],
                  cluster=manifest.get('cluster', 'default'), job_id=qualified(manifest, job),
                  manifest_sha256=sha256((path / 'manifest.json').read_bytes()).hexdigest(),
                  scheduler_cluster=scheduler_cluster)
+    # A lost scheduler reply may create the binding later via read-only status.
+    # Preserve the authorization saved before submission, without reauthorizing.
+    summary_path = study.local_path(path.parent.parent, path / 'submission-summary.json')
+    if authorization is None and summary_path.exists():
+        summary = json.loads(summary_path.read_text(encoding='utf-8'))
+        if (not isinstance(summary, dict) or summary.get('schema') != 'ag-submission-summary/1'
+                or summary.get('attempt_id') != value['attempt_id']
+                or summary.get('manifest_sha256') != value['manifest_sha256']
+                or not isinstance(summary.get('authorization'), dict)
+                or summary['authorization'].get('method') not in ('approval', 'policy', 'dialog')):
+            raise ValueError('Invalid archived submission authorization')
+        authorization = summary['authorization']
+    if authorization is not None:
+        value['authorization'] = authorization
     target = study.local_path(path.parent.parent, path / 'submission.json')
     if target.exists():
         existing = json.loads(target.read_text())
         if any(existing.get(k) != value[k] for k in ('schema', 'attempt_id', 'cluster', 'job_id', 'manifest_sha256')):
             raise ValueError('Submission manifest identity mismatch')
+        if authorization is not None and existing.get('authorization') != authorization:
+            raise ValueError('Submission authorization mismatch')
         return existing
     # O_EXCL prevents racing writers from assigning two identities. A partial
     # record fails closed; it is never replaced or automatically repaired.

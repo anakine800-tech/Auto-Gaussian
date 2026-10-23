@@ -53,6 +53,7 @@ def load_config(path=None, *, local_only=False):
         if any((p / '.git').exists() for p in (studies, *studies.parents)):
             raise ConfigError('studies_root must be outside a Git checkout')
         cfg['_config_dir'] = str(path.parent)
+        validate_approval(cfg)
         if local_only:
             # review is local: cluster credentials and scheduler settings are not prerequisites.
             return dict(local=cfg['local'], _config_dir=cfg['_config_dir'])
@@ -79,6 +80,43 @@ def cluster_name(value):
     if not isinstance(value, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}', value):
         raise ConfigError('Invalid cluster name')
     return value
+
+
+def validate_approval(cfg):
+    """Reject misspelled/unbounded policies before they can authorize a job."""
+    if 'approval' not in cfg:
+        return
+    from ag.approval import timestamp, walltime_seconds
+    from ag.render import declaration
+    from ag.study import identifier
+    try:
+        section = cfg['approval']
+        if not isinstance(section, dict) or set(section) != {'policies'}:
+            raise ValueError('Expected approval.policies table')
+        policies = section['policies']
+        if not isinstance(policies, dict):
+            raise ValueError('Expected approval.policies table')
+        for name, policy in policies.items():
+            cluster_name(name)
+            if not isinstance(policy, dict) or set(policy) != {
+                    'studies', 'templates', 'clusters', 'max_cores_per_job',
+                    'max_walltime', 'quote', 'set_at'}:
+                raise ValueError('Invalid approval policy fields')
+            for key, validate in (('studies', identifier), ('templates', declaration), ('clusters', cluster_name)):
+                values = policy[key]
+                if (not isinstance(values, list) or not values
+                        or any(not isinstance(v, str) for v in values) or len(values) != len(set(values))):
+                    raise ValueError('Policy lists must be nonempty unique names')
+                for value in values:
+                    validate(value)  # Exact names only; no glob/regex patterns.
+            if type(policy['max_cores_per_job']) is not int or policy['max_cores_per_job'] < 1:
+                raise ValueError('Policy max_cores_per_job must be a positive integer')
+            walltime_seconds(policy['max_walltime'])
+            if not isinstance(policy['quote'], str) or not policy['quote'].strip():
+                raise ValueError('Policy quote must not be empty')
+            timestamp(policy['set_at'])
+    except (ValueError, TypeError, KeyError) as exc:
+        raise ConfigError(f'Invalid approval configuration: {exc}') from exc
 
 
 def scheduler_kind(cfg):
@@ -189,6 +227,8 @@ def select_cluster(cfg, name='default'):
             raise ConfigError(f'Cluster is not configured: {name}')
         selected = dict(cfg['clusters'][name])
         selected.update(local=cfg['local'], _config_dir=cfg['_config_dir'])
+        if 'approval' in cfg:
+            selected['approval'] = cfg['approval']
         selected['_cluster_entries'] = cfg['clusters']
     else:
         if name != 'default':

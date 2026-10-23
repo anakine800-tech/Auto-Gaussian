@@ -56,7 +56,7 @@
 ## 提交流程：规范顺序
 
 规范顺序与当前 `submit.submit` 实现一致，参见已合并 [#209](https://github.com/anakine800-tech/Auto-Gaussian/pull/209)、[#224](https://github.com/anakine800-tech/Auto-Gaussian/pull/224)：
-锁内校验输入和集群 → 核数/预算预检 → Mac 确认 → 再校验字节 → 声明 → Slurm 预算预留 → submitting → 复查占用 → 建目录 → 上传并逐文件核对大小/SHA-256 → qsub/sbatch → submission.json → submitted。
+锁内校验输入和集群 → 核对显式批准记录/规则 → 核数/预算预检 → 打印摘要（无显式授权时 Mac 确认）→ 整批再校验字节和授权 → 独占消费批准并存档摘要 → 声明 → Slurm 预算预留 → submitting → 复查占用 → 建目录 → 上传并逐文件核对大小/SHA-256 → qsub/sbatch → submission.json → submitted。
 这里“声明”指以 `O_EXCL` 创建 `.submit-claim`；有声明就不能再次提交该 Attempt。
 声明放在确认之后，是为了让人在弹窗取消时 Attempt 仍保持 prepared、没有声明，之后可正常提交，不因取消而消耗一次提交机会。
 
@@ -68,6 +68,26 @@ Slurm 核时预算在远程写入前预留，unknown 不释放；省略预算配
 预算只记录本地 ag 消费，不等于平台余额，也不含外部网页作业的消费。
 父 chk 若已声明，在新目录中先专用复制并核对来源/目标哈希，再上传其他输入；不改变父文件。
 上传使用确认后核验过的字节快照；脚本、输入和附件都不能在确认后被悄悄替换。
+
+负责人明确批准后，`ag approve --study <S> --attempt <ID> [--attempt <ID> ...] --quote '<逐字原话>' --hours 24`
+在 study 的 `approvals/<批准ID>.json` 独占保存 prepared Attempt 的身份、bundle SHA-256、集群、核数和原话。
+有效期从写入时起算，必须大于零且不超过 24 小时；此命令纯本地，不发起 SSH。
+会话负责核对原话来自本 study 当前会话中的负责人；CLI 保存原话，不能验证其发言身份或替代人的批准。
+`ag submit <ID> ... --approval <批准ID>` 整批核对；任何成员不匹配、损坏、过期或已使用都拒绝，不回退弹框。
+核数预检、打印摘要和字节复核之后，再次核对有效期和记录内容，以 `O_EXCL` 创建 `.used` 标记；标记写入/落盘失败禁止远程写入。
+记录本体不改；一个批准可覆盖多个 Attempt，但只消费一次，提交其中一部分也会消耗整条批准。中断或后续检查失败不恢复批准，也不重试提交。
+
+长期规则仅在负责人明确指示后写入本机配置的 `approval.policies.<name>`；study、模板、集群均为明确名单，无通配符。
+使用 `ag submit <ID> ... --policy <name>` 显式选择，核对核数和 walltime 上限；规则不匹配直接拒绝。
+`ag doctor` 的 CLI 输出包含 `approval_policies` 及适用范围。未给 `--approval` 或 `--policy` 时仍走 Mac 对话框，即使配置了匹配的规则也不自动选用。
+两参数互斥，取消不接受它们；`ag cancel` 始终由人点击 Mac 确认。具体配置见 `ag/config.clusters.example.toml`。
+提交授权方式以本节的 T111 流程为准，取代本文其他段落旧的“提交必须点击”表述；取消确认要求不变。
+
+每个实际获授权的提交在 Attempt 中独占保存 `submission-summary.json`（原始摘要、授权来源和 manifest 哈希），journal 追加 `submit_authorization`。
+`submission.json.authorization` 记录 `method`（`approval` / `policy` / `dialog`）、`approval_id` / `policy_name`、`quote`、`rule_sha256`；
+批准模式另记 `record_sha256`。规则/记录哈希基于排序键、紧凑 UTF-8 JSON；dialog 无原话或规则哈希，相关字段为 null。
+摘要和 journal 在作业号获取前保存；响应不确定后由只读 status 找回唯一作业时，核对摘要绑定后将原授权写入 submission.json，不重新授权。
+两次核数检查、排队上限、共享入口预留和 `.submit-claim` 均保留。
 
 ## 状态速查
 

@@ -3,7 +3,7 @@ from hashlib import sha256
 from pathlib import Path
 import tempfile
 import sys
-from ag import attempt, cards, confirm, journal, parent_chk, remote, state, status, slurm, submission, budget
+from ag import approval, attempt, cards, confirm, journal, parent_chk, remote, state, status, slurm, submission, budget
 from ag.config import for_manifest, scheduler_kind, committed_cap, shared_cap_summary, optional_resource_caps
 from ag.transport import bound_transport
 from ag.locks import claim, submission_lock
@@ -36,7 +36,7 @@ def capacity(cfg):
     return committed_cap(cfg)
 
 
-def submit(cfg, ids, transport):
+def submit(cfg, ids, transport, *, approval_id=None, policy_name=None):
     if not ids or len(ids) != len(set(ids)):
         raise ValueError('Expected unique Attempt IDs')
     manifests = [attempt.read_manifest(attempt.find(cfg, id_)) for id_ in ids]
@@ -62,6 +62,7 @@ def submit(cfg, ids, transport):
         # Batch confirmation is for a single template and scientific method/card.
         if len({(m['template'], m['science']['route'], m['science']['method_basis']) for _, m, _ in prepared}) != 1:
             raise ValueError('Batch requires the same template, route and method basis')
+        authorization = approval.authorize(cfg, prepared, approval_id=approval_id, policy_name=policy_name)
         ledgers = budget.shared_ledgers(cfg) if is_slurm else None
         budget_ledger = ledgers[cfg['_cluster']] if is_slurm else None
         username, jobs, used = status.inventory(transport, cfg)
@@ -113,10 +114,17 @@ def submit(cfg, ids, transport):
             text += '\n' + budget_text
         # Keep stdout machine-readable for ag submit --json.
         print(text, file=sys.stderr, flush=True)
-        if not confirm.confirm(text):
+        if authorization['method'] == 'dialog' and not confirm.confirm(text):
             for path, m, _ in prepared:
                 journal.append(path.parent.parent, 'submit', path.name, 'user_cancelled')
             raise UserCancelled('Submission cancelled; Attempts remain prepared')
+        # Validate the entire batch before consuming authorization or touching
+        # any remote directory; a mismatch in a later Attempt rejects all.
+        for path, m, files in prepared:
+            if attempt.read_manifest(path) != m or attempt.verified_files(cfg, path, m) != files:
+                raise ValueError('Inputs changed during confirmation')
+        approval.consume(cfg, prepared, authorization)
+        approval.archive(prepared, authorization, text)
         results = []
         submitted = {}
         for path, m, files in prepared:
@@ -197,7 +205,8 @@ def submit(cfg, ids, transport):
                     raise UnknownSubmission(f'{scheduler_command} outcome unknown; stop and use read-only status')
                 try:
                     job, reported_cluster = slurm.parse_submission(result.stdout) if is_slurm else (remote.job_id(result.stdout.strip()), None)
-                    submission.record(path, m, job, scheduler_cluster=reported_cluster)
+                    submission.record(path, m, job, scheduler_cluster=reported_cluster,
+                                      authorization=authorization)
                 except ValueError as exc:
                     raise UnknownSubmission(f'Unparseable {scheduler_command} response; stop and use read-only status') from exc
                 results.append(dict(attempt_id=path.name, **state.write(path, 'submitted', job_id=submission.qualified(m, job))))
