@@ -24,7 +24,7 @@ operation, or live smoke.
 - The candidate does not provide or claim an executable production provider,
   connected production adapter, direct SSH/PBS support, or non-SDL legacy
   operation.
-- The legacy backend remains permanently below `/home/user100/SDL`. New-root
+- The legacy backend remains permanently below `/home/<user>/SDL`. New-root
   contracts do not authorize a backend or remote mutation.
 - Offline tests, local L3 evidence, a release commit, tag, or publication never
   authorize deployment, SSH, RTwin, PBS, Gaussian, qsub, upload, retry, qdel,

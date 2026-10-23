@@ -167,7 +167,7 @@
       "additionalProperties": false,
       "required": ["canonical_root", "components", "identity_chain_sha256"],
       "properties": {
-        "canonical_root": {"const": "/home/user100/SDL"},
+        "canonical_root": {"const": "/home/<user>/SDL"},
         "components": {
           "type": "array",
           "minItems": 3,
@@ -198,11 +198,11 @@
         "project": {"$ref": "#/$defs/project"},
         "remote_workdir": {
           "type": "string",
-          "pattern": "^/home/user100/SDL/[A-Za-z0-9][A-Za-z0-9_-]{0,14}$"
+          "pattern": "^/home/<user>/SDL/[A-Za-z0-9][A-Za-z0-9_-]{0,14}$"
         },
         "scratch_workdir": {
           "type": "string",
-          "pattern": "^/home/user100/SDL/[A-Za-z0-9][A-Za-z0-9_-]{0,14}/scratch$"
+          "pattern": "^/home/<user>/SDL/[A-Za-z0-9][A-Za-z0-9_-]{0,14}/scratch$"
         },
         "workspace_binding_sha256": {"$ref": "#/$defs/sha"},
         "descriptor_set_sha256": {"$ref": "#/$defs/sha"},

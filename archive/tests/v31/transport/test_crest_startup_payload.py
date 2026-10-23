@@ -51,7 +51,7 @@ class StartupNativeTests(lane.LaneAFixture):
     def setUp(self):
         original = lane._SyntheticRemoteProjectAttestor._from_privileged_test_fixture
         def attestor(**kw):
-            kw['observed_parent_physical_identity'] = directory_token('/home/user100/SDL')
+            kw['observed_parent_physical_identity'] = directory_token('/home/<user>/SDL')
             kw['provisioned_project_physical_identity'] = directory_token(kw['observed_project_dir'])
             return original(**kw)
         with patch.object(lane._SyntheticRemoteProjectAttestor, '_from_privileged_test_fixture', side_effect=attestor):

@@ -11,7 +11,7 @@
   ],
   "properties": {
     "schema": {"const": "auto-g16-legacy-descriptor-relative-mutation-capability-binding/1"},
-    "fixed_root": {"const": "/home/user100/SDL"},
+    "fixed_root": {"const": "/home/<user>/SDL"},
     "fresh_receipt_sha256": {"$ref": "#/$defs/sha"},
     "descriptor_set_sha256": {"$ref": "#/$defs/sha"},
     "production_factory_result_sha256": {"$ref": "#/$defs/sha"},

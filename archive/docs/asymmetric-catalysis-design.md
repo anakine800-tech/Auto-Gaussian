@@ -62,7 +62,7 @@ approved transport/execution to `auto-g16-rtwin-pbs`.
 
 ## 4. Non-negotiable boundaries
 
-- Keep all server work below `/home/user100/SDL`; use resolved, non-symlink,
+- Keep all server work below `/home/<user>/SDL`; use resolved, non-symlink,
   fresh, empty project directories and never overwrite or delete server data.
 - A study/candidate/analysis JSON artifact is offline evidence and never a
   submission authorization.

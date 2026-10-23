@@ -720,7 +720,7 @@ class V30ASyntheticCompositionTests(TransportFixture):
         frozen_profile = snapshot.resolved_server_profile
         drifted_profiles: list[execution.ServerProfile] = []
         semantic_drift = copy.deepcopy(profile)
-        semantic_drift.target_host = "10.0.0.51"
+        semantic_drift.target_host = "10.0.0.51"  # scan-public: allow synthetic fixture value
         drifted_profiles.append(semantic_drift)
         identity_drift = copy.deepcopy(profile)
         identity_drift.server_profile_id = "profile-transport-other"
@@ -757,7 +757,7 @@ class V30ASyntheticCompositionTests(TransportFixture):
             ("execution_snapshot_id", "snapshot-other"),
             ("submission_intent_id", "intent-other"),
             ("remote_effect_receipt_id", "receipt-other"),
-            ("remote_workspace", "/home/user100/SDL/project-1/attempt-other"),
+            ("remote_workspace", "/home/<user>/SDL/project-1/attempt-other"),
             ("job_id", "999.server"),
         ):
             original = getattr(binding, field_name)

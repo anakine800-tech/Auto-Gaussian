@@ -97,7 +97,7 @@
         "root_override_allowed"
       ],
       "properties": {
-        "allowed_root": {"const": "/home/user100/SDL"},
+        "allowed_root": {"const": "/home/<user>/SDL"},
         "workspace_binding_sha256": {"$ref": "#/$defs/sha"},
         "fresh_project_required": {"const": true},
         "no_overwrite": {"const": true},

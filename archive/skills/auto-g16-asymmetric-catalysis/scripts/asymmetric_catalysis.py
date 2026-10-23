@@ -2289,7 +2289,7 @@ def audit_metal_input_observation(
         f"Bound M1 milestone status is {m1_status}; this input observation cannot change it.",
     ]
     if parsed["contains_absolute_link0_path_observed"]:
-        diagnostics.append("An absolute Link 0 path was observed; no remote realpath or /home/user100/SDL safety validation was performed offline.")
+        diagnostics.append("An absolute Link 0 path was observed; no remote realpath or /home/<user>/SDL safety validation was performed offline.")
     if parsed["trailing_section_line_count"]:
         diagnostics.append("Trailing input sections were hash-bound but not interpreted as basis, ECP, connectivity or constraints.")
 
@@ -3021,7 +3021,7 @@ def propose_smoke(ledger_path: Path, candidate_id: str, output: Path) -> dict[st
             "route": None, "solvent_identity": None, "resource_tier": None, "input_text": None, "input_sha256": None,
             "reason": "The SI does not provide all route, solvent, charge/multiplicity, standard-state, and low-frequency metadata needed for an exact approved input.",
         },
-        "server_plan": {"status": "not_created", "allowed_root": "/home/user100/SDL", "fresh_project": None, "overwrite": False},
+        "server_plan": {"status": "not_created", "allowed_root": "/home/<user>/SDL", "fresh_project": None, "overwrite": False},
         "required_pre_submission_review": [
             "confirm the 57-atom coordinate artifact and atom order", "explicitly approve charge 0 and multiplicity 1", "approve the exact TS/Freq route and SMD solvent identity",
             "approve temperature, standard state, low-frequency policy, resources, checkpoint, and fresh project", "review the fully rendered input and its SHA-256", "explicitly approve the exact job"

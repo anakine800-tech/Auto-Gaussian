@@ -2587,7 +2587,7 @@ def build_fragment_endpoint_inputs(
                 "element_order": [atom["element"] for atom in source["atoms"]],
                 "input_file": f"{project}/{project}.gjf",
                 "input_sha256": sha256(input_path),
-                "remote_workdir": f"/home/user100/SDL/{project}",
+                "remote_workdir": f"/home/<user>/SDL/{project}",
             }
         )
     plan = {
@@ -2603,7 +2603,7 @@ def build_fragment_endpoint_inputs(
         "spin_coupling_note": review["spin_coupling_note"].strip(),
         "fragments": plan_fragments,
         "safety": {
-            "server_root": "/home/user100/SDL",
+            "server_root": "/home/<user>/SDL",
             "no_submission_authorization": True,
             "automatic_retry_authorized": False,
         },
@@ -2942,7 +2942,7 @@ def create_family_manifest(
             raise ValueError("pilot families require one selected ts_freq tier and unselected IRC/endpoint resources")
     elif any(tiers[key] not in {"simple", "general", "complex"} for key in tier_keys):
         raise ValueError("formal resource tiers must declare ts_freq, irc, endpoint as simple/general/complex")
-    manifest = {"schema": SCHEMA, "workflow_id": protocol["workflow_id"], "project_prefix": prefix, "input_audit": audit, "protocol": protocol, "review_states": {"G0": "pending", "G1": "passed", "G2": "pending", "G3": "pending", "G4": "pending"}, "status": "prepared_not_submitted", "safety": {"server_root": "/home/user100/SDL", "transport_skill": "auto-g16-rtwin-pbs", "no_submission_authorization": True}}
+    manifest = {"schema": SCHEMA, "workflow_id": protocol["workflow_id"], "project_prefix": prefix, "input_audit": audit, "protocol": protocol, "review_states": {"G0": "pending", "G1": "passed", "G2": "pending", "G3": "pending", "G4": "pending"}, "status": "prepared_not_submitted", "safety": {"server_root": "/home/<user>/SDL", "transport_skill": "auto-g16-rtwin-pbs", "no_submission_authorization": True}}
     if maturity_check is None and maturity_binding is None and edge_id is None:
         # Preserve replay/validation of historical /1 artifacts.  The
         # prospective CLI always supplies the maturity gate and emits /2.

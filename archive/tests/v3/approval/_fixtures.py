@@ -103,10 +103,10 @@ def profile() -> execution.ServerProfile:
         server_profile_id="profile-1",
         profile_revision=7,
         transport_kind="legacy_rtwin_pbs",
-        target_host="10.0.0.50",
+        target_host="10.0.0.50",  # scan-public: allow synthetic fixture value
         target_port=22,
         remote_user="user100",
-        jump_topology=[("100.64.0.1", 22, "rtwin-user")],
+        jump_topology=[("100.64.0.1", 22, "rtwin-user")],  # scan-public: allow synthetic fixture value
         host_key_policy="strict",
         batch_mode=True,
         identities_only=True,
@@ -115,10 +115,10 @@ def profile() -> execution.ServerProfile:
             "rtwin_root": r"C:\RTWIN",
             "known_hosts": "/etc/ssh/ssh_known_hosts",
         },
-        config_files=[("ssh_config", b"Host RTwin\n  HostName 100.64.0.1\n")],
+        config_files=[("ssh_config", b"Host RTwin\n  HostName 100.64.0.1\n")],  # scan-public: allow synthetic fixture value
         runtime_contents={
             "pbs-wrapper": b"qsub -- synthetic",
-            "known-hosts": b"10.0.0.50 ssh-ed25519 synthetic",
+            "known-hosts": b"10.0.0.50 ssh-ed25519 synthetic",  # scan-public: allow synthetic fixture value
         },
     )
 
@@ -155,7 +155,7 @@ def snapshot(
         rtwin_approved_root=r"C:\RTWIN",
         rtwin_attempt_dir=rf"C:\RTWIN\project-1\{attempt_id}",
         remote_approved_root=execution.LEGACY_REMOTE_ROOT,
-        remote_attempt_dir=f"/home/user100/SDL/project-1/{attempt_id}",
+        remote_attempt_dir=f"/home/<user>/SDL/project-1/{attempt_id}",
     )
     template = execution.PbsTemplateBinding(
         logical_name="job.pbs",

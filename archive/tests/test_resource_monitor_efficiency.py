@@ -111,7 +111,7 @@ class ResourceMonitorEfficiencyTests(unittest.TestCase):
 
     def reserve(self, ledger_path, task_id, policy, gate, snapshot_tuple, **overrides):
         snapshot, artifact_sha, artifact_size, _ = snapshot_tuple
-        values = {"project": "safejob", "remote_workdir": "/home/user100/SDL/safejob"}; values.update(overrides)
+        values = {"project": "safejob", "remote_workdir": "/home/<user>/SDL/safejob"}; values.update(overrides)
         return RESOURCE.reserve_attempt(
             ledger_path, task_id, identity=identity("5" * 64), idempotency_key="key-1",
             input_sha256="5" * 64, live_approval_id="approval-1", live_approval_sha256="a" * 64,
@@ -136,7 +136,7 @@ class ResourceMonitorEfficiencyTests(unittest.TestCase):
         (local_dir / "input.gjf").write_bytes(input_bytes)
         PBS.initialize_job_state(local_dir, {
             "schema": "gaussian-rtwin-pbs/1", "project": "safejob",
-            "remote_workdir": "/home/user100/SDL/safejob", "job_id": "123.master",
+            "remote_workdir": "/home/<user>/SDL/safejob", "job_id": "123.master",
             "status": "submitted", "input": "input.gjf",
             "input_sha256": __import__("hashlib").sha256(input_bytes).hexdigest(),
             "execution_batch": {"attempt_id": attempt["attempt_id"]},
@@ -242,7 +242,7 @@ class ResourceMonitorEfficiencyTests(unittest.TestCase):
     def test_reservation_owner_api_rejects_unsafe_project_and_remote_path(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp); path, task = self.make_ledger(root); policy = self.policy(); snapshot = self.snapshot_artifact(root); gate = self.gate(path, policy, snapshot)
-            for values in ({"project": "../bad", "remote_workdir": "/home/user100/SDL/../bad"}, {"project": "safejob", "remote_workdir": "/tmp/safejob"}):
+            for values in ({"project": "../bad", "remote_workdir": "/home/<user>/SDL/../bad"}, {"project": "safejob", "remote_workdir": "/tmp/safejob"}):
                 with self.subTest(values=values), self.assertRaises(RESOURCE.ResourceError): self.reserve(path, task, policy, gate, snapshot, **values)
             self.assertEqual(RESOURCE.load(path)["attempts"], [])
 
@@ -251,7 +251,7 @@ class ResourceMonitorEfficiencyTests(unittest.TestCase):
             root = Path(temp); path, task = self.make_ledger(root); policy = self.policy(); snapshot = self.snapshot_artifact(root, max_age=60); gate = self.gate(path, policy, snapshot, evaluated="2026-01-01T00:04:30Z")
             changed = copy.deepcopy(snapshot[0]); changed["snapshot_id"] = "changed"; changed = RESOURCE.finalize_scheduler_snapshot(changed)
             with self.assertRaisesRegex(RESOURCE.ResourceError, "differs"):
-                RESOURCE.reserve_attempt(path, task, identity=identity("5" * 64), idempotency_key="x", project="safejob", remote_workdir="/home/user100/SDL/safejob", input_sha256="5" * 64, live_approval_id="a", live_approval_sha256="a" * 64, estimated_core_hours_evidence={"source": "x", "sha256": "b" * 64}, reserved_at="2026-01-01T00:04:40Z", audit_reason="x", policy=policy, gate=gate, scheduler_snapshot=changed, scheduler_artifact_sha256=snapshot[1], scheduler_artifact_size=snapshot[2])
+                RESOURCE.reserve_attempt(path, task, identity=identity("5" * 64), idempotency_key="x", project="safejob", remote_workdir="/home/<user>/SDL/safejob", input_sha256="5" * 64, live_approval_id="a", live_approval_sha256="a" * 64, estimated_core_hours_evidence={"source": "x", "sha256": "b" * 64}, reserved_at="2026-01-01T00:04:40Z", audit_reason="x", policy=policy, gate=gate, scheduler_snapshot=changed, scheduler_artifact_sha256=snapshot[1], scheduler_artifact_size=snapshot[2])
             with self.assertRaisesRegex(RESOURCE.ResourceError, "expired"):
                 self.reserve(path, task, policy, gate, snapshot)
 
@@ -446,7 +446,7 @@ class ResourceMonitorEfficiencyTests(unittest.TestCase):
             )
             first_attempt = RESOURCE.reserve_attempt(
                 ledger_path, first["scientific_task_id"], identity=identity("5" * 64),
-                idempotency_key="first-key", project="safejob", remote_workdir="/home/user100/SDL/safejob",
+                idempotency_key="first-key", project="safejob", remote_workdir="/home/<user>/SDL/safejob",
                 input_sha256="5" * 64, live_approval_id="first-approval", live_approval_sha256="a" * 64,
                 estimated_core_hours_evidence={"source": "fixture", "sha256": "b" * 64},
                 reserved_at="2026-01-01T00:06:00Z", audit_reason="first", policy=policy, gate=first_gate,
@@ -478,7 +478,7 @@ class ResourceMonitorEfficiencyTests(unittest.TestCase):
             self.assertEqual((journaled["resource_state_revision"], journaled["resource_state_sha256"]), state_before)
             reserved = RESOURCE.reserve_attempt(
                 ledger_path, second["scientific_task_id"], identity=identity("6" * 64, "6"),
-                idempotency_key="second-key", project="secondjob", remote_workdir="/home/user100/SDL/secondjob",
+                idempotency_key="second-key", project="secondjob", remote_workdir="/home/<user>/SDL/secondjob",
                 input_sha256="6" * 64, live_approval_id="second-approval", live_approval_sha256="e" * 64,
                 estimated_core_hours_evidence={"source": "fixture", "sha256": "f" * 64},
                 reserved_at="2026-01-01T00:10:00Z", audit_reason="second", policy=policy, gate=second_gate,

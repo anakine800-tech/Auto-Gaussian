@@ -545,7 +545,7 @@ def validate_process_reconciliation(path: Path, root: Path | None = None) -> dic
     for observation in observations:
         exact(observation, {"source", "collected_epoch", "match_count", "unresolved_count", "ignored_infrastructure_count"}, "terminal process observation")
         source_path, _ = resolve_reference(observation["source"], source_root, "terminal process probe")
-        replay = parse_process_probe(source_path, f"/home/user100/SDL/{artifact['project']}", artifact["input_stem"])
+        replay = parse_process_probe(source_path, f"/home/<user>/SDL/{artifact['project']}", artifact["input_stem"])
         require({key: observation[key] for key in replay} == replay, "terminal process observation differs from raw probe")
         require(replay["match_count"] == 0 and replay["unresolved_count"] == 0, "terminal process probe is present or unresolved")
         epochs.append(replay["collected_epoch"])
@@ -564,7 +564,7 @@ def build_process_reconciliation(root: Path, project: str, job_id: str, input_st
     require(len(probes) == 2, "process reconciliation requires exactly two raw probes")
     observations = []
     for probe in probes:
-        parsed = parse_process_probe(probe, f"/home/user100/SDL/{project}", input_stem)
+        parsed = parse_process_probe(probe, f"/home/<user>/SDL/{project}", input_stem)
         require(parsed["match_count"] == 0 and parsed["unresolved_count"] == 0, "terminal process probe is present or unresolved")
         observations.append({"source": reference(probe, lexical_root), **parsed})
     duration = observations[1]["collected_epoch"] - observations[0]["collected_epoch"]

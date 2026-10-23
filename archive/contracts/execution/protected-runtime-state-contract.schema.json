@@ -101,10 +101,10 @@
         "windows_path_normalization": {
           "const": "drive-absolute-backslash-casefold/1"
         },
-        "remote_root": {"const": "/home/user100/SDL"},
+        "remote_root": {"const": "/home/<user>/SDL"},
         "remote_project_dir": {
           "type": "string",
-          "pattern": "^/home/user100/SDL/[A-Za-z0-9][A-Za-z0-9_-]{0,14}$(?![\\s\\S])"
+          "pattern": "^/home/<user>/SDL/[A-Za-z0-9][A-Za-z0-9_-]{0,14}$(?![\\s\\S])"
         },
         "remote_root_override_allowed": {"const": false}
       }

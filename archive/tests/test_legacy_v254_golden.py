@@ -552,7 +552,7 @@ class LegacyV254GoldenTests(unittest.TestCase):
                     successor_fields,
                 )
                 self.assertIs(plan["effects"], False)
-                self.assertEqual(plan["fixed_remote_root"], "/home/user100/SDL")
+                self.assertEqual(plan["fixed_remote_root"], "/home/<user>/SDL")
                 self.assertEqual(plan["planned_files"], plan["files"])
                 self.assertEqual(
                     plan["resource"],
@@ -596,7 +596,7 @@ class LegacyV254GoldenTests(unittest.TestCase):
         self.assertEqual(sha256_text(plain), expected["plain_sha256"])
         self.assertEqual(sha256_text(resource), expected["resource_bound_sha256"])
         for text in (plain, resource):
-            self.assertIn('allowed_root="/home/user100/SDL"', text)
+            self.assertIn('allowed_root="/home/<user>/SDL"', text)
             self.assertIn('scratch="$work_real/scratch"', text)
             self.assertIn('export GAUSS_SCRDIR="$scratch_real"', text)
             self.assertTrue(text.endswith('g16 "input.gjf"\n'))

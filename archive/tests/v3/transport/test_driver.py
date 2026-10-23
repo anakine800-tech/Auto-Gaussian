@@ -255,7 +255,7 @@ class ManifestAndCommandTests(TransportFixture):
     def test_ssh_config_target_and_known_hosts_path_must_match_profile(self) -> None:
         profile=self.profile(); original=dict(profile.config_files)["mac-ssh-config"]
         for raw in (
-            original.replace(b"HostName 100.64.0.1",b"HostName 100.64.0.2"),
+            original.replace(b"HostName 100.64.0.1",b"HostName 100.64.0.2"),  # scan-public: allow synthetic fixture value
             original.replace(str(self.mac_known_hosts).encode(),b"/tmp/other-known-hosts"),
         ):
             with self.subTest(raw=raw):
@@ -320,7 +320,7 @@ class ManifestAndCommandTests(TransportFixture):
         self.assertIn("$Process.StartInfo.Arguments=$ArgumentLine",launcher)
         self.assertIn("if($ArgumentLine.Length-ge 30000)",launcher)
         self.assertIn("$ServerAlias,$ServerCommand",launcher)
-        self.assertNotIn("user100@10.0.0.50",launcher)
+        self.assertNotIn("user100@10.0.0.50",launcher)  # scan-public: allow synthetic fixture value
 
     def test_cross_snapshot_profile_and_source_authority_splices_reject_before_process(self) -> None:
         profile=self.profile(resource_descriptor=TORQUE_RESOURCE_DESCRIPTOR_BYTES); snapshot,_=self.transport_snapshot(profile=profile,queue="batch")
@@ -337,7 +337,7 @@ class ManifestAndCommandTests(TransportFixture):
                 with self.assertRaises(transport.TransportBoundaryError): _build_rtwin_command(snapshot,changed)
 
     def test_extra_rtwin_hop_rejects_before_process(self) -> None:
-        profile=self.profile(jump_topology=[("proxy.example",2201,"proxy-user"),("100.64.0.1",22,"rtwin-user")])
+        profile=self.profile(jump_topology=[("proxy.example",2201,"proxy-user"),("100.64.0.1",22,"rtwin-user")])  # scan-public: allow synthetic fixture value
         snapshot,_=self.transport_snapshot(profile=profile)
         with patch("subprocess.Popen") as popen,self.assertRaises(transport.TransportBoundaryError):
             _resolve_deployment_authority(snapshot,profile)

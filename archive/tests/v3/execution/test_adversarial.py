@@ -36,8 +36,8 @@ class PathBoundaryTests(ExecutionFixture):
             "relative/path",
             "~/SDL",
             "/home//user100/SDL",
-            "/home/user100/../SDL",
-            "/home/user100/SDL/",
+            "/home/<user>/../SDL",
+            "/home/<user>/SDL/",
         ]
         for value in invalid:
             profile = self.profile()
@@ -59,7 +59,7 @@ class PathBoundaryTests(ExecutionFixture):
                 rtwin_approved_root=r"C:\RTWIN",
                 rtwin_attempt_dir=r"C:\RTWIN\project-1\attempt-1",
                 remote_approved_root=execution.LEGACY_REMOTE_ROOT,
-                remote_attempt_dir="/home/user100/SDL/project-1/attempt-1",
+                remote_attempt_dir="/home/<user>/SDL/project-1/attempt-1",
             )
 
     def test_workspace_outside_reviewed_roots_is_rejected(self) -> None:
@@ -296,9 +296,9 @@ class ReceiptAndAuthorityTests(ExecutionFixture):
             else None
         )
         invalid_workspaces = (
-            "/home/user100/SDL/other/attempt-1",
-            "/home/user100/SDL/project-10/attempt-1",
-            "/home/user100/SDL/Project-1/attempt-1",
+            "/home/<user>/SDL/other/attempt-1",
+            "/home/<user>/SDL/project-10/attempt-1",
+            "/home/<user>/SDL/Project-1/attempt-1",
         )
         for remote_workspace in invalid_workspaces:
             receipt = execution.RemoteEffectReceipt(
@@ -364,9 +364,9 @@ class ReceiptAndAuthorityTests(ExecutionFixture):
             else None
         )
         invalid_workspaces = (
-            "/home/user100/SDL/other/attempt-1",
-            "/home/user100/SDL/project-10/attempt-1",
-            "/home/user100/SDL/Project-1/attempt-1",
+            "/home/<user>/SDL/other/attempt-1",
+            "/home/<user>/SDL/project-10/attempt-1",
+            "/home/<user>/SDL/Project-1/attempt-1",
         )
 
         for remote_workspace in invalid_workspaces:
@@ -480,7 +480,7 @@ class ReceiptAndAuthorityTests(ExecutionFixture):
                     effect_sequence=1,
                     effect_kind=execution.EffectKind.SUBMISSION,
                     effect_state=execution.EffectState.CONFIRMED_EFFECT,
-                    remote_workspace="/home/user100/SDL/project-1/attempt-1",
+                    remote_workspace="/home/<user>/SDL/project-1/attempt-1",
                     job_id=job_id,
                 )
 

@@ -115,7 +115,7 @@ class LaneAFixture(unittest.TestCase):
         self.store.create_attempt(
             core.Attempt(attempt_id="attempt-1", task_id="task-1", ordinal=1)
         )
-        self.remote_project_dir = "/home/user100/SDL/project-1"
+        self.remote_project_dir = "/home/<user>/SDL/project-1"
         self.remote_physical_identity = "opaque-server-project-v1"
         self.remote_attestor = (
             _SyntheticRemoteProjectAttestor._from_privileged_test_fixture(
@@ -211,7 +211,7 @@ class LaneAFixture(unittest.TestCase):
             rtwin_approved_root=r"C:\RTWIN",
             rtwin_attempt_dir=r"C:\RTWIN\project-1\attempt-1",
             remote_approved_root=execution.LEGACY_REMOTE_ROOT,
-            remote_attempt_dir="/home/user100/SDL/project-1/attempt-1",
+            remote_attempt_dir="/home/<user>/SDL/project-1/attempt-1",
         )
 
     def physical_binding(self) -> execution.ProjectPhysicalBinding:
@@ -1166,7 +1166,7 @@ class ProgramSnapshotTests(LaneAFixture):
             first.cwd_binding,
             {
                 "location_kind": "server",
-                "path": "/home/user100/SDL/project-1/attempt-1",
+                "path": "/home/<user>/SDL/project-1/attempt-1",
             },
         )
 
@@ -1340,7 +1340,7 @@ class ProgramSnapshotTests(LaneAFixture):
     def test_cross_path_observation_and_workspace_path_drift_reject(self) -> None:
         binding = self.physical_binding()
         _attestor, _owner, cross_path_snapshot_service = self.synthetic_authority(
-            observed_project_dir="/home/user100/SDL/other-project"
+            observed_project_dir="/home/<user>/SDL/other-project"
         )
         with self.assertRaisesRegex(
             execution.ExecutionValueError, "owning provisioning authority"
@@ -1356,7 +1356,7 @@ class ProgramSnapshotTests(LaneAFixture):
             rtwin_approved_root=r"C:\RTWIN",
             rtwin_attempt_dir=r"C:\RTWIN\project-1\attempt-1",
             remote_approved_root=execution.LEGACY_REMOTE_ROOT,
-            remote_attempt_dir="/home/user100/SDL/other-project/attempt-1",
+            remote_attempt_dir="/home/<user>/SDL/other-project/attempt-1",
         )
         with self.assertRaisesRegex(execution.ExecutionValueError, "exact remote"):
             self.successor_snapshot(binding=binding, workspace=wrong_workspace)
@@ -1410,7 +1410,7 @@ class ProgramSnapshotTests(LaneAFixture):
 
     def test_snapshot_embedded_authorities_and_payload_are_self_authenticating(self) -> None:
         _attestor, alternate_owner, _snapshot_service = self.synthetic_authority(
-            observed_project_dir="/home/user100/SDL/project-2",
+            observed_project_dir="/home/<user>/SDL/project-2",
             observed_state="ABSENT",
             observed_project_physical_identity=None,
             provisioned_project_physical_identity="alternate-project-physical",
@@ -1418,7 +1418,7 @@ class ProgramSnapshotTests(LaneAFixture):
         alternate_binding = alternate_owner.provision_remote_project(
             project=self.store.load_project("project-1"),
             target=self.resolved(),
-            remote_project_dir="/home/user100/SDL/project-2",
+            remote_project_dir="/home/<user>/SDL/project-2",
             evidence_identity="alternate-binding",
         )
         alternate_resources = execution.ResolvedResourceRequest(
@@ -1436,7 +1436,7 @@ class ProgramSnapshotTests(LaneAFixture):
             rtwin_approved_root=r"C:\RTWIN",
             rtwin_attempt_dir=r"C:\RTWIN\project-1\attempt-1",
             remote_approved_root=execution.LEGACY_REMOTE_ROOT,
-            remote_attempt_dir="/home/user100/SDL/project-2/attempt-1",
+            remote_attempt_dir="/home/<user>/SDL/project-2/attempt-1",
         )
         mutations = (
             ("attempt_id", "attempt-other"),

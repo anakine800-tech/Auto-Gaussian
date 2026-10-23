@@ -736,7 +736,7 @@
         },
         "remote_workdir": {
           "type": "string",
-          "pattern": "^/home/user100/SDL/[A-Za-z0-9][A-Za-z0-9_-]{0,14}$"
+          "pattern": "^/home/<user>/SDL/[A-Za-z0-9][A-Za-z0-9_-]{0,14}$"
         },
         "input_sha256": {
           "$ref": "#/$defs/sha"

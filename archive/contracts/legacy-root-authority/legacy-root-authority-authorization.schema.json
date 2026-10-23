@@ -74,7 +74,7 @@
       ],
       "properties": {
         "backend_kind": {"const": "legacy_rtwin_pbs"},
-        "allowed_root": {"const": "/home/user100/SDL"},
+        "allowed_root": {"const": "/home/<user>/SDL"},
         "remote_root_override_allowed": {"const": false},
         "cli_override_allowed": {"const": false},
         "environment_override_allowed": {"const": false},

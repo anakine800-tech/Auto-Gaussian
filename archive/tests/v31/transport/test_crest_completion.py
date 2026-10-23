@@ -132,15 +132,15 @@ class CrestCompletionTests(lane.LaneAFixture):
             if recover:
                 self.program_transport_store=transport._ProgramTransportStore._create_completion_store(folder/'program.sqlite3',approved_root=self.root)
                 self.addCleanup(self.program_transport_store.close)
-            wire=bridge_tests._Wire();wire.outputs=dict(OUTPUTS);wire.project=bridge_tests.directory_token('/home/user100/SDL/crest-project')
+            wire=bridge_tests._Wire();wire.outputs=dict(OUTPUTS);wire.project=bridge_tests.directory_token('/home/<user>/SDL/crest-project')
             stack.enter_context(patch.object(_driver._SubprocessRTWinDriver,'_run',side_effect=wire.run))
             stack.enter_context(patch.object(_driver.subprocess,'Popen',side_effect=AssertionError('no live processes')))
             service=_ProjectProvisioningService._from_project_attestor(attestor=rtwin._RTWinProjectAttestor(current_profile=profile,target=target),target=target,journal=journal)
-            binding=service.provision_remote_project(project=project,target=target,remote_project_dir='/home/user100/SDL/crest-project')
+            binding=service.provision_remote_project(project=project,target=target,remote_project_dir='/home/<user>/SDL/crest-project')
             factory=p._ProgramExecutionSnapshotService._for_production(project_provisioning=service,target=target)
             resources=execution.ResolvedResourceRequest(resource_spec=resource,cores=8,memory_mb=12288,walltime_seconds=3600,queue='batch')
             local=self.local_root/'crest-project';local.mkdir()
-            workspace=execution.WorkspaceBinding(project=project,attempt_id='crest-attempt',local_approved_root=str(self.local_root),local_attempt_dir=str(local/'crest-attempt'),remote_approved_root=execution.LEGACY_REMOTE_ROOT,remote_attempt_dir='/home/user100/SDL/crest-project/crest-attempt',rtwin_approved_root=r'C:\RTWIN',rtwin_attempt_dir=r'C:\RTWIN\crest-project\crest-attempt')
+            workspace=execution.WorkspaceBinding(project=project,attempt_id='crest-attempt',local_approved_root=str(self.local_root),local_attempt_dir=str(local/'crest-attempt'),remote_approved_root=execution.LEGACY_REMOTE_ROOT,remote_attempt_dir='/home/<user>/SDL/crest-project/crest-attempt',rtwin_approved_root=r'C:\RTWIN',rtwin_attempt_dir=r'C:\RTWIN\crest-project\crest-attempt')
             self.snapshot=factory.prepare(self.store,attempt_id='crest-attempt',calculation_plan_id='crest-plan',resource_spec_id='crest-resource',program_execution_spec=self.spec,project_physical_binding=binding,resolved_resource_request=resources,resolved_server_profile=target,workspace_binding=workspace,completion_rendering_material=c._prepare_publisher_pilot_rendering_material(profile,target))
             self.current_profile=profile;self.q=json.loads(profile.runtime_contents[self.qualification_name])['payload']
             self.scheduler_bytes={'crest.pbs':self.snapshot.scheduler_artifacts[0]['content_utf8'].encode()}

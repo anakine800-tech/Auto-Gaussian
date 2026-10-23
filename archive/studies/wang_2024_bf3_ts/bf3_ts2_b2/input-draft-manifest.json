@@ -125,7 +125,7 @@
   },
   "candidate_live_scope": {
     "project": "w24_bf3t2b2_s1",
-    "remote_directory": "/home/user100/SDL/w24_bf3t2b2_s1",
+    "remote_directory": "/home/<user>/SDL/w24_bf3t2b2_s1",
     "status": "candidate_only_not_approved_or_created"
   },
   "approval_state": {

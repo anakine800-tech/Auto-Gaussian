@@ -165,7 +165,7 @@ class R33P1P5ReviewTests(unittest.TestCase):
         self.assertIsNone(self.p5["input_draft"]["sha256"])
         self.assertIsNone(self.p5["input_draft"]["route"])
         self.assertTrue(all(self.p5["resources"][field] is None for field in ("tier", "memory_gb", "cores")))
-        self.assertEqual(self.p5["server_plan"]["allowed_root"], "/home/user100/SDL")
+        self.assertEqual(self.p5["server_plan"]["allowed_root"], "/home/<user>/SDL")
         self.assertFalse(self.p5["server_plan"]["actual_directory_created"])
         self.assertTrue(all(self.p5["server_plan"][field] is None for field in ("project_name", "remote_workdir", "canonical_path")))
         self.assertFalse(self.p5["live_authorization"]["authorized"])

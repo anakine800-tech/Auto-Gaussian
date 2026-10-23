@@ -82,15 +82,15 @@ class ExecutionFixture(unittest.TestCase):
             core.Attempt(attempt_id="attempt-1", task_id="task-1", ordinal=1)
         )
 
-    def profile(self, *, config: bytes = b"Host RTwin\n  HostName 100.64.0.1\n") -> execution.ServerProfile:
+    def profile(self, *, config: bytes = b"Host RTwin\n  HostName 100.64.0.1\n") -> execution.ServerProfile:  # scan-public: allow synthetic fixture value
         return execution.ServerProfile(
             server_profile_id="profile-1",
             profile_revision=7,
             transport_kind="legacy_rtwin_pbs",
-            target_host="10.0.0.50",
+            target_host="10.0.0.50",  # scan-public: allow synthetic fixture value
             target_port=22,
             remote_user="user100",
-            jump_topology=[("100.64.0.1", 22, "rtwin-user")],
+            jump_topology=[("100.64.0.1", 22, "rtwin-user")],  # scan-public: allow synthetic fixture value
             host_key_policy="strict",
             batch_mode=True,
             identities_only=True,
@@ -102,7 +102,7 @@ class ExecutionFixture(unittest.TestCase):
             config_files=[("ssh_config", config)],
             runtime_contents={
                 "pbs-wrapper": b"qsub -- synthetic",
-                "known-hosts": b"10.0.0.50 ssh-ed25519 synthetic",
+                "known-hosts": b"10.0.0.50 ssh-ed25519 synthetic",  # scan-public: allow synthetic fixture value
             },
         )
 
@@ -140,7 +140,7 @@ class ExecutionFixture(unittest.TestCase):
             rtwin_approved_root=r"C:\RTWIN",
             rtwin_attempt_dir=r"C:\RTWIN\project-1\attempt-1",
             remote_approved_root=execution.LEGACY_REMOTE_ROOT,
-            remote_attempt_dir="/home/user100/SDL/project-1/attempt-1",
+            remote_attempt_dir="/home/<user>/SDL/project-1/attempt-1",
         )
         template = execution.PbsTemplateBinding(
             logical_name="job.pbs",
@@ -193,7 +193,7 @@ class IdentityAndPreparationTests(ExecutionFixture):
         changed_resources, _profile = self.snapshot(cores=9)
         changed_input, _profile = self.snapshot(input_bytes=INPUT_BYTES + b"\n")
         changed_profile, _profile = self.snapshot(
-            profile=self.profile(config=b"Host RTwin\n  HostName 100.64.0.2\n")
+            profile=self.profile(config=b"Host RTwin\n  HostName 100.64.0.2\n")  # scan-public: allow synthetic fixture value
         )
         self.assertEqual(
             len(

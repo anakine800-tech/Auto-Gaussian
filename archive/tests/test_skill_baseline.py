@@ -43,9 +43,9 @@ class RepositoryBaselineTests(unittest.TestCase):
         self.assertIn("Absence of a session, Gaussian process, or log is expected", failures)
 
     def test_fixed_server_root(self) -> None:
-        self.assertEqual(PBS.DEFAULT_REMOTE_ROOT, "/home/user100/SDL")
+        self.assertEqual(PBS.DEFAULT_REMOTE_ROOT, "/home/<user>/SDL")
         self.assertEqual(
-            PBS.remote_project_dir("safe_job"), "/home/user100/SDL/safe_job"
+            PBS.remote_project_dir("safe_job"), "/home/<user>/SDL/safe_job"
         )
 
     def test_existing_and_empty_directory_guards_are_contained(self) -> None:
@@ -53,7 +53,7 @@ class RepositoryBaselineTests(unittest.TestCase):
             PBS.remote_existing_directory_guard("safe_job"),
             PBS.remote_empty_directory_guard("safe_job"),
         ):
-            self.assertIn("/home/user100/SDL", script)
+            self.assertIn("/home/<user>/SDL", script)
             self.assertIn("realpath", script)
             self.assertNotIn("codex-gaussian", script)
         self.assertIn(
@@ -292,7 +292,7 @@ class RepositoryBaselineTests(unittest.TestCase):
                 "schema": "gaussian-rtwin-pbs/1", "project": "safe_job",
                 "job_id": "123.master", "status": "completed", "input": "safe_job.gjf",
                 "input_sha256": PBS.sha256(input_path),
-                "remote_workdir": "/home/user100/SDL/safe_job",
+                "remote_workdir": "/home/<user>/SDL/safe_job",
             })
             args = parser.parse_args(
                 [

@@ -419,7 +419,7 @@ class IdentityBindingAndProfileTests(unittest.TestCase):
             self.profile["transport_identity_binding_sha256"],
             self.binding["binding_payload_sha256"],
         )
-        self.assertEqual(self.profile["workspace_policy"]["allowed_root"], "/home/user100/SDL")
+        self.assertEqual(self.profile["workspace_policy"]["allowed_root"], "/home/<user>/SDL")
         self.assertEqual(
             self.profile["profile_payload_sha256"],
             contracts.payload_sha256(self.profile, "profile_payload_sha256"),
@@ -446,7 +446,7 @@ class IdentityBindingAndProfileTests(unittest.TestCase):
         for reference in (
             "relative/config",
             "/opt/../etc/config",
-            "/home/placeholder/.ssh/config",
+            "/home/placeholder/.ssh/config",  # scan-public: allow synthetic path or path-detection pattern
             "/opt/auto-g16/id_rsa",
             "/opt/auto-g16/private.pem",
             "/",
@@ -997,7 +997,7 @@ class CapabilityAndLegacyMappingTests(unittest.TestCase):
             profile = contracts.derive_legacy_profile(loaded, self.binding)
             self.assertEqual(profile["backend_kind"], "legacy_rtwin_pbs")
             self.assertEqual(profile["transport_config_ref"], self.runtime["rtwin_ssh_config"])
-            self.assertEqual(profile["workspace_policy"]["allowed_root"], "/home/user100/SDL")
+            self.assertEqual(profile["workspace_policy"]["allowed_root"], "/home/<user>/SDL")
         invalid = copy.deepcopy(self.runtime)
         invalid["rtwin_ssh_config"] = "relative/config"
         with self.assertRaises(ValueError):

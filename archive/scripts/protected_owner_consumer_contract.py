@@ -47,7 +47,7 @@ RUNTIME_RECEIPT_SCHEMA = "auto-g16-protected-runtime-state-receipt/1"
 CONTAINER_BASENAME = ".auto-g16-protected-owner-consumer-v1"
 INTENT_BASENAME = "submission-intent.json"
 CHECKSUM_BASENAME = "checksums.sha256"
-FIXED_REMOTE_ROOT = "/home/user100/SDL"
+FIXED_REMOTE_ROOT = "/home/<user>/SDL"
 FIXED_EFFECT_STEPS = (
     "windows_directory_claim",
     "mac_to_windows_copy",

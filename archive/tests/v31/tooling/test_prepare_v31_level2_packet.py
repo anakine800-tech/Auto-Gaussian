@@ -29,7 +29,7 @@ def request(kind="xtb"):
     raw = fixtures.XYZ
     return {"schema": packet.SCHEMA, "main_sha": MAIN,
             "request_id": "72b5f4d8-f215-4af4-81f0-58a9d5b06210",
-            "project": {"project_id": "project-1", "remote_project_dir": "/home/user100/SDL/project-1"},
+            "project": {"project_id": "project-1", "remote_project_dir": "/home/<user>/SDL/project-1"},
             "workflow": {"workflow_run_id": "workflow-1", "workflow_name": "qualification", "project_id": "project-1"},
             "batch_purpose": "fresh isolated Level-2 candidate", "program_kind": kind, "program_data": data,
             "plan_intent": {"program_kind": kind, "program_data": copy.deepcopy(data), "input_sha256": sha256(raw).hexdigest()},
@@ -202,7 +202,7 @@ class Level2PacketTests(unittest.TestCase):
             lambda r: r["resources"].update(queue="other"),
             lambda r: r["resources"].update(cores=False),
             lambda r: r["workflow"].update(project_id="other-project"),
-            lambda r: r["project"].update(remote_project_dir="/home/user100/SDL"),
+            lambda r: r["project"].update(remote_project_dir="/home/<user>/SDL"),
             lambda r: r["project"].update(remote_project_dir="/outside/project"),
             lambda r: r["plan_intent"].update(program_kind="crest"),
             lambda r: r["plan_intent"].update(input_sha256="0" * 64),

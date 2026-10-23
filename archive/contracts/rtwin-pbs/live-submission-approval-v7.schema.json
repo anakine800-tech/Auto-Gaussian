@@ -91,7 +91,7 @@
       "required": ["project", "remote_workdir", "input_sha256", "route", "mem", "nprocshared", "charge", "multiplicity", "work_kind", "input_approval", "open_shell_owner", "operation", "execution"],
       "properties": {
         "project": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,14}$"},
-        "remote_workdir": {"type": "string", "pattern": "^/home/user100/SDL/[A-Za-z0-9][A-Za-z0-9_-]{0,14}$"},
+        "remote_workdir": {"type": "string", "pattern": "^/home/<user>/SDL/[A-Za-z0-9][A-Za-z0-9_-]{0,14}$"},
         "input_sha256": {"$ref": "#/$defs/sha"},
         "route": {"type": "string", "minLength": 1},
         "mem": {"type": "string", "minLength": 1},

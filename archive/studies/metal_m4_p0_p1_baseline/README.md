@@ -87,7 +87,7 @@ offline engineering contracts remain blocked from real-case activation by P1.
 `r33-p5-approval-package.json` is the exact fail-closed P5 planning package. It
 is `planned_not_submitted`, not ready for live approval, and binds null protocol
 options/selection, input draft/hash, resources and server project fields. The
-only allowed server root is `/home/user100/SDL`; no directory was created. The
+only allowed server root is `/home/<user>/SDL`; no directory was created. The
 package authorizes no SSH, PBS, Gaussian, retry, IRC, cancellation, cleanup or
 deployment action and is not itself submission authorization. The integrated
 status remains indexed in `p0-p5-readiness.json`.

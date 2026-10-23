@@ -771,7 +771,7 @@ class DirectDurableSubmissionJournalTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, imports)
         source_text = (SCRIPTS / "direct_durable_submission_journal.py").read_text(encoding="utf-8")
-        self.assertNotIn("/home/user100/SDL", source_text)
+        self.assertNotIn("/home/<user>/SDL", source_text)
         self.assertNotIn("server_root", source_text)
         package = SKILL_PACKAGE.package_files_with_supplements(ROOT, "auto-g16-rtwin-pbs")
         self.assertEqual(package[Path("scripts/direct_durable_submission_journal.py")], SCRIPTS / "direct_durable_submission_journal.py")

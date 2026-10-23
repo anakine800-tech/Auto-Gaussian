@@ -133,7 +133,7 @@
         "windows_directory_sha256": {"$ref": "#/$defs/sha"},
         "remote_directory": {
           "type": "string",
-          "pattern": "^/home/user100/SDL/[A-Za-z0-9][A-Za-z0-9_-]{0,14}$(?![\\s\\S])"
+          "pattern": "^/home/<user>/SDL/[A-Za-z0-9][A-Za-z0-9_-]{0,14}$(?![\\s\\S])"
         },
         "first_hop_config_path_sha256": {"$ref": "#/$defs/sha"},
         "first_hop_alias_sha256": {"$ref": "#/$defs/sha"},

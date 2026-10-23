@@ -160,7 +160,7 @@ class ProtectedProductionFactoryConsumerTests(unittest.TestCase):
             identity=task["identity"],
             idempotency_key=execution["idempotency_key"],
             project="safejob",
-            remote_workdir="/home/user100/SDL/safejob",
+            remote_workdir="/home/<user>/SDL/safejob",
             input_sha256=approval["scope"]["input_sha256"],
             live_approval_id=approval["approval_id"],
             live_approval_sha256=hashlib.sha256(

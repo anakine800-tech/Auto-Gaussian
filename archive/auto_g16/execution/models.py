@@ -32,7 +32,7 @@ from ._paths import (
 )
 
 
-LEGACY_REMOTE_ROOT: Final = "/home/user100/SDL"
+LEGACY_REMOTE_ROOT: Final = "/home/<user>/SDL"
 RECEIPT_OBSERVATION_TYPE: Final = "v3.remote-effect-receipt"
 _PBS_NAME_DIRECTIVE: Final = re.compile(r"^#PBS -N [A-Za-z0-9][A-Za-z0-9._-]*$")
 _PBS_EXECUTION_COMMAND: Final = re.compile(r"^exec g16 [A-Za-z0-9][A-Za-z0-9._-]*$")

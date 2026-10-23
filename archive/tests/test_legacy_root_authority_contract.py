@@ -144,7 +144,7 @@ class LegacyRootAuthorityContractTests(unittest.TestCase):
             evidence["fixed_root_policy"],
             {
                 "backend_kind": "legacy_rtwin_pbs",
-                "allowed_root": "/home/user100/SDL",
+                "allowed_root": "/home/<user>/SDL",
                 "remote_root_override_allowed": False,
                 "cli_override_allowed": False,
                 "environment_override_allowed": False,
@@ -574,7 +574,7 @@ class LegacyRootAuthorityContractTests(unittest.TestCase):
                 ),
                 "source_drift_rejected": source_drift_rejected,
                 "fixed_backend": root.BACKEND_KIND == "legacy_rtwin_pbs",
-                "fixed_root": root.FIXED_REMOTE_ROOT == "/home/user100/SDL",
+                "fixed_root": root.FIXED_REMOTE_ROOT == "/home/<user>/SDL",
             }}))
             """
         )

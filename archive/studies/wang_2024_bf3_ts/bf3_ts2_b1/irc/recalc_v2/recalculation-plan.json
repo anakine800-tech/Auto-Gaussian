@@ -31,7 +31,7 @@
     {
       "direction": "forward",
       "project": "w24_bf3b1_if2",
-      "remote_directory": "/home/user100/SDL/w24_bf3b1_if2",
+      "remote_directory": "/home/<user>/SDL/w24_bf3b1_if2",
       "protocol_options_path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/irc/recalc_v2/forward-protocol-options.json",
       "protocol_options_sha256": "b99b95a6ba31a96718250a584ff478bf6b26bad4ee1718badb4792ecd897b482",
       "protocol_selection_path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/irc/recalc_v2/forward-protocol-selection-standard.json",
@@ -47,7 +47,7 @@
     {
       "direction": "reverse",
       "project": "w24_bf3b1_ir2",
-      "remote_directory": "/home/user100/SDL/w24_bf3b1_ir2",
+      "remote_directory": "/home/<user>/SDL/w24_bf3b1_ir2",
       "protocol_options_path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/irc/recalc_v2/reverse-protocol-options.json",
       "protocol_options_sha256": "bf4d6c360da143a72d99434bc1c28634d0f2b4ee7bc5473cadeacafd3d709a11",
       "protocol_selection_path": "studies/wang_2024_bf3_ts/bf3_ts2_b1/irc/recalc_v2/reverse-protocol-selection-standard.json",

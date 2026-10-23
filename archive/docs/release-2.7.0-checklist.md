@@ -54,7 +54,7 @@ remote operation, live smoke, or scientific acceptance.
   `production_closure=false` and
   `arbitrary_same_process_reflection_isolated=false`.
 - The existing `legacy_rtwin_pbs` production backend remains permanently fixed
-  below `/home/user100/SDL`. Direct profile/root contracts do not relocate,
+  below `/home/<user>/SDL`. Direct profile/root contracts do not relocate,
   generalize, or authorize that legacy backend.
 - Offline validation, a local commit, CI, a merge, a tag, or publication cannot
   grant deployment, server, scheduler, live, or scientific authority.

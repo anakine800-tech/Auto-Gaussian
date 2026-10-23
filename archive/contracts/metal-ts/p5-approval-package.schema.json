@@ -78,7 +78,7 @@
       "additionalProperties": false,
       "required": ["allowed_root", "project_name", "remote_workdir", "canonical_path", "fresh_directory_status", "actual_directory_created", "overwrite"],
       "properties": {
-        "allowed_root": {"const": "/home/user100/SDL"},
+        "allowed_root": {"const": "/home/<user>/SDL"},
         "project_name": {"type": "null"},
         "remote_workdir": {"type": "null"},
         "canonical_path": {"type": "null"},

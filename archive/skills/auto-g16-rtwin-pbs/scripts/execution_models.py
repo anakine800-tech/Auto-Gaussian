@@ -15,7 +15,7 @@ from types import ModuleType
 from typing import Any, ClassVar
 
 
-FIXED_REMOTE_ROOT = "/home/user100/SDL"
+FIXED_REMOTE_ROOT = "/home/<user>/SDL"
 PROJECT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,14}$")
 SHA256_RE = re.compile(r"^[a-f0-9]{64}$")
 COMPONENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")

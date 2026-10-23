@@ -47,7 +47,7 @@ class LegacyDescriptorMutationCapabilityTests(unittest.TestCase):
             lambda handles, relative: calls.append((handles, relative)) or "ok"
         )
         binding = capability.portable_binding()
-        self.assertEqual(binding["fixed_root"], "/home/user100/SDL")
+        self.assertEqual(binding["fixed_root"], "/home/<user>/SDL")
         self.assertEqual(
             binding["production_factory_result_sha256"],
             self.result.document()["payload_sha256"],
@@ -56,7 +56,7 @@ class LegacyDescriptorMutationCapabilityTests(unittest.TestCase):
         handles, relative = calls[0]
         self.assertTrue(all(type(item) is object for item in handles))
         self.assertEqual(relative, ("project", "scratch"))
-        self.assertNotIn("/home/user100/SDL", relative)
+        self.assertNotIn("/home/<user>/SDL", relative)
 
     def test_atomic_single_winner(self) -> None:
         calls = []

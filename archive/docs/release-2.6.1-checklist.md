@@ -13,7 +13,7 @@ additional live or deployment authority.
 - Keep exactly one production entry, one legacy transaction/effect-owner chain
   and one `qsub` site. Bind project, input SHA-256, resources, walltime and the
   exact one-shot approval before any remote mutation.
-- Keep the legacy root permanently fixed at `/home/user100/SDL`; refuse an
+- Keep the legacy root permanently fixed at `/home/<user>/SDL`; refuse an
   existing project directory and never overwrite, retry, cancel, `qdel`, clean
   up or delete automatically.
 - Keep uncertain submission in durable `submission_uncertain` state with

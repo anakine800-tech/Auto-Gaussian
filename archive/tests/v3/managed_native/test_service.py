@@ -180,7 +180,7 @@ class ServiceTests(Fixture):
         self.stack.enter_context(patch.object(service, "run_direct", side_effect=inert))
 
     def bind_snapshot(self, slot):
-        remote = "/home/user100/SDL/project-1"
+        remote = "/home/<user>/SDL/project-1"
         journal = _ProductionProvisioningJournal.create_new(self.root/"projects.sqlite3", approved_root=self.root)
         self.addCleanup(journal.close)
         attestor = _InertProjectPeer(self.profile, self.resolved, remote)
@@ -189,7 +189,7 @@ class ServiceTests(Fixture):
         owner = _ProgramExecutionSnapshotService._for_production(project_provisioning=provisioning, target=self.resolved)
         attempt = slot.records[3].attempt_id
         (self.root/"local"/"project-1").mkdir(exist_ok=True)
-        workspace = execution.WorkspaceBinding(project=self.intake.project, attempt_id=attempt, local_approved_root=str(self.root/"local"), local_attempt_dir=str(self.root/"local"/"project-1"/attempt), rtwin_approved_root=r"C:\RTWIN", rtwin_attempt_dir=rf"C:\RTWIN\project-1\{attempt}", remote_approved_root="/home/user100/SDL", remote_attempt_dir=remote+"/"+attempt)
+        workspace = execution.WorkspaceBinding(project=self.intake.project, attempt_id=attempt, local_approved_root=str(self.root/"local"), local_attempt_dir=str(self.root/"local"/"project-1"/attempt), rtwin_approved_root=r"C:\RTWIN", rtwin_attempt_dir=rf"C:\RTWIN\project-1\{attempt}", remote_approved_root="/home/<user>/SDL", remote_attempt_dir=remote+"/"+attempt)
         resources = execution.ResolvedResourceRequest(resource_spec=slot.records[2], cores=8, memory_mb=12288, walltime_seconds=3600, queue="batch")
         snapshot = owner.prepare(self.core, attempt_id=attempt, calculation_plan_id=slot.records[1].calculation_plan_id, resource_spec_id=slot.records[2].resource_spec_id, program_execution_spec=slot.spec, project_physical_binding=binding, resolved_resource_request=resources, resolved_server_profile=self.resolved, workspace_binding=workspace, completion_rendering_material=self.intake.completion_material)
         self.review.bind_offline_snapshot(slot.key[2], snapshot)

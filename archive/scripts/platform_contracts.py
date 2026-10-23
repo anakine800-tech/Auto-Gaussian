@@ -32,7 +32,7 @@ LEGACY_MAPPING_SCHEMA = "auto-g16-legacy-runtime-mapping-result/1"
 SANITIZATION_VERSION = "auto-g16-capability-sanitization/1"
 LEGACY_RUNTIME_SCHEMA = "auto-g16-runtime-config/1"
 
-FIXED_REMOTE_ROOT = "/home/user100/SDL"
+FIXED_REMOTE_ROOT = "/home/<user>/SDL"
 CATALOG_ID = "legacy-pbs-resource-catalog"
 SCHEDULER_DIALECT = "pbs_legacy_v1"
 MAX_ATTESTATION_WINDOW_SECONDS = 300

@@ -19,7 +19,7 @@ authority.
       `no_submission_authorization: true`; it is not treated as live approval.
 - [ ] The project is fresh, matches `^[A-Za-z0-9][A-Za-z0-9_-]{0,14}$`, and
       the canonical remote directory is exactly
-      `/home/user100/SDL/<project>` with no symlink or pre-existing contents.
+      `/home/<user>/SDL/<project>` with no symlink or pre-existing contents.
 
 ## Exact `/4` fields to show for separate owner approval
 

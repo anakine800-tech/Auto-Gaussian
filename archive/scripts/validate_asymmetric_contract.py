@@ -1565,7 +1565,7 @@ def validate_smoke_proposal(
     require(server.get("status") == "not_created", "smoke-proposal: server project must not exist")
     require(server.get("fresh_project") is None, "smoke-proposal: server project must remain unset")
     require(server.get("overwrite") is False, "smoke-proposal: overwrite must remain false")
-    require(server.get("allowed_root") == "/home/user100/SDL", "smoke-proposal: allowed server root changed")
+    require(server.get("allowed_root") == "/home/<user>/SDL", "smoke-proposal: allowed server root changed")
     if literature_ledger is not None:
         require(literature_ledger_path is not None, "smoke-proposal: literature_ledger_path is required with a ledger")
         validate_literature_benchmark(literature_ledger)

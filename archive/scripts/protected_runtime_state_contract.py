@@ -46,7 +46,7 @@ OWNER_REGISTRATION_ATTRIBUTE = (
 )
 HANDOFF_MODULE_NAME = "protected_legacy_effect_handoff"
 HANDOFF_SCHEMA = "auto-g16-protected-legacy-effect-handoff/1"
-FIXED_REMOTE_ROOT = "/home/user100/SDL"
+FIXED_REMOTE_ROOT = "/home/<user>/SDL"
 STATE_CONTAINER = ".auto-g16-protected-runtime-state-v1"
 STATES = (
     "ready",

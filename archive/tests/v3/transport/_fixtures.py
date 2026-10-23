@@ -186,7 +186,7 @@ class TransportFixture(ExecutionFixture):
         self.mac_known_hosts.write_bytes(b"rtwin-a ssh-ed25519 AAAAC3NzaSyntheticHostKey\n")
         mac_config=(
             "Host rtwin-a\n"
-            "  HostName 100.64.0.1\n"
+            "  HostName 100.64.0.1\n"  # scan-public: allow synthetic fixture value
             "  Port 22\n"
             "  User rtwin-user\n"
             "  IdentityFile /keys/mac-rtwin\n"
@@ -198,7 +198,7 @@ class TransportFixture(ExecutionFixture):
         rtwin_known_path=r"C:\Config\server-known"
         rtwin_config=(
             "Host server-a\n"
-            "  HostName 10.0.0.50\n"
+            "  HostName 10.0.0.50\n"  # scan-public: allow synthetic fixture value
             "  Port 22\n"
             "  User user100\n"
             "  IdentityFile C:\\Keys\\server\n"
@@ -210,8 +210,8 @@ class TransportFixture(ExecutionFixture):
         manifest = _manifest_bytes(str(executable_paths["mac-ssh"]), str(executable_paths["mac-scp"]), mac_ssh_bytes=executable_bytes["mac-ssh"], mac_scp_bytes=executable_bytes["mac-scp"], deployment_id=deployment_id, windows_grammar=windows_grammar, torque_executables=resource_descriptor==TORQUE_RESOURCE_DESCRIPTOR_BYTES)
         return execution.ServerProfile(
             server_profile_id="profile-transport-1", profile_revision=11, transport_kind="legacy_rtwin_pbs",
-            target_host="10.0.0.50", target_port=22, remote_user="user100",
-            jump_topology=[("100.64.0.1", 22, "rtwin-user")] if jump_topology is None else jump_topology, host_key_policy="strict",
+            target_host="10.0.0.50", target_port=22, remote_user="user100",  # scan-public: allow synthetic fixture value
+            jump_topology=[("100.64.0.1", 22, "rtwin-user")] if jump_topology is None else jump_topology, host_key_policy="strict",  # scan-public: allow synthetic fixture value
             batch_mode=True, identities_only=True, remote_root=execution.LEGACY_REMOTE_ROOT,
             platform_paths={
                 "rtwin_root": r"C:\RTWIN", "known_hosts": "/etc/ssh/ssh_known_hosts",
@@ -323,7 +323,7 @@ class TransportFixture(ExecutionFixture):
         actual_profile = profile or self.profile()
         prepared = execution.PreparedInputBinding(attempt_id="attempt-1", calculation_plan_id="plan-1", calculation_plan_revision=3, input_format="gaussian-gjf", logical_name="input.gjf", prepared_bytes=prepared_bytes)
         resource = execution.ResolvedResourceRequest(resource_spec=self.store.load_resource_spec("resources-1"), cores=cores, memory_mb=memory_mb, walltime_seconds=walltime_seconds, queue=queue)
-        workspace = execution.WorkspaceBinding(project=self.store.load_project("project-1"), attempt_id="attempt-1", local_approved_root=str(self.local_root), local_attempt_dir=str(self.local_project / "attempt-1"), rtwin_approved_root=r"C:\RTWIN", rtwin_attempt_dir=r"C:\RTWIN\project-1\attempt-1", remote_approved_root=execution.LEGACY_REMOTE_ROOT, remote_attempt_dir="/home/user100/SDL/project-1/attempt-1")
+        workspace = execution.WorkspaceBinding(project=self.store.load_project("project-1"), attempt_id="attempt-1", local_approved_root=str(self.local_root), local_attempt_dir=str(self.local_project / "attempt-1"), rtwin_approved_root=r"C:\RTWIN", rtwin_attempt_dir=r"C:\RTWIN\project-1\attempt-1", remote_approved_root=execution.LEGACY_REMOTE_ROOT, remote_attempt_dir="/home/<user>/SDL/project-1/attempt-1")
         template = execution.PbsTemplateBinding(logical_name="job.pbs", template_bytes=TEMPLATE_BYTES, template_contract_version="pbs-template-v1", prepared_input_logical_name="input.gjf")
         snapshot = execution.prepare_execution_snapshot(self.store, attempt_id="attempt-1", calculation_plan_id="plan-1", resource_spec_id="resources-1", prepared_input_binding=prepared, resolved_resource_request=resource, resolved_server_profile=execution.resolve_server_profile(actual_profile), workspace_binding=workspace, pbs_template_binding=template, adapter_contract_version="rtwin-pbs-v1")
         return snapshot, actual_profile

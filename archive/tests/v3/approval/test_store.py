@@ -82,7 +82,7 @@ class ProgramConfirmationPersistenceTests(unittest.TestCase):
     def test_successor_id_semantics_and_generation_splices_reject_on_append(self) -> None:
         original = self.confirmation(self.v31)
         mutations = (
-            lambda data: data["execution_snapshot_semantics"]["cwd_binding"].update(path="/home/user100/SDL/wrong/attempt-1"),
+            lambda data: data["execution_snapshot_semantics"]["cwd_binding"].update(path="/home/<user>/SDL/wrong/attempt-1"),
             lambda data: data.update(execution_snapshot_id=str(uuid5(UUID(int=0), "wrong-envelope"))),
             lambda data: data["execution_snapshot_semantics"]["program_execution_spec"]["program_data"].update(charge=1),
             lambda data: data["execution_snapshot_semantics"].update(prepared_input_binding={}),

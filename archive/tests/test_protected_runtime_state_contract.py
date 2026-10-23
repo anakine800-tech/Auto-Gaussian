@@ -190,7 +190,7 @@ class ProtectedRuntimeStateContractTests(unittest.TestCase):
         self.assertEqual(document["scope"], STATE.SCOPE)
         self.assertEqual(document["policy"], STATE.POLICY)
         self.assertEqual(
-            document["workspace"]["remote_root"], "/home/user100/SDL"
+            document["workspace"]["remote_root"], "/home/<user>/SDL"
         )
         self.assertFalse(
             document["workspace"]["remote_root_override_allowed"]

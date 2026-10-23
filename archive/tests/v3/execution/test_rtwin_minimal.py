@@ -69,7 +69,7 @@ class MinimalRTWinPlanTests(ExecutionFixture):
         alternate = _SubmissionInvocation(
             executable="qsub",
             argv=("job.pbs",),
-            cwd="/home/user100/SDL/other/attempt-1",
+            cwd="/home/<user>/SDL/other/attempt-1",
         )
         with self.assertRaises(execution.ExecutionValueError):
             replace(plan, submission=alternate)
@@ -181,7 +181,7 @@ class MinimalRTWinPlanTests(ExecutionFixture):
                 effect_sequence=1,
                 effect_kind=execution.EffectKind.SUBMISSION,
                 effect_state=execution.EffectState.CONFIRMED_EFFECT,
-                remote_workspace="/home/user100/SDL/other/attempt-1",
+                remote_workspace="/home/<user>/SDL/other/attempt-1",
                 job_id="12345.synthetic",
             ),
         )

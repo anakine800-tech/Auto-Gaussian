@@ -124,7 +124,7 @@ class AsymmetricRealCaseTests(unittest.TestCase):
     def test_package_contains_no_promotion_or_live_authorization(self) -> None:
         serialized = CASE_PATH.read_text(encoding="utf-8").lower()
         self.assertNotIn("promoted_offline", serialized)
-        for forbidden in ("qsub", "#p ", "%chk", "/home/user100/sdl"):
+        for forbidden in ("qsub", "#p ", "%chk", "/home/<user>/sdl"):
             self.assertNotIn(forbidden, serialized)
         refused = {gate["gate_id"]: gate["status"] for gate in self.case["gates"]}
         self.assertEqual(refused["candidate_promotion"], "refused")

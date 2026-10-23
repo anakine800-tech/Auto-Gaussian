@@ -43,7 +43,7 @@
     "cores": null
   },
   "server_plan": {
-    "allowed_root": "/home/user100/SDL",
+    "allowed_root": "/home/<user>/SDL",
     "project_name": null,
     "remote_workdir": null,
     "canonical_path": null,
@@ -93,7 +93,7 @@
     "Create and review route-free loose, standard, and strict protocol candidates with method, basis/ECP, relativity, solvent, and thermochemistry evidence.",
     "Make a separate hash-bound protocol selection that authorizes only an offline input draft.",
     "Render and review the exact input, route, charge, multiplicity, resources, and input SHA-256 only after upstream gates pass.",
-    "Choose a fresh project name below /home/user100/SDL and verify its canonical empty-directory state only at a separately approved later gate.",
+    "Choose a fresh project name below /home/<user>/SDL and verify its canonical empty-directory state only at a separately approved later gate.",
     "Complete real candidate-bound P2-P4 reviews and an independently reviewed metal execution-boundary design.",
     "Provide a separate exact live-submission approval if and only if every prior gate later passes."
   ],

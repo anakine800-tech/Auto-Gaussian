@@ -117,7 +117,7 @@ class SchedulerReadTests(TransportFixture):
     def test_store_profile_or_binding_splice_rejects_before_read(self) -> None:
         snapshot, profile = self.transport_snapshot()
         binding = self.persisted_binding(snapshot, profile)
-        object.__setattr__(binding, "remote_workspace", "/home/user100/SDL/other/attempt-1")
+        object.__setattr__(binding, "remote_workspace", "/home/<user>/SDL/other/attempt-1")
         driver = FakeDriver(text_results=(qstat(b""),))
         with self.assertRaises(transport.TransportBoundaryError):
             self.read_adapter(driver).read_scheduler(snapshot, binding, profile)

@@ -191,7 +191,7 @@ class ExactRecoveryTests(RecoveryFixture):
 
 class ParserTests(unittest.TestCase):
     def setUp(self):
-        self.expected={"job_id":"123.server","job_owner":"user100@localhost","server":"server","workspace":"/home/user100/SDL/inert-project/inert-attempt","scheduler_name":"xtb.pbs","resources":{"cores":8,"memory_mb":12288,"walltime_seconds":3600,"queue":"batch"}}
+        self.expected={"job_id":"123.server","job_owner":"user100@localhost","server":"server","workspace":"/home/<user>/SDL/inert-project/inert-attempt","scheduler_name":"xtb.pbs","resources":{"cores":8,"memory_mb":12288,"walltime_seconds":3600,"queue":"batch"}}
 
     def test_folded_and_negative_identity_fields(self):
         raw=qstat(self.expected)

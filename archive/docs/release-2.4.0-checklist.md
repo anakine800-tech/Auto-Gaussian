@@ -39,7 +39,7 @@ cancellation, and server cleanup remain not authorized.
       receipt `/3` plus live `/5` is a distinct two-stage path.
 - [x] All new scientific and input artifacts remain offline and
       non-authorizing unless an exact separate live approval is later supplied.
-- [x] The fixed `/home/user100/SDL` server boundary, fresh-project and
+- [x] The fixed `/home/<user>/SDL` server boundary, fresh-project and
       non-overwrite rules, exact job-ID cancellation gate, and no-deletion
       policy are unchanged.
 

@@ -244,7 +244,7 @@ def initialize_repository(root: Path, files: dict[str, str]) -> str:
     subprocess.run(["git", "init", "-q", str(root)], check=True)
     subprocess.run(["git", "-C", str(root), "config", "user.name", "Selector Test"], check=True)
     subprocess.run(
-        ["git", "-C", str(root), "config", "user.email", "selector@example.invalid"],
+        ["git", "-C", str(root), "config", "user.email", "selector@example.invalid"],  # scan-public: allow synthetic fixture value
         check=True,
     )
     content = {SELECTOR.MANIFEST_RELATIVE: MANIFEST.read_text(encoding="utf-8"), **files}
@@ -2543,7 +2543,7 @@ class ValidationSelectorTests(unittest.TestCase):
             root = Path(temporary)
             subprocess.run(["git", "init", "-q", str(root)], check=True)
             subprocess.run(["git", "-C", str(root), "config", "user.name", "Selector Test"], check=True)
-            subprocess.run(["git", "-C", str(root), "config", "user.email", "selector@example.invalid"], check=True)
+            subprocess.run(["git", "-C", str(root), "config", "user.email", "selector@example.invalid"], check=True)  # scan-public: allow synthetic fixture value
             source = root / "auto_g16" / "core"
             source.mkdir(parents=True)
             (source / "models.py").write_text("value = 1\n", encoding="utf-8")

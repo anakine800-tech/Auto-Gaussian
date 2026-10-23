@@ -37,7 +37,7 @@ composition excludes untrusted arbitrary same-process code. Overall
 `production_closure=false` remains unchanged.
 
 The existing `legacy_rtwin_pbs` production backend remains permanently fixed
-below `/home/user100/SDL`, with its existing-directory refusal, one-shot
+below `/home/<user>/SDL`, with its existing-directory refusal, one-shot
 submission and no-automatic-`qdel` boundaries unchanged. Its active-cancel
 owner is additionally fail-closed to two exact `Q`/`R` qstat observations and
 rejects terminal/zombie evidence, state or identity drift, ambiguity and local
@@ -152,7 +152,7 @@ retained below, but it is neither a current sync gap nor authority to deploy.
   and binds exact evidence, human decision, seed, priority, batch review, and
   ledger artifacts. It cannot weaken a blocker or replace an input/live gate.
 - The legacy `legacy_rtwin_pbs` server boundary remains permanently fixed below
-  `/home/user100/SDL`; its non-empty-directory refusal, no-deletion policy,
+  `/home/<user>/SDL`; its non-empty-directory refusal, no-deletion policy,
   exact job-ID cancellation gate, and scheduler-spool prohibition are
   unchanged. Direct closed-profile root fields do not alter this legacy rule.
 - W2 still lacks authentication, signatures, durable audit logging, chemical

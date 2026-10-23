@@ -1,6 +1,6 @@
 ---
 name: auto-g16-ts-irc
-description: Audit, prepare, pause, and analyze Gaussian 16 TS–Freq–IRC job families through the RTwin/PBS workflow. Use for reviewed single-guess, QST2, or QST3 transition-state calculations; exactly-one-imaginary-mode review; separately approved forward/reverse IRC plans; and single-structure or disconnected-fragment endpoint evidence. It never infers research routes, fragment charge/spin assignments, or submits IRC without explicit scientific review. All server work must remain under /home/user100/SDL.
+description: Audit, prepare, pause, and analyze Gaussian 16 TS–Freq–IRC job families through the RTwin/PBS workflow. Use for reviewed single-guess, QST2, or QST3 transition-state calculations; exactly-one-imaginary-mode review; separately approved forward/reverse IRC plans; and single-structure or disconnected-fragment endpoint evidence. It never infers research routes, fragment charge/spin assignments, or submits IRC without explicit scientific review. All server work must remain under /home/<user>/SDL.
 ---
 
 # Auto-G16 TS–Freq–IRC
@@ -15,7 +15,7 @@ adapter. The open-shell adapter has no transport or execution surface.
 
 ## Safety and scope
 
-- Keep every server project and scratch path within `/home/user100/SDL`; never override that root, overwrite, or delete. Delegate `qdel` to the core Skill: it may automatically clear only a repeatedly proven terminal scheduler zombie, while active-job cancellation still requires exact confirmation.
+- Keep every server project and scratch path within `/home/<user>/SDL`; never override that root, overwrite, or delete. Delegate `qdel` to the core Skill: it may automatically clear only a repeatedly proven terminal scheduler zombie, while active-job cancellation still requires exact confirmation.
 - Do not infer or silently change TS, Freq, IRC, endpoint, SCF, solvent, grid, charge, multiplicity, atom mapping, memory, or cores.
 - Before writing any new TS/Freq, IRC, connected-endpoint or fragment-endpoint
   input, use the core Skill's protocol-rigor gate: create

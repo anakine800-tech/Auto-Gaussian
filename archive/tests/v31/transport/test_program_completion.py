@@ -894,7 +894,7 @@ class CompletionTests(lane.LaneAFixture):
             elif type(value) is int:
                 replacement = value + 1
             elif key == "remote_workspace":
-                replacement = "/home/user100/SDL/foreign/attempt-1"
+                replacement = "/home/<user>/SDL/foreign/attempt-1"
             else:
                 replacement = "foreign"
             with self.subTest(key=key), self.assertRaises(ValueError):
@@ -1378,7 +1378,7 @@ class CompletionTests(lane.LaneAFixture):
         different_input=adapter._prepare_program_execution_spec(program_kind="xtb",executable_path=lane.XTB_EXECUTABLE_PATH,executable_size_bytes=len(lane.XTB_EXECUTABLE_BYTES),executable_sha256=sha256(lane.XTB_EXECUTABLE_BYTES).hexdigest(),input_name="input.xyz",input_bytes=lane.XYZ.replace(b"0.74",b"0.75"),program_data=self.xtb_data(),resolved_profile=self.resolved(),completion_mode=completion._MODE)
         different_resources=execution.ResolvedResourceRequest(resource_spec=self.store.load_resource_spec("resource-1"),cores=4,memory_mb=6144,walltime_seconds=1800,queue="simple")
         parent=self.local_root/"different-local-parent";parent.mkdir()
-        different_workspace=execution.WorkspaceBinding(project=self.store.load_project("project-1"),attempt_id="attempt-1",local_approved_root=str(self.local_root),local_attempt_dir=str(parent/"attempt-1"),rtwin_approved_root=r"C:\RTWIN",rtwin_attempt_dir=r"C:\RTWIN\project-1\attempt-1",remote_approved_root=execution.LEGACY_REMOTE_ROOT,remote_attempt_dir="/home/user100/SDL/project-1/attempt-1")
+        different_workspace=execution.WorkspaceBinding(project=self.store.load_project("project-1"),attempt_id="attempt-1",local_approved_root=str(self.local_root),local_attempt_dir=str(parent/"attempt-1"),rtwin_approved_root=r"C:\RTWIN",rtwin_attempt_dir=r"C:\RTWIN\project-1\attempt-1",remote_approved_root=execution.LEGACY_REMOTE_ROOT,remote_attempt_dir="/home/<user>/SDL/project-1/attempt-1")
         changes=[self.successor_snapshot(),self.completion_snapshot(task="single-point")]
         for spec,resources,workspace in ((different_input,self.resources(),self.workspace()),(self.completion_spec(),different_resources,self.workspace()),(self.completion_spec(),self.resources(),different_workspace)):
             changes.append(self.snapshot_service.prepare(self.store,attempt_id="attempt-1",calculation_plan_id="plan-1",resource_spec_id="resource-1",program_execution_spec=spec,project_physical_binding=self.physical_binding(),resolved_resource_request=resources,resolved_server_profile=self.resolved(),workspace_binding=workspace,completion_rendering_material=completion._prepare_completion_rendering_material(self.profile(),self.resolved())))

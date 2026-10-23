@@ -50,7 +50,7 @@ separate authorization after green PR and post-merge `main` checks.
 - Historical versioned schemas and immutable records retain their original
   replay meaning. New protected work uses explicit successor contracts rather
   than silently changing old semantics.
-- The fixed `/home/user100/SDL` boundary, non-empty-directory refusal,
+- The fixed `/home/<user>/SDL` boundary, non-empty-directory refusal,
   no-overwrite/no-delete policy, scheduler-spool prohibition and exact job-ID
   cancellation authority remain unchanged.
 - Unknown scheduler, process, transport, parser, freshness, termination or

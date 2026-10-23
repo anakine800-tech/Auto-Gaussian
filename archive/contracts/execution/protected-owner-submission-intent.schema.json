@@ -23,7 +23,7 @@
     "job_name": {"$ref": "#/$defs/project"},
     "remote_workdir": {
       "type": "string",
-      "pattern": "^/home/user100/SDL/[A-Za-z0-9][A-Za-z0-9_-]{0,14}$(?![\\s\\S])"
+      "pattern": "^/home/<user>/SDL/[A-Za-z0-9][A-Za-z0-9_-]{0,14}$(?![\\s\\S])"
     },
     "input_sha256": {"$ref": "#/$defs/sha"},
     "scientific_task_id": {"type": "string", "minLength": 1},

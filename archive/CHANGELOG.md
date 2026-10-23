@@ -51,7 +51,7 @@ All notable public release changes are recorded here. The project follows
   evidence core; real W6 query/fetch/materialization/advanced inspection, W7
   and live-smoke evidence remain blocked.
 - The existing `legacy_rtwin_pbs` production backend remains permanently fixed
-  below `/home/user100/SDL`. The direct profile contract does not relocate or
+  below `/home/<user>/SDL`. The direct profile contract does not relocate or
   generalize that legacy backend.
 
 ### Safety
@@ -68,7 +68,7 @@ All notable public release changes are recorded here. The project follows
 - Added the minimal B1 legacy RTwin/PBS production path through the existing
   single legacy transaction and effect-owner chain. The path binds the exact
   project, input SHA-256, resources, walltime and one-shot approval, retains
-  the fixed `/home/user100/SDL` root, refuses an existing project directory,
+  the fixed `/home/<user>/SDL` root, refuses an existing project directory,
   permits at most one `qsub`, and records uncertain submission for read-only
   reconciliation without automatic retry.
 - Added the unique production entry and dry-run scope needed to submit,
@@ -120,7 +120,7 @@ All notable public release changes are recorded here. The project follows
   fail-closed legacy-effect handoff and coordination records.
 - Added compatibility-preserving remote-root policy and owner contracts while
   keeping the legacy `legacy_rtwin_pbs` backend permanently below
-  `/home/user100/SDL`.
+  `/home/<user>/SDL`.
 
 ### Scope
 
@@ -613,7 +613,7 @@ All notable public release changes are recorded here. The project follows
 
 ### Safety
 
-- The fixed server boundary remains `/home/user100/SDL`; there is no remote-root
+- The fixed server boundary remains `/home/<user>/SDL`; there is no remote-root
   override.
 - Raw structures and SMILES cannot enter the live runner before the three-tier
   protocol proposal, explicit selection and exact offline input review.

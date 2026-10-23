@@ -56,7 +56,7 @@ reported exactly, ancestors and the leaf must be no-follow, an existing file
 is never replaced, publication uses a validated same-directory temporary inode
 and an atomic no-clobber hard link, and the final mode is `0600`.
 
-All backends remain fixed to `/home/user100/SDL`. The legacy resource catalog
+All backends remain fixed to `/home/<user>/SDL`. The legacy resource catalog
 is exactly simple 8 cores/12 GB, general 22/50, and complex 44/120. A
 `custom_reviewed` tuple is only structurally expressible within 44/120 and is
 still non-authorizing; walltime always remains explicit. PR2 does not create a

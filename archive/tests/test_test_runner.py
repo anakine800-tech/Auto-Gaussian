@@ -35,7 +35,7 @@ def candidate(root: Path, path: str) -> tuple[str, str, dict[str, object]]:
     subprocess.run(["git", "init", "-q", str(root)], check=True)
     subprocess.run(["git", "-C", str(root), "config", "user.name", "Runner Test"], check=True)
     subprocess.run(
-        ["git", "-C", str(root), "config", "user.email", "runner@example.invalid"],
+        ["git", "-C", str(root), "config", "user.email", "runner@example.invalid"],  # scan-public: allow synthetic fixture value
         check=True,
     )
     manifest_path = root / TEST_RUNNER.SELECTOR.MANIFEST_RELATIVE

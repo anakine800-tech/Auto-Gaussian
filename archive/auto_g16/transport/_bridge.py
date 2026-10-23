@@ -626,7 +626,7 @@ def _build_rtwin_command(snapshot: object, authority: object) -> tuple[str, ...]
     return tuple(command)
 
 _PROGRAM_BOOTSTRAP_SOURCE: Final = r'''import base64,hashlib,json,os,re,selectors,stat,struct,subprocess,sys,time
-MAGIC=b"AGV3"; PROTOCOL="auto-g16-v31-rtwin-bootstrap/1"; ROOT="/home/user100/SDL"; CAP=134217728
+MAGIC=b"AGV3"; PROTOCOL="auto-g16-v31-rtwin-bootstrap/1"; ROOT="/home/<user>/SDL"; CAP=134217728
 OPS={"OBSERVE_PROJECT","PROVISION_PROJECT","ALLOCATE_WORKSPACE","STAGE_EXACT_FILE","SUBMIT_QSUB_ONCE","QUERY_SCHEDULER","STAT_EXACT_FILE","FETCH_EXACT_FILE","RECONCILE_SUBMISSION"}
 ENV={"LANG":"C","LC_ALL":"C","PYTHONNOUSERSITE":"1","PYTHONUTF8":"1"}
 PORTABLE=re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")

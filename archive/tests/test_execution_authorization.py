@@ -261,9 +261,9 @@ class ExecutionAuthorizationTests(unittest.TestCase):
 
         workspace = seal_embedded({
             "root_policy": "fixed_sdl",
-            "allowed_root": "/home/user100/SDL",
+            "allowed_root": "/home/<user>/SDL",
             "project": "safejob",
-            "remote_workdir": "/home/user100/SDL/safejob",
+            "remote_workdir": "/home/<user>/SDL/safejob",
             "fresh_project_required": True,
             "no_overwrite": True,
             "no_symlink": True,
@@ -915,7 +915,7 @@ class ExecutionAuthorizationTests(unittest.TestCase):
         mutations: list[tuple[str, dict[str, object]]] = []
         workspace = copy.deepcopy(self.fixture["authorization"])
         workspace["workspace_binding"]["project"] = "otherjob"
-        workspace["workspace_binding"]["remote_workdir"] = "/home/user100/SDL/otherjob"
+        workspace["workspace_binding"]["remote_workdir"] = "/home/<user>/SDL/otherjob"
         workspace["workspace_binding"] = seal_embedded(workspace["workspace_binding"], "workspace_binding_sha256")
         workspace["runtime_binding"]["workspace_binding_sha256"] = workspace["workspace_binding"]["workspace_binding_sha256"]
         workspace["runtime_binding"] = seal_embedded(workspace["runtime_binding"], "runtime_binding_sha256")

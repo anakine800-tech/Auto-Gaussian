@@ -530,7 +530,7 @@ class ProtectedSubmitContractTests(unittest.TestCase):
             document["operation_order"],
             ["reserve_once", "stage_exact_bundle", "submit_once"],
         )
-        self.assertEqual(document["workspace"]["allowed_root"], "/home/user100/SDL")
+        self.assertEqual(document["workspace"]["allowed_root"], "/home/<user>/SDL")
         self.assertTrue(document["authority"]["scope"]["stage"])
         self.assertTrue(document["authority"]["scope"]["submit"])
         for denied in (

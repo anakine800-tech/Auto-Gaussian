@@ -14,7 +14,7 @@ successor after PR4N.
 - It stably reads the owner-selected runtime config and first-hop SSH config,
   recomputes the protected two-hop config binding, and binds normalized
   Windows root/project identities without publishing private path text.
-- It keeps `/home/user100/SDL` fixed and exposes no remote-root override.
+- It keeps `/home/<user>/SDL` fixed and exposes no remote-root override.
 - It writes an append-only sibling journal, leaving the PR4L directory and
   every historical artifact unchanged. Ready initialization publishes only a
   complete staged inode; explicit recovery may complete an absent/empty ready

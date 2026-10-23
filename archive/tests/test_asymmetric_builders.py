@@ -50,7 +50,7 @@ class AsymmetricBuilderTests(unittest.TestCase):
             self.assertAlmostEqual(records["wang2024_bf3_ts1"]["coordinate_changes"][0]["distance_pairs"][0]["measured_from_coordinates_angstrom"], 1.42932434)
             self.assertAlmostEqual(records["wang2024_bf3_ts2_b1"]["coordinate_changes"][0]["distance_pairs"][0]["measured_from_coordinates_angstrom"], 2.15133529)
             serialized = first.read_text(encoding="utf-8").lower()
-            for forbidden in ("qsub", "nprocshared", "/home/user100/sdl", "#p "):
+            for forbidden in ("qsub", "nprocshared", "/home/<user>/sdl", "#p "):
                 self.assertNotIn(forbidden, serialized)
 
     def test_wang_bf3_literature_builder_rejects_coordinate_tampering(self) -> None:
@@ -411,7 +411,7 @@ class AsymmetricBuilderTests(unittest.TestCase):
             self.assertEqual(incomplete_acceptance["status"], "blocked_incomplete_acceptance_review")
             self.assertEqual(len(incomplete_acceptance["decision_summary"]["blocked_sections"]), 4)
             serialized_observation = observation_path.read_text(encoding="utf-8").lower()
-            for forbidden in ("qsub", "#p ", "/home/user100/sdl", "gaussian-asymmetric-ts-result/1"):
+            for forbidden in ("qsub", "#p ", "/home/<user>/sdl", "gaussian-asymmetric-ts-result/1"):
                 self.assertNotIn(forbidden, serialized_observation)
 
             incomplete_path = root / "metal-result-incomplete.json"

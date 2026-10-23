@@ -59,7 +59,7 @@ not a menu of default methods.
   broken-symmetry, excited-state, multireference, periodic, and ONIOM cases.
   Mark such candidates `unsupported_requires_extension` and
   `calculation_ready: false`.
-- Keep any later server work below `/home/user100/SDL` and require the existing
+- Keep any later server work below `/home/<user>/SDL` and require the existing
   structure, stereochemistry, charge, multiplicity, route, resources,
   fresh-directory, and input-hash approval gates.
 - Never claim a TS from frequency count alone. Require exactly one raw
