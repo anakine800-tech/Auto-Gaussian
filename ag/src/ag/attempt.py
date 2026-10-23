@@ -357,6 +357,8 @@ def verified_files(cfg, path, manifest):
 
 def summary(cfg, m):
     from ag.remote import attempt_dir
+    from ag.route import prepare_hint
+    hint = prepare_hint(cfg, m)
     cfg = for_manifest(cfg, m)
     science = m['science']
     from ag import budget
@@ -409,7 +411,7 @@ def summary(cfg, m):
             f"Method basis: {m['science']['method_basis']}\n\nRoute: {m['science']['route']}\n\n"
             f"Charge / multiplicity: {m['science']['charge']} / {m['science']['multiplicity']}\n\n"
             f"{m['science']['stereochemistry_warning']}\n\n" + geometry + attachment_summary +
-            '\n'.join(f"- {r['name']}: {r['sha256']}" for r in m['inputs']))
+            '\n'.join(f"- {r['name']}: {r['sha256']}" for r in m['inputs']) + hint)
 
 
 def cost_line(m):
