@@ -150,6 +150,7 @@ Multiwfn 为可选程序：只有使用 `multiwfn` 模板时才需配置 `progra
 | `ag dedup '<XYZ_FILE>' --charge 0 --out '<ANALYSES_DIR>' --json` | 按已确认电荷去重；此例为中性体系 |
 | `ag cluster '<DEDUP_JSON>' --max 20 --json` | 从去重结果选择代表构象 |
 | `ag graph --study '<STUDY_DIR>' --json` | 展示 Attempt 父子关系 |
+| `ag catalog show '<STUDY_DIR>' --json` / `ag catalog suggest '<STUDY_DIR>'` | 只读查看对象与当前采用结果，或打印 parents 分组建议；登记命令和前端字段见 [ag-catalog/1](docs/ag-catalog-1.md) |
 | `ag irc-compare --ts '<TS>' --forward '<FORWARD>' --reverse '<REVERSE>' --reactant '<REACTANT>' --product '<PRODUCT>' --out '<NEW_REPORT_JSON>' --json` | 双向 IRC 端点与参考结构的映射比较 |
 | `ag topology '<ATTEMPT_ID>' --study '<STUDY_ID>' --out '<NEW_REPORT_JSON>' --json` | 比较提交与最终结构，报告成键、质子及立体差异；TS 用 `--pair i-j` 仅报告距离，同时生成 Markdown 摘要 |
 | `ag fragments '<ATTEMPT_OR_XYZ>' --study '<STUDY_DIR>' --out 'analyses/<NEW_REPORT>.json' --json` | 按共价半径识别片段，报告编号映射、分子式和跨片段不确定接触，独占导出 JSON、Markdown 与各片段 XYZ；单片段仅报告，电荷与多重度由人确认 |
@@ -165,6 +166,10 @@ Multiwfn 为可选程序：只有使用 `multiwfn` 模板时才需配置 `progra
 `unknown`、`failed_presubmit` 或计算失败不构成重提同一 Attempt 的理由。
 
 ## 新增命令用法与证据维护
+
+`ag catalog object/member/adopt/retire/report-kind <study>` 在独立 catalog 日志登记对象、归属、采用和报告类别，
+支持 `--dry-run`，不改已有研究证据。`adopt --quote` 只能逐字引用负责人在本 study 当前对话的原话；
+已签结论也要按 study 逐个授权补登记。采用状态不替代科学签字。格式与示例见 [ag-catalog/1](docs/ag-catalog-1.md)。
 
 ```bash
 # 只读查询本机集群；附加目录核对只返回是否匹配，不公开路径
