@@ -136,7 +136,7 @@
 
 2026-10-23 负责人批准：“批准方案，CI 通过后逐次确认提交”。
 首轮 HEAD 的 CI 为 ag/tests 3843 passed、1 skipped，skills-next 509 passed，
-CodeQL 通过；以下前四个作业均逐次经 Mac 系统确认。
+CodeQL 通过；以下五个作业均逐次经 Mac 系统确认。
 
 使用专门的非研究验证 study；工单第 4 个场景拆成 Stable=Opt 与后续 SP，
 共 5 个新 Attempt，串行执行。目标 `default`，当前最小档位 `mini`：
@@ -180,7 +180,7 @@ ch2-sp `5ace36b863036483451bba18acf2a0c549d2f15206cae8891a6796c852be39e9`。
 | 004-water-freq | 退出 0、normal；父最终坐标，阈值 default，两套判据均过、0 虚频；thermo 成功且 warnings=[]，符合本例不应触发差异警告的预期 |
 | 002-water-stable | 退出 0、normal；already stable 行 530，最低本征值 0.3087461（行 525）；SCF 自旋无记录，s2=null |
 | 003-ch2-stable | 退出 0、normal；s2=2.0160、湮灭后 2.0001（行 401）；发现 archive route 回显误清空稳定性，暂停后续提交并修复；只读重算验证 stable（行 617）、最低本征值 0.3098649（行 610），保留原 facts 字节 |
-| 005-ch2-sp | 本地 prepare 完成；修复后 CI 通过，父作业自动离队，专用 chk 元数据/资源预检查通过；Mac 确认未完成，ag 返回提交取消，仍为 prepared，无提交声明或作业号 |
+| 005-ch2-sp | 首次 Mac 确认未完成，未消耗提交声明；复核后由负责人重新确认，父 chk 专用复制与输入上传哈希通过。退出 0、normal；最终且唯一 SCF Done 行 238，s2=2.0160、湮灭后 2.0001（行 244），行 245 离开 SCF Link 502，normal termination 行 382；三个自旋 fact_sources 均指向作业段 1 |
 
 新增回归采用本次水/CH₂ 的脱敏格式片段；archive 元数据及外层 job wrapper
 人工构造。修复与上述格式回归共 250 passed；修复提交 `26cfaec` 的 CI
@@ -189,8 +189,24 @@ ch2-sp `5ace36b863036483451bba18acf2a0c549d2f15206cae8891a6796c852be39e9`。
 回归覆盖，不宣称本次真实复现。没有对已有 study 执行 reparse。
 
 负责人明确选择等待父作业自动离队、不取消；只读观察确认其记录随后消失，
-全程未执行取消。第五项预检查时父 chk 为 696320 bytes；尚未发生复制或提交。
+全程未执行取消。第五项父 chk 为 696320 bytes，复制前后的父文件与新目录
+目标文件哈希一致；仅走 ag 专用复制，保留父文件。
 
-当前阻塞：**提交**——第五项的 Mac 确认未完成，尚未提交；真实验证仅完成
-4/5，不声明全部验收通过。后续恢复时仍须重新核对输入及父 chk，并由负责人点击确认。
-**科学审阅**——facts 语义与 thermo 提示尚待监督方审阅。
+### 第五项证据与监督方核对
+
+2026-10-23 负责人在开发会话转达监督方对 `26cfaec` 的审阅：代码通过，合并
+前须完成第五项且经监督方核对。第五项执行与解析使用 `81bacdb`、dirty=false；
+其相对已审阅提交仅修改本工单，没有代码变化。
+
+- `ch2-sp.log` SHA-256：`d5cc5b5b4563761534ca01c13a9eff9e0947ebd16c244c2450c7d9883d94ca2c`。
+- `facts.json` SHA-256：`62079fc627ade5bfdb581d4e29e15a68abd3a7939b898d1d2cef0f92ca603b6a`。
+- `s2_line=244` 对应 SCF 后的 `S**2 before annihilation 2.0160, after 2.0001`；
+  位于行 238 的最终 SCF Done 与行 245 的 Leave Link 502 之间，不取初猜或其他 `<S**2>` 标签。
+- 本次只新增第五项 facts；前四项 facts 保留原字节，没有 reparse。
+- 原始日志、复制校验与只读核对报告均保留在仓库外的验证 study；PR 仅放脱敏结论。
+
+非阻塞审阅意见已记录：未来获准 reparse dry-run 时，parser 规则版本由
+`route-join-v1` 到 `route-join-v2` 的差异为预期；这不授权自动 reparse。
+
+工程验证执行及来源核对完成 **5/5**。当前阻塞仅为 **科学审阅**：代码已由
+监督方审阅通过（负责人转达），第五项真实证据仍须监督方核对；不声明已获准合并。
