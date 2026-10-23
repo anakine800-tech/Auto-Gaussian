@@ -303,8 +303,13 @@ def test_doctor_alias_identity(multi, monkeypatch, changed, expected):
     assert config.unmerged_clusters(config.select_cluster(multi, 'default')) == expected
 
 
+# Match T110 MonitorFieldsTests at frontend commit 113230d: accepted labels
+# must survive the frontend validator, including Unicode/control boundaries.
 @pytest.mark.parametrize('name', ['default', 'batch'])
-@pytest.mark.parametrize('value', [None, '', 'a' * 33, 'a\nb', 'a\tb', '\x1b[31m', 123, True])
+@pytest.mark.parametrize('value', [
+    None, 3, [], '', '筛' * 33, 'line\nbreak', 'tab\tname', 'bad\x00name', '\u200bhidden',
+    '\x1b[31m', True,
+])
 def test_display_name_rejects_invalid_values(multi, name, value):
     multi['clusters'][name]['display_name'] = value
     with pytest.raises(config.ConfigError, match='display_name'):
@@ -314,7 +319,7 @@ def test_display_name_rejects_invalid_values(multi, name, value):
             config.load_config(write_config(multi))
 
 
-@pytest.mark.parametrize('value', ['初筛入口', 'a' * 32])
+@pytest.mark.parametrize('value', ['scnet-初筛', '筛' * 32])
 def test_display_name_discovery_cli_is_local_and_preserves_identity(multi, tmp_path, monkeypatch, capsys, value):
     from test_clusters import query
     multi['clusters']['batch']['display_name'] = value
