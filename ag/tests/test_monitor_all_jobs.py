@@ -6,11 +6,11 @@ import subprocess
 
 import pytest
 
-from ag import config, monitor, pbs, remote, slurm, status
+from ag import budget, config, monitor, pbs, remote, slurm, status, submission
 from ag.transport import Result, SSHConnectionError, READ_OPERATIONS
 from test_core import cfg, write_config
 from test_monitor import Fake as PBSFake, job, attempt
-from test_slurm import multi, SlurmFake
+from test_slurm import multi, SlurmFake, prepare
 
 
 NOW = datetime(2026, 1, 1, 1, tzinfo=timezone.utc)
@@ -43,6 +43,8 @@ def test_all_jobs_association_allocated_requested_and_completed(cfg):
     assert [(r['cores'], r['cores_kind']) for r in rows] == [(6, 'allocated')] * 4 + [(8, 'requested')] * 2
     assert result['own']['cores_in_use'] == 8  # Admission accounting is unchanged.
     assert result['own']['jobs'] == [rows[0]]
+    assert all(r['mem_source'] == 'scheduler' for r in rows)
+    assert result['cluster']['job_summary_error'] is None
     assert result['own']['mem_running_gb'] == 12.0
     assert result['own']['mem_queued_gb'] == 0
     assert result['cluster']['job_summary'] == dict(running_jobs=4, running_cores=24,
@@ -168,6 +170,8 @@ def test_slurm_partition_totals_own_account_and_no_node_rows(multi):
     assert result['cluster']['jobs'] == result['own']['jobs']
     assert all(r['mine'] and r['user'] == 'userA' for r in result['cluster']['jobs'])
     assert result['own']['mem_running_gb'] is None
+    assert all(r['mem_gb'] is None and r['mem_source'] is None for r in result['own']['jobs'])
+    assert result['cluster']['job_summary_error'] is None
     assert result['own']['jobs'][0]['elapsed_seconds'] == 600
     assert result['own']['jobs'][2]['elapsed_seconds'] == 86400
 
@@ -192,26 +196,109 @@ def test_no_partition_never_queries_cluster(multi):
 
 
 @pytest.mark.parametrize('part', ['hardware', 'allocmem'])
-def test_slurm_hardware_failure_does_not_hide_jobs(multi, monkeypatch, part):
+@pytest.mark.parametrize('failure', ['query', 'parse', 'timeout'])
+def test_slurm_hardware_failure_does_not_hide_jobs(multi, monkeypatch, part, failure):
     entry = config.select_cluster(multi, 'batch')
     monkeypatch.setattr(monitor, 'login_user', lambda _: 'userA')
     fake = PartitionFake(entry)
-    setattr(fake, part, Result(1, stderr=entry['ssh']['host'] + ' unavailable'))
+    failures = dict(query=Result(1, stderr=entry['ssh']['host'] + ' unavailable'),
+                    parse=Result(stdout='unknown'),
+                    timeout=subprocess.TimeoutExpired('sinfo', 30))
+    setattr(fake, part, failures[failure])
     result = monitor.sample(entry, fake)
     assert result['ok'] and len(result['own']['jobs']) == 3
-    assert not result['cluster']['hardware_capacity_known']
-    assert result['cluster']['hardware']['cores_total'] is None
-    assert 'fixture' not in result['cluster']['hardware']['error']
+    hardware = result['cluster']['hardware']
+    assert hardware['mem_allocated_gb'] is None
+    assert hardware['error'] and 'fixture' not in hardware['error']
+    if part == 'hardware':
+        assert not result['cluster']['hardware_capacity_known']
+        assert all(v is None for k, v in hardware.items() if k not in ('source', 'error'))
+    else:
+        assert result['cluster']['hardware_capacity_known']
+        assert {k: hardware[k] for k in ('cores_total', 'cores_allocated', 'cores_idle',
+                                         'cores_other', 'mem_total_gb')} == dict(
+            cores_total=64, cores_allocated=24, cores_idle=36, cores_other=4, mem_total_gb=128.0)
 
 
-def test_partition_job_failure_retains_last_success(multi, monkeypatch):
+def test_allocmem_failure_preserves_heterogeneous_memory_warning(multi):
+    entry = config.select_cluster(multi, 'batch')
+    fake = PartitionFake(entry)
+    fake.hardware = Result(stdout='24/36/4/64|65536+|2\n')
+    fake.allocmem = Result(stdout='unknown')
+    hardware = monitor.observation(entry, fake, 'userA')['cluster']['hardware']
+    assert hardware['cores_total'] == 64 and hardware['mem_total_gb'] is None
+    assert '异构' in hardware['error'] and 'AllocMem' in hardware['error']
+
+
+@pytest.mark.parametrize('failure', [Result(1, stderr='batch-fixture unavailable'),
+                                   Result(stdout='invalid'), SSHConnectionError('batch-fixture timeout')])
+def test_partition_job_failure_keeps_fresh_own_jobs(multi, monkeypatch, failure):
+    entry = config.select_cluster(multi, 'batch')
+    monkeypatch.setattr(monitor, 'login_user', lambda _: 'userA')
+    fake = PartitionFake(entry)
+    monitor.sample(entry, fake)
+    fake.partition_jobs = failure
+    fake.queue = Result(stdout='904|water|userA|RUNNING|6|10:00|fixture\n')
+    after = monitor.sample(entry, fake)
+    assert after['ok'] and after['error'] is None
+    assert after['own']['cores_running'] == 6 and len(after['own']['jobs']) == 1
+    assert after['own']['jobs'][0]['job_id'] == 'batch:904'
+    assert after['cluster']['jobs'] == after['own']['jobs']
+    assert all(v is None for v in after['cluster']['job_summary'].values())
+    assert after['cluster']['job_summary_error'] and 'fixture' not in after['cluster']['job_summary_error']
+    assert after['cluster']['hardware']['cores_total'] == 64
+    fake.partition_jobs = Result(stdout='RUNNING|6\n')
+    recovered = monitor.sample(entry, fake)
+    assert recovered['ok'] and recovered['cluster']['job_summary_error'] is None
+    assert recovered['cluster']['job_summary']['running_cores'] == 6
+
+
+def test_own_job_failure_still_retains_last_success(multi, monkeypatch):
     entry = config.select_cluster(multi, 'batch')
     monkeypatch.setattr(monitor, 'login_user', lambda _: 'userA')
     fake = PartitionFake(entry)
     before = monitor.sample(entry, fake)
-    fake.partition_jobs = Result(1, stderr='fixture unavailable')
+    fake.calls.clear()
+    fake.queue = Result(1, stderr='batch-fixture unavailable')
     after = monitor.sample(entry, fake)
-    assert not after['ok'] and after['cluster'] == before['cluster']
+    assert not after['ok'] and after['error'] and 'fixture' not in after['error']
+    assert after['own'] == before['own'] and after['cluster'] == before['cluster']
+    assert fake.calls == [remote.slurm_jobs(user='userA')]
+
+
+@pytest.mark.parametrize('memory', [12, None])
+@pytest.mark.parametrize('state,field', [('RUNNING', 'mem_running_gb'), ('PENDING', 'mem_queued_gb')])
+def test_slurm_memory_uses_exact_bound_manifest(multi, tmp_path, memory, state, field):
+    path, manifest = prepare(multi, tmp_path)
+    entry = config.select_cluster(multi, 'batch')
+    if memory is None:
+        manifest.pop('mem_gb')
+        (path / 'manifest.json').write_text(json.dumps(manifest))
+    submission.record(path, manifest, '901')
+    (path / 'status.json').write_text(json.dumps(dict(state='submitted', job_id='batch:901')))
+    budget.write(entry, dict(cluster='batch', attempts={}))
+    # A different cluster with the same raw ID must never supply the memory.
+    other, other_manifest = prepare(multi, tmp_path, cluster='default')
+    submission.record(other, other_manifest, '901')
+    (other / 'status.json').write_text(json.dumps(dict(state='submitted', job_id='default:901')))
+    # Current tier changes must not retroactively change the prepared memory.
+    entry['resources']['tiers']['simple']['mem_gb'] = 99
+    fake = PartitionFake(entry)
+    fake.queue = Result(stdout=f'901|unrelated-name|userA|{state}|8|10:00|fixture\n')
+    before = {p: p.read_bytes() for p in path.iterdir() if p.is_file()}
+    result = monitor.observation(entry, fake, 'userA')
+    row = result['own']['jobs'][0]
+    assert row['attempt'] == manifest['attempt_id'] and row['mem_gb'] == memory
+    assert row['mem_source'] == ('manifest' if memory is not None else None)
+    assert result['own'][field] == memory
+    # A matching name with a different job ID remains unassociated.
+    fake.queue = Result(stdout=f"902|{manifest['attempt_id']}|userA|{state}|8|10:00|fixture\n")
+    result = monitor.observation(entry, fake, 'userA')
+    row = result['own']['jobs'][0]
+    assert row['attempt'] is None and row['mem_gb'] is None and row['mem_source'] is None
+    assert result['own'][field] is None
+    assert {p: p.read_bytes() for p in before} == before
+
 
 
 def test_heterogeneous_sinfo_memory_is_unknown():

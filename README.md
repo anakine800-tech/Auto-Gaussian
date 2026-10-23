@@ -353,7 +353,7 @@ Slurm 的 `cluster.budget` 为 null，clusters 查询省略 budget；本地台�
 ```bash
 python -m pytest ag/tests skills-next -q -rs
 # 仅暂存本任务文件后：
-python ag/tools/scan_sensitive.py --staged
+python scripts/scan_public.py --staged
 ```
 
 开发前阅读 [DEVELOPING.md](docs/DEVELOPING.md) 和 [LESSONS.md](docs/LESSONS.md)。

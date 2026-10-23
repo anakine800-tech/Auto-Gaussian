@@ -76,7 +76,8 @@ def parse_queues(text):
 
 
 def local_attempts(root, cluster='default', scheduler=None):
-    return [dict(job_id=job, state=current['state'], study=m['study_id'], attempt=path.name)
+    return [dict(job_id=job, state=current['state'], study=m['study_id'], attempt=path.name,
+                 mem_gb=m.get('mem_gb'))
             for path, m, current, job in attempt.local_records(root, cluster, scheduler)
             if job is not None]
 
@@ -106,7 +107,7 @@ def observation(cfg, transport, username, *, storage_state=None, sampled_at=None
         link = by_job.get(job['job_id'], {}) if mine else {}
         all_jobs.append(dict(job_id=job['job_id'], user=user, mine=mine,
                              name=job.get('Job_Name'), state=job['job_state'], queue=job.get('queue'),
-                             mem=job.get('Resource_List.mem'), walltime_used=job.get('resources_used.walltime'),
+                             mem=job.get('Resource_List.mem'), mem_source='scheduler', walltime_used=job.get('resources_used.walltime'),
                              walltime_limit=job.get('Resource_List.walltime'),
                              study=link.get('study'), attempt=link.get('attempt'),
                              **pbs.job_fields(job, sampled_at)))
@@ -140,7 +141,7 @@ def observation(cfg, transport, username, *, storage_state=None, sampled_at=None
                 cluster=dict(nodes=nodes, queues=queues, hardware=hardware,
                              cores_total=hardware['cores_total'], cores_used=hardware['cores_allocated'],
                              jobs=all_jobs[:500], jobs_omitted=max(0, len(all_jobs) - 500),
-                             job_summary=job_summary(all_jobs), display_order=cfg.get('display_order')),
+                             job_summary=job_summary(all_jobs), job_summary_error=None, display_order=cfg.get('display_order')),
                 warnings=warnings)
 
 
@@ -190,7 +191,7 @@ def empty_snapshot(cfg, interval=None):
                          committed_cap=committed_cap(cfg), jobs=[], mem_running_gb=None, mem_queued_gb=None,
                          **shared_fields(cfg)),
                 cluster=dict(nodes=[], queues=[], cores_total=0, cores_used=0,
-                             jobs=[], jobs_omitted=0, job_summary=empty_summary(),
+                             jobs=[], jobs_omitted=0, job_summary=empty_summary(), job_summary_error=None,
                              hardware=empty_hardware('sinfo' if scheduler_kind(cfg) == 'slurm' else 'pbsnodes'),
                              display_order=cfg.get('display_order')), warnings=[])
 
@@ -325,7 +326,9 @@ def slurm_observation(cfg, transport, username, *, storage_state=None):
             continue
         link = by_job.get(job['job_id'], {})
         own.append(dict(user=username, mine=True, cores_kind='allocated' if job['state'] in slurm.RUNNING else 'requested',
-                        mem_gb=None, start_time=None, qtime=None, walltime_limit_seconds=None,
+                        mem_gb=link.get('mem_gb'),
+                        mem_source='manifest' if link.get('mem_gb') is not None else None,
+                        start_time=None, qtime=None, walltime_limit_seconds=None,
                         elapsed_seconds=slurm_elapsed(job['elapsed']),
                         elapsed_source='walltime_used' if slurm_elapsed(job['elapsed']) is not None else None,
                         job_id=cfg['_cluster'] + ':' + job['job_id'], name=job['name'],
@@ -347,14 +350,14 @@ def slurm_observation(cfg, transport, username, *, storage_state=None):
     if running + queued + held > total_cap:
         warnings.append(dict(kind='over-cap', job_id=None, study=None, attempt=None,
                              detail=f'本人运行加排队 {running + queued} 核、同组本地未观测预留 {held} 核，超过上限 {total_cap} 核'))
-    # Partition job-query failures are sampling failures, just like own squeue.
-    summary, hardware = slurm_partition(cfg, transport, own)
+    summary, hardware, summary_error = slurm_partition(cfg, transport, own)
     storage_sample(cfg, transport, storage_state)
     return dict(own=dict(cores_in_use=running + queued, cores_running=running, cores_queued=queued,
                          core_cap=cap, committed_cap=total_cap, jobs=own, **memory_totals(own), **shared_fields(cfg)),
                 cluster=dict(nodes=[], queues=[], cores_total=0, cores_used=0,
                              hardware_capacity_known=hardware['cores_total'] is not None,
                              hardware=hardware, jobs=own, jobs_omitted=0, job_summary=summary,
+                             job_summary_error=summary_error,
                              display_order=cfg.get('display_order'), name=cfg['_cluster'], scheduler='slurm',
                              **storage_state, expiry_warning=expiry,
                              budget=budget_summary, expires=cfg.get('expires')), warnings=warnings)
@@ -527,28 +530,35 @@ def slurm_elapsed(value):
 def slurm_partition(cfg, transport, own):
     partition = cfg.get('partition')
     if not partition:
-        return empty_summary(), empty_hardware('sinfo', '未配置分区')
-    summary = slurm.parse_partition_jobs(require_ok(
-        transport.run(remote.slurm_partition_jobs(partition)), 'squeue partition jobs'))
-    mine = job_summary([row for row in own if row['queue'] == partition])
+        return empty_summary(), empty_hardware('sinfo', '未配置分区'), None
+    summary_error = None
     inconsistent = False
-    for key, value in list(summary.items()):
-        difference = value - mine[key]
-        summary['others_' + key] = difference if difference >= 0 else None
-        inconsistent |= difference < 0
     try:
-        hardware = empty_hardware('sinfo')
+        summary = slurm.parse_partition_jobs(require_ok(
+            transport.run(remote.slurm_partition_jobs(partition)), 'squeue partition jobs'))
+        mine = job_summary([row for row in own if row['queue'] == partition])
+        for key, value in list(summary.items()):
+            difference = value - mine[key]
+            summary['others_' + key] = difference if difference >= 0 else None
+            inconsistent |= difference < 0
+    except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
+        summary = empty_summary()
+        summary_error = redact_stderr(f'Partition job query failed: {exc}', cfg)
+    hardware = empty_hardware('sinfo')
+    try:
         hardware.update(slurm.parse_partition_hardware(require_ok(
             transport.run(remote.slurm_partition_hardware(partition)), 'sinfo partition hardware')))
-        hardware['mem_allocated_gb'] = slurm.parse_allocmem(require_ok(
-            transport.run(remote.slurm_partition_allocmem(partition)), 'sinfo AllocMem'))
         if hardware['mem_total_gb'] is None:
             hardware['error'] = 'sinfo 内存为异构节点最小值，总内存未知'
+        hardware['mem_allocated_gb'] = slurm.parse_allocmem(require_ok(
+            transport.run(remote.slurm_partition_allocmem(partition)), 'sinfo AllocMem'))
     except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
-        hardware = empty_hardware('sinfo', redact_stderr(f'Hardware query failed: {exc}', cfg))
+        # An AllocMem failure must not erase a successful CPU/total-memory sample.
+        hardware['error'] = '; '.join(filter(None, [hardware['error'],
+            redact_stderr(f'Hardware query failed: {exc}', cfg)]))
     if inconsistent:
         for key in summary:
             if key.startswith('others_'):
                 summary[key] = None
         hardware['error'] = '; '.join(filter(None, [hardware['error'], '两次作业查询不一致，他人汇总出现负数']))
-    return summary, hardware
+    return summary, hardware, summary_error

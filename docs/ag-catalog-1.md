@@ -53,7 +53,7 @@ retire 保留成员与采用历史，后续元数据更新或采用不自动恢�
 
 报告路径以 `analyses/` 为基准，也接受带 `analyses/` 前缀的写法，统一保存为 analyses 相对路径。
 规范化后必须是 analyses 内现存文件，拒绝绝对路径、越界和符号链接；adopt 的可选 report 同样核对。
-类别为 `formal|energy|state-check|ensemble|irc|thermo|stage-review|figure|other`。
+类别为 `formal|energy|state-check|ensemble|irc|thermo|stage-review|figure|coverage|ts|nci|other`。
 
 ## 追加日志字段
 
@@ -128,7 +128,9 @@ facts 的后续变化不会由 show 自动刷新；数值是最近一次 catalog
 
 ## 写入与中断
 
-使用 locks.py 的文件锁，锁位于本 study 的 `catalog/submit.lock`，与全局作业提交锁互不干扰。
+读写共用本 study 的 `catalog/catalog.lock` 文件锁，与全局作业提交锁互不干扰。
+旧 `catalog/submit.lock` 文件保留且不再读取；升级前先等待旧版 catalog 命令全部退出，避免新旧进程锁不同文件。
+命令结束时释放文件锁，锁文件本身保留，不删除或改名。
 核对、自动成员、采用、状态派生均在同一写锁内；只读操作只锁已有锁文件。
 日志通过 `O_APPEND` 追加并 fsync，状态使用同目录临时文件、fsync、os.replace，再同步目录。
 读取现有证据前拒绝符号链接。catalog 不调用 facts 解析器，原有文件字节与时间戳保持不变。

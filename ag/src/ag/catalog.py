@@ -19,13 +19,12 @@ import tempfile
 
 from ag import attempt, study
 from ag.config import load_config
-from ag.locks import submission_lock
 
 
 ROLES = ('crest', 'scan', 'ts', 'opt', 'freq', 'stable', 'irc', 'sp', 'other')
 ADOPT_ROLES = ('opt', 'freq', 'sp')
 KINDS = ('formal', 'energy', 'state-check', 'ensemble', 'irc', 'thermo',
-         'stage-review', 'figure', 'other')
+         'stage-review', 'figure', 'coverage', 'ts', 'nci', 'other')
 OBJECT_FIELDS = ('name', 'state_label', 'multiplicity', 'conformer', 'note')
 
 
@@ -61,14 +60,14 @@ def catalog_path(root, name):
 
 
 @contextmanager
-def read_lock(root):
-    """Synchronize with writers without creating files for read-only commands."""
-    path = catalog_path(root, 'submit.lock')
-    if not path.exists():
+def catalog_lock(root, *, write=False):
+    """Use one catalog lock; read-only commands never create the lock file."""
+    path = catalog_path(root, 'catalog.lock')
+    if not write and not path.exists():
         yield
         return
-    with path.open('rb') as handle:
-        fcntl.flock(handle, fcntl.LOCK_SH)
+    with path.open('a' if write else 'rb') as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX if write else fcntl.LOCK_SH)
         try:
             yield
         finally:
@@ -336,14 +335,12 @@ def change(root, op, *, dry_run=False, **fields):
         return data, events, b''.join(lines), added, checks, warnings
 
     if dry_run:
-        with read_lock(root):
+        with catalog_lock(root):
             _, _, _, added, checks, warnings = prepare()
     else:
         directory = catalog_path(root, 'journal.jsonl').parent
         directory.mkdir(exist_ok=True)
-        catalog_path(root, 'submit.lock')
-        # Reuse locks.py with a study-local directory, never the global submit lock.
-        with submission_lock({'_config_dir': str(directory)}):
+        with catalog_lock(root, write=True):
             data, events, new, added, checks, warnings = prepare()
             target = catalog_path(root, 'state.json')
             if target.exists() and not target.is_file():
@@ -372,7 +369,7 @@ def change(root, op, *, dry_run=False, **fields):
 
 def show(root):
     root = resolve_study(root)
-    with read_lock(root):
+    with catalog_lock(root):
         data, events, _ = read_journal(root)
         path = catalog_path(root, 'state.json')
         if not path.exists():
@@ -390,7 +387,7 @@ def show(root):
 
 def suggest(root):
     root = resolve_study(root)
-    with read_lock(root):
+    with catalog_lock(root):
         _, events, _ = read_journal(root)
         objects, _ = replay(events)
         assigned = {m['attempt'] for obj in objects.values() for m in obj['members']}

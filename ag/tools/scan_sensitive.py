@@ -1,3 +1,4 @@
+# 已由 scripts/scan_public.py 取代。
 """Scan changed Git blobs without printing potentially sensitive values."""
 
 import argparse
