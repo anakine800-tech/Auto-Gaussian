@@ -265,7 +265,7 @@ def plan(root, events, op, **fields):
                 checks.update(adoption_checks)
                 if not any(m['attempt'] == path.name for m in objects[identity]['members']):
                     pending.append(dict(op='member', object=identity, attempt=path.name,
-                                        role=roles[0], force_role=False))
+                                        role=role if role in roles else roles[0], force_role=False))
                 fields = dict(object=identity, attempt=path.name, role=role, quote=quote,
                               report=report, checks=adoption_checks)
     elif op == 'report-kind':
@@ -281,9 +281,10 @@ def derived_state(root, events, data):
     objects, kinds = replay(events)
     for obj in objects.values():
         obj.pop('note')  # Notes remain in the authoritative object events.
-        values = dict(scf_h=None, zpe_h=None, g_h=None,
-                      source=dict(scf_h=None, zpe_h=None, g_h=None))
-        for role, mapping in (('sp', {'scf_h': 'scf'}), ('freq', {'zpe_h': 'zpe', 'g_h': 'g'})):
+        values = dict(scf_h=None, freq_scf_h=None, zpe_h=None, g_h=None,
+                      source=dict(scf_h=None, freq_scf_h=None, zpe_h=None, g_h=None))
+        for role, mapping in (('sp', {'scf_h': 'scf'}),
+                              ('freq', {'freq_scf_h': 'scf', 'zpe_h': 'zpe', 'g_h': 'g'})):
             adopted = obj['adopted'][role]
             if adopted is None:
                 continue

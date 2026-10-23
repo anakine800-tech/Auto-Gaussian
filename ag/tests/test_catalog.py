@@ -85,8 +85,8 @@ def test_lifecycle_chain_values_and_existing_files_unchanged(water):
     actual = value['objects'][0]
     assert actual['status'] == 'adopted' and actual['multiplicity'] == 1
     assert actual['adopted']['sp']['quote'] == QUOTE
-    assert actual['values'] == dict(scf_h=-76.5, zpe_h=0.02, g_h=-76.48,
-                                   source=dict(scf_h=sp, zpe_h=opt, g_h=opt))
+    assert actual['values'] == dict(scf_h=-76.5, freq_scf_h=-76.5, zpe_h=0.02, g_h=-76.48,
+                                   source=dict(scf_h=sp, freq_scf_h=opt, zpe_h=opt, g_h=opt))
     assert {k: files(water)[k] for k in before} == before
     assert value == json.loads((water / 'catalog/state.json').read_text())
     original_journal = data
@@ -97,6 +97,51 @@ def test_lifecycle_chain_values_and_existing_files_unchanged(water):
     assert retired['name'] == 'Renamed' and retired['multiplicity'] == 1
     assert retired['status'] == 'retired' and retired['adopted']['sp']['attempt'] == sp
     assert (water / 'catalog/journal.jsonl').read_bytes().startswith(original_journal)
+
+
+@pytest.mark.parametrize('freq_scf,unit,expected', [
+    (-76.25, 'Hartree', -76.25),
+    (None, 'Hartree', None),
+    (float('nan'), 'Hartree', None),
+    (-76.25, 'eV', None),
+])
+def test_freq_values_copy_their_own_source_without_sp_fallback(water, freq_scf, unit, expected):
+    freq = make_attempt(water, '001-freq', '# HF/STO-3G Freq')
+    sp = make_attempt(water, '002-sp', '# B3LYP/6-31G(d) SP')
+    write_json(water / 'attempts' / freq / 'facts.json',
+               dict(schema='ag-facts/1', units={'energy': unit}, freq_step_review='pass',
+                    energies=dict(scf=freq_scf, zpe=0.02, g=-76.23)))
+    before = files(water)
+    obj(water)
+    adopt(water, freq, 'freq')
+    values = catalog.show(water)[0]['objects'][0]['values']
+    assert values['scf_h'] is None and values['source']['scf_h'] is None
+    adopt(water, sp)
+    values = catalog.show(water)[0]['objects'][0]['values']
+    assert values == dict(scf_h=-76.5, freq_scf_h=expected,
+                          zpe_h=0.02 if unit == 'Hartree' else None,
+                          g_h=-76.23 if unit == 'Hartree' else None,
+                          source=dict(scf_h=sp, freq_scf_h=freq if expected is not None else None,
+                                      zpe_h=freq if unit == 'Hartree' else None,
+                                      g_h=freq if unit == 'Hartree' else None))
+    assert {k: files(water)[k] for k in before} == before
+
+
+@pytest.mark.parametrize('route,role,member_role', [
+    ('# HF/STO-3G Opt Freq', 'freq', 'freq'),
+    ('# HF/STO-3G Opt=(TS,CalcFC) Freq', 'freq', 'freq'),
+    ('# HF/STO-3G Opt=(TS,CalcFC) Freq', 'opt', 'ts'),
+])
+def test_automatic_member_prefers_adoption_role(water, route, role, member_role):
+    identity = make_attempt(water, '001-optfreq', route)
+    obj(water)
+    before = files(water)
+    dry_run = adopt(water, identity, role, dry_run=True)
+    assert dry_run['events'][0]['role'] == member_role and files(water) == before
+    result = adopt(water, identity, role)
+    assert [event['op'] for event in result['events']] == ['member', 'adopt']
+    assert result['events'][0]['role'] == member_role
+    assert catalog.show(water)[0]['objects'][0]['members'] == [dict(attempt=identity, role=member_role)]
 
 
 def test_dry_run_all_operations_and_read_only_cli(water, capsys):

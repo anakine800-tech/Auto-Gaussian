@@ -46,6 +46,8 @@ freq_step_review=fail 拒绝，manual_review 允许登记并在 stderr 醒目警
 CLI 无法证明说话者身份；会话必须逐字引用负责人在**本 study 当前对话**中的原话，
 不得转述、跨会话借用或自行生成。已签结论的补登记，仍须负责人按 study 逐个授权。
 成员不存在时在同一锁内先追加 member，再追加 adopt；已有成员不重复添加。
+自动补 member 时，采用角色属于推断结果则优先使用它（例如 Opt+Freq 以 freq 采用时记 freq）；
+否则保留首个推断角色（例如 TS 以 opt 采用时仍记 ts）。已有成员的角色不随 adopt 改写。
 同角色再次采用覆盖派生视图的当前指针，旧指针和原话留在日志。
 retire 保留成员与采用历史，后续元数据更新或采用不自动恢复对象状态。
 
@@ -98,14 +100,26 @@ retire 保留成员与采用历史，后续元数据更新或采用不自动恢�
 | status | 有采用记录为 adopted，无则 candidate；retired 优先且不自动恢复 |
 | members | `[{"attempt":"精确ID","role":"角色"}]` |
 | adopted | 固定键 opt、freq、sp；每项 null 或 `{attempt, at, quote, report}` |
-| values | 固定键 scf_h、zpe_h、g_h、source |
+| values | 固定键 scf_h、freq_scf_h、zpe_h、g_h、source |
 
-`values` 单位都是 Hartree：scf_h 只复制采用的 SP 的 `facts.energies.scf`，
-zpe_h 和 g_h 只复制采用的 Freq 的 `facts.energies.zpe` 和 `.g`。
-不从 Opt 回退、不计算修正或能量差，G 就是 facts 已报告的 G。
-`values.source` 同样固定 scf_h、zpe_h、g_h，值为被复制数值的 Attempt ID；
+`values` 单位都是 Hartree，逐项含义如下：
+
+| 字段 | 复制来源 | 含义 |
+|---|---|---|
+| scf_h | 被采用 SP 的 `facts.energies.scf` | SP 作业在其自身方法层级上的 SCF 总能量 |
+| freq_scf_h | 被采用 Freq 的 `facts.energies.scf` | Freq 作业在其自身方法层级上的 SCF 总能量，不能用 SP 的 scf_h 替代 |
+| zpe_h | 被采用 Freq 的 `facts.energies.zpe` | 零点校正量，不是加了零点校正后的总能量 |
+| g_h | 被采用 Freq 的 `facts.energies.g` | Freq 作业在其自身方法层级上的总 Gibbs 自由能，不是自由能校正量，也不是 SP 层级的总自由能 |
+
+前端若展示以 Freq 热校正修正 SP 的近似值，所用校正为 `g_h − freq_scf_h`，
+再加到 SP 的 `scf_h` 上；不能直接把 g_h 当作校正量与 SP 能量相加。
+这要求所选作业的几何与热化学条件适用，catalog 不作这一科学判断，
+也不计算上述校正或能量差、不从 Opt 或 SP 回填缺失的 Freq 能量。
+`values.source` 同样固定 scf_h、freq_scf_h、zpe_h、g_h，值为被复制数值的 Attempt ID；
 未采用、facts/字段不可读、单位不是 Hartree 或数值非有限数时，数值和对应 source 均为 null。
 facts 的后续变化不会由 show 自动刷新；数值是最近一次 catalog 写入时的副本。
+旧状态文件可能没有 freq_scf_h，消费者应视为缺失，不用 scf_h 替代；
+后续正常 catalog 写入会生成新增字段，show 不改写旧状态或日志。
 
 前端核对日志完整字节的 SHA-256 与 journal_sha256；不匹配时显示警告，不能把旧视图当作最新登记。
 `show --json` 输出磁盘状态的 JSON 内容，不偷偷重算；缺少日志且无状态时返回空视图、不写文件。

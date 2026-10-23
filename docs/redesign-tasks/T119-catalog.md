@@ -151,3 +151,12 @@ ag catalog suggest     <study>
 - 授权后依次运行 suggest、object dry-run、object、adopt dry-run、adopt、show、show JSON，7 步退出码均为 0；采用原话为工单指定“验证用，非研究结论”。
 - 源 study 与副本原有 94 个文件的 SHA-256 前后全部相同；两次 dry-run 无写入；新增仅 catalog 的 journal、state、锁文件；采用 SCF 与现有 facts 相同，show JSON 与 state 相同。完整输出及哈希清单保留本机临时目录，不进入仓库。
 - 当前阻塞：工程验证无；合并前仍需监督方审阅，研究对象启用和旧签字补登记由负责人逐 study 决定。
+
+## 审阅补充（2026-10-23）
+
+- 监督方已审阅 `5492faf`，负责人在当前会话转交本 PR 的两项补充：派生 values/source 增加 freq_scf_h，逐项解释能量字段；自动 member 优先采用匹配的 adopt 角色。实现仍只复制事实，不计算能量差、不改既有证据。
+- zpe_h 为零点校正量；g_h 为 Freq 自身方法层级的总自由能；freq_scf_h 从同一被采用 Freq 的 SCF 字段复制，缺失或单位/数值不适用时为 null，不回退到 SP。
+- Opt+Freq 以 freq 采用时自动成员记 freq；TS 以 opt 采用时保留 ts。补充合成水分子的不同 SP/Freq 来源、缺失/非有限值/单位、自动成员及 dry-run 回归测试。
+- 本轮本地 `ag/tests/test_catalog.py`：52 passed（14.68 s）；按首次全量之后以 CI 为准的安排，本地只跑受影响测试。
+- T114 合入后 rebase 到 `3f26e36`；唯一冲突为 LESSONS.md 同位置追加，保留双方完整段落。catalog 实现、测试和字段说明字节不变；rebase 后 catalog 与 CLI smoke 共 76 passed（3.04 s）。
+- catalog/submit.lock 改名按审阅意见留待后续，本次保留。新提交需按实际 head 复审，初版通过意见不冒充新提交的审阅结果。
