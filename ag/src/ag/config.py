@@ -5,6 +5,7 @@ import math
 import subprocess
 from datetime import date
 import tomllib
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 class ConfigError(ValueError):
@@ -67,7 +68,7 @@ def load_config(path=None, *, local_only=False):
                 if 'default' in cfg['clusters']:
                     raise ConfigError('Legacy configuration and clusters.default are ambiguous')
                 cfg['clusters']['default'] = {key: cfg[key] for key in ('ssh', 'remote', 'scheduler', 'programs', 'resources')}
-                for key in ('allowed_templates', 'display_name', 'display_order'):
+                for key in ('allowed_templates', 'display_name', 'display_order', 'scheduler_timezone'):
                     if key in cfg:
                         cfg['clusters']['default'][key] = cfg[key]
             for name, cluster in cfg['clusters'].items():
@@ -170,6 +171,16 @@ def validate_cluster(cfg):
     scheduler = scheduler_kind(cfg)
     if scheduler not in ('pbs', 'slurm'):
         raise ConfigError('scheduler must be pbs or slurm')
+    if 'scheduler_timezone' in cfg:
+        if scheduler != 'pbs':
+            raise ConfigError('scheduler_timezone is only supported for PBS')
+        value = cfg['scheduler_timezone']
+        if not isinstance(value, str):
+            raise ConfigError('scheduler_timezone must be an IANA timezone name')
+        try:
+            ZoneInfo(value)
+        except (ValueError, ZoneInfoNotFoundError) as exc:
+            raise ConfigError('scheduler_timezone must be a valid IANA timezone name') from exc
     # Named PBS configs use scheduler="pbs" plus queue; legacy retains its table.
     if scheduler == 'pbs' and cfg.get('scheduler') == 'pbs':
         cfg['scheduler'] = {'queue': cfg['queue']}

@@ -1,6 +1,6 @@
 """T114 synthetic queues and clocks; no live configuration or network access."""
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
 import subprocess
 
@@ -82,6 +82,140 @@ def test_timezone_unknown_and_missing_elapsed():
     assert fields['elapsed_seconds'] is None and fields['elapsed_source'] is None
     parsed['start_time_epoch'] = '1767225600'
     assert pbs.job_fields(parsed, NOW)['elapsed_source'] == 'start_time'
+
+
+@pytest.mark.parametrize('value,tz,expected', [
+    ('Sat Oct 24 09:12:00 2026', 'Asia/Shanghai', '2026-10-24T01:12:00Z'),
+    ('Sun Oct  4 09:12:00 2026', 'Asia/Shanghai', '2026-10-04T01:12:00Z'),
+    ('Sun Oct 4 09:12:00 2026', 'Asia/Shanghai', '2026-10-04T01:12:00Z'),
+    ('Sat Oct 24 09:12:00 2026', None, None),
+    ('Sun Oct 24 09:12:00 2026', 'Asia/Shanghai', None),
+    ('Sat Xxx 24 09:12:00 2026', 'Asia/Shanghai', None),
+    ('Xxx Oct 24 09:12:00 2026', 'Asia/Shanghai', None),
+    ('Tue Feb 30 09:12:00 2026', 'Asia/Shanghai', None),
+    ('Sat Oct 24 24:12:00 2026', 'Asia/Shanghai', None),
+    ('Sat Oct 24 09:60:00 2026', 'Asia/Shanghai', None),
+    ('Sat Oct 24 09:12:60 2026', 'Asia/Shanghai', None),
+    ('2026-10-24T09:12:00', 'Asia/Shanghai', None),
+    # Both sides of a spring gap and autumn fold, including half-hour DST.
+    ('Sun Mar  8 02:30:00 2026', 'America/New_York', None),
+    ('Sun Nov  1 01:30:00 2026', 'America/New_York', None),
+    ('Sun Mar  8 01:30:00 2026', 'America/New_York', '2026-03-08T06:30:00Z'),
+    ('Sun Mar  8 03:30:00 2026', 'America/New_York', '2026-03-08T07:30:00Z'),
+    ('Sun Nov  1 02:30:00 2026', 'America/New_York', '2026-11-01T07:30:00Z'),
+    ('Sun Apr  5 01:45:00 2026', 'Australia/Lord_Howe', None),
+    ('Sun Oct  4 02:15:00 2026', 'Australia/Lord_Howe', None),
+    ('Sat Oct 24 09:12:00 2026', 'UTC', '2026-10-24T09:12:00Z'),
+])
+def test_pbs_text_timestamp(value, tz, expected):
+    assert pbs.timestamp(value, tz) == expected
+
+
+@pytest.mark.parametrize('tz', [None, 'Asia/Shanghai', 'America/New_York'])
+@pytest.mark.parametrize('value', ['1792804320', '2026-10-24T09:12:00+08:00', '2026-10-24T01:12:00Z'])
+def test_explicit_timestamp_ignores_scheduler_timezone(tz, value):
+    assert pbs.timestamp(value, tz) == '2026-10-24T01:12:00Z'
+
+
+def test_english_text_does_not_use_locale_parser(monkeypatch):
+    class NoLocaleDatetime(datetime):
+        @classmethod
+        def strptime(cls, *args, **kwargs):
+            pytest.fail('PBS English text must not use the process locale parser')
+    monkeypatch.setattr(pbs, 'datetime', NoLocaleDatetime)
+    assert pbs.timestamp('Sat Oct 24 09:12:00 2026', 'Asia/Shanghai') == '2026-10-24T01:12:00Z'
+
+
+def test_no_timezone_keeps_explicit_start_elapsed_even_outside_new_threshold(cfg):
+    raw = row(901).replace('start_time = synthetic-time', 'start_time = 2026-01-01T00:00:00Z')
+    result = monitor.observation(cfg, PBSFake(jobs=raw), 'userA',
+                                 sampled_at=NOW + timedelta(hours=2))
+    fields = result['own']['jobs'][0]
+    assert fields['elapsed_seconds'] == 10800 and fields['elapsed_source'] == 'start_time'
+    assert result['warnings'] == [] and result['cluster']['scheduler_timezone'] is None
+
+
+@pytest.mark.parametrize('seconds,walltime,mismatch', [
+    (600, 600, False), (480, 600, False), (479, 600, True),
+    (4200, 600, False), (4201, 600, True),
+    (-120, None, False), (-121, None, True), (-121, 600, True),
+    (600, None, False),
+])
+def test_timezone_elapsed_thresholds_and_private_warning(cfg, seconds, walltime, mismatch):
+    cfg['scheduler_timezone'] = 'Asia/Shanghai'
+    sampled_at = datetime(2026, 10, 24, 2, tzinfo=timezone.utc)
+    local = (sampled_at + timedelta(hours=8, seconds=-seconds)).strftime('Sat Oct 24 %H:%M:%S 2026')
+    raw = row(901).replace('start_time = synthetic-time', f'start_time = {local}')
+    if walltime is None:
+        raw = raw.replace('    resources_used.walltime = 00:10:00\n', '')
+    # Multiple users with the same anomaly still yield one anonymous warning.
+    raw += raw.replace('901.fixture', '902.fixture').replace('userA', 'userB')
+    result = monitor.observation(cfg, PBSFake(jobs=raw), 'userA', sampled_at=sampled_at)
+    fields = result['own']['jobs'][0]
+    expected = walltime if mismatch or seconds < 0 else seconds
+    assert fields['elapsed_seconds'] == expected
+    assert fields['elapsed_source'] == (None if expected is None else
+                                        'walltime_used' if mismatch or seconds < 0 else 'start_time')
+    assert fields['start_time'] is not None
+    assert result['cluster']['scheduler_timezone'] == 'Asia/Shanghai'
+    warnings = result['warnings']
+    assert len(warnings) == int(mismatch)
+    if mismatch:
+        assert warnings[0]['kind'] == 'timezone-mismatch'
+        assert all(warnings[0][key] is None for key in ('job_id', 'study', 'attempt'))
+        assert all(private not in json.dumps(warnings) for private in
+                   ('userA', 'userB', 'water', '901', '902', 'fixture'))
+
+
+@pytest.mark.parametrize('tz', [None, 'Asia/Shanghai', 'America/New_York'])
+def test_pbs_configured_timezone_and_unconfigured_compatibility(cfg, tz):
+    if tz is not None:
+        cfg['scheduler_timezone'] = tz
+    raw = row(901, extra='    qtime = Sat Oct 24 09:00:00 2026\n').replace(
+        'start_time = synthetic-time', 'start_time = Sat Oct 24 09:12:00 2026')
+    result = monitor.observation(cfg, PBSFake(jobs=raw), 'userA',
+                                 sampled_at=datetime(2026, 10, 24, 1, 22, tzinfo=timezone.utc))
+    fields = result['own']['jobs'][0]
+    assert fields['elapsed_seconds'] == 600
+    assert fields['elapsed_source'] == ('start_time' if tz == 'Asia/Shanghai' else 'walltime_used')
+    assert (fields['start_time'] is None) == (tz is None)
+    assert (fields['qtime'] is None) == (tz is None)
+    assert bool(result['warnings']) == (tz == 'America/New_York')
+
+
+def test_pbs_text_queue_time_sort_with_numeric_tie_break(cfg):
+    cfg['scheduler_timezone'] = 'Asia/Shanghai'
+    raw = ''.join(row(number, state='Q', extra=f'    qtime = Sat Oct 24 {clock} 2026\n')
+                  for number, clock in [(998, '09:10:00'), (1000, '09:00:00'),
+                                        (999, '09:00:00'), (1001, '08:00:00')])
+    result = monitor.observation(cfg, PBSFake(jobs=raw), 'userA')
+    assert [r['job_id'] for r in result['own']['jobs']] == [
+        '1001.fixture', '999.fixture', '1000.fixture', '998.fixture']
+    assert result['own']['jobs'][0]['qtime'] == '2026-10-24T00:00:00Z'
+
+
+def test_timezone_snapshot_initial_failure_reload_and_recovery(cfg, monkeypatch):
+    monkeypatch.setattr(monitor, 'login_user', lambda _: 'userA')
+    fake = PBSFake(jobs=row(901).replace('start_time = synthetic-time',
+                                        'start_time = Sat Oct 24 09:12:00 2026'))
+    original = fake.replies['jobs']
+    fake.replies['jobs'] = Result(1)
+    cfg['scheduler_timezone'] = 'Asia/Shanghai'
+    failed = monitor.sample(cfg, fake)
+    assert not failed['ok'] and failed['cluster']['scheduler_timezone'] == 'Asia/Shanghai'
+    fake.replies['jobs'] = original
+    success = monitor.sample(cfg, fake)
+    assert success['ok'] and success['cluster']['scheduler_timezone'] == 'Asia/Shanghai'
+    cfg['scheduler_timezone'] = 'UTC'
+    fake.replies['jobs'] = Result(1)
+    stale = monitor.sample(cfg, fake)
+    assert not stale['ok'] and stale['cluster']['scheduler_timezone'] == 'UTC'
+    assert stale['own']['jobs'] == success['own']['jobs']
+    cfg.pop('scheduler_timezone')
+    fake.replies['jobs'] = original
+    recovered = monitor.sample(cfg, fake)
+    assert recovered['ok'] and recovered['cluster']['scheduler_timezone'] is None
+    assert recovered['own']['jobs'][0]['start_time'] is None and recovered['warnings'] == []
 
 
 def test_limit_and_sort_before_truncation(cfg):
@@ -172,6 +306,7 @@ def test_slurm_partition_totals_own_account_and_no_node_rows(multi):
     assert result['own']['mem_running_gb'] is None
     assert all(r['mem_gb'] is None and r['mem_source'] is None for r in result['own']['jobs'])
     assert result['cluster']['job_summary_error'] is None
+    assert result['cluster']['scheduler_timezone'] is None
     assert result['own']['jobs'][0]['elapsed_seconds'] == 600
     assert result['own']['jobs'][2]['elapsed_seconds'] == 86400
 

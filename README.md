@@ -288,6 +288,14 @@ PBS 的 `cluster.jobs` 列出全员非 C 作业，先本人、再运行开始时
 `mem_gb` 按 1024 进位折算 GB，`own.mem_running_gb` / `mem_queued_gb` 分别合计申请内存；任一相关作业未知则合计未知。
 明确的开始时间用于计算 `elapsed_seconds`，否则退回已用 walltime，并用 `elapsed_source` 标明；
 `start_time` / `qtime` 只在时区明确时输出 UTC ISO 时间。时区不明或字段缺失写 null，不猜服务器时区。
+PBS 入口可配置 `scheduler_timezone = "Asia/Shanghai"` 等 IANA 时区名，必须先确认调度器实际使用的时区；
+不配置时保留原行为，epoch 和带时区 ISO 不受此配置影响。文本时间按固定英文月份/星期解析，支持日期空格补齐；
+星期与日期不符、夏令时重复或不存在的本地时间均写 null。Slurm 入口拒绝此配置。
+配置时区后，若“采样时间 − 开始时间”比已用 walltime 少超过 120 秒或多超过 3600 秒，
+或开始时间晚于采样时间超过 120 秒，该作业的耗时退回 walltime（缺失则为 null）；解析出的开始时间保留。
+每入口每轮最多一条 `timezone-mismatch` 警告，不含作业名、作业号或用户名；恰好等于阈值时不触发。
+快照新增 `cluster.scheduler_timezone`（配置值或 null），失败快照也显示当前有效配置；
+失败时保留的作业仍属于 `last_ok_at` 对应旧样本，不能用新时区字段重新解释旧样本。
 Slurm 明细仅有本人；`cluster.job_summary` 按配置分区给出运行/排队作业数和核数，并减去本分区本人作业得到他人汇总。
 两次查询不一致导致负数时，他人汇总为 null。本人占用覆盖共享账号，各入口硬件及汇总只覆盖自己的分区。
 `cluster.hardware` 提供 CPU 总数/分配/空闲/其他和总内存/已分配内存；PBS 节点另有内存与作业数，Slurm 不保存节点明细。

@@ -135,6 +135,39 @@ def test_mixed_config_uses_implicit_default(cfg, multi, tmp_path, monkeypatch, c
         ('batch', 'slurm', False), ('default', 'pbs', True)]
 
 
+@pytest.mark.parametrize('mode', ['legacy', 'mixed', 'named'])
+def test_pbs_scheduler_timezone_config_and_migration(cfg, multi, mode):
+    if mode == 'mixed':
+        cfg['clusters'] = {'batch': multi['clusters']['batch']}
+    elif mode == 'named':
+        cfg = multi
+        cfg['clusters']['default'].update(scheduler='pbs', queue='batch', scheduler_timezone='Asia/Shanghai')
+    path = write_config(cfg)
+    if mode != 'named':
+        path.write_text('scheduler_timezone = "Asia/Shanghai"\n' + path.read_text())
+    loaded = config.load_config(path)
+    selected = config.select_cluster(loaded, 'default')
+    assert selected['scheduler_timezone'] == 'Asia/Shanghai'
+    if mode == 'mixed':
+        assert loaded['clusters']['default']['scheduler_timezone'] == 'Asia/Shanghai'
+    if mode != 'legacy':
+        assert 'scheduler_timezone' not in config.select_cluster(loaded, 'batch')
+
+
+@pytest.mark.parametrize('value', ['', 'Not/A_Zone', 'Asia/Shanghai ', '../UTC', '/UTC',
+                                   True, 8, [], {}, None])
+def test_invalid_pbs_scheduler_timezone(cfg, value):
+    cfg['scheduler_timezone'] = value
+    with pytest.raises(config.ConfigError, match='scheduler_timezone'):
+        config.validate_cluster(cfg)
+
+
+def test_slurm_rejects_scheduler_timezone(multi):
+    multi['clusters']['batch']['scheduler_timezone'] = 'Asia/Shanghai'
+    with pytest.raises(config.ConfigError, match='scheduler_timezone.*PBS'):
+        config.load_config(write_config(multi))
+
+
 def test_no_default_is_not_inferred(multi, tmp_path, monkeypatch, capsys):
     del multi['clusters']['default']
     code, result = query(multi, tmp_path, monkeypatch, capsys)

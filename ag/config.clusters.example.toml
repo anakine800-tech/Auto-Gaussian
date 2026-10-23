@@ -30,6 +30,8 @@ studies_root = "<absolute local studies directory outside Git>"
 [clusters.default]
 scheduler = "pbs"
 queue = "<PBS queue>"
+# Optional, only after confirming the scheduler's timezone. Omit if unknown.
+scheduler_timezone = "Asia/Shanghai"
 [clusters.default.ssh]
 config_file = "<absolute SSH configuration file>"
 host = "<PBS SSH alias>"
