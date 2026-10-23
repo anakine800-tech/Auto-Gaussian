@@ -84,6 +84,7 @@ def test_normal_layers_references_and_exact_thermo(sample):
     before = {p: p.read_bytes() for p in root.rglob('*') if p.is_file()}
     result = build(sample, sp=['sp-0', 'sp-2'], opt=['opt-0', 'opt-2'], thermo=path,
                    routes=['crest=sampling'], label='Synthetic butane')
+    assert result['inputs']['merged']['sha256'] == sha256(merged.read_bytes()).hexdigest()
     assert result['references'] == {'xtb': 1, 'sp': 3, 'opt': 3}
     assert result['candidates'][0]['sp']['relative_kcal'] == pytest.approx(.002 * geo.HARTREE_TO_KCAL)
     for i, row in zip((0, 2), rows):
@@ -349,6 +350,10 @@ def test_default_output_hash(tmp_path, monkeypatch, capsys):
     merged = Path(json.loads(capsys.readouterr().out)['output'])
     out = group / 'ensemble.json'
     payload = json.loads(merged.read_text())
+    # Keep the pre-T109 input fixture used by this historical output hash.
+    # The current-input test above binds the actual, unmodified dedup document.
+    assert payload.pop('algorithm')['ordering'] == 'input_order'
+    assert payload.pop('boundary_pairs') == []
     # Normalize decoded fields: source paths may contain JSON-escaped Unicode.
     for record in payload['kept']:
         for item in (record, *record['members']):

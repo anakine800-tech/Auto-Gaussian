@@ -163,16 +163,21 @@ def test_performance_200_frames_20_heavy_atoms(tmp_path):
     assert elapsed < 60
 
 
-def test_legacy_fixture_output_bytes(tmp_path, monkeypatch, capsys):
-    """SHA-256 recorded on main f34f732; fix filenames, not output contents."""
+def test_legacy_fixture_fields_and_xyz_bytes(tmp_path, monkeypatch, capsys):
+    """Keep pre-T109 fields/XYZ unchanged; the two new report fields are additive."""
     import hashlib
     raw = DATA.read_bytes()
     monkeypatch.chdir(tmp_path)
     Path("butane.xyz").write_bytes(raw)
     monkeypatch.setattr(g, "output_stem", lambda *args: Path("dedup-compat"))
     assert main(["dedup", "butane.xyz", "--charge", "0", "--out", ".", "--json"]) == 0
-    payloads = [Path("dedup-compat.json").read_bytes(), Path("dedup-compat.xyz").read_bytes(),
-                capsys.readouterr().out.encode()]
+    saved = json.loads(Path("dedup-compat.json").read_text())
+    printed = json.loads(capsys.readouterr().out)
+    for payload in (saved, printed):
+        assert payload.pop("algorithm")["order_dependent"] is True
+        assert payload.pop("boundary_pairs") == []
+    payloads = [(json.dumps(saved, indent=2) + "\n").encode(),
+                Path("dedup-compat.xyz").read_bytes(), (json.dumps(printed) + "\n").encode()]
     assert [hashlib.sha256(data).hexdigest() for data in payloads] == [
         "2c66dc2cb9b49b47445175c69bbd62d358fd13a705f65a35d65f38e06157138d",
         "05fc6d3150d1a19eecd3ea203f45164e8767e2d1ffc8a727f1b0e3aa00ca0f9f",

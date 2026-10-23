@@ -207,15 +207,67 @@ def rms_molecule(mol, chem, hydrogens):
     return result.GetMol()
 
 
-def best_rms(probe, reference, chem, align, mirror=False):
-    # GetBestRMS modifies probe coordinates: copy to preserve output geometries.
+# All-H permutations can grow factorially; never report a truncated minimum.
+RMS_MAX_MAPPINGS = 10000
+
+
+def rms_atom_maps(probe, reference, chem):
+    """Enumerate element/connectivity maps, preserving tetrahedral parity.
+
+    Query-only copies ignore aromatic/Kekule bond representation and atom
+    charge/valence. Graph/stereo acceptance remains the caller's separate check.
+    Do not sanitize this query: that could erase stereo on equivalent branches.
+    """
+    if (probe.GetNumAtoms() != reference.GetNumAtoms() or
+            probe.GetNumBonds() != reference.GetNumBonds()):
+        raise ValueError("RMSD comparison requires matching molecular graphs")
+    query = chem.RWMol(probe)
+    for atom in probe.GetAtoms():
+        selected = chem.AtomFromSmarts(f"[#{atom.GetAtomicNum()}]")
+        selected.SetChiralTag(atom.GetChiralTag())
+        query.ReplaceAtom(atom.GetIdx(), selected)
+    for bond in probe.GetBonds():
+        query.ReplaceBond(bond.GetIdx(), chem.BondFromSmarts("~"))
+    matches = reference.GetSubstructMatches(query.GetMol(), uniquify=False,
+                                            useChirality=True, maxMatches=RMS_MAX_MAPPINGS + 1)
+    if len(matches) > RMS_MAX_MAPPINGS:
+        raise ValueError(f"RMSD equivalent-atom mappings exceed {RMS_MAX_MAPPINGS}; "
+                         "try --hydrogens heavy; no truncated RMSD was used")
+    if not matches:
+        raise ValueError("No stereochemistry-preserving RMSD atom mapping")
+    return [list(enumerate(match)) for match in matches]
+
+
+def best_rms(probe, reference, chem, align, mirror=False, *, return_mapping=False):
+    maps = rms_atom_maps(probe, reference, chem)
+    # Reflect only coordinates, using the same stereo-preserving maps. This
+    # geometric diagnostic does not turn an enantiomer into an accepted frame.
     copy = chem.Mol(probe)
     if mirror:
         conformer = copy.GetConformer()
         for index in range(copy.GetNumAtoms()):
             point = conformer.GetAtomPosition(index)
             conformer.SetAtomPosition(index, (-point.x, -point.y, -point.z))
-    return float(align.GetBestRMS(copy, reference))
+    distance, _, mapping = align.GetBestAlignmentTransform(
+        copy, reference, map=maps, symmetrizeConjugatedTerminalGroups=False)
+    identity = [(i, i) for i in range(probe.GetNumAtoms())]
+    # The iterative RDKit fit can leave ~1e-5 A on a rigidly rotated symmetric
+    # geometry. Recheck original numbering by SVD so that error does not falsely
+    # label an identity fit as symmetry. Force a proper rotation, never reflection.
+    if identity in maps:
+        import numpy as np
+
+        left = copy.GetConformer().GetPositions()
+        right = reference.GetConformer().GetPositions()
+        left, right = left - left.mean(axis=0), right - right.mean(axis=0)
+        u, _, vt = np.linalg.svd(left.T @ right)
+        sign = -1 if np.linalg.det(u @ vt) < 0 else 1
+        rotation = u @ np.diag([1, 1, sign]) @ vt
+        original = float(np.sqrt(np.mean(np.sum((left @ rotation - right) ** 2, axis=1))))
+        if original <= distance + 1e-7:
+            distance, mapping = original, identity
+    kind = "identity" if all(i == j for i, j in mapping) else "symmetry"
+    return (float(distance), kind) if return_mapping else float(distance)
 
 
 def load_frames(inputs, energy_file=None, energy_unit=None):
