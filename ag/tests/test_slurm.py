@@ -46,6 +46,18 @@ class SlurmFake(Fake):
         self.partitions = Result(stdout='fixture*\n')
 
     def run(self, command):
+        if command == remote.slurm_partition_jobs(self.cfg.get('partition', 'fixture')):
+            self.calls.append(command)
+            # Project the synthetic own rows into anonymous partition totals.
+            rows = slurm.parse_queue(self.queue.stdout)
+            return Result(stdout=''.join(f"{j['state']}|{j['cores']}\n" for j in rows
+                                         if j['partition'] == self.cfg.get('partition')))
+        if command == remote.slurm_partition_hardware(self.cfg.get('partition', 'fixture')):
+            self.calls.append(command)
+            return Result(stdout='8/24/0/32|65536|1\n')
+        if command == remote.slurm_partition_allocmem(self.cfg.get('partition', 'fixture')):
+            self.calls.append(command)
+            return Result(stdout='8192                \n')
         replies = dict(storage_usage=Result(stdout='1024\t' + self.cfg['remote']['ag_root'] + '\n'), slurm_jobs=self.exact if ' -j ' in command.text else self.queue,
                        slurm_accounting=self.accounting, slurm_find=self.find,
                        slurm_history=self.history, slurm_partitions=self.partitions)

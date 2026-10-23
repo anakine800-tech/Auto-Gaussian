@@ -209,7 +209,7 @@ def test_slurm_snapshot_fields_and_local_only_budget(monitored):
     assert result['cluster']['budget'] is None
     assert result['cluster']['expires'] == '2027-01-31'
     assert result['cluster']['storage_kib'] == 1024
-    assert fake.operations() == ['slurm_jobs', 'storage_usage']
+    assert fake.operations() == ['slurm_jobs', 'slurm_jobs', 'slurm_partitions', 'slurm_partitions', 'storage_usage']
     assert path.read_bytes() == before
     cache = Path(selected['local']['studies_root']) / '.ag-monitor/batch/latest.json'
     assert json.loads(cache.read_text()) == result
