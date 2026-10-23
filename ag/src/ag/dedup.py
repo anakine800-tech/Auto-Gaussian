@@ -91,11 +91,14 @@ def frame_descriptors(frame, definitions, index):
 
 
 def deduplicate(frames, charge, rmsd, de, window, chem, bonds, align, routes=None, representative=None,
-                hydrogens="polar", descriptors=None, kept_by_bins=None):
+                hydrogens="polar", descriptors=None, kept_by_bins=None, *, mirror="off", report=None):
+    if mirror not in {"off", "report"}:
+        raise ValueError("--mirror must be off or report; mirror merging is not supported")
     rmsd, de, window = map(geo.nonnegative, (rmsd, de, window))
     local = ([frame_descriptors(frame, descriptors, i) for i, frame in enumerate(frames)]
              if descriptors is not None else [{} for frame in frames])
     molecules, heavy, rejected = {}, {}, []
+    chiral = False
     first = geo.infer_molecule(frames[0], charge, chem, bonds)
     key = geo.graph_key(first, chem)
     stereo = geo.stereo_key(first, chem)
@@ -112,6 +115,9 @@ def deduplicate(frames, charge, rmsd, de, window, chem, bonds, align, routes=Non
         else:
             molecules[index] = geo.rms_molecule(mol, chem, hydrogens)
             heavy[index] = geo.heavy_molecule(mol, chem)
+            if mirror == "report":
+                chiral |= bool(chem.FindMolChiralCenters(mol, includeUnassigned=False,
+                                                       useLegacyImplementation=False))
     # Only an explicit lowest request asserts a shared energy method across routes.
     comparable = routes is None or representative == "lowest"
     if routes is not None and comparable and any(f.energy is None or f.energy_unit != "hartree" for f in frames):
@@ -119,6 +125,19 @@ def deduplicate(frames, charge, rmsd, de, window, chem, bonds, align, routes=Non
     # Route energies can otherwise be different Hamiltonians/units.
     relative = ([None] * len(frames) if not comparable else
                 geo.relative_energies(frames, min(frames[i].energy for i in molecules)))
+    comparisons = {}
+
+    def compare(index, previous):
+        pair = (index, previous)
+        if pair not in comparisons:
+            comparisons[pair] = geo.best_rms(molecules[index], molecules[previous], chem, align,
+                                              return_mapping=True)
+        return comparisons[pair]
+
+    def pair_record(index, previous, distance, mapping):
+        return {"indices": [previous + 1, index + 1], "rmsd": distance, "mapping": mapping,
+                "delta_energy_kcal": abs(relative[index] - relative[previous]) if comparable else None}
+
     kept = []
     order = list(molecules) if not comparable else sorted(molecules, key=lambda i: (frames[i].energy, i))
     for index in order:
@@ -131,11 +150,11 @@ def deduplicate(frames, charge, rmsd, de, window, chem, bonds, align, routes=Non
             if descriptors is not None and local[index]["bins"] != local[previous]["bins"]:
                 continue
             if not comparable or abs(relative[index] - relative[previous]) < de:
-                distance = geo.best_rms(molecules[index], molecules[previous], chem, align)
+                distance, mapping = compare(index, previous)
                 if distance < rmsd:
                     heavy_distance = (distance if hydrogens == "heavy" else
                                       geo.best_rms(heavy[index], heavy[previous], chem, align))
-                    duplicate = (previous, distance, heavy_distance)
+                    duplicate = (previous, distance, heavy_distance, mapping)
                     break
         if duplicate is None:
             if comparable and relative[index] > window:
@@ -148,20 +167,49 @@ def deduplicate(frames, charge, rmsd, de, window, chem, bonds, align, routes=Non
                     (geo.periodic_difference(a, b) for a, b in
                      zip(local[index]["dihedrals"], local[duplicate[0]]["dihedrals"])), default=None)
             rejected.append({**item, "reason": "duplicate", "representative": duplicate[0] + 1,
-                             "rmsd": duplicate[1], "heavy_rmsd": duplicate[2]})
+                             "rmsd": duplicate[1], "heavy_rmsd": duplicate[2], "mapping": duplicate[3]})
     records = [{**geo.record(frames[index], index, relative[index]), **local[index], "xyz_frame": position + 1}
                for position, index in enumerate(kept)]
-    if descriptors is not None and kept_by_bins is not None:
-        # Review final representatives across bins regardless of energy difference;
-        # this report does not change the original --de/window decisions.
+    if report is not None:
+        report.update(algorithm={
+            "name": "greedy_first_match", "order_dependent": True,
+            "ordering": "energy_ascending_then_input_order" if comparable else "input_order",
+            "description": ("Sort by increasing energy, breaking ties by input order. " if comparable else
+                            "Source energies are not comparable; process in input order. ") +
+                           "Compare only with retained representatives; merge into the first satisfying "
+                           "the RMSD, energy (when comparable) and optional bin criteria. "
+                           "The result depends on processing order; this is not transitive clustering."},
+            boundary_pairs=[])
+        for row in rejected:
+            if row["reason"] == "duplicate" and row["rmsd"] > rmsd / 2:
+                report["boundary_pairs"].append({"kind": "merged", **pair_record(
+                    row["index"] - 1, row["representative"] - 1, row["rmsd"], row["mapping"])})
+        if mirror == "report":
+            report.update(mirror="report", mirror_pairs=[], mirror_note=(
+                "手性体系，镜像对不是同一构象，仅供识别对映构象。" if chiral else
+                "镜像 RMSD 仅供报告，不合并代表；非手性镜像简并由 ag cluster --mirror 处理。") +
+                "仅比较已保留的代表；graph_changed / stereo_changed 排除规则不变。")
+    if report is not None or (descriptors is not None and kept_by_bins is not None):
+        # Diagnostics inspect final representatives regardless of energy/bins,
+        # and never alter selection, source provenance or degeneracy.
         for position, index in enumerate(kept):
             for previous in kept[:position]:
-                if local[index]["bins"] == local[previous]["bins"]:
-                    continue
-                distance = geo.best_rms(molecules[index], molecules[previous], chem, align)
-                if distance < rmsd:
+                distance, mapping = compare(index, previous)
+                if (descriptors is not None and kept_by_bins is not None and
+                        local[index]["bins"] != local[previous]["bins"] and distance < rmsd):
                     kept_by_bins.append({"indices": [previous + 1, index + 1], "rmsd": distance,
                                          "bins": [local[previous]["bins"], local[index]["bins"]]})
+                if report is not None:
+                    pair = pair_record(index, previous, distance, mapping)
+                    if distance < 2 * rmsd:
+                        report["boundary_pairs"].append({"kind": "representatives", **pair})
+                    if mirror == "report":
+                        mirrored, mirror_mapping = geo.best_rms(
+                            molecules[index], molecules[previous], chem, align, mirror=True,
+                            return_mapping=True)
+                        if mirrored < rmsd:
+                            report["mirror_pairs"].append({**pair, "mirror_rmsd": mirrored,
+                                                           "mirror_mapping": mirror_mapping})
     if routes is not None:
         duplicates = {r["index"]: r for r in rejected if r.get("reason") == "duplicate"}
         for record in records:
@@ -209,15 +257,17 @@ def run(args):
         descriptors = descriptor_definitions(args.dihedral_bins, args.report_distance,
                                              args.contact_atoms, args.contact_cutoff)
         kept_by_bins = []
+        report = {}
         kept, rejected, selected = deduplicate(frames, args.charge, args.rmsd, de,
                                               window, Chem, rdDetermineBonds, rdMolAlign, routes, args.representative,
-                                              args.hydrogens, descriptors, kept_by_bins)
+                                              args.hydrogens, descriptors, kept_by_bins,
+                                              mirror=args.mirror, report=report)
         stem = geo.output_stem(args.out, "dedup")
         xyz_path, json_path = stem.with_suffix(".xyz"), stem.with_suffix(".json")
         result = {"charge": args.charge, "rmsd_threshold": args.rmsd, "hydrogens": args.hydrogens,
                   "de_kcal": None if routes is not None and args.representative != "lowest" else de,
                   "window_kcal": None if routes is not None and args.representative != "lowest" else window, "xyz_file": xyz_path.name,
-                  "kept": kept, "excluded": rejected}
+                  "kept": kept, "excluded": rejected, **report}
         if descriptors is not None:
             result.update(descriptors=descriptors, kept_by_bins=kept_by_bins)
         if routes is not None:
@@ -252,6 +302,8 @@ def register(subparsers):
     parser.add_argument("--hydrogens", choices=("heavy", "polar", "all"), default="polar",
                         help="RMSD atoms: heavy only, plus N/O/S/P-bound H (default polar), or all atoms")
     parser.add_argument("--rmsd", type=float, default=0.125, help="Selected-atom RMSD in angstrom")
+    parser.add_argument("--mirror", choices=("off", "report"), default="off",
+                        help="Report mirror RMSD between retained representatives without merging (default off)")
     parser.add_argument("--de", type=float, help="Duplicate energy tolerance in kcal/mol (default 0.05; positional inputs or --source --representative lowest)")
     parser.add_argument("--window", type=float, help="Energy window in kcal/mol (default 3; positional inputs or --source --representative lowest)")
     parser.add_argument("--dihedral-bins", action="append", default=[], metavar="A,B,C,D:b1,b2[@names]",

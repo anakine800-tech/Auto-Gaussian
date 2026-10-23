@@ -93,6 +93,21 @@ rmsd 是实际判定用的 RMSD（Å），两者分别拟合，不能互换作�
 不接受 `--window` 或 `--de`；合并来源始终不接受 `--energies`、`--energy-unit`
 或位置输入。位置输入的能量规则不变，但氢模式默认改为 polar；不能靠转换单位比较力场与 xTB 能量。
 
+去重按能量升序（同能按输入顺序）逐个与已保留代表比较，归入第一个满足
+RMSD、能差及可选二面角分箱条件的代表；仅几何来源合并按输入顺序。
+这不是传递闭包分组，结果依赖顺序，报告的 `algorithm` 会说明所用口径。
+`boundary_pairs` 列出代表间 RMSD < 2 倍阈值，以及已并入项 RMSD > 阈值一半
+的配对，给出绝对能差（不可比时 null）、RMSD 和 `mapping`，只供人工复核。
+`mapping=identity` 是原编号，`symmetry` 是按元素 / 连接关系的等价置换；
+芳香键写法不限制映射，立体中心构型仍须保持，连接 / 立体改变仍排除。
+映射超限会报错并提示 heavy，不使用截断结果；切换氢模式前审阅关键氢。
+
+`ag dedup --mirror report` 只报告已保留代表间镜像 RMSD < 阈值的 `mirror_pairs`，
+同时列普通 / 镜像 RMSD 及各自映射，不合并、不改变简并度；默认 off 不计算镜像。
+手性体系附“镜像对不是同一构象”的说明，`stereo_changed` 帧仍然排除，
+因此镜像报告不是被排除对映体的清单。非手性镜像简并继续使用 `ag cluster --mirror`，
+该命令仍拒绝已指定手性中心。已有 study 是否重做去重须由负责人逐个决定。
+
 对合并后的每个候选原样制作 DFT 单点输入，使用一致方法、基组、溶剂、
 电荷与多重度。`ag coverage` 读取已有 facts，不运行 DFT、不重写 facts。
 coverage 与 cluster 自动继承 dedup 的 hydrogens；旧 JSON 缺少字段时按 heavy
