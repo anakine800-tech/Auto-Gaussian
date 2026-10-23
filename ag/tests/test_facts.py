@@ -154,8 +154,8 @@ def test_private_ts_and_optional_irc():
         assert isinstance(facts['energies'], dict) and geometry
 
 
-@pytest.mark.parametrize('text,expected', [('<S**2> = 0.7501', 0.7501),
-    ('S**2 before annihilation     0.7510, after     0.7500', 0.751)])
+@pytest.mark.parametrize('text,expected', [('<S**2> = 0.7501', None),
+    ('SCF Done: E(UHF) = -1.0 A.U.\nS**2 before annihilation     0.7510, after     0.7500', 0.751)])
 def test_spin_expectation(tmp_path, text, expected):
     path = tmp_path/'spin.log'
     path.write_text(text)

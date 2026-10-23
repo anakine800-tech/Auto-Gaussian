@@ -58,6 +58,7 @@ SMD 下 H/S 分项只是当前 RRHO/qRRHO 与单点替换模型的审计分项�
 
 ## 6. 结果判据清单
 
+- 准入仍要求 `freq_step_converged=true`；`freq_step_review=manual_review` 时按 `freq_step_gaussian_stationary` 的依据和行号人工判定，thermo 不自动接受。默认阈值通过而 `freq_step_converged_tight=false` 时工具照常计算并警告；若父优化为 Opt=Tight，须人工决定是否接受，不把计算成功当签字。旧 facts 与已签判定不自动改写，负责人逐 study 决定是否先外部 dry-run 再 reparse。
 - 工具成功并报告要求的版本及设置；所有代表具有有限的能量、修正和布居，没有静默漏掉失败记录。
 - 工具运行成功不代表配对正确，要以输出里的 `pairing_evidence` 为准：核对 SP 输入与频率最终几何的 SHA-256、固定行号 Kabsch RMSD 及来源 Attempt；无 SPC 时此项为 null，不能当作已验证的配对。
 - 同温度、同浓度的原始 RRHO 与最终 qRRHO H/S/G 分清，核对单点替换、低频和标准态分解，以及每个代表的 d_i、实际 σ_i 和来源。< 50 cm⁻¹ 的频率结合 opt-freq 审阅，不用 qRRHO 掩盖虚频。

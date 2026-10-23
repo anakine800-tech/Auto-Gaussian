@@ -310,7 +310,7 @@ def test_review_rejects_symlink_files(cfg, tmp_path, repository, name):
 def test_real_card_nested_checklists_and_continuations():
     root = Path(__file__).resolve().parents[2] / 'skills-next/auto-g16-recipes/cards'
     items = cards.criteria((root / 'opt-freq.md').read_text())
-    assert len(items) == 13
+    assert len(items) == 14  # T108 adds stationary/Tight interpretation.
     assert any('实际方法、电荷或多重度不符' in item for item in items)
     profile = cards.criteria((root / 'profile.md').read_text())
     assert any('符合实验 ee 或速率不能证明唯一机理' in item for item in profile)

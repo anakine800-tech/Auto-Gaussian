@@ -78,6 +78,13 @@ def _frequency_evidence(facts, attempt_id):
                          'run ag facts <attempt> --refresh after reviewing the original log')
     if facts['freq_step_converged'] is not True:
         table = json.dumps(facts.get('freq_step_convergence'), ensure_ascii=False)
+        if facts.get('freq_step_review') == 'manual_review':
+            stationary = facts.get('freq_step_gaussian_stationary') or {}
+            basis = '（力可忽略）' if stationary.get('basis') == 'negligible_forces' else ''
+            raise ValueError(f'{attempt_id}: 四项未全部通过，但 Gaussian 判定驻点{basis}：'
+                             '需人工判定；thermo 不自动接受；requires freq_step_converged is True; '
+                             f'freq_step_convergence={table}; '
+                             'freq_step_gaussian_stationary=' + json.dumps(stationary, ensure_ascii=False))
         raise ValueError(f'{attempt_id}: requires freq_step_converged is True; '
                          f"got {facts['freq_step_converged']!r}; freq_step_convergence={table}")
     if not monatomic and facts['vibrational_modes_complete'] is not True:
@@ -263,6 +270,7 @@ def calculate_thermo(attempts, *, study=None, temp=298.15, conc=1.0, qs='grimme'
                             freq_scale_factor=1.0, zpe_scale_factor=1.0)
     rows = []
     grids = []
+    warnings = []
     for directory in directories:
         facts, _ = parse_facts(directory)
         if facts['termination'] != 'normal' or facts.get('n_imag') != 0:
@@ -270,6 +278,11 @@ def calculate_thermo(attempts, *, study=None, temp=298.15, conc=1.0, qs='grimme'
         if facts['program'] != 'gaussian':
             raise ValueError(f'{directory.name}: Gaussian frequency output is required')
         frequency_evidence = _frequency_evidence(facts, directory.name)
+        if (facts.get('freq_step_threshold_set') == 'default'
+                and facts.get('freq_step_converged') is True
+                and facts.get('freq_step_converged_tight') is False):
+            warnings.append(f'{directory.name}: Freq 步按默认阈值通过、按 Tight 阈值未通过；'
+                            '若父优化为 Opt=Tight，需人工判定是否接受')
         frequency_source = section_source(facts, directory.name, directory=directory)
         frequency_protocol = frequency_source['protocol']
         block, geometry = _frequency_input(directory, facts, frequency_source)
@@ -355,7 +368,7 @@ def calculate_thermo(attempts, *, study=None, temp=298.15, conc=1.0, qs='grimme'
                          'rotational_symmetry': 'from_output', 'inertia': 'global'},
             'units': {'energy': 'Hartree', 'entropy': 'Hartree/K', 'pairing_rmsd': 'angstrom', 'relative_G': 'kcal/mol', 'population': 'fraction'},
             'rows': rows, 'weighted_mean_G': average, 'ensemble_G': ensemble,
-            'warnings': grid_warnings(grids), 'species_review_note': SPECIES_REVIEW_NOTE,
+            'warnings': grid_warnings(grids) + warnings, 'species_review_note': SPECIES_REVIEW_NOTE,
             'note': 'H/S/G are RRHO; qh_H/qh_S/qh_G are qRRHO, all at the requested T and concentration, '
                     'with SPC replacing electronic energy in H/G only. frequency_rrho retains frequency-level RRHO. '
                     'qh_G = frequency_rrho_G_1atm + spc_correction + low_frequency_correction '

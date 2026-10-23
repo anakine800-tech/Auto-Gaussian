@@ -23,9 +23,13 @@ SP = OPT[:INPUT_STARTS[1].start()].replace(' Opt Freq', ' SP')
 SP += next(row + '\n' for row in OPT.splitlines() if 'Normal termination of Gaussian' in row)
 BASELINE = json.loads((FIXTURES / 'gaussian_section_baseline.json').read_text())
 NEW_KEYS = {'job_sections', 'fact_sources', 'frequency_unavailable_reason', 'parser'}
+NEW_KEYS |= {'freq_step_gaussian_stationary', 'freq_step_review', 'freq_step_converged_tight',
+             'freq_step_threshold_set', 's2_after_annihilation', 's2_line'}
 FREQUENCY_KEYS = ('n_imag', 'frequencies_low', 'imag_modes', 'freq_step_converged',
                   'freq_step_convergence', 'n_vibrational_modes', 'expected_vibrational_modes',
                   'vibrational_modes_complete', 'frequency_note')
+FREQUENCY_KEYS += ('freq_step_gaussian_stationary', 'freq_step_review',
+                   'freq_step_converged_tight', 'freq_step_threshold_set')
 
 
 def parse(tmp_path, text):
@@ -49,7 +53,13 @@ def test_existing_values_and_geometry_unchanged(tmp_path, name):
     if name.startswith('butane_'):
         # The frozen baseline inserted a space inside the wrapped NoSymm word.
         before = dict(before, route=before['route'].replace('NoS ymm', 'NoSymm'))
-    assert {key: value for key, value in facts.items() if key not in NEW_KEYS} == before
+    comparable = {key: value for key, value in facts.items() if key not in NEW_KEYS}
+    # T108 adds a Tight comparison to each row; all old row values stay exact.
+    if comparable.get('freq_step_convergence'):
+        comparable = json.loads(json.dumps(comparable))
+        for row in comparable['freq_step_convergence']['criteria'].values():
+            row.pop('converged_tight')
+    assert comparable == before
     assert geometry == before_geometry
     if name == 'water_sp.log':
         assert facts['opt_converged'] is None and facts['n_imag'] is None
@@ -219,7 +229,7 @@ def test_existing_facts_are_only_compared_not_refreshed(tmp_path):
         build_facts(directory)
     summary = str(exc.value).split('facts.json 内容不同')[0]
     assert '只有新增字段，既有值未变' in summary
-    assert '新增的键：fact_sources, frequency_unavailable_reason, job_sections' in summary
+    assert '新增的键：' + ', '.join(sorted(NEW_KEYS)) in summary
     assert '删除的键：无' in summary and '既有值变化的键：无' in summary
     assert '--- facts.json (existing)' in str(exc.value)
     assert '+++ facts.json (parsed)' in str(exc.value)

@@ -43,6 +43,22 @@ def fact_row(key, target, facts):
         evidence += f'；manifest.json: science.{key}={json.dumps(target, ensure_ascii=False)}'
     if key == 'freq_step_converged' and facts.get('freq_step_convergence'):
         evidence += '；facts.json: freq_step_convergence=' + json.dumps(facts['freq_step_convergence'], ensure_ascii=False)
+    if key == 'freq_step_converged':
+        for field in ('freq_step_gaussian_stationary', 'freq_step_review',
+                      'freq_step_threshold_set', 'freq_step_converged_tight'):
+            if field in facts:
+                evidence += f'；facts.json: {field}=' + json.dumps(facts[field], ensure_ascii=False)
+        if facts.get('freq_step_review') == 'manual_review':
+            evidence += '；四项未全部通过，但 Gaussian 判定驻点：需人工判定；thermo 不自动接受'
+        if (facts.get('freq_step_threshold_set') == 'default'
+                and value is True and facts.get('freq_step_converged_tight') is False):
+            evidence += '；Freq 步按默认阈值通过、按 Tight 阈值未通过；若父优化为 Opt=Tight，需人工判定是否接受'
+    if key == 'multiplicity':
+        for field in ('s2', 's2_after_annihilation', 's2_line', 'wavefunction_stability',
+                      'wavefunction_stability_line', 'wavefunction_stability_line_number',
+                      'wavefunction_stability_lowest_eigenvalue'):
+            if field in facts:
+                evidence += f'；facts.json: {field}=' + json.dumps(facts[field], ensure_ascii=False)
     valid = value is not None and target is not None and type(value) is type(target)
     if key == 'termination':
         valid = value in ('normal', 'error', 'incomplete')
@@ -61,6 +77,8 @@ def fact_row(key, target, facts):
         # Only normalize formatting, never infer scientific method equivalence.
         normalize = lambda v: ' '.join(v.lower().split()) if key == 'route' else v
         conclusion = '通过' if normalize(value) == normalize(target) else '不通过'
+    if key == 'freq_step_converged' and value is False and facts.get('freq_step_review') == 'manual_review':
+        conclusion = '无法判断'
     return criterion, evidence, conclusion
 
 

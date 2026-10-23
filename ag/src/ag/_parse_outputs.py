@@ -160,9 +160,15 @@ def frequency_convergence(text):
     row_pattern = re.compile(
         r'^\s*(Maximum|RMS)\s+(Force|Displacement)\s+(' + NUMBER +
         r')\s+(' + NUMBER + r')\s+(YES|NO)\s*$', re.I)
+    tight = dict(maximum_force=0.000015, rms_force=0.000010,
+                 maximum_displacement=0.000060, rms_displacement=0.000040)
+    # Printed in the reviewed water/butane fixtures, not inferred from route.
+    default = dict(maximum_force=0.000450, rms_force=0.000300,
+                   maximum_displacement=0.001800, rms_displacement=0.001200)
     # Line numbers are local log evidence, never copies of paths or raw headers.
     route_lines = {start + 1: route for start, route in _gaussian_routes(text).items()}
     check = None
+    stationary = {'found': None, 'basis': None, 'lines': []}
     active = False
     after_terminal = False
     for index, line in enumerate(lines, 1):
@@ -170,35 +176,56 @@ def frequency_convergence(text):
             # A new/truncated job after termination cannot inherit the old
             # check, even when its route echo is not complete enough to parse.
             check = None
+            stationary = {'found': None, 'basis': None, 'lines': []}
             after_terminal = False
         if index in route_lines:
             active = False
             if re.search(r'\bfreq\b', route_lines[index], re.I):
                 check = None
+            stationary = {'found': False if _route_has(route_lines[index], 'freq') else None,
+                          'basis': None, 'lines': []}
         if re.search(r'Normal termination of Gaussian|Error termination|'
                      r'Link1:.*Proceeding|Entering Gaussian System|^\s*--Link1--', line, re.I):
             active = False
+            if not re.search(r'Normal termination of Gaussian|Error termination', line, re.I):
+                stationary = {'found': None, 'basis': None, 'lines': []}
         if re.match(r'[ \t]*(?:Normal termination of Gaussian|Error termination)\b', line, re.I):
             after_terminal = True
         if re.search(r'^\s*Harmonic frequencies\s*\(', line, re.I):
             active = True
             check = {'frequency_line': index, 'table_line': None,
                      'criteria': {}, 'non_optimized_parameters_line': None}
+            stationary = {'found': False, 'basis': None, 'lines': []}
         if not active:
             continue
         if re.search(r'Item\s+Value\s+Threshold\s+Converged\?', line, re.I):
             check.update(table_line=index, criteria={}, non_optimized_parameters_line=None)
+            stationary = {'found': False, 'basis': None, 'lines': []}
             for row_index in range(index, min(index + 4, len(lines))):
                 match = row_pattern.fullmatch(lines[row_index])
                 if match is None:
                     break
                 kind, quantity, value, threshold, passed = match.groups()
-                check['criteria'][f'{kind}_{quantity}'.lower()] = {
+                key = f'{kind}_{quantity}'.lower()
+                check['criteria'][key] = {
                     'value': number(value), 'threshold': number(threshold),
-                    'converged': passed.upper() == 'YES', 'line': row_index + 1}
+                    'converged': passed.upper() == 'YES',
+                    'converged_tight': number(value) < tight[key], 'line': row_index + 1}
+        if re.fullmatch(r' ?Optimization completed(?: on the basis of negligible forces)?\.', line, re.I):
+            stationary['lines'].append(index)
+            if 'negligible forces' in line.lower():
+                stationary['basis'] = 'negligible_forces'
+        if re.fullmatch(r'\s*-- Stationary point found\.\s*', line, re.I):
+            stationary['found'] = True
+            stationary['lines'].append(index)
+            if stationary['basis'] is None and len(check['criteria']) == 4 and all(
+                    row['converged'] for row in check['criteria'].values()):
+                stationary['basis'] = 'all_criteria'
         if 'Non-Optimized Parameters' in line:
             check['non_optimized_parameters_line'] = index
     converged = None
+    converged_tight = None
+    threshold_set = None
     if check is not None:
         criteria = check['criteria']
         if check['non_optimized_parameters_line'] is not None or any(
@@ -206,7 +233,21 @@ def frequency_convergence(text):
             converged = False
         elif len(criteria) == 4:
             converged = True
-    return {'freq_step_converged': converged, 'freq_step_convergence': check}
+        if check['non_optimized_parameters_line'] is not None or any(
+                not row['converged_tight'] for row in criteria.values()):
+            converged_tight = False
+        elif len(criteria) == 4:
+            converged_tight = True
+        if len(criteria) == 4:
+            thresholds = {key: row['threshold'] for key, row in criteria.items()}
+            threshold_set = 'tight' if thresholds == tight else 'default' if thresholds == default else 'other'
+    if not stationary['found']:
+        stationary['basis'] = None
+    review = ('pass' if converged is True else 'manual_review' if converged is False
+              and stationary['found'] is True else 'fail' if converged is False else None)
+    return {'freq_step_converged': converged, 'freq_step_convergence': check,
+            'freq_step_gaussian_stationary': stationary, 'freq_step_review': review,
+            'freq_step_converged_tight': converged_tight, 'freq_step_threshold_set': threshold_set}
 
 
 def wavefunction_stability(text):
@@ -215,22 +256,44 @@ def wavefunction_stability(text):
     Stable=Opt may print several results. Do not infer stability from termination,
     or reuse a prior job's result after a new route/Link1 starts.
     """
-    result, evidence = 'unknown', None
+    result, evidence, evidence_number = 'unknown', None, None
+    lowest, candidates, matrix, malformed = None, [], False, False
     patterns = (
         ('stable', r'The wavefunction is stable under the perturbations considered\.'),
+        ('stable', r'The wavefunction is already stable\.'),
         ('internal_instability', r'The wavefunction has an internal instability\.'),
         ('rhf_to_uhf', r'The wavefunction has an RHF\s*->\s*UHF instability\.'),
     )
-    for line in text.splitlines():
+    for index, line in enumerate(text.splitlines(), 1):
         if re.match(r'\s*(?:#|--Link1--|Link1:.*Proceeding|Entering Gaussian System)', line, re.I):
-            result, evidence = 'unknown', None
+            result, evidence, evidence_number = 'unknown', None, None
+            lowest, candidates, matrix, malformed = None, [], False, False
+        if re.match(r'\s*(?:SCF Done:|Stability analysis using\b)', line, re.I):
+            lowest, candidates, matrix, malformed = None, [], False, False
+        if re.fullmatch(r'\s*Eigenvectors of the stability matrix:\s*', line, re.I):
+            lowest, candidates, matrix, malformed = None, [], True, False
+        if matrix and re.match(r'\s*Eigenvector\b', line, re.I):
+            match = re.fullmatch(r'\s*Eigenvector\s+\d+:\s+\S+\s+Eigenvalue=\s*('
+                                 + NUMBER + r')(?:\s+<S\*\*2>\s*=\s*' + NUMBER + r')?\s*', line, re.I)
+            if match:
+                candidates.append({'value': number(match[1]), 'line': index})
+            else:
+                malformed = True
         if re.match(r'\s*The wavefunction\b', line, re.I):
             # An unsupported or truncated diagnostic must not retain an older
             # positive result. Preserve its exact line so it can be reviewed.
             evidence = line
+            evidence_number = index
             result = next((value for value, pattern in patterns
                            if re.fullmatch(r'\s*' + pattern + r'\s*', line, re.I)), 'unknown')
-    return {'wavefunction_stability': result, 'wavefunction_stability_line': evidence}
+            if matrix:
+                lowest = min(candidates, key=lambda row: row['value']) if candidates and not malformed else None
+            if result == 'unknown':
+                lowest = None
+            matrix = False
+    return {'wavefunction_stability': result, 'wavefunction_stability_line': evidence,
+            'wavefunction_stability_line_number': evidence_number,
+            'wavefunction_stability_lowest_eigenvalue': lowest}
 
 
 def expected_vibrational_modes(n_atoms, coordinates):
@@ -357,6 +420,8 @@ def gaussian_section_text(text, section):
 
 
 _FREQUENCY_FACTS = ('freq_step_converged', 'freq_step_convergence', 'n_imag',
+                    'freq_step_gaussian_stationary', 'freq_step_review',
+                    'freq_step_converged_tight', 'freq_step_threshold_set',
                     'frequencies_low', 'imag_modes', 'n_vibrational_modes',
                     'expected_vibrational_modes', 'vibrational_modes_complete', 'frequency_note')
 _THERMAL_FACTS = ('zpe', 'e_thermal', 'h', 'g')
@@ -370,14 +435,21 @@ def parse_gaussian(path, pbs_path=None):
     parsed = [_parse_gaussian_section(block, internal=section['start_kind'] == 'internal')
               for section, block in zip(sections, blocks)]
     for section, (values, _) in zip(sections, parsed):
+        offset = section['start_line'] - 1
         check = values['freq_step_convergence']
         if check:
-            offset = section['start_line'] - 1
             for key in ('frequency_line', 'table_line', 'non_optimized_parameters_line'):
                 if check[key] is not None:
                     check[key] += offset
             for row in check['criteria'].values():
                 row['line'] += offset
+        values['freq_step_gaussian_stationary']['lines'] = [
+            line + offset for line in values['freq_step_gaussian_stationary']['lines']]
+        for key in ('s2_line', 'wavefunction_stability_line_number'):
+            if values.get(key) is not None:
+                values[key] += offset
+        if values.get('wavefunction_stability_lowest_eigenvalue') is not None:
+            values['wavefunction_stability_lowest_eigenvalue']['line'] += offset
         if values['parser_warning']:
             warnings.append(values['parser_warning'] if len(sections) == 1 else
                             f"Section {section['index']}: {values['parser_warning']}")
@@ -385,7 +457,7 @@ def parse_gaussian(path, pbs_path=None):
     # Identity and spin belong to the last section, even if it is incomplete.
     facts = dict(parsed[-1][0])
     sources = {key: sections[-1]['index'] for key in
-               ('n_atoms', 'charge', 'multiplicity', 'monatomic', 's2')}
+               ('n_atoms', 'charge', 'multiplicity', 'monatomic', 's2', 's2_after_annihilation', 's2_line')}
     facts.update(gaussian_version(text))
     facts['route'] = sections[0]['route']
     sources['route'] = 1
@@ -396,7 +468,7 @@ def parse_gaussian(path, pbs_path=None):
                                 section['termination'] == 'normal' for section in sections)
                             else 'incomplete')
     from ag import __version__
-    facts['parser'] = {'ag_version': __version__, 'rules': 'route-join-v1'}
+    facts['parser'] = {'ag_version': __version__, 'rules': 'route-join-v2'}
     if errors:
         facts['error_hint'] = termination(
             blocks[errors[-1]], 'Normal termination of Gaussian',
@@ -452,8 +524,9 @@ def parse_gaussian(path, pbs_path=None):
                                  if freq is not None else facts['energies'][key])
         sources['energies.' + key] = frequency_source
     if any('wavefunction_stability' in values for values, _ in parsed):
-        facts.update(wavefunction_stability(blocks[-1]))
-        sources['wavefunction_stability'] = sources['wavefunction_stability_line'] = len(sections)
+        for key, value in wavefunction_stability('').items():
+            facts[key] = parsed[-1][0].get(key, value)
+            sources[key] = len(sections)
     ircs = [i for i, (values, _) in enumerate(parsed) if 'irc' in values]
     if ircs:
         facts['irc'] = parsed[ircs[-1]][0]['irc']
@@ -531,7 +604,21 @@ def _parse_gaussian_section(text, *, internal=False):
         'h': last_number(r'Sum of electronic and thermal Enthalpies=', text),
         'g': last_number(r'Sum of electronic and thermal Free Energies=', text),
     }
-    facts['s2'] = last_number(r'<S\*\*2>\s*=|S\*\*2 before annihilation', text)
+    # Each SCF Done starts new evidence. Never borrow an earlier SCF's spin or
+    # a stability/excited-state <S**2> label when the final SCF has no such row.
+    facts.update(s2=None, s2_after_annihilation=None, s2_line=None)
+    scf_spin = False
+    for index, line in enumerate(text.splitlines(), 1):
+        if re.match(r'\s*SCF Done:', line):
+            facts.update(s2=None, s2_after_annihilation=None, s2_line=None)
+            scf_spin = True
+        elif re.match(r'\s*(?:Leave Link|Stability analysis|Eigenvectors of the stability matrix|Excited State)\b', line, re.I):
+            scf_spin = False
+        elif scf_spin:
+            match = re.fullmatch(r'\s*S\*\*2 before annihilation\s+(' + NUMBER
+                                 + r'),\s*after\s+(' + NUMBER + r')\s*', line, re.I)
+            if match:
+                facts.update(s2=number(match[1]), s2_after_annihilation=number(match[2]), s2_line=index)
     frequencies = list(getattr(data, 'vibfreqs', []))
     facts['n_imag'] = sum(f < 0 for f in frequencies) if frequencies else None
     if facts['n_imag'] is not None:
