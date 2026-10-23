@@ -21,16 +21,10 @@ jobs:
       - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c
         with:
           python-version: "3.11"
-      - name: Scan changed files for sensitive information
-        env:
-          PR_BASE: ${{ github.event.pull_request.base.sha }}
-          PUSH_BASE: ${{ github.event.before }}
+      - name: Public repository scan and scanner self-tests
         run: |
-          base="${PR_BASE:-$PUSH_BASE}"
-          if [[ -z "$base" || "$base" == "0000000000000000000000000000000000000000" ]]; then
-            base="HEAD^"
-          fi
-          python ag/tools/scan_sensitive.py --base "$base" --head HEAD
+          python scripts/scan_public.py --self-test
+          python scripts/scan_public.py
       - name: Install ag and chemistry dependencies
         run: python -m pip install -e "ag[test,chem]" rdkit
       - name: Test ag

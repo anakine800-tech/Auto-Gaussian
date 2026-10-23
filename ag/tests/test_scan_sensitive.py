@@ -17,7 +17,7 @@ def git(repo, *args):
 def prepare_rename(repo, content):
     git(repo, "init", "-q")
     git(repo, "config", "user.name", "Scanner Test")
-    git(repo, "config", "user.email", "scanner@example.invalid")
+    git(repo, "config", "user.email", "scanner@example.invalid")  # scan-public: allow synthetic reserved-domain email fixture
     (repo / "legacy.txt").write_text(content)
     git(repo, "add", "legacy.txt")
     git(repo, "commit", "-qm", "baseline")

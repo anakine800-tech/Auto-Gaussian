@@ -11,7 +11,7 @@
     - L3 的 017–024（IRC）：`# OF POINTS ALONG THE PATH = …`、`# OF STEPS = …` 被当作 route，分别切成 5–89 段，并出现 `Unexpected job section`。
     - L3 的 015、016（IRC）：没有分段警告，但 `energies.scf` 的值变了。
     - L3 的 027（端点 Opt）：`final_geometry_orientation` 的值变了。
-- 防的事故：已经发生（离线复现，没有改写任何证据）：T42 把这两个缺陷带进了 `ag facts`。不修复的话，HSS 的 Opt+Freq 会被误报为“优化未完成”，IRC 的 facts 会被错切，T43 也会因为分段警告拒绝处理这些日志。
+- 防的事故：已经发生（离线复现，没有改写任何证据）：T42 把这两个缺陷带进了 `ag facts`。不修复的话，研究 A 的 Opt+Freq 会被误报为“优化未完成”，IRC 的 facts 会被错切，T43 也会因为分段警告拒绝处理这些日志。
 
 ## 允许改动的路径
 
@@ -60,3 +60,7 @@
 - PR 描述第一行：`Task: T42b`；写两个缺陷的根因、修复方式、两类变化的原因，以及只读复扫结果。
 - 用 `gh pr view <编号> --comments` 读取评论，逐条处理并回复；冲突本地 rebase；合并只由人操作。
 - T43（mode-review）依赖分段结果，T42b 合并后 T43 再 rebase。
+
+## 版本记录
+
+- T116 脱敏：研究标识、编号与环境字面量改为泛称；原工单结构和结论不变。

@@ -67,7 +67,7 @@ python build_complex.py enumerate --study <study> --name <名称>
 ## 真实环境验证
 
 - 纯本地，不需要集群。合并前在开发机上用一个合成或 T68 样例体系完整跑一遍 `sites` → `enumerate`，结果（统计和抽查的几个候选）写进 PR。
-- 合并前由 HSS 主会话用已有结构只读跑一次（输出写到 study 以外），结果只汇报监督方，不写进 PR。
+- 合并前由研究 A 主会话用已有结构只读跑一次（输出写到 study 以外），结果只汇报监督方，不写进 PR。
 
 ## 停止条件
 
@@ -90,3 +90,7 @@ python build_complex.py enumerate --study <study> --name <名称>
 位点、约束原子与配套文件。每组非空集合须通过 `crest_input.xyz_ensemble`，
 每份约束须通过 `crest_input.validate`。空组不写 XYZ 并明确记录；全部为空时非零退出。
 本补充取代上文“所有候选共用一份约束”和跨全部位点去重的原始要求。
+
+## 版本记录
+
+- T116 脱敏：研究标识、编号与环境字面量改为泛称；原工单结构和结论不变。

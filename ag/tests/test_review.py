@@ -40,7 +40,7 @@ def repository(tmp_path, monkeypatch):
         return subprocess.check_output(['git', '-C', str(root), *args], text=True).strip()
     git('init', '-q')
     git('add', 'skills-next')
-    git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+    git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',  # scan-public: allow synthetic reserved-domain email fixture
         '-c', 'commit.gpgsign=false', 'commit', '-qm', 'Fixture recipes')
     monkeypatch.setattr(cards, 'directory', lambda: directory)
     return root, directory, git
