@@ -101,7 +101,7 @@ Gaussian、xTB、CREST、调度器及本机 OpenSSH 需另行准备，外部软�
 迁移 study 或切换配置目录必须同时带上各 Slurm 入口的台账。已有提交痕迹但缺账时，从备份或原配置目录找回该入口的台账；找不到则停止并交给负责人核对，不自动重建或归零。
 同组上限不一致时摘要列出各入口数值并采用最小值，单作业仍按目标入口的 max_cores 检查。
 
-仅在决定使用 SCNet 后：CREST 用 `--cluster scnet-test`（`wzhctest`），Gaussian 只能 `--cluster scnet`（`wzacnormal`）。
+仅在决定使用 SCNet 后：CREST 用 `--cluster scnet-test`（`赠送分区`），Gaussian 只能 `--cluster scnet`（`正式分区`）。
 prepare 前核对本机入口及 partition；default 与 SCNet 的选择沿用 study 安排。
 给 scnet-test 配置 `allowed_templates = ["crest"]`；独立 xTB 不默认加入，Gaussian 程序配置仍需保留以兼容渲染。
 测试队列不可用、无权限或额度满时，由负责人逐次决定，不自动转投正式队列。
@@ -305,7 +305,7 @@ Slurm 的 `cluster.budget` 为 null，clusters 查询省略 budget；本地台�
 | L2 柔性主族体系 | **已签字（流程验收）** | 构象覆盖不完整；所选集合的结果不代表完整构象空间或正式研究结论 |
 | L3 小体系 TS/IRC | **已签字（流程验收）** | 历史签字早于 T46；现行判据下仍缺完整连续性审阅，reverse 末点降能低于默认阈值，不能声称按 T46 双向完成。能垒只代表 B3LYP-D3(BJ) 层级 |
 | V-T21 扫描 | **已完成** | ① Gaussian 026 + scan-peak 选中第 9 点，与 TS 的 RMSD 为 0.002 Å；修复前会误选第 2 点。② xTB 789 沿 C–F 严格单调下降，本次扫描范围内无复合物势阱、无能垒，scan-peak 按设计拒绝导出。③ 浅能垒气相离子–分子 SN2 不宜用 xTB 扫描找 TS 初猜；xTB 无峰不代表真实反应无能垒 |
-| V-T22 双路线覆盖 | **已终止** | 不再单独验证，双路线覆盖改由实际研究中的使用来检验；终止不等于覆盖验证通过 |
+| 某研究验证 study 双路线覆盖 | **已终止** | 不再单独验证，双路线覆盖改由实际研究中的使用来检验；终止不等于覆盖验证通过 |
 | TS 优化中断后接续 | **已验证** | 使用 `final_input.xyz` + 父 chk 的 `Guess=Read Opt=(TS,CalcFC)`；RCFC 不适用于没有 Freq 的中断优化。只证明已验证的 chk 可读，不保证任意中断 chk 完整 |
 | 不完整取回（T47） | **已验证** | PBS 强杀、Slurm TIMEOUT 均已真实验证；取回与来源记录不代表科学成功；T66 已验证 Slurm 缺少声明输出分支，见 [#282](https://github.com/anakine800-tech/Auto-Gaussian/pull/282) |
 
