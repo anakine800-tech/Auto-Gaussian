@@ -168,7 +168,7 @@ def approve_input_paths(r: dict[str, Any]) -> dict[str, Any]:
         require(reviews.get(name,{}).get("evidence_sha256")==option.get("option_payload_sha256"),f"{name} review is not bound to selected option")
     for name in ("route","solvent","thermochemistry","resources","server_path"):
         require(reviews.get(name,{}).get("accepted") is True and re.fullmatch(r"[0-9a-f]{64}",str(reviews[name].get("evidence_sha256",""))),f"{name} review is incomplete")
-    require(re.fullmatch(r"/home/user100/SDL/[A-Za-z0-9_]+",reviews["server_path"].get("remote_workdir","")) is not None,"server path review is outside SDL")
+    require(re.fullmatch(r"/home/<user>/SDL/[A-Za-z0-9_]+",reviews["server_path"].get("remote_workdir","")) is not None,"server path review is outside SDL")
     seed=reviews["seed_strategy"]; require(seed.get("type")=="hessian_guided_single_guess","unsupported seed strategy")
     require(seed.get("state_id")==identity["state_id"]==seed.get("hessian_state_id")==seed.get("checkpoint_state_id"),"cross-state checkpoint/Hessian reuse forbidden")
     require(re.fullmatch(r"[0-9a-f]{64}",str(seed.get("hessian_sha256",""))) and re.fullmatch(r"[0-9a-f]{64}",str(seed.get("checkpoint_sha256",""))),"Hessian/checkpoint hashes required")

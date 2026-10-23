@@ -233,8 +233,8 @@ class LegacyTransactionOwnerTests(unittest.TestCase):
             owner_output["local_dir"] = "<LOCAL_DIR>"
             self.assertEqual(wrapper_output, owner_output)
             self.assertIs(wrapper_output["effects"], False)
-            self.assertEqual(wrapper_output["fixed_remote_root"], "/home/user100/SDL")
-            self.assertEqual(wrapper_output["remote_dir"], "/home/user100/SDL/goldenjob")
+            self.assertEqual(wrapper_output["fixed_remote_root"], "/home/<user>/SDL")
+            self.assertEqual(wrapper_output["remote_dir"], "/home/<user>/SDL/goldenjob")
             self.assertEqual(wrapper_output["planned_files"], wrapper_output["files"])
             self.assertEqual(
                 wrapper_output["resource"],

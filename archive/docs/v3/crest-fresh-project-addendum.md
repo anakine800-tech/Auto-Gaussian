@@ -11,7 +11,7 @@ qualification/profile. Do not inject a binding or alter the old journal.
 
 Create one new Project through the ordinary native fresh provisioning path,
 under the same reviewed root and exact target identity. The planned directory
-is `/home/user100/SDL/v31-crest-pilot-20260916`. First freeze and independently
+is `/home/<user>/SDL/v31-crest-pilot-20260916`. First freeze and independently
 review the exact native Project ID, profile, target/root/path and one fresh
 provisioning operation before that directory creation. After native provisioning
 returns the Project physical binding, freeze and independently review the exact

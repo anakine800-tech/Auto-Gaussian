@@ -42,12 +42,12 @@ Do not own:
 ### Existing dependencies
 
 - Use `auto-g16-view-rt-win` for reviewed Cartesian structures, stereochemistry, GaussView display, and any conformer handoff.
-- Use `auto-g16-rtwin-pbs` for preflight, immutable per-hop hashes, PBS execution, monitoring, retrieval, and the `/home/user100/SDL` boundary.
+- Use `auto-g16-rtwin-pbs` for preflight, immutable per-hop hashes, PBS execution, monitoring, retrieval, and the `/home/<user>/SDL` boundary.
 - Add generic checkpoint/dependency-file transport to the PBS layer only if TS/IRC requires it. Do not add TS scientific decisions to the PBS layer.
 
 ## 3. Non-negotiable boundaries
 
-- Confine every server write and scratch directory to `/home/user100/SDL/<project>`.
+- Confine every server write and scratch directory to `/home/<user>/SDL/<project>`.
 - Use a new, empty, non-symlink server project directory for every PBS submission.
 - Never delete or overwrite server project data.
 - Require explicit approval before the first TS submission and again before IRC submission after mode review.

@@ -309,7 +309,7 @@ class DirectRootMutationBoundaryTests(unittest.TestCase):
             (ROOT / "skills/auto-g16-rtwin-pbs/scripts/direct_root_mutation_boundary.py").exists()
         )
         legacy = (ROOT / "scripts/legacy_root_authority_contract.py").read_text(encoding="utf-8")
-        self.assertIn('FIXED_REMOTE_ROOT = "/home/user100/SDL"', legacy)
+        self.assertIn('FIXED_REMOTE_ROOT = "/home/<user>/SDL"', legacy)
 
 
 if __name__ == "__main__":

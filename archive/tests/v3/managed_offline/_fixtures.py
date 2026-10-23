@@ -104,7 +104,7 @@ class Fixture(unittest.TestCase):
         return result["payload"]["approval_id"]
 
     def bind_snapshot(self, slot):
-        remote = "/home/user100/SDL/project-1"
+        remote = "/home/<user>/SDL/project-1"
         attestor = _SyntheticRemoteProjectAttestor._from_privileged_test_fixture(
             privilege=_SYNTHETIC_TEST_HARNESS_PRIVILEGE, target=self.resolved, observed_project_dir=remote,
             observed_state="ABSENT", observed_parent_physical_identity="synthetic-parent",
@@ -118,7 +118,7 @@ class Fixture(unittest.TestCase):
         workspace = execution.WorkspaceBinding(project=self.intake.project, attempt_id=attempt,
             local_approved_root=str(self.root / "local"), local_attempt_dir=str(self.root / "local" / "project-1" / attempt),
             rtwin_approved_root=r"C:\RTWIN", rtwin_attempt_dir=rf"C:\RTWIN\project-1\{attempt}",
-            remote_approved_root="/home/user100/SDL", remote_attempt_dir=remote + "/" + attempt)
+            remote_approved_root="/home/<user>/SDL", remote_attempt_dir=remote + "/" + attempt)
         resource = execution.ResolvedResourceRequest(resource_spec=slot.records[2], cores=8, memory_mb=12288, walltime_seconds=3600, queue="fixture")
         snapshot = service.prepare(self.core, attempt_id=attempt, calculation_plan_id=slot.records[1].calculation_plan_id,
             resource_spec_id=slot.records[2].resource_spec_id, program_execution_spec=slot.spec,

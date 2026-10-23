@@ -120,7 +120,7 @@ class IdempotentExecutionTests(unittest.TestCase):
             identity=identity("5" * 64),
             idempotency_key=key,
             project="safejob",
-            remote_workdir="/home/user100/SDL/safejob",
+            remote_workdir="/home/<user>/SDL/safejob",
             input_sha256="5" * 64,
             live_approval_id=approval_id,
             live_approval_sha256=approval_sha,
@@ -280,7 +280,7 @@ class IdempotentExecutionTests(unittest.TestCase):
         digest = "5" * 64
         return {
             "project": "safejob",
-            "remote_workdir": "/home/user100/SDL/safejob",
+            "remote_workdir": "/home/<user>/SDL/safejob",
             "input_sha256": digest,
             "protocol": {"route": "#p hf/sto-3g", "mem": "12GB", "nproc": 8},
             "charge": 0,
@@ -308,7 +308,7 @@ class IdempotentExecutionTests(unittest.TestCase):
         digest = "5" * 64
         scope = {
             "project": "safejob",
-            "remote_workdir": "/home/user100/SDL/safejob",
+            "remote_workdir": "/home/<user>/SDL/safejob",
             "input_sha256": digest,
             "route": "#p uhf/sto-3g opt freq",
             "mem": "12GB",
@@ -628,7 +628,7 @@ class IdempotentExecutionTests(unittest.TestCase):
             PBS.initialize_job_state(local_dir, {
                 "schema": "gaussian-rtwin-pbs/1",
                 "project": "safejob",
-                "remote_workdir": "/home/user100/SDL/safejob",
+                "remote_workdir": "/home/<user>/SDL/safejob",
                 "job_id": "123.master",
                 "status": "running",
             })
@@ -688,7 +688,7 @@ class IdempotentExecutionTests(unittest.TestCase):
         PBS.initialize_job_state(local_dir, {
             "schema": "gaussian-rtwin-pbs/1",
             "project": "safejob",
-            "remote_workdir": "/home/user100/SDL/safejob",
+            "remote_workdir": "/home/<user>/SDL/safejob",
             "job_id": "123.master",
             "status": "running",
         })

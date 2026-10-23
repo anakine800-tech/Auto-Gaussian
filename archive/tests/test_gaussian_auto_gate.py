@@ -148,7 +148,7 @@ class GaussianAutoGateTests(unittest.TestCase):
     def approval_summary(self) -> dict:
         return {
             "project": "reviewed_job",
-            "remote_workdir": "/home/user100/SDL/reviewed_job",
+            "remote_workdir": "/home/<user>/SDL/reviewed_job",
             "input_sha256": "a" * 64,
             "protocol": {
                 "route": "#p hf/sto-3g opt",
@@ -166,7 +166,7 @@ class GaussianAutoGateTests(unittest.TestCase):
             "explicit_confirmation": True,
             "scope": {
                 "project": "reviewed_job",
-                "remote_workdir": "/home/user100/SDL/reviewed_job",
+                "remote_workdir": "/home/<user>/SDL/reviewed_job",
                 "input_sha256": "a" * 64,
                 "route": "#p hf/sto-3g opt",
                 "mem": "12GB",
@@ -263,7 +263,7 @@ class GaussianAutoGateTests(unittest.TestCase):
                 )
                 summary = self.approval_summary()
                 summary.update({
-                    "project": "safejob", "remote_workdir": "/home/user100/SDL/safejob",
+                    "project": "safejob", "remote_workdir": "/home/<user>/SDL/safejob",
                     "gaussian_input": str(root / "input.gjf"), "local_dir": str(bundle),
                     "work_kind": "ordinary",
                 })
@@ -1121,7 +1121,7 @@ class GaussianAutoGateTests(unittest.TestCase):
                     approval = self.approval_record()
                     approval["schema"] = schema
                     approval["scope"].update({
-                        "project": "ordinary", "remote_workdir": "/home/user100/SDL/ordinary",
+                        "project": "ordinary", "remote_workdir": "/home/<user>/SDL/ordinary",
                         "input_sha256": report["input_sha256"], "route": report["route"],
                     })
                     approval_path = root / f"old-{schema.rsplit('/', 1)[1]}.json"
@@ -1259,7 +1259,7 @@ class GaussianAutoGateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp); source = root / "input.gjf"; source.write_text("#p hf/sto-3g\n\nX\n\n0 1\nH 0 0 0\n\n")
             summary = {
-                "project": "safejob", "remote_workdir": "/home/user100/SDL/safejob", "input_sha256": AUTO.transport.sha256(source),
+                "project": "safejob", "remote_workdir": "/home/<user>/SDL/safejob", "input_sha256": AUTO.transport.sha256(source),
                 "protocol": {"route": "#p hf/sto-3g", "mem": "12GB", "nproc": 8}, "charge": 0, "multiplicity": 1,
                 "work_kind": "ordinary", "gaussian_input": str(source),
                 "input_approval": {"status": "validated_exact_input_approval", "schema": AUTO.transport.INPUT_APPROVAL_SCHEMA, "sha256": "a" * 64, "payload_sha256": "b" * 64, "input_sha256": AUTO.transport.sha256(source), "work_kind": "ordinary"},

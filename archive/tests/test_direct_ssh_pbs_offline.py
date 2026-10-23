@@ -360,7 +360,7 @@ class DirectSSHPBSOfflineTests(unittest.TestCase):
             )
             and isinstance(node.value, ast.Constant)
         ]
-        self.assertEqual(fixed_roots, ["/home/user100/SDL"])
+        self.assertEqual(fixed_roots, ["/home/<user>/SDL"])
 
 
 if __name__ == "__main__":

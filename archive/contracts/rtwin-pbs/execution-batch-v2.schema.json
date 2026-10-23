@@ -109,7 +109,7 @@
         "state": {"enum": ["submission_uncertain", "submitted", "queued", "running", "completed", "failed", "reconciled_not_submitted"]},
         "project": {"type": "string", "minLength": 1},
         "job_name": {"type": "string", "minLength": 1},
-        "remote_workdir": {"type": "string", "pattern": "^/home/user100/SDL/[A-Za-z0-9][A-Za-z0-9_-]{0,14}$"},
+        "remote_workdir": {"type": "string", "pattern": "^/home/<user>/SDL/[A-Za-z0-9][A-Za-z0-9_-]{0,14}$"},
         "input_sha256": {"$ref": "#/$defs/sha"},
         "live_approval_id": {"type": "string", "minLength": 1},
         "live_approval_sha256": {"$ref": "#/$defs/sha"},

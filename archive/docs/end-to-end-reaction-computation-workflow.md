@@ -469,7 +469,7 @@ minimum Opt/Freq/SP
 Each later executable job or calculation-attempt record must contain immutable
 parent hashes, exact input hash, route, resources, fresh project, expected
 outputs, approval state, and retry lineage.
-Execution remains confined below `/home/user100/SDL`, refuses non-empty or
+Execution remains confined below `/home/<user>/SDL`, refuses non-empty or
 symlinked projects, submits exactly once, and never deletes server data.
 
 The 2.3.0 calculation-DAG slice deliberately stops before those

@@ -67,7 +67,7 @@ reconciliation reject a symlink in the supplied job-directory ancestry.
 
 Create this record only after showing and approving the exact structure,
 stereochemistry, charge, multiplicity, route, memory, cores, input SHA-256,
-fresh project name and `/home/user100/SDL/<project>` directory.
+fresh project name and `/home/<user>/SDL/<project>` directory.
 
 ```json
 {
@@ -76,7 +76,7 @@ fresh project name and `/home/user100/SDL/<project>` directory.
   "explicit_confirmation": true,
   "scope": {
     "project": "reviewed_project",
-    "remote_workdir": "/home/user100/SDL/reviewed_project",
+    "remote_workdir": "/home/<user>/SDL/reviewed_project",
     "input_sha256": "<64-lowercase-hex>",
     "route": "<exact route from preflight>",
     "mem": "12GB",
@@ -176,7 +176,7 @@ submission.
 `auto-g16-live-submission-approval/4` is the only prospective-live contract
 for a fully owner-replayed `gaussian-input-approval-receipt/2`. It is restricted
 to `work_kind: minimum`, multiplicity 2 or 3, and reference family `U` or `RO`.
-Its closed scope binds the exact project and `/home/user100/SDL/<project>`, input
+Its closed scope binds the exact project and `/home/<user>/SDL/<project>`, input
 SHA-256, route, memory, cores, charge, multiplicity, receipt file/payload/input
 hashes, owner workflow, electronic-state-review/input-handoff/input-audit and
 selected-option payload hashes, reference family, resource tier and
@@ -210,7 +210,7 @@ only a scope proposal and required schema. They do not emit an approved `/4`.
 
 `auto-g16-live-submission-approval/13` binds one receipt `/5`, its QST3 owner
 projection, maturity gate/action authorization, exact project under
-`/home/user100/SDL`, execution attempt and complete resource tuple. It retains
+`/home/<user>/SDL`, execution attempt and complete resource tuple. It retains
 the active window, revocation, single-use, no-retry, no-cancel, no-cleanup and
 no-delete fields of the protected live contracts.
 

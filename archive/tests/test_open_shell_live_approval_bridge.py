@@ -82,7 +82,7 @@ class OpenShellLiveApprovalBridgeTests(unittest.TestCase):
     def test_every_v4_exact_scope_and_authorization_binding_tamper_fails(self) -> None:
         mutations = {
             "project": lambda value: value["scope"].__setitem__("project", "other"),
-            "server directory": lambda value: value["scope"].__setitem__("remote_workdir", "/home/user100/SDL/other"),
+            "server directory": lambda value: value["scope"].__setitem__("remote_workdir", "/home/<user>/SDL/other"),
             "input hash": lambda value: value["scope"].__setitem__("input_sha256", "0" * 64),
             "route": lambda value: value["scope"].__setitem__("route", "#p uhf/sto-3g opt freq"),
             "memory": lambda value: value["scope"].__setitem__("mem", "1GB"),

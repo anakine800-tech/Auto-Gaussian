@@ -1,6 +1,6 @@
 ---
 name: auto-g16-rtwin-pbs
-description: Present and record hash-bound loose/standard/strict Gaussian protocol candidates before input drafting, then prepare, submit, monitor, fetch, and analyze approved Gaussian 16 calculations through the user's configured RTwin Windows SSH bridge to a private PBS server. Includes audited Opt-Freq-single-point workflows, thermochemistry, conformer aggregation, per-hop SHA-256, overwrite prevention, robust state classification, scheduler-zombie cleanup, and confirmation-gated cancellation. Use for protocol-rigor comparisons or organic Gaussian jobs reachable only through RTwin. All server data and scratch are confined to /home/user100/SDL.
+description: Present and record hash-bound loose/standard/strict Gaussian protocol candidates before input drafting, then prepare, submit, monitor, fetch, and analyze approved Gaussian 16 calculations through the user's configured RTwin Windows SSH bridge to a private PBS server. Includes audited Opt-Freq-single-point workflows, thermochemistry, conformer aggregation, per-hop SHA-256, overwrite prevention, robust state classification, scheduler-zombie cleanup, and confirmation-gated cancellation. Use for protocol-rigor comparisons or organic Gaussian jobs reachable only through RTwin. All server data and scratch are confined to /home/<user>/SDL.
 ---
 
 # Auto-G16 RTwin PBS
@@ -65,7 +65,7 @@ environment variable overrides the matching JSON value.
 
 - Mac SSH alias: `rtwin` in the ignored local config selected by `AUTO_G16_RTWIN_SSH_CONFIG`
 - RTwin server alias: `gaussian-server` in the Windows config selected by `AUTO_G16_WINDOWS_SERVER_CONFIG`
-- Server data root: `/home/user100/SDL`
+- Server data root: `/home/<user>/SDL`
 - PBS/Torque queue: `batch`; Gaussian 16 at `/opt/soft/g16/g16`
 - Capacity: 44 CPU cores and 120 GB physical memory
 - Resource tiers: simple = 12 GB/8 cores; general = 50 GB/22 cores; complex = 120 GB/44 cores
@@ -158,10 +158,10 @@ one-time approval and execution-batch gate described below.
 
 ## Non-negotiable filesystem boundary
 
-- Hard-code `/home/user100/SDL`; provide no remote-root override.
+- Hard-code `/home/<user>/SDL`; provide no remote-root override.
 - Resolve the root and project with `realpath`. Refuse symlinks or paths outside the root.
 - Refuse upload to any non-empty server project directory. Use a new project name; never overwrite implicitly.
-- Put Gaussian scratch in `/home/user100/SDL/<project>/scratch`, never `/tmp`.
+- Put Gaussian scratch in `/home/<user>/SDL/<project>/scratch`, never `/tmp`.
 - Provide no server data deletion command. Never issue `rm`, `rmdir`, truncation, or recursive replacement. A future deletion requires exact paths, canonical containment proof, impact preview, and a separate final confirmation.
 - Use `qsub/qstat` only for PBS-owned state. `watch` and `auto` never invoke
   `qdel`. A repeatedly proven terminal scheduler zombie may be handled only by
@@ -519,7 +519,7 @@ HELPER="$HOME/.codex/skills/auto-g16-rtwin-pbs/scripts/gaussian_rtwin_pbs.py"
   --verify-seconds 5
 ```
 
-Zombie cleanup changes only a PBS-owned record. It never deletes or modifies `/home/user100/SDL/<project>` data.
+Zombie cleanup changes only a PBS-owned record. It never deletes or modifies `/home/<user>/SDL/<project>` data.
 
 ## Completion evidence
 
@@ -730,7 +730,7 @@ deployment or live authority is granted; the direct backend remains
 - `scripts/execution_authorization_state.py`: private locked no-clobber
   single-use consumption/reservation owner; it accepts no caller registry.
 - `scripts/legacy_root_authority_contract.py`: packaged sole legacy-root
-  authority contract; it does not generalize or relocate `/home/user100/SDL`.
+  authority contract; it does not generalize or relocate `/home/<user>/SDL`.
 - `scripts/resource_efficiency.py`,
   `scripts/resource_effect_time_replay_owner.py`, and
   `scripts/live_approval_effect_time_replay.py`: packaged sole resource and

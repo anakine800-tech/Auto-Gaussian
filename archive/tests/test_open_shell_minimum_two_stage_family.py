@@ -182,7 +182,7 @@ class OpenShellMinimumTwoStageFamilyTests(unittest.TestCase):
 
             tamper_cases = {
                 "project": lambda value: value["scope"].__setitem__("project", "other"),
-                "remote directory": lambda value: value["scope"].__setitem__("remote_workdir", "/home/user100/SDL/other"),
+                "remote directory": lambda value: value["scope"].__setitem__("remote_workdir", "/home/<user>/SDL/other"),
                 "input SHA": lambda value: value["scope"].__setitem__("input_sha256", "0" * 64),
                 "route": lambda value: value["scope"].__setitem__("route", "#p other"),
                 "memory": lambda value: value["scope"].__setitem__("mem", "1GB"),

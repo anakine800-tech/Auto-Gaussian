@@ -147,7 +147,7 @@
                         },
                         "remote_workdir": {
                             "type": "string",
-                            "pattern": "^/home/user100/SDL/[A-Za-z0-9_]+$"
+                            "pattern": "^/home/<user>/SDL/[A-Za-z0-9_]+$"
                         }
                     }
                 },

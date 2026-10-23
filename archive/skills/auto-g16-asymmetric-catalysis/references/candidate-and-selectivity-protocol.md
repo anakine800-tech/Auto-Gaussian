@@ -225,5 +225,5 @@ Remaining scientific priorities are:
 7. review the BF3-TS1 literature ledger and its unresolved neutral-singlet,
    route, solvent, thermochemistry, resource, and project fields; and
 8. only after a new explicit approval, render and hash the final input in a
-   fresh `/home/user100/SDL` project and consider one live execution. Keep
+   fresh `/home/<user>/SDL` project and consider one live execution. Keep
    BF3-TS2-B1/B2 gated on accepted BF3-TS1 mode evidence.

@@ -112,9 +112,9 @@
         "workspace_binding_sha256"
       ],
       "properties": {
-        "root_policy": {"const": "fixed_sdl"}, "allowed_root": {"const": "/home/user100/SDL"},
+        "root_policy": {"const": "fixed_sdl"}, "allowed_root": {"const": "/home/<user>/SDL"},
         "project": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,14}$"},
-        "remote_workdir": {"type": "string", "pattern": "^/home/user100/SDL/[A-Za-z0-9][A-Za-z0-9_-]{0,14}$"},
+        "remote_workdir": {"type": "string", "pattern": "^/home/<user>/SDL/[A-Za-z0-9][A-Za-z0-9_-]{0,14}$"},
         "fresh_project_required": {"const": true}, "no_overwrite": {"const": true},
         "no_symlink": {"const": true}, "no_delete": {"const": true},
         "workspace_binding_sha256": {"$ref": "#/$defs/sha256"}

@@ -168,7 +168,7 @@ class XtbCrestSeedHandoffTests(LaneAFixture):
             rtwin_approved_root=r"C:\RTWIN",
             rtwin_attempt_dir=rf"C:\RTWIN\{project_id}\{attempt_id}",
             remote_approved_root=execution.LEGACY_REMOTE_ROOT,
-            remote_attempt_dir=f"/home/user100/SDL/{project_id}/{attempt_id}",
+            remote_attempt_dir=f"/home/<user>/SDL/{project_id}/{attempt_id}",
         )
 
     def xtb_snapshot(
@@ -1408,7 +1408,7 @@ class XtbCrestSeedHandoffTests(LaneAFixture):
         attestor = _SyntheticRemoteProjectAttestor._from_privileged_test_fixture(
             privilege=_SYNTHETIC_TEST_HARNESS_PRIVILEGE,
             target=target,
-            observed_project_dir="/home/user100/SDL/project-2",
+            observed_project_dir="/home/<user>/SDL/project-2",
             observed_state="ABSENT",
             observed_parent_physical_identity="opaque-server-parent-v2",
             observed_project_physical_identity=None,
@@ -1421,7 +1421,7 @@ class XtbCrestSeedHandoffTests(LaneAFixture):
         binding = provisioning.provision_remote_project(
             project=self.store.load_project("project-2"),
             target=target,
-            remote_project_dir="/home/user100/SDL/project-2",
+            remote_project_dir="/home/<user>/SDL/project-2",
             evidence_identity="synthetic-cross-project",
         )
         snapshot_service = _ProgramExecutionSnapshotService._for_privileged_synthetic_tests(

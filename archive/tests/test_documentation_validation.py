@@ -31,7 +31,7 @@ def commit(root: Path, path: str, text: str) -> str:
 def fixture(root: Path) -> str:
     git(root, "init", "-q")
     git(root, "config", "user.name", "Documentation Test")
-    git(root, "config", "user.email", "documentation@example.invalid")
+    git(root, "config", "user.email", "documentation@example.invalid")  # scan-public: allow synthetic fixture value
     commit(root, ".gitignore", "__pycache__/\n")
     for relative in ("scripts/check_documentation.py", "scripts/select_validation.py",
                      "config/validation-selection.json"):

@@ -54,7 +54,7 @@ class RuntimeSafetyHardeningTests(unittest.TestCase):
         return PBS.initialize_job_state(local_dir, {
             "schema": "gaussian-rtwin-pbs/1", "project": "safe_job", "job_id": "123.master",
             "status": status, "input": "safe_job.gjf", "input_sha256": PBS.sha256(input_path),
-            "remote_workdir": "/home/user100/SDL/safe_job",
+            "remote_workdir": "/home/<user>/SDL/safe_job",
         })
 
     def test_qstat_and_ps_errors_are_unknown_not_absent(self) -> None:
@@ -262,7 +262,7 @@ class RuntimeSafetyHardeningTests(unittest.TestCase):
             "input_sha256": PBS.sha256(local_dir / "safe_job.gjf"),
             "pbs_script": "safe_job.pbs",
             "checksums": "checksums.sha256",
-            "remote_workdir": "/home/user100/SDL/safe_job",
+            "remote_workdir": "/home/<user>/SDL/safe_job",
             "gaussian": {},
         }
         (local_dir / "job.json").write_text(json.dumps(job), encoding="utf-8")

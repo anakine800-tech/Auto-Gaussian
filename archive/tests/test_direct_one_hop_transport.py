@@ -491,7 +491,7 @@ class DirectOneHopTransportTests(unittest.TestCase):
                     (("ssh", "user"), "other"),
                     (("ssh", "port"), "2222"),
                     (("ssh", "subsystem"), "other"),
-                    (("server", "allowed_root"), "/home/user100/SDL"),
+                    (("server", "allowed_root"), "/home/<user>/SDL"),
                 ):
                     hostile = copy.deepcopy(profile)
                     hostile[field[0]][field[1]] = replacement
@@ -555,7 +555,7 @@ class DirectOneHopTransportTests(unittest.TestCase):
             fixture = PortableSessionFixture(Path(raw).resolve())
             try:
                 hostile_review = json.loads(fixture.artifacts.pbs_review)
-                hostile_review["workspace"]["allowed_root"] = "/home/user100/SDL"
+                hostile_review["workspace"]["allowed_root"] = "/home/<user>/SDL"
                 hostile_review["review_payload_sha256"] = "f" * 64
                 fixture.artifacts = SESSION.DirectServerSessionArtifacts(
                     **{

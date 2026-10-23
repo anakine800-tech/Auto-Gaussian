@@ -43,7 +43,7 @@ real smoke artifacts.
 ## Exact live `/5` fields and stop conditions
 
 Each stage's prospective `/5` must bind: project;
-`/home/user100/SDL/<project>`; input SHA; exact route; memory; cores; charge;
+`/home/<user>/SDL/<project>`; input SHA; exact route; memory; cores; charge;
 multiplicity; work kind `minimum`; receipt `/3` file/payload/input hashes; owner;
 workflow; family payload hash; stage; method; basis; U/RO reference; resource
 tier; owner replay; and, for stability, the accepted final checkpoint SHA.

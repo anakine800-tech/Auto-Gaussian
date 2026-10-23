@@ -6,7 +6,7 @@ implementation owner is `legacy_rtwin_pbs.py`, reached through
 selector and always imports `legacy_rtwin_pbs`. `gaussian_auto.py` binds that
 facade; no CLI or environment value can choose another engine.
 
-PR4A preserves the fixed `/home/user100/SDL` root, PR2-owner-sealed exact legacy
+PR4A preserves the fixed `/home/<user>/SDL` root, PR2-owner-sealed exact legacy
 resource tuples, fixed PBS rendering, unknown/uncertain classifications,
 immutable fetch, one-shot mutation and no-delete rules. The PR3 strict
 no-follow loader seals active attestation operations into non-executable plans.

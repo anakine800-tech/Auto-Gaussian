@@ -108,7 +108,7 @@ host-identity drift, or mutation during resolution fails closed; after
 resolution, execution may not reread the profile, CLI, environment, or mutable
 configuration.
 
-For `legacy_rtwin_pbs`, `remote_root` remains fixed at `/home/user100/SDL`.
+For `legacy_rtwin_pbs`, `remote_root` remains fixed at `/home/<user>/SDL`.
 `runtime_identities` derive from the complete effect-relevant, non-secret
 runtime content, never an opaque runtime digest.
 

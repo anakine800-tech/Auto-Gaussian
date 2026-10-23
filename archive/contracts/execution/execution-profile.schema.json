@@ -39,7 +39,7 @@
       "required": ["root_policy", "allowed_root", "fresh_project_required", "no_overwrite", "no_symlink", "no_delete"],
       "properties": {
         "root_policy": {"const": "fixed_sdl"},
-        "allowed_root": {"const": "/home/user100/SDL"},
+        "allowed_root": {"const": "/home/<user>/SDL"},
         "fresh_project_required": {"const": true},
         "no_overwrite": {"const": true},
         "no_symlink": {"const": true},

@@ -662,7 +662,7 @@ class DirectRootFixedMutationConsumerTests(unittest.TestCase):
             SCRIPTS / "direct_root_fixed_mutation_consumer.py",
         )
         legacy = (SCRIPTS / "legacy_root_authority_contract.py").read_text(encoding="utf-8")
-        self.assertIn('FIXED_REMOTE_ROOT = "/home/user100/SDL"', legacy)
+        self.assertIn('FIXED_REMOTE_ROOT = "/home/<user>/SDL"', legacy)
 
 
 if __name__ == "__main__":

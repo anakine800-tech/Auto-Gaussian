@@ -9,7 +9,7 @@ The owner replays the existing exact-input approval, resource-bound live
 approval `/9`–`/11`, execution batch `/3`, resource gate `/2`, scheduler
 snapshot and transport-identity closure. It then binds the exact project,
 scientific task, input hash, deterministic attempt, idempotency-key hash,
-resource tuple, fixed `/home/user100/SDL` workspace policy, immutable stage
+resource tuple, fixed `/home/<user>/SDL` workspace policy, immutable stage
 manifest/bundle hashes, fixed operation order, approval window and single-use
 scope.
 

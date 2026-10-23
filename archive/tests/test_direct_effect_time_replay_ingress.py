@@ -120,7 +120,7 @@ class DirectReplayIngressFixture:
             identity=task["identity"],
             idempotency_key=self.execution["idempotency_key"],
             project="safejob",
-            remote_workdir="/home/user100/SDL/safejob",
+            remote_workdir="/home/<user>/SDL/safejob",
             input_sha256=self.approval["scope"]["input_sha256"],
             live_approval_id=self.approval["approval_id"],
             live_approval_sha256=hashlib.sha256(

@@ -777,7 +777,7 @@ class DirectOnboardingTests(unittest.TestCase):
         legacy = (SCRIPTS / "legacy_root_authority_contract.py").read_text(
             encoding="utf-8"
         )
-        self.assertIn('FIXED_REMOTE_ROOT = "/home/user100/SDL"', legacy)
+        self.assertIn('FIXED_REMOTE_ROOT = "/home/<user>/SDL"', legacy)
 
     def test_cli_snapshots_and_exit_codes_are_closed(self) -> None:
         status, stdout, stderr = self.run_cli(["init", "direct-profile-001"])

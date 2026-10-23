@@ -124,7 +124,7 @@ class ScientificClosureLineageTests(unittest.TestCase):
             probes = []
             for index, epoch in enumerate((100, 107), 1):
                 probe = root / f"probe-{index}.txt"
-                probe.write_text(f"COLLECTED_EPOCH\t{epoch}\nIGNORED_INFRASTRUCTURE\t9\tsshd\t1\t0\nSUMMARY\t/home/user100/SDL/{project}\t{stem}\t0\t0\t1\n")
+                probe.write_text(f"COLLECTED_EPOCH\t{epoch}\nIGNORED_INFRASTRUCTURE\t9\tsshd\t1\t0\nSUMMARY\t/home/<user>/SDL/{project}\t{stem}\t0\t0\t1\n")
                 probes.append(probe)
             output = root / "process-reconciliation.json"
             built = LINEAGE.build_process_reconciliation(root, project, job_id, stem, input_path, receipt_path, probes, output)
@@ -285,7 +285,7 @@ class ScientificClosureLineageTests(unittest.TestCase):
             unknown_job = json.loads(json.dumps(original_job_for_reconciliation)); unknown_job["terminal_inspection_receipt_sha256"] = unknown_receipt["receipt_sha256"]; unknown_job["fetch_snapshot_sha256"] = LINEAGE.file_sha256(snapshot_path); unknown_job["fetch_snapshot_size"] = snapshot_path.stat().st_size; job_path.write_text(json.dumps(unknown_job))
             probe_paths = []
             for index, epoch in enumerate((200, 207), 1):
-                probe = root / f"lineage-process-probe-{index}.txt"; probe.write_text(f"COLLECTED_EPOCH\t{epoch}\nSUMMARY\t/home/user100/SDL/{project}\t{input_path.stem}\t0\t0\t0\n"); probe_paths.append(probe)
+                probe = root / f"lineage-process-probe-{index}.txt"; probe.write_text(f"COLLECTED_EPOCH\t{epoch}\nSUMMARY\t/home/<user>/SDL/{project}\t{input_path.stem}\t0\t0\t0\n"); probe_paths.append(probe)
             process_path = root / "lineage-process-reconciliation.json"
             LINEAGE.build_process_reconciliation(root, project, job_id, input_path.stem, input_path, receipt_path, probe_paths, process_path)
             reconciled_output = root / "minimum-lineage-reconciled-process.json"

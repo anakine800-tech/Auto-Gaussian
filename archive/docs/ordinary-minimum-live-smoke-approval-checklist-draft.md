@@ -76,10 +76,10 @@ can be finalized.
 - [ ] Exact `%nprocshared`: `8` unless a reviewed custom value is approved.
 - [ ] Fresh project name: `<BLOCKED: choose only after the exact input is set>`.
 - [ ] For `legacy_rtwin_pbs` only, the canonical remote directory is
-      `/home/user100/SDL/<BLOCKED-fresh-project>`.
+      `/home/<user>/SDL/<BLOCKED-fresh-project>`.
 - [ ] For `direct_ssh_pbs`, the canonical remote directory is derived only
       from the separately reviewed, hash-bound direct root and exact project;
-      `/home/user100/SDL` is not copied from the legacy contract.
+      `/home/<user>/SDL` is not copied from the legacy contract.
 - [ ] A read-only preflight proves the selected backend's resolved project path
       is a non-symlink below its exact owner-approved root and the target
       project directory is new and empty. Never upload to a non-empty directory

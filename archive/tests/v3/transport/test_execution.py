@@ -23,7 +23,7 @@ def execution_successes(job_id: str = "123.server", *, input_bytes: bytes = INPU
             "artifact_physical_token_base64": base64.b64encode(canonical_json_bytes(["token", kind, logical])).decode("ascii"),
         }))
     return (
-        response("ALLOCATE_WORKSPACE", {"remote_workspace": "/home/user100/SDL/project-1/attempt-1", "workspace_physical_token_base64": workspace}),
+        response("ALLOCATE_WORKSPACE", {"remote_workspace": "/home/<user>/SDL/project-1/attempt-1", "workspace_physical_token_base64": workspace}),
         *staged,
         response("SUBMIT_QSUB_ONCE", {"job_id": job_id}),
     )

@@ -100,7 +100,7 @@ class ReceiptSeedTests(pilot._PilotFixture):
         plan = core.CalculationPlan(calculation_plan_id='crest-plan',task_id='crest-task',revision=1,intent=intent);s.store_calculation_plan(plan)
         resource = core.ResourceSpec(resource_spec_id='crest-resource',task_id='crest-task',resources={'tier':'simple'});s.store_resource_spec(resource)
         s.create_attempt(core.Attempt(attempt_id='crest-attempt',task_id='crest-task',ordinal=1))
-        remote = '/home/user100/SDL/crest-project'
+        remote = '/home/<user>/SDL/crest-project'
         attestor = _SyntheticRemoteProjectAttestor._from_privileged_test_fixture(privilege=_SYNTHETIC_TEST_HARNESS_PRIVILEGE,target=target.resolved(),observed_project_dir=remote,observed_state='ABSENT',observed_parent_physical_identity='opaque-server-parent-v1',observed_project_physical_identity=None,provisioned_project_physical_identity='crest-project-identity')
         service = _ProjectProvisioningService._from_privileged_synthetic_attestor(privilege=_SYNTHETIC_TEST_HARNESS_PRIVILEGE,attestor=attestor)
         binding = service.provision_remote_project(project=project,target=target.resolved(),remote_project_dir=remote,evidence_identity='inert-crest-create')

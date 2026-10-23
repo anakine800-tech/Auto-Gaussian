@@ -45,8 +45,8 @@ class _Wire:
     def __init__(self) -> None:
         self.calls = []
         self.project_state = "ABSENT"
-        self.parent = directory_token("/home/user100/SDL")
-        self.project = directory_token("/home/user100/SDL/project-1")
+        self.parent = directory_token("/home/<user>/SDL")
+        self.project = directory_token("/home/<user>/SDL/project-1")
         self.mkdir_count = 0
         self.raise_after_mkdir = False
         self.replace_parent = False
@@ -778,7 +778,7 @@ class ProductionBridgeTests(lane.LaneAFixture):
         with patch.object(self.journal, "append_binding", side_effect=RuntimeError("local crash")):
             with self.assertRaises(RuntimeError):
                 self.provision()
-        for field, value in (("parent", directory_token("/home/user100/SDL", 999)), ("project", directory_token(self.remote_project_dir, 999)), ("project_state", "ABSENT")):
+        for field, value in (("parent", directory_token("/home/<user>/SDL", 999)), ("project", directory_token(self.remote_project_dir, 999)), ("project_state", "ABSENT")):
             with self.subTest(field=field), patch.object(self.wire, field, value):
                 with self.assertRaisesRegex(execution.ExecutionValueError, "physical identity drifted"):
                     self._reconcile()
@@ -953,7 +953,7 @@ class ProductionBridgeTests(lane.LaneAFixture):
         self.assertEqual(self.wire.mkdir_count, 0)
 
     def test_parent_change_between_classification_and_recheck_has_zero_intent_or_mkdir(self):
-        with patch.object(self.service._attestor, "_observe_current", side_effect=[("ABSENT", self.wire.parent, None), ("ABSENT", directory_token("/home/user100/SDL", 999), None)]):
+        with patch.object(self.service._attestor, "_observe_current", side_effect=[("ABSENT", self.wire.parent, None), ("ABSENT", directory_token("/home/<user>/SDL", 999), None)]):
             with self.assertRaisesRegex(execution.ExecutionValueError, "parent identity changed"):
                 self.provision()
         self.assertEqual(self.wire.mkdir_count, 0)
@@ -1271,10 +1271,10 @@ class ProductionBridgeTests(lane.LaneAFixture):
         fake_os.path.abspath.return_value = "/usr/bin/python3"
         output = io.BytesIO()
         fake_sys = SimpleNamespace(argv=["bootstrap", base64.b64encode(canonical_json_bytes(manifest)).decode()], executable="/usr/bin/python3", stdin=SimpleNamespace(buffer=io.BytesIO(_bridge._encode_frame(request))), stdout=SimpleNamespace(buffer=output))
-        namespace.update(os=fake_os, sys=fake_sys, executable=Mock(), parent=Mock(return_value=(10, self.wire.parent, "/home/user100/SDL", "project-1")), named_directory=Mock(return_value=11), project_observe=Mock(return_value={"state": "EXISTING", "parent_physical_identity": self.wire.parent, "project_physical_identity": self.wire.project}))
+        namespace.update(os=fake_os, sys=fake_sys, executable=Mock(), parent=Mock(return_value=(10, self.wire.parent, "/home/<user>/SDL", "project-1")), named_directory=Mock(return_value=11), project_observe=Mock(return_value={"state": "EXISTING", "parent_physical_identity": self.wire.parent, "project_physical_identity": self.wire.project}))
         namespace["main"]()
         fake_os.mkdir.assert_called_once_with("project-1", 0o700, dir_fd=10)
-        namespace["named_directory"].assert_called_once_with("/home/user100/SDL", self.wire.parent)
+        namespace["named_directory"].assert_called_once_with("/home/<user>/SDL", self.wire.parent)
         fake_os.makedirs.assert_not_called()
         fake_os.unlink.assert_not_called()
         fake_os.mkdir.reset_mock()
@@ -1289,12 +1289,12 @@ class ProductionBridgeTests(lane.LaneAFixture):
         namespace = {}
         exec(compile(ast.Module(body=tree.body[:-1], type_ignores=[]), "<offline-successor-bootstrap>", "exec"), namespace)
         fake_os = Mock()
-        fake_os.path.normpath.return_value = "/home/user100/SDL"
+        fake_os.path.normpath.return_value = "/home/<user>/SDL"
         fake_os.open.side_effect = [10, 11, OSError("symlink/reparse-like component")]
         fake_os.fstat.return_value = SimpleNamespace(st_dev=1, st_ino=2)
         namespace["os"] = fake_os
         with self.assertRaises(OSError):
-            namespace["directory"]("/home/user100/SDL")
+            namespace["directory"]("/home/<user>/SDL")
         import os
         for call in fake_os.open.call_args_list:
             self.assertTrue(call.args[1] & os.O_NOFOLLOW)

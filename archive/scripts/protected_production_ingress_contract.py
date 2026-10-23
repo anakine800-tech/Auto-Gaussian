@@ -45,7 +45,7 @@ FACADE_MODULE_NAME = "execution_facade"
 LEGACY_MODULE_NAME = "legacy_rtwin_pbs"
 CONSUMER_SCHEMA = "auto-g16-protected-owner-consumer-contract/1"
 RUNTIME_RECEIPT_SCHEMA = "auto-g16-protected-runtime-state-receipt/1"
-FIXED_REMOTE_ROOT = "/home/user100/SDL"
+FIXED_REMOTE_ROOT = "/home/<user>/SDL"
 PLAN_FIELDS = (
     "project",
     "windows_dir",

@@ -28,7 +28,7 @@ from typing import Any, Callable, Iterator, Mapping
 SCHEMA = "auto-g16-protected-submit-bundle/1"
 OWNER = "auto-g16-protected-submit-contract"
 STAGE_SCHEMA = "auto-g16-immutable-stage-bundle/1"
-FIXED_REMOTE_ROOT = "/home/user100/SDL"
+FIXED_REMOTE_ROOT = "/home/<user>/SDL"
 OPERATION_ORDER = ("reserve_once", "stage_exact_bundle", "submit_once")
 ARTIFACT_ORDER = (
     "exact_gaussian_input",

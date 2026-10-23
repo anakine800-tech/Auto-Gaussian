@@ -253,7 +253,7 @@ class ApprovalModelTests(unittest.TestCase):
                 lambda value: object.__setattr__(
                     value.workspace_binding,
                     "remote_attempt_dir",
-                    "/home/user100/SDL/forged/attempt-1",
+                    "/home/<user>/SDL/forged/attempt-1",
                 ),
             ),
             (

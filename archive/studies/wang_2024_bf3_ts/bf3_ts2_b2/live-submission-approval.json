@@ -26,8 +26,8 @@
   },
   "pbs_scope": {
     "project": "w24_bf3t2b2_s1",
-    "remote_directory": "/home/user100/SDL/w24_bf3t2b2_s1",
-    "allowed_root": "/home/user100/SDL",
+    "remote_directory": "/home/<user>/SDL/w24_bf3t2b2_s1",
+    "allowed_root": "/home/<user>/SDL",
     "upload_count": 1,
     "qsub_count": 1
   },

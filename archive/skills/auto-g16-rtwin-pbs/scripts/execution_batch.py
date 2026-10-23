@@ -779,7 +779,7 @@ def validate_submission_ledger(ledger: dict[str, Any]) -> dict[str, Any]:
         project = _require_string(attempt["project"], "project")
         if attempt["job_name"] != project:
             raise BatchError("job_name must exactly equal the reviewed project")
-        if attempt["remote_workdir"] != f"/home/user100/SDL/{project}":
+        if attempt["remote_workdir"] != f"/home/<user>/SDL/{project}":
             raise BatchError("attempt remote_workdir is outside the fixed server root")
         _require_sha(attempt["input_sha256"], "attempt input_sha256")
         approval_id = _require_string(attempt["live_approval_id"], "live_approval_id")
@@ -881,7 +881,7 @@ def migrate_to_submission_ledger(
             attempt.update({
                 "project": "legacy_unbound",
                 "job_name": "legacy_unbound",
-                "remote_workdir": "/home/user100/SDL/legacy_unbound",
+                "remote_workdir": "/home/<user>/SDL/legacy_unbound",
                 "live_approval_id": "legacy-" + attempt["attempt_id"],
                 "estimated_core_hours_evidence": {
                     "source": source,
@@ -951,7 +951,7 @@ def reserve_submission_attempt(
     proposed_identity = validate_identity(identity)
     key = _require_string(idempotency_key, "idempotency_key")
     project_value = _require_string(project, "project")
-    if remote_workdir != f"/home/user100/SDL/{project_value}":
+    if remote_workdir != f"/home/<user>/SDL/{project_value}":
         raise BatchError("reservation remote_workdir must use the fixed server root")
     input_digest = _require_sha(input_sha256, "input_sha256")
     approval_id = _require_string(live_approval_id, "live_approval_id")

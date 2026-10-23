@@ -92,7 +92,7 @@ class LegacyBackendTests(unittest.TestCase):
         ).encode("utf-8")
         self.assertEqual(actual, expected)
         self.assertEqual(plan.runtime_binding.invocation_mode, "legacy_stdin")
-        self.assertEqual(plan.workspace_paths.remote_workdir, "/home/user100/SDL/goldenjob")
+        self.assertEqual(plan.workspace_paths.remote_workdir, "/home/<user>/SDL/goldenjob")
 
     def test_typed_objects_reject_unvalidated_construction_and_invalid_input_component(self) -> None:
         with self.assertRaises(TypeError):

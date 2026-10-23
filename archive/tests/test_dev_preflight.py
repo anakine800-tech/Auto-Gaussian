@@ -72,7 +72,7 @@ class DevelopmentPreflightTests(unittest.TestCase):
             "-c",
             "user.name=Auto G16 Test",
             "-c",
-            "user.email=test@example.invalid",
+            "user.email=test@example.invalid",  # scan-public: allow synthetic fixture value
             "commit",
             "-m",
             "fixture",
@@ -156,7 +156,7 @@ class DevelopmentPreflightTests(unittest.TestCase):
             "-c",
             "user.name=Auto G16 Test",
             "-c",
-            "user.email=test@example.invalid",
+            "user.email=test@example.invalid",  # scan-public: allow synthetic fixture value
             "commit",
             "-m",
             "private-path fixture",
@@ -196,7 +196,7 @@ class DevelopmentPreflightTests(unittest.TestCase):
         system_config.write_text('[sentinel]\n system = inherited\n', encoding="utf-8")
         run_git(self.root, "config", "sentinel.local", "retained")
         run_git(self.root, "config", "user.name", "Auto G16 Test")
-        run_git(self.root, "config", "user.email", "test@example.invalid")
+        run_git(self.root, "config", "user.email", "test@example.invalid")  # scan-public: allow synthetic fixture value
         hook = self.root / ".git" / "hooks" / "pre-commit"
         hook.write_text(
             f"#!{sys.executable}\nfrom pathlib import Path\n"

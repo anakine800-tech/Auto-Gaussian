@@ -41,7 +41,7 @@
     {
       "direction": "forward",
       "project": "w24_bf3b1_if1",
-      "remote_directory": "/home/user100/SDL/w24_bf3b1_if1",
+      "remote_directory": "/home/<user>/SDL/w24_bf3b1_if1",
       "input_basename": "w24_bf3b1_if1.gjf",
       "checkpoint_basename": "w24_bf3b1_if1.chk",
       "route": "#p wb97xd/6-31g(d) scrf=(smd,solvent=toluene) irc=(rcfc,forward,maxpoints=30,stepsize=5,maxcycle=40,recorrect=yes) geom=allcheck guess=read int=ultrafine scf=(tight,xqc,maxcycle=128)"
@@ -49,7 +49,7 @@
     {
       "direction": "reverse",
       "project": "w24_bf3b1_ir1",
-      "remote_directory": "/home/user100/SDL/w24_bf3b1_ir1",
+      "remote_directory": "/home/<user>/SDL/w24_bf3b1_ir1",
       "input_basename": "w24_bf3b1_ir1.gjf",
       "checkpoint_basename": "w24_bf3b1_ir1.chk",
       "route": "#p wb97xd/6-31g(d) scrf=(smd,solvent=toluene) irc=(rcfc,reverse,maxpoints=30,stepsize=5,maxcycle=40,recorrect=yes) geom=allcheck guess=read int=ultrafine scf=(tight,xqc,maxcycle=128)"

@@ -994,7 +994,7 @@ def reserve_attempt(
         raise ResourceError("reservation scheduler artifact differs from the exact gate binding")
     if PROJECT_RE.fullmatch(project) is None:
         raise ResourceError("project must be a safe 1-15 character server job name")
-    if remote_workdir != f"/home/user100/SDL/{project}":
+    if remote_workdir != f"/home/<user>/SDL/{project}":
         raise ResourceError("reservation remote_workdir must equal the fixed exact project path")
     with execution_batch._locked(path):
         ledger = validate_ledger(execution_batch.load_json(path))

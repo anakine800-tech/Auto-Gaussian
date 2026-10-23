@@ -80,7 +80,7 @@ class MetalSmokeCandidateDecisionTests(unittest.TestCase):
         self.assertFalse(package["live_authorization"]["package_is_submission_authorization"])
         self.assertFalse(any(package["automatic_actions"].values()))
         self.assertFalse(package["server_plan"]["actual_directory_created"])
-        self.assertEqual(package["server_plan"]["allowed_root"], "/home/user100/SDL")
+        self.assertEqual(package["server_plan"]["allowed_root"], "/home/<user>/SDL")
 
 
 if __name__ == "__main__":

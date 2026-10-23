@@ -76,7 +76,7 @@ class ReservationCapabilityFixture:
             "identity": PACKAGE4.identity("5" * 64),
             "idempotency_key": key,
             "project": "safejob",
-            "remote_workdir": "/home/user100/SDL/safejob",
+            "remote_workdir": "/home/<user>/SDL/safejob",
             "input_sha256": "5" * 64,
             "live_approval_id": f"approval-{key}",
             "live_approval_sha256": hashlib.sha256(

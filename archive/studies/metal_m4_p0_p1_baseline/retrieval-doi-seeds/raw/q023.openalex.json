@@ -527,7 +527,7 @@
               "institution_ids": [
                 "https://openalex.org/I183067930"
               ],
-              "raw_affiliation_string": "Shanghai Key Laboratory for Molecular Engineering of Chiral Drugs, School of Chemistry and Chemical Engineering, Shanghai Jiao Tong University, 800 Dongchuan Road, Shanghai, 200240, China. wanbin@sjtu.edu.cn"
+              "raw_affiliation_string": "Shanghai Key Laboratory for Molecular Engineering of Chiral Drugs, School of Chemistry and Chemical Engineering, Shanghai Jiao Tong University, 800 Dongchuan Road, Shanghai, 200240, China. <contact-email>"
             },
             {
               "institution_ids": [
@@ -559,7 +559,7 @@
           ],
           "is_corresponding": true,
           "raw_affiliation_strings": [
-            "Shanghai Key Laboratory for Molecular Engineering of Chiral Drugs, School of Chemistry and Chemical Engineering, Shanghai Jiao Tong University, 800 Dongchuan Road, Shanghai, 200240, China. wanbin@sjtu.edu.cn",
+            "Shanghai Key Laboratory for Molecular Engineering of Chiral Drugs, School of Chemistry and Chemical Engineering, Shanghai Jiao Tong University, 800 Dongchuan Road, Shanghai, 200240, China. <contact-email>",
             "Shanghai Key Laboratory for Molecular Engineering of Chiral Drugs, School of Chemistry and Chemical Engineering, Shanghai Jiao Tong University, 800 Dongchuan Road, Shanghai, 200240, China"
           ],
           "raw_author_name": "Wanbin Zhang",

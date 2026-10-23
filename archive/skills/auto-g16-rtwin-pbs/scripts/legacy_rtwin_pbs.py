@@ -70,7 +70,7 @@ DEFAULT_WINDOWS_SERVER_CONFIG = setting(
     r".ssh\gaussian_server_config",
 )
 DEFAULT_SERVER_ALIAS = "gaussian-server"
-DEFAULT_REMOTE_ROOT = "/home/user100/SDL"
+DEFAULT_REMOTE_ROOT = "/home/<user>/SDL"
 MAX_CORES = 44
 MAX_MEMORY_BYTES = 120 * 1024**3
 PROJECT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,14}$")
@@ -372,7 +372,7 @@ def _exact_read_only_capability(kind: str, command: list[str], input_bytes: byte
     if kind == "single_job_inspection":
         text = decode(input_bytes)
         job_match = re.search(r"qstat_out=\$\(qstat -f '([^']+)'", text)
-        log_match = re.search(r"if \[ -f '(/home/user100/SDL/([^/]+)/([^/]+)\.log)' \]", text)
+        log_match = re.search(r"if \[ -f '(/home/<user>/SDL/([^/]+)/([^/]+)\.log)' \]", text)
         if not job_match or not log_match:
             raise ValueError("inspection capability cannot recover exact builder scope")
         project, input_stem = log_match.group(2), log_match.group(3)

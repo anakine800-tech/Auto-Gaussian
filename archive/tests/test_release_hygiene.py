@@ -270,7 +270,7 @@ class ReleaseHygieneTests(unittest.TestCase):
             self.assertIn("offline_synthetic", text)
             self.assertIn("production_blocked", text)
             self.assertIn("live_not_ready", text)
-            self.assertIn("/home/user100/SDL", text)
+            self.assertIn("/home/<user>/SDL", text)
         self.assertIn("Release-scope revision — 2026-07-31", rfc)
         self.assertIn("but it is superseded", rfc)
         self.assertIn("as a 2.6.0 release criterion by this revision", rfc)
@@ -292,7 +292,7 @@ class ReleaseHygieneTests(unittest.TestCase):
 
         for text in (readme, changelog, status, checklist):
             self.assertIn("legacy_rtwin_pbs", text)
-            self.assertRegex(text, r"permanently fixed\s+below `/home/user100/SDL`")
+            self.assertRegex(text, r"permanently fixed\s+below `/home/<user>/SDL`")
             self.assertIn("offline_synthetic", text)
             self.assertIn("production_blocked", text)
             self.assertIn("live_not_ready", text)
@@ -370,7 +370,7 @@ class ReleaseHygieneTests(unittest.TestCase):
         ]
         forbidden = re.compile(
             "|".join(map(re.escape, retired_machine_values))
-            + r"|/Users/[^/< ]+|C:\\Users\\(?!<WINDOWS_USER>)",
+            + r"|/Users/[^/< ]+|C:\\Users\\(?!<WINDOWS_USER>)",  # scan-public: allow synthetic path or path-detection pattern
             re.IGNORECASE,
         )
         offenders: list[str] = []
