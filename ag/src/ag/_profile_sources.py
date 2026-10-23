@@ -359,6 +359,8 @@ def section_source(facts, attempt_id, *, frequency=True, directory=None):
         require(bool(re.search(r'\bfreq\b', route, re.I)),
                 f'{attempt_id}: section {index} has no explicit Freq route')
         keys = ('freq_step_converged', 'freq_step_convergence', 'vibrational_modes_complete',
+                'freq_step_gaussian_stationary', 'freq_step_review',
+                'freq_step_converged_tight', 'freq_step_threshold_set',
                 'n_vibrational_modes', 'expected_vibrational_modes', 'frequencies_low', 'imag_modes')
         keys += tuple('energies.' + k for k in ('zpe', 'e_thermal', 'h', 'g')
                       if facts.get('energies', {}).get(k) is not None)

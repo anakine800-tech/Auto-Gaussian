@@ -57,7 +57,7 @@ def test_wrapped_route_preserves_real_spaces_only(tmp_path, newline, route, expe
     assert facts['route'] == facts['job_sections'][0]['route'] == expected
     assert facts['parser_warning'] is None
     assert facts['termination'] == 'normal'
-    assert facts['parser'] == {'ag_version': __version__, 'rules': 'route-join-v1'}
+    assert facts['parser'] == {'ag_version': __version__, 'rules': 'route-join-v2'}
 
 
 @pytest.mark.parametrize('explicit', [False, True])

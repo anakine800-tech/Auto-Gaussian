@@ -157,6 +157,8 @@ def test_stable_prepare_preserves_rejections(cfg, tmp_path, keyword, old, new, e
 # Gaussian build_facts keys from main a426ca9 (including T32), before T30. A literal baseline
 # keeps this regression runnable in source archives without Git or a remote.
 MAIN_GAUSSIAN_FACT_KEYS = {
+    'freq_step_gaussian_stationary', 'freq_step_review', 'freq_step_converged_tight',
+    'freq_step_threshold_set', 's2_after_annihilation', 's2_line',  # T108 additive facts
     'parser',  # T99 optional parser version/rules metadata
     'job_sections', 'fact_sources', 'frequency_unavailable_reason',  # T42 source metadata
     'schema', 'program', 'units', 'ag_provenance', 'final_geometry', 'final_input_geometry',

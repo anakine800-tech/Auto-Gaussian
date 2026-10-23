@@ -71,7 +71,8 @@ ag prepare --study <study_id> --template gaussian --input <conformer.gjf> --tier
 ## 6. 结果判据清单
 
 - `termination = normal`，`opt_converged = true`，输出含完整 Opt 和 Freq，而非只完成前半段。
-- `freq_step_converged = true`：单独核对末次频率阶段的四项收敛表及 `Non-Optimized Parameters`。`freq_step_convergence` 给出各项值、阈值、YES/NO 和日志行号；`false` 不通过，`null` 表示缺失或无法确认，须查原日志，不能按通过处理。不能用优化阶段早期的 NO 代替末次频率阶段判据。
+- `freq_step_converged = true`：单独核对末次频率阶段的四项收敛表及 `Non-Optimized Parameters`。`freq_step_convergence` 给出各项值、打印阈值、YES/NO、Tight 比较和日志行号；`false` 不自动接受，`null` 表示缺失或无法确认，须查原日志，不能按通过处理。不能用优化阶段早期的 NO 代替末次频率阶段判据。
+- `freq_step_gaussian_stationary` 另记 Gaussian 本 Freq 的驻点结论、依据及行号；`freq_step_review=manual_review` 表示四项未全通过但 Gaussian 判驻点，需人工判定，thermo 不自动接受。`freq_step_threshold_set=default` 且原判据通过、`freq_step_converged_tight=false` 时，若父优化为 Opt=Tight，需人工判定是否接受；不能从父 route 推断本表阈值。旧 facts 与已签判定不自动改写，负责人逐 study 决定 reparse，先外部 dry-run。
 - 最终结构保持目标身份、连通性与立体化学；结构改变时不能仍计入原构象集合。
 - 极小点要求 `n_imag = 0`；核对完整频率，非线性分子有 3N−6 个、线性分子有 3N−5 个振动模式，不能把截断输出当零虚频。
 - 对低于 50 cm⁻¹ 的正频逐项记录并检查软扭转 / 数值敏感性；任何负频都不能直接置零。热化学按 thermo 卡片的 100 cm⁻¹ qRRHO 处理，但 qRRHO 不会修复非极小点。
@@ -118,7 +119,7 @@ xTB 6 kcal/mol → DFT 单点重排 → 3 kcal/mol 内进入优化（研究最�
   缺该行或无法区分模式则写缺证据。它不是 `facts.json` 的 `frequencies_low`（cclib 提取的最低几个振动频率），不能用该字段代替。
 - **实际方法、电荷或多重度不符**：核对最终计算对应的 Gaussian archive 行（展开折行），与输入、manifest 摘要及 `facts.json` 的 route/charge/multiplicity 对照；色散、溶剂等再对照输出回显。当前 facts 不提供完整 archive 审计字段，须查原日志，缺 archive/信息不全写缺证据，不能默认为一致。
 - **能量离群**：仅在同一组成、电荷、多重度、方法、溶剂和能量类型/单位下比较同组构象；区分 SCF 与 G/qRRHO。显著偏离时先检查结构是否改变、解析是否选错步骤和收敛情况，写出差值与依据；不设无来源的通用阈值，也不因更低就自动选中或因离群就删除。
-- **开壳层自旋污染**：本卡不开放开壳层执行；若输入/输出实际为开壳层，先报告超范围并停止接受。已有结果可读取 `s2`，以 S=(多重度−1)/2 的 S(S+1) 为参照，并查原日志湮灭前/后的值及目标态；缺值不当零，不凭湮灭后接近理想值就认定波函数正确。方法选择交给人判断。
+- **开壳层自旋污染**：本卡不开放开壳层执行；若输入/输出实际为开壳层，先报告超范围并停止接受。`s2` / `s2_after_annihilation` 是最后 SCF 的湮灭前/后值，`s2_line` 定位原文；以 S=(多重度−1)/2 的 S(S+1) 为参照，缺值不当零，不用稳定性本征向量的标签替代。`wavefunction_stability` 未知仍为 `unknown`，最低本征值 `{value,line}` 缺失为 null；不凭湮灭后接近理想值或 stable 认定目标态正确。方法选择交给人判断。
 
 每项在 review 写“通过 / 不通过 / 依据”；需补算时转 [失败诊断](failure-diagnosis.md)，不自动重提。
 

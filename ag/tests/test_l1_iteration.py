@@ -174,5 +174,5 @@ def test_frequency_table_evidence_and_cclib_failure(tmp_path):
     assert check['frequency_line'] == 2 and check['table_line'] == 3
     assert check['non_optimized_parameters_line'] == 8
     assert check['criteria']['maximum_displacement'] == {
-        'value': 0.003, 'threshold': 0.0018, 'converged': False, 'line': 6}
+        'value': 0.003, 'threshold': 0.0018, 'converged': False, 'converged_tight': False, 'line': 6}
     assert json.loads(json.dumps(check, allow_nan=False)) == check

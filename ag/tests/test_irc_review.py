@@ -440,7 +440,14 @@ def test_existing_irc_facts_and_parser_bytes(tmp_path):
         # scientific fields and IRC geometry after checking those exact deltas.
         from ag import __version__
         facts = values[1][0]
-        assert facts.pop('parser') == {'ag_version': __version__, 'rules': 'route-join-v1'}
+        assert facts.pop('parser') == {'ag_version': __version__, 'rules': 'route-join-v2'}
+        # T108 adds diagnostics without changing this IRC's scientific facts.
+        assert facts.pop('freq_step_gaussian_stationary') == {'found': None, 'basis': None, 'lines': []}
+        facts['fact_sources'].pop('freq_step_gaussian_stationary')
+        for key in ('freq_step_review', 'freq_step_converged_tight', 'freq_step_threshold_set',
+                    's2_after_annihilation', 's2_line'):
+            assert facts.pop(key) is None
+            facts['fact_sources'].pop(key)
         assert facts['job_sections'][0]['route'] is None
         warning = 'Unexpected or unrecognized job section 1 at line 1; '
         assert facts['parser_warning'].startswith(warning)

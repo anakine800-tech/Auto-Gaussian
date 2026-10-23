@@ -33,12 +33,76 @@ Gaussian 顶层 `termination = normal` 必须同时满足：
 新增可选字段：
 
 ```json
-{"parser": {"ag_version": "4.4.0", "rules": "route-join-v1"}}
+{"parser": {"ag_version": "4.4.0", "rules": "route-join-v2"}}
 ```
 
 `ag_version` 是生成这份 Gaussian facts 的 ag 包版本；`rules` 标识解析规则。
 旧 facts 可以没有此字段。原有 `ag_provenance` 继续记录解析器 checkout 的提交号与
 dirty 状态，两者不能代替日志哈希、科学审阅或签字。
+
+## T108：驻点、阈值、稳定性与自旋（规则 v2）
+
+`route-join-v2` 保留 v1 的 route/终止规则，新增以下事实。除修复 `s2`
+读取来源外，既有字段含义不变；`schema` 仍为 `ag-facts/1`。
+
+### 频率驻点与两套阈值
+
+`freq_step_converged` 仍只依据当前 Freq 的末次收敛表：四项打印 YES 且没有
+`Non-Optimized Parameters` 才为 true；出现 NO 或 Non-Optimized 为 false；
+缺表/不完整且没有明确失败项为 null。thermo/profile 的准入继续使用此字段。
+
+| 新字段 | 含义 |
+|---|---|
+| `freq_step_gaussian_stationary` | `{found, basis, lines}`；found 只认本 Freq 检查内的 `-- Stationary point found.`，有检查但未打印为 false，没有 Freq 证据为 null；lines 为相关完成/驻点原文的 1-based 行号 |
+| `basis` | 驻点之前打印 negligible forces 完成措辞时为 `negligible_forces`；否则驻点且本表四项 YES 时为 `all_criteria`；证据不足为 null，不用数值猜测 negligible forces |
+| `freq_step_review` | converged=true 为 `pass`；converged=false 且 found=true 为 `manual_review`；明确未通过且未判驻点为 `fail`；收敛证据不足为 null |
+| `freq_step_convergence.criteria.*.converged_tight` | 本行打印 value 严格小于对应 Tight 阈值；保留原 threshold 与 converged，不从 route 覆盖打印证据 |
+| `freq_step_converged_tight` | 与原 converged 的三态汇总规则相同，改用 converged_tight；Non-Optimized 仍为 false |
+| `freq_step_threshold_set` | 完整表的四项 threshold 全部匹配下表时为 `tight` / `default`；完整但不匹配为 `other`；缺表或不完整为 null |
+
+| 判据 | Gaussian 默认打印阈值 | Opt=Tight 阈值 |
+|---|---:|---:|
+| Maximum Force | 0.000450 | 0.000015 |
+| RMS Force | 0.000300 | 0.000010 |
+| Maximum Displacement | 0.001800 | 0.000060 |
+| RMS Displacement | 0.001200 | 0.000040 |
+
+默认值与驻点标记已对照仓库内脱敏水/正丁烷真实日志；Tight 值按 T108 工单。
+新比较仅使用日志打印精度，边界相等不当作严格小于，不推测未打印的小数位。
+新字段沿用 Freq 段选择与 `fact_sources`；Opt 的驻点不借给 Freq，新检查表重置
+旧结论。未正常结束的 Freq 或来源不明的尾段与原频率事实一样置 null；这种
+情况下整个 `freq_step_gaussian_stationary` 也为 null，不能当作已完成的驻点结论。
+
+`manual_review` 显示“需人工判定；thermo 不自动接受”，附原收敛表与行号；
+这不是放行参数，也不改变已签判定。默认阈值通过而 Tight 未通过时，thermo
+照常计算，在 warnings 和审阅清单提示：
+“Freq 步按默认阈值通过、按 Tight 阈值未通过；若父优化为 Opt=Tight，需人工判定是否接受”。
+
+### 稳定性和 SCF 自旋
+
+`The wavefunction is already stable.` 与原 `stable under...` 均记 stable。
+`wavefunction_stability_line` 继续保存原文字符串，新增
+`wavefunction_stability_line_number` 保存原日志行号，避免改变旧字段类型。
+`wavefunction_stability_lowest_eigenvalue` 为 `{value, line}` 或 null：只读取
+末次 `Eigenvectors of the stability matrix:` 块内的编号 Eigenvector 行的
+`Eigenvalue=`，取所打印值的最小值；必须有可识别的稳定性结论，损坏/未知
+Eigenvector 行使其为 null。新矩阵、SCF、route 或 Link1 清空旧本征值；
+不读取普通轨道本征值，也不按数值正负改写 Gaussian 的稳定性诊断。
+格式依据：[UCSB 的 H₂ 稳定性输出，§4](https://people.chem.ucsb.edu/kahn/kalju/chem226/public/task2B.html)。
+已用 Gaussian 16 A.03 的水 RHF/CH₂ UHF 小分子输出核对该格式。
+archive 记录内换行回显的 `#` route 不代表新作业，不清空诊断；
+真正的新 route/Link1 仍重置。完整验证记录见 T108 工单。
+
+**`s2` 是缺陷修复，含义有变化：** v1 可能取到稳定性/激发态/本征向量的
+`<S**2>=` 标签；v2 只读最终作业段最后一次 `SCF Done` 之后、该 SCF 诊断
+范围内的 `S**2 before annihilation ..., after ...`，分别保存湮灭前 `s2`、
+湮灭后 `s2_after_annihilation` 和原日志 `s2_line`。新 SCF 重置；离开 SCF
+link、进入稳定性或激发态分析后不再接受该行。最后一次没有匹配行时均为 null，
+闭壳层 RHF 不补 0，不回退先前 SCF 或其他段。三个字段均有 `fact_sources`。
+
+这些变化只用于新生成 facts 与负责人逐 study 批准的重新解析。
+不自动改写已有 facts、review 或签字，尤其不批量刷新已签研究。
+仍先执行下节的外部 dry-run，预览新字段及 `s2` 差异，再由负责人决定正式 reparse。
 
 ## 本地重新解析
 
