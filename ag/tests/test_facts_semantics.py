@@ -3,7 +3,9 @@
 Default thresholds/stationary markers: reviewed water/butane fixtures.
 Negligible-force completion: existing T42b format, artificial numbers below.
 Stability matrix layout: UCSB's H2 tutorial (task2B.html, section 4);
-all matrix/spin numbers below are synthetic, not research output.
+Initial matrix/spin numbers are synthetic. Tests prefixed live_ use sanitized
+water/CH2 format excerpts from the approved 2026-10-23 Gaussian 16 A.03 run;
+their section wrappers and archive metadata are synthetic, not research output.
 """
 from hashlib import sha256
 import json
@@ -176,6 +178,65 @@ def test_last_stability_analysis_wins_not_most_negative_in_file():
     body += MATRIX.replace('-0.0200000', '0.0100000') + ALREADY
     result = wavefunction_stability(body)
     assert result['wavefunction_stability_lowest_eigenvalue']['value'] == 0.01
+
+
+@pytest.mark.parametrize('threshold_set,table', [
+    ('tight', '''         Item               Value     Threshold  Converged?
+ Maximum Force            0.000004     0.000015     YES
+ RMS     Force            0.000003     0.000010     YES
+ Maximum Displacement     0.000005     0.000060     YES
+ RMS     Displacement     0.000005     0.000040     YES
+'''),
+    ('default', '''         Item               Value     Threshold  Converged?
+ Maximum Force            0.000005     0.000450     YES
+ RMS     Force            0.000002     0.000300     YES
+ Maximum Displacement     0.000005     0.001800     YES
+ RMS     Displacement     0.000003     0.001200     YES
+'''),
+])
+def test_live_water_frequency_excerpts(threshold_set, table):
+    result = frequency_convergence(FREQUENCIES + table + STATIONARY)
+    assert result['freq_step_threshold_set'] == threshold_set
+    assert result['freq_step_converged'] is True
+    assert result['freq_step_converged_tight'] is True
+    assert result['freq_step_review'] == 'pass'
+    assert result['freq_step_gaussian_stationary']['basis'] == 'all_criteria'
+
+
+@pytest.mark.parametrize('method,scf,spin,eigenvector,lowest,expected_spin', [
+    ('RHF', ' SCF Done:  E(RHF) =  -76.0065266799     A.U. after   10 cycles\n', '',
+     ' Eigenvector   1:      Triplet-B1   Eigenvalue= 0.3087461  <S**2>=2.000\n',
+     0.3087461, (None, None)),
+    ('UHF', ' SCF Done:  E(UHF) =  -38.9213437947     A.U. after   12 cycles\n',
+     ' S**2 before annihilation     2.0160,   after     2.0001\n',
+     ' Eigenvector   1:  3.011-B1   Eigenvalue= 0.3098649  <S**2>=2.016\n',
+     0.3098649, (2.0160, 2.0001)),
+])
+def test_live_stability_excerpts_survive_archive_route_echo(
+        tmp_path, method, scf, spin, eigenvector, lowest, expected_spin):
+    # Archive metadata is omitted; retain the real wrapped-route shape that
+    # used to clear CH2 stability after the final diagnostic.
+    archive = ' 1\\1\\\n #p UHF/6-31G(d) Stable=Opt SCF=Tight\\\\\n \\@\n'
+    body = (scf + spin + ' Leave Link  502\n'
+            + ' Eigenvectors of the stability matrix:\n' + eigenvector
+            + ' The wavefunction is stable under the perturbations considered.\n'
+            + ALREADY + archive)
+    text = section(f' #p {method}/6-31G(d) Stable=Opt SCF=Tight', body=body)
+    result = parse(tmp_path, text)
+    assert result['wavefunction_stability'] == 'stable'
+    assert result['wavefunction_stability_lowest_eigenvalue'] == {
+        'value': lowest, 'line': line_of(text, 'Eigenvector   1:')}
+    assert result['wavefunction_stability_line_number'] == line_of(text, 'already stable')
+    assert (result['s2'], result['s2_after_annihilation']) == expected_spin
+    assert result['s2_line'] == (line_of(text, 'S**2 before annihilation') if spin else None)
+    assert wavefunction_stability(body + ' #p UHF/6-31G(d) SP\n')['wavefunction_stability'] == 'unknown'
+
+
+def test_truncated_archive_does_not_hide_new_link1():
+    body = MATRIX + ALREADY + ' 1\\1\\\n #p UHF/6-31G(d) Stable\n --Link1--\n'
+    result = wavefunction_stability(body)
+    assert result['wavefunction_stability'] == 'unknown'
+    assert result['wavefunction_stability_lowest_eigenvalue'] is None
 
 
 def test_s2_from_last_scf_not_eigenvector_labels(tmp_path):

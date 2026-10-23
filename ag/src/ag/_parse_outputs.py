@@ -258,6 +258,7 @@ def wavefunction_stability(text):
     """
     result, evidence, evidence_number = 'unknown', None, None
     lowest, candidates, matrix, malformed = None, [], False, False
+    in_archive = False
     patterns = (
         ('stable', r'The wavefunction is stable under the perturbations considered\.'),
         ('stable', r'The wavefunction is already stable\.'),
@@ -265,6 +266,16 @@ def wavefunction_stability(text):
         ('rhf_to_uhf', r'The wavefunction has an RHF\s*->\s*UHF instability\.'),
     )
     for index, line in enumerate(text.splitlines(), 1):
+        # The live CH2 archive wrapped its echoed route onto a line beginning
+        # with '#'. It is stored output, not a new job that clears stability.
+        if re.match(r'\s*(?:--Link1--|Link1:.*Proceeding|Entering Gaussian System)', line, re.I):
+            in_archive = False
+        if re.match(r'\s*1\\1\\', line):
+            in_archive = True
+        if in_archive:
+            if r'\@' in line:
+                in_archive = False
+            continue
         if re.match(r'\s*(?:#|--Link1--|Link1:.*Proceeding|Entering Gaussian System)', line, re.I):
             result, evidence, evidence_number = 'unknown', None, None
             lowest, candidates, matrix, malformed = None, [], False, False

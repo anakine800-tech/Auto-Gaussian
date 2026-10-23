@@ -132,7 +132,11 @@
 水/正丁烷日志核对；稳定性矩阵格式参考 UCSB 的公开 H₂ 示例，测试数值人工构造。
 “力可忽略、四项未全过”也为人工构造，不能声明已真实复现。
 
-### 待负责人批准的真实验证方案
+### 已批准的真实验证方案
+
+2026-10-23 负责人批准：“批准方案，CI 通过后逐次确认提交”。
+首轮 HEAD 的 CI 为 ag/tests 3843 passed、1 skipped，skills-next 509 passed，
+CodeQL 通过；以下前四个作业均逐次经 Mac 系统确认。
 
 使用专门的非研究验证 study；工单第 4 个场景拆成 Stable=Opt 与后续 SP，
 共 5 个新 Attempt，串行执行。目标 `default`，当前最小档位 `mini`：
@@ -153,14 +157,36 @@
 警告；默认通过而 Tight 失败的警告分支由合成/已有小分子回归单独覆盖，
 不人为改变真实输出来制造警告。
 
-首批三个输入已仅在仓库外生成草案并通过本地输入校验（未 prepare/submit）。
+首批三个输入已在仓库外完成本地校验、prepare 和逐次确认提交。
 SHA-256：water-tight `794b424a7936336f79c2b67a35672f2de4e33d806da76fd93ace0288db2916b8`；
 water-stable `e083034c86f6669210a5aba18215dd81481a4f30fee0fa29c7de713b473675bb`；
 ch2-stable `27d107bb282633ccf8fed28730206161af3a695592aa8ea99fe50afd5ad13f38`。
-后两份依赖实际结构/chk，不能预先编造哈希。获方案批准后，逐项通过 ag
-prepare 生成确切目录和摘要，展示结构、route、资源及全部输入哈希，再由
-负责人点击 Mac 确认框。chk 仅走 ag 专用父 chk 复制；运行、取回和诊断
+后两份依赖实际结构/chk，均在父作业正常结束后生成：water-freq
+`d93995bb0318b8ddafee5b213a604c8ceed3d37c54fe4d0c9ea691f92c3d6188`，
+ch2-sp `5ace36b863036483451bba18acf2a0c549d2f15206cae8891a6796c852be39e9`。
+逐项通过 ag prepare 生成确切目录和摘要，展示结构、route、资源及全部
+输入哈希，再由负责人点击 Mac 确认框。chk 仅走 ag 专用父 chk 复制；运行、取回和诊断
 只用正式 ag 命令。保留全部原始记录；任何异常立即停下报告，不重试或清理。
 
-当前阻塞：**提交**——上述真实验证方案尚未获批、未执行；**科学审阅**——
-facts 语义与 thermo 提示尚待监督方审阅。没有对任何已有 study 执行 reparse。
+### 真实验证进展
+
+专用非研究 study 为 `t108-facts-validation-20261023`，以下均为 Gaussian 16 A.03。
+每个作业结束、输出哈希核验并取回后才提交下一个。PBS 的延迟退出记录仍
+按占用计入 ag 提交检查，不将其误报成 Gaussian 正在计算。
+
+| Attempt 后缀 | 退出/解析证据 |
+|---|---|
+| 001-water-tight | 退出 0、normal；Freq 阈值 tight，四项及 Tight 全过，stationary/all_criteria，review=pass；表行 2227–2230，驻点行 2233 |
+| 004-water-freq | 退出 0、normal；父最终坐标，阈值 default，两套判据均过、0 虚频；thermo 成功且 warnings=[]，符合本例不应触发差异警告的预期 |
+| 002-water-stable | 退出 0、normal；already stable 行 530，最低本征值 0.3087461（行 525）；SCF 自旋无记录，s2=null |
+| 003-ch2-stable | 退出 0、normal；s2=2.0160、湮灭后 2.0001（行 401）；发现 archive route 回显误清空稳定性，暂停后续提交并修复；只读重算验证 stable（行 617）、最低本征值 0.3098649（行 610），保留原 facts 字节 |
+| 005-ch2-sp | 本地 prepare 完成，尚未提交；等待修复后 CI 及父作业调度记录离队 |
+
+新增回归采用本次水/CH₂ 的脱敏格式片段；archive 元数据及外层 job wrapper
+人工构造。修复与上述格式回归共 250 passed；本次不再次运行本地全量，
+以 CI 为准。“力可忽略”和默认通过/Tight 未过分支仍由人工/已有小分子
+回归覆盖，不宣称本次真实复现。没有对已有 study 执行 reparse。
+
+当前阻塞：**提交/环境**——CH₂ 父作业正常结束后仍有 PBS 残留，专用 chk
+复制要求父作业离队；第五项未提交，取消清理需负责人另行授权及 Mac 点击。
+**科学审阅**——facts 语义与 thermo 提示尚待监督方审阅。

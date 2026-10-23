@@ -89,7 +89,9 @@ dirty 状态，两者不能代替日志哈希、科学审阅或签字。
 Eigenvector 行使其为 null。新矩阵、SCF、route 或 Link1 清空旧本征值；
 不读取普通轨道本征值，也不按数值正负改写 Gaussian 的稳定性诊断。
 格式依据：[UCSB 的 H₂ 稳定性输出，§4](https://people.chem.ucsb.edu/kahn/kalju/chem226/public/task2B.html)。
-目前仅声明该格式支持，目标 Gaussian 版本的合并前真实验证另行记录。
+已用 Gaussian 16 A.03 的水 RHF/CH₂ UHF 小分子输出核对该格式。
+archive 记录内换行回显的 `#` route 不代表新作业，不清空诊断；
+真正的新 route/Link1 仍重置。完整验证记录见 T108 工单。
 
 **`s2` 是缺陷修复，含义有变化：** v1 可能取到稳定性/激发态/本征向量的
 `<S**2>=` 标签；v2 只读最终作业段最后一次 `SCF Done` 之后、该 SCF 诊断

@@ -8,6 +8,7 @@
 现象：四项未全通过但 Gaussian 判驻点时 facts 未体现人工判定需求；稳定性本征向量标签可能污染 s2。
 原因：Gaussian 驻点结论与四项判据不同；单独提交的 Freq 使用默认阈值，不能借父 Opt=Tight；全文末次匹配不是 SCF 自旋。
 修复：T108 分开记录驻点与两套阈值，补 already stable/最低本征值；s2 只读末次 SCF 的湮灭前后行，thermo 准入不变。
+真实验证补充：CH₂ 的 Gaussian archive 回显将 route 换行到行首，旧的裸 `#` 判断误当成新作业而清空稳定性；忽略 archive 内的回显，保留真正新 route/Link1 的重置。
 以后：manual_review 不自动放行；默认通过而 Tight 未过需人工核对，旧 facts/签字不自动改写，reparse 先 dry-run；离线测试不代替真实验证。
 
 ## 慢速取回与已取消作业的结束证据
