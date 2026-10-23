@@ -287,7 +287,7 @@ Skills 软链接指向后端 main 的 `skills-next`；合并 PR 本身不会更�
 当前文件的审计发现研究与环境信息会进入工单和夹具，因此 CI 对全部 Git 跟踪文件运行
 `python scripts/scan_public.py`，提交前检查暂存 blob，不让未暂存的安全副本遮住待提交内容。
 通用模式涵盖 IP、个人目录、非 noreply 邮箱、私钥头及常见令牌前缀；不打印命中原文。
-`archive/` 在负责人授权清理之前只告警，不代表已经清理。
+`archive/` 已纳入相同的失败规则；任何未豁免的通用命中均拒绝检查。
 确认为合成例子、公共资料或语法误报时，可在同一行写 `# scan-public: allow 原因`；空原因拒绝。
 通用扫描仅检查 UTF-8 文本；二进制文件计数并跳过，不能识别研究身份、图像中的信息或所有凭据格式，仍须人工检查。
 
@@ -300,7 +300,7 @@ python scripts/scan_public.py --terms-file ~/.config/auto-gaussian/sensitive-ter
 
 本地词表 `~/.config/auto-gaussian/sensitive-terms.txt` 每行一个正则表达式（普通词可直接写），
 空行和以 `#` 开头的注释跳过；特殊字符需要按正则规则转义。不存在时提示并跳过词表，
-通用检查仍运行；无效正则拒绝检查。词表命中不接受行豁免，也不受 archive 告警规则影响。
+通用检查仍运行；无效正则拒绝检查。词表命中不接受行豁免，`archive/` 与其他目录相同。
 词表内容由负责人和 Codex 在本机维护，不进入仓库、工单、PR、评论或提交说明。
 `SCAN_PUBLIC_TERMS_FILE` 仅供使用临时词表验证 hook；日常不设置该变量。
 前端复用同一扫描器；在前端检出用 `git config core.hooksPath '<后端检出>/.githooks'`

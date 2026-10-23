@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Scan Git-tracked files (or staged blobs); never print matched values.
 
-No project-specific sensitive terms belong here. Archive findings are warnings
-pending T116 P4 authorization. Local terms always fail, including in archive/.
+No project-specific sensitive terms belong here. All tracked text, including
+archive/, is checked. Generic and local-term findings both fail the scan.
 """
 from __future__ import annotations
 
@@ -118,7 +118,7 @@ def scan(staged=False, terms_file=None):
     os.chdir(root)
     # Read the selected Git bytes once: unstaged edits cannot hide staged data.
     files = list(blobs(staged))
-    failures = warnings = binary = 0
+    failures = binary = 0
     text_files = []
     for path, data in files:
         if b'\0' in data:
@@ -133,10 +133,8 @@ def scan(staged=False, terms_file=None):
     for path, data in text_files:
         for number, line in enumerate(data.decode('utf-8', errors='replace').splitlines(), 1):
             for category in generic_findings(line, python_source=path.endswith('.py')):
-                warning = path.startswith('archive/')
-                warnings += int(warning)
-                failures += int(not warning)
-                print(f'{"WARN" if warning else "ERROR"} {path}:{number}: {category}')
+                failures += 1
+                print(f'ERROR {path}:{number}: {category}')
     # A generic allow annotation cannot suppress private local terms.
     terms = load_terms(terms_file)
     if terms:
@@ -145,7 +143,7 @@ def scan(staged=False, terms_file=None):
                 if any(term.search(line) for term in terms):
                     failures += 1
                     print(f'ERROR {path}:{number}: local-sensitive-term')
-    print(f'Public scan: {len(files)} files, {failures} errors, {warnings} archive warnings, {binary} binary files skipped.')
+    print(f'Public scan: {len(files)} files, {failures} errors, {binary} binary files skipped.')
     return int(bool(failures))
 
 
@@ -217,8 +215,15 @@ class ScannerTests(unittest.TestCase):
             (root / 'archive').mkdir()
             (root / 'archive/data.txt').write_text(synthetic_address)
             run('git', 'add', 'archive/data.txt')
+            self.assertEqual(scan_cli('--staged').returncode, 1)
+            self.assertEqual(scan_cli().returncode, 1)
+            self.assertIn('ERROR archive/', scan_cli().stdout)
+            (root / 'archive/data.txt').write_text(synthetic_address + ' # scan-public:' + ' allow synthetic fixture')
+            run('git', 'add', 'archive/data.txt')
             self.assertEqual(scan_cli('--staged').returncode, 0)
-            self.assertIn('WARN archive/', scan_cli().stdout)
+            archive_terms = root / 'archive-terms'
+            archive_terms.write_text(re.escape(synthetic_address))
+            self.assertEqual(scan_cli('--staged', '--terms-file', str(archive_terms)).returncode, 1)
             run('git', 'mv', 'data.txt', 'renamed.txt')
             terms = root / 'private-list'
             terms.write_text('unstaged.*safe\n')
