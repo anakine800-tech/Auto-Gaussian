@@ -66,7 +66,7 @@ ag facts <Attempt> --reparse [--dry-run --out <study 外的 .json>]
 - 不覆盖、不删除旧 facts；不修改日志；不修改引用旧哈希的文件。
 - 不放宽“真正未完成”的判定：截断日志、缺结束标记、Error termination 必须继续被拒。
 - 不改 `freq_step_converged` 等收敛字段的判定；不自动重算任何东西。
-- 测试只用合成日志（可按真实格式改写，不得包含 HSS 的分子、坐标或 route 以外的研究内容）。
+- 测试只用合成日志（可按真实格式改写，不得包含研究 A 的分子、坐标或 route 以外的研究内容）。
 
 ## 测试
 
@@ -80,7 +80,7 @@ ag facts <Attempt> --reparse [--dry-run --out <study 外的 .json>]
 
 ## 真实环境验证
 
-- 纯本地。合并前由 HSS 主会话对 10-17 核对过的 5 个 Attempt 只读运行 `ag facts <Attempt> --reparse --dry-run --out <study 外>`，汇报每份的差异；预期只有顶层 `termination`、`parser_warning`、子任务类型和新增的 `parser` 字段变化，**能量、频率、收敛字段不变**。结果只发监督方，不进 PR 和公开仓库。
+- 纯本地。合并前由研究 A 主会话对 10-17 核对过的 5 个 Attempt 只读运行 `ag facts <Attempt> --reparse --dry-run --out <study 外>`，汇报每份的差异；预期只有顶层 `termination`、`parser_warning`、子任务类型和新增的 `parser` 字段变化，**能量、频率、收敛字段不变**。结果只发监督方，不进 PR 和公开仓库。
 - 正式重新解析在合并后由负责人决定是否执行，不作为合并条件。
 
 ## 停止条件
@@ -145,5 +145,9 @@ ag facts <Attempt> --reparse [--dry-run --out <study 外的 .json>]
   `B3LYP`/`UB3LYP` 相同、`B3LYP`/`RB3LYP` 不同；`ROB3LYP`/`UB3LYP` 不同。
   在 Opt/Freq、T82 各层、profile 跨物种及 ASM/IRC 比较入口验证结果一致。
 - 前端 T98 快速比较需同步同一规则，PR 明确标记为另开小单；本 PR 不改前端。
-- 推送后将新提交号交负责人，由 HSS 主会话按最新通知重新验证 7 项。
+- 推送后将新提交号交负责人，由研究 A 主会话按最新通知重新验证 7 项。
   本开发会话不查找或运行私有数据；结果只交监督方，不写入 PR 或公开仓库。
+
+## 版本记录
+
+- T116 脱敏：研究标识、编号与环境字面量改为泛称；原工单结构和结论不变。

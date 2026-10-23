@@ -4,7 +4,7 @@
 
 - 分支：`codex/t52-fetch-auto-facts`；基于最新 main（含 T51、T53），一张任务单一个 PR。
 - **目标：** 负责人 10-15 决定：取回成功后自动解析，前端马上就能看到能量、构象和收敛过程，不用再手动运行 `ag facts`。facts 失败**只记录**，不影响取回结果，不回滚，也不改状态。
-- **为什么：** HSS 接下来会有一批单点、M1 试点和 TS 作业。现在每个 Attempt 取回后都要再手动跑一次 `ag facts`，容易漏；漏了，前端、`ag ensemble`、`ag review` 读到的就是缺失或过期的 facts。
+- **为什么：** 研究 A 接下来会有一批单点、相应阶段 试点和 TS 作业。现在每个 Attempt 取回后都要再手动跑一次 `ag facts`，容易漏；漏了，前端、`ag ensemble`、`ag review` 读到的就是缺失或过期的 facts。
 - **要防的事故：** 自动运行**绝不能覆盖已有的 facts.json**，否则可能悄悄改掉已签证据。`build_facts(refresh=False)` 在新旧内容不同时会拒绝写入，必须保持这个行为。
 - 资料：`ag/src/ag/fetch.py`（`fetch`、`_incomplete`、`_add_missing`）、`ag/src/ag/facts.py`（`build_facts`，第 208 行）、`ag/src/ag/cli.py`（第 77–79 行 fetch 分支和参数注册）。
 
@@ -17,7 +17,7 @@
 - `ag/README.md`：fetch 一节加一段说明。
 - `docs/redesign-tasks/T52-fetch-auto-facts.md`：本任务单。
 
-**不改 `facts.py`、`_parse_outputs.py`、`status.py`、`remote.py`、`transport.py`。不改任何卡片**（HSS 正在使用）。
+**不改 `facts.py`、`_parse_outputs.py`、`status.py`、`remote.py`、`transport.py`。不改任何卡片**（研究 A 正在使用）。
 
 ## 要做的
 
@@ -58,7 +58,7 @@
 
 ## 真实环境验证
 
-- 合并后由 HSS 下一次真实取回顺带验证：负责人在计算机上同步 main，HSS 会话取回时在回报里写明 `facts.status`，并确认 facts.json 已生成。不另起验证 study。
+- 合并后由研究 A 下一次真实取回顺带验证：负责人在计算机上同步 main，研究 A 会话取回时在回报里写明 `facts.status`，并确认 facts.json 已生成。不另起验证 study。
 
 ## 停止条件
 
@@ -72,3 +72,7 @@
 - 修改 AGENTS.md：无。
 - PR 描述第一行：`Task: T52`；写明前端兼容检查的结果。
 - 合并只由负责人操作。
+
+## 版本记录
+
+- T116 脱敏：研究标识、编号与环境字面量改为泛称；原工单结构和结论不变。

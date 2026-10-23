@@ -81,7 +81,7 @@ ag ensemble --merged <dedup --source 输出的 JSON>
 
 ## 真实环境验证
 
-- 不连集群。合并后，在 HSS 的 K4 审阅中实际使用：HSS 会话在计算机上对给体或 M0 生成清单，负责人把 Markdown 表转给监督方。结果是否可用记在 PR 评论里，不写研究数据。
+- 不连集群。合并后，在研究 A 的相应阶段审阅中实际使用：研究会话在计算机上对相应物种生成清单，负责人把 Markdown 表转给监督方。结果是否可用记在 PR 评论里，不写研究数据。
 
 ## 停止条件
 
@@ -143,3 +143,7 @@ ag ensemble --merged <dedup --source 输出的 JSON>
 - `ambiguous: true` 时，`energy_hartree` 和 `relative_kcal` 为 `null`。
 - `xyz.file` 只是文件名，与清单在同一目录；前端只按这个文件名读，并核对 `xyz.sha256` 和每帧的 `geometry_sha256`。
 - 数值只有有限浮点数，没有 NaN；未知值用 `null`。
+
+## 版本记录
+
+- T116 脱敏：研究标识、编号与环境字面量改为泛称；原工单结构和结论不变。

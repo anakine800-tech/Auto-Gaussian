@@ -75,3 +75,7 @@ known_hosts.old
 # Local screenshots and screen-capture evidence
 /windows-current-screen.png
 /screen-*.png
+
+outputs/
+
+sensitive-terms.txt

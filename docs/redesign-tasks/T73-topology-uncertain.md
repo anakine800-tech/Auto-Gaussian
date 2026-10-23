@@ -8,7 +8,7 @@
 - 分支：`codex/t73-topology-uncertain`；基于 v4.2.1 合并后的最新 main，一张任务单一个 PR。**开发机做。**
 - **开工条件：** v4.2.1（T67）已合并并打 tag。
 - **目标：** 修 T68 报告里的 R2。现在 B–O 等接触落在不确定区间（共价半径和的 1.2–1.5 倍）时，`compare_endpoint` 正确给出 unknown，但随后 `_check_fragments_and_mapping` 只按“确定相连”的边数片段，得到片段数变化，把顶层状态改成 `changed`。修改后：**片段数变化只有在不确定接触按“相连”和按“不相连”两种处理下都成立时，才据此报 `changed`；否则保留不确定性，并写明是哪几个不确定接触导致的。若 `compare_endpoint` 已因确定的 `bond_differences` 返回 changed，则保持 changed，不因片段数不确定而降级。**
-- **为什么：** 顶层 `changed` 会被理解为“确定发生了断键/成键”，掩盖了下面的 unknown。HSS 的 M1 里有 B–O 接触，正是这种情况；`ag irc-compare` 在同一例子里已经正确保留 unknown，两个命令的口径应当一致。
+- **为什么：** 顶层 `changed` 会被理解为“确定发生了断键/成键”，掩盖了下面的 unknown。某研究候选含有不确定原子接触，正是这种情况；`ag irc-compare` 在同一例子里已经正确保留 unknown，两个命令的口径应当一致。
 - 资料：`docs/research/rdkit-inference-risk.md` 的 R2 一节；`ag/src/ag/topology.py`（`fragments`、`_check_fragments_and_mapping`、`compare_minimum`）；`ag/src/ag/irc_compare.py`（`_pairs` 的状态划分）；`ag/tests/test_inference_risk.py` 中 R2 的 strict xfail。
 
 ## 允许改动的路径
@@ -50,7 +50,7 @@
 ## 真实环境验证
 
 - 纯本地分析，不需要集群，不作为合并前条件。
-- **合并后（HSS 主会话，在计算机上，只读）：** 对 HSS 中已有 topology 报告的每个 Attempt，用新版本重跑 `ag topology`，`--out` 写到 study **以外**的临时目录；列出顶层状态与原报告不同的 Attempt（编号、原状态、新状态、涉及的接触），交监督方判断。不覆盖、不改写原报告和已签清单。
+- **合并后（研究 A 主会话，在计算机上，只读）：** 对研究 A 中已有 topology 报告的每个 Attempt，用新版本重跑 `ag topology`，`--out` 写到 study **以外**的临时目录；列出顶层状态与原报告不同的 Attempt（编号、原状态、新状态、涉及的接触），交监督方判断。不覆盖、不改写原报告和已签清单。
 
 ## 停止条件
 
@@ -62,3 +62,7 @@
 - 需要监督方审阅：是。
 - PR 描述第一行：`Task: T73`；附 B–O 例子修复前后的顶层状态和无关夹具的哈希对比。
 - 合并只由负责人操作。
+
+## 版本记录
+
+- T116 脱敏：研究标识、编号与环境字面量改为泛称；原工单结构和结论不变。

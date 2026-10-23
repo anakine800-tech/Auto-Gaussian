@@ -2,7 +2,7 @@
 
 Adapted from `skills/auto-g16-view-rt-win/references/conformer-workflow.md`.
 
-仅在本次决定使用 SCNet 时，CREST（含 `--mdopt`）显式用 `--cluster scnet-test`（`wzhctest`），Gaussian 只能用 `--cluster scnet`（`wzacnormal`）。default 与 SCNet 的选择沿用 study 安排；准备前读本机配置核对入口和 partition，并写入确认摘要，不把队列名当入口别名。`wzhctest` 不可用、无权限或额度满时停下报告，由负责人逐次决定，不自动改投 `scnet`。
+仅在本次决定使用 SCNet 时，CREST（含 `--mdopt`）显式用 `--cluster scnet-test`（`赠送分区`），Gaussian 只能用 `--cluster scnet`（`正式分区`）。default 与 SCNet 的选择沿用 study 安排；准备前读本机配置核对入口和 partition，并写入确认摘要，不把队列名当入口别名。`赠送分区` 不可用、无权限或额度满时停下报告，由负责人逐次决定，不自动改投 `scnet`。
 
 After human structure confirmation, use one connected molecular graph, preserving
 ChemDraw explicit-H wedge/dash stereochemistry. Unassigned tetrahedral centers

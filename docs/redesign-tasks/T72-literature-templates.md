@@ -9,7 +9,7 @@
 - **为什么：**
   - 检索覆盖记录：防止把“只看了前几页”“访问失败”写成“没有先例”，也方便接手者继续检索。
   - 文献 TS 证据摘录表：防止把论文里一句“进行了 IRC”当成某个 TS 已有双向端点证明。
-- **负责人决定：** 这一轮只改模板，不回补 HSS 已有的文献记录。BCB 开题时第一次使用。
+- **负责人决定：** 这一轮只改模板，不回补研究 A 已有的文献记录。研究 B 开题时第一次使用。
 - 资料：`skills-next/auto-g16-study/references/literature-record.md`、`intake-template.md`；v2.7 来源（只读提取）：`archive/skills/auto-g16-reaction-workflow/references/literature-evidence-design.md`（检索复查要求）、`archive/skills/auto-g16-reaction-literature/references/search-and-evidence-protocol.md`（文献版本处理、TS 与路径证据要求）。
 
 ## 允许改动的路径
@@ -35,7 +35,7 @@
 
    说明：论文只写“进行了 IRC”而没有给出两个方向的端点，记为“路径证据不完整”，不能当作双向验证。
 3. **通道表 CSV 说明**（追加到 intake-template 第 5 节末尾）：计算阶段需要用 `ag channel-coverage` 时，把通道表另存为 `analyses/` 下的 CSV，列为 `channel_id, product_branch, ensemble_manifests, note`（多个清单用分号分隔），与 study.md 中的通道表保持一致；以 study.md 为准。
-4. 示例一律用虚构的通用小分子，不出现 HSS、BCB 或其他未发表课题的内容。在文件里注明“改编自 archive/…”。
+4. 示例一律用虚构的通用小分子，不出现研究 A、研究 B 或其他未发表课题的内容。在文件里注明“改编自 archive/…”。
 
 ## 不允许
 
@@ -49,7 +49,7 @@
 
 ## 真实环境验证
 
-- 不需要。BCB 开题时实际使用。
+- 不需要。研究 B 开题时实际使用。
 
 ## 停止条件
 
@@ -61,3 +61,7 @@
 - 需要监督方审阅：是。
 - PR 描述第一行：`Task: T72`。
 - 合并只由负责人操作。
+
+## 版本记录
+
+- T116 脱敏：研究标识、编号与环境字面量改为泛称；原工单结构和结论不变。

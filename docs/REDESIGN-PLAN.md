@@ -9,7 +9,7 @@
 
 ## 0. 目标与范围
 
-**目标**：两周左右做出一个能真正用于 HSS 研究（非金属、柔性 Michael 加成）的计算助手：人和 LLM 在 Codex 里对话推进研究，代码只负责安全地提交、查询、取回和提取数字。
+**目标**：两周左右做出一个能真正用于研究 study（体系细节留在私有 study）的计算助手：人和 LLM 在 Codex 里对话推进研究，代码只负责安全地提交、查询、取回和提取数字。
 
 **核心版范围（第 1～2 周）**：结构输入（ChemDraw/SMILES）→ 构象初筛（RDKit 力场或 CREST）→ 去重聚类 → DFT Opt+Freq → 热化学（qRRHO + Boltzmann）→ LLM 审阅 → 人签字。
 
@@ -134,7 +134,7 @@ skills-next/
 
 ### 4.2 Attempt 标识
 
-`attempt_id = <study_id>-<三位序号>-<label>`，例如 `hss-007-optfreq-c03`。序号通过在本地 `attempts/` 下 `O_EXCL` 创建目录分配。PBS 作业名用 `ag` + attempt_id 的 SHA-256 前 12 位（避免 Torque 作业名长度限制），写入 manifest，用于 `UNKNOWN` 核对。
+`attempt_id = <study_id>-<三位序号>-<label>`，例如 `example-001-optfreq-c01`（合成编号）。序号通过在本地 `attempts/` 下 `O_EXCL` 创建目录分配。PBS 作业名用 `ag` + attempt_id 的 SHA-256 前 12 位（避免 Torque 作业名长度限制），写入 manifest，用于 `UNKNOWN` 核对。
 
 ### 4.3 状态机
 
@@ -216,17 +216,17 @@ unknown ──找不到证据──▶ 保持 unknown，交给人决定（不会
 ```json
 {
   "schema": "ag-attempt/1",
-  "attempt_id": "hss-007-optfreq-c03",
-  "study_id": "hss",
-  "label": "optfreq-c03",
+  "attempt_id": "example-001-optfreq-c01",
+  "study_id": "example",
+  "label": "optfreq-c01",
   "template": "gaussian",
   "template_params": {},
   "tier": "simple", "cores": 8, "mem_gb": 12, "walltime": "24:00:00",
-  "inputs": [{"name": "c03.gjf", "sha256": "...", "size": 1234}, {"name": "job.pbs", "sha256": "...", "size": 987}],
+  "inputs": [{"name": "c01.gjf", "sha256": "...", "size": 1234}, {"name": "job.pbs", "sha256": "...", "size": 987}],
   "bundle_sha256": "...",
   "pbs_job_name": "ag3f9c0a1b2c4d",
-  "remote_dir": "hss/hss-007-optfreq-c03",
-  "parents": [{"attempt_id": "hss-004-crest", "relation": "conformer_of"}],
+  "remote_dir": "example/example-001-optfreq-c01",
+  "parents": [{"attempt_id": "example-002-crest", "relation": "conformer_of"}],
   "created_at": "2026-10-15T10:00:00+08:00",
   "ag_version": "0.1.0"
 }
@@ -247,7 +247,7 @@ unknown ──找不到证据──▶ 保持 unknown，交给人决定（不会
 
 - 单元测试用 pytest，覆盖：状态机、`O_EXCL` 声明、确认函数不可绕过、命令白名单（断言生成的远程命令只来自模板）、模板渲染与参数白名单、Gaussian 输入校验、核数上限、facts 解析、dedup/cluster、thermo。
 - 远程交互通过一个 `Transport` 接口注入，测试用假实现；不在测试里连真实集群。
-- 测试日志：仓库内只放我们自己新算的小分子（正丁烷、水）日志，提交前删除日志头中的主机名、用户名、路径。研究日志（HSS、BPh₃ 等）留在本地，通过环境变量 `AG_LOCAL_FIXTURES=<目录>` 让额外测试读取，未设置时跳过。
+- 测试日志：仓库内只放我们自己新算的小分子（正丁烷、水）日志，提交前删除日志头中的主机名、用户名、路径。未发表研究日志留在本地，通过环境变量 `AG_LOCAL_FIXTURES=<目录>` 让额外测试读取，未设置时跳过。
 
 ---
 
@@ -337,10 +337,10 @@ unknown ──找不到证据──▶ 保持 unknown，交给人决定（不会
 | 10/14，已合并 | T7/T7b/T7c/T7d 前端：前端仓库 [#4](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/4)、[#5](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/5)、[#6](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/6)、[#7](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/7)；本仓库 T7b 确认摘要链接 #217 | — |
 | 10/14，已合并 | T10 monitor #218；T11 PBS 排队额度 #219；T12 TS/IRC 卡片 #220；T13a TS 工具调研 #221 | — |
 | 10/14，L1 当前状态 | 正丁烷计算、热化学、旧结果对照及跨对话续接已完成；最终结果仍待签字，study 尚未完成。跨对话续接不单独证明桌面应用重启 | 核对并签署最终结果 |
-| 后续 1：L2 收尾 | HSS 结构与代表集合已签字；完成 Opt+Freq、DFT 后去重、热化学、科学审阅与恢复验证。构象覆盖有限，仅作本轮流程验收 | 确认必要提交；审核并签署最终结果 |
+| 后续 1：L2 收尾 |研究 A 结构与代表集合已签字；完成 Opt+Freq、DFT 后去重、热化学、科学审阅与恢复验证。构象覆盖有限，仅作本轮流程验收 | 确认必要提交；审核并签署最终结果 |
 | 后续 2：T12b / T13 / T14 | 补齐科学卡片及后续能力；T13a 已完成不等于 T13 实现完成。T15 并行处理 T11 审阅遗留项和本轮杂项 | 审阅、合并各任务 PR；涉及 submit 的 PR 等监督方审阅 |
 | 后续 3：L3 | 小体系 TS/Freq 与双向 IRC 全流程验收，识别端点并完成科学审阅；准备工作可先行，执行须等所需能力就绪 | 确认结构与计算；审核振动方向、端点及结果 |
-| 后续 4：HSS 的 TS | 在 L3 通过后推进 HSS 的 TS/IRC 研究，按已签机理假设、构象覆盖和端点证据逐步推进 | 审阅机理假设、确认提交与里程碑签字 |
+| 后续 4：研究 A 的 TS | 在 L3 通过后推进研究 A 的 TS/IRC 研究，按已签机理假设、构象覆盖和端点证据逐步推进 | 审阅机理假设、确认提交与里程碑签字 |
 
 T15 与 T13-1 若在 `submit.py` 冲突，由后合并的分支 rebase；本表不把在途任务或未签字 study 标作完成。
 
@@ -357,9 +357,9 @@ T15 与 T13-1 若在 `submit.py` 冲突，由后合并的分支 rebase；本表�
 5. 中途关闭 Codex，重新打开后能从 `study.md` 和 `ag list` 正确续上。
 6. 全过程没有任何自动重提交；`journal.jsonl` 完整；仓库里没有出现任何敏感信息。
 
-### L2：HSS 真实验收
+### L2：研究 A 真实验收
 
-HSS 中最柔性的一个单分子物种（至少 4 根可旋转键，原子数最好不超过 50），使用验收方法，满足 L1 的全部要求，并且 `study.md` 写出结论、三个里程碑都已签字。
+研究 A 中最柔性的一个单分子物种（至少 4 根可旋转键，原子数最好不超过 50），使用验收方法，满足 L1 的全部要求，并且 `study.md` 写出结论、三个里程碑都已签字。
 
 ---
 
@@ -379,7 +379,7 @@ HSS 中最柔性的一个单分子物种（至少 4 根可旋转键，原子数�
 |---|---|
 | Codex 回到写合同、加门控的老路 | 新 AGENTS.md 第 4 节；巡检把“新增约束说不清防什么”列为退回理由；第一周每天看提交 |
 | 真实环境联调慢（排队、计算时长、SSH） | 先用极小的单点验证链路；CREST 设闸门；Mac 直连已实测可用 |
-| LLM 判断不稳定 | 客观数字由代码给；卡片判据清单逐条填写；用正丁烷和 HSS 做回归；卡片按真实结果迭代 |
+| LLM 判断不稳定 | 客观数字由代码给；卡片判据清单逐条填写；用正丁烷和研究 A 做回归；卡片按真实结果迭代 |
 | 确认被绕过 | 无绕过参数；测试断言；巡检把可绕过列为红线；Codex 无原生桌面控制 |
 | 研究数据泄露到公开仓库 | 测试日志脱敏规则；study 目录在仓库外；提交前扫描；巡检红线 |
 | 集群上已有作业挤占核数 | `submit` 统计本人全部非 C 作业；硬件核验通过时按运行加排队额度检查，失败时回退 44 核严格上限 |

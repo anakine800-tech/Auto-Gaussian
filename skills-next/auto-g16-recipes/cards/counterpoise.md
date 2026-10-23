@@ -11,7 +11,7 @@
 
 - 结构、原子映射、总电荷及两个片段的电荷/多重度经负责人审阅，整体与各片段均为单重态。
 - 每个原子恰属一个片段；片段电荷相加等于总电荷。跨片段共价键及 topology 的 uncertain 接触均拒绝。
-- 成键后的物种不做 CP（例如 HSS 的 M1、M2）；TS 若发生跨片段成键或不确定接触也不绕过校验。
+- 成键后的物种不做 CP（例如某研究课题的成键后物种）；TS 若发生跨片段成键或不确定接触也不绕过校验。
 - 方法/基组见 [acceptance-methods.md](../../auto-g16-study/references/acceptance-methods.md)。以几何层级为主；BSSE >1 kcal/mol 时，在最终 SP 层级补算检查收敛。这是使用规则，不是自动重提触发条件。
 - 溶剂限制：**G16 A.03 实测拒绝，T105 第 0 节**。原文 `No SCRF with counterpoise/fragments.`；prepare 拒绝任何含 SCRF 的 CP route。
 

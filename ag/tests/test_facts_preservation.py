@@ -184,7 +184,7 @@ def test_provenance_is_parser_checkout_not_skills(tmp_path, monkeypatch):
         return subprocess.check_output(['git', '-C', str(tmp_path), *args], text=True).strip()
     git('init', '-q')
     git('add', 'ag')
-    git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+    git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',  # scan-public: allow synthetic reserved-domain email fixture
         '-c', 'commit.gpgsign=false', 'commit', '-qm', 'Parser fixture')
     monkeypatch.setattr(facts, '__file__', str(source))
     assert facts.ag_provenance() == {'git_commit': git('rev-parse', 'HEAD'), 'dirty': False}
