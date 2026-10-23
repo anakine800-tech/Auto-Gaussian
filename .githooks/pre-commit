@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+cd "$(git rev-parse --show-toplevel)"
+exec python3 scripts/scan_public.py --staged --terms-file "${SCAN_PUBLIC_TERMS_FILE:-$HOME/.config/auto-gaussian/sensitive-terms.txt}"

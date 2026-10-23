@@ -16,7 +16,7 @@ mod = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(mod)
 FIXTURES = Path(__file__).parent / "fixtures/literature"
 DOI = "10.9999/synthetic-a"
-CONTACT = "metadata@example.invalid"
+CONTACT = "metadata@example.invalid"  # scan-public: allow synthetic reserved-domain email fixture
 
 
 @pytest.fixture(autouse=True)

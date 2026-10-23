@@ -24,7 +24,7 @@ PR 明确说明 `make_gaussian_input.py` 只改 `read_molecule` 的此项可选�
   2. study 技能第 0 步（开题）拆成有前后关口的四小步，每一步检查上一步的产出；
   3. 开题模板第 3 节、讨论记录模板接上核验报告。
 - **为什么：** 结构是整条链的地基。现在开题模板第 3 节的“核对结果”靠手填，`prepare_preview.py` 一次只看一个物种，也不和预期值、第二来源对照；结构错了，后面的采样和 DFT 全白做。
-- **负责人 10-16 决定：** 以流程为主，配少量检查脚本；输入以 .cdxml 和 SMILES 为主，图片只作对照、不生成坐标；只核验起始物、催化剂、试剂和产物（中间体放到闭环后半段）；先用 L1–L3 之一倒着走一遍检验，再以 BCB 作第一个真实试点。
+- **负责人 10-16 决定：** 以流程为主，配少量检查脚本；输入以 .cdxml 和 SMILES 为主，图片只作对照、不生成坐标；只核验起始物、催化剂、试剂和产物（中间体放到闭环后半段）；先用 L1–L3 之一倒着走一遍检验，再以研究 B 作第一个真实试点。
 - 资料：`skills-next/auto-g16-structures/scripts/prepare_preview.py`、`make_gaussian_input.py`（`read_molecule`、`validate_scope`）、`cdx_stereo.py`（`structure_stereo_invariants`）；`skills-next/auto-g16-study/SKILL.md` 第 0 步；`references/intake-template.md` 第 3 节；`references/discussion-record.md`；`references/literature-record.md`（T72 的检索覆盖记录、文献 TS 证据摘录表）；`skills-next/auto-g16-chemdraw-structures/SKILL.md`。
 
 ## 允许改动的路径
@@ -99,7 +99,7 @@ PR 明确说明 `make_gaussian_input.py` 只改 `read_molecule` 的此项可选�
 
 - 选 L1–L3 中的一个，把它的结构源文件**复制**到一个临时验证 study（不改原 study），按新流程走 0a–0b：写 `species.csv`（预期值取自原 study 已签的结构记录），运行 `check_species.py`。
 - 在 PR 评论中报告：核验结果与原 study 已签结构记录是否一致；有不一致时逐项列出并判断是脚本问题还是原记录问题；走流程时发现的模板或步骤不顺之处。不写主机、路径和用户名。
-- BCB 试点在合并后、负责人提供实验信息之后进行，不作为合并条件。
+- 研究 B 试点在合并后、负责人提供实验信息之后进行，不作为合并条件。
 
 ## 停止条件
 
@@ -112,3 +112,7 @@ PR 明确说明 `make_gaussian_input.py` 只改 `read_molecule` 的此项可选�
 - 需要监督方审阅：是。
 - PR 描述第一行：`Task: T80`；附倒走验证的结果。
 - 合并只由负责人操作。
+
+## 版本记录
+
+- T116 脱敏：研究标识、编号与环境字面量改为泛称；原工单结构和结论不变。

@@ -61,7 +61,7 @@ mem_gb = 120
 [clusters.batch]
 scheduler = "slurm"
 # Entry names are local aliases. For SCNet use scnet (Gaussian) and scnet-test
-# (CREST), after verifying wzacnormal / wzhctest respectively in local config.
+# (CREST), after verifying 正式分区 / 赠送分区 respectively in local config.
 # Optional; omit to use the site's scheduler defaults.
 partition = "<partition>"
 account = "<account>"

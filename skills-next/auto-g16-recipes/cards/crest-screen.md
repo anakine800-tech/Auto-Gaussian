@@ -18,7 +18,7 @@ TS 族、关键中间体、复合物必须双路线交叉核对；可旋转键�
 
 已签字的结构及审阅过的 XYZ；电荷、多重度和溶剂明确；CREST 模板可用。闭壳层 `--uhf 0`，不从 XYZ 推断电荷。
 
-本次若决定使用 SCNet，CREST 显式加 `--cluster scnet-test`（`wzhctest`）；Gaussian 后续步骤只能 `--cluster scnet`（`wzacnormal`）。default 与 SCNet 的选择沿用 study 安排。prepare 前读本机配置核对入口及 partition，摘要写明二者；队列名不是入口别名。`wzhctest` 不可用、无权限或额度满时停下报告，由负责人逐次决定，不自动改投 `scnet`。
+本次若决定使用 SCNet，CREST 显式加 `--cluster scnet-test`（`赠送分区`）；Gaussian 后续步骤只能 `--cluster scnet`（`正式分区`）。default 与 SCNet 的选择沿用 study 安排。prepare 前读本机配置核对入口及 partition，摘要写明二者；队列名不是入口别名。`赠送分区` 不可用、无权限或额度满时停下报告，由负责人逐次决定，不自动改投 `scnet`。
 
 ## 3. 输入模板
 

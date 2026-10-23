@@ -4,7 +4,7 @@
 
 Study：<study_id>；卡片：<manifest.card.name>；Skills 提交：<git_commit 前 7 位>；工作区：<clean / dirty>；用途：<验收 / 研究>。
 
-实际入口：<cluster>；partition：<本机配置核对值；PBS 写不适用>。仅在本次使用 SCNet 时：CREST 显式 `--cluster scnet-test`（`wzhctest`），Gaussian 只能 `--cluster scnet`（`wzacnormal`）；default 与 SCNet 的选择沿用 study 安排。`wzhctest` 不可用、无权限或额度满时停下报告，不自动改投 `scnet`。资金来源：<负责人核对的赠送 / 正式专项说明；不明写未知>，不代表实时余额。
+实际入口：<cluster>；partition：<本机配置核对值；PBS 写不适用>。仅在本次使用 SCNet 时：CREST 显式 `--cluster scnet-test`（`赠送分区`），Gaussian 只能 `--cluster scnet`（`正式分区`）；default 与 SCNet 的选择沿用 study 安排。`赠送分区` 不可用、无权限或额度满时停下报告，不自动改投 `scnet`。资金来源：<负责人核对的赠送 / 正式专项说明；不明写未知>，不代表实时余额。
 
 | Attempt | 结构（SMILES 或结构名） | 电荷 / 多重度 | 立体化学警告 | 方法与依据（文献先例 / 本课题既有方案 / 兜底方法） | 完整 route / 程序参数 | 模板 | 档位 | 核数 | walltime | 远程目录（相对 ag 根） | bundle 哈希前 12 位 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
