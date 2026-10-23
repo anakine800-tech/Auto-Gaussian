@@ -191,3 +191,11 @@ sample_duration_ms        # int
 - 相关已有测试逐个列明：`ag/tests/test_monitor.py`、`ag/tests/test_slurm.py`、`ag/tests/test_clusters.py`、`ag/tests/test_resources_monitor.py`；新建 `ag/tests/test_monitor_all_jobs.py`。没有修改提交安全检查或测试阈值。
 - 给 T115 的 `docs/ag-monitor-1.md` 增补补丁附于 PR 描述，并在临时文档副本执行 `git apply --check`；未修改前端仓库。
 - 待监督方审阅新增远程命令；负责人决定合并。实际配置、LaunchAgent 和日常运行版本尚未部署本改动。
+
+## 监督方审阅跟进（2026-10-23）
+
+- 负责人转来的监督方审阅通过 `8405714`，并要求本 PR 修正无时间信息时的作业号排序。现将最后的排序键改为 PBS 序号的整数值，完整作业号仅作同序号的稳定次序；本人优先、运行/排队分组和有效时间排序保持不变。
+- 合成回归分别覆盖 R/Q 两种状态：本人作业优先，其余无时间作业按 `999`、`1000` 排列。只改本地显示排序，无新增远程查询。
+- 复测 `test_monitor_all_jobs.py`、`test_monitor.py`、`test_pbs_arrays.py`：266 通过，19.92 秒；首次全量已完成，此次按仓库规则仅重跑相关测试，最终全量以新 head 的 CI 为准。
+- 建议 2–4 留待后续：AllocMem 解析失败时保留 CPU、公共分区查询失败的降级、Slurm 本人内存字段。本 PR 保持已审阅的失败语义及远程命令。
+- 建议 5 待合并后下一次 PBS 有真实作业时补验证：只读核对 qstat 时间字段，仅把脱敏格式写入 PR 评论；若只有无时区文本，另开小单处理服务器本地时间显示。本次未新增真实查询或常驻监控改动。

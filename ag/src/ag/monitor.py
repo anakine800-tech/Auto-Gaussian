@@ -489,7 +489,10 @@ def pbs_hardware(cfg, transport, jobs):
 def job_sort_key(row):
     running = row['state'] in ('R', 'E')
     stamp = row['start_time'] if running else row['qtime']
-    return (not row['mine'], not running, stamp is None, stamp or '', row['job_id'])
+    # Validated PBS IDs arrive here before the cluster prefix is added. Compare
+    # the sequence numerically so unknown/equal times do not put 1000 before 999.
+    sequence = int(re.match(r'\d+', row['job_id'])[0])
+    return (not row['mine'], not running, stamp is None, stamp or '', sequence, row['job_id'])
 
 
 def empty_summary():

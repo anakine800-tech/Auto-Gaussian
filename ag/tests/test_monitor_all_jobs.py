@@ -94,6 +94,15 @@ def test_limit_and_sort_before_truncation(cfg):
     assert result['cluster']['job_summary']['queued_jobs'] == 600
 
 
+@pytest.mark.parametrize('state', ['R', 'Q'])
+def test_unknown_time_falls_back_to_numeric_job_sequence(cfg, state):
+    raw = row(1000, 'userB', state) + row(999, 'userB', state) + row(2000, 'userA', state)
+    result = monitor.observation(cfg, PBSFake(jobs=raw), 'userA', sampled_at=NOW)
+    rows = result['cluster']['jobs']
+    assert all(r['start_time'] is None and r['qtime'] is None for r in rows)
+    assert [r['job_id'] for r in rows] == ['2000.fixture', '999.fixture', '1000.fixture']
+
+
 def test_pbs_node_memory_and_distinct_job_count(cfg):
     nodes = ('node-a\n    state = free\n    resources_available.ncpus = 32\n'
              '    resources_available.mem = 65536mb\n    resources_assigned.mem = 12gb\n'
