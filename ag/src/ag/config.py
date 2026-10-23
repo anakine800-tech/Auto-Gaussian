@@ -56,6 +56,7 @@ def load_config(path=None, *, local_only=False):
         cfg['_config_dir'] = str(path.parent)
         cfg['_config_path'] = str(path.absolute())
         validate_approval(cfg)
+        validate_routing(cfg)
         if local_only:
             # review is local: cluster credentials and scheduler settings are not prerequisites.
             return dict(local=cfg['local'], _config_dir=cfg['_config_dir'])
@@ -83,6 +84,38 @@ def cluster_name(value):
     if not isinstance(value, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}', value):
         raise ConfigError('Invalid cluster name')
     return value
+
+
+def validate_routing(cfg):
+    """Catch misspelled entries before advice can silently skip a destination."""
+    if 'routing' not in cfg:
+        return
+    from ag.study import identifier
+    names = set(cfg.get('clusters', {'default': cfg}))
+    if cfg.get('ssh', {}).get('host'):
+        names.add('default')
+
+    def orders(value):
+        if not isinstance(value, dict) or set(value) - {'gaussian', 'crest'}:
+            raise ConfigError('routing orders only accept gaussian and crest')
+        for order in value.values():
+            if (not isinstance(order, list) or any(not isinstance(n, str) for n in order)
+                    or len(order) != len(set(order)) or set(order) - names):
+                raise ConfigError('routing order requires unique configured cluster names')
+
+    section = cfg['routing']
+    if not isinstance(section, dict):
+        raise ConfigError('routing must be a table')
+    orders({k: v for k, v in section.items() if k != 'studies'})
+    studies = section.get('studies', {})
+    if not isinstance(studies, dict):
+        raise ConfigError('routing.studies must be a table')
+    for name, value in studies.items():
+        try:
+            identifier(name)
+        except ValueError as exc:
+            raise ConfigError('Invalid routing study name') from exc
+        orders(value)
 
 
 def validate_approval(cfg):

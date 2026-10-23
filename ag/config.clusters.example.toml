@@ -15,6 +15,18 @@
 python = "<absolute local Python executable>"
 studies_root = "<absolute local studies directory outside Git>"
 
+# Optional advice only. Names must already exist in this configuration.
+# This synthetic example uses the entries defined below.
+# [routing]
+# gaussian = ["default", "batch"]  # also gaussian-cp and multiwfn
+# crest = ["batch-test", "default"]  # also xtb, subject to allowed_templates
+# [routing.studies."water-validation"]
+# gaussian = ["default"]
+# With all four intended entries configured, the owner's default orders are:
+# gaussian: default -> newhpc -> scnet
+# crest: scnet-test -> default -> newhpc
+# No routing table means status only, with no recommendation.
+
 [clusters.default]
 scheduler = "pbs"
 queue = "<PBS queue>"
