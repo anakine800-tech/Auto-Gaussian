@@ -280,7 +280,7 @@ def test_watch_foreground_and_ctrl_c(cfg, identity, monkeypatch, capsys, interva
         sleeps.append(seconds)
         if len(sleeps) == 2:
             raise KeyboardInterrupt
-    monkeypatch.setattr(monitor, 'SSHTransport', transport)
+    monkeypatch.setattr(monitor, 'MonitorTransport', transport)
     monkeypatch.setattr(monitor.time, 'sleep', sleep)
     monkeypatch.setattr(cli, 'load_config', lambda: cfg)
     assert cli.main(['monitor', '--watch', str(interval), '--json']) == 0
@@ -295,7 +295,7 @@ def test_one_shot_exit_code(cfg, identity, monkeypatch, capsys, failed, expected
     fake = Fake()
     if failed:
         fake.replies['jobs'] = Result(255)
-    monkeypatch.setattr(monitor, 'SSHTransport', lambda cfg, *, read_only: fake if read_only else pytest.fail())
+    monkeypatch.setattr(monitor, 'MonitorTransport', lambda cfg, *, read_only: fake if read_only else pytest.fail())
     monkeypatch.setattr(cli, 'load_config', lambda: cfg)
     monkeypatch.setattr(monitor.time, 'sleep', lambda _: pytest.fail('One-shot must exit'))
     assert cli.main(['monitor']) == expected
@@ -378,7 +378,7 @@ def test_corrupt_snapshot_records_one_failure_then_watch_recovers(cfg, identity,
             previous[damage] = 'invalid'
         (root / 'latest.json').write_text(json.dumps(previous))
     fake = Fake()
-    monkeypatch.setattr(monitor, 'SSHTransport', lambda cfg, *, read_only: fake)
+    monkeypatch.setattr(monitor, 'MonitorTransport', lambda cfg, *, read_only: fake)
     sleeps = []
     def sleep(seconds):
         sleeps.append(seconds)
@@ -406,7 +406,7 @@ def test_malformed_status_keeps_data_and_watch_running(cfg, identity, monkeypatc
     previous = monitor.sample(cfg, Fake())
     path.write_bytes(damage)
     fake = Fake()
-    monkeypatch.setattr(monitor, 'SSHTransport', lambda cfg, *, read_only: fake)
+    monkeypatch.setattr(monitor, 'MonitorTransport', lambda cfg, *, read_only: fake)
     sleeps = []
     def sleep(seconds):
         sleeps.append(seconds)

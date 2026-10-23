@@ -119,6 +119,11 @@ CREST 可选 `programs.crest.executable`（多集群为 `clusters.<CLUSTER>.prog
 配置独立 CREST 路径后，`ag prepare --template crest` 需要连接目标集群；SSH 不可用时无法 prepare，也不会创建 Attempt。这是准备前核实可执行文件的取舍；未配置独立路径时，prepare 仍保持纯本地行为。
 
 Gaussian `%nprocshared` 必须等于档位核数，`%mem` 不超过档位内存的 85%。
+Gaussian（包括 `gaussian-cp`）输入可省略 `%mem`：prepare 在 `%nprocshared` 后填入
+`min(核数 × 2, floor(档位内存 × 0.85))` 整数 GB，并纳入输入哈希、在确认摘要注明。
+显式填写的 `%mem` 保持原字节并继续检查 85% 上限；旧 Attempt 不重写。
+确认摘要附本机已完成且有 facts 的资源参考：模板、规范化方法/基组相同，原子数 ±20%，
+按原子数接近程度最多列 5 条。耗时只取开始/退出回执，缺失写“未知”；没有匹配写“无参考”，不会自动选档位或 walltime。
 SSH 准备说明见 [ag/README.md](ag/README.md)；配置后按需运行 `ag doctor --cluster '<CLUSTER>' --json` 做只读自检。
 
 Multiwfn 为可选程序：只有使用 `multiwfn` 模板时才需配置 `programs.multiwfn`；多集群配置对应 `clusters.default.programs.multiwfn`。值使用仓库外安装记录中的可执行文件位置，不在仓库保存机器路径。目前只支持 `default`（PBS）集群，提供 IGM / IGMH 与本地 `ag nci-report`（`ag-nci/1`）；配置及使用边界见 [Multiwfn 说明](ag/README.md#multiwfn-非共价相互作用分析)。未使用该模板时无需增加配置。
@@ -252,6 +257,16 @@ T7e 已适配多集群（[Frontend #9](https://github.com/anakine800-tech/Auto-G
 `<STUDIES_ROOT>/.ag-monitor/<CLUSTER>/latest.json`，同时兼容旧单集群的
 `<STUDIES_ROOT>/.ag-monitor/latest.json`；两种 default 来源并存时显示歧义，不能擅自视为最新。
 监控数据始终来自 ag monitor 快照，前端不启动采样器；缺失、过期或失败不当成空闲或零预算。
+监控每轮重读启动时的配置文件，新增入口开始采样，移除入口停止采样并在最后快照新增
+`config_removed=true` 与“配置已移除”说明。配置损坏时沿用上一轮配置，快照附 `config_warning` 和警告。
+SSH 超时只使该集群本轮失败并写入快照，其他集群和下一轮继续；监控传输保持只读且不立即重试。
+Slurm 存储用量每小时查询一次，独立超时 30 秒；失败查询也计入这一小时。
+间隔内沿用最近值；`storage_checked_at`、`storage_sampled_at`、`storage_error` 区分最近尝试、最近成功及失败。
+没有成功值时 `storage_kib=null`；存储查询超时的当轮为失败，后续调度采样可恢复成功但仍保留存储错误和旧值时间。
+成功/失败快照的 `own.tiers`（各档位 `cores`、`mem_gb`）与 `own.max_cores` 始终取当前有效配置；原有字段语义不变。
+入口可配置 `display_name`（1–32 个可打印字符）。监控 `cluster.display_name`、`ag clusters --json`
+和 prepare/submit 确认摘要提供显示名；摘要显示“显示名（入口名）”，缺省仍用入口名。
+显示名变更不改 manifest、台账文件名、作业号前缀或共享入口分组；失败快照也刷新当前显示名。
 Slurm 的 `cluster.budget` 为 null，clusters 查询省略 budget；本地台账仍用于核数预留与结算，不代表平台余额。
 监控所有快照（含初始/失败）均含有效共享 `committed_cap`；`core_cap` 仍为目标入口单作业上限。
 同组入口增加 `own.shared_with`，over-cap 告警计入全组未观测预留；原有运行/排队字段仍表示远程观测值。

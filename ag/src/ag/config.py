@@ -2,6 +2,7 @@
 from pathlib import Path, PurePosixPath
 import re
 import math
+import subprocess
 from datetime import date
 import tomllib
 
@@ -53,6 +54,7 @@ def load_config(path=None, *, local_only=False):
         if any((p / '.git').exists() for p in (studies, *studies.parents)):
             raise ConfigError('studies_root must be outside a Git checkout')
         cfg['_config_dir'] = str(path.parent)
+        cfg['_config_path'] = str(path.absolute())
         validate_approval(cfg)
         if local_only:
             # review is local: cluster credentials and scheduler settings are not prerequisites.
@@ -64,8 +66,9 @@ def load_config(path=None, *, local_only=False):
                 if 'default' in cfg['clusters']:
                     raise ConfigError('Legacy configuration and clusters.default are ambiguous')
                 cfg['clusters']['default'] = {key: cfg[key] for key in ('ssh', 'remote', 'scheduler', 'programs', 'resources')}
-                if 'allowed_templates' in cfg:
-                    cfg['clusters']['default']['allowed_templates'] = cfg['allowed_templates']
+                for key in ('allowed_templates', 'display_name'):
+                    if key in cfg:
+                        cfg['clusters']['default'][key] = cfg[key]
             for name, cluster in cfg['clusters'].items():
                 cluster_name(name)
                 validate_cluster(cluster)
@@ -125,6 +128,10 @@ def scheduler_kind(cfg):
 
 
 def validate_cluster(cfg):
+    if 'display_name' in cfg:
+        value = cfg['display_name']
+        if not isinstance(value, str) or not 1 <= len(value) <= 32 or not value.isprintable():
+            raise ConfigError('display_name must contain 1–32 printable characters')
     scheduler = scheduler_kind(cfg)
     if scheduler not in ('pbs', 'slurm'):
         raise ConfigError('scheduler must be pbs or slurm')
@@ -181,7 +188,7 @@ def validate_cluster(cfg):
         for key in ('partition', 'account', 'qos'):
             if key in cfg and (not isinstance(cfg[key], str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]*', cfg[key])):
                 raise ConfigError(f'Invalid Slurm {key}')
-        allowed = {'scheduler', 'ssh', 'remote', 'programs', 'resources', 'partition', 'account', 'qos', 'expires', 'allowed_templates'}
+        allowed = {'scheduler', 'ssh', 'remote', 'programs', 'resources', 'partition', 'account', 'qos', 'expires', 'allowed_templates', 'display_name'}
         if set(cfg) - allowed:
             raise ConfigError('Unsupported Slurm configuration field')
     if 'expires' in cfg:
@@ -227,6 +234,8 @@ def select_cluster(cfg, name='default'):
             raise ConfigError(f'Cluster is not configured: {name}')
         selected = dict(cfg['clusters'][name])
         selected.update(local=cfg['local'], _config_dir=cfg['_config_dir'])
+        if '_config_path' in cfg:
+            selected['_config_path'] = cfg['_config_path']
         if 'approval' in cfg:
             selected['approval'] = cfg['approval']
         selected['_cluster_entries'] = cfg['clusters']
@@ -287,9 +296,40 @@ def shared_cap_summary(cfg):
 
 
 def unmerged_clusters(cfg):
-    return sorted(name for name, entry in cfg.get('_cluster_entries', {}).items()
+    candidates = {name: entry for name, entry in cfg.get('_cluster_entries', {}).items()
                   if scheduler_kind(entry) == scheduler_kind(cfg)
-                  and cluster_identity(entry) != cluster_identity(cfg))
+                  and cluster_identity(entry) != cluster_identity(cfg)}
+    if not candidates:
+        return []
+    identity = ssh_identity(cfg)
+    if identity is None:
+        return []
+    return sorted(name for name, entry in candidates.items() if ssh_identity(entry) == identity)
+
+
+def ssh_identity(cfg):
+    """Compare local SSH expansion, never scheduler kind alone or remote probes."""
+    try:
+        result = subprocess.run(
+            ['ssh', '-G', '-F', cfg['ssh']['config_file'], cfg['ssh']['host']],
+            capture_output=True, text=True, timeout=15)
+        if result.returncode:
+            return None
+        fields = {}
+        for line in result.stdout.splitlines():
+            parts = line.split()
+            if parts and parts[0] in ('hostname', 'port', 'user'):
+                if len(parts) != 2 or parts[0] in fields:
+                    return None
+                fields[parts[0]] = parts[1]
+        if set(fields) != {'hostname', 'port', 'user'} or not fields['port'].isdigit():
+            return None
+        port = int(fields['port'])
+        if not 1 <= port <= 65535:
+            return None
+        return fields['hostname'].lower(), port, fields['user']
+    except (OSError, subprocess.TimeoutExpired, UnicodeError, KeyError, TypeError):
+        return None
 
 
 def for_manifest(cfg, manifest):

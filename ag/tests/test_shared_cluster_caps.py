@@ -397,7 +397,9 @@ def test_foreign_same_job_number_never_releases_local_reservation(shared, tmp_pa
 
 
 @pytest.mark.parametrize('different', ['host', 'config_file'])
-def test_doctor_prompts_only_and_no_private_identity(shared, tmp_path, capsys, different):
+def test_doctor_prompts_only_and_no_private_identity(shared, tmp_path, capsys, monkeypatch, different):
+    monkeypatch.setattr(config.subprocess, 'run', lambda *a, **k:
+                        Result(stdout='hostname synthetic.invalid\nport 22\nuser fixture\n'))
     selected = config.select_cluster(shared, 'batch')
     baseline = doctor.doctor(selected, SlurmFake(selected))
     if different == 'host':

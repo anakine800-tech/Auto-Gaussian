@@ -10,12 +10,21 @@ import tempfile
 import time
 
 from ag import remote, status, slurm, attempt, budget
-from ag.config import select_cluster, scheduler_kind, committed_cap, shared_clusters, optional_resource_caps
+from ag.config import load_config, select_cluster, scheduler_kind, committed_cap, shared_clusters, optional_resource_caps
 from ag.pbs import parse_nodes
 from ag.transport import SSHTransport, redact_stderr, require_ok
 
 
 HISTORY_BYTES = 5 * 1024 * 1024
+STORAGE_INTERVAL = 3600
+STORAGE_TIMEOUT = 30
+
+
+class MonitorTransport(SSHTransport):
+    """Keep the read-only allowlist, but report timeouts in this round immediately."""
+
+    def _perform(self, operation):
+        return operation()
 
 
 def watch_seconds(value):
@@ -72,9 +81,9 @@ def local_attempts(root, cluster='default', scheduler=None):
             if job is not None]
 
 
-def observation(cfg, transport, username):
+def observation(cfg, transport, username, *, storage_state=None):
     if scheduler_kind(cfg) == 'slurm':
-        return slurm_observation(cfg, transport, username)
+        return slurm_observation(cfg, transport, username, storage_state=storage_state)
     jobs = status.parse_jobs(require_ok(transport.run(remote.jobs()), 'qstat jobs'))
     # Use submit's exact all-user validation and non-C reservation accounting.
     used = status.occupied(jobs, username)
@@ -165,7 +174,7 @@ def publish(root, snapshot):
         history.touch(exist_ok=False)
 
 
-def sample(cfg, transport, interval=None):
+def sample(cfg, transport, interval=None, *, config_warning=None):
     root = cache_dir(cfg)
     previous_path = root / 'latest.json'
     now = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
@@ -175,6 +184,7 @@ def sample(cfg, transport, interval=None):
                              committed_cap=committed_cap(cfg), jobs=[], **shared_fields(cfg)),
                     cluster=dict(nodes=[], queues=[], cores_total=0, cores_used=0), warnings=[])
     operation = 'Read previous monitor snapshot'
+    storage_state = {}
     try:
         if previous_path.exists():
             previous = json.loads(previous_path.read_text(encoding='utf-8'))
@@ -198,8 +208,11 @@ def sample(cfg, transport, interval=None):
                     raise ValueError('Cached last_ok_at lacks a timezone')
                 retained['last_ok_at'] = stamp.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
             snapshot.update(retained)
+        storage_state = {key: snapshot['cluster'][key] for key in
+                         ('storage_kib', 'storage_checked_at', 'storage_sampled_at', 'storage_error')
+                         if key in snapshot['cluster']}
         operation = 'Collect monitor sample'
-        snapshot.update(observation(cfg, transport, login_user(cfg)))
+        snapshot.update(observation(cfg, transport, login_user(cfg), storage_state=storage_state))
     except (OSError, ValueError, KeyError, AttributeError, TypeError, subprocess.TimeoutExpired) as exc:
         snapshot['error'] = redact_stderr(f'{operation}: {exc}', cfg)
     else:
@@ -210,12 +223,29 @@ def sample(cfg, transport, interval=None):
     for key in ('shared_with', 'max_queued_cores', 'scheduler_max_running_cores'):
         snapshot['own'].pop(key, None)
     snapshot['own'].update(shared_fields(cfg))
+    snapshot['own'].update(max_cores=cfg['resources']['max_cores'],
+                           tiers={name: {key: cfg['resources']['tiers'][name][key]
+                                         for key in ('cores', 'mem_gb')}
+                                  for name in ('mini', 'simple', 'general', 'complex')
+                                  if name in cfg['resources'].get('tiers', {})})
+    # Configuration labels stay current even when retained scheduler data is old.
+    snapshot['cluster'].pop('display_name', None)
+    if 'display_name' in cfg:
+        snapshot['cluster']['display_name'] = cfg['display_name']
+    snapshot['config_warning'] = config_warning
+    snapshot['config_removed'] = False
+    snapshot['warnings'] = [row for row in snapshot['warnings']
+                            if not isinstance(row, dict) or row.get('kind') != 'config-reload-failed']
+    if config_warning:
+        snapshot['warnings'].append(dict(kind='config-reload-failed', job_id=None, study=None,
+                                         attempt=None, detail=config_warning))
     if scheduler_kind(cfg) == 'slurm':
         # Missing fields in a first failure or a pre-T19 cache are unknown,
         # never zero. Preserve the last successful storage value on failure;
         # obsolete budget totals are removed even from retained old snapshots.
         snapshot['cluster']['budget'] = None
         snapshot['cluster'].setdefault('storage_kib', None)
+        snapshot['cluster'].update(storage_state)
         snapshot['cluster']['expires'] = cfg.get('expires')
         snapshot['cluster']['expiry_warning'] = budget.expiry_warning(cfg)
     publish(root, snapshot)
@@ -225,11 +255,18 @@ def sample(cfg, transport, interval=None):
 def run(cfg, interval=None):
     if 'clusters' in cfg:
         return run_clusters(cfg, interval)
-    transport = SSHTransport(cfg, read_only=True)
+    transport = None
+    transport_cfg = None
     try:
         while True:
             started = time.monotonic()
-            snapshot = sample(cfg, transport, interval)
+            cfg, warning = reload_config(cfg)
+            if 'clusters' in cfg:
+                return run_clusters(cfg, interval)
+            if transport_cfg != cfg:
+                transport = MonitorTransport(cfg, read_only=True)
+                transport_cfg = cfg
+            snapshot = sample(cfg, transport, interval, config_warning=warning)
             print(json.dumps(snapshot, ensure_ascii=False), flush=True)
             if interval is None:
                 return 0 if snapshot['ok'] else 2
@@ -238,11 +275,10 @@ def run(cfg, interval=None):
         return 0
 
 
-def slurm_observation(cfg, transport, username):
-    from ag.doctor import storage
+def slurm_observation(cfg, transport, username, *, storage_state=None):
     ledgers = budget.shared_ledgers(cfg)
     budget_summary = budget.public_summary(cfg)
-    storage_kib = storage(cfg, transport)
+    storage_state = storage_state if storage_state is not None else {}
     expiry = budget.expiry_warning(cfg)
     jobs = slurm.parse_queue(require_ok(transport.run(remote.slurm_jobs(user=username)), 'squeue monitor'))
     running, queued = slurm.core_breakdown(jobs, username)
@@ -275,11 +311,12 @@ def slurm_observation(cfg, transport, username):
     if running + queued + held > total_cap:
         warnings.append(dict(kind='over-cap', job_id=None, study=None, attempt=None,
                              detail=f'本人运行加排队 {running + queued} 核、同组本地未观测预留 {held} 核，超过上限 {total_cap} 核'))
+    storage_sample(cfg, transport, storage_state)
     return dict(own=dict(cores_in_use=running + queued, cores_running=running, cores_queued=queued,
                          core_cap=cap, committed_cap=total_cap, jobs=own, **shared_fields(cfg)),
                 cluster=dict(nodes=[], queues=[], cores_total=0, cores_used=0,
                              hardware_capacity_known=False, name=cfg['_cluster'], scheduler='slurm',
-                             storage_kib=storage_kib, expiry_warning=expiry,
+                             **storage_state, expiry_warning=expiry,
                              budget=budget_summary, expires=cfg.get('expires')), warnings=warnings)
 
 
@@ -289,29 +326,71 @@ def shared_fields(cfg):
 
 
 def run_clusters(cfg, interval=None):
-    # Include every manifest-bound cluster even if it is no longer configured;
-    # missing configuration is an explicit failure, never a default fallback.
-    names = set(cfg['clusters'])
-    root = Path(cfg['local']['studies_root'])
-    for path in sorted(root.glob('*/attempts/*')):
-        if not path.is_dir():
-            continue
-        m = attempt.read_manifest(path)
-        name = m.get('cluster', 'default')
-        try:
-            select_cluster(cfg, name)
-        except ValueError as exc:
-            raise ValueError(f'Attempt {path.name} (study {m["study_id"]}): cluster is not configured') from exc
-        names.add(name)
-    selected = {name: select_cluster(cfg, name) for name in sorted(names)}
-    transports = {name: SSHTransport(c, read_only=True) for name, c in selected.items()}
+    selected, transports = {}, {}
     try:
         while True:
             started = time.monotonic()
-            snapshots = {name: sample(c, transports[name], interval) for name, c in selected.items()}
+            cfg, warning = reload_config(cfg)
+            names = sorted(cfg['clusters']) if 'clusters' in cfg else ['default']
+            current = {name: select_cluster(cfg, name) for name in names}
+            for name in selected.keys() - current.keys():
+                mark_removed(selected[name])
+            for name, entry in current.items():
+                if entry != selected.get(name):
+                    transports[name] = MonitorTransport(entry, read_only=True)
+            selected = current
+            transports = {name: transports[name] for name in selected}
+            snapshots = {name: sample(c, transports[name], interval, config_warning=warning)
+                         for name, c in selected.items()}
             print(json.dumps(dict(clusters=snapshots), ensure_ascii=False), flush=True)
             if interval is None:
                 return 0 if all(s['ok'] for s in snapshots.values()) else 2
             time.sleep(max(0, interval - (time.monotonic() - started)))
     except KeyboardInterrupt:
         return 0
+
+
+def reload_config(cfg):
+    # In-memory callers (including offline fixtures) have no file to reload.
+    path = cfg.get('_config_path')
+    if path is None:
+        return cfg, None
+    try:
+        fresh = load_config(path)
+        if '_cluster' in cfg:
+            fresh = select_cluster(fresh, cfg['_cluster'])
+        return fresh, None
+    except (OSError, ValueError, KeyError, TypeError):
+        return cfg, '配置重读失败，沿用上一轮配置'
+
+
+def mark_removed(cfg):
+    root = cache_dir(cfg)
+    path = root / 'latest.json'
+    if path.exists():
+        snapshot = json.loads(path.read_text(encoding='utf-8'))
+        snapshot.update(config_removed=True, config_note='配置已移除')
+        publish(root, snapshot)
+
+
+def storage_sample(cfg, transport, values):
+    """Throttle slow du independently, including failed attempts, across restarts."""
+    from ag.doctor import storage
+    now = datetime.now(timezone.utc)
+    values.setdefault('storage_kib', None)
+    values.setdefault('storage_sampled_at', None)
+    values.setdefault('storage_error', None)
+    try:
+        checked = datetime.fromisoformat(values['storage_checked_at'])
+        due = not 0 <= (now - checked).total_seconds() < STORAGE_INTERVAL
+    except (ValueError, KeyError, TypeError):
+        due = True
+    if not due:
+        return
+    values['storage_checked_at'] = now.strftime('%Y-%m-%dT%H:%M:%SZ')
+    try:
+        value = storage(cfg, transport, timeout=STORAGE_TIMEOUT)
+    except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
+        values['storage_error'] = redact_stderr(f'Storage query failed: {exc}', cfg)
+        raise
+    values.update(storage_kib=value, storage_sampled_at=values['storage_checked_at'], storage_error=None)

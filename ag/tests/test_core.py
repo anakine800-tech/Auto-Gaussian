@@ -453,7 +453,8 @@ def write_config(cfg):
 
 def test_config_complete_and_private(cfg):
     assert config.load_config(write_config(cfg)) == {
-        **cfg, 'resources': {**cfg['resources'], 'max_committed_cores': 44}}
+        **cfg, '_config_path': str(Path(cfg['_config_dir']) / 'config.toml'),
+        'resources': {**cfg['resources'], 'max_committed_cores': 44}}
     cfg['remote']['ag_root'] += '-wrong'
     with pytest.raises(ValueError): config.load_config(write_config(cfg))
 

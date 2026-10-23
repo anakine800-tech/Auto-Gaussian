@@ -2,6 +2,7 @@
 import re
 import time
 import sys
+from dataclasses import replace
 from ag import remote, status, slurm, budget
 from ag.config import scheduler_kind, unmerged_clusters, crest_executable, optional_resource_caps
 from ag.transport import require_ok
@@ -55,8 +56,11 @@ def doctor(cfg, transport):
                 inventory_seconds=round(latency, 3), **limits)
 
 
-def storage(cfg, transport):
-    value = require_ok(transport.run(remote.storage_usage(cfg)), 'ag_root storage usage')
+def storage(cfg, transport, *, timeout=None):
+    command = remote.storage_usage(cfg)
+    if timeout is not None:
+        command = replace(command, timeout=timeout)
+    value = require_ok(transport.run(command), 'ag_root storage usage')
     fields = value.strip().split()
     if len(fields) != 2 or not fields[0].isdigit() or fields[1] != cfg['remote']['ag_root']:
         raise ValueError('Invalid du usage response')
