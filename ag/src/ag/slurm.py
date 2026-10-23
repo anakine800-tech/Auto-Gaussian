@@ -76,3 +76,60 @@ def parse_accounting(text, job_id=None, *, name=None, username=None, allow_array
         jobs.append(dict(job_id=job, state=state, exit_code=code, exit_signal=signal,
                          elapsed=elapsed, allocated_cpus=int(cpus)))
     return jobs
+
+
+RUNNING = frozenset({'RUNNING', 'COMPLETING'})
+
+
+def parse_partition_jobs(text):
+    """Anonymous per-partition job counts, including array children."""
+    summary = dict(running_jobs=0, running_cores=0, queued_jobs=0, queued_cores=0)
+    for line in text.splitlines():
+        fields = [field.strip() for field in line.split('|')]
+        if len(fields) != 2 or fields[0] not in ACTIVE | TERMINAL or not fields[1].isdigit() or int(fields[1]) < 1:
+            raise ValueError('Invalid anonymous partition job record')
+        state, cpus = fields
+        if state in TERMINAL:
+            continue
+        prefix = 'running' if state in RUNNING else 'queued'
+        summary[prefix + '_jobs'] += 1
+        summary[prefix + '_cores'] += int(cpus)
+    return summary
+
+
+def parse_partition_hardware(text):
+    """sinfo A/I/O/T are row totals; memory is MB per node, never per CPU."""
+    totals = dict(cores_allocated=0, cores_idle=0, cores_other=0, cores_total=0, mem_total_gb=0)
+    if not text.strip():
+        raise ValueError('No partition hardware returned')
+    for line in text.splitlines():
+        fields = [field.strip() for field in line.split('|')]
+        if len(fields) != 3:
+            raise ValueError('Invalid sinfo hardware record')
+        cpus = fields[0].split('/')
+        if (len(cpus) != 4 or any(not v.isdigit() for v in cpus + fields[2:])
+                or not re.fullmatch(r'\d+\+?', fields[1])):
+            raise ValueError('Unknown or heterogeneous sinfo hardware values')
+        allocated, idle, other, total = map(int, cpus)
+        if allocated + idle + other != total or int(fields[2]) < 1:
+            raise ValueError('Inconsistent sinfo CPU totals')
+        for key, value in zip(('cores_allocated', 'cores_idle', 'cores_other', 'cores_total'),
+                              (allocated, idle, other, total)):
+            totals[key] += value
+        # Live sinfo can print a minimum followed by '+' for unequal nodes.
+        # Multiplying that minimum would misreport the partition's capacity.
+        if fields[1].endswith('+'):
+            totals['mem_total_gb'] = None
+        elif totals['mem_total_gb'] is not None:
+            totals['mem_total_gb'] += int(fields[1]) * int(fields[2]) / 1024
+    if totals['mem_total_gb'] is not None:
+        totals['mem_total_gb'] = round(totals['mem_total_gb'], 1)
+    return totals
+
+
+def parse_allocmem(text):
+    """Verified sinfo -N -O AllocMem:20: one MB value per node, no names."""
+    values = text.splitlines()
+    if not values or any(not value.strip().isdigit() for value in values):
+        raise ValueError('Unknown sinfo AllocMem values')
+    return round(sum(int(value.strip()) for value in values) / 1024, 1)

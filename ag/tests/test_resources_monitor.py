@@ -139,12 +139,15 @@ def test_reload_add_remove_invalid_and_recover(multi, monkeypatch, capsys):
     file = write_config(multi)
     loaded = config.load_config(file)
     calls, rounds = [], []
+    tick = [0]
+    monkeypatch.setattr(monitor.time, 'monotonic', lambda: tick[0])
     monkeypatch.setattr(monitor, 'login_user', lambda _: 'fixture')
     def transport(entry, **kwargs):
         calls.append(entry['_cluster'])
         return SlurmFake(entry) if config.scheduler_kind(entry) == 'slurm' else PBSFake()
     monkeypatch.setattr(monitor, 'MonitorTransport', transport)
     def sleep(_):
+        tick[0] += 60
         rounds.append(1)
         if len(rounds) == 1:
             multi['clusters']['added'] = deepcopy(multi['clusters']['default'])
@@ -245,7 +248,7 @@ def test_storage_hourly_timeout_cache_and_recovery(multi, monkeypatch):
     fake.run = fail
     Clock.instant += timedelta(seconds=1)
     failed = monitor.sample(entry, fake)
-    assert not failed['ok'] and failed['cluster']['storage_kib'] == 1024
+    assert failed['ok'] and failed['cluster']['storage_kib'] == 1024
     assert failed['cluster']['storage_sampled_at'] == first['cluster']['storage_sampled_at']
     assert failed['cluster']['storage_error'] and 'fixture' not in failed['cluster']['storage_error']
     Clock.instant += timedelta(seconds=60)

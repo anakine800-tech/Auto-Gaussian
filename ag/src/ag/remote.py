@@ -342,6 +342,20 @@ def slurm_tools():
     return Command('slurm_tools', 'command -v sbatch && command -v squeue && command -v sacct && command -v scancel && command -v sinfo')
 
 
+def slurm_partition_jobs(partition):
+    # Reuse the read-only squeue operation; never fetch other users' identities.
+    return Command('slurm_jobs', f"squeue -h -p {quote(slurm_token(partition))} -r --local -o '%T|%C'")
+
+
+def slurm_partition_hardware(partition):
+    return Command('slurm_partitions', f"sinfo -h -p {quote(slurm_token(partition))} -o '%C|%m|%D'")
+
+
+def slurm_partition_allocmem(partition):
+    # Node rows contain only AllocMem, not node names; aggregate locally.
+    return Command('slurm_partitions', f'sinfo -h -p {quote(slurm_token(partition))} -N -O AllocMem:20')
+
+
 def slurm_submit(cfg, manifest):
     p = attempt_dir(cfg, manifest)
     return Command('submit', f'{path_checks(p + "/job.slurm")} && cd {quote(p)} && sbatch --parsable job.slurm', 120)

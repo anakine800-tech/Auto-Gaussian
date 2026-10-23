@@ -144,7 +144,7 @@ Multiwfn 为可选程序：只有使用 `multiwfn` 模板时才需配置 `progra
 | `ag cancel '<ATTEMPT_ID>'` | 人点击 Mac 确认后取消确切作业 |
 | `ag list --study '<STUDY_ID>' --json` | 列出本地 Attempt |
 | `ag doctor --cluster '<CLUSTER>' --json` | 只读检查连接、调度器和程序环境 |
-| `ag monitor --watch 120` | 前台只读采样并保存监控快照；Ctrl-C 退出，无自动提交或取消 |
+| `ag monitor --watch 30` | 前台只读采样并保存监控快照；PBS 每 30 秒、Slurm 至少 60 秒，Ctrl-C 退出 |
 | `ag facts '<ATTEMPT_ID>' --study '<STUDY_ID>' [--refresh] --json` | 解析日志、几何、频率、扫描、IRC 和波函数稳定性事实；显式刷新保留旧证据 |
 | `ag thermo '<ATTEMPT_A>' '<ATTEMPT_B>' --study '<STUDY_ID>' --json` | GoodVibes qRRHO 与所选构象集合的布居 |
 | `ag dedup '<XYZ_FILE>' --charge 0 --out '<ANALYSES_DIR>' --json` | 按已确认电荷去重；此例为中性体系 |
@@ -262,8 +262,25 @@ T7e 已适配多集群（[Frontend #9](https://github.com/anakine800-tech/Auto-G
 SSH 超时只使该集群本轮失败并写入快照，其他集群和下一轮继续；监控传输保持只读且不立即重试。
 Slurm 存储用量每小时查询一次，独立超时 30 秒；失败查询也计入这一小时。
 间隔内沿用最近值；`storage_checked_at`、`storage_sampled_at`、`storage_error` 区分最近尝试、最近成功及失败。
-没有成功值时 `storage_kib=null`；存储查询超时的当轮为失败，后续调度采样可恢复成功但仍保留存储错误和旧值时间。
-成功/失败快照的 `own.tiers`（各档位 `cores`、`mem_gb`）与 `own.max_cores` 始终取当前有效配置；原有字段语义不变。
+没有成功值时 `storage_kib=null`；存储失败只更新 `storage_error`，保留最近成功值和时间，不改变本轮 `ok`。
+成功/失败快照的 `own.tiers`（各档位 `cores`、`mem_gb`）与 `own.max_cores` 始终取当前有效配置。
+`--watch` 接受 30–600 秒，各入口独立到期；PBS 使用该间隔，Slurm 使用 `max(watch, 60)`。
+`interval_seconds` 为该入口实际配置间隔，`sample_duration_ms` 为本次采样耗时；慢轮结束后立即进入下一轮，不并发叠加。
+PBS 的 `cluster.jobs` 列出全员非 C 作业，先本人、再运行开始时间、再排队提交时间排序，最多 500 条；
+`jobs_omitted` 记录省略数，`job_summary` 始终统计截断前的作业。本人作业关联本地 Attempt。
+`own.jobs` 与 `cluster.jobs` 的运行作业核数按实际分配显示，排队作业按申请显示，`cores_kind` 标明口径；
+`own.cores_in_use`、`cores_running`、`cores_queued` 等额度统计仍沿用原预留口径，不能用作业显示值替代提交检查。
+`mem_gb` 按 1024 进位折算 GB，`own.mem_running_gb` / `mem_queued_gb` 分别合计申请内存；任一相关作业未知则合计未知。
+明确的开始时间用于计算 `elapsed_seconds`，否则退回已用 walltime，并用 `elapsed_source` 标明；
+`start_time` / `qtime` 只在时区明确时输出 UTC ISO 时间。时区不明或字段缺失写 null，不猜服务器时区。
+Slurm 明细仅有本人；`cluster.job_summary` 按配置分区给出运行/排队作业数和核数，并减去本分区本人作业得到他人汇总。
+两次查询不一致导致负数时，他人汇总为 null。本人占用覆盖共享账号，各入口硬件及汇总只覆盖自己的分区。
+`cluster.hardware` 提供 CPU 总数/分配/空闲/其他和总内存/已分配内存；PBS 节点另有内存与作业数，Slurm 不保存节点明细。
+`sinfo` 异构节点内存显示为最小值加 `+` 时，总内存为 null；AllocMem 单独按节点汇总后保存。
+未配置分区时不查询分区作业或硬件。现有 Slurm 本人查询不提供申请内存、开始/提交时间和 walltime 上限，这些字段为 null。
+硬件查询失败只将硬件标为未知并写脱敏错误；作业查询失败仍令 `ok=false`，保留旧数据及 `last_ok_at`，不能当作最新。
+`history.jsonl` 仅追加作业/告警计数与摘要，不保存全员作业明细。配置移除时即使缓存损坏，也写合法的移除快照。
+入口可配置整数 `display_order`，快照 `cluster.display_order` 缺省为 null；前端默认 PBS 在前、Slurm 在后，再按入口名排序。
 入口可配置 `display_name`（1–32 个可打印字符）。监控 `cluster.display_name`、`ag clusters --json`
 和 prepare/submit 确认摘要提供显示名；摘要显示“显示名（入口名）”，缺省仍用入口名。
 显示名变更不改 manifest、台账文件名、作业号前缀或共享入口分组；失败快照也刷新当前显示名。

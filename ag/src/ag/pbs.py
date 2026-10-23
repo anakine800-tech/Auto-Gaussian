@@ -1,5 +1,7 @@
 """PBS node parsing for monitoring displays."""
 import re
+from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 
 from ag.remote import job_id as validate_job_id
 
@@ -65,6 +67,7 @@ def parse_nodes(text, jobs):
         if 'jobs' in record:
             used = 0
             slots = []
+            job_ids = set()
             for fragment in record['jobs'].split(','):
                 slot, sep, job_id = fragment.strip().partition('/')
                 slots.append(slot)
@@ -73,10 +76,94 @@ def parse_nodes(text, jobs):
                     # parsing only and must not widen remote command arguments.
                     if not re.fullmatch(r'\d+\[\d+\](?:\.[A-Za-z0-9][A-Za-z0-9_.-]*)?', job_id):
                         validate_job_id(job_id)
+                    job_ids.add(job_id)
                     used += slot_count(','.join(slots))
                     slots = []
             if slots:
                 raise ValueError('Unrecognized node allocation')
         nodes.append(dict(name=record['name'], state=record['state'],
-                          cores_total=int(cores), cores_used=used))
+                          cores_total=int(cores), cores_used=used,
+                          mem_total_gb=memory_gb(record.get('resources_available.mem')),
+                          mem_assigned_gb=memory_gb(record.get('resources_assigned.mem')),
+                          jobs=len(job_ids) if 'jobs' in record else None))
     return nodes
+
+
+def memory_gb(value):
+    """Scheduler memory uses binary units; unknown units are not zero."""
+    if not isinstance(value, str):
+        return None
+    match = re.fullmatch(r'(\d+(?:\.\d+)?)\s*(b|kb|mb|gb|tb)', value.strip(), re.I)
+    if match is None:
+        return None
+    try:
+        amount = Decimal(match[1]) * Decimal(1024) ** (('b', 'kb', 'mb', 'gb', 'tb').index(match[2].lower()) - 3)
+        return float(round(amount, 1)) if amount.is_finite() and amount < Decimal('1e100') else None
+    except InvalidOperation:
+        return None
+
+
+def duration_seconds(value):
+    if not isinstance(value, str):
+        return None
+    match = re.fullmatch(r'(?:(\d+)-)?(\d+):([0-5]\d):([0-5]\d)', value)
+    if not match:
+        return None
+    days, hours, minutes, seconds = (int(v or 0) for v in match.groups())
+    return days * 86400 + hours * 3600 + minutes * 60 + seconds
+
+
+def timestamp(value):
+    """Never apply the local machine timezone to an unzoned scheduler date.
+
+    Unzoned PBS text dates have no UTC offset. Without a verified server timezone
+    they remain unknown; epoch and explicitly zoned ISO dates are unambiguous.
+    """
+    if not isinstance(value, str):
+        return None
+    try:
+        if re.fullmatch(r'\d{1,12}', value):
+            stamp = datetime.fromtimestamp(int(value), timezone.utc)
+        else:
+            stamp = datetime.fromisoformat(value)
+            if stamp.tzinfo is None:
+                return None
+        return stamp.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+    except (ValueError, OverflowError, OSError):
+        return None
+
+
+def job_fields(job, sampled_at):
+    """Display facts only; submit's conservative reservation rules stay intact."""
+    running = job['job_state'] in ('R', 'E')
+    cores = None
+    if running:
+        hosts = job.get('exec_host', '').split('+')
+        if all('/' in host for host in hosts):
+            cores = sum(slot_count(host.split('/', 1)[1]) for host in hosts)
+    elif job.get('Resource_List.nodes'):
+        # Same node/ppn arithmetic as status.occupied; other users' arrays must
+        # not change that function's stricter admission policy for our account.
+        cores = 0
+        for chunk in job['Resource_List.nodes'].split('+'):
+            fields = chunk.split(':')
+            count = int(fields[0]) if fields[0].isdigit() else 1
+            ppn = [field[4:] for field in fields[1:] if field.startswith('ppn=')]
+            if len(ppn) != 1 or not ppn[0].isdigit() or int(ppn[0]) < 1 or count < 1:
+                raise ValueError('Unrecognized ppn resource request; cannot count cores')
+            cores += count * int(ppn[0])
+    start = next((value for key in ('start_time_epoch', 'start_time', 'stime')
+                  if (value := timestamp(job.get(key))) is not None), None)
+    elapsed, source = None, None
+    if start is not None:
+        seconds = int((sampled_at - datetime.fromisoformat(start)).total_seconds())
+        if seconds >= 0:
+            elapsed, source = seconds, 'start_time'
+    if elapsed is None:
+        elapsed = duration_seconds(job.get('resources_used.walltime'))
+        if elapsed is not None:
+            source = 'walltime_used'
+    return dict(cores=cores, cores_kind='allocated' if running else 'requested',
+                mem_gb=memory_gb(job.get('Resource_List.mem')), start_time=start,
+                qtime=timestamp(job.get('qtime')), elapsed_seconds=elapsed, elapsed_source=source,
+                walltime_limit_seconds=duration_seconds(job.get('Resource_List.walltime')))
