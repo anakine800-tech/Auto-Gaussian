@@ -94,6 +94,80 @@ def test_unused_members_cannot_reuse_consumed_batch(cfg, prepared, tmp_path):
     assert not fake.calls and state.read(other)['state'] == 'prepared'
 
 
+@pytest.mark.parametrize('mode', ['approval', 'dialog'])
+def test_unclaimed_member_can_submit_after_batch_stops(cfg, prepared, tmp_path, monkeypatch, mode):
+    first, _ = prepared
+    stopped, remaining = second(cfg, tmp_path), second(cfg, tmp_path)
+    paths = [first, stopped, remaining]
+    original = approval.create(cfg, 'smoke', [p.name for p in paths], QUOTE)
+    source = record_path(first, original)
+    fake = Fake(cfg)
+    original_run = fake.run
+
+    def run(command):
+        if command.operation == 'jobs' and fake.operations().count('jobs') == 2:
+            fake.qstat = Result(stdout=job_text(cores=44))
+        return original_run(command)
+
+    fake.run = run
+    with pytest.raises(ValueError, match='Core limit changed'):
+        submit.submit(cfg, [p.name for p in paths], fake, approval_id=original['id'])
+    assert fake.operations().count('submit') == 1
+    assert state.read(first)['state'] == 'submitted'
+    assert state.read(stopped)['state'] == 'failed_presubmit'
+    assert (stopped / '.submit-claim').exists()
+    assert state.read(remaining)['state'] == 'prepared'
+    assert not (remaining / '.submit-claim').exists()
+    assert not (remaining / 'submission-summary.json').exists()
+    used = source.with_suffix('.used').read_bytes()
+    summaries = {p: (p / 'submission-summary.json').read_bytes() for p in paths[:2]}
+
+    fake = Fake(cfg)
+    fake.qsub = Result(stdout='124.fixture\n')
+    with pytest.raises(ValueError, match='already used'):
+        submit.submit(cfg, [remaining.name], fake, approval_id=original['id'])
+    assert not fake.calls
+    kwargs = {}
+    dialogs = []
+    if mode == 'approval':
+        kwargs['approval_id'] = record(cfg, remaining)['id']
+    else:
+        def accept(summary):
+            dialogs.append(summary)
+            return True
+        monkeypatch.setattr(confirm, 'confirm', accept)
+    result = submit.submit(cfg, [remaining.name], fake, **kwargs)
+    assert result[0]['state'] == 'submitted' and fake.operations().count('submit') == 1
+    saved = json.loads((remaining / 'submission.json').read_text())['authorization']
+    archive = json.loads((remaining / 'submission-summary.json').read_text())
+    assert saved['method'] == mode and saved['approval_id'] == kwargs.get('approval_id')
+    assert archive['authorization'] == saved
+    assert len(dialogs) == (1 if mode == 'dialog' else 0)
+    assert source.with_suffix('.used').read_bytes() == used
+    assert all((p / 'submission-summary.json').read_bytes() == data for p, data in summaries.items())
+
+
+def test_summary_failure_stops_before_remote_write(cfg, prepared, tmp_path, monkeypatch):
+    first, _ = prepared
+    remaining = second(cfg, tmp_path)
+    value = approval.create(cfg, 'smoke', [first.name, remaining.name], QUOTE)
+    fake = Fake(cfg)
+
+    def fail(path, authorization, summary):
+        assert path == first and (path / '.submit-claim').exists()
+        raise OSError('Synthetic summary write failure')
+
+    monkeypatch.setattr(approval, 'archive', fail)
+    with pytest.raises(OSError, match='Synthetic summary write failure'):
+        submit.submit(cfg, [first.name, remaining.name], fake, approval_id=value['id'])
+    assert 'create_attempt' not in fake.operations() and 'submit' not in fake.operations()
+    assert state.read(first)['state'] == 'failed_presubmit'
+    assert record_path(first, value).with_suffix('.used').exists()
+    assert state.read(remaining)['state'] == 'prepared'
+    assert not (remaining / '.submit-claim').exists()
+    assert not (remaining / 'submission-summary.json').exists()
+
+
 @pytest.mark.parametrize('field,value', [
     ('schema', 'bad'), ('id', 'other'), ('quote', ' '), ('study_id', 'another-study'),
     ('used', {}), ('total_cores', 9), ('total_cores', True), ('attempts', []),

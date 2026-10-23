@@ -198,11 +198,10 @@ def consume(cfg, prepared, authorization):
         exclusive_write(root, root / 'approvals' / (approval_id + '.used'), json_bytes(value))
 
 
-def archive(prepared, authorization, summary):
-    for path, _, _ in prepared:
-        value = dict(schema='ag-submission-summary/1', attempt_id=path.name,
-                     manifest_sha256=sha256((path / 'manifest.json').read_bytes()).hexdigest(),
-                     authorization=authorization, summary=summary)
-        exclusive_write(path.parent.parent, path / 'submission-summary.json', json_bytes(value))
-        journal.append(path.parent.parent, 'submit_authorization', path.name,
-                       detail=dict(authorization, summary_file='submission-summary.json'))
+def archive(path, authorization, summary):
+    value = dict(schema='ag-submission-summary/1', attempt_id=path.name,
+                 manifest_sha256=sha256((path / 'manifest.json').read_bytes()).hexdigest(),
+                 authorization=authorization, summary=summary)
+    exclusive_write(path.parent.parent, path / 'submission-summary.json', json_bytes(value))
+    journal.append(path.parent.parent, 'submit_authorization', path.name,
+                   detail=dict(authorization, summary_file='submission-summary.json'))

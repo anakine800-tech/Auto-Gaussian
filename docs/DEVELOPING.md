@@ -56,7 +56,7 @@
 ## 提交流程：规范顺序
 
 规范顺序与当前 `submit.submit` 实现一致，参见已合并 [#209](https://github.com/anakine800-tech/Auto-Gaussian/pull/209)、[#224](https://github.com/anakine800-tech/Auto-Gaussian/pull/224)：
-锁内校验输入和集群 → 核对显式批准记录/规则 → 核数/预算预检 → 打印摘要（无显式授权时 Mac 确认）→ 整批再校验字节和授权 → 独占消费批准并存档摘要 → 声明 → Slurm 预算预留 → submitting → 复查占用 → 建目录 → 上传并逐文件核对大小/SHA-256 → qsub/sbatch → submission.json → submitted。
+锁内校验输入和集群 → 核对显式批准记录/规则 → 核数/预算预检 → 打印摘要（无显式授权时 Mac 确认）→ 整批再校验字节和授权 → 独占消费批准 → 逐个 Attempt：声明 → Slurm 预算预留 → submitting → 独占存档本 Attempt 摘要 → 复查占用 → 建目录 → 上传并逐文件核对大小/SHA-256 → qsub/sbatch → submission.json → submitted。
 这里“声明”指以 `O_EXCL` 创建 `.submit-claim`；有声明就不能再次提交该 Attempt。
 声明放在确认之后，是为了让人在弹窗取消时 Attempt 仍保持 prepared、没有声明，之后可正常提交，不因取消而消耗一次提交机会。
 
@@ -76,6 +76,7 @@ Slurm 核时预算在远程写入前预留，unknown 不释放；省略预算配
 `ag submit <ID> ... --approval <批准ID>` 整批核对；任何成员不匹配、损坏、过期或已使用都拒绝，不回退弹框。
 核数预检、打印摘要和字节复核之后，再次核对有效期和记录内容，以 `O_EXCL` 创建 `.used` 标记；标记写入/落盘失败禁止远程写入。
 记录本体不改；一个批准可覆盖多个 Attempt，但只消费一次，提交其中一部分也会消耗整条批准。中断或后续检查失败不恢复批准，也不重试提交。
+摘要只在该 Attempt 已声明后独占创建，存档失败走 failed_presubmit 且禁止远程写入；后续未声明成员不预写摘要。批次中途停止后，仍为 prepared 且没有 `.submit-claim` 的剩余成员须重新取得批准，或改由负责人点击 Mac 对话框，之后才能提交；已有声明的成员不能重提。
 
 长期规则仅在负责人明确指示后写入本机配置的 `approval.policies.<name>`；study、模板、集群均为明确名单，无通配符。
 使用 `ag submit <ID> ... --policy <name>` 显式选择，核对核数和 walltime 上限；规则不匹配直接拒绝。

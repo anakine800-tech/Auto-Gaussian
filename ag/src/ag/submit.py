@@ -124,7 +124,6 @@ def submit(cfg, ids, transport, *, approval_id=None, policy_name=None):
             if attempt.read_manifest(path) != m or attempt.verified_files(cfg, path, m) != files:
                 raise ValueError('Inputs changed during confirmation')
         approval.consume(cfg, prepared, authorization)
-        approval.archive(prepared, authorization, text)
         results = []
         submitted = {}
         for path, m, files in prepared:
@@ -138,6 +137,9 @@ def submit(cfg, ids, transport, *, approval_id=None, policy_name=None):
             state.write(path, 'submitting')
             qsub_started = False
             try:
+                # Archive only claimed members; an interrupted batch must leave
+                # later prepared members free to submit with fresh authorization.
+                approval.archive(path, authorization, text)
                 # Other scheduler clients can submit during the confirmation window.
                 if is_slurm:
                     jobs = slurm.parse_queue(require_ok(transport.run(remote.slurm_jobs(user=username)), 'squeue'))
