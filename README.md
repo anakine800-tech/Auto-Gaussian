@@ -101,10 +101,20 @@ Gaussian、xTB、CREST、调度器及本机 OpenSSH 需另行准备，外部软�
 迁移 study 或切换配置目录必须同时带上各 Slurm 入口的台账。已有提交痕迹但缺账时，从备份或原配置目录找回该入口的台账；找不到则停止并交给负责人核对，不自动重建或归零。
 同组上限不一致时摘要列出各入口数值并采用最小值，单作业仍按目标入口的 max_cores 检查。
 
-仅在决定使用 SCNet 后：CREST 用 `--cluster scnet-test`（`赠送分区`），Gaussian 只能 `--cluster scnet`（`正式分区`）。
-prepare 前核对本机入口及 partition；default 与 SCNet 的选择沿用 study 安排。
-给 scnet-test 配置 `allowed_templates = ["crest"]`；独立 xTB 不默认加入，Gaussian 程序配置仍需保留以兼容渲染。
-测试队列不可用、无权限或额度满时，由负责人逐次决定，不自动转投正式队列。
+新 Attempt 准备前运行 `ag route --template gaussian --tier general --study <study>`，按建议显式选择 `--cluster`；偏离建议时在 study.md 记明原因。
+建议顺序由本机可选 `[routing]` 配置：Gaussian（含 gaussian-cp、multiwfn）为 `default → newhpc → scnet`，CREST（含 xTB）为 `scnet-test → default → newhpc`。
+仅列已配置的入口，名字不能重复；`[routing.studies."<study>"]` 可按研究覆盖某一程序族的顺序，未签字允许的入口应从该研究顺序中去掉。
+`allowed_templates` 仍逐入口生效，例如 scnet-test 只允许 CREST 时，xTB 虽使用相同顺序也会跳过该入口。
+没有配置对应程序族顺序时仍列出所有入口状态，并显示“未配置路由顺序”；空顺序不建议任何入口。
+`ag route --template crest --tier mini --json` 输出相同的结论、原因、快照时间、本人上限是否允许及建议，便于 Skills 和前端读取。
+
+路由命令只读本机 `.ag-monitor/<入口>/latest.json`，不创建目录、不写文件、不运行 SSH 或调度器命令；旧单集群读取 `.ag-monitor/latest.json`，两种 default 来源并存时按未知处理。
+快照须成功且在采样间隔的三倍以内；失败、过期、缺字段、核数未知均为“没地方”。单次采样没有间隔，不能用于路由建议；请使用常驻监控快照。
+本人占用取同一配置共享组最新的一份有效快照，不跨入口相加；总上限及可选排队/运行限额取组内最小值，单作业上限按目标入口检查。
+PBS 需要一个 free 节点同时容纳所选档位，Slurm 按分区空闲核数与内存判断；内存显式未知时只按核数判断并标注“内存未知”，有他人排队则不判为可立即运行。
+依次选择“可以马上运行”的入口；都不行时选择顺序中第一个本人上限允许的入口，并标“需要排队”；本人占用未知时不猜测上限允许。
+建议只是快照时刻的判断，不能保证调度器立即启动，也不包含未被快照观察到的变化；提交时原有额度、预留和批准检查照常执行。
+prepare 的文本摘要在所选入口不同于建议时追加一行提示；缺可读快照或无顺序时静默，JSON 和 manifest 不加路由字段，已有 Attempt 不迁移。
 核时摘要只显示本次最大消耗（核数 × walltime；实际以平台计费为准）；budget_core_hours 可删除，doctor 会提示。
 旧单集群 [config.example.toml](ag/config.example.toml) 仍支持为 `default` PBS 配置。
 `ag clusters --json` 只读列出本机配置的集群及资源档位；它不连接服务器，程序启用标记不等于远程安装验证。

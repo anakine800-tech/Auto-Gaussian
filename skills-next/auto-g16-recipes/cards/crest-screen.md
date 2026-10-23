@@ -18,7 +18,7 @@ TS 族、关键中间体、复合物必须双路线交叉核对；可旋转键�
 
 已签字的结构及审阅过的 XYZ；电荷、多重度和溶剂明确；CREST 模板可用。闭壳层 `--uhf 0`，不从 XYZ 推断电荷。
 
-本次若决定使用 SCNet，CREST 显式加 `--cluster scnet-test`（`赠送分区`）；Gaussian 后续步骤只能 `--cluster scnet`（`正式分区`）。default 与 SCNet 的选择沿用 study 安排。prepare 前读本机配置核对入口及 partition，摘要写明二者；队列名不是入口别名。`赠送分区` 不可用、无权限或额度满时停下报告，由负责人逐次决定，不自动改投 `scnet`。
+CREST 准备前先运行 `ag route --template crest --tier <档位> --study <study>`，优先查赠送入口 `scnet-test`；本机默认顺序设为 `scnet-test → default → newhpc`，实际以 `ag route` 的研究覆盖顺序、模板许可和快照建议为准。按建议显式选 `--cluster`；偏离时在 study.md 写明原因，未签字允许的入口从该研究顺序跳过。无路由配置时沿用研究已批准安排；“需要排队”或“内存未知”不等于保证立即运行。后续 Gaussian 另查自己的路由建议；ag 不自动改入口，已有 Attempt 不迁移，提交批准规则不变。
 
 ## 3. 输入模板
 
