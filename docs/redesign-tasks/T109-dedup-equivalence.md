@@ -122,4 +122,19 @@ cluster 源码无需改动；普通比较、镜像比较、medoid 共用新映�
 
 2026-10-23 负责人明确回复“批准这项测试修改”，授权 `ag/tests/test_ensemble.py` 的 5 行兼容测试修正：历史哈希测试保留旧版输入夹具，新版输入测试另断言实际 SHA-256。原因是 ensemble 记录完整 dedup 文档的哈希，T109 新增字段会按预期改变它；ensemble 产品代码不改。
 
-推送前一次全量 `PYTHONPATH=ag/src python -m pytest ag/tests skills-next -q -rs`：4311 passed、19 skipped、1 failed（556.37 s）。唯一失败是上述旧哈希夹具；获批修正后 `ag/tests/test_ensemble.py` 全部 49 项通过（64.67 s），之后以 CI 检查最终提交，不重复本地全量。跳过项为 18 项 Linux stat/procfs 方言检查和 1 项未启用的私有日志测试。敏感信息扫描及 `git diff --cached --check` 通过；工程实现无未处理失败，监督方审阅仍待完成。
+推送前一次全量 `PYTHONPATH=ag/src python -m pytest ag/tests skills-next -q -rs`：4311 passed、19 skipped、1 failed（556.37 s）。唯一失败是上述旧哈希夹具；获批修正后 `ag/tests/test_ensemble.py` 全部 49 项通过（64.67 s），之后以 CI 检查最终提交，不重复本地全量。跳过项为 18 项 Linux stat/procfs 方言检查和 1 项未启用的私有日志测试。敏感信息扫描及 `git diff --cached --check` 通过。功能提交 `6afd8b8` 的 [CI #358](https://github.com/anakine800-tech/Auto-Gaussian/actions/runs/39887077166) 全绿：后端 3821 passed、1 skipped，Skills 509 passed。
+
+## 监督意见与性能补证（2026-10-23）
+
+负责人在开发对话转述监督方结论：T109 通过，CI 全绿后可由负责人合并；并建议用约 80 原子的非研究体系记录 polar / all 耗时与映射数。以下补证使用功能提交 `6afd8b8`，后续只改本文及 LESSONS；更新后的 head 按仓库流程复核。
+
+使用合成正二十六烷 C26H54：`Chem.AddHs(Chem.MolFromSmiles('C' * 26))`，共 80 原子。以 RDKit ETKDGv3 生成 300 帧，`randomSeed=109`、`numThreads=1`、`pruneRmsThresh=-1`；没有力场优化，各帧能量人为设为 0 kcal/mol，专用于全体可比的性能压力样例，不代表真实能量或构象布居。Python 3.11.15、RDKit 2026.03.3、macOS，Python 进程架构为 x86_64；charge=0、RMSD=0.125 Å、de=0.05 kcal/mol、window=3 kcal/mol、mirror=off，每种氢模式各运行一次。
+
+计时覆盖 `ag.cli.main` 读入、成键/立体推断、去重和输出；不含 import 与 58.01 s 的几何生成。临时包装 `rms_atom_maps` 统计调用次数、返回映射数与枚举耗时，包装开销计入；源代码与 10,000 上限均不改。计时是一次本机观测，非重复测量或跨机器基准。
+
+| 模式 | 参与比较原子 | 总耗时 | 映射调用 / 每次映射数 | 枚举耗时 | 结果 |
+| --- | ---: | ---: | --- | ---: | --- |
+| polar | 26 | 103.86 s | 44,850 次 / 均为 2 | 71.47 s | 300 帧均保留，无排除项及边界候选 |
+| all | 80 | 1.60 s（至拒绝） | 首次调用 / 至少 10,001 | 0.57 s | 超出上限，退出码 1，提示 `--hydrogens heavy`；未输出去重结果 |
+
+all 的 10,001 只是触发检测的下界，不是全部映射总数，1.60 s 也不是完整去重耗时。此样例没有极性氢，因此 polar 实际比较 26 个碳；不能外推为所有 80 原子体系的耗时。按监督意见记录预期的 all 超限，没有截断、提高上限或自动改模式。输入 SHA-256 前后一致；合成坐标、原始计时和 CLI 输出保留在仓库外，未接触研究数据或集群。
