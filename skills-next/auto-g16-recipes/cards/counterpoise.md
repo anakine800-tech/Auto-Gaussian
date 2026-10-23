@@ -53,7 +53,7 @@ ag cp-report <cp_attempt> --study <study_dir> --solvent-sp <ordinary_solvent_sp_
 ag cp-report <cp_attempt> --study <study_dir> --asm analyses/asm.json --out analyses/cp-asm.json
 ```
 
-prepare 不等于授权提交。完整摘要经负责人核对后，仍须负责人亲手点击 Mac 提交对话框。
+prepare 不等于授权提交。完整摘要经负责人核对后，仍须按 Study 流程取得聊天批准记录、匹配长期规则或 Mac 人工确认。
 `--solvent-sp` 使用普通 gaussian 模板、同原子序/几何、同方法/基组（含色散及基函数类型）；固定映射刚性对齐 RMSD ≤0.001 Å。
 
 ## 4. 资源建议
@@ -67,7 +67,7 @@ default 与 scnet 沿用普通 Gaussian 的资源和入口规则；scnet-test �
 - 整体及两个片段身份、原子数、分子式、电荷/多重度与摘要一致，原子无漏标/重复，跨片段无 bonded/uncertain 接触。
 - route 只有 Counterpoise=2 单点，不含 SCRF、Opt/Freq/IRC/Scan、Guess=Read 或自定义 Gen/ECP/IOp。
 - 结构与立体化学警告、方法依据、完整 route、入口、资源、walltime、远程目录、CSV/GJF/bundle 哈希均已展示。
-- 同一 Attempt 仅提交一次；未合并验证代码和每次真实作业均先获得批准，负责人亲手点击确认框。
+- 同一 Attempt 仅提交一次；未合并验证代码和每次真实作业均先获得批准，按 Study 流程使用聊天批准记录、匹配长期规则或 Mac 人工确认。
 
 ## 6. 结果判据清单
 

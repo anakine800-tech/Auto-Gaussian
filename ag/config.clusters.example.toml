@@ -1,5 +1,16 @@
 # Local-only template. Replace every placeholder before use; never commit values.
 # The old config.example.toml remains valid as the default PBS cluster.
+# Optional explicit policy; configure only from the human's instruction.
+# These study/cluster names are synthetic; wildcards are not supported.
+# [approval.policies.validation]
+# studies = ["water-validation", "butane-validation"]
+# templates = ["gaussian", "crest"]
+# clusters = ["default", "batch"]
+# max_cores_per_job = 8
+# max_walltime = "00:30:00"
+# quote = "<verbatim human instruction defining this policy>"
+# set_at = "2026-10-23T00:00:00+00:00"
+
 [local]
 python = "<absolute local Python executable>"
 studies_root = "<absolute local studies directory outside Git>"

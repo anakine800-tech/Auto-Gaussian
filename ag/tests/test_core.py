@@ -711,9 +711,10 @@ def test_cli_selects_retry_only_for_read_only_commands(cfg, prepared, monkeypatc
     monkeypatch.setattr(doctor, 'doctor', lambda *a: {})
     monkeypatch.setattr(status, 'check', lambda *a: {'state': 'prepared'})
     monkeypatch.setattr(fetch, 'fetch', lambda *a, **kw: {})
-    monkeypatch.setattr(submit, 'submit', lambda *a: {})
+    monkeypatch.setattr(submit, 'submit', lambda *a, **kw: {})
     monkeypatch.setattr(cancel, 'cancel', lambda *a: {})
-    args = SimpleNamespace(config=cfg, command=name, id=p.name, ids=[p.name], study=None, json=True, add_missing=False)
+    args = SimpleNamespace(config=cfg, command=name, id=p.name, ids=[p.name], study=None, json=True,
+                           add_missing=False, approval=None, policy=None)
     assert cli.core_command(args) == 0
     assert selected == [name in ('doctor', 'status', 'fetch')]
 

@@ -7,11 +7,11 @@ from ag import __version__
 from ag.config import load_config, select_cluster, for_manifest
 
 
-CONFIG_COMMANDS = ('init', 'prepare', 'submit', 'status', 'fetch', 'snapshot', 'cancel', 'list', 'doctor', 'monitor', 'review', 'clusters')
+CONFIG_COMMANDS = ('init', 'prepare', 'approve', 'submit', 'status', 'fetch', 'snapshot', 'cancel', 'list', 'doctor', 'monitor', 'review', 'clusters')
 
 
 def core_command(args):
-    from ag import attempt, cancel, doctor, fetch, snapshot, status, study, submit
+    from ag import approval, attempt, cancel, doctor, fetch, snapshot, status, study, submit
     from ag.transport import SSHTransport
     cfg = args.config
     command = args.command
@@ -28,6 +28,8 @@ def core_command(args):
         result = describe(cfg, verify_studies_root=args.verify_studies_root)
     elif command == 'init':
         result = study.init(cfg, args.directory)
+    elif command == 'approve':
+        result = approval.create(cfg, args.study, args.attempt, args.quote, args.hours)
     elif command == 'prepare':
         if len(args.parent) != len(args.relation):
             raise ValueError('Each --parent needs one --relation, in matching order')
@@ -65,8 +67,9 @@ def core_command(args):
         transport = None if command == 'status' else SSHTransport(cfg, read_only=command in ('doctor', 'fetch', 'snapshot'))
         if command == 'doctor':
             result = doctor.doctor(cfg, transport)
+            result['approval_policies'] = cfg.get('approval', {}).get('policies', {})
         elif command == 'submit':
-            result = submit.submit(cfg, args.ids, transport)
+            result = submit.submit(cfg, args.ids, transport, approval_id=args.approval, policy_name=args.policy)
         elif command == 'status':
             if args.id and args.study:
                 raise ValueError('Use an Attempt ID or --study, not both')
@@ -152,8 +155,16 @@ def register(subparsers):
             p.add_argument('--parent-chk', help='Completed parent Attempt ID:checkpoint filename')
             p.add_argument('--relation', action='append', default=[])
             p.add_argument('--param', action='append', default=[], help='Template option, e.g. --param=--gfn=2 or --param=--quick')
+        elif name == 'approve':
+            p.add_argument('--study', required=True)
+            p.add_argument('--attempt', action='append', required=True)
+            p.add_argument('--quote', required=True, help='Verbatim explicit approval from the human in this study conversation')
+            p.add_argument('--hours', type=float, default=24, help='Validity in hours, positive and at most 24')
         elif name == 'submit':
             p.add_argument('ids', nargs='+')
+            authorization = p.add_mutually_exclusive_group()
+            authorization.add_argument('--approval', help='Single-use approval ID in the same study')
+            authorization.add_argument('--policy', help='Explicit machine-local approval policy name')
         elif name == 'snapshot':
             from ag.snapshot import DEFAULT_MAX_BYTES
             p.add_argument('id')
@@ -197,7 +208,7 @@ def main(argv=None):
     from ag.submit import UnknownSubmission
     try:
         if args.command in CONFIG_COMMANDS and not (args.command == 'review' and args.action == 'manifest'):
-            args.config = load_config(local_only=True) if args.command == 'review' else load_config()
+            args.config = load_config(local_only=True) if args.command in ('review', 'approve') else load_config()
         return args.func(args)
     except UnknownSubmission as exc:
         code = 3

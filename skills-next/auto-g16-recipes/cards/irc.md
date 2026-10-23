@@ -79,7 +79,7 @@ prepare 已在 `--parent-chk` + RCFC/ReadFC 时逐原子校验输入与父作业
 可用任一导出文件。也可预先让新的 TS Opt+Freq 带 `nosymm`；
 仅对子 IRC 加它不能补救父力常数与输入坐标的框架错配。
 
-prepare 纯本地；submit 在 Mac 确认弹窗展示父 ID、来源文件名、大小、SHA256 前 12 位和固定目标 parent.chk。确认后只在新 Attempt 目录独占创建副本，源与目标哈希都等于确认值才继续上传/qsub，父文件只读。固定复制助手需要远端 Python ≥ 3.6 和 Linux /proc；缺少时停止；先运行 `ag doctor --cluster <cluster>` 查看 Python 版本和 /proc 支持。复制失败、SSH 255、超时或哈希变化均为 failed_presubmit，保留副本、不重试、不 qsub。
+prepare 纯本地；submit 在确认摘要中展示父 ID、来源文件名、大小、SHA256 前 12 位和固定目标 parent.chk。确认后只在新 Attempt 目录独占创建副本，源与目标哈希都等于确认值才继续上传/qsub，父文件只读。固定复制助手需要远端 Python ≥ 3.6 和 Linux /proc；缺少时停止；先运行 `ag doctor --cluster <cluster>` 查看 Python 版本和 /proc 支持。复制失败、SSH 255、超时或哈希变化均为 failed_presubmit，保留副本、不重试、不 qsub。
 
 两侧端点经人工确认坐标后，要各自再按 [Opt+Freq](opt-freq.md)优化为极小点；可用现有 parent/relation 参数记录 `endpoint_of` 来源。`ag facts <irc_id>` 提取 `irc` 字段及 `irc_end.xyz`；后者只是最后报告路径点，不是已验证的端点。
 
@@ -91,7 +91,7 @@ prepare 纯本地；submit 在 Mac 确认弹窗展示父 ID、来源文件名、
 
 - 起点是通过 TS 及振动方向审核的同一个几何；两份输入元素和原子行号一致，方向关键词明确且不重复。
 - 方法、电荷、多重度、溶剂与 TS 一致，CalcFC 的来源和代价已说明；采用 RCFC 时核对父力常数适用性、`final_input.xyz` 取向（或父 TS 的 `nosymm`）、附件声明和确认哈希。
-- 结构、立体警告、方法依据、完整 route、资源档位、walltime、远程目录和输入哈希均已展示，提交仍由人点击 Mac 对话框。
+- 结构、立体警告、方法依据、完整 route、资源档位、walltime、远程目录和输入哈希均已展示，提交仍须按 Study 流程取得聊天批准记录、匹配长期规则或 Mac 人工确认。
 - 端点获取和人工审阅路径已说明；解析或比对证据缺失就记录具体缺口，不把通用终止字段当成 IRC 专用完成标志。
 
 ## 6. 结果判据清单

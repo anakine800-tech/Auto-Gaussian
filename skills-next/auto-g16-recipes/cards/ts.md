@@ -4,7 +4,7 @@
 
 - 用于主族闭壳层同一势能面的 TS 候选优化与频率审核；通过本卡只得到方向经审阅的一阶鞍点候选，路径验证还需 IRC。（[见第 1 节](#1-适用范围)）
 - 机理假设须已签字，结构与代表集合已确认，目标原子对及映射明确；失败搜索不等于该机理不存在。（[见第 2 节](#2-前置条件)）
-- 提交前展示结构、立体警告、方法依据、完整 route、资源、walltime、远程目录与输入哈希，等人确认并亲手点击对话框。（[见第 5 节](#5-提交前检查清单)）
+- 提交前展示结构、立体警告、方法依据、完整 route、资源、walltime、远程目录与输入哈希，按 Study 流程取得聊天批准记录、匹配长期规则或 Mac 人工确认。（[见第 5 节](#5-提交前检查清单)）
 - Opt 和 Freq 须完整收敛，按原始负频计数恰好一个虚频，并人工审核协调的目标键变化；不能删小负频凑数。（[见第 6 节](#6-结果判据清单)）
 - 中断优化没有 Freq 时不能用 RCFC 接续；缺少 `final_input.xyz` 或 chk 不可读时停止报告，不猜几何或自动重提。（[见第 7 节](#7-常见失败与处理)）
 
@@ -50,7 +50,7 @@ $end
 的分母为点数减一，实际扫描应避免单点设置。`ag prepare --template xtb --input <起始.xyz>
 --constraints <扫描.inp> --param=--gfn=2 --param=--opt` 再加通用 study、tier、
 walltime、label 和 method-basis 参数。SCNet 使用已配置的 `--cluster`，仍须
-人在 Mac 点击提交确认；不通过卡片拼接远程命令。
+按 Study 流程取得聊天批准记录、匹配长期规则或 Mac 人工确认；不通过卡片拼接远程命令。
 
 DFT 输入用 `opt=modredundant`，采用默认 Å 坐标（不带 Units 选项，避免摘要
 单位与扫描范围错配）；显式坐标后留空行，再写一个段，例如：
@@ -209,7 +209,7 @@ prepare 已对 `--parent-chk` + RCFC/ReadFC 按固定原子顺序校验输入与
 父 route 已带 `nosymm` 时可取任一导出坐标，仍须匹配父几何。
 仅在子作业加 `nosymm` 不能修正父 chk 已有的框架；取向匹配不替代力常数适用性审阅。
 
-prepare 只做本地声明；submit 在 Mac 弹窗前只读取得父 chk 大小与 SHA256，并显示父 ID、来源文件名、大小、哈希前 12 位及目标 parent.chk。确认后专用操作独占创建副本，源/目标哈希都须等于确认值；父文件只读。远端需 Python ≥ 3.6 和 Linux /proc 支持固定描述符助手，缺少即停止；先运行 `ag doctor --cluster <cluster>` 查看 Python 版本和 /proc 支持。复制失败、255、超时或哈希改变均记 failed_presubmit，不 qsub、不重试、不删除副本；报告后由人决定新 Attempt。
+prepare 只做本地声明；submit 在授权前只读取得父 chk 大小与 SHA256，并显示父 ID、来源文件名、大小、哈希前 12 位及目标 parent.chk。确认后专用操作独占创建副本，源/目标哈希都须等于确认值；父文件只读。远端需 Python ≥ 3.6 和 Linux /proc 支持固定描述符助手，缺少即停止；先运行 `ag doctor --cluster <cluster>` 查看 Python 版本和 /proc 支持。复制失败、255、超时或哈希改变均记 failed_presubmit，不 qsub、不重试、不删除副本；报告后由人决定新 Attempt。
 
 ## 4. 资源建议
 
@@ -224,7 +224,7 @@ prepare 只做本地声明；submit 在 Mac 弹窗前只读取得父 chk 大小�
 - 假设签字、初猜来源、目标成键/断键原子对、构象覆盖与原子映射均明确，结构无未解释近接触。
 - 身份、电荷、多重度、立体化学与目标一致；route 的方法、色散、溶剂与比较物种一致。
 - 坐标和占位符已替换；核数匹配档位，内存不超过 85%，chk 仅文件名；当前输入不依赖尚未支持的额外段；使用父 chk 时核对附件声明和确认摘要。
-- 按 [确认摘要](../../auto-g16-study/references/confirmation-summary.md)展示结构、立体警告、方法依据、完整 route、资源、walltime、远程目录、输入哈希；等人确认并亲手点击提交对话框。
+- 按 [确认摘要](../../auto-g16-study/references/confirmation-summary.md)展示结构、立体警告、方法依据、完整 route、资源、walltime、远程目录、输入哈希；按 Study 流程取得聊天批准记录、匹配长期规则或 Mac 人工确认。
 
 ## 6. 结果判据清单
 
