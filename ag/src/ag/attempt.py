@@ -1,5 +1,6 @@
 """Immutable preparation and file-bound Attempt lookup."""
 from hashlib import sha256
+from datetime import datetime
 import json
 from pathlib import Path
 import re
@@ -142,6 +143,9 @@ def prepare(cfg, *, study_name, template, input_path, tier, walltime, label, par
         attachment = declare(cfg, s, template, parents or [], parent_chk)
     nci_files = None
     cp_fragments = None
+    auto_mem = None
+    if template in ('gaussian', 'gaussian-cp'):
+        data, auto_mem = gaussian_input.fill_memory(data, **resource)
     if template == 'multiwfn':
         from ag.nci_report import prepare_inputs
         science, nci_files = prepare_inputs(cfg, params, input_path, fragments, attachment, cores=resource['cores'])
@@ -249,6 +253,8 @@ def prepare(cfg, *, study_name, template, input_path, tier, walltime, label, par
              ag_version=__version__, card=card_record, completion_receipts=True, science={**science, 'method_basis': method_basis})
     if attachment is not None:
         m['parent_chk'] = attachment
+    if auto_mem is not None:
+        m['auto_mem_gb'] = auto_mem
     script = 'job.slurm' if m['scheduler'] == 'slurm' else 'job.pbs'
     files = {**(nci_files or {name: data}), script: render.render(cfg, m, name).encode()}
     if cp_fragments is not None:
@@ -357,6 +363,8 @@ def summary(cfg, m):
     cost = (budget.summary(cfg, budget.requested(m)) if m.get('scheduler') == 'slurm'
             else cost_line(m))
     destination = f"Cluster: {m.get('cluster', 'default')}"
+    if 'display_name' in cfg:
+        destination = f"Cluster: {cfg['display_name']}（{m.get('cluster', 'default')}）"
     if m.get('scheduler') == 'slurm':
         destination += f"\n\nPartition: {cfg.get('partition', 'scheduler default')}"
     shared_text = shared_cap_summary(cfg)
@@ -396,6 +404,7 @@ def summary(cfg, m):
         attachment_summary = summary(m['parent_chk']) + '\n\n'
     return (f"### {m['attempt_id']}\n\n{destination}\n\n{cost}\n\nTemplate: {m['template']} | Tier: {m['tier']} | "
             f"Cores: {m['cores']} | Memory: {m['mem_gb']} GB | Walltime: {m['walltime']}\n\n"
+            f"{resource_summary(cfg, m)}\n\n"
             f"{cards.label(m)}\n\nRemote directory: {attempt_dir(cfg, m)}\n\nBundle SHA-256: {m['bundle_sha256']}\n\n"
             f"Method basis: {m['science']['method_basis']}\n\nRoute: {m['science']['route']}\n\n"
             f"Charge / multiplicity: {m['science']['charge']} / {m['science']['multiplicity']}\n\n"
@@ -407,3 +416,69 @@ def cost_line(m):
     hours, minutes, seconds = map(int, m['walltime'].split(':'))
     cost = m['cores'] * (hours + minutes / 60 + seconds / 3600)
     return f"估算核时 = 核数 × walltime = {cost:g} 核时（实际费用以平台计费为准）"
+
+
+def resource_summary(cfg, m):
+    memory = (f"%mem 由 ag 自动填写：{m['auto_mem_gb']} GB（规则 R1）\n\n"
+              if 'auto_mem_gb' in m else '')
+    return memory + resource_references(cfg, m)
+
+
+def resource_references(cfg, target):
+    """Local, advisory history only; malformed/unrelated records cannot block prepare."""
+    from ag._profile_sources import protocol
+    title = '资源参考（仅提示，不替人选择档位或 walltime）'
+    try:
+        science = target['science']
+        wanted = protocol(science['route'], science['multiplicity'])
+        count = science['n_atoms']
+        if type(count) is not int or count < 1:
+            raise ValueError('Unknown atom count')
+    except (ValueError, KeyError, TypeError):
+        return title + '：无参考'
+    root = Path(cfg['local']['studies_root'])
+    candidates = []
+    for path in sorted(root.glob('*/attempts/*')):
+        try:
+            study.local_path(root, path)
+            if not path.is_dir():
+                continue
+            m, current, job = local_record(path)
+            if m['template'] != target['template'] or current['state'] not in ('finished', 'fetched'):
+                continue
+            facts_path = study.local_path(root, path / 'facts.json')
+            facts = json.loads(facts_path.read_text())
+            atoms = facts['n_atoms']
+            if type(atoms) is not int or not count * 0.8 <= atoms <= count * 1.2:
+                continue
+            historical = protocol(facts['route'], facts['multiplicity'])
+            if any(historical[key] != wanted[key] for key in ('method', 'basis')):
+                continue
+            # IDs, never paths; validate before formatting local record text.
+            study.identifier(m['study_id'])
+            study.identifier(m['attempt_id'])
+            elapsed = receipt_elapsed(current, m, job)
+            row = (f"- {m['study_id']} / {m['attempt_id']} | 集群 {m.get('cluster', 'default')} | "
+                   f"档位 {m.get('tier', '未知')} / {m.get('cores', '未知')} 核 | "
+                   f"{atoms} 原子 | 实际耗时 {elapsed} | termination: {facts['termination']}")
+            candidates.append((abs(atoms - count), m['study_id'], m['attempt_id'], row))
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            continue
+    return title + ('：\n\n' + '\n'.join(row[-1] for row in sorted(candidates)[:5])
+                    if candidates else '：无参考')
+
+
+def receipt_elapsed(current, manifest, job):
+    """Never substitute queue age or CPU time for missing program receipts."""
+    try:
+        start, end = (current['receipts'][key] for key in ('start', 'exit'))
+        key = 'job_id' if manifest.get('scheduler') == 'slurm' else 'PBS_JOBID'
+        if not job or start[key] != job or end[key] != job:
+            return '未知'
+        before = datetime.fromisoformat(start['started_at'].replace('Z', '+00:00'))
+        after = datetime.fromisoformat(end['finished_at'].replace('Z', '+00:00'))
+        if before.tzinfo is None or after.tzinfo is None or after < before:
+            return '未知'
+        return f'{(after - before).total_seconds():g} 秒'
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return '未知'

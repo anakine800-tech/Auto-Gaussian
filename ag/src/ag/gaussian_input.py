@@ -117,6 +117,27 @@ def _qst_displacements(structures):
             for i in indices]
 
 
+def fill_memory(data, cores, mem_gb):
+    """Fill only a missing Link0 memory directive; preserve every other byte."""
+    lines = data.splitlines(keepends=True)
+    insertion = None
+    for index, line in enumerate(lines):
+        if not line.startswith(b'%'):
+            break
+        if re.match(rb'%mem\s*=', line, re.I):
+            return data, None
+        if re.match(rb'%nprocshared\s*=', line, re.I):
+            insertion = index + 1
+    if insertion is None:
+        raise ValueError('%nprocshared must match resource tier')
+    memory = min(cores * 2, mem_gb * 85 // 100)
+    if memory < 1:
+        raise ValueError('Resource tier cannot fit an integer GB within 85% memory')
+    ending = b'\r\n' if lines[insertion - 1].endswith(b'\r\n') else b'\n'
+    lines.insert(insertion, f'%mem={memory}GB'.encode() + ending)
+    return b''.join(lines), memory
+
+
 def validate(text, cores, mem_gb, *, parent_chk=False):
     lines = text.splitlines()
     link = {}

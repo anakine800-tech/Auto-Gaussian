@@ -209,7 +209,7 @@ def test_slurm_snapshot_fields_and_local_only_budget(monitored):
     assert result['cluster']['budget'] is None
     assert result['cluster']['expires'] == '2027-01-31'
     assert result['cluster']['storage_kib'] == 1024
-    assert fake.operations() == ['storage_usage', 'slurm_jobs']
+    assert fake.operations() == ['slurm_jobs', 'storage_usage']
     assert path.read_bytes() == before
     cache = Path(selected['local']['studies_root']) / '.ag-monitor/batch/latest.json'
     assert json.loads(cache.read_text()) == result
@@ -228,7 +228,7 @@ def test_failed_slurm_sample_keeps_last_storage_with_null_budget(monitored, fail
     assert not result['ok'] and result['error']
     assert result['last_ok_at'] == previous['last_ok_at']
     assert result['cluster'] == previous['cluster']
-    assert fake.operations() == (['storage_usage', 'slurm_jobs'] if failure == 'scheduler' else [])
+    assert fake.operations() == (['slurm_jobs'] if failure == 'scheduler' else [])
 
 
 @pytest.mark.parametrize('old_cache', [False, True])

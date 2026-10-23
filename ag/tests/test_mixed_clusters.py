@@ -176,7 +176,7 @@ def test_multicluster_monitor_keeps_failure_in_own_snapshot(mixed, monkeypatch, 
     path, _ = records['slurm']
     (path / 'status.json').write_text('{')
     monkeypatch.setattr(monitor, 'login_user', lambda _: 'fixture')
-    monkeypatch.setattr(monitor, 'SSHTransport',
+    monkeypatch.setattr(monitor, 'MonitorTransport',
                         lambda cfg, **_: scheduler(multi, cfg['_cluster'])[1])
     assert monitor.run_clusters(multi) == 2
     snapshots = json.loads(capsys.readouterr().out)['clusters']
@@ -185,11 +185,14 @@ def test_multicluster_monitor_keeps_failure_in_own_snapshot(mixed, monkeypatch, 
     assert path.name in snapshots['batch']['error']
 
 
-def test_unconfigured_cluster_reports_attempt(mixed):
+def test_unconfigured_cluster_does_not_poison_configured_sampling(mixed, monkeypatch, capsys):
     multi, records = mixed
     del multi['clusters']['batch']
-    with pytest.raises(ValueError, match=records['slurm'][0].name):
-        monitor.run_clusters(multi)
+    monkeypatch.setattr(monitor, 'login_user', lambda _: 'fixture')
+    monkeypatch.setattr(monitor, 'MonitorTransport',
+                        lambda cfg, **_: scheduler(multi, cfg['_cluster'])[1])
+    assert monitor.run_clusters(multi) == 0
+    assert 'batch' not in json.loads(capsys.readouterr().out)['clusters']
 
 
 def test_submission_recovers_identity_for_unknown_accounting(mixed):

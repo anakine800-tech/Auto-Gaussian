@@ -26,6 +26,8 @@ def describe(cfg, *, verify_studies_root=None):
             programs_enabled=dict(gaussian=bool(programs.get('gaussian', {}).get('g16root')),
                                   xtb=xtb, crest=bool(programs.get('crest', {}).get('executable')) or xtb))
         summary = budget.public_summary(selected)
+        if 'display_name' in selected:
+            row['display_name'] = selected['display_name']
         if summary is not None:
             row['budget'] = summary
         rows.append(row)

@@ -89,6 +89,8 @@ def submit(cfg, ids, transport, *, approval_id=None, policy_name=None):
             budget.check(cfg, sum(budget.requested(m) for _, m, _ in prepared), ledger=budget_ledger)
         budget_text = budget.summary(cfg, sum(budget.requested(m) for _, m, _ in prepared)) if is_slurm else None
         destination = f"Cluster: {cfg['_cluster']}\n"
+        if 'display_name' in cfg:
+            destination = f"Cluster: {cfg['display_name']}（{cfg['_cluster']}）\n"
         if is_slurm:
             destination += f"Partition: {cfg.get('partition', 'scheduler default')}\n"
         text = destination + '\n'.join(f"{m['attempt_id']} | {m['template']} | {m['tier']} {m['cores']} cores | "
@@ -98,6 +100,7 @@ def submit(cfg, ids, transport, *, approval_id=None, policy_name=None):
         if shared_text:
             text += '\n' + shared_text
         for path, m, _ in prepared:
+            text += '\n' + path.name + '\n' + attempt.resource_summary(cfg, m)
             if path.name in attachments:
                 text += '\n' + path.name + ' | ' + parent_chk.summary(m['parent_chk'], attachments[path.name][1])
         text += (f'\n当前占用 {used} 核（运行 {running}、排队 {queued}；按集群上本人全部作业统计，含其他电脑和非 ag 提交的作业），'
