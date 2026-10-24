@@ -111,6 +111,17 @@ def test_pbs_text_timestamp(value, tz, expected):
     assert pbs.timestamp(value, tz) == expected
 
 
+def test_new_york_2026_autumn_fold_and_adjacent_boundaries():
+    tz = 'America/New_York'
+    assert pbs.timestamp('Sun Nov  1 00:59:59 2026', tz) == '2026-11-01T04:59:59Z'
+    # Every second in the repeated hour has two UTC interpretations.
+    for minute in range(60):
+        for second in range(60):
+            assert pbs.timestamp(f'Sun Nov  1 01:{minute:02d}:{second:02d} 2026', tz) is None
+    assert pbs.timestamp('Sun Nov  1 02:00:00 2026', tz) == '2026-11-01T07:00:00Z'
+    assert pbs.timestamp('Sun Nov  1 02:00:01 2026', tz) == '2026-11-01T07:00:01Z'
+
+
 @pytest.mark.parametrize('tz', [None, 'Asia/Shanghai', 'America/New_York'])
 @pytest.mark.parametrize('value', ['1792804320', '2026-10-24T09:12:00+08:00', '2026-10-24T01:12:00Z'])
 def test_explicit_timestamp_ignores_scheduler_timezone(tz, value):

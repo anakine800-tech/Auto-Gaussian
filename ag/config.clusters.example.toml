@@ -31,6 +31,7 @@ studies_root = "<absolute local studies directory outside Git>"
 scheduler = "pbs"
 queue = "<PBS queue>"
 # Optional, only after confirming the scheduler's timezone. Omit if unknown.
+# 必须填 IANA 时区名，不要填固定偏移（例如 America/New_York 会随夏令时变化）。
 scheduler_timezone = "Asia/Shanghai"
 [clusters.default.ssh]
 config_file = "<absolute SSH configuration file>"
