@@ -99,22 +99,38 @@ def observation(cfg, transport, username, *, storage_state=None, sampled_at=None
             raise ValueError(f'Multiple local Attempts record the same exact job ID: {by_job[item["job_id"]]["attempt"]}, {item["attempt"]}')
         by_job[item['job_id']] = item
     all_jobs = []
+    scheduler_timezone = cfg.get('scheduler_timezone')
+    timezone_mismatch = False
     for job in jobs:
         if job['job_state'] == 'C':
             continue
         user = job['Job_Owner'].split('@')[0]
         mine = user == username
         link = by_job.get(job['job_id'], {}) if mine else {}
+        fields = pbs.job_fields(job, sampled_at, scheduler_timezone)
+        if scheduler_timezone is not None and fields['start_time'] is not None:
+            # A wrong timezone can put a start in the future or add hours to
+            # elapsed time. Keep the parsed timestamp, but use walltime instead.
+            seconds = (sampled_at - datetime.fromisoformat(fields['start_time'])).total_seconds()
+            walltime = pbs.duration_seconds(job.get('resources_used.walltime'))
+            if seconds < -120 or (walltime is not None
+                                  and (seconds < walltime - 120 or seconds > walltime + 3600)):
+                timezone_mismatch = True
+                fields.update(elapsed_seconds=walltime,
+                              elapsed_source='walltime_used' if walltime is not None else None)
         all_jobs.append(dict(job_id=job['job_id'], user=user, mine=mine,
                              name=job.get('Job_Name'), state=job['job_state'], queue=job.get('queue'),
                              mem=job.get('Resource_List.mem'), mem_source='scheduler', walltime_used=job.get('resources_used.walltime'),
                              walltime_limit=job.get('Resource_List.walltime'),
                              study=link.get('study'), attempt=link.get('attempt'),
-                             **pbs.job_fields(job, sampled_at)))
+                             **fields))
     all_jobs.sort(key=job_sort_key)
     own = [row for row in all_jobs if row['mine']]
     scheduler = {job['job_id']: job for job in jobs}
     warnings = []
+    if timezone_mismatch:
+        warnings.append(dict(kind='timezone-mismatch', job_id=None, study=None, attempt=None,
+                             detail='开始时间与采样时间或已用 walltime 不一致，可能配置了错误的调度器时区；已退回 walltime，缺失时为未知'))
     for item in attempts:
         job = scheduler.get(item['job_id'])
         kind, detail = None, None
@@ -141,7 +157,8 @@ def observation(cfg, transport, username, *, storage_state=None, sampled_at=None
                 cluster=dict(nodes=nodes, queues=queues, hardware=hardware,
                              cores_total=hardware['cores_total'], cores_used=hardware['cores_allocated'],
                              jobs=all_jobs[:500], jobs_omitted=max(0, len(all_jobs) - 500),
-                             job_summary=job_summary(all_jobs), job_summary_error=None, display_order=cfg.get('display_order')),
+                             job_summary=job_summary(all_jobs), job_summary_error=None, display_order=cfg.get('display_order'),
+                             scheduler_timezone=scheduler_timezone),
                 warnings=warnings)
 
 
@@ -193,7 +210,8 @@ def empty_snapshot(cfg, interval=None):
                 cluster=dict(nodes=[], queues=[], cores_total=0, cores_used=0,
                              jobs=[], jobs_omitted=0, job_summary=empty_summary(), job_summary_error=None,
                              hardware=empty_hardware('sinfo' if scheduler_kind(cfg) == 'slurm' else 'pbsnodes'),
-                             display_order=cfg.get('display_order')), warnings=[])
+                             display_order=cfg.get('display_order'),
+                             scheduler_timezone=cfg.get('scheduler_timezone')), warnings=[])
 
 
 def retained_snapshot(previous):
@@ -256,6 +274,7 @@ def sample(cfg, transport, interval=None, *, config_warning=None):
     if 'display_name' in cfg:
         snapshot['cluster']['display_name'] = cfg['display_name']
     snapshot['cluster']['display_order'] = cfg.get('display_order')
+    snapshot['cluster']['scheduler_timezone'] = cfg.get('scheduler_timezone')
     # Older caches gain the additive fields without fabricating observations.
     defaults = empty_snapshot(cfg, interval)
     for section in ('own', 'cluster'):
@@ -357,7 +376,7 @@ def slurm_observation(cfg, transport, username, *, storage_state=None):
                 cluster=dict(nodes=[], queues=[], cores_total=0, cores_used=0,
                              hardware_capacity_known=hardware['cores_total'] is not None,
                              hardware=hardware, jobs=own, jobs_omitted=0, job_summary=summary,
-                             job_summary_error=summary_error,
+                             job_summary_error=summary_error, scheduler_timezone=None,
                              display_order=cfg.get('display_order'), name=cfg['_cluster'], scheduler='slurm',
                              **storage_state, expiry_warning=expiry,
                              budget=budget_summary, expires=cfg.get('expires')), warnings=warnings)

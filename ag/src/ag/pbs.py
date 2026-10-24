@@ -2,6 +2,7 @@
 import re
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from ag.remote import job_id as validate_job_id
 
@@ -113,27 +114,48 @@ def duration_seconds(value):
     return days * 86400 + hours * 3600 + minutes * 60 + seconds
 
 
-def timestamp(value):
+def timestamp(value, tz=None):
     """Never apply the local machine timezone to an unzoned scheduler date.
 
-    Unzoned PBS text dates have no UTC offset. Without a verified server timezone
-    they remain unknown; epoch and explicitly zoned ISO dates are unambiguous.
+    PBS text dates require a configured scheduler timezone. Reject ambiguous or
+    nonexistent local times rather than choosing a DST fold or shifting a gap.
     """
     if not isinstance(value, str):
         return None
     try:
         if re.fullmatch(r'\d{1,12}', value):
             stamp = datetime.fromtimestamp(int(value), timezone.utc)
+        elif tz is not None and (match := re.fullmatch(
+                r'([A-Za-z]{3}) ([A-Za-z]{3}) +([0-9]{1,2}) '
+                r'([0-9]{2}):([0-9]{2}):([0-9]{2}) ([0-9]{4})', value)):
+            # Fixed English tables: strptime's %a/%b depend on process locale.
+            weekdays = ('Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun')
+            months = ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec')
+            weekday, month, day, hour, minute, second, year = match.groups()
+            local = datetime(int(year), months.index(month) + 1, int(day),
+                             int(hour), int(minute), int(second))
+            if local.weekday() != weekdays.index(weekday):
+                return None
+            zone = ZoneInfo(tz) if isinstance(tz, str) else tz
+            candidates = set()
+            for fold in (0, 1):
+                utc = local.replace(tzinfo=zone, fold=fold).astimezone(timezone.utc)
+                if utc.astimezone(zone).replace(tzinfo=None) == local:
+                    candidates.add(utc)
+            if len(candidates) != 1:
+                return None
+            stamp = candidates.pop()
         else:
             stamp = datetime.fromisoformat(value)
             if stamp.tzinfo is None:
                 return None
         return stamp.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
-    except (ValueError, OverflowError, OSError):
+    except (ValueError, OverflowError, OSError, ZoneInfoNotFoundError):
         return None
 
 
-def job_fields(job, sampled_at):
+def job_fields(job, sampled_at, tz=None):
     """Display facts only; submit's conservative reservation rules stay intact."""
     running = job['job_state'] in ('R', 'E')
     cores = None
@@ -153,7 +175,7 @@ def job_fields(job, sampled_at):
                 raise ValueError('Unrecognized ppn resource request; cannot count cores')
             cores += count * int(ppn[0])
     start = next((value for key in ('start_time_epoch', 'start_time', 'stime')
-                  if (value := timestamp(job.get(key))) is not None), None)
+                  if (value := timestamp(job.get(key), tz)) is not None), None)
     elapsed, source = None, None
     if start is not None:
         seconds = int((sampled_at - datetime.fromisoformat(start)).total_seconds())
@@ -165,5 +187,5 @@ def job_fields(job, sampled_at):
             source = 'walltime_used'
     return dict(cores=cores, cores_kind='allocated' if running else 'requested',
                 mem_gb=memory_gb(job.get('Resource_List.mem')), start_time=start,
-                qtime=timestamp(job.get('qtime')), elapsed_seconds=elapsed, elapsed_source=source,
+                qtime=timestamp(job.get('qtime'), tz), elapsed_seconds=elapsed, elapsed_source=source,
                 walltime_limit_seconds=duration_seconds(job.get('Resource_List.walltime')))
