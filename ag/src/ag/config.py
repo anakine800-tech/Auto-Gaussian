@@ -68,7 +68,7 @@ def load_config(path=None, *, local_only=False):
                 if 'default' in cfg['clusters']:
                     raise ConfigError('Legacy configuration and clusters.default are ambiguous')
                 cfg['clusters']['default'] = {key: cfg[key] for key in ('ssh', 'remote', 'scheduler', 'programs', 'resources')}
-                for key in ('allowed_templates', 'display_name', 'display_order', 'scheduler_timezone'):
+                for key in ('allowed_templates', 'display_name', 'display_order', 'scheduler_timezone', 'monitor_interval_seconds'):
                     if key in cfg:
                         cfg['clusters']['default'][key] = cfg[key]
             for name, cluster in cfg['clusters'].items():
@@ -162,6 +162,10 @@ def scheduler_kind(cfg):
 
 
 def validate_cluster(cfg):
+    if 'monitor_interval_seconds' in cfg:
+        value = cfg['monitor_interval_seconds']
+        if type(value) is not int or not 30 <= value <= 600:
+            raise ConfigError('monitor_interval_seconds must be an integer from 30 to 600')
     if 'display_order' in cfg and type(cfg['display_order']) is not int:
         raise ConfigError('display_order must be an integer')
     if 'display_name' in cfg:
@@ -234,7 +238,7 @@ def validate_cluster(cfg):
         for key in ('partition', 'account', 'qos'):
             if key in cfg and (not isinstance(cfg[key], str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]*', cfg[key])):
                 raise ConfigError(f'Invalid Slurm {key}')
-        allowed = {'scheduler', 'ssh', 'remote', 'programs', 'resources', 'partition', 'account', 'qos', 'expires', 'allowed_templates', 'display_name', 'display_order'}
+        allowed = {'scheduler', 'ssh', 'remote', 'programs', 'resources', 'partition', 'account', 'qos', 'expires', 'allowed_templates', 'display_name', 'display_order', 'monitor_interval_seconds'}
         if set(cfg) - allowed:
             raise ConfigError('Unsupported Slurm configuration field')
     if 'expires' in cfg:

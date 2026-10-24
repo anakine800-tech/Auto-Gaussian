@@ -90,7 +90,7 @@ def test_parsers_and_shared_accounting():
     assert jobs[0]['exec_host'] == 'node-a/0+node-a/1+node-a/2+node-a/3'
     assert status.occupied(jobs, 'fixture') == 16
     assert monitor.parse_nodes(NODES, jobs) == [
-        dict(name='node-a', state='free', cores_total=44, cores_used=4, mem_total_gb=None, mem_assigned_gb=None, jobs=1),
+        dict(name='node-a', state='free', cores_total=44, cores_used=4, mem_total_gb=None, mem_assigned_gb=12.0, jobs=1),
         dict(name='node-b', state='job-exclusive', cores_total=16, cores_used=6, mem_total_gb=None, mem_assigned_gb=None, jobs=None),
         dict(name='node-c', state='down,offline', cores_total=8, cores_used=0, mem_total_gb=None, mem_assigned_gb=None, jobs=None)]
     assert monitor.parse_queues(QUEUES) == [dict(name='batch', running=3, queued=1),
@@ -275,11 +275,14 @@ def test_watch_range_rejected_before_configuration(monkeypatch, value):
 def test_watch_foreground_and_ctrl_c(cfg, identity, monkeypatch, capsys, interval):
     fake = Fake()
     constructors, sleeps = [], []
+    tick = [0.0]
+    monkeypatch.setattr(monitor.time, 'monotonic', lambda: tick[0])
     def transport(config, *, read_only):
         assert config is cfg
         constructors.append(read_only)
         return fake
     def sleep(seconds):
+        tick[0] += interval
         sleeps.append(seconds)
         if len(sleeps) == 2:
             raise KeyboardInterrupt
@@ -301,7 +304,7 @@ def test_one_shot_exit_code(cfg, identity, monkeypatch, capsys, failed, expected
     monkeypatch.setattr(monitor, 'MonitorTransport', lambda cfg, *, read_only: fake if read_only else pytest.fail())
     monkeypatch.setattr(cli, 'load_config', lambda: cfg)
     monkeypatch.setattr(monitor.time, 'sleep', lambda _: pytest.fail('One-shot must exit'))
-    assert cli.main(['monitor']) == expected
+    assert cli.main(['monitor', '--json']) == expected
     assert json.loads(capsys.readouterr().out)['interval_seconds'] is None
 
 
@@ -382,12 +385,15 @@ def test_corrupt_snapshot_records_one_failure_then_watch_recovers(cfg, identity,
     fake = Fake()
     monkeypatch.setattr(monitor, 'MonitorTransport', lambda cfg, *, read_only: fake)
     sleeps = []
+    tick = [0.0]
+    monkeypatch.setattr(monitor.time, 'monotonic', lambda: tick[0])
     def sleep(seconds):
+        tick[0] += 60
         sleeps.append(seconds)
         if len(sleeps) == 2:
             raise KeyboardInterrupt
     monkeypatch.setattr(monitor.time, 'sleep', sleep)
-    assert monitor.run(cfg, 60) == 0
+    assert monitor.run(cfg, 60, json_output=True) == 0
     failed, recovered = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
     assert not failed['ok'] and failed['last_ok_at'] is None
     assert 'Read previous monitor snapshot' in failed['error']
@@ -410,7 +416,10 @@ def test_malformed_status_keeps_data_and_watch_running(cfg, identity, monkeypatc
     fake = Fake()
     monkeypatch.setattr(monitor, 'MonitorTransport', lambda cfg, *, read_only: fake)
     sleeps = []
+    tick = [0.0]
+    monkeypatch.setattr(monitor.time, 'monotonic', lambda: tick[0])
     def sleep(seconds):
+        tick[0] += 60
         sleeps.append(seconds)
         assert path.read_bytes() == (damage if len(sleeps) <= 2 else valid)
         if len(sleeps) == 2:
@@ -418,7 +427,7 @@ def test_malformed_status_keeps_data_and_watch_running(cfg, identity, monkeypatc
         elif len(sleeps) == 3:
             raise KeyboardInterrupt
     monkeypatch.setattr(monitor.time, 'sleep', sleep)
-    assert monitor.run(cfg, 60) == 0
+    assert monitor.run(cfg, 60, json_output=True) == 0
     first, second, recovered = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
     for failed in (first, second):
         assert not failed['ok'] and failed['error']

@@ -277,7 +277,7 @@ def test_pbs_hardware_failure_is_partial(cfg, monkeypatch, failure):
     assert result['ok'] and result['own']['jobs']
     hardware = result['cluster']['hardware']
     assert hardware['error'] and 'fixture' not in hardware['error']
-    assert all(v is None for k, v in hardware.items() if k not in ('source', 'error'))
+    assert all(v is None for k, v in hardware.items() if k not in ('source', 'error', 'notes'))
 
 
 class PartitionFake(SlurmFake):
@@ -310,7 +310,7 @@ def test_slurm_partition_totals_own_account_and_no_node_rows(multi):
         queued_jobs=2, queued_cores=12, others_running_jobs=1, others_running_cores=16,
         others_queued_jobs=1, others_queued_cores=8)
     assert result['cluster']['hardware'] == dict(cores_total=64, cores_allocated=24, cores_idle=36,
-        cores_other=4, mem_total_gb=128.0, mem_allocated_gb=24.0, source='sinfo', error=None)
+        cores_other=4, mem_total_gb=128.0, mem_allocated_gb=24.0, source='sinfo', error=None, notes=[])
     assert result['cluster']['nodes'] == [] and result['cluster']['hardware_capacity_known']
     assert result['cluster']['jobs'] == result['own']['jobs']
     assert all(r['mine'] and r['user'] == 'userA' for r in result['cluster']['jobs'])
@@ -328,7 +328,8 @@ def test_partition_race_does_not_invent_negative_others(multi):
     fake.partition_jobs = Result(stdout='RUNNING|4\n')
     result = monitor.observation(entry, fake, 'userA')
     assert all(v is None for k, v in result['cluster']['job_summary'].items() if k.startswith('others_'))
-    assert '不一致' in result['cluster']['hardware']['error']
+    assert result['cluster']['hardware']['error'] is None
+    assert any('不一致' in note for note in result['cluster']['hardware']['notes'])
 
 
 def test_no_partition_never_queries_cluster(multi):
@@ -358,7 +359,7 @@ def test_slurm_hardware_failure_does_not_hide_jobs(multi, monkeypatch, part, fai
     assert hardware['error'] and 'fixture' not in hardware['error']
     if part == 'hardware':
         assert not result['cluster']['hardware_capacity_known']
-        assert all(v is None for k, v in hardware.items() if k not in ('source', 'error'))
+        assert all(v is None for k, v in hardware.items() if k not in ('source', 'error', 'notes'))
     else:
         assert result['cluster']['hardware_capacity_known']
         assert {k: hardware[k] for k in ('cores_total', 'cores_allocated', 'cores_idle',
@@ -373,7 +374,7 @@ def test_allocmem_failure_preserves_heterogeneous_memory_warning(multi):
     fake.allocmem = Result(stdout='unknown')
     hardware = monitor.observation(entry, fake, 'userA')['cluster']['hardware']
     assert hardware['cores_total'] == 64 and hardware['mem_total_gb'] is None
-    assert '异构' in hardware['error'] and 'AllocMem' in hardware['error']
+    assert any('异构' in note for note in hardware['notes']) and 'AllocMem' in hardware['error']
 
 
 @pytest.mark.parametrize('failure', [Result(1, stderr='batch-fixture unavailable'),
@@ -524,17 +525,22 @@ def test_entry_cadence_and_no_overlapping_rounds(multi, monkeypatch, capsys, slo
     monkeypatch.setattr(monitor, 'MonitorTransport', lambda *a, **k: None)
     def sample(entry, transport, interval, **kwargs):
         calls.append((entry['_cluster'], tick[0], interval))
+        snapshot = monitor.empty_snapshot(entry, interval)
+        snapshot['ok'] = True
+        schedule = kwargs['schedule']
+        schedule.record(True, None, kwargs['trigger'], tick[0], monitor.utc_now())
+        snapshot['sampling'] = schedule.snapshot(kwargs['trigger'])
         if slow:
             tick[0] += 40
-        return {'ok': True}
+        return snapshot
     def sleep(delay):
         sleeps.append(delay)
-        if len(sleeps) == 3:
+        if (slow and len(sleeps) == 3) or (not slow and tick[0] >= 60):
             raise KeyboardInterrupt
         tick[0] += delay
     monkeypatch.setattr(monitor, 'sample', sample)
     monkeypatch.setattr(monitor.time, 'sleep', sleep)
-    assert monitor.run_clusters(multi, 30) == 0
+    assert monitor.run_clusters(multi, 30, json_output=True) == 0
     if slow:
         assert sleeps == [0, 0, 0]
         assert [c[1] for c in calls] == [0, 40, 80, 120, 160, 200]

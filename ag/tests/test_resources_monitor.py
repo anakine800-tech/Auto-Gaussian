@@ -164,7 +164,7 @@ def test_reload_add_remove_invalid_and_recover(multi, monkeypatch, capsys):
         else:
             raise KeyboardInterrupt
     monkeypatch.setattr(monitor.time, 'sleep', sleep)
-    assert monitor.run_clusters(loaded, 60) == 0
+    assert monitor.run_clusters(loaded, 60, json_output=True) == 0
     snapshots = [json.loads(line)['clusters'] for line in capsys.readouterr().out.splitlines()]
     assert ['added' in s for s in snapshots] == [False, True, False, False, False]
     assert all(s['config_warning'] for s in snapshots[3].values())
@@ -187,7 +187,10 @@ def test_single_reload_custom_file_and_timeout_then_recovery(cfg, tmp_path, monk
     fake.replies['jobs'] = subprocess.TimeoutExpired('ssh fixture', 60)
     monkeypatch.setattr(monitor, 'MonitorTransport', lambda *a, **k: fake)
     rounds = []
+    tick = [0.0]
+    monkeypatch.setattr(monitor.time, 'monotonic', lambda: tick[0])
     def sleep(_):
+        tick[0] += 60
         rounds.append(1)
         if len(rounds) == 1:
             cfg['resources']['max_cores'] = 48
@@ -196,7 +199,7 @@ def test_single_reload_custom_file_and_timeout_then_recovery(cfg, tmp_path, monk
         else:
             raise KeyboardInterrupt
     monkeypatch.setattr(monitor.time, 'sleep', sleep)
-    assert monitor.run(loaded, 60) == 0
+    assert monitor.run(loaded, 60, json_output=True) == 0
     failed, recovered = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
     assert not failed['ok'] and 'fixture' not in failed['error']
     assert failed['own']['max_cores'] == 44
@@ -214,7 +217,7 @@ def test_timeout_isolated_between_clusters(multi, monkeypatch, capsys):
         return SlurmFake(entry)
     monkeypatch.setattr(monitor, 'MonitorTransport', transport)
     monkeypatch.setattr(monitor.time, 'sleep', lambda _: (_ for _ in ()).throw(KeyboardInterrupt()))
-    assert monitor.run_clusters(multi, 60) == 0
+    assert monitor.run_clusters(multi, 60, json_output=True) == 0
     snapshots = json.loads(capsys.readouterr().out)['clusters']
     assert not snapshots['default']['ok'] and snapshots['batch']['ok']
     for name, row in snapshots.items():

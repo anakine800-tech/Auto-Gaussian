@@ -33,7 +33,7 @@ def slot_count(value):
     return total
 
 
-def parse_nodes(text, jobs):
+def parse_nodes(text, jobs, *, notes=None):
     records, current, key = [], None, None
     for line in text.splitlines():
         if not line.strip():
@@ -50,7 +50,8 @@ def parse_nodes(text, jobs):
             current[key] += line.strip()
         else:
             raise ValueError('Unrecognized pbsnodes output')
-    allocated = {}
+    allocated, node_jobs, job_nodes = {}, {}, {}
+    by_job = {job['job_id']: job for job in jobs if 'job_id' in job}
     for job in jobs:
         if job.get('job_state') == 'C':
             continue
@@ -59,12 +60,15 @@ def parse_nodes(text, jobs):
             if not sep:
                 raise ValueError('Unrecognized exec_host allocation')
             allocated[name] = allocated.get(name, 0) + slot_count(slot)
+            node_jobs.setdefault(name, set()).add(job.get('job_id'))
+            job_nodes.setdefault(job.get('job_id'), set()).add(name)
     nodes = []
     for record in records:
         cores = record.get('np', record.get('resources_available.ncpus', ''))
         if not cores.isdigit() or not record.get('state'):
             raise ValueError('Node lacks CPU capacity or state')
         used = allocated.get(record['name'], 0)
+        job_ids = set(node_jobs.get(record['name'], ()))
         if 'jobs' in record:
             used = 0
             slots = []
@@ -82,11 +86,39 @@ def parse_nodes(text, jobs):
                     slots = []
             if slots:
                 raise ValueError('Unrecognized node allocation')
+        record['_job_ids'] = job_ids
+        for job_id in job_ids:
+            job_nodes.setdefault(job_id, set()).add(record['name'])
+        record['_cores_used'] = used
+    for record in records:
+        status = dict(part.strip().split('=', 1) for part in record.get('status', '').split(',')
+                      if '=' in part)
+        total = memory_gb(record.get('resources_available.mem', status.get('physmem')))
+        assigned = memory_gb(record.get('resources_assigned.mem'))
+        # Only Torque's status fallback uses job requests. PBS Pro keeps its
+        # explicit assigned-memory field, including unknown/missing values.
+        if 'status' in record and 'resources_assigned.mem' not in record:
+            values, reasons = [], set()
+            for job_id in record['_job_ids']:
+                job = by_job.get(job_id)
+                if job is None:
+                    reasons.add('已分配内存未知：节点作业号无法与作业记录精确对应')
+                elif len(job_nodes[job_id]) > 1:
+                    reasons.add('已分配内存未知：节点上有跨多个节点的作业')
+                else:
+                    value = memory_gb(job.get('Resource_List.mem'))
+                    if value is None:
+                        reasons.add('已分配内存未知：节点上有作业未申请内存或申请值无法解析')
+                    else:
+                        values.append(value)
+            assigned = None if reasons else round(sum(values), 1)
+            if notes is not None:
+                notes.extend(reason for reason in sorted(reasons) if reason not in notes)
         nodes.append(dict(name=record['name'], state=record['state'],
-                          cores_total=int(cores), cores_used=used,
-                          mem_total_gb=memory_gb(record.get('resources_available.mem')),
-                          mem_assigned_gb=memory_gb(record.get('resources_assigned.mem')),
-                          jobs=len(job_ids) if 'jobs' in record else None))
+                          cores_total=int(record.get('np', record.get('resources_available.ncpus', ''))),
+                          cores_used=record['_cores_used'], mem_total_gb=total,
+                          mem_assigned_gb=assigned,
+                          jobs=len(record['_job_ids']) if 'jobs' in record else None))
     return nodes
 
 
