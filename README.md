@@ -1,4 +1,4 @@
-# Auto-Gaussian v4.4.0
+# Auto-Gaussian v4.5.0
 
 Auto-Gaussian 是人在回路中的计算化学助手：LLM 按 Skills 规划研究，人签字和确认，`ag` 负责安全把关与确定性计算。
 
@@ -261,7 +261,7 @@ TS 必须恰好一个虚频且振动方向与反应坐标一致；只有双向 I
 
 ## 前端
 
-ag 4.4.0 配合前端 [Auto-Gaussian-Frontend](https://github.com/anakine800-tech/Auto-Gaussian-Frontend) v4.4.0 使用；两边同号发布，启动方式见其 README。
+ag 4.5.0 配合前端 [Auto-Gaussian-Frontend](https://github.com/anakine800-tech/Auto-Gaussian-Frontend) v4.5.0 使用；两边同号发布，启动方式见其 README。
 已只读核对前端 main（`e224d5a`）：结果表读取 `route`、`termination`、`energies.scf`、`energies.g`、`n_imag` 和 `frequencies_low`，这些字段未改名或删除；缺失值显示为空。
 分析页将 profile 作为完整 JSON 展示，没有专用剖面字段依赖。`ag-facts/1` 和 `ag-profile/1` 保持不变，新增字段不影响读取；分段解析修正可能改变旧值，不能把字段兼容理解成重新解析后数值必然不变。
 默认只读，读取本地 study、结果与保存的监控快照。`--enable-actions` 显式开启经本机 ag 执行的准备、提交、状态刷新、取回和取消；不绕过 ag 的提交授权核对或取消确认，也不直接执行远程命令。
@@ -341,7 +341,10 @@ Slurm 的 `cluster.budget` 为 null，clusters 查询省略 budget；本地台�
 
 ### 已知限制
 
-- 独立 PBS 集群使用不同 SSH 身份时，doctor 可能误报“疑似同集群入口未合并”；只影响提示，不影响统计，待修复。
+- `timezone-mismatch` 触发时，耗时退回 walltime；开始时间和提交时间仍按配置时区解析，可能失真，后续应一并置为 null。时区须由负责人实测确认。
+- 路由建议不考虑 walltime；超算公共分区几乎总有他人排队，通常被判为“没地方”，不保证实际启动。
+- 父 chk 是否来自频率计算、是否含可用力常数，仍由卡片和人工审阅保证；程序的坐标框架核验不能替代该检查。
+- 已有 study 的 facts 是否按 T108 重算、catalog 是否补登记，由负责人逐 study 决定；升级不自动改写已签字证据。
 - `cp-report --solvent-sp` 只接受复合物的溶剂相单点，缺两个片段的 SMD 单点，溶剂相相互作用能仍为“未知”；CP 仅作诊断，不进入 thermo/profile。
 - 取回按连续 60 秒无进展判断超时，另设 24 小时兜底；超时不自动重试，不支持断点续传。
 - 二维扫描的前端能量面显示尚未支持；Gaussian 二维扫描与人工指定候选的 `scan-peak` 已在后端提供（T75，[#289](https://github.com/anakine800-tech/Auto-Gaussian/pull/289)）。
@@ -349,7 +352,7 @@ Slurm 的 `cluster.budget` 为 null，clusters 查询省略 budget；本地台�
 - T66 已验证 Slurm 缺少声明输出的不完整取回分支；T102 允许取消证据、绑定和独立结束证据齐全的 `cancelled` Attempt 使用 `ag fetch --incomplete`。取消本身不证明作业已停止，取回成功也不等于计算成功。
 - 组里集群的 PBS 有时在作业结束后仍短暂显示 R，曾观察到约 6 分钟后自行消失；ag 会把残留计入已占用核数，只会多算，不保证所有残留都会自行消失。
 - T89 已支持固定编号下的共振等价识别，但枚举失败或超限保留 `unknown`；拓扑和立体化学仍须人工审阅，不能从共振等价推断电子密度。
-- 升级前查看 [v4.4.0 升级须知](CHANGELOG.md#v440)：迁移须携带各 Slurm 入口台账，default 明写 `max_cores = 44`，独立 CREST 路径在 prepare 时通过 SSH 核验。较早版本升级仍须遵循 [v4.3.0 升级须知](CHANGELOG.md#v430)：facts 重新解析先预览并保留旧证据，thermo/profile 继续检查口径与频率证据。
+- 升级前查看 [v4.5.0 升级须知](CHANGELOG.md#v450)：确认提交批准方式、监控 30–600 秒采样参数与重启、catalog 锁迁移、路由与 PBS IANA 时区配置、本机扫描 hook；Gaussian prepare 可自动补缺失 `%mem`。从更早版本升级仍须查看 [v4.4.0 升级须知](CHANGELOG.md#v440)：迁移须携带各 Slurm 入口台账，default 明写 `max_cores = 44`，独立 CREST 路径在 prepare 时通过 SSH 核验。较早版本升级仍须遵循 [v4.3.0 升级须知](CHANGELOG.md#v430)：facts 重新解析先预览并保留旧证据，thermo/profile 继续检查口径与频率证据。
 
 - PBS 队列解析支持数组父/子作业，节点显示支持数组子作业槽位；其他用户的数组不会阻断本人核数统计和监控。本人有数组记录时，因无法可靠统计核数，`ag submit` 和 `ag doctor` 会明确拒绝，`ag monitor` 也会报错。已完成但仍保留在 `qstat` 中的本人数组记录（C 状态）也会导致拒绝，须等记录消失后再提交。ag 不提交或取消数组作业，命令参数仍只接受普通作业号；未知格式仍报错。逗号组合槽位范围已支持（#243）；数组行为见 T77（[#291](https://github.com/anakine800-tech/Auto-Gaussian/pull/291)）。
 - 分子很大时，少数极性氢的局部变化会被整体 RMSD 平均稀释，灵敏度下降；仍需结合相关二面角、氢键模式和结构审阅，不能仅凭去重报告证明等价。
@@ -375,6 +378,8 @@ python scripts/scan_public.py --staged
 - **v4.3.0**：开题核验与准备、定向复合物构建和分组枚举、TS 立体标签、逐方向 IRC 审阅与路径哈希、运行日志快照、共振等价、Multiwfn IGM / IGMH 与 NCI 报告，以及 thermo / profile、输入和 route 解析修复；配合前端 v4.3.0，详见 [CHANGELOG.md](CHANGELOG.md#v430)。
 
 - **v4.4.0**：T101 共享队列核数与核时提示、T102 按进展取回与取消后取回、T105 气相 Counterpoise 诊断、T106 可配置 PBS/排队上限与独立 CREST 路径；配合前端 v4.4.0，详见 [CHANGELOG.md](CHANGELOG.md#v440)。
+
+- **v4.5.0**：T108 facts 语义、T109 等价映射、T111 提交批准、T112 自动内存与配置重读、T114/T123/T124 监控与时区、T117 路由建议、T119 采用登记、T116 公开扫描和 T125 TS 初猜审计；配合前端 v4.5.0，详见 [CHANGELOG.md](CHANGELOG.md#v450)。
 
 许可：[MIT](LICENSE)。
 

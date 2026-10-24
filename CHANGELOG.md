@@ -1,5 +1,57 @@
 # Changelog
 
+## v4.5.0
+
+### 升级须知
+
+1. **提交审批规则改变（T111）。** 按 AGENTS.md 第 3.4 条，提交可显式使用一次性聊天批准记录（逐字引用负责人原话，最长 24 小时，绑定 study、Attempt、bundle SHA-256、集群和核数），或按 study 明确列出的本机长期放行规则。通过 `--approval` 或 `--policy` 选择并逐项核对；未指定两者时仍由负责人点击 Mac 确认框，显式授权核对失败不回退弹框。**取消仍须在 Mac 上亲手确认。** [#318](https://github.com/anakine800-tech/Auto-Gaussian/pull/318)
+2. **Gaussian 输入可省略 `%mem`（T112）。** prepare 自动填写 `min(核数 × 2, floor(档位内存 × 0.85))` GB；已写的 `%mem` 原样保留并按既有规则校验。[#319](https://github.com/anakine800-tech/Auto-Gaussian/pull/319)
+3. **常驻监控需更新参数并重启一次（T112、T114、T123）。** `--watch` 范围为 30–600 秒；PBS 按 watch 间隔采样，Slurm 至少间隔 60 秒。PBS 会将**所有用户**的作业（含用户名）写入本机快照缓存，缓存不进入仓库，前端仅监听 127.0.0.1。硬件、存储、`AllocMem`、分区汇总查询失败只将相应部分标为未知并保留其他成功数据；本人作业查询失败仍使本轮采样失败。[#319](https://github.com/anakine800-tech/Auto-Gaussian/pull/319)、[#320](https://github.com/anakine800-tech/Auto-Gaussian/pull/320)、[#325](https://github.com/anakine800-tech/Auto-Gaussian/pull/325)
+4. **研究对象与采用登记（T119、T123）。** 新增 `ag catalog`，study 内的 `catalog/journal.jsonl` 只追加，`catalog/state.json` 是派生视图；读写共用 `catalog/catalog.lock`。升级前确认旧版本 catalog 命令已退出。采用必须逐字引用负责人原话；已签字结论补登记需负责人逐 study 授权，不修改原 facts 或签字。[#322](https://github.com/anakine800-tech/Auto-Gaussian/pull/322)、[#325](https://github.com/anakine800-tech/Auto-Gaussian/pull/325)
+5. **路由建议（T117）。** `ag route` 只读本机监控快照，按本机 `[routing]` 配置顺序建议入口；prepare 的实际选择不同只提示，不拦截或改写绑定。使用前补充 `[routing]`，某 study 在新入口签字前用 `[routing.studies]` 覆盖顺序。建议不替代 submit 的实时核验与批准。[#324](https://github.com/anakine800-tech/Auto-Gaussian/pull/324)
+6. **PBS 调度器时区（T124）。** `scheduler_timezone` 必须是经负责人实测确认的 IANA 时区名，不接受固定偏移；不要从开发机时区推断。检测到时间差异常时发出 `timezone-mismatch` 并将耗时退回 walltime；错误配置不保证都能被检测，具体显示限制见下文。[#326](https://github.com/anakine800-tech/Auto-Gaussian/pull/326)
+7. **公开仓库保护（T116）。** CI 对整个仓库运行 `python scripts/scan_public.py`；开发机启用 `.githooks/pre-commit` 并维护不入库的本机敏感词表。扫描包括归档，不能替代人工检查，也不表示 Git 历史已清理。[#321](https://github.com/anakine800-tech/Auto-Gaussian/pull/321)、[#323](https://github.com/anakine800-tech/Auto-Gaussian/pull/323)
+8. **facts 语义（T108）。** 新规则用于新生成的 facts 和明确授权的 `--reparse`；已有 facts，特别是已签字证据，不自动重写。重算须先预览差异、保留旧证据并按 study 取得负责人决定。[#316](https://github.com/anakine800-tech/Auto-Gaussian/pull/316)
+
+后端与前端统一为 v4.5.0，配合前端 v4.5.0 使用。本节以 `git log v4.4.0..main --first-parent` 核对全部 12 个 PR：T108 #316、T109 #317、T111 #318、T112 #319、T114 #320、T116 #321 与 #323、T119 #322、T117 #324、T123 #325、T125 #327、T124 #326。T126 只准备版本号与发布文档；两个 PR 经监督方审阅、负责人合并后，由负责人在各自确切合并提交上创建 `v4.5.0` tag/release，不直接选择届时的 main。
+
+### 计算事实与去重
+
+- T108 单列驻点结论并区分优化与频率几何收敛判据，按频率分级记录；`route-join-v2` 修正跨行 route 拼接，补充稳定性与 ⟨S²⟩ 事实。使用者可区分程序结束、几何收敛与驻点证据，仍须科学审阅。[#316](https://github.com/anakine800-tech/Auto-Gaussian/pull/316)
+- T109 在 RMSD 查询副本中按元素和连接、与键级无关地枚举等价原子映射并核对立体中心，避免芳香 Kekulé 表示导致假差异；新增 `--mirror off|report` 与阈值边界候选。镜像报告不合并构象，映射超限仍拒绝，边界候选留给人工复核。[#317](https://github.com/anakine800-tech/Auto-Gaussian/pull/317)
+
+### 提交与资源
+
+- T111 提供聊天批准记录和按 study 限定的长期放行规则，保存授权来源与确认摘要；仍保留单次声明、两次核数检查及字节核验。明确批准可在绑定范围内用于提交，取消流程不变。[#318](https://github.com/anakine800-tech/Auto-Gaussian/pull/318)
+- T112 自动补缺失 `%mem`，确认摘要增加资源参考；监控每轮重读配置、慢速存储查询独立处理，新增入口无需依赖旧进程中的配置副本；修复独立 PBS 集群的 doctor 未合并提示误报。[#319](https://github.com/anakine800-tech/Auto-Gaussian/pull/319)
+- T117 新增 `ag route` 本地路由建议，按快照新鲜度、入口顺序和核数/内存条件说明可运行或排队建议；共享入口不重复累加占用，prepare 只提示选择差异。[#324](https://github.com/anakine800-tech/Auto-Gaussian/pull/324)
+
+### 监控
+
+- T114 增加 PBS 全员作业、实际分配核数与已运行时间、硬件核数与内存、Slurm 分区汇总和按入口采样间隔。前端可区分本人、他人和空闲资源；Slurm 保留本人明细与他人汇总，未知值不视为零。[#320](https://github.com/anakine800-tech/Auto-Gaussian/pull/320)
+- T123 让硬件、`AllocMem`、存储和分区汇总的局部失败不掩盖成功数据；Slurm 本人内存仅取精确作业绑定的 Attempt manifest，缺证据保持未知，不按名称或当前档位推算。[#325](https://github.com/anakine800-tech/Auto-Gaussian/pull/325)
+- T124 按入口配置的 IANA 时区解析 PBS 英文文本时间，拒绝夏令时歧义/不存在时间，并对异常时间差给出匿名警告、退回 walltime；时区正确性仍依赖负责人实测。[#326](https://github.com/anakine800-tech/Auto-Gaussian/pull/326)
+
+### 研究记录
+
+- T119 新增 `ag catalog` 的对象、成员、采用和报告类别登记，使当前采用结果与原始计算证据分开；追加日志、派生状态和来源哈希便于前端读取，不替代科学签字，也不自动采用或补登。[#322](https://github.com/anakine800-tech/Auto-Gaussian/pull/322)
+- T123 补充 `coverage`、`ts`、`nci` 报告类别，读写共用 `catalog.lock`，避免切换派生视图后锁仍指向旧文件；升级须等旧命令退出。[#325](https://github.com/anakine800-tech/Auto-Gaussian/pull/325)
+
+### 仓库与文档
+
+- T116 清理当前公开文件及归档中的研究/环境信息，增加全仓库扫描、带本机私有词表的提交 hook 和公开仓库写作规矩；后续补齐并行合入的文件与归档扫描失败规则。当前文件清理不等于历史已清理。[#321](https://github.com/anakine800-tech/Auto-Gaussian/pull/321)、[#323](https://github.com/anakine800-tech/Auto-Gaussian/pull/323)
+- T125 完成 TS 初猜开发规格与现状审计，明确 catalog、扫描峰、端点映射、G0 诊断和报告/卡片的后续范围；本项只有文档，不提供新的 TS 搜索或验证能力。[#327](https://github.com/anakine800-tech/Auto-Gaussian/pull/327)
+
+### 已知问题与验证边界
+
+- `timezone-mismatch` 触发时，只有耗时退回 walltime（缺失则未知）；开始时间和提交时间仍显示按配置时区解析的值，后续应一并置为 null。
+- 路由建议不考虑 walltime；超算公共分区几乎总有他人排队，因此通常被判为“没地方”，建议不保证实际启动。
+- 父 chk 是否来自频率计算、是否含可用力常数，仍由卡片和人工审阅保证，程序没有强制检查；已有坐标框架核验不能替代力常数来源审阅。
+- 取回不支持断点续传；`cp-report --solvent-sp` 仍缺溶剂相片段单点，溶剂相相互作用能未知，不能用气相值替代。
+- 已有 study 的 facts 是否按 T108 重算、catalog 是否补登记，由负责人按 study 决定；发版不改已有研究证据。
+
+各项真实验证结果见对应 PR 的评论；本次只运行发布要求的离线验证，不重跑真实计算，**发版不等于科学验收**。
+
 ## v4.4.0
 
 ### 升级须知
