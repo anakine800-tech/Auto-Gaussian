@@ -31,19 +31,10 @@ class MonitorTransport(SSHTransport):
         return operation()
 
     def _execute(self, argv, timeout):
-        # Same bounded read-only transport invocation; capture only the category
-        # before redact_stderr replaces host-key words or configured identifiers.
-        try:
-            result = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
-        except subprocess.TimeoutExpired as exc:
-            self.failure_category = failure_category(exc.stderr or '')
-            detail = redact_stderr(exc.stderr or '', self.cfg)
-            raise SSHConnectionError('Remote operation timed out; 密钥可能已过期，请到网页重新下载'
-                                     + (': ' + detail if detail else '')) from exc
-        except OSError as exc:
-            raise TransportError('Could not start SSH/scp locally') from exc
-        self.failure_category = failure_category(result.stderr) if result.returncode else None
-        return Result(result.returncode, result.stdout, redact_stderr(result.stderr, self.cfg))
+        def classify(stderr):
+            self.failure_category = failure_category(stderr)
+
+        return super()._execute(argv, timeout, observe_stderr=classify)
 
 
 def watch_seconds(value):

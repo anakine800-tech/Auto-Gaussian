@@ -114,8 +114,15 @@ class SSHTransport:
         self.cfg = cfg
         self.read_only = read_only
         self.error_paths = []
+        self._connect_timeout_seconds = cfg['ssh'].get('connect_timeout_seconds', 15)
         self.options = ['-F', cfg['ssh']['config_file'], '-o', 'BatchMode=yes',
-                        '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=15']
+                        '-o', 'StrictHostKeyChecking=yes', '-o',
+                        f'ConnectTimeout={self._connect_timeout_seconds}']
+
+    @property
+    def extra_connect_seconds(self):
+        """Keep the existing command/transfer allowance on slow connections."""
+        return self._connect_timeout_seconds - 15
 
     def _log_call(self, tool, operation, attempt, outcome, returncode, duration, detail,
                   *, timeout_reason=None, transferred_bytes=None):
@@ -170,14 +177,20 @@ class SSHTransport:
             except OSError:
                 pass  # Even an unavailable warning stream cannot alter the operation.
 
-    def _execute(self, argv, timeout):
+    def _execute(self, argv, timeout, *, observe_stderr=None):
+        # Monitor classification needs raw stderr before redaction. Keep that
+        # in-memory observation here so subprocess/error handling cannot drift.
         try:
             p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
         except subprocess.TimeoutExpired as exc:
+            if observe_stderr is not None:
+                observe_stderr(exc.stderr or '')
             detail = redact_stderr(exc.stderr or '', self.cfg)
             raise SSHConnectionError('Remote operation timed out; 密钥可能已过期，请到网页重新下载' + (': ' + detail if detail else '')) from exc
         except OSError as exc:
             raise TransportError('Could not start SSH/scp locally') from exc
+        if observe_stderr is not None:
+            observe_stderr(p.stderr if p.returncode else '')
         return Result(p.returncode, p.stdout, redact_stderr(p.stderr, self.cfg))
 
     def _logged_execute(self, argv, timeout, operation, attempt):
@@ -248,7 +261,7 @@ class SSHTransport:
             index += 1
             return self._logged_execute(
                 ['ssh', *self.options, self.cfg['ssh']['host'], '--', command.text],
-                command.timeout, command.operation, index)
+                command.timeout + self.extra_connect_seconds, command.operation, index)
 
         return self._perform(run_once)
 
@@ -258,7 +271,8 @@ class SSHTransport:
         require_ok(self.run(remote.upload_check(self.cfg, manifest, name)), 'upload precheck')
         dest = remote.attempt_dir(self.cfg, manifest) + '/' + remote.filename(name)
         require_ok(self._perform(lambda: self._logged_execute(
-            ['scp', *self.options, str(local), self.cfg['ssh']['host'] + ':' + dest], 60, 'upload', 1)), 'upload')
+            ['scp', *self.options, str(local), self.cfg['ssh']['host'] + ':' + dest],
+            60 + self.extra_connect_seconds, 'upload', 1)), 'upload')
 
     def download(self, manifest, name, local):
         local = Path(local)
@@ -268,6 +282,7 @@ class SSHTransport:
         candidate = None
         index = 0
         timeout_reason = None
+        stall_seconds = DOWNLOAD_STALL_SECONDS + self.extra_connect_seconds
 
         def download_once():
             nonlocal candidate, index, timeout_reason
@@ -289,7 +304,7 @@ class SSHTransport:
                 try:
                     while True:
                         now = time.monotonic()
-                        interval = max(0, min(5, DOWNLOAD_STALL_SECONDS - (now - last_progress),
+                        interval = max(0, min(5, stall_seconds - (now - last_progress),
                                               DOWNLOAD_HARD_LIMIT_SECONDS - (now - started)))
                         try:
                             stdout, stderr = process.communicate(timeout=interval)
@@ -304,7 +319,7 @@ class SSHTransport:
                                 transferred, last_progress = size, now
                             if now - started >= DOWNLOAD_HARD_LIMIT_SECONDS:
                                 timeout_reason = 'hard_limit'
-                            elif now - last_progress >= DOWNLOAD_STALL_SECONDS:
+                            elif now - last_progress >= stall_seconds:
                                 timeout_reason = 'stalled'
                             else:
                                 continue
