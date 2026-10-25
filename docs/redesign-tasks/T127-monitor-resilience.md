@@ -252,3 +252,16 @@ cluster.nodes[].mem_assigned_gb   # Torque 按 D7 口径（原字段，含义不
 ## 版本记录
 
 - v1（2026-10-25，监督方）：依据负责人 10-25 三轮问答决定 D1–D11 起草；原草案中 `.pnpm-store/` 一项属于前端仓库，移到 T128。
+
+## 实现与离线验证（2026-10-25）
+
+- 基线 `725bead`，实现提交 `f4f3621`；交付和真实验证记录见 [PR #329](https://github.com/anakine800-tech/Auto-Gaussian/pull/329)。D1–D11 及第 7 节字段逐项对照、给 T128 的文档补丁均在 PR 描述中。
+- 旧单集群与多入口复用同一串行调度循环；入口配置变化独立重置。CLI 默认摘要，`--json` 保留完整快照；既有 Python `run_clusters()` 调用仍默认完整输出，兼容已有调用方。
+- 本地 `watch.json`、`watch.lock` 与入口 `retry-request.json` 实现心跳和请求合并；锁内原子完成领取请求与标记采样，避免连点产生额外采样。同一缓存拒绝第二个存活监控，防止多个采样者争用请求状态。心跳线程只写本地文件，远程查询仍串行。
+- 认证类别在 MonitorTransport 脱敏前提取；固定 Command、只读白名单、原传输参数和超时保持不变。未修改 remote.py、transport.py、模板或提交路径。
+- 开发前只读核对确认两个 PBS 入口均为逗号分隔 status、physmem 可解析、槽位范围受支持，节点作业号可与 qstat 精确对应。合成夹具未包含现场身份或原文。
+- 相关原有测试 299 项、新增 T127 测试 54 项通过；复制前端 v4.5.0 校验函数验证新快照。旧 Python 调用兼容修正后复测 90 项通过。
+- 最终全量：`PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=ag/src python -m pytest ag/tests skills-next -q -rs -p no:cacheprovider`，4778 通过、19 跳过，272.69 秒。跳过为私有日志未启用及 macOS 不支持的 Linux procfs/GNU stat 检查；实现提交的 Linux CI 和 CodeQL 均通过。
+- `python scripts/scan_public.py`：1797 个文件、0 错误；`git diff --cached --check` 通过。占位符替换后的临时 plist 通过 `plutil -lint`，未加载到 launchd；前端文档补丁在临时副本通过 `git apply --check`。
+- 现有测试仅调整 test_monitor.py、test_monitor_all_jobs.py、test_resources_monitor.py 中受影响的内存、notes、stdout 和合成时钟用例；新增 test_monitor_resilience.py。其余测试文件未修改。
+- 负责人已在本会话批准“限定的只读核对与验证”，并批准记录已知 SSH post-quantum 能力提示后继续。原配置、常驻监控、主检出均未替换；合并、部署和包装脚本替换仍由后续任务处理。
