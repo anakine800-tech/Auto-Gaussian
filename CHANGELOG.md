@@ -1,5 +1,38 @@
 # Changelog
 
+## v4.5.1
+
+### 升级须知
+
+1. **常驻监控改为直接运行 `ag monitor`（T127）。** 后端已检测认证失败和主机指纹失败，不再需要本机包装脚本。先备份再替换服务；LaunchAgent 使用 [监控 plist 样例](docs/ops/launchd/local.autogaussian.monitor.plist.example)，完整步骤见 [运维文档](docs/OPERATIONS.md)。
+2. **监控行为变化（T127）。** 同一入口连续失败 3 次后开始退避，间隔逐次翻倍，最长 600 秒，成功一次恢复基础间隔。认证失败或主机指纹失败只暂停该入口，其他入口照常采样；修复原因后，可通过改该入口配置、重启监控，或手动重试并确认恢复。stdout 默认每个有采样的循环输出一行摘要，`--json` 才输出完整快照。新增 `ag monitor --retry <ENTRY> [--auth-fixed]`，仅在本机登记一次立即采样请求，由运行中的监控执行。入口可选 `monitor_interval_seconds`（30–600）；PBS 直连或经转发均建议 60 秒，Slurm 不配置，沿用默认值。
+3. **快照字段只做加法（`ag-monitor/1`）。** 新增 `sampling`、`cluster.scheduler`（PBS 也写）与 `cluster.hardware.notes`；异构内存等局限说明从 `hardware.error` 移到 `notes`。v4.5.0 前端可以读取新快照。
+4. **Torque 节点内存。** 总内存取 `physmem`，不含 swap；已分配内存只在节点上所有作业都申请了内存时按申请值加总，否则为 null 并附说明。
+5. **本机控制文件。** `.ag-monitor/` 根目录新增 `watch.json`、`watch.lock`，入口目录可能出现 `retry-request.json`。同一缓存目录不允许同时运行两个 `ag monitor --watch`；不要靠手工删除控制文件解除占用。
+
+后端与前端统一为 v4.5.1，配合前端 v4.5.1 使用。按 `git log v4.5.0..main --first-parent` 核对全部 2 个 PR：T127 #329、T127 补修 #330。T129 只准备版本号与文档；两个发布 PR 经监督方审阅、负责人合并后，由负责人核对各自确切合并提交，再创建 `v4.5.1` tag/release。
+
+### 监控
+
+- T127 增加按入口退避、认证/主机指纹暂停、手动重试、独立采样间隔与一行摘要；修正 Torque 物理内存及已申请内存口径，将硬件局限移到 notes。采样保持串行，每个入口采完后优先处理全部入口的待处理重试。[#329](https://github.com/anakine800-tech/Auto-Gaussian/pull/329)
+- T127 补修让监控未运行时的重试拒绝路径不创建任何文件或目录，包括缓存目录与 `watch.lock`。[#330](https://github.com/anakine800-tech/Auto-Gaussian/pull/330)
+
+### 运维
+
+- T127 提供直接运行 `ag monitor --watch 30` 的 [LaunchAgent 样例](docs/ops/launchd/local.autogaussian.monitor.plist.example)。[#329](https://github.com/anakine800-tech/Auto-Gaussian/pull/329)
+- T129 新增 [OPERATIONS.md](docs/OPERATIONS.md)：备份、更新、服务替换与回退、睡眠判断、30 分钟观察、连接切换和手动重试。先部署开发机并观察通过，再部署研究用计算机；具体本机值只保存在私用记录。
+
+### 已知问题与验证边界
+
+- 监控仍串行采样；经转发时单条 SSH 约 10–20 秒，一轮可能 100–150 秒，实际耗时须现场记录。手动重试启动最多需等待当前一个入口采完，得到新快照还需加上目标入口自身的采样耗时。
+- 电脑睡眠期间停止采样，醒来自动恢复；刚醒来的一两轮可能因网络未就绪而失败并进入退避。不要求防睡眠，也不改电源设置。
+- 前端睡眠醒来后 `next_sample_at` 可能显示过去时间；核数和内存都未知时 notes 会重复显示。前端 Python 包的 `autog_frontend/__init__.py` 中 `__version__` 仍为 4.0.0，包元数据与网页包为 4.5.1。
+- 沿用 v4.5.0：`timezone-mismatch` 只让耗时退回 walltime，开始时间和提交时间仍按配置解析；后续应一并置为 null。
+- 沿用 v4.5.0：路由建议不考虑 walltime，公共分区有他人排队时通常被判为“没地方”；建议不保证启动。父 chk 的频率来源与可用力常数仍靠卡片和人工审阅，坐标框架核验不能替代来源审阅。
+- 沿用 v4.5.0：取回不支持断点续传；`cp-report --solvent-sp` 仍缺溶剂相片段单点，溶剂相相互作用能未知。已有 facts 是否重算及 catalog 是否补登记由负责人逐 study 决定，发版不改已有证据。
+
+各项真实验证结果见对应 PR；本次发布准备只做离线验证。**发版不等于部署完成，也不等于科学验收；部署结果另行记录。**
+
 ## v4.5.0
 
 ### 升级须知
