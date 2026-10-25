@@ -1,3 +1,5 @@
+新版通道、候选与期望值字段及显式升级规则见 [ag-catalog/2](ag-catalog-2.md)。
+
 # 研究对象与采用结果：ag-catalog/1
 
 `ag catalog` 只在本机登记构象 × 电子态对象、Attempt 归属、当前采用结果与报告类别。

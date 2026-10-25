@@ -65,8 +65,8 @@ def adopt(root, identity, role='sp', **kw):
 
 
 def test_lifecycle_chain_values_and_existing_files_unchanged(water):
-    opt = make_attempt(water, '001-optfreq', '# HF/STO-3G Opt Freq')
-    sp = make_attempt(water, '002-sp')
+    opt = make_attempt(water, '001-optfreq', '# HF/STO-3G Opt Freq', multiplicity=1)
+    sp = make_attempt(water, '002-sp', multiplicity=1)
     before = files(water)
     obj(water, state_label='S0', multiplicity=1, conformer='A', note='water')
     catalog.change(water, 'member', object='water-a', attempt=opt, role='auto')
