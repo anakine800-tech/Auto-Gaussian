@@ -189,6 +189,13 @@ Multiwfn 为可选程序：只有使用 `multiwfn` 模板时才需配置 `progra
 支持 `--dry-run`，不改已有研究证据。`adopt --quote` 只能逐字引用负责人在本 study 当前对话的原话；
 已签结论也要按 study 逐个授权补登记。采用状态不替代科学签字。格式与示例见 [ag-catalog/1](docs/ag-catalog-1.md)。
 
+`catalog object --formula/--charge` 登记三态期望值；`object-suggest` 只打印 manifest 来源建议。
+`channel`、`candidate`、`candidate-result` 追加通道、候选几何来源和每次尝试结果，`ledger` 只读查询完整台账；
+候选 XYZ 按哈希只读存档，`channel-status` 与 `coverage` 记录负责人原话声明，登记不替代科学验收。
+首次写扩展事件须 `--upgrade-catalog`，`--dry-run` 预览不创建文件；原 /1 日志字节保留，纯旧事件仍生成 state/1。
+升级后旧 ag 和 v4.5.x 前端不能读取该 catalog；T131/T132 合并并在两台部署前不升级真实研究 study。
+命令、兼容性和前端字段见 [ag-catalog/2](docs/ag-catalog-2.md)。
+
 ```bash
 # 只读查询本机集群；附加目录核对只返回是否匹配，不公开路径
 ag clusters --json --verify-studies-root '<STUDIES_ROOT>'

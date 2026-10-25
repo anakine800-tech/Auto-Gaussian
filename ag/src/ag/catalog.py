@@ -17,7 +17,7 @@ import shlex
 import sys
 import tempfile
 
-from ag import attempt, study
+from ag import attempt, study, catalog_v2 as v2
 from ag.config import load_config
 
 
@@ -77,13 +77,18 @@ def catalog_lock(root, *, write=False):
 def read_journal(root):
     path = catalog_path(root, 'journal.jsonl')
     data = path.read_bytes() if path.exists() else b''
-    events, previous = [], None
+    events, previous, upgraded = [], None, False
     try:
         for seq, line in enumerate(data.splitlines(keepends=True), 1):
             if not line.endswith(b'\n'):
                 raise ValueError('incomplete final line')
             event = json.loads(line)
-            if (event['schema'] != 'ag-catalog/1' or type(event['seq']) is not int
+            schema = event['schema']
+            if schema not in ('ag-catalog/1', 'ag-catalog/2') or (upgraded and schema == 'ag-catalog/1'):
+                raise ValueError('unsupported or decreasing catalog schema')
+            upgraded = upgraded or schema == 'ag-catalog/2'
+            v2.validate_fields(event)
+            if (type(event['seq']) is not int
                     or event['seq'] != seq or event['prev_sha256'] != previous):
                 raise ValueError('seq or prev_sha256 mismatch')
             at = datetime.fromisoformat(event['at'])
@@ -100,6 +105,7 @@ def read_journal(root):
 
 def replay(events):
     objects, kinds = {}, {}
+    extended = any(v2.is_v2(e) for e in events)
     for e in events:
         op = e['op']
         if op == 'object':
@@ -115,6 +121,13 @@ def replay(events):
             obj = objects.setdefault(identity, dict(id=identity, status='candidate', members=[],
                                                     adopted=dict.fromkeys(ADOPT_ROLES)))
             obj.update({key: e[key] for key in OBJECT_FIELDS})
+            if extended:
+                v2.initialize(obj)
+                for field in ('formula', 'charge'):
+                    key = 'expected_' + field
+                    if key in e:
+                        v2.validate_expected(e[key], field)
+                        obj['expected'][field] = dict(e[key])
         elif op in ('member', 'adopt', 'retire'):
             obj = objects[e['object']]
             if op == 'retire':
@@ -142,6 +155,8 @@ def replay(events):
                 obj['adopted'][e['role']] = {k: e[k] for k in ('attempt', 'at', 'quote', 'report')}
                 if obj['status'] != 'retired':
                     obj['status'] = 'adopted'
+        elif op in v2.OPS:
+            v2.apply_event(objects[e['object']], e)
         elif op == 'report-kind':
             if e['kind'] not in KINDS:
                 raise ValueError('Invalid report kind')
@@ -149,6 +164,9 @@ def replay(events):
             kinds[e['report']] = e['kind']
         else:
             raise ValueError(f'Unknown catalog operation: {op}')
+    if extended:
+        for obj in objects.values():
+            v2.finish(obj)
     return objects, kinds
 
 
@@ -215,13 +233,16 @@ def report_path(root, value):
     return target.relative_to(base).as_posix()
 
 
-def plan(root, events, op, **fields):
+def plan(root, events, op, *, archives=None, **fields):
     objects, _ = replay(events)
     checks, warnings, pending = dict(study_exists=True), [], []
     if op == 'object':
         identity = study.identifier(fields['id'])
         old = objects.get(identity, {})
-        fields = dict(id=identity, update=fields.get('update', False),
+        expectation = {
+            'expected_' + key: v2.expected(fields[key], key)
+            for key in ('formula', 'charge') if fields.get(key) is not None}
+        fields = dict(id=identity, update=fields.get('update', False), **expectation,
                       **{k: fields.get(k) if fields.get(k) is not None else old.get(k)
                          for k in OBJECT_FIELDS})
     elif op in ('member', 'adopt', 'retire'):
@@ -267,12 +288,15 @@ def plan(root, events, op, **fields):
                                         role=role if role in roles else roles[0], force_role=False))
                 fields = dict(object=identity, attempt=path.name, role=role, quote=quote,
                               report=report, checks=adoption_checks)
+    elif op in v2.OPS:
+        fields = v2.plan(root, objects, op, fields, checks, warnings,
+                         archives if archives is not None else [])
     elif op == 'report-kind':
         fields = dict(report=report_path(root, fields['report']), kind=fields['kind'])
         checks['report_exists_in_analyses'] = True
     pending.append(dict(op=op, **fields))
     # Validate the whole proposal before appending even its automatic member.
-    replay(events + [dict(at=now(), **e) for e in pending])
+    replay(events + [dict(at=now(), seq=len(events) + i, **e) for i, e in enumerate(pending, 1)])
     return pending, checks, warnings
 
 
@@ -301,7 +325,10 @@ def derived_state(root, events, data):
             except (ValueError, OSError, KeyError, TypeError, AttributeError):
                 pass  # Missing copied values are null, never invented or recomputed.
         obj['values'] = values
-    return dict(schema='ag-catalog-state/1', journal_sha256=sha256(data).hexdigest(),
+        if 'expected' in obj:
+            obj['member_mismatches'], _ = v2.member_report(root, obj)
+    schema = 'ag-catalog-state/2' if any(v2.is_v2(e) for e in events) else 'ag-catalog-state/1'
+    return dict(schema=schema, journal_sha256=sha256(data).hexdigest(),
                 generated_at=now(), objects=list(objects.values()), report_kinds=kinds)
 
 
@@ -319,33 +346,47 @@ def write_state(root, value):
             os.unlink(name)
 
 
-def change(root, op, *, dry_run=False, **fields):
+def change(root, op, *, dry_run=False, upgrade_catalog=False, **fields):
     root = resolve_study(root)
 
     def prepare():
         data, events, previous = read_journal(root)
-        pending, checks, warnings = plan(root, events, op, **fields)
+        archives = []
+        pending, checks, warnings = plan(root, events, op, archives=archives, **fields)
+        upgraded = any(e['schema'] == 'ag-catalog/2' for e in events)
+        upgrading = not upgraded and any(v2.is_v2(e) for e in pending)
+        if upgrading:
+            if not dry_run and not upgrade_catalog:
+                raise ValueError(v2.UPGRADE_WARNING + ' Use --upgrade-catalog to confirm, or --dry-run to preview.')
+            warnings.append(v2.UPGRADE_WARNING)
+            checks['catalog_upgrade'] = True
+        schema = 'ag-catalog/2' if upgraded or upgrading else 'ag-catalog/1'
         lines, added = [], []
         for seq, event in enumerate(pending, len(events) + 1):
-            event = dict(schema='ag-catalog/1', seq=seq, at=now(), prev_sha256=previous, **event)
+            event = dict(schema=schema, seq=seq, at=now(), prev_sha256=previous, **event)
             line = encode(event)
             previous = sha256(line).hexdigest()
             lines.append(line)
             added.append(event)
-        return data, events, b''.join(lines), added, checks, warnings
+        return data, events, b''.join(lines), added, checks, warnings, archives
 
     if dry_run:
         with catalog_lock(root):
-            _, _, _, added, checks, warnings = prepare()
+            _, _, _, added, checks, warnings, _ = prepare()
     else:
+        # Refuse an unacknowledged upgrade before even creating a lock/directory.
+        with catalog_lock(root):
+            prepare()
         directory = catalog_path(root, 'journal.jsonl').parent
-        directory.mkdir(exist_ok=True)
+        directory.mkdir(mode=0o700, exist_ok=True)
         with catalog_lock(root, write=True):
-            data, events, new, added, checks, warnings = prepare()
+            data, events, new, added, checks, warnings, archives = prepare()
             target = catalog_path(root, 'state.json')
             if target.exists() and not target.is_file():
                 raise ValueError('Catalog state.json must be a regular file')
             value = derived_state(root, events + added, data + new)
+            for event, contents in archives:
+                v2.archive(root, event, contents, write=True)
             path = catalog_path(root, 'journal.jsonl')
             fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600)
             try:
@@ -377,11 +418,21 @@ def show(root):
                 raise ValueError('Catalog state missing; journal retained; requires manual handling')
             return derived_state(root, [], b''), []
         value = json.loads(path.read_text(encoding='utf-8'))
-        if not isinstance(value, dict) or value.get('schema') != 'ag-catalog-state/1':
+        if not isinstance(value, dict) or value.get('schema') not in ('ag-catalog-state/1', 'ag-catalog-state/2'):
             raise ValueError('Invalid catalog state; requires manual handling')
         warnings = []
         if value.get('journal_sha256') != sha256(data).hexdigest():
             warnings.append('WARNING: state.json journal_sha256 differs from journal; state is stale.')
+        expected_schema = 'ag-catalog-state/2' if any(v2.is_v2(e) for e in events) else 'ag-catalog-state/1'
+        if value['schema'] != expected_schema:
+            warnings.append('WARNING: state schema differs from journal; state is stale.')
+        for obj in value['objects']:
+            if 'expected' not in obj and obj['multiplicity'] is None:
+                continue
+            mismatches, messages = v2.member_report(root, obj)
+            warnings.extend(messages)
+            warnings.extend('WARNING: ' + obj['id'] + ' member mismatch: ' + json.dumps(row, ensure_ascii=False)
+                            for row in mismatches)
         return value, warnings
 
 
@@ -437,7 +488,11 @@ def suggest(root):
                                             '--attempt', identity, '--role', role]))
             suggestions.append(dict(id=proposed, members=sorted(component),
                                     parents=[e for e in edges if e['child'] in component], commands=commands))
-        return dict(suggestions=suggestions, missing_parents=missing)
+        reports = []
+        for obj in objects.values():
+            mismatches, messages = v2.member_report(root, obj)
+            reports.append(dict(object=obj['id'], member_mismatches=mismatches, notes=messages))
+        return dict(suggestions=suggestions, missing_parents=missing, expectation_reports=reports)
 
 
 def run(args):
@@ -454,6 +509,35 @@ def run(args):
                          ', '.join(f"{m['attempt']} ({m['role']})" for m in obj['members'])]
                 cells.extend((obj['adopted'][role] or {}).get('attempt', '-') for role in ADOPT_ROLES)
                 print('\t'.join(str(cell).replace('\t', ' ').replace('\n', ' ') for cell in cells))
+        if value['schema'] == 'ag-catalog-state/2' and not args.json:
+            v2.print_tables(value['objects'])
+    elif args.action == 'object-suggest':
+        root = resolve_study(args.study)
+        with catalog_lock(root):
+            read_journal(root)
+            value = v2.object_suggest(root, args.attempt)
+        print('Suggestions only / 仅打印建议，不写入：')
+        if value['command']:
+            print(value['command'])
+        for field, reason in value['unavailable'].items():
+            print(f'{field}: 无法建议 ({reason})')
+    elif args.action == 'ledger':
+        root = resolve_study(args.study)
+        with catalog_lock(root):
+            _, events, _ = read_journal(root)
+            value = v2.ledger(replay(events)[0], args.object, args.channel)
+        if args.json:
+            print(json.dumps(value, ensure_ascii=False, indent=2))
+        else:
+            print('CHANNEL\tCANDIDATE\tORIGIN\tTIME\tATTEMPT\tOUTCOME\tASSIGNMENT\tDIAGNOSIS')
+            for group in value['channels'] + [dict(channel='unassigned', candidates=value['unassigned'])]:
+                for candidate in group['candidates']:
+                    for result in candidate['results'] or [None]:
+                        cells = [group['channel'], candidate['id'], candidate['origin']]
+                        cells += ([result['at'], result['attempt'] or '-', result['outcome'],
+                                   json.dumps(result['assignment'], ensure_ascii=False),
+                                   str(result['diagnosis'] is not None)] if result else ['-'] * 5)
+                        print('\t'.join(str(c).replace('\t', ' ').replace('\n', ' ') for c in cells))
     elif args.action == 'suggest':
         value = suggest(args.study)
         print('Suggestions only: parent links do not establish conformer or electronic-state identity.')
@@ -466,6 +550,8 @@ def run(args):
             print(f"Missing parent: {edge['parent']} -> {edge['child']}")
         if not value['suggestions']:
             print('No unassigned Attempts.')
+        for report in value['expectation_reports']:
+            print(json.dumps(report, ensure_ascii=False))
     else:
         fields = {key: val for key, val in vars(args).items()
                   if key not in ('command', 'action', 'study', 'dry_run', 'func')}
@@ -479,7 +565,8 @@ def run(args):
 def register(subparsers):
     parser = subparsers.add_parser('catalog', description=__doc__)
     actions = parser.add_subparsers(dest='action', required=True)
-    for op in ('object', 'member', 'adopt', 'retire', 'report-kind', 'show', 'suggest'):
+    for op in ('object', 'member', 'adopt', 'retire', 'report-kind', 'show', 'suggest',
+               'object-suggest', 'ledger', *v2.OPS):
         child = actions.add_parser(op)
         child.add_argument('study')
         child.set_defaults(func=run)
@@ -491,6 +578,8 @@ def register(subparsers):
             child.add_argument('--multiplicity', type=int)
             child.add_argument('--conformer')
             child.add_argument('--note')
+            child.add_argument('--formula')
+            child.add_argument('--charge')
         if op in ('member', 'adopt', 'retire'):
             child.add_argument('--object', required=True)
         if op in ('member', 'adopt'):
@@ -508,7 +597,47 @@ def register(subparsers):
         if op == 'report-kind':
             child.add_argument('--report', required=True)
             child.add_argument('--kind', required=True, choices=KINDS)
-        if op == 'show':
+        if op in v2.OPS or op == 'ledger':
+            child.add_argument('--object', required=True)
+        if op == 'object-suggest':
+            child.add_argument('--attempt', required=True)
+        if op == 'channel':
+            child.add_argument('--id', required=True)
+            child.add_argument('--name')
+            child.add_argument('--definition')
+            child.add_argument('--product-branch')
+            child.add_argument('--discovered', action='store_true')
+            child.add_argument('--update', action='store_true')
+            child.add_argument('--confirm', action='store_true')
+        if op == 'channel-status':
+            child.add_argument('--channel', required=True)
+            child.add_argument('--status', required=True, choices=('verified', 'excluded-low-confidence', 'cleared'))
+            child.add_argument('--reason')
+            child.add_argument('--quote', required=True)
+        if op == 'coverage':
+            child.add_argument('--statement', required=True, choices=('stable', 'withdrawn'))
+            child.add_argument('--scope', required=True)
+            child.add_argument('--budget', required=True)
+            child.add_argument('--quote', required=True)
+        if op == 'candidate':
+            child.add_argument('--id', required=True)
+            child.add_argument('--xyz', required=True)
+            child.add_argument('--origin', required=True, choices=v2.ORIGINS)
+            for option in ('parent-attempt', 'parent-file', 'transform-json', 'target-channel', 'doi', 'si-location', 'note'):
+                child.add_argument('--' + option)
+        if op == 'candidate-result':
+            child.add_argument('--candidate', required=True)
+            child.add_argument('--outcome', required=True, choices=v2.OUTCOMES)
+            child.add_argument('--attempt')
+            child.add_argument('--diagnosis-json')
+            child.add_argument('--assign', choices=v2.ASSIGNMENTS, default='none')
+            child.add_argument('--channel', action='append')
+            child.add_argument('--quote')
+            child.add_argument('--note')
+        if op == 'ledger':
+            child.add_argument('--channel')
+        if op in ('show', 'ledger'):
             child.add_argument('--json', action='store_true')
-        elif op != 'suggest':
+        elif op not in ('suggest', 'object-suggest'):
             child.add_argument('--dry-run', action='store_true')
+            child.add_argument('--upgrade-catalog', action='store_true')
