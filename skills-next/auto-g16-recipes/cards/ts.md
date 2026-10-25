@@ -90,6 +90,7 @@ prepare 摘要显示编号、元素、初值、步数、步长、终值和冻结
 
 scan_points.xyz 保存各已报告点的最终几何；未收敛点只是最后迭代几何，未计算点
 无几何。文件已存在且相同则沿用，不同则停止核对；scan-peak 的输出必须是新文件。
+生成草稿前先看 `ag scan-path <attempt>` 的诊断，审阅逐段成键与构象变化。
 用局部峰生成 TS 草稿：`ag scan-peak <attempt> --out <新文件.xyz> --gaussian-ts <新文件.gjf>
 --route '# <METHOD>/<BASIS> Opt=(TS,CalcFC) Freq' [--point <序号>]`（合为一条命令）。
 route 由人或卡片给出，工具从 manifest 取电荷与多重度并拒绝扫描/冻结关键词及父 chk 力常数读取；

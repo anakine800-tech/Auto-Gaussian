@@ -24,7 +24,30 @@ def aligned_rmsd(left, right):
     return float(np.sqrt(np.mean(np.sum((a @ (u @ correction @ vt) - b) ** 2, axis=1))))
 
 
-def select_peak(scan, frames, point=None):
+def point_frame(point, frames):
+    index = point.get('geometry_frame')
+    if type(index) is not int or not 1 <= index <= len(frames):
+        raise ValueError('Missing scan point geometry; regenerate/review ag facts')
+    return frames[index - 1]
+
+
+def step_metrics(left, right, frames):
+    """Original scan-peak metrics, shared with scan-path without changing cutoffs."""
+    delta = (abs(geo.finite_number(right['energy_hartree']) -
+                 geo.finite_number(left['energy_hartree'])) * geo.HARTREE_TO_KCAL
+             if left['energy_hartree'] is not None and right['energy_hartree'] is not None else None)
+    rmsd = (aligned_rmsd(point_frame(left, frames), point_frame(right, frames))
+            if left.get('geometry_frame') and right.get('geometry_frame') else None)
+    return dict(energy_change_kcal_mol=delta, rmsd_angstrom=rmsd)
+
+
+def metric_jump(metrics):
+    delta, rmsd = metrics['energy_change_kcal_mol'], metrics['rmsd_angstrom']
+    return ((delta is not None and delta > ENERGY_JUMP_KCAL) or
+            (rmsd is not None and rmsd > RMSD_JUMP_ANGSTROM))
+
+
+def select_peak(scan, frames, point=None, *, path_metrics=None):
     if scan.get('dimensions') == 2:
         return select_saddle(scan, frames, point)
     if point is not None and type(point) is not int:
@@ -66,12 +89,11 @@ def select_peak(scan, frames, point=None):
     if any(p['converged'] is not True for p in points):
         warnings.append('有未收敛的点或收敛证据缺失的点；这些点未参与初猜选择。')
     for i, (left, right) in enumerate(zip(points, points[1:]), 1):
-        delta = (abs(energy(right) - energy(left)) * geo.HARTREE_TO_KCAL
-                 if left['energy_hartree'] is not None and right['energy_hartree'] is not None else None)
-        rmsd = (aligned_rmsd(frame(left), frame(right))
-                if left.get('geometry_frame') and right.get('geometry_frame') else None)
-        if (delta is not None and delta > ENERGY_JUMP_KCAL) or (rmsd is not None and rmsd > RMSD_JUMP_ANGSTROM):
-            jumps.append(dict(points=[i, i + 1], energy_change_kcal_mol=delta, rmsd_angstrom=rmsd))
+        metrics = step_metrics(left, right, frames)
+        if path_metrics is not None:
+            path_metrics.append(metrics)
+        if metric_jump(metrics):
+            jumps.append(dict(points=[i, i + 1], **metrics))
     if jumps:
         warnings.append('可能跳到了另一条路径或另一个构象：相邻点能量或几何 RMSD 跳变，需人工审阅。')
     report = dict(peak=peak, local_maxima=maxima, coordinate=scan['coordinate'],
@@ -170,6 +192,9 @@ def register_peak(args, path, report, xyz_bytes, scan_hash):
                      scan_points_sha256=scan_hash,
                      selection='default_highest' if args.point is None else 'explicit_point',
                      warnings=report['warnings'])
+    if 'path_diagnostics' in report:
+        from ag.scan_path import bounded_diagnostics
+        transform['path_diagnostics'] = bounded_diagnostics(report['path_diagnostics'], transform)
     return catalog.register_candidate(path.parent.parent, object=args.object, id=args.candidate_id,
                                       xyz_bytes=xyz_bytes, source=str(args.out), origin='scan',
                                       parent_attempt=path.name, transform=transform,
@@ -204,7 +229,16 @@ def run(args):
     # Prevent exporting a different frame after somebody edits the multi-XYZ.
     if source.is_symlink() or sha256(source.read_bytes()).hexdigest() != scan.get('geometries_sha256'):
         raise ValueError('scan_points.xyz differs from facts.json; review/regenerate facts')
-    report, frame = select_peak(scan, geo.read_xyz(source), point=args.point)
+    frames = geo.read_xyz(source)
+    path_metrics = []
+    report, frame = select_peak(scan, frames, point=args.point, path_metrics=path_metrics)
+    if scan.get('dimensions') != 2:
+        from ag import scan_path
+        diagnostics = scan_path.diagnose(scan, frames, scan_path.manifest_charge(path),
+                                        metrics=path_metrics, **scan_path.options(args))
+        report['path_diagnostics'] = scan_path.near_peak(diagnostics, report['peak']['point'])
+        if report['path_diagnostics']['warning']:
+            report['warnings'].insert(0, report['path_diagnostics']['warning'])
     draft = gaussian_draft(args, path, frame, report) if args.gaussian_ts is not None else None
     xyz_bytes = geo.xyz_text([frame]).encode('utf-8')
     with args.out.open('xb') as handle:
@@ -237,6 +271,11 @@ def run(args):
         for warning in report['warnings']:
             print('警告：' + warning)
     else:
+        if report['path_diagnostics']['warning']:
+            print('!!! ' + report['path_diagnostics']['warning'])
+        print('沿程诊断摘要：' + json.dumps(report['path_diagnostics']['summary'], ensure_ascii=False))
+        for note in report['path_diagnostics']['notes']:
+            print(note)
         print(report['note'])
         print('全部严格局部极大（相对能以全部已收敛扫描点最低能为零）：')
         for point in report['local_maxima']:
@@ -270,6 +309,9 @@ def point_argument(text):
 
 
 def register(subparsers):
+    from ag import scan_path
+    # Keep both local scan commands in the existing optional registration hook.
+    scan_path.register(subparsers)
     parser = subparsers.add_parser('scan-peak', description=__doc__)
     parser.add_argument('attempt', help='Attempt directory or ID')
     parser.add_argument('--study', help='Study directory or configured study ID')
@@ -286,4 +328,5 @@ def register(subparsers):
     parser.add_argument('--upgrade-catalog', action='store_true', help='Confirm catalog /1 to /2 upgrade')
     parser.add_argument('--dry-run', action='store_true', help='Preview registration only; XYZ/Gaussian files are still written')
     parser.add_argument('--json', action='store_true')
+    scan_path.add_options(parser)
     parser.set_defaults(func=run)

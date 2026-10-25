@@ -218,6 +218,10 @@ ag dedup --source 'crest=<CREST_XYZ>' --source 'mdopt=<MDOPT_XYZ>' \
 ag coverage --merged '<DEDUP_JSON>' --energies '<DFT_ENERGIES_JSON>' \
   --window 3 --top 5 --out '<NEW_COVERAGE_JSON>' --json
 
+# 先读逐点路径诊断；除 B 扫描原子对外，预期成断键须逐对声明
+ag scan-path '<SCAN_ATTEMPT>' --study '<STUDY_ID>' \
+  --expect-bond 1-3 --expect-bond 2-3 --dihedral-threshold 60 \
+  --contact-cutoff 3.5 --hbond-cutoff 2.5 --json
 # 9 是原始扫描点序号示例，必须是列出的合格局部极大
 ag scan-peak '<SCAN_ATTEMPT>' --study '<STUDY_ID>' \
   --point 9 --out '<NEW_TS_GUESS_XYZ>' --json
@@ -240,6 +244,11 @@ ag profile '<STUDY_DIR>/analyses/<PROFILE_JSON>' --name '<NEW_PROFILE_NAME>' --j
 - `dedup --mirror off|report` 默认 off；report 在已保留代表间报告 `mirror_pairs`（镜像 RMSD < 阈值），含普通 / 镜像 RMSD 及各自映射，不合并、不改变简并度。手性体系附说明，仍排除 `stereo_changed` 帧；非手性镜像简并继续使用 `ag cluster --mirror`，该命令仍拒绝有已指定手性中心的体系。新版本不自动重跑已有 study。
 - `coverage` 的 `--energies` 可给单点 Attempt 目录/ID、JSON 路径列表或原生 thermo JSON；按坐标和来源证据匹配，SCF 与 qh_G 分开统计。单路线独有低能项会提示补采样；报告不是构象穷尽证明。
 - `scan-peak` 仅接受内部点及左右紧邻点均收敛、有能量，且中点严格高于两侧的候选；列出全部局部峰，默认选最高局部峰，`--point` 选择指定原序号。无合格峰、指定非候选、单调曲线或平台都不导出；仍须审阅扫描范围与跳变，并继续 TS/Freq/双向 IRC。
+- `scan-path` 只读现存 `facts.json` / `scan_points.xyz` 并核对几何哈希，输出点表、相邻段表和全程摘要；仅支持一维，二维非零退出。未收敛或缺几何点的两侧为 unknown，不跨点比较。JSON 包含 `points`、`segments`、`expected_bonds`（automatic/declared）、`thresholds`、`notes`、`summary`；段列出成键变化、不确定原子对、二面角/接触变化、能差、RMSD 和 `unknown_reason`。flagged/unknown 数量及点对位置在 summary 中。
+- 一维 `scan-peak` 自动使用同一诊断；`path_diagnostics` 包含全程摘要及峰前后各两点之间最多四段。附近有 flagged 段时在文本最前方及 `warnings` 中给出中英文污染警告和点对，照常选峰、导出和生成草稿；二维行为不变，不附路径诊断。`--register-candidate` 把摘要和附近段写入 `transform.path_diagnostics`；整个 transform 按 64 KiB 控制，超限标“已截断”并保留原计数和警告，完整明细可重跑 `scan-path` 查看。
+- 两命令均支持可重复的 `--expect-bond i-j`（从 1 开始，原子编号不重排）。B 扫描的原子对自动豁免成断键；例如协同质子转移须显式声明断键和成键两对。豁免不屏蔽接触、二面角或原有能差/RMSD 提示。三态成键中的 uncertain 原子对单列，既不算变化也不算一致。
+- `--dihedral-threshold` 默认 60°：比较第一个点中非环、重原子单键且两端各有其他重原子邻居的二面角；每键取编号最小的重原子邻居，按最小周期角差比较，D 扫描的中心键不计。缺 manifest 电荷、推键失败或退化二面角记未知，不猜键级。
+- `--contact-cutoff` 默认 3.5 Å：重原子非成键接触；`--hbond-cutoff` 默认 2.5 Å：与 N/O/F 成键的 H 到其他 N/O/F 的距离接触（无角度条件，不判定真实氢键）。仅列距离跨截断的出现/消失，任一侧已成键的原子对排除；保留原相邻绝对能差 >20 kcal/mol、全原子对齐 RMSD >0.5 Å 提示。**所有阈值只决定是否列出，不是科学判据或拒绝条件。沿程点多为受约束的非驻点；成键差异只说明几何变化，不说明极小点身份。** clean 只表示未列出变化；flagged 仍可带未知部分，须查看 `unknown_reason`，不能据此断言路径连续或 TS 已验证。
 - `scan-peak --gaussian-ts <新 .gjf> --route '<route>' [--title '<标题>']` 同时独占输出 XYZ 和 Gaussian TS 输入正文，不覆盖文件。电荷与多重度取扫描 Attempt 的 manifest（xTB 的 `--uhf` 转为多重度时加 1），缺失或电子数奇偶不相容就拒绝，不默认 0/1。默认标题仅含扫描 Attempt 和点号；正文保留原子顺序，坐标与导出 XYZ 相同，末尾有空行。二维仍须 `--point i,j`。
 - TS route 必须含 `Opt=TS` 或 `Opt=(TS,...)`，大小写、空格及 `Opt(...)` 写法均支持。扫描/冻结拒绝清单为 `ModRedundant`、`ModRedun`、`ModRed`、`AddRedundant`、`AddRedun`、`AddRed`、`Scan`、`ReadOptimize`、`ReadOpt`、`RdOpt`、`ReadFreeze`、`RdFreeze`、`Freeze`、`FreezeAll`、`AddGIC`、`ReadGIC`、`ReadAllGIC`；`RCFC`、`ReadFC`、`ReadCartesianFC` 必须另走 `prepare --parent-chk` 的父 chk 流程。通用 Gaussian 校验仍适用（包括拒绝 `Geom=Check/AllCheck`、External、Link1）。工具不判断方法、基组、CalcFC 或 NoEigenTest，不自动 prepare、不提交，也不把峰当作已验证 TS。
 - 草稿不含 Link0。当前 `prepare` 要求输入已有匹配档位的 `%nprocshared`，仅自动补缺少的 `%mem`，且没有 `--dry-run`。审阅正文后按现有规则补齐所需 Link0 再 prepare；正文校验使用仅在内存中的临时资源行，不写入草稿，也不代表实际资源已选择。

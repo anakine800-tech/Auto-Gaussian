@@ -663,7 +663,16 @@ def one_dimensional_snapshot(root, program):
             stream = io.StringIO()
             with contextlib.redirect_stdout(stream):
                 assert cli.main(['scan-peak', str(root), '--point', '4', '--out', str(dest)] + (['--json'] if fmt == 'json' else [])) == 0
-            case[fmt] = stream.getvalue().replace(str(dest), '<out>')
+            output = stream.getvalue().replace(str(dest), '<out>')
+            # T136 adds path diagnostics; retain the pre-T75 byte baseline for
+            # selection, original warnings, parsed scan and exported geometry.
+            if fmt == 'json':
+                report = json.loads(output)
+                report.pop('path_diagnostics')
+                output = json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False) + '\n'
+            else:
+                output = output[output.index('仅为 TS 初猜，不判定 TS；'):]
+            case[fmt] = output
             case[fmt + '_xyz'] = dest.read_text()
         cases[name] = case
     cases['summary'] = summary({'scan': definition()})
