@@ -66,6 +66,16 @@ imaginary_mode_matches: true
 
 单构象必须逐物种提供非空 `single_conformer_reason`；即便简并度大于 1，只算了一个代表也要说明。构象归属、物理简并度和分子身份的判断仍由人负责，元素组成相同不证明是同一个物种。
 
+### 选择性与共同参考态
+
+**局部能垒只在同一前体内有意义；跨前体比较必须回到共同参考态。**
+例如前体 A 的 G=0、局部垒=10；前体 B 的 G=3、局部垒=9（均为 kcal/mol），共同参考下 TS 分别为 10 和 12，不是 10 和 9。不同前体的局部垒不得直接相加或比较；系综加权/比较前逐项核对共同参考态、标准态、热修正设置、计量与浓度项，并以独立动力学依据确认前体互变足够快。
+`highest_local_barrier_TS` 是各步局部正向能垒的最大者标识；`step_decomposition` 是生成逐步分解的内部函数，结果写入 `steps[]` 的局部正逆垒及分解/换算字段，并非同名 JSON 顶层字段。两者都不能跨前体直接用作产物通量比较。
+选择性同时报告 `lowest_ts.pairwise` 的 `lowest_ts_ddG_kcal`、`ensemble_ddG_kcal`、`difference_kcal`（系综减单结构），保留相同的产物顺序与 G_eff(b)−G_eff(a) 符号。
+`lowest_ts` 在每个产物分支的全部 TS species/构象中选修正后自由能最低的单个结构，保留所在通道的真实 `paths`；不对构象求和、不乘构象简并度，后者仅报告。附 species、Attempt 来源与修正后 G；`lowest_conformer` 则对每个 TS species 各取最低构象，仍对多个通道及 paths 求和，不能替代单结构结果。
+**单结构结果和系综结果不是同一个物理量；差值大说明结论对构象采样敏感，不代表哪个更正确。**
+来源：[T139](../../../docs/redesign-tasks/T139-card-wording.md) A1–A3、[审计第 1、2、10 节](../../../docs/research/ts-guess-audit.md)；Laplaza 等，*J. Phys. Chem. Lett.* **2024**, *15*, 7363–7370，[DOI:10.1021/acs.jpclett.4c01657](https://pubs.acs.org/doi/10.1021/acs.jpclett.4c01657)。
+
 立体或区域选择性用顶层可选字段，按产物汇总全部 TS 通道，例如：
 
 ```json
@@ -118,9 +128,14 @@ ag profile <study_dir>/analyses/reaction.json --perturb 1.0 --json
 `μ_i = G_i° + RT ln(a_i)` 表示，理想稀溶液可用 `a_i = c_i/c°`；
 纯溶剂、气体及非理想体系须声明相应活度/压力模型，不能一律代入 1 M。
 
+**重复找到同一个 TS 的次数不是简并度。**
+进入系综前先在 DFT 层核对最终几何并跨搜索来源、跨 species 去重：多个低层构象可能收敛到同一个 DFT TS；不同 Attempt 不保证不同驻点，工具不自动完成这项审阅。
+只使用有来源的真实对称简并，分别列构象简并度 d、等价路径数 `paths`、转动对称数 σ；已显式枚举的等价项不再重复计权，σ 不得再乘进前两者。`cluster --mirror` 的计数依赖去重输入和映射判据，不能直接当作真实简并导入 TS 统计。
+来源：[T139](../../../docs/redesign-tasks/T139-card-wording.md) A1–A3、[审计第 1、2、10 节](../../../docs/research/ts-guess-audit.md)；Laplaza 等，*J. Phys. Chem. Lett.* **2024**, *15*, 7363–7370，[DOI:10.1021/acs.jpclett.4c01657](https://pubs.acs.org/doi/10.1021/acs.jpclett.4c01657)。
+
 构象系综可写成 `G_ens = G_min − RT ln Σ_i d_i exp[−(G_i−G_min)/RT]`。
-分别记录构象简并度 d_i、旋转对称数 σ_i 和等价反应路径数 m_ci 及各自来源；
-σ_i 已在转动热化学中计入，不再充当 d_i；路径数不写入 thermo 的 degeneracy。
+分别记录构象简并度 d_i、旋转对称数 σ_i 和等价反应路径数 m_ci（`paths`）及各自来源；
+σ_i 已在转动热化学中计入，不再充当 d_i 或 paths；路径数不写入 thermo 的 degeneracy。
 同一化学盆地单独汇总，说明对称性、简并度及其来源；已逐个列出的
 等价结构不能再次乘同一简并度。TS 反应坐标的虚频不作普通稳定振动
 参与热配分函数；须核实工具的 TS 热化学处理，不能把极小点布居工具
@@ -165,6 +180,9 @@ SMD 下 H/S 分项只是当前 RRHO/qRRHO 与单点替换模型的审计分项�
   本命令提供每步正反 Eyring 换算及 `selectivity` 产物通道汇总，未实现完整反应网络与微观动力学；
   不能由最高的一根能垒直接推断实验速率或由两个孤立 TS 推断实验 ee。
 
+覆盖结论统一使用 **在声明的通道范围与采样预算内稳定**，并列范围、预算、未覆盖通道和证据；数值稳定或未再发现新结构不证明全局完备。通道六态及派生/声明规则见 [TS 覆盖与失败记录](ts.md#覆盖与失败记录)；catalog 的“候选 / 采用 / 退役”是对象采用状态，不能当作通道覆盖状态。
+来源：[T139](../../../docs/redesign-tasks/T139-card-wording.md) A4、[catalog v2 第 5 节](../../../docs/ag-catalog-2.md#5-通道派生与查询)。
+
 输出应包括每个通道的覆盖、简并度、排除理由和仍缺的合理候选。
 分别检查构象遗漏/逐一移除候选、能量扰动、溶剂、低频处理、标准态、
 催化态布居与竞争机理；扰动范围按研究所需精度和方法证据选择。
@@ -174,6 +192,10 @@ SMD 下 H/S 分项只是当前 RRHO/qRRHO 与单点替换模型的审计分项�
 
 IRC 连通证明的是所审阅势能面的路径连接，不代表真实动力学轨迹或产物比例；
 出现路径分叉迹象时另行研究局部势能面及适用的动力学，不能凭单条 IRC 排除分支。
+TS 后分岔或产物分支不能唯一确定时，候选结果的归属用 `undetermined` 并列出候选通道；这些 TS 不放入 profile 的简单选择性定义，每个 TS 必须唯一归属，不能把同一 TS 重复塞入多个产物。报告标注“简单 TS 能垒比不适用”。单条 IRC 不能排除另一分支；本期不做轨迹计算。
+涉及上述 catalog v2 登记时：**v4.6.0 在两台电脑部署完成之前，真实研究 study 不写 v2 事件**。
+来源：[T139](../../../docs/redesign-tasks/T139-card-wording.md) A9/X4、[catalog v2](../../../docs/ag-catalog-2.md)、[审计第 11 节](../../../docs/research/ts-guess-audit.md)。
+
 普通极小点、非共价复合物和受约束 TS 候选按
 [reaction-plan 的分类后续路线](reaction-plan.md#候选分类与路径边界)分别处理后再决定能否进入本工具。
 
@@ -244,11 +266,7 @@ IRC 连通证明的是所审阅势能面的路径连接，不代表真实动力�
 
 ### 畸变–相互作用分析
 
-已有可比的复合物与片段单点时，可用 `ag asm` 做电子能分解。先人工指定片段原子列表、
-电荷和多重度，再用 `ag asm split <Attempt> --geometry input --atoms 1-3 --name first --out analyses/first.xyz --study <study>`
-导出片段；优化或 TS 的最终坐标改用 `--geometry final`，读取 `final_input.xyz`。
-保留 `original_atoms` 映射，按升序坐标准备片段单点，沿用复合物的方法和溶剂模型。
-计算仍走正常 prepare / 人工确认提交流程，本命令不会准备或提交计算。
+已有可比的复合物与片段单点时，可用 `ag asm` 做电子能分解。先人工指定片段原子列表、 电荷和多重度，再用 `ag asm split <Attempt> --geometry input --atoms 1-3 --name first --out analyses/first.xyz --study <study>` 导出片段；优化或 TS 的最终坐标改用 `--geometry final`，读取 `final_input.xyz`。 保留 `original_atoms` 映射，按升序坐标准备片段单点，沿用复合物的方法和溶剂模型。 计算仍走正常 prepare / 人工确认提交流程，本命令不会准备或提交计算。
 
 将人工定义保存到 analyses JSON 后运行
 `ag asm summary --definition analyses/asm-definition.json --out analyses/asm.json --study <study>`。

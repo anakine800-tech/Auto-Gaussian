@@ -11,7 +11,7 @@ description: 为 ag 新架构提供 Opt+Freq、单点、RDKit 或 CREST 初筛�
 |---|---|---|
 | [reaction-plan](cards/reaction-plan.md) | 主族闭壳层同面机理假设与修正 | 明确科学问题；假设需人签字后才能推进依赖计算 |
 | [complex](cards/complex.md) | 双分子步骤、反应物/产物复合物与离子对；仅已审阅原子对约束采样 | 已签机理假设、计算方案及各组分身份；原子对已审阅 |
-| [ts](cards/ts.md) | 已审阅单结构初猜的 TS 优化与振动审核 | 已签机理假设、结构与代表构象集合 |
+| [ts](cards/ts.md) | TS 初猜工作流、已审阅初猜的 TS 优化与振动审核 | 已签机理假设、结构与代表构象集合 |
 | [irc](cards/irc.md) | 双向路径与端点极小点识别 | 已接受 TS 与振动方向；缺能力或证据时记录具体阻塞 |
 | [opt-freq](cards/opt-freq.md) | 主族闭壳层单分子极小点 | 已签结构与代表构象集合、已定方法 |
 | [sp](cards/sp.md) | 同一物种极小点的电子能精化 | 已接受的 Opt+Freq 最终几何 |
