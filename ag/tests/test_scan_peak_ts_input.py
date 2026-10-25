@@ -180,7 +180,8 @@ def test_registration_upgrade_hash_and_ledger(tmp_path, capsys, explicit):
     assert (root / 'catalog/journal.jsonl').read_bytes().startswith(old)
     transform = event['transform']
     assert set(transform) == {'type', 'point', 'coordinate_value', 'energy_hartree',
-        'relative_energy_kcal_mol', 'neighbors', 'scan_points_sha256', 'selection', 'warnings'}
+        'relative_energy_kcal_mol', 'neighbors', 'scan_points_sha256', 'selection', 'warnings', 'path_diagnostics'}
+    assert transform['path_diagnostics'] == report['path_diagnostics']
     assert transform['type'] == 'scan_peak' and transform['point'] == 4
     assert transform['coordinate_value'] == report['peak']['coordinate_value']
     assert transform['energy_hartree'] == report['peak']['energy_hartree']
