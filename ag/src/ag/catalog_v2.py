@@ -500,7 +500,7 @@ def plan(root, objects, op, fields, checks, warnings, archives):
     if op == 'coverage':
         return dict(object=identity, **{k: f[k] for k in ('statement', 'scope', 'budget', 'quote')})
     if op == 'candidate':
-        data = read_bytes(f['xyz'], 1024 * 1024)
+        data = f['_xyz_bytes'] if '_xyz_bytes' in f else read_bytes(f['xyz'], 1024 * 1024)
         count, composition = xyz(data)
         hashed = sha256(data).hexdigest()
         parent = dict(attempt=f.get('parent_attempt'), file=None)
@@ -513,7 +513,8 @@ def plan(root, objects, op, fields, checks, warnings, archives):
         literature = dict(doi=f['doi'], si_location=f.get('si_location')) if f.get('doi') else None
         event = dict(object=identity, id=f['id'], source=str(f['xyz']), file=f'catalog/candidates/{hashed}.xyz',
                      sha256=hashed, n_atoms=count, formula=composition, origin=f['origin'], parent=parent,
-                     transform=read_json(f.get('transform_json')), target_channel=f.get('target_channel'),
+                     transform=f['_transform'] if '_transform' in f else read_json(f.get('transform_json')),
+                     target_channel=f.get('target_channel'),
                      literature=literature, note=f.get('note'))
         archive(root, event, data)
         archives.append((event, data))

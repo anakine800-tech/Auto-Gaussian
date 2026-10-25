@@ -347,3 +347,101 @@ def test_legacy_invalid_prepared_input_is_only_rechecked_when_verifying(cfg, tmp
     with pytest.raises(ValueError, match='line 9: .*finite Cartesian'):
         attempt.verified_files(cfg, path, manifest)
     assert {p.relative_to(path): p.read_bytes() for p in path.rglob('*') if p.is_file()} == before
+
+
+# T133: render bodies for both scan TS guesses and future QST callers.
+WATER_SECTION = (0, 1, ['O', 'H', 'H'], [(0, 0, 0), (0, 0, 1), (0, 1, 0)])
+
+
+@pytest.mark.parametrize('count', [1, 2, 3])
+def test_render_input_body_and_qst(count):
+    route = '# HF/STO-3G Opt=' + ('TS' if count == 1 else f'(QST{count},CalcFC)')
+    body = gaussian_input.render_input(route, 'Synthetic water', [WATER_SECTION] * count)
+    assert body.startswith(route + '\n\n') and body.endswith('\n\n')
+    assert '%' not in body and body.count('Synthetic water') == count
+    result = validate('%nprocshared=8\n%mem=10GB\n' + body)
+    assert result['charge'] == 0 and result['multiplicity'] == 1 and result['n_atoms'] == 3
+    if count > 1:
+        assert len(result['structures']) == count and result['qst_mode'] == f'QST{count}'
+        assert result['structures'][0]['elements'] == WATER_SECTION[2]
+        assert [s['title'] for s in result['structures']] == ['Synthetic water'] * count
+
+
+@pytest.mark.parametrize('titles', [['Reactant', 'Product'], ('Reactant', 'Product', 'TS guess')])
+def test_render_input_individual_titles(titles):
+    route = f'# HF/STO-3G Opt=QST{len(titles)}'
+    body = gaussian_input.render_input(route, titles, iter([WATER_SECTION] * len(titles)))
+    result = validate('%nprocshared=8\n%mem=10GB\n' + body)
+    assert [s['title'] for s in result['structures']] == list(titles)
+    assert body.endswith('\n\n') and '%' not in body
+
+
+@pytest.mark.parametrize('titles', [[], ['Only reactant'], ['Reactant', 'Product', 'Extra']])
+def test_render_input_title_count_must_match(titles):
+    with pytest.raises(ValueError, match='title sequence length'):
+        gaussian_input.render_input('# HF/STO-3G Opt=QST2', titles, [WATER_SECTION] * 2)
+
+
+@pytest.mark.parametrize('bad', ['', '  ', 'First\nSecond', 'Title\n', '\nTitle',
+                                 'First\rSecond', 'Title\r\n', 'First\u2028Second'])
+@pytest.mark.parametrize('sequence', [False, True])
+def test_render_input_titles_reject_empty_or_line_breaks(bad, sequence):
+    with pytest.raises(ValueError, match='title must be nonempty and contain no line breaks'):
+        gaussian_input.render_input('# HF/STO-3G Opt=QST2', ['Reactant', bad] if sequence else bad,
+                                    [WATER_SECTION] * 2)
+
+
+@pytest.mark.parametrize('route,title,sections,error', [
+    ('# HF/STO-3G', '', [WATER_SECTION], 'title'),
+    ('# HF/STO-3G', 'title\n\n0 1', [WATER_SECTION], 'title'),
+    ('# HF/STO-3G\n\nextra', 'title', [WATER_SECTION], 'route'),
+    ('%chk=extra.chk\n# HF/STO-3G', 'title', [WATER_SECTION], 'Link0'),
+    ('# HF/STO-3G\n%chk=extra.chk', 'title', [WATER_SECTION], 'Link0'),
+    ('# HF/STO-3G', 'title', [], 'Expected route'),
+    ('# HF/STO-3G', 'title', [(0, 1, ['H'], [])], 'matching'),
+    ('# HF/STO-3G', 'title', [(0, 2, ['H'], [(0, 1)])], 'three Cartesian'),
+    ('# HF/STO-3G', 'title', [(0, 2, ['H'], [(float('nan'), 0, 0)])], 'finite Cartesian'),
+    ('# HF/STO-3G', 'title', [(0, 1, ['Bq'], [(0, 0, 0)])], 'real element'),
+    ('# HF/STO-3G', 'title', [(0, 1, ['H'], [(0, 0, 0)])], 'parity'),
+    ('# HF/STO-3G', 'title', [(False, 1, ['He'], [(0, 0, 0)])], 'integer'),
+    ('# HF/STO-3G', 'title', [(0, 0, ['He'], [(0, 0, 0)])], 'positive'),
+    ('# HF/STO-3G Geom=AllCheck', 'title', [WATER_SECTION], 'Geom=Check'),
+    ('# HF/STO-3G External=program', 'title', [WATER_SECTION], 'External'),
+    ('# HF/STO-3G', 'title --Link1--', [WATER_SECTION], 'Link1'),
+    ('# HF/STO-3G Opt=QST2', 'title', [WATER_SECTION], 'exactly 2'),
+])
+def test_render_input_validates_sections(route, title, sections, error):
+    with pytest.raises(ValueError, match=error):
+        gaussian_input.render_input(route, title, sections)
+
+
+@pytest.mark.parametrize('option', ['opt=ts', 'OPT=(TS, CALCFC)', 'Opt ( CalcFC, tS )',
+                                  'opt = ts', 'Opt=(TS,\nNoEigenTest,MaxCycles=100)'])
+def test_ts_route_forms_and_scientific_choices(option):
+    # No method/basis whitelist, and no requirement to choose CalcFC/NoEigenTest.
+    assert gaussian_input.ts_route_check('# ArbitraryMethod/ArbitraryBasis ' + option) is None
+
+
+@pytest.mark.parametrize('option', ['SP', 'TS Opt=CalcFC', 'Opt=NotTS', 'Opt=(TSBad)',
+                                  'Opt=(MaxCycle=TS)', 'Opt=(MaxCycle = TS)', 'Opt=(TS=No)',
+                                  'Opt=(TS', 'Opt=QST2'])
+def test_ts_route_requires_an_actual_ts_option(option):
+    with pytest.raises(ValueError, match='requires Opt=TS'):
+        gaussian_input.ts_route_check('# HF/STO-3G ' + option)
+
+
+@pytest.mark.parametrize('keyword', [
+    'ModRedundant', 'ModRedun', 'ModRed', 'AddRedundant', 'AddRedun', 'AddRed', 'Scan',
+    'ReadOptimize', 'ReadOpt', 'RdOpt', 'ReadFreeze', 'RdFreeze', 'Freeze', 'FreezeAll',
+    'AddGIC', 'ReadGIC', 'ReadAllGIC',
+])
+@pytest.mark.parametrize('form', ['Opt=(TS,{k})', 'Opt=TS Geom={k}', 'Opt=TS {k}'])
+def test_ts_route_rejects_scan_freeze_keywords(keyword, form):
+    with pytest.raises(ValueError, match='scan/freeze'):
+        gaussian_input.ts_route_check('# HF/STO-3G ' + form.format(k=keyword.swapcase()))
+
+
+@pytest.mark.parametrize('keyword', ['RCFC', 'ReadFC', 'ReadCartesianFC'])
+def test_ts_route_requires_parent_chk_for_read_force_constants(keyword):
+    with pytest.raises(ValueError, match='prepare --parent-chk'):
+        gaussian_input.ts_route_check(f'# HF/STO-3G Opt=(TS,{keyword.lower()})')

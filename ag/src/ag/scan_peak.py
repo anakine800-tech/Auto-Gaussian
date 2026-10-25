@@ -2,6 +2,7 @@
 from hashlib import sha256
 import json
 from pathlib import Path
+import sys
 
 from ag import geometry as geo
 from ag.irc_compare import _attempt
@@ -137,9 +138,63 @@ def select_saddle(scan, frames, point):
     return report, chosen
 
 
+def gaussian_draft(args, path, frame, report):
+    from ag import catalog_v2, gaussian_input
+    gaussian_input.ts_route_check(args.route)
+    values, unavailable = catalog_v2.manifest_info(path.parent.parent, path.name)
+    missing = [f'{key}: {unavailable.get(key, "unavailable")}'
+               for key in ('charge', 'multiplicity') if key not in values]
+    if missing:
+        raise ValueError('Cannot generate Gaussian TS draft from manifest: ' + '; '.join(missing))
+    point = report['peak']['point']
+    label = ','.join(map(str, point)) if isinstance(point, list) else str(point)
+    title = args.title if args.title is not None else f'TS guess from scan {path.name} point {label}'
+    body = gaussian_input.render_input(args.route, title, [
+        (values['charge'], values['multiplicity'], frame.symbols, frame.coordinates)])
+    data = body.encode('utf-8')
+    report['gaussian_ts'] = dict(path=str(args.gaussian_ts), route=args.route.strip(),
+                               charge=values['charge'], multiplicity=values['multiplicity'],
+                               title=title.strip(), sha256=sha256(data).hexdigest())
+    return data
+
+
+def register_peak(args, path, report, xyz_bytes, scan_hash):
+    from ag import catalog
+    peak = report['peak']
+    transform = dict(type='scan_peak', point=peak['point'],
+                     coordinate_value=peak.get('coordinate_value', peak.get('coordinate_values')),
+                     energy_hartree=peak['energy_hartree'],
+                     relative_energy_kcal_mol=(peak['energy_hartree'] -
+                         report['relative_energy_reference']['energy_hartree']) * geo.HARTREE_TO_KCAL,
+                     neighbors=report['neighbors_before'] + report['neighbors_after'],
+                     scan_points_sha256=scan_hash,
+                     selection='default_highest' if args.point is None else 'explicit_point',
+                     warnings=report['warnings'])
+    return catalog.register_candidate(path.parent.parent, object=args.object, id=args.candidate_id,
+                                      xyz_bytes=xyz_bytes, source=str(args.out), origin='scan',
+                                      parent_attempt=path.name, transform=transform,
+                                      target_channel=args.target_channel, dry_run=args.dry_run,
+                                      upgrade_catalog=args.upgrade_catalog)
+
+
 def run(args):
+    if args.gaussian_ts is not None and args.route is None:
+        raise ValueError('--gaussian-ts requires --route')
+    if args.gaussian_ts is None and (args.route is not None or args.title is not None):
+        raise ValueError('--route/--title require --gaussian-ts')
+    if args.register_candidate:
+        if not args.object or not args.candidate_id:
+            raise ValueError('--register-candidate requires --object and --candidate-id')
+    elif (args.object is not None or args.candidate_id is not None or args.target_channel is not None
+          or args.upgrade_catalog or args.dry_run):
+        raise ValueError('Candidate options, --upgrade-catalog and --dry-run require --register-candidate')
     if args.out.exists() or args.out.is_symlink():
         raise FileExistsError(f'Output already exists: {args.out}')
+    if args.gaussian_ts is not None:
+        if args.gaussian_ts.exists() or args.gaussian_ts.is_symlink():
+            raise FileExistsError(f'Output already exists: {args.gaussian_ts}')
+        if args.gaussian_ts.resolve() == args.out.resolve():
+            raise ValueError('--gaussian-ts and --out must be different new files')
     path = _attempt(args.attempt, args.study)
     facts = json.loads((path / 'facts.json').read_text())
     scan = facts.get('scan')
@@ -150,8 +205,22 @@ def run(args):
     if source.is_symlink() or sha256(source.read_bytes()).hexdigest() != scan.get('geometries_sha256'):
         raise ValueError('scan_points.xyz differs from facts.json; review/regenerate facts')
     report, frame = select_peak(scan, geo.read_xyz(source), point=args.point)
-    geo.write_xyz(args.out, [frame])
+    draft = gaussian_draft(args, path, frame, report) if args.gaussian_ts is not None else None
+    xyz_bytes = geo.xyz_text([frame]).encode('utf-8')
+    with args.out.open('xb') as handle:
+        handle.write(xyz_bytes)
+    if draft is not None:
+        with args.gaussian_ts.open('xb') as handle:
+            handle.write(draft)
     report['out'] = str(args.out)
+    registration_error = None
+    if args.register_candidate:
+        try:
+            report['candidate'] = register_peak(args, path, report, xyz_bytes, scan['geometries_sha256'])
+        except (ValueError, OSError, KeyError) as exc:
+            registration_error = f'Candidate registration failed; exported files retained; no retry: {exc}'
+            report['candidate'] = dict(error=registration_error)
+            report['exit_code'] = 1
     if args.json:
         print(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False))
     elif scan.get('dimensions') == 2:
@@ -181,7 +250,14 @@ def run(args):
                   f"converged={point['converged']}")
         for warning in report['warnings']:
             print('警告：' + warning)
-    return 0
+    if not args.json:
+        if draft is not None:
+            print(f'Gaussian TS 输入草稿：{args.gaussian_ts}（审阅后再 prepare）')
+        if args.register_candidate and registration_error is None:
+            print(json.dumps(dict(candidate=report['candidate']), ensure_ascii=False, indent=2, allow_nan=False))
+        if registration_error:
+            print(registration_error, file=sys.stderr)
+    return 1 if registration_error else 0
 
 
 def point_argument(text):
@@ -200,5 +276,14 @@ def register(subparsers):
     parser.add_argument('--out', type=Path, required=True, help='New XYZ file; existing files are refused')
     parser.add_argument('--point', type=point_argument,
                         help='1-based point (1D local maximum) or i,j (2D saddle candidate; required for 2D)')
+    parser.add_argument('--gaussian-ts', type=Path, help='New Gaussian TS body, without Link0; no prepare/submit')
+    parser.add_argument('--route', help='Explicit Gaussian TS route, including #')
+    parser.add_argument('--title', help='Draft title; defaults to scan Attempt and point')
+    parser.add_argument('--register-candidate', action='store_true', help='Opt in to T131 candidate registration')
+    parser.add_argument('--object', help='Existing catalog object ID')
+    parser.add_argument('--candidate-id', help='New candidate ID')
+    parser.add_argument('--target-channel', help='Existing target channel ID')
+    parser.add_argument('--upgrade-catalog', action='store_true', help='Confirm catalog /1 to /2 upgrade')
+    parser.add_argument('--dry-run', action='store_true', help='Preview registration only; XYZ/Gaussian files are still written')
     parser.add_argument('--json', action='store_true')
     parser.set_defaults(func=run)
