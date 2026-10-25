@@ -247,6 +247,48 @@ ag profile '<STUDY_DIR>/analyses/<PROFILE_JSON>' --name '<NEW_PROFILE_NAME>' --j
 - `profile` 输入定义放在 study 的 `analyses/`，引用已审阅物种及可比的热化学来源；输出到新的名称，不覆盖。`--perturb 1` 可逐个 TS 状态做 ±1 kcal/mol 扰动分析。新增焓熵分项、分子数、正反 Eyring 速率/半衰期和 σ 来源/警告；可选 `selectivity: [{"id": "products", "products": {"R": [{"species": "ts_r1"}, {"species": "ts_r2", "paths": 2}], "S": [{"species": "ts_s"}]}, "perturb_kcal": 1.0}]` 按产物汇总同组成同电荷 TS，输出产物比例、有效能垒、两两比例及最低构象对照。两产物给有符号 ee（首标签占优为正），多产物给分布/dr；可选扰动逐 TS 物种报告比例区间和翻转。paths 与构象简并度分开，省略标为默认 1。换算均为 κ=1 的简单 TST，缔合用标准态准一级近似，不等同于实验速率/ee。schema 保持 `ag-profile/1`，既有能量不变。SP/Freq 配对须有几何证据，热化学审计分项不能重复加到 qh_G；无势垒步骤不支持表达。
   选择性另以 `lowest_ts` 给出“最低 TS / 系综 / 差值”：每个产物分支在所有 TS species 的全部构象中取修正后自由能最低的单个结构，复用该 species 的标准态与浓度修正；保留所选通道的真实 paths，不对构象求和、不乘构象简并度（仅报告其值），并列出 species、Attempt 和修正后自由能。相差不超过 1e-9 kcal/mol 的最低候选按通道定义顺序、再按 Attempt ID 选取；`ties` 列出所有并列项，无并列时为空。每对产物的符号为 G_eff(b)−G_eff(a)，系综数值直接沿用原结果，差值为系综减最低 TS；两产物另报同符号约定的单结构 ee。原 `lowest_conformer` 仍对每个 TS species 各取最低构象后汇总多个通道及 paths，字段与数值不变。单结构结果和系综结果不是同一个物理量，差值大说明结论对构象采样敏感，不代表哪个更正确。
 
+## QST2 端点映射与输入草稿
+
+`ag qst-endpoints` 只接受同一 study 的两个精确 Attempt ID：状态为 `fetched`、
+facts 可读且 `opt_converged=true`。已知 `n_imag` 必须为零，未知时报告警告；
+电荷、多重度从 manifest 读取，缺失或两端不一致即拒绝。优先读取 `final_input.xyz`，
+否则读取 `final.xyz`，报告所用文件及 SHA-256；不接受任意 XYZ 端点。
+
+```sh
+ag qst-endpoints '<STUDY_DIR>' --reactant '<REACTANT_ATTEMPT>' \
+  --product '<PRODUCT_ATTEMPT>' --mapping '<MAPPING_JSON>' \
+  --route '# <METHOD/BASIS> Opt=(QST2,CalcFC)' --out '<NEW_QST2_GJF>' --json
+```
+
+映射文件示例为 `{"product_to_reactant": [[1, 3], [2, 1], [3, 2]]}`：
+每一对是“产物原编号、反应物原编号”，均从 1 开始，必须完整、一一对应、元素相同。
+工具不推断原子映射，只按人工映射重排产物，再通过 Kabsch 正规旋转和平移对齐；
+不镜像，不改变反应物坐标。默认全部原子等权参与，可用 `--align-atoms 1-3,5`
+指定反应物编号子集。报告子集 RMSD、该次对齐的全原子 RMSD、位移最大的十个原子，单位 Å。
+
+分别在两端分子图上复用 `rms_atom_maps` 的元素、连接和四面体手性规则枚举自同构，
+对每个非恒等排列使用同一对齐子集重算 RMSD。若比人工映射低超过 0.01 Å，报错且不写草稿，
+列出端点、原子对和 RMSD；原子对表示重排后反应物编号空间中的有向置换，可能含多原子循环。
+人可修改映射，或明确使用 `--keep-mapping --reason '<保留理由>'`；理由及跳过的更优排列
+进入报告和可选登记。**0.01 Å 仅为报告比较容差，不是科学判据**；任何绝对 RMSD 都不自动判定路径适用性。
+报告分别列出两端已检查的非恒等映射数。单端超过 `RMS_MAX_MAPPINGS=10000` 即拒绝，不截断；
+需人重新审阅并缩小问题范围，`--align-atoms` 不会减少全图枚举数。图推断失败或按既有半径规则
+存在不确定连接时拒绝，工具不猜成键关系。
+
+正文复用 `gaussian_input.render_input()`，反应物在前、产物在后；默认标题分别为
+`QST2 reactant <Attempt>`、`QST2 product <Attempt>`，可用 `--title-reactant`、`--title-product`
+覆盖。route 必须包含 QST2 优化且不含 QST3；扫描、冻结及 RCFC/ReadFC/ReadCartesianFC
+检查复用 scan-peak 的 TS 草稿规则。输出通过现有 Gaussian 校验、末尾有空行、不写 Link0、不覆盖。
+审阅后按资源档位补 `%nprocshared` 等 Link0，再走现有 prepare；工具不自动 prepare 或提交。
+**新取向不能用于读取旧 chk 的 Cartesian 力常数**；相关复用必须另走 `prepare --parent-chk`
+的来源和取向核对，不能以对齐 RMSD 代替。
+
+默认不访问或创建 catalog。可加 `--register-candidate --object '<OBJECT>' --candidate-id '<ID>'`
+及可选 `--target-channel '<CHANNEL>'` 登记 `origin=qst`：候选 XYZ 是重排并对齐的产物，
+父 Attempt 为反应物，transform 保存两端来源哈希、映射哈希、对齐集合/RMSD及保留映射理由。
+沿用 T131 登记、存档和升级规则，需要升级时须显式 `--upgrade-catalog`；失败保留已生成草稿并返回非零。
+`--dry-run` 仍写新草稿，但只预览登记，不写 catalog。**T132 部署前，真实研究 study 不使用登记参数。**
+
 ## Skills 部署
 
 将以下六个目录从长期保留的仓库 `skills-next/` 软链接到 `~/.codex/skills/`：

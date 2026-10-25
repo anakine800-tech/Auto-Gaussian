@@ -18,7 +18,9 @@
 
 - Hessian 引导的单结构初猜：已有合理 TS 状几何时，用反应坐标与曲率信息判断适用性；CalcFC 不能弥补错误原子映射。
 - 沿反应坐标做一维弛豫扫描：记录坐标、范围、步长、冻结项及选点依据，局部极大仅是初猜，具体做法见下。
-- QST2/QST3：端点须有相同原子组成、实际行顺序与对应；QST3 还需 TS 初猜。使用已支持的 QST 多结构输入，逐组审阅实际坐标与位移摘要。
+- QST2：用 `ag qst-endpoints <study> --reactant <Attempt> --product <Attempt> --mapping <映射.json> --route '# <方法/基组> Opt=(QST2,CalcFC)' --out <新.gjf>` 处理已 fetched、优化收敛的两端；人工提供完整 `product_to_reactant` 映射，不接受任意 XYZ。
+  审阅等价排列、RMSD 与位移；有更优排列时改映射，或用 `--keep-mapping --reason '<理由>'` 明确保留。工具只正规旋转和平移、不镜像、不推断映射；新取向不能读取旧 chk 的 Cartesian 力常数。
+  逐组审阅草稿、电荷多重度、实际行顺序与对应，补资源 Link0 后再 prepare；登记可选，T132 部署前真实研究不使用 `--register-candidate`。QST3 仍需额外 TS 初猜，使用已有多结构输入并逐组审阅。
 - 类比已知 TS：记录 DOI/结构来源、映射及差异；类比几何不意味着该方法或机理已获验证。
 - 扫描初猜可用 `ag scan-peak`；全自动 TS 搜索不在当前范围，工具给的结构仍需人工审阅。
 

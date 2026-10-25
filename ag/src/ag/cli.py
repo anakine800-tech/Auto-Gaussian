@@ -202,7 +202,7 @@ def main(argv=None):
     register(subparsers)
     from ag.route import register as register_route
     register_route(subparsers)
-    for name in ('facts', 'thermo', 'dedup', 'cluster', 'graph', 'irc_compare', 'profile', 'coverage', 'scan_peak', 'topology', 'mode_review', 'fragments', 'ensemble', 'channel_coverage', 'asm', 'irc_review', 'nci_report', 'cp_report', 'catalog'):
+    for name in ('facts', 'thermo', 'dedup', 'cluster', 'graph', 'irc_compare', 'profile', 'coverage', 'scan_peak', 'qst_endpoints', 'topology', 'mode_review', 'fragments', 'ensemble', 'channel_coverage', 'asm', 'irc_review', 'nci_report', 'cp_report', 'catalog'):
         module_name = f'ag.{name}'
         try:
             module = import_module(module_name)

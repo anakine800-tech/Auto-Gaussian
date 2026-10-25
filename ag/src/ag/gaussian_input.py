@@ -166,6 +166,7 @@ def _qst_structures(sections, mode, section_lines):
 
 def _qst_displacements(structures):
     """Proper Kabsch rotation, all atoms equally weighted, fixed input row mapping."""
+    from ag.geometry import kabsch
     try:
         import numpy as np
     except ImportError as exc:
@@ -175,12 +176,10 @@ def _qst_displacements(structures):
     # Fail clearly if finite but extreme coordinates overflow the alignment.
     try:
         with np.errstate(over='raise', invalid='raise'):
+            rotation, _ = kabsch(arrays[1], arrays[0])
             reference, moving = [a - a.mean(axis=0) for a in arrays]
-            u, _, vt = np.linalg.svd(moving.T @ reference)
-            correction = np.eye(3)
-            correction[-1, -1] = 1 if np.linalg.det(u @ vt) >= 0 else -1
-            displacement = np.linalg.norm(moving @ (u @ correction @ vt) - reference, axis=1)
-    except (FloatingPointError, np.linalg.LinAlgError) as exc:
+            displacement = np.linalg.norm(moving @ rotation - reference, axis=1)
+    except (ValueError, FloatingPointError, np.linalg.LinAlgError) as exc:
         raise ValueError('QST coordinates cannot be aligned numerically') from exc
     # Rounded values make confirmation revalidation independent of insignificant SVD noise.
     values = [round(float(value), 8) for value in displacement]

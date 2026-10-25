@@ -85,3 +85,27 @@ main([])
 '''
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
+
+
+def test_kabsch_proper_rotation_fixed_order_and_no_mutation():
+    import numpy as np
+    left = np.array([[0., 0, 0], [1, 1, 1], [1, -1, -1], [-1, 1, -1], [-1, -1, 1]])
+    expected = np.array([[0, 1, 0], [-1, 0, 0], [0, 0, 1]])
+    right = left @ expected + [3, 4, 5]
+    before = left.copy(), right.copy()
+    rotation, rmsd = g.kabsch(left, right)
+    assert rmsd < 1e-12 and rotation == pytest.approx(expected)
+    assert np.array_equal(left, before[0]) and np.array_equal(right, before[1])
+    rotation, rmsd = g.kabsch(left, left * [-1, 1, 1])
+    assert np.linalg.det(rotation) == pytest.approx(1) and rmsd > 1
+    # A transposition must not be silently repaired as an equivalent atom map.
+    assert g.kabsch(left, left[[0, 2, 1, 3, 4]])[1] > 1
+    assert g.kabsch([[1, 2, 3]], [[4, 5, 6]])[1] == 0
+
+
+@pytest.mark.parametrize('left,right', [([], []), ([[0, 0]], [[0, 0]]),
+    ([[0, 0, 0]], [[0, 0, 0], [1, 1, 1]]), ([[float('nan'), 0, 0]], [[0, 0, 0]]),
+    ([[1e308, 0, 0], [-1e308, 0, 0]], [[1e308, 0, 0], [-1e308, 0, 0]])])
+def test_kabsch_invalid_and_numerical_overflow(left, right):
+    with pytest.raises(ValueError):
+        g.kabsch(left, right)
