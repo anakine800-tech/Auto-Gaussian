@@ -211,6 +211,31 @@ def rms_molecule(mol, chem, hydrogens):
 RMS_MAX_MAPPINGS = 10000
 
 
+def kabsch(left, right):
+    """Fit row-vector coordinates left to right by a proper rotation only.
+
+    Returns (rotation, RMSD). Translation is removed by each centroid; apply
+    (left - left.mean(0)) @ rotation + right.mean(0). No atom remapping.
+    """
+    import numpy as np
+
+    left, right = (np.asarray(values, dtype=float) for values in (left, right))
+    if (left.ndim != 2 or left.shape[1] != 3 or not len(left) or
+            left.shape != right.shape or not np.isfinite(left).all() or not np.isfinite(right).all()):
+        raise ValueError('Kabsch requires matching nonempty finite N-by-3 coordinates')
+    try:
+        with np.errstate(over='raise', invalid='raise'):
+            left, right = left - left.mean(axis=0), right - right.mean(axis=0)
+            u, _, vt = np.linalg.svd(left.T @ right)
+            correction = np.eye(3)
+            correction[-1, -1] = 1 if np.linalg.det(u @ vt) >= 0 else -1
+            rotation = u @ correction @ vt
+            rmsd = float(np.sqrt(np.mean(np.sum((left @ rotation - right) ** 2, axis=1))))
+    except (FloatingPointError, np.linalg.LinAlgError) as exc:
+        raise ValueError('Coordinates cannot be aligned numerically') from exc
+    return rotation, rmsd
+
+
 def rms_atom_maps(probe, reference, chem):
     """Enumerate element/connectivity maps, preserving tetrahedral parity.
 
