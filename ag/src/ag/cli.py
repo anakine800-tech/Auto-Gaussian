@@ -16,8 +16,12 @@ def core_command(args):
     cfg = args.config
     command = args.command
     if command == 'monitor':
-        from ag.monitor import run
-        return run(cfg, args.watch)
+        from ag.monitor import run, retry
+        if args.retry is not None:
+            return retry(cfg, args.retry, auth_fixed=args.auth_fixed, json_output=args.json)
+        if args.auth_fixed:
+            raise ValueError('--auth-fixed requires --retry')
+        return run(cfg, args.watch, json_output=args.json)
     if command == 'review':
         from ag import review
         result = review.run(cfg, args.action, args.id, card=getattr(args, 'card', None))
@@ -134,8 +138,12 @@ def register(subparsers):
             child.set_defaults(func=review_manifest)
         elif name == 'monitor':
             from ag.monitor import watch_seconds
-            p.add_argument('--watch', type=watch_seconds, metavar='SECONDS',
-                           help='Sample in the foreground every 60–600 seconds; Ctrl-C exits')
+            mode = p.add_mutually_exclusive_group()
+            mode.add_argument('--watch', type=watch_seconds, metavar='SECONDS',
+                              help='Sample in the foreground every 30–600 seconds; Ctrl-C exits')
+            mode.add_argument('--retry', metavar='ENTRY', help='Queue one local monitor retry')
+            p.add_argument('--auth-fixed', action='store_true',
+                           help='Confirm authentication or host-key configuration has been repaired')
         elif name == 'prepare':
             p.add_argument('--study', required=True)
             p.add_argument('--template', choices=('gaussian', 'gaussian-cp', 'xtb', 'crest', 'multiwfn'), required=True)

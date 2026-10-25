@@ -274,13 +274,37 @@ T7e 已适配多集群（[Frontend #9](https://github.com/anakine800-tech/Auto-G
 监控数据始终来自 ag monitor 快照，前端不启动采样器；缺失、过期或失败不当成空闲或零预算。
 监控每轮重读启动时的配置文件，新增入口开始采样，移除入口停止采样并在最后快照新增
 `config_removed=true` 与“配置已移除”说明。配置损坏时沿用上一轮配置，快照附 `config_warning` 和警告。
-SSH 超时只使该集群本轮失败并写入快照，其他集群和下一轮继续；监控传输保持只读且不立即重试。
+采样失败只影响该入口；连续失败 1–2 次仍用基础间隔，第 k ≥ 3 次失败后间隔为
+`min(600, 基础间隔 × 2^(k−2))` 秒，成功一次清零。硬件或存储的局部失败不计入退避。
+SSH 认证失败（明确的认证方法列表）或主机指纹失败会暂停该入口，其他入口继续采样。
+暂停在该入口配置变化、监控重启，或明确确认修复后的手动采样成功时解除；暂停期间不反复登录。
+监控传输保持只读且不立即重试。
 Slurm 存储用量每小时查询一次，独立超时 30 秒；失败查询也计入这一小时。
 间隔内沿用最近值；`storage_checked_at`、`storage_sampled_at`、`storage_error` 区分最近尝试、最近成功及失败。
 没有成功值时 `storage_kib=null`；存储失败只更新 `storage_error`，保留最近成功值和时间，不改变本轮 `ok`。
 成功/失败快照的 `own.tiers`（各档位 `cores`、`mem_gb`）与 `own.max_cores` 始终取当前有效配置。
-`--watch` 接受 30–600 秒，各入口独立到期；PBS 使用该间隔，Slurm 使用 `max(watch, 60)`。
-`interval_seconds` 为该入口实际配置间隔，`sample_duration_ms` 为本次采样耗时；慢轮结束后立即进入下一轮，不并发叠加。
+`--watch` 接受 30–600 秒。入口可设整数 `monitor_interval_seconds = 90`（30–600）；
+未配置时 PBS 使用 watch，Slurm 使用 `max(watch, 60)`。`interval_seconds` 始终是基础间隔，
+`sampling.current_interval_seconds` 是退避后的间隔，`next_sample_at` 是下次自动采样时间。
+`sampling` 还含状态 normal/backoff/paused、连续失败数、暂停原因、触发来源和 retry_pending。
+一次性采样状态为 normal，当前间隔和下次时间为 null；`sample_duration_ms` 仍是采样耗时。
+入口按到期时间串行采样，慢采样结束后紧接处理其他到期入口，不并发叠加。
+
+`ag monitor --retry <入口> [--auth-fixed] [--json]` 只登记本地请求，由运行中的 watch 处理，
+不直接连接服务器。旧单集群入口名为 default；--retry 与 --watch 互斥。
+任何状态均可请求重试；认证/主机指纹暂停须在修复后显式带 `--auth-fixed`，只试一次。
+同入口正在采样或已排队的请求合并，成功恢复基础间隔，普通手动失败不改连续失败数和自动时间，
+认证/主机指纹失败仍暂停。JSON 返回 queued/already_queued/in_progress（退出 0）或 refused（退出 1），
+原因是 monitor_not_running/auth_confirmation_required/unknown_entry；无运行监控不登记请求。
+本地心跳每 30 秒更新，超过 90 秒或进程不存在即视为未运行，启动会丢弃遗留请求并在首条摘要记录。
+
+默认 stdout 在有采样的循环仅输出一行 `ag-monitor-line/1` JSON 摘要，含本人作业数及警告数，
+不含作业明细和用户名；空闲唤醒不输出。`--json` 输出完整快照（多入口使用 clusters 包装）。
+本地 latest.json 仍保存完整 `ag-monitor/1`；history.jsonl 增加 sampling_state、consecutive_failures、trigger。
+常驻服务直接运行 `ag monitor`，不再需要包装脚本。LaunchAgent 样例见
+[local.autogaussian.monitor.plist.example](docs/ops/launchd/local.autogaussian.monitor.plist.example)；
+将占位符换为本机路径，最小 PATH 的 SYSTEM_BIN_DIR/SYSTEM_SBIN_DIR 通常为 `/usr/bin` 和 `/bin`，
+须包含系统 ssh。日志写入指定 LOG_DIR；部署、日志保留策略和旧包装脚本替换在 T129 处理。
 PBS 的 `cluster.jobs` 列出全员非 C 作业，先本人、再运行开始时间、再排队提交时间排序，最多 500 条；
 `jobs_omitted` 记录省略数，`job_summary` 始终统计截断前的作业。本人作业关联本地 Attempt。
 `own.jobs` 与 `cluster.jobs` 的运行作业核数按实际分配显示，排队作业按申请显示，`cores_kind` 标明口径；
@@ -299,7 +323,13 @@ PBS 入口可配置 `scheduler_timezone = "Asia/Shanghai"` 等 IANA 时区名，
 Slurm 明细仅有本人；`cluster.job_summary` 按配置分区给出运行/排队作业数和核数，并减去本分区本人作业得到他人汇总。
 两次查询不一致导致负数时，他人汇总为 null。本人占用覆盖共享账号，各入口硬件及汇总只覆盖自己的分区。
 `cluster.hardware` 提供 CPU 总数/分配/空闲/其他和总内存/已分配内存；PBS 节点另有内存与作业数，Slurm 不保存节点明细。
+PBS 明确写 `cluster.scheduler="pbs"`。Torque 总内存取 status.physmem（不含 swap），
+优先保留 PBS Pro 的 resources_available.mem；Torque 已分配内存按节点上的完整作业集合汇总申请值。
+任一申请缺失/无法解析、跨节点或作业号不能精确对应时写 null，并在 hardware.notes 解释；无作业为 0.0。
+不使用 physmem − availmem，不按核数分摊。PBS Pro 的 resources_assigned.mem 保持原口径。
 `sinfo` 异构节点内存显示为最小值加 `+` 时，总内存为 null；AllocMem 单独按节点汇总后保存。
+异构内存和他人汇总不一致的说明放入 `hardware.notes` 字符串列表，不使已采到的核数失效；
+`hardware.error` 只记录查询失败，旧缓存没有 notes 时补空列表。
 未配置分区时不查询分区作业或硬件。现有 Slurm 本人查询不提供申请内存、开始/提交时间和 walltime 上限，这些字段为 null。
 硬件查询失败只将硬件标为未知并写脱敏错误；作业查询失败仍令 `ok=false`，保留旧数据及 `last_ok_at`，不能当作最新。
 `history.jsonl` 仅追加作业/告警计数与摘要，不保存全员作业明细。配置移除时即使缓存损坏，也写合法的移除快照。

@@ -303,6 +303,6 @@ python scripts/scan_public.py --terms-file ~/.config/auto-gaussian/sensitive-ter
 通用检查仍运行；无效正则拒绝检查。词表命中不接受行豁免，`archive/` 与其他目录相同。
 词表内容由负责人和 Codex 在本机维护，不进入仓库、工单、PR、评论或提交说明。
 `SCAN_PUBLIC_TERMS_FILE` 仅供使用临时词表验证 hook；日常不设置该变量。
-前端复用同一扫描器；在前端检出用 `git config core.hooksPath '<后端检出>/.githooks'`
-启用同一 hook（它从当前仓库调用扫描器），再运行上述全量词表检查。
+前端使用前端仓库自带的 `.githooks` 和扫描器；在前端检出执行
+`git config core.hooksPath .githooks`，再运行上述全量词表检查。
 研究用计算机同步后同样启用；只在合并后 PR 评论记录命中数量，不公开命中内容。
