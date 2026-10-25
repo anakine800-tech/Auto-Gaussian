@@ -700,14 +700,18 @@ def run_clusters(cfg, interval=None, *, json_output=True):
                 if control is not None:
                     control.configure(selected, schedules)
                 sampled = set()
-                # Each entry runs at most once per round, in deadline order.
-                # Slow entries do not overlap, nor starve another overdue entry.
+                # Automatic samples run once per round, in deadline order.
+                # After every sample, retries from any entry take the next
+                # free slot, including entries already sampled this round.
                 remaining = dict(selected)
-                while remaining:
-                    pending = control.pending(remaining) if control else set()
-                    name = min(remaining, key=lambda n: (n not in pending,
+                while True:
+                    pending = control.pending(selected) if control else set()
+                    candidates = remaining.keys() | pending
+                    if not candidates:
+                        break
+                    name = min(candidates, key=lambda n: (n not in pending,
                                schedules[n].due if schedules[n] else 0, n))
-                    remaining.pop(name)
+                    remaining.pop(name, None)
                     entry, schedule = selected[name], schedules[name]
                     trigger = control.begin(name, entry, schedule) if control else 'scheduled'
                     if trigger is None:

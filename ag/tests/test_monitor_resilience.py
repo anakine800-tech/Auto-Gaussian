@@ -436,6 +436,44 @@ def test_pending_request_gets_next_free_sampling_slot(multi, monkeypatch, capsys
     assert calls == ['batch', 'third', 'default']
 
 
+@pytest.mark.parametrize('request_during', ['default', 'third'])
+def test_retry_of_sampled_entry_gets_next_free_slot(multi, monkeypatch, capsys, request_during):
+    clock = Clock(monkeypatch)
+    for name in ('batch', 'third'):
+        multi['clusters'][name] = deepcopy(multi['clusters']['default'])
+    calls = []
+    def build(entry, **kwargs):
+        fake = Fake()
+        original = fake.run
+        def run(command):
+            if command.operation == 'jobs':
+                name = entry['_cluster']
+                calls.append((name, clock.tick))
+                clock.advance(7)
+                if name == request_during:
+                    # batch already finished this round; another entry is busy.
+                    assert monitor.retry(multi, 'batch', json_output=True) == 0
+                    assert json.loads(capsys.readouterr().out)['result'] == 'queued'
+                clock.advance(13)
+            return original(command)
+        fake.run = run
+        return fake
+    monkeypatch.setattr(monitor, 'MonitorTransport', build)
+    monkeypatch.setattr(monitor, 'login_user', lambda _: 'fixture')
+    monkeypatch.setattr(monitor.time, 'sleep', lambda _: (_ for _ in ()).throw(KeyboardInterrupt()))
+    assert monitor.run(multi, 30) == 0
+    expected = (['batch', 'default', 'batch', 'third'] if request_during == 'default'
+                else ['batch', 'default', 'third', 'batch'])
+    assert calls == list(zip(expected, [0, 20, 40, 60]))
+    root = monitor.cache_dir(config.select_cluster(multi, 'batch'))
+    history = [json.loads(line) for line in (root / 'history.jsonl').read_text().splitlines()]
+    assert [row['trigger'] for row in history] == ['scheduled', 'manual']
+    assert not (root / monitor.REQUEST_FILE).exists()
+    summary = json.loads(capsys.readouterr().out)
+    assert summary['entries']['batch']['trigger'] == 'manual'
+    assert all(row['sampled'] for row in summary['entries'].values())
+
+
 @pytest.mark.skipif(sys.platform != 'darwin', reason='plutil is a macOS-only validation tool')
 def test_launchagent_example_lint(tmp_path):
     source = Path(__file__).parents[2] / 'docs/ops/launchd/local.autogaussian.monitor.plist.example'
