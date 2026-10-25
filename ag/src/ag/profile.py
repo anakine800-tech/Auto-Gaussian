@@ -242,6 +242,46 @@ def selectivity_results(entries, species, temperature):
         rows.append({'id': label, 'product_order': list(products), 'channels': channels,
                      **evaluate('corrected_G_kcal'),
                      'lowest_conformer': evaluate('corrected_lowest_conformer_G_kcal')})
+
+        branches = {}
+        for product, definitions in products.items():
+            candidates = []
+            for channel in definitions:
+                name = channel['species']
+                item = species[name]
+                # Reuse the species corrections; do not recalculate their formulas.
+                for conformer in sorted(item['conformers'], key=lambda c: c['attempt_id']):
+                    candidates.append({'species': name, 'attempt_id': conformer['attempt_id'],
+                        'corrected_G_kcal': (conformer['qh_G_hartree'] * HARTREE_TO_KCAL
+                                            + item['standard_state_correction_kcal']
+                                            + item['concentration_correction_kcal']),
+                        'paths': channel.get('paths', 1),
+                        'conformer_degeneracy': conformer['degeneracy']})
+            minimum = min(c['corrected_G_kcal'] for c in candidates)
+            # Candidates are ordered by channel definition, then Attempt ID.
+            tied = [c for c in candidates if math.isclose(
+                c['corrected_G_kcal'], minimum, rel_tol=0, abs_tol=1e-9)]
+            branches[product] = {**tied[0], 'ties': [
+                {'species': c['species'], 'attempt_id': c['attempt_id']}
+                for c in tied] if len(tied) > 1 else []}
+        # One channel/structure per product; only paths enters its weight.
+        single = selectivity_distribution(
+            {p: [{'species': b['species'], 'paths': b['paths']}] for p, b in branches.items()},
+            {b['species']: b['corrected_G_kcal'] for b in branches.values()}, temperature)
+        lowest_ts = {'definition': '每个产物分支取修正后自由能最低的单个 TS 结构；'
+                                  '保留其通道 paths；不对构象求和；不乘构象简并度。',
+                     'branches': branches, 'pairwise': []}
+        for pair, ensemble in zip(single['pairwise'], rows[-1]['pairwise']):
+            lowest_ts['pairwise'].append({
+                'a': pair['a'], 'b': pair['b'],
+                'lowest_ts_ddG_kcal': pair['ddG_barrier_kcal'],
+                'ensemble_ddG_kcal': ensemble['ddG_barrier_kcal'],
+                'difference_kcal': ensemble['ddG_barrier_kcal'] - pair['ddG_barrier_kcal'],
+                'ratio_a_over_b': pair['ratio_a_over_b']})
+        if 'ee_percent' in single:
+            lowest_ts.update(ee_percent=single['ee_percent'],
+                             ee_sign_convention=single['ee_sign_convention'])
+        rows[-1]['lowest_ts'] = lowest_ts
     return rows
 
 
@@ -539,6 +579,17 @@ def markdown(result):
                           report['scope'], '', '| Product | Minimum proportion (%) | Maximum proportion (%) |', '|---|---:|---:|']
                 for product, bounds in report['fraction_ranges'].items():
                     lines.append(f"| {cell(product)} | {100 * bounds['min']:.6f} | {100 * bounds['max']:.6f} |")
+        if 'lowest_ts' in selection:
+            lowest_ts = selection['lowest_ts']
+            lines += ['', '#### 最低 TS / 系综 / 差值', '', lowest_ts['definition'], '',
+                      '| a / b | 最低 TS ΔΔG‡ (kcal/mol) | 系综 ΔΔG‡ (kcal/mol) | 差值（系综−最低 TS）(kcal/mol) | a 最低 TS species / Attempt | b 最低 TS species / Attempt |',
+                      '|---|---:|---:|---:|---|---|']
+            for pair in lowest_ts['pairwise']:
+                a, b = (lowest_ts['branches'][pair[key]] for key in ('a', 'b'))
+                lines.append(f"| {cell(pair['a'])} / {cell(pair['b'])} | {pair['lowest_ts_ddG_kcal']:.6f} | "
+                             f"{pair['ensemble_ddG_kcal']:.6f} | {pair['difference_kcal']:.6f} | "
+                             f"{cell(a['species'])} / {cell(a['attempt_id'])} | {cell(b['species'])} / {cell(b['attempt_id'])} |")
+            lines += ['', '单结构结果和系综结果不是同一个物理量；“差值大”说明结论对构象采样敏感，不代表哪个更正确。']
     lines += ['', '## 对称数', '', result['symmetry']['note'], '']
     lines += [f'- 警告：{cell(warning)}' for warning in result['symmetry']['warnings']]
     if not result['symmetry']['warnings']:
