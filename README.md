@@ -92,6 +92,14 @@ Gaussian、xTB、CREST、调度器及本机 OpenSSH 需另行准备，外部软�
 | `clusters.<CLUSTER>.queue` | PBS 队列占位值 |
 | `clusters.<CLUSTER>.partition/account/qos/expires` | Slurm 可选设置与到期日期 |
 
+入口的 `[clusters.<CLUSTER>.ssh]` 可配置 `connect_timeout_seconds`：整数 **15–60**，默认 **15**；
+旧单集群配置写在 `[ssh]`，布尔值、字符串和小数均拒绝。经转发等建立连接较慢的链路可设为 **40**，
+每个入口独立生效，覆盖该入口所有 SSH/scp 操作，不影响共享核数上限分组。
+命令总超时、上传超时和下载无进展阈值均自动顺延 `connect_timeout_seconds − 15` 秒：
+设为 40 时，60 秒变为 85 秒、提交的 120 秒变为 145 秒、存储查询的 30 秒变为 55 秒。
+省略或设为 15 时参数与超时不变；下载 24 小时硬上限、只读连接失败后等待 15 秒重试一次的规则、
+写操作不重试及提交/取消确认流程保持不变。此字段只在入口配置中设置，没有全局开关或环境变量。
+
 `prepare --cluster '<CLUSTER>'` 固定 Attempt 所属集群；后续操作遵循该绑定，不能靠切换当前配置把作业送往别处。
 `cluster` 子命令是**构象聚类**，并非集群切换命令。
 

@@ -162,6 +162,10 @@ def scheduler_kind(cfg):
 
 
 def validate_cluster(cfg):
+    if 'connect_timeout_seconds' in cfg.get('ssh', {}):
+        value = cfg['ssh']['connect_timeout_seconds']
+        if type(value) is not int or not 15 <= value <= 60:
+            raise ConfigError('ssh.connect_timeout_seconds must be an integer from 15 to 60')
     if 'monitor_interval_seconds' in cfg:
         value = cfg['monitor_interval_seconds']
         if type(value) is not int or not 30 <= value <= 600:
