@@ -265,3 +265,13 @@ cluster.nodes[].mem_assigned_gb   # Torque 按 D7 口径（原字段，含义不
 - `python scripts/scan_public.py`：1797 个文件、0 错误；`git diff --cached --check` 通过。占位符替换后的临时 plist 通过 `plutil -lint`，未加载到 launchd；前端文档补丁在临时副本通过 `git apply --check`。
 - 现有测试仅调整 test_monitor.py、test_monitor_all_jobs.py、test_resources_monitor.py 中受影响的内存、notes、stdout 和合成时钟用例；新增 test_monitor_resilience.py。其余测试文件未修改。
 - 负责人已在本会话批准“限定的只读核对与验证”，并批准记录已知 SSH post-quantum 能力提示后继续。原配置、常驻监控、主检出均未替换；合并、部署和包装脚本替换仍由后续任务处理。
+
+## T128 接入发现的拒绝路径补修（2026-10-25）
+
+- 负责人明确批准：“保持零新增文件，允许另开后端修复 PR”。补修分支 `codex/t127-retry-refusal-no-files`，基于已合并的 #329（`ead920d`）；不扩展远程或部署范围。
+- 合成复现：旧监控缓存无心跳、无锁时，`monitor --retry default --json` 正确拒绝，但创建了空的 `watch.lock`。原测试只检查请求文件不存在，遗漏了该副作用。
+- 修复：重试只打开监控已有的锁，不创建缓存目录或锁；缺失时直接返回 `monitor_not_running`。锁存在时仍在锁内检查心跳及登记请求，独占请求创建、符号链接拒绝及并发合并保持不变。
+- 合成回归：缓存不存在、无心跳、心跳过期、进程消失、缺锁五种拒绝情形，对比全部目录及文件字节；并保留成功、合并、认证确认和符号链接测试。相关测试 58 项通过。
+- 真实验证限 T128 已授权的临时前端及一次本机拒绝请求；常驻监控仍为 v4.5.0，不启动新采样或连接集群。完整结果补入补修 PR。
+- 修复后的真实拒绝验证：T128 临时前端使用本补修检出，在 18773 对 default 仅点击一次，返回 `refused / monitor_not_running`、requested_at=null；页面文字正确。缓存目录前后零新增、零删除路径，控制文件保持不存在；配置、LaunchAgent、常驻进程及原端口监听不变。临时前端已停止，无真实截图或快照进入仓库。
+- 全量初跑：4781 通过、19 跳过，唯一失败为新增 open-tasks 登记行格式；仅将说明改为注释后，Skills 全量复验 509 项通过。后端代码测试均通过，覆盖结果为 ag 单元测试 4273 项及 Skills 509 项；19 项跳过为未启用私有日志及 macOS 不支持的 Linux 方言检查。
