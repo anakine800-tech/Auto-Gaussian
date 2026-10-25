@@ -4,6 +4,7 @@ QST block parsing adapts pure logic from
 archive/skills/auto-g16-ts-irc/scripts/ts_irc.py:parse_raw_qst_input and
 _qst_syntax_error. No legacy imports, audit hashes or receipts are copied.
 """
+from collections.abc import Sequence
 import math
 import re
 
@@ -14,6 +15,77 @@ ELEMENTS = ('H He Li Be B C N O F Ne Na Mg Al Si P S Cl Ar K Ca Sc Ti V Cr Mn Fe
             'Fr Ra Ac Th Pa U Np Pu Am Cm Bk Cf Es Fm Md No Lr Rf Db Sg Bh Hs Mt Ds Rg Cn Nh Fl Mc Lv Ts Og').split()
 ATOMIC_NUMBERS = {symbol: number for number, symbol in enumerate(ELEMENTS, 1)}
 NUMBER = r'[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?'
+
+
+def render_input(route, title: str | Sequence[str], sections):
+    """Return a validated UTF-8-ready body, without Link0 or resource choices.
+
+    sections is an iterable of (charge, multiplicity, symbols, coordinates).
+    A string title is reused for every structure; a sequence supplies one title
+    per structure and must match the section count. Titles must be nonempty and
+    contain no line breaks. Coordinates retain row order and use the same ten
+    decimal places as geometry.xyz_text. The existing validator checks a temporary
+    resource envelope, which is never returned.
+    """
+    blocks = []
+    if not isinstance(route, str) or not route.strip() or re.search(r'\n\s*\n', route.strip()):
+        raise ValueError('route must be a nonempty single Gaussian section')
+    if not route.strip().startswith('#') or any(line.lstrip().startswith('%') for line in route.splitlines()):
+        raise ValueError('route must start with # and contain no Link0 directives')
+    sections = list(sections)
+    if isinstance(title, str):
+        titles = [title] * len(sections)
+    elif isinstance(title, Sequence):
+        titles = list(title)
+        if len(titles) != len(sections):
+            raise ValueError('title sequence length must equal the number of sections')
+    else:
+        raise ValueError('title must be a string or a sequence of strings')
+    for value in ([title] if isinstance(title, str) else titles):
+        if not isinstance(value, str) or not value.strip() or value.splitlines() != [value]:
+            raise ValueError('Each title must be nonempty and contain no line breaks')
+    for section_title, (charge, multiplicity, symbols, coordinates) in zip(titles, sections):
+        if type(charge) is not int or type(multiplicity) is not int or multiplicity < 1:
+            raise ValueError('Each section requires integer charge and positive integer multiplicity')
+        symbols, coordinates = list(symbols), list(coordinates)
+        if not symbols or len(symbols) != len(coordinates):
+            raise ValueError('Each section requires matching nonempty symbols and coordinates')
+        rows = []
+        for symbol, point in zip(symbols, coordinates):
+            if len(point) != 3:
+                raise ValueError('Each atom requires three Cartesian coordinates')
+            rows.append(f'{symbol} ' + ' '.join(f'{value:.10f}' for value in point))
+        blocks.extend((section_title.strip(), f'{charge} {multiplicity}\n' + '\n'.join(rows)))
+    body = '\n\n'.join([route.strip(), *blocks]) + '\n\n'
+    # validate() deliberately retains its resource requirements for prepare.
+    validate('%nprocshared=1\n%mem=1GB\n' + body, cores=1, mem_gb=2)
+    return body
+
+
+def ts_route_check(route):
+    """Reject scan/freeze carry-over and force constants lacking a parent chk.
+
+    This is a syntax guard for a standalone TS draft, not a method whitelist.
+    Whole words include common spellings of the scan/freeze input readers.
+    """
+    words = set(re.findall(r'\b[A-Za-z][A-Za-z0-9]*\b', route.lower()))
+    parent = words & {'rcfc', 'readfc', 'readcartesianfc'}
+    if parent:
+        raise ValueError(', '.join(sorted(parent)) +
+                         ' requires prepare --parent-chk and the parent chk orientation checks')
+    forbidden = words & {
+        'modredundant', 'modredun', 'modred', 'addredundant', 'addredun', 'addred',
+        'scan', 'readoptimize', 'readopt', 'rdopt', 'readfreeze', 'rdfreeze',
+        'freeze', 'freezeall', 'addgic', 'readgic', 'readallgic',
+    }
+    if forbidden:
+        raise ValueError('TS draft cannot contain scan/freeze keywords: ' + ', '.join(sorted(forbidden)))
+    options = []
+    for match in re.finditer(r'\bopt\b\s*(?:=\s*)?(\([^()]*\)|[A-Za-z0-9]+)', route, re.I):
+        contents = re.sub(r'\s*=\s*', '=', match[1].strip('()').lower())
+        options.extend(re.split(r'[,\s]+', contents))
+    if 'ts' not in options:
+        raise ValueError('TS draft requires Opt=TS or Opt=(TS,...)')
 
 
 def cartesian(rows, *, first_line, prefix=''):

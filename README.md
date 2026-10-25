@@ -221,6 +221,10 @@ ag coverage --merged '<DEDUP_JSON>' --energies '<DFT_ENERGIES_JSON>' \
 # 9 是原始扫描点序号示例，必须是列出的合格局部极大
 ag scan-peak '<SCAN_ATTEMPT>' --study '<STUDY_ID>' \
   --point 9 --out '<NEW_TS_GUESS_XYZ>' --json
+# 同时生成 TS 输入正文；route 的方法和选项由人或卡片给出
+ag scan-peak '<SCAN_ATTEMPT>' --study '<STUDY_ID>' \
+  --out '<NEW_TS_GUESS_XYZ>' --gaussian-ts '<NEW_TS_GUESS_GJF>' \
+  --route '# <METHOD>/<BASIS> Opt=(TS,CalcFC) Freq' --json
 ag profile '<STUDY_DIR>/analyses/<PROFILE_JSON>' --name '<NEW_PROFILE_NAME>' --json
 ```
 
@@ -236,6 +240,10 @@ ag profile '<STUDY_DIR>/analyses/<PROFILE_JSON>' --name '<NEW_PROFILE_NAME>' --j
 - `dedup --mirror off|report` 默认 off；report 在已保留代表间报告 `mirror_pairs`（镜像 RMSD < 阈值），含普通 / 镜像 RMSD 及各自映射，不合并、不改变简并度。手性体系附说明，仍排除 `stereo_changed` 帧；非手性镜像简并继续使用 `ag cluster --mirror`，该命令仍拒绝有已指定手性中心的体系。新版本不自动重跑已有 study。
 - `coverage` 的 `--energies` 可给单点 Attempt 目录/ID、JSON 路径列表或原生 thermo JSON；按坐标和来源证据匹配，SCF 与 qh_G 分开统计。单路线独有低能项会提示补采样；报告不是构象穷尽证明。
 - `scan-peak` 仅接受内部点及左右紧邻点均收敛、有能量，且中点严格高于两侧的候选；列出全部局部峰，默认选最高局部峰，`--point` 选择指定原序号。无合格峰、指定非候选、单调曲线或平台都不导出；仍须审阅扫描范围与跳变，并继续 TS/Freq/双向 IRC。
+- `scan-peak --gaussian-ts <新 .gjf> --route '<route>' [--title '<标题>']` 同时独占输出 XYZ 和 Gaussian TS 输入正文，不覆盖文件。电荷与多重度取扫描 Attempt 的 manifest（xTB 的 `--uhf` 转为多重度时加 1），缺失或电子数奇偶不相容就拒绝，不默认 0/1。默认标题仅含扫描 Attempt 和点号；正文保留原子顺序，坐标与导出 XYZ 相同，末尾有空行。二维仍须 `--point i,j`。
+- TS route 必须含 `Opt=TS` 或 `Opt=(TS,...)`，大小写、空格及 `Opt(...)` 写法均支持。扫描/冻结拒绝清单为 `ModRedundant`、`ModRedun`、`ModRed`、`AddRedundant`、`AddRedun`、`AddRed`、`Scan`、`ReadOptimize`、`ReadOpt`、`RdOpt`、`ReadFreeze`、`RdFreeze`、`Freeze`、`FreezeAll`、`AddGIC`、`ReadGIC`、`ReadAllGIC`；`RCFC`、`ReadFC`、`ReadCartesianFC` 必须另走 `prepare --parent-chk` 的父 chk 流程。通用 Gaussian 校验仍适用（包括拒绝 `Geom=Check/AllCheck`、External、Link1）。工具不判断方法、基组、CalcFC 或 NoEigenTest，不自动 prepare、不提交，也不把峰当作已验证 TS。
+- 草稿不含 Link0。当前 `prepare` 要求输入已有匹配档位的 `%nprocshared`，仅自动补缺少的 `%mem`，且没有 `--dry-run`。审阅正文后按现有规则补齐所需 Link0 再 prepare；正文校验使用仅在内存中的临时资源行，不写入草稿，也不代表实际资源已选择。
+- 默认不读写 catalog。显式加 `--register-candidate --object <已有对象> --candidate-id <新 ID> [--target-channel <已有通道>]`，才登记同一 XYZ 字节为 `origin=scan`，保存父 Attempt、点号、坐标值、能量、邻点、扫描文件哈希、选择方式和警告；二维的 `coordinate_value` 为两维值列表。`--json` 的 `gaussian_ts` 返回路径、route、电荷、多重度、标题和 SHA-256，`candidate` 返回 T131 的事件摘要。catalog /1 升 /2 须另加 `--upgrade-catalog`；`--dry-run` 仅预览登记、不写 catalog，XYZ 和 `.gjf` 仍会独占写出。登记失败返回非零、说明原因并保留导出文件，不重试；需要后续登记时复用文件走 `ag catalog candidate`。来源登记不作科学签字，T131 的原话规则不变。**T132 部署前，真实研究 study 禁用此登记选项。**
 - `profile` 输入定义放在 study 的 `analyses/`，引用已审阅物种及可比的热化学来源；输出到新的名称，不覆盖。`--perturb 1` 可逐个 TS 状态做 ±1 kcal/mol 扰动分析。新增焓熵分项、分子数、正反 Eyring 速率/半衰期和 σ 来源/警告；可选 `selectivity: [{"id": "products", "products": {"R": [{"species": "ts_r1"}, {"species": "ts_r2", "paths": 2}], "S": [{"species": "ts_s"}]}, "perturb_kcal": 1.0}]` 按产物汇总同组成同电荷 TS，输出产物比例、有效能垒、两两比例及最低构象对照。两产物给有符号 ee（首标签占优为正），多产物给分布/dr；可选扰动逐 TS 物种报告比例区间和翻转。paths 与构象简并度分开，省略标为默认 1。换算均为 κ=1 的简单 TST，缔合用标准态准一级近似，不等同于实验速率/ee。schema 保持 `ag-profile/1`，既有能量不变。SP/Freq 配对须有几何证据，热化学审计分项不能重复加到 qh_G；无势垒步骤不支持表达。
   选择性另以 `lowest_ts` 给出“最低 TS / 系综 / 差值”：每个产物分支在所有 TS species 的全部构象中取修正后自由能最低的单个结构，复用该 species 的标准态与浓度修正；保留所选通道的真实 paths，不对构象求和、不乘构象简并度（仅报告其值），并列出 species、Attempt 和修正后自由能。相差不超过 1e-9 kcal/mol 的最低候选按通道定义顺序、再按 Attempt ID 选取；`ties` 列出所有并列项，无并列时为空。每对产物的符号为 G_eff(b)−G_eff(a)，系综数值直接沿用原结果，差值为系综减最低 TS；两产物另报同符号约定的单结构 ee。原 `lowest_conformer` 仍对每个 TS species 各取最低构象后汇总多个通道及 paths，字段与数值不变。单结构结果和系综结果不是同一个物理量，差值大说明结论对构象采样敏感，不代表哪个更正确。
 

@@ -88,9 +88,12 @@ prepare 摘要显示编号、元素、初值、步数、步长、终值和冻结
 
 scan_points.xyz 保存各已报告点的最终几何；未收敛点只是最后迭代几何，未计算点
 无几何。文件已存在且相同则沿用，不同则停止核对；scan-peak 的输出必须是新文件。
-用审阅后的局部峰做 `opt=(ts,calcfc)` 时，**将该 XYZ 的原子坐标显式写入 Gaussian 输入**
-（去掉 XYZ 的原子数和注释两行），重新展示方法、电荷与多重度及立体警告；
-移除扫描/冻结段，不使用 `Geom=Check/AllCheck`。随后仍需 Freq、恰好一个虚频、
+用局部峰生成 TS 草稿：`ag scan-peak <attempt> --out <新文件.xyz> --gaussian-ts <新文件.gjf>
+--route '# <METHOD>/<BASIS> Opt=(TS,CalcFC) Freq' [--point <序号>]`（合为一条命令）。
+route 由人或卡片给出，工具从 manifest 取电荷与多重度并拒绝扫描/冻结关键词及父 chk 力常数读取；
+审阅几何、方法、电荷与多重度及立体警告后，按现有规则补 Link0 再 prepare：
+至少补匹配档位的 `%nprocshared`，`%mem` 可由 prepare 补齐；不自动 prepare 或提交。
+默认不登记候选；T132 部署前真实 study 不用 `--register-candidate`。随后仍需 Freq、恰好一个虚频、
 振动方向人工审核及双向 IRC 端点识别，扫描局部极大自身不能判定 TS。
 
 ### 初猜来源：Gaussian 二维弛豫扫描
