@@ -181,7 +181,7 @@ def observation(cfg, transport, username, *, storage_state=None, sampled_at=None
                 warnings=warnings)
 
 
-def cache_dir(cfg):
+def cache_dir(cfg, *, create=True):
     root = Path(cfg['local']['studies_root']) / '.ag-monitor'
     if cfg.get('_cluster'):
         root = root / cfg['_cluster']
@@ -189,7 +189,8 @@ def cache_dir(cfg):
     for path in (root.parent, root, *(root / name for name in ('latest.json', 'history.jsonl', 'history.1.jsonl'))):
         if path.is_symlink():
             raise ValueError('Monitor cache must not contain symbolic links')
-    root.mkdir(parents=True, exist_ok=True)
+    if create:
+        root.mkdir(parents=True, exist_ok=True)
     return root
 
 
@@ -460,19 +461,25 @@ REQUEST_FILE = 'retry-request.json'
 WATCH_FILE = 'watch.json'
 
 
-def control_root(cfg):
-    return cache_dir(dict(cfg, _cluster=None))
+def control_root(cfg, *, create=True):
+    return cache_dir(dict(cfg, _cluster=None), create=create)
 
 
 @contextmanager
-def control_lock(cfg):
+def control_lock(cfg, *, create=True):
     # Serialize request creation with claiming it / marking an entry in progress.
     # This prevents a click at the claim boundary from causing a second sample.
-    root = control_root(cfg)
+    root = control_root(cfg, create=create)
     path = root / 'watch.lock'
     if path.is_symlink():
         raise ValueError('Monitor cache must not contain symbolic links')
-    fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    try:
+        fd = os.open(path, os.O_RDWR | os.O_NOFOLLOW | (os.O_CREAT if create else 0), 0o600)
+    except FileNotFoundError:
+        if create:
+            raise
+        yield None
+        return
     try:
         fcntl.flock(fd, fcntl.LOCK_EX)
         yield root
@@ -534,8 +541,10 @@ def retry(cfg, name, *, auth_fixed=False, json_output=False):
     if name not in selected:
         result['reason'] = 'unknown_entry'
     else:
-        with control_lock(cfg) as root:
-            watching = read_control(root / WATCH_FILE)
+        # Only the daemon creates its cache/lock; a refused click must leave
+        # an old monitor's cache (or an absent cache) exactly as it was.
+        with control_lock(cfg, create=False) as root:
+            watching = read_control(root / WATCH_FILE) if root is not None else None
             if not watch_alive(watching) or name not in watching.get('entries', {}):
                 result['reason'] = 'monitor_not_running'
             elif watching['entries'][name].get('pause_reason') in ('auth', 'host_key') and not auth_fixed:

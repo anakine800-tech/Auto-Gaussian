@@ -136,21 +136,33 @@ def test_paused_retry_requires_confirmation_and_only_attempts_once(cfg, capsys, 
         assert control.begin('default', cfg, schedule) is None
 
 
-@pytest.mark.parametrize('mode', ['absent', 'stale', 'dead'])
-def test_retry_without_live_monitor_does_not_leave_request(cfg, capsys, mode, monkeypatch):
+@pytest.mark.parametrize('mode', ['absent-cache', 'absent-heartbeat', 'stale', 'dead', 'missing-lock'])
+def test_retry_without_live_monitor_leaves_files_unchanged(cfg, capsys, mode, monkeypatch):
     clock = Clock(monkeypatch)
-    root = monitor.control_root(cfg)
-    if mode != 'absent':
+    studies = Path(cfg['local']['studies_root'])
+    root = studies / '.ag-monitor'
+    if mode != 'absent-cache':
+        root.mkdir(parents=True)
+    if mode in ('stale', 'dead', 'missing-lock'):
         monitor.write_control(root, dict(pid=os.getpid(), heartbeat_at=monitor.iso_at(clock.now),
                                          entries={'default': {}}))
+        if mode != 'missing-lock':
+            with monitor.control_lock(cfg):
+                pass
         if mode == 'stale':
             clock.advance(91)
-        else:
+        elif mode == 'dead':
             monkeypatch.setattr(monitor.os, 'kill', lambda *a: (_ for _ in ()).throw(ProcessLookupError()))
+    def inventory():
+        return {str(p.relative_to(studies)): p.read_bytes() if p.is_file() else None
+                for p in studies.rglob('*')}
+    before = inventory()
+    monkeypatch.setattr(monitor, 'MonitorTransport', lambda *a, **k: pytest.fail('Retry must remain local'))
     code, value = requested(cfg, capsys)
     assert code == 1 and value['reason'] == 'monitor_not_running'
     assert value['requested_at'] is None
     assert not (root / monitor.REQUEST_FILE).exists()
+    assert inventory() == before
 
 
 @pytest.mark.parametrize('name', ['unknown', '../escape', '/absolute', 'x/y', ''])
