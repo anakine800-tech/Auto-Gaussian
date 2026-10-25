@@ -213,7 +213,7 @@ def test_channel_priority_confirmation_declarations_and_coverage(water):
     assert state(water)['channels'][0]['status'] == 'attempted_not_found'
     result(water, assign='tentative', channel=['a'])
     result(water, assign='tentative', channel=['b'])
-    assert [c['status'] for c in state(water)['channels']] == ['tentative_found', 'pending_confirmation']
+    assert [c['status'] for c in state(water)['channels']] == ['attempted_not_found', 'pending_confirmation']
     channel(water, 'b', update=True, confirm=True)
     assert state(water)['channels'][1]['status'] == 'tentative_found'
     declaration = dict(object='water-a', channel='b', status='verified', quote=QUOTE)
@@ -244,6 +244,78 @@ def test_channel_priority_confirmation_declarations_and_coverage(water):
     catalog.change(water, 'retire', object='water-a', reason='Historical fixture')
     with pytest.raises(ValueError, match='retired'):
         channel(water, 'c')
+
+
+def test_reassigned_candidate_changes_status_but_keeps_all_history(water):
+    setup(water)
+    channel(water, 'b', update=True, confirm=True)
+    candidate(water)
+    result(water, assign='tentative', channel=['a'])
+    prefix = (water / 'catalog/journal.jsonl').read_bytes()
+    assert [c['status'] for c in state(water)['channels']] == ['tentative_found', 'untried']
+    result(water, outcome='other_channel', assign='tentative', channel=['b'])
+    value = state(water)
+    assert [c['status'] for c in value['channels']] == ['attempted_not_found', 'tentative_found']
+    assert value['candidates'][0]['latest_assignment'] == dict(status='tentative', channels=['b'])
+    for entry in value['channels']:
+        assert entry['candidate_ids'] == ['guess-a']
+        assert entry['outcome_counts'] == dict(diagnosed=1, other_channel=1)
+    raw, events, _ = catalog.read_journal(water)
+    assert raw.startswith(prefix)
+    ledger = v2.ledger(catalog.replay(events)[0], 'water-a')
+    for entry in ledger['channels']:
+        assert entry['candidates'][0]['results'] == value['candidates'][0]['results']
+        assert len(entry['candidates'][0]['results']) == 2
+
+
+def test_latest_verified_assignment_is_tentative_until_declared(water):
+    setup(water)
+    candidate(water)
+    identity = make_attempt(water, '001-ts', '# HF/STO-3G Opt=TS Freq')
+    facts_imag(water, identity, 1)
+    catalog.change(water, 'member', object='water-a', attempt=identity, role='auto')
+    first = result(water, outcome='accepted', assign='verified', channel=['a'], attempt=identity, quote=QUOTE)
+    assert state(water)['channels'][0]['status'] == 'tentative_found'
+    latest = result(water, outcome='accepted', assign='verified', channel=['a'], attempt=identity, quote=QUOTE)
+    assert state(water)['channels'][0]['status'] == 'tentative_found'
+    declaration = catalog.change(water, 'channel-status', object='water-a', channel='a',
+                                 status='verified', quote=QUOTE)['events'][0]
+    assert declaration['checks'] == dict(verified_candidate_results=[
+        dict(candidate='guess-a', seq=latest['events'][0]['seq'])])
+    assert state(water)['channels'][0]['status'] == 'verified'
+    _, events, _ = catalog.read_journal(water)
+    # An older verified result cannot replace the latest result in saved checks.
+    events[-1]['checks']['verified_candidate_results'][0]['seq'] = first['events'][0]['seq']
+    with pytest.raises(ValueError, match='verified candidate'):
+        catalog.replay(events)
+    # Later reassignment does not invalidate a declaration valid at its own seq.
+    result(water, outcome='minimum', assign='none')
+    _, events, _ = catalog.read_journal(water)
+    assert catalog.replay(events)[0]['water-a']['channels'][0]['status'] == 'verified'
+
+
+@pytest.mark.parametrize('assignment', [dict(assign='none'), dict(assign='tentative', channel=['b']),
+                                        dict(assign='undetermined', channel=['a', 'b'])],
+                         ids=['none', 'other-channel', 'undetermined'])
+def test_superseded_verified_assignment_cannot_support_declaration(water, assignment):
+    setup(water)
+    candidate(water)
+    identity = make_attempt(water, '001-ts', '# HF/STO-3G Opt=TS Freq')
+    facts_imag(water, identity, 1)
+    catalog.change(water, 'member', object='water-a', attempt=identity, role='auto')
+    result(water, outcome='accepted', assign='verified', channel=['a'], attempt=identity, quote=QUOTE)
+    fields = dict(object='water-a', channel='a', status='verified', quote=QUOTE)
+    obsolete = catalog.change(water, 'channel-status', dry_run=True, **fields)['events'][0]
+    result(water, outcome='minimum', **assignment)
+    before = files(water)
+    with pytest.raises(ValueError, match='verified candidate'):
+        catalog.change(water, 'channel-status', **fields)
+    assert files(water) == before
+    assert state(water)['channels'][0]['status'] == 'attempted_not_found'
+    _, events, _ = catalog.read_journal(water)
+    # Replay must reject the same stale evidence after the superseding result.
+    with pytest.raises(ValueError, match='verified candidate'):
+        catalog.replay(events + [dict(obsolete, seq=len(events) + 1)])
 
 
 @pytest.mark.parametrize('data', [b'', b'0\nempty\n', b'2\nshort\nH 0 0 0\n',

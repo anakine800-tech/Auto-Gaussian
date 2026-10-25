@@ -51,14 +51,14 @@
   - `--discovered` 登记为待确认；之后用 `--update --confirm` 确认（不需要原话）。
   - 已 retired 的对象拒绝新增通道。
 - `ag catalog channel-status <study> --object <对象> --channel <通道> --status verified|excluded-low-confidence|cleared --quote <原话> [--reason <文字>]`
-  - `verified` 的前提：该通道至少有一个候选结果的归属是“已验证”且指向本通道（写入时核对并存 `checks`），否则拒绝。
+  - `verified` 的前提：至少一个候选的 `latest_assignment` 是“已验证”且指向本通道（写入时核对，`checks.verified_candidate_results` 保存这些候选及其最新结果的 seq，回放按声明当时状态复核），否则拒绝。
   - `excluded-low-confidence` 必须带 `--reason`。
   - `cleared` 撤销先前的声明，也要原话。
 - `ag catalog coverage <study> --object <对象> --statement stable|withdrawn --scope <通道范围说明> --budget <采样预算说明> --quote <原话>`：整体结论，最新一条有效；`withdrawn` 撤销。
 - **派生状态**（第 6 节 `channels[].status`），按以下优先级：
   1. 最新有效声明是 `verified` 或 `excluded-low-confidence`；
   2. 未确认的 discovered 通道 → 待确认；
-  3. 有候选结果把归属指向本通道且状态为暂定 → 暂定找到；
+  3. 有候选的 `latest_assignment` 指向本通道且状态为 tentative 或 verified → 暂定找到；
   4. 有以本通道为目标的候选，或有结果指向本通道 → 已尝试未找到；
   5. 其余 → 未尝试。
 
@@ -240,3 +240,23 @@
 - 新版 CLI 的 6 类写入 dry-run 及 show/ledger 实际命令均通过；临时 study 的全部文件字节与 mtime 不变。
 - 全仓 1805 文件及暂存九文件的本机词表扫描均为 0 错误；`git diff --cached --check` 通过。
 - author/committer 使用 noreply 邮箱；无真实研究夹具、主机信息、配置或计算输出进入提交。
+
+
+### 2026-10-26 监督审阅修订（审阅 head 87eb185）
+
+第 3.3 节按负责人转达的监督澄清修正：通道派生只看最新归属；verified 声明只接受
+最新归属仍为本通道 verified 的候选，checks 只保存各候选最新结果的 seq。
+防止候选已改判后，旧 tentative/verified 仍被当作本通道当前证据。
+candidate_ids、outcome_counts 和 ledger 继续保留全部历史；声明回放按事件当时状态核对，
+不会用后续改判撤销当时有效的声明。docs/ag-catalog-2.md 第 2、3、5 节同步更新。
+
+新增回归覆盖：tentative A → other_channel/tentative B；首次 verified 未声明仍为 tentative_found；
+连续 verified 的声明只引用最新 seq，回放拒绝旧 seq；verified 后改判 none、其他通道或 undetermined
+均不能再声明 verified，拒绝写入时文件不变，回放同样拒绝过时证据。
+首次运行新增五项测试均复现旧行为不符合澄清，随后按澄清修正实现。
+
+非阻塞的 XYZ 末尾空白和 /1 show 多重度核对 CHANGELOG 说明按审阅意见留待后续；本次不扩展范围。
+
+修订验证：catalog 专项 **115 passed**（3.27 秒，新增五项回归）；全仓 1805 文件敏感扫描 0 错误，
+`git diff --check` 通过。按工单不重复本地全量，后续全量以本次提交的 Linux CI 为准。
+当前阻塞（科学审阅）：等待监督方复核本次最新归属修正；合并仍由负责人操作。

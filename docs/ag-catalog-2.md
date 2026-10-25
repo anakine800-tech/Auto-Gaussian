@@ -86,7 +86,8 @@ channel 新增必须有 name/definition；update 可仅指定要改的字段，�
 发现来源不能改写；`--update --confirm` 只用于 discovered 通道，确认不需原话且不自动撤回。
 retired 对象拒绝新增通道，已有历史不删除。
 
-channel-status 的 verified 要求至少一条指向本通道的 verified 候选结果，在写锁内核对并保存候选 ID/结果序号。
+channel-status 的 verified 要求至少一个候选的 latest_assignment 为 verified 且指向本通道；
+在写锁内核对并保存这些候选 ID 及各自最新结果的 seq，回放时按声明当时的状态重新核对。
 excluded-low-confidence 必须有 reason。cleared 清除当前声明，历史事件保留。
 coverage 最新一条生效；withdrawn 明确保留撤销记录，不代表“稳定”。
 “在声明的通道范围与采样预算内稳定”只按人的 scope/budget/quote 记录，不推断全局完备性。
@@ -155,7 +156,8 @@ ID 均为 string。下表列出共同字段以外的全部字段；未注明可�
 
 - AdoptionChecks：`{fetched:boolean, facts_readable:boolean, role_match:boolean, freq_review:string|null}`；旧语义保留。
 - ChannelChecks：verified 为 `{verified_candidate_results:[{candidate:string, seq:integer}, ...]}`，
-  按候选登记顺序、候选结果顺序记录当时所有匹配条目；其他声明为 `{}`。
+  按候选登记顺序记录当时 latest_assignment 为 verified 且指向本通道的全部候选，
+  每个候选只记录其最新结果的 seq；其他声明为 `{}`。
 - Parent：`{attempt:string|null, file:null|{source:string, sha256:string}}`。
 - Literature：`{doi:string, si_location:string|null}`。
 - Assignment：`{status:"none"|"tentative"|"verified"|"undetermined", channels:string[]}`。
@@ -215,12 +217,13 @@ status 优先顺序：
 
 1. 当前有效 declaration 为 verified 或 excluded-low-confidence → verified 或 excluded_low_confidence。
 2. discovered 且未 confirmed → pending_confirmation。
-3. 任一次结果明确 tentative 归属本通道 → tentative_found。
+3. 存在候选的 latest_assignment 为 tentative 或 verified 且指向本通道 → tentative_found。
 4. 有关联候选 → attempted_not_found。
 5. 其余 → untried。
 
-这是保留全部尝试的登记视图：历史 tentative 结果仍参与第 3 项，不因后一次失败或 none 被删掉；
-latest_assignment 单独展示最新归属。verified 候选结果不会自动变成 verified 通道。
+第 3 项只由最新归属决定，历史结果继续保留在 candidate_ids、outcome_counts 和 ledger 中。
+候选改判到其他通道或 none/undetermined 后，旧归属不再支持原通道的 tentative_found；
+最新归属为 verified 但尚无负责人通道声明时，仍为 tentative_found。
 cleared 撤销声明后重新按第 2–5 项派生，不删除候选结果。coverage 不改变任何通道状态。
 
 show 文本显示原对象表、新通道表（状态、候选数、各 outcome 数、最近结果的 Attempt）及候选表。

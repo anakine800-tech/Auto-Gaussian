@@ -146,8 +146,8 @@ def digest(value):
 
 
 def verified_results(obj, channel):
-    return [dict(candidate=c['id'], seq=r['seq']) for c in obj['candidates'] for r in c['results']
-            if r['assignment'] == dict(status='verified', channels=[channel])]
+    return [dict(candidate=c['id'], seq=c['results'][-1]['seq']) for c in obj['candidates']
+            if c['latest_assignment'] == dict(status='verified', channels=[channel])]
 
 
 def apply_event(obj, e):
@@ -291,8 +291,9 @@ def finish(obj):
             status = declaration['status'].replace('-', '_')
         elif channel['discovered'] and not channel['confirmed']:
             status = 'pending_confirmation'
-        elif any(r['assignment'] == dict(status='tentative', channels=[identity])
-                 for c in candidates for r in c['results']):
+        elif any(c['latest_assignment'] in (dict(status='tentative', channels=[identity]),
+                                            dict(status='verified', channels=[identity]))
+                 for c in candidates):
             status = 'tentative_found'
         else:
             status = 'attempted_not_found' if candidates else 'untried'
