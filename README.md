@@ -298,6 +298,23 @@ ag qst-endpoints '<STUDY_DIR>' --reactant '<REACTANT_ATTEMPT>' \
 沿用 T131 登记、存档和升级规则，需要升级时须显式 `--upgrade-catalog`；失败保留已生成草稿并返回非零。
 `--dry-run` 仍写新草稿，但只预览登记，不写 catalog。**T132 部署前，真实研究 study 不使用登记参数。**
 
+## G0 本地候选诊断
+
+`ag g0 '<STUDY>' --object '<OBJECT>' --candidate '<CANDIDATE>' --json`
+读取并复核 catalog 存档，按所属对象检查组成、电荷、多重度与参考元素顺序；只把完整性不符和
+极端几何损坏记为 rejected。`--all` 或 `--channel '<CHANNEL>'` 支持批量分组排序。
+人设距离窗口通过 `--windows analyses/windows.json` 或可重复 `--window 1-5:1.8:2.6` 输入；
+普通冲突、超窗、立体不符和未核对项只作标记，不改 prepare/submit。
+适用窗口声明的原子对单列为反应中心，不标普通冲突，但仍检查超窗和几何损坏。
+窗口文件也接受 T138 使用的 `reaction_coordinates` 顶层键；T137 不读取其内容，其他未知键报错。
+三个几何数固定为 0.5 Å、0.5 倍共价半径和、0.75 倍范德华半径和。
+
+默认只报告、不写文件、不跑计算。可选 `--record [--upgrade-catalog] [--dry-run]` 追加 diagnosed
+候选结果；**T140 部署之前，真实研究 study 不使用 `--record`。**
+G0 是本地诊断，不是门禁；不替代 DFT 验收；clean 只表示未发现问题。
+顺序只是建议，提交与否由负责人决定。报告字段、立体来源校验、窗口格式、排序及截断规则见
+[G0 使用说明](docs/g0.md)。
+
 ## Skills 部署
 
 将以下六个目录从长期保留的仓库 `skills-next/` 软链接到 `~/.codex/skills/`：

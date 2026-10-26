@@ -364,12 +364,55 @@ def register_candidate(root, *, object, id, xyz_bytes, source, origin,
 
 
 def change(root, op, *, dry_run=False, upgrade_catalog=False, **fields):
+    def build(events, archives):
+        return plan(root, events, op, archives=archives, **fields)
+
+    root = resolve_study(root)
+    return _change(root, build, dry_run=dry_run, upgrade_catalog=upgrade_catalog)
+
+
+def register_candidate_results(root, results, *, journal_sha256,
+                               dry_run=False, upgrade_catalog=False):
+    """Append a validated diagnosis batch through the ordinary catalog path.
+
+    Bind to the diagnosed journal snapshot so changed object expectations or
+    candidate selection cannot silently receive a stale diagnosis.
+    """
+    root = resolve_study(root)
+
+    def build(events, archives):
+        data, _, _ = read_journal(root)
+        if sha256(data).hexdigest() != journal_sha256:
+            raise ValueError('Catalog changed since diagnosis; run the diagnosis again')
+        if not any(v2.is_v2(e) for e in events) and not (dry_run or upgrade_catalog):
+            raise ValueError(v2.UPGRADE_WARNING + ' Use --upgrade-catalog or --dry-run.')
+        pending, checks, warnings = [], {}, []
+        for item in results:
+            diagnosis = item['diagnosis']
+            v2.json_object(diagnosis, 'diagnosis')
+            if len(encode(diagnosis)) > 65536:
+                raise ValueError('diagnosis must not exceed 65536 bytes')
+            added, checked, messages = plan(
+                root, events, 'candidate-result', archives=archives,
+                object=item['object'], candidate=item['candidate'],
+                outcome='diagnosed', _diagnosis=diagnosis, assign='none')
+            pending.extend(added)
+            checks[item['candidate']] = checked
+            warnings.extend(messages)
+        replay(events + [dict(at=now(), seq=len(events) + i, **e)
+                         for i, e in enumerate(pending, 1)])
+        return pending, checks, warnings
+
+    return _change(root, build, dry_run=dry_run, upgrade_catalog=upgrade_catalog)
+
+
+def _change(root, build, *, dry_run=False, upgrade_catalog=False):
     root = resolve_study(root)
 
     def prepare():
         data, events, previous = read_journal(root)
         archives = []
-        pending, checks, warnings = plan(root, events, op, archives=archives, **fields)
+        pending, checks, warnings = build(events, archives)
         upgraded = any(e['schema'] == 'ag-catalog/2' for e in events)
         upgrading = not upgraded and any(v2.is_v2(e) for e in pending)
         if upgrading:
@@ -393,7 +436,9 @@ def change(root, op, *, dry_run=False, upgrade_catalog=False, **fields):
     else:
         # Refuse an unacknowledged upgrade before even creating a lock/directory.
         with catalog_lock(root):
-            prepare()
+            _, _, _, added, checks, warnings, _ = prepare()
+        if not added:
+            return dict(dry_run=False, events=[], checks=checks, warnings=warnings)
         directory = catalog_path(root, 'journal.jsonl').parent
         directory.mkdir(mode=0o700, exist_ok=True)
         with catalog_lock(root, write=True):

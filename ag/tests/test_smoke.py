@@ -21,7 +21,7 @@ def test_installed_version():
     assert result.stderr == ""
 
 
-@pytest.mark.parametrize("command", ["facts", "thermo", "dedup", "cluster", "graph", "profile", "coverage", "scan_peak", "qst_endpoints", "topology", "fragments", "catalog"])
+@pytest.mark.parametrize("command", ["facts", "thermo", "dedup", "cluster", "graph", "profile", "coverage", "scan_peak", "qst_endpoints", "topology", "fragments", "catalog", "g0"])
 def test_registered_command_runs_without_loading_config(monkeypatch, command):
     seen = []
 
@@ -40,7 +40,7 @@ def test_registered_command_runs_without_loading_config(monkeypatch, command):
     monkeypatch.setattr(cli, "import_module", load)
     monkeypatch.setattr(cli, "load_config", unexpected_config_load)
     assert cli.main([command]) == 7
-    assert seen == ["ag.facts", "ag.thermo", "ag.dedup", "ag.cluster", "ag.graph", "ag.irc_compare", "ag.profile", "ag.coverage", "ag.scan_peak", "ag.qst_endpoints", "ag.topology", "ag.mode_review", "ag.fragments", "ag.ensemble", "ag.channel_coverage", "ag.asm", "ag.irc_review", "ag.nci_report", "ag.cp_report", "ag.catalog"]
+    assert seen == ["ag.facts", "ag.thermo", "ag.dedup", "ag.cluster", "ag.graph", "ag.irc_compare", "ag.profile", "ag.coverage", "ag.scan_peak", "ag.qst_endpoints", "ag.topology", "ag.mode_review", "ag.fragments", "ag.ensemble", "ag.channel_coverage", "ag.asm", "ag.irc_review", "ag.nci_report", "ag.cp_report", "ag.catalog", "ag.g0"]
 
 
 def test_dedup_help_and_run_without_config(monkeypatch, tmp_path, capsys):

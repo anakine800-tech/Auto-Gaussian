@@ -541,7 +541,8 @@ def plan(root, objects, op, fields, checks, warnings, archives):
                 facts = catalog.read_facts(root, path)
                 proof = dict(fetched=True, facts_readable=True, n_imag=facts.get('n_imag'), member=member)
         return dict(object=identity, candidate=f['candidate'], outcome=f['outcome'], attempt=identity_attempt,
-                    diagnosis=read_json(f.get('diagnosis_json')), assignment=dict(status=status, channels=f.get('channel') or []),
+                    diagnosis=f['_diagnosis'] if '_diagnosis' in f else read_json(f.get('diagnosis_json')),
+                    assignment=dict(status=status, channels=f.get('channel') or []),
                     quote=f.get('quote'), note=f.get('note'), checks=proof)
     raise ValueError(f'Unknown catalog operation: {op}')
 
