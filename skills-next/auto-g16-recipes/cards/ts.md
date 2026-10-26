@@ -90,7 +90,7 @@ A 3 1 2 S 2 5.0
 
 ### TS 初猜工作流
 
-下列尖括号均为占位符，按已审阅方案填写；生成文件须用新名字。G0 接口须在 T137、T138 合入后以实际 `--help` 核对；当前未具备的步骤先保留为待办，不自造接口。每个写入步骤均受部署限制；`--upgrade-catalog` 只是明确确认格式升级，不能替代部署。
+下列尖括号均为占位符，按已审阅方案填写；生成文件须用新名字。命令与参数已按 T137、T138 合入后的实际 `--help` 核对。每个写入步骤均受部署限制；`--upgrade-catalog` 只是明确确认格式升级，不能替代部署。
 
 1. **定义对象与通道。** `ag catalog object-suggest <study> --attempt <参考Attempt>` 只提供建议；人确认各对象期望组成、电荷与多重度，通道化学定义由人写。**v4.6.0 在两台电脑部署完成之前，真实研究 study 不写 v2 事件**。
 
@@ -112,7 +112,7 @@ A 3 1 2 S 2 5.0
    生成命令不自动 prepare 或提交；扫描草稿的电荷、多重度取自 manifest，逐项核对。草稿不含 Link0；prepare 前须补匹配档位的 `%nprocshared`，`%mem` 可由 prepare 补齐。route 从已审阅方法表填写，扫描草稿拒绝扫描/冻结关键词和父 chk 力常数读取。手工或文献结构也按同样要求审阅，再走第 3 步。
    来源：[T133](../../../docs/redesign-tasks/T133-scan-peak-ts-input.md)、[T134](../../../docs/redesign-tasks/T134-endpoint-qst2.md)、[T136](../../../docs/redesign-tasks/T136-scan-path.md)。
 
-3. **登记候选。** 可在第 2 步生成命令末尾加 `--register-candidate --object <对象> --candidate-id <候选> --target-channel <通道>`；或者独立登记已审阅的 XYZ：
+3. **登记候选。** 可在第 2 步 scan-peak 或 qst-endpoints 命令末尾加 `--register-candidate --object <对象> --candidate-id <候选> --target-channel <通道>`；或者独立登记已审阅的 XYZ：
 
    ```sh
    ag catalog candidate <study> --object <对象> --id <候选> --xyz <XYZ> --origin <来源类别> --target-channel <通道>
@@ -125,12 +125,14 @@ A 3 1 2 S 2 5.0
 
    ```sh
    ag g0 <study> --object <对象> --candidate <候选> --windows <窗口JSON> --json
-   ag g0 <study> --object <对象> --candidate <候选> --windows <窗口JSON> --modes-attempt <频率Attempt> --json
+   ag g0 <study> --object <对象> --candidate <候选> --windows <窗口JSON> --modes-attempt <频率Attempt> --reaction-coordinate distance:<I-J>:forming --json
    ```
    只有输入完整性和几何损坏两类硬拒绝；普通冲突、距离超窗和立体差异仅标记，不自动改归属。报告 rejected/flagged/clean 不等于科学验收，clean 只表示未发现问题。**G0 是本地诊断，不是门禁；提交与否由负责人决定。**
-   有已取回 Gaussian 频率结果时用第二条命令，窗口 JSON 的 `reaction_coordinates` 按目标通道声明 distance 的 breaking/forming（断键伸长、成键缩短）。逐坐标投影并考虑模式整体正负号；审阅全部虚频及模式来源，重叠度只供排序，不设科学阈值。非驻点频率只供诊断；本期不读取 xTB Hessian。
-   批量把 `--candidate <候选>` 换成 `--all` 或 `--channel <通道>`；顺序只是建议。显式 `--record` 才写 diagnosed，归属 none、Attempt 为空，不能借此保留旧的最新归属；历史结果仍可查。**v4.6.0 在两台电脑部署完成之前，真实研究 study 不写 v2 事件**。
-   来源：`docs/g0.md`（T137/T138）、[T139](../../../docs/redesign-tasks/T139-card-wording.md) B4/X4；最终标记与参数须按合并实现核对。
+   窗口文件须在 study 的 `analyses/` 下，相对路径以 study 为基准；顶层只允许 `channels`、`all`、`reaction_coordinates`。距离窗口应用 all + 候选原登记目标通道 + 命令行 `--window`；反应坐标取 `reaction_coordinates[目标通道]`，再追加可重复的 `--reaction-coordinate kind:atoms:role`，编号从 1 开始。distance 角色为 breaking/forming，angle 为 increasing/decreasing/report；通道 ID 须合法。
+   适用距离窗口及 distance 反应坐标声明的原子对列在 `geometry.reaction_center_pairs`（原子、元素、距离、成键状态），不标普通冲突，但仍适用两条几何硬拒绝：距离 < 0.5 Å 或 < 0.5 × 共价半径之和。有窗口仍检查超窗；没有模式数据也适用反应中心规则，angle 坐标不声明原子对。
+   有已取回 Gaussian 频率结果时用第二条命令，按目标补充坐标：断键伸长、成键缩短。逐坐标投影并考虑模式整体正负号；审阅全部虚频及模式来源，重叠度只供排序，不设科学阈值。非驻点频率只供诊断；本期不读取 xTB Hessian。
+   批量从第一条命令把 `--candidate <候选>` 换成 `--all` 或 `--channel <通道>`，不加 `--modes-attempt`；模式来源取候选最新一条 Attempt 非空的结果，跳过 diagnosed 等空 Attempt 记录，不按 outcome 筛选。全为空时记“无模式数据”；选中的 Attempt 未取回或没有 Gaussian Freq 段也记无模式数据，不再回退；未声明反应坐标时不做投影。顺序只是建议。显式 `--record` 才写 diagnosed，归属 none、Attempt 为空，不能借此保留旧的最新归属；历史结果仍可查。**v4.6.0 在两台电脑部署完成之前，真实研究 study 不写 v2 事件**。
+   来源：[G0 文档](../../../docs/g0.md)（T137/T138）、[T139](../../../docs/redesign-tasks/T139-card-wording.md) B4/X4。
 
 5. **准备与提交。** 按第 3–5 节审阅完整输入与摘要，照常运行：
 
@@ -263,10 +265,8 @@ TS 后分岔或产物分支不能唯一确定时，候选结果的归属用 `und
 
 **低层优化塌缩到端点，只说明这条低层路线失败；通道应改用其他方法继续，不能据此排除。** 已登记候选使用 `ag catalog candidate-result <study> --object <对象> --candidate <候选> --outcome minimum --note '低层路线失败（<方法>）'`，有关联 Attempt 时补 `--attempt <结果Attempt>`，不声明 excluded。
 
-xTB 无虚频或方向不对只降优先级或转为直接做 DFT，不排除候选；G0 的 Gaussian 模式标记 `mode:no_imaginary_mode`、`mode:sign_inconsistent` 同样不导致 rejected。还须审阅 `mode:multiple_imaginary_modes`、`mode:most_negative_not_best`、`mode:non_stationary_frequencies`；这些类别不表示本期支持 xTB Hessian。
-
-涉及上述台账写入时：**v4.6.0 在两台电脑部署完成之前，真实研究 study 不写 v2 事件**。
-来源：[T139](../../../docs/redesign-tasks/T139-card-wording.md) A7/A8/X4、[catalog v2](../../../docs/ag-catalog-2.md)、`docs/g0.md`（T138 标记须按最终实现核对）。
+xTB 无虚频或方向不对只降优先级或转为直接做 DFT，不排除候选；G0 的 Gaussian 模式标记 `mode:no_imaginary_mode`、`mode:sign_inconsistent` 同样不导致 rejected。还须审阅 `mode:multiple_imaginary_modes`、`mode:most_negative_not_best`、`mode:non_stationary_frequencies`；这些类别不表示本期支持 xTB Hessian。涉及上述台账写入时：**v4.6.0 在两台电脑部署完成之前，真实研究 study 不写 v2 事件**。
+来源：[T139](../../../docs/redesign-tasks/T139-card-wording.md) A7/A8/X4、[catalog v2](../../../docs/ag-catalog-2.md)、[G0 模式标记](../../../docs/g0.md#模式投影)。
 
 不得将 `Stable=Opt` 机械地加到所有计算里；它可能改变电子态，不能以较低能量自动接受新态。
 
