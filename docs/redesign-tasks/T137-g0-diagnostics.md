@@ -1,6 +1,6 @@
 # T137：G0 诊断——输入完整性、几何损坏与通道诊断
 
-版本：v1（监督方，2026-10-26）。**开发机做。** 后端出一个 PR，PR 描述第一行写 `Task: T137`。
+版本：v2（2026-10-26，依据负责人转发的 #338 复审补充修订 E3/E6）。**开发机做。** 后端出一个 PR，PR 描述第一行写 `Task: T137`。
 
 ## 分支与目标
 
@@ -14,12 +14,13 @@
     - 原子顺序默认对照候选的父 Attempt（`parent.attempt`，scan、qst 来源都有）；手工和文献来源用 `--reference-attempt` 指定；只比较元素序列（同种元素原子互换查不出来，报告里写明）；
     - 没有对照的项（期望值为“未提供”或“未知”，没有参考 Attempt）记为“未核对”：这是**标记**，不是拒绝；
     - 候选 XYZ 不带电荷信息，所以“电荷、多重度”的核对，是检查对象期望值与参考 Attempt 的 manifest 是否一致，以及期望电荷、多重度与候选元素组成的电子数奇偶是否相容（复用 `gaussian_input.check_electrons`）。
-  - E3 几何损坏的硬拒绝极保守：任意两个原子距离 < 0.5 Å，或 < 0.5 倍共价半径之和。非成键重原子对 < 0.75 倍范德华半径之和只标记为“普通冲突”，并建议先做受限松弛。这三个数**写死在代码和文档里，不开放调整**；共价半径、范德华半径都取 RDKit 周期表（与 `irc_compare._pairs` 同源）。
+  - E3 几何损坏的硬拒绝极保守：任意两个原子距离 < 0.5 Å，或 < 0.5 倍共价半径之和。非成键重原子对 < 0.75 倍范德华半径之和只标记为“普通冲突”；适用距离窗口声明的反应原子对除外，单列 `geometry.reaction_center_pairs`，仍检查超窗和两项几何损坏。普通冲突先核对是否为未声明的反应中心，仅确认普通空间冲突后再考虑保持反应坐标的受限松弛。这三个数**写死在代码和文档里，不开放调整**；共价半径、范德华半径都取 RDKit 周期表（与 `irc_compare._pairs` 同源）。
   - E4 通道诊断：
     - 成断键距离窗口由人设，超出窗口就标记；
     - 立体标签 ag 不自己算：读入 Skill 脚本 `skills-next/auto-g16-structures/scripts/ts_stereo_label.py` 生成的 `labels.json`（`--stereo-json`），与人给的 `--expected-label` 比较。不符标记“可能属于其他通道”，含 unknown / needs_review 中心或不能唯一判定时标记“待判”。**都不自动改归属。**
   - E5 批量：`--all`（对象的全部候选）或 `--channel <通道>`（以该通道为目标或曾归属该通道的候选）。结果分三组：拒绝 / 有标记 / 无标记；组内按标记数升序、再按登记顺序排。输出固定写明“顺序只是建议，提交与否由负责人决定”。T138 会在此基础上加入模式信息、细化排序。
   - E6 距离窗口写在 study 的 `analyses/` 下一个 JSON 文件里（按通道分组），用 `--windows <文件>` 指定；也可以用 `--window i-j:最小:最大` 临时补充（可重复，作用于本次诊断的所有候选）。诊断结果记下窗口文件的 SHA-256 和实际用到的窗口。不改 catalog 契约。
+    - 顶层仅允许 `channels`、`all`、`reaction_coordinates`，其他键仍报错。T137 不读取或校验 `reaction_coordinates` 内容，由 T138 负责。
   - E7 规格中与 xTB 相关的两项不进本单：虚频、模式相关的放 T138；“xTB 高能、端点塌缩”由人登记为候选结果，T139 在卡片里写清口径。**T137 不跑任何计算。**
 - **资料：** 规格 `docs/research/ts-guess-plan-v1.md` T-E 一节；审计第 9、11 节及拆单建议中的 T-E；`ag/src/ag/catalog.py`、`catalog_v2.py`（`manifest_info`、`xyz`、`read_bytes`、`register_candidate`、`ledger`）；`ag/src/ag/irc_compare.py`（`_pairs`）；`ag/src/ag/gaussian_input.py`（`check_electrons`）；`ag/src/ag/geometry.py`（`atom_distance`）；`skills-next/auto-g16-structures/scripts/ts_stereo_label.py`（`labels.json` 的结构）。
 - **新增检查防的事故：** 把原子数、电荷或多重度与子任务不符的初猜送去 DFT（按 study 统一判断还会误杀不同计量的子任务）；坐标损坏（原子重叠、键长塌缩）的输入浪费排队；成断键距离明显不在预期范围或立体构型不对的候选混在一起，没有被标出来。
@@ -56,12 +57,14 @@ ag g0 <study> --object <对象> (--candidate <候选> | --all | --channel <通�
 
 4. **几何损坏（E3）**：
    - 硬拒绝：任意原子对距离 < 0.5 Å；任意原子对距离 < 0.5 × (r_cov,i + r_cov,j)；
-   - 标记（普通冲突）：未成键的重原子对（按 `_pairs` 不为 bonded）距离 < 0.75 × (r_vdW,i + r_vdW,j)；附“建议先做受限松弛”；
+   - 标记（普通冲突）：未成键的重原子对（按 `_pairs` 不为 bonded）距离 < 0.75 × (r_vdW,i + r_vdW,j)，且不是适用距离窗口声明的反应原子对；先核对是否为未声明的反应中心，仅确认普通空间冲突后再考虑保持反应坐标的受限松弛；
+   - 适用距离窗口声明的原子对单列 `geometry.reaction_center_pairs`（原子编号、元素、距离），不标普通冲突；仍检查超窗与两项几何损坏；
    - 列出涉及的原子、元素和距离。
 
 5. **距离窗口（E4、E6）**：
    - 窗口文件格式：`{"channels": {"<通道ID>": [{"atoms": [i, j], "min": 1.8, "max": 2.6, "label": "形成键 C1–C5"}], ...}, "all": [...]}`；
    - 文件必须在 study 的 `analyses/` 下，拒绝越界路径和符号链接；
+   - 顶层还允许 T138 使用的 `reaction_coordinates`，T137 不读取或校验其内容；其他未知键报错；
    - 对每个候选，适用的窗口 = `all` + 候选目标通道的窗口 + 命令行 `--window`；
    - 超出窗口的列为标记（原子、实际距离、窗口、标签）；没有适用窗口时记“未设窗口”。
 
@@ -101,7 +104,10 @@ ag g0 <study> --object <对象> (--candidate <候选> | --all | --channel <通�
 | 期望值未提供 / 未知；手工候选没有参考 | unchecked，记为标记，不拒绝 |
 | 期望电荷、多重度与电子数奇偶不相容 | rejected |
 | 两原子距离 0.4 Å；距离 < 0.5 倍共价半径之和 | rejected（几何损坏） |
-| 非成键重原子对 < 0.75 倍范德华半径之和 | flagged（普通冲突），附受限松弛建议 |
+| 未声明反应原子对的非成键重原子对 < 0.75 倍范德华半径之和 | flagged（普通冲突），先核对反应中心，再给有条件的受限松弛建议 |
+| C–C 2.2 Å，有/没有适用距离窗口 | 有窗口单列 reaction_center_pairs，不标普通冲突；无窗口照常标冲突 |
+| 声明了反应原子对，但距离 0.4 Å 或小于半共价半径和 | 仍 rejected（几何损坏） |
+| 文件含 reaction_coordinates / 顶层键拼错 | 前者可用且内容不校验；后者运行错误 |
 | 距离窗口：通道窗口、all 窗口、命令行窗口；超出与未超出 | 只把超出的列为标记；记录窗口文件哈希 |
 | 窗口文件不在 analyses/、是符号链接 | 拒绝运行 |
 | 立体：一致 / 不一致 / 含 unknown 中心 | match / “可能属于其他通道” / “待判” |
@@ -113,6 +119,7 @@ ag g0 <study> --object <对象> (--candidate <候选> | --all | --channel <通�
 | 不带 `--record` | 不创建、不修改任何文件 |
 
 推送前本地跑一次全量 `PYTHONPATH=ag/src python -m pytest ag/tests skills-next -q -rs`，之后以 CI 为准；运行 `python scripts/scan_public.py`（带本机词表）和 `git diff --cached --check`。
+复审补充：测试中打印 RDKit 的 C–C、C–O、C–N 普通冲突阈值，并记录在 PR 描述中。
 
 ## 真实环境验证
 
@@ -131,6 +138,7 @@ ag g0 <study> --object <对象> (--candidate <候选> | --all | --channel <通�
 
 ## 版本记录
 
+- v2（2026-10-26，负责人转发 #338 复审及补充口径）：允许共享窗口文件的 `reaction_coordinates` 键，但保留顶层键白名单；适用距离窗口声明的反应原子对不作普通冲突，防止将 2.0–2.4 Å 的成键中 TS 反应中心误导去松弛。两项几何硬拒绝不变。
 - v1（2026-10-26，监督方）：依据 10-26 两轮问答 E1–E7 起草；对应审计拆单建议中 T-E 的“本地对象完整性、几何、通道诊断”部分（模式诊断另为 T138）。
 
 ## 执行记录

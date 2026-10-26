@@ -151,11 +151,168 @@ def test_damage_rejects_and_clash_only_flags(water, capsys):
     for name, distance, verdict in [('damage', 0.7, 'rejected'), ('clash', 2.4, 'flagged')]:
         data = f'2\nSynthetic carbon pair\nC 0 0 0\nC {distance} 0 0\n'.encode()
         candidate_(water, name, data)
-        report = diagnose(water, candidate=name, window=['1-2:0:4'])['candidates'][0]
+        report = diagnose(water, candidate=name, window=[])['candidates'][0]
         assert report['verdict'] == verdict
         assert any('受限松弛' in f['message'] for f in report['flags'])
         assert cli.main(['g0', str(water), '--object', 'water-a', '--candidate', name, '--json']) == (1 if verdict == 'rejected' else 0)
         assert 'error' not in json.loads(capsys.readouterr().out)
+
+
+def carbon_pair(root, distance=2.2):
+    geometry = f'C 0 0 0\nC {distance} 0 0'
+    object_(root, formula='C2')
+    identity = make_attempt(root, '001-carbon-pair', geometry=geometry, charge=0, multiplicity=1)
+    candidate_(root, data=('2\nSynthetic carbon pair\n' + geometry + '\n').encode(), parent=identity)
+
+
+def test_shared_window_file_accepts_but_does_not_validate_reaction_coordinates(water):
+    carbon_pair(water)
+    path = water / 'analyses/windows.json'
+    config = dict(all=[dict(atoms=[1, 2], min=2.0, max=2.4)])
+    write_json(path, config)
+    before = diagnose(water, windows=path, window=[])
+    config['reaction_coordinates'] = {'approach-a': [
+        dict(kind='distance', atoms=[1, 2], role='forming', label='Synthetic forming pair'),
+        dict(kind='angle', atoms=[1, 2, 3], role='report')]}
+    # The angle is not applicable to this two-atom candidate: G0 must not
+    # validate a section owned by the later mode reader.
+    write_json(path, config)
+    snapshot = files(water)
+    after = diagnose(water, windows=path, window=[])
+    assert after['candidates'][0]['verdict'] == 'clean'
+    assert after['candidates'][0]['windows']['source']['sha256'] == sha256(path.read_bytes()).hexdigest()
+    before['candidates'][0]['windows']['source'] = after['candidates'][0]['windows']['source']
+    assert before == after and files(water) == snapshot
+
+
+@pytest.mark.parametrize('source', ['all', 'target_channel', 'command_line'])
+@pytest.mark.parametrize('distance,verdict,outside', [(2.0, 'clean', 0), (2.2, 'clean', 0),
+                                                    (2.4, 'clean', 0), (1.9, 'flagged', 1),
+                                                    (0.4, 'rejected', 1), (0.7, 'rejected', 1)])
+def test_declared_reaction_pairs_keep_windows_and_damage(water, source, distance, verdict, outside):
+    carbon_pair(water, distance)
+    window = dict(atoms=[2, 1], min=2.0, max=2.4, label='Synthetic reaction pair')
+    config = {'all': [], 'channels': {}}
+    extra = []
+    if source == 'all':
+        config['all'] = [window]
+    elif source == 'command_line':
+        extra = ['2-1:2.0:2.4']
+    else:
+        catalog.change(water, 'channel', object='water-a', id='a', name='A', definition='Synthetic')
+        parent = catalog.show(water)[0]['objects'][0]['candidates'][0]['parent']['attempt']
+        data = f'2\nSynthetic\nC 0 0 0\nC {distance} 0 0\n'.encode()
+        candidate_(water, 'target', data, parent=parent, target_channel='a')
+        config['channels']['a'] = [window]
+    path = water / 'analyses/windows.json'
+    write_json(path, config)
+    name = 'target' if source == 'target_channel' else 'guess-a'
+    c = diagnose(water, candidate=name, windows=path, window=extra)['candidates'][0]
+    assert c['verdict'] == verdict and c['counts']['outside_windows'] == outside
+    assert not c['geometry']['clashes'] and c['counts']['ordinary_clashes'] == 0
+    assert c['geometry']['reaction_center_pairs'][0]['atoms'] == [1, 2]
+    assert c['geometry']['reaction_center_pairs'][0]['elements'] == ['C', 'C']
+    assert c['geometry']['reaction_center_pairs'][0]['distance_angstrom'] == distance
+    assert c['counts']['reaction_center_pairs'] == 1
+    assert not any(f['category'] == 'ordinary_clash' or '松弛' in f['message'] for f in c['flags'])
+    assert bool(c['geometry']['damage']) is (verdict == 'rejected')
+    if distance == 0.4:
+        assert len(c['geometry']['damage'][0]['criteria']) == 2
+    if distance == 0.7:
+        assert c['geometry']['damage'][0]['criteria'] == ['distance_below_half_covalent_sum']
+
+
+def test_reaction_pair_exemption_is_pair_specific():
+    frame = geo.Frame(('C', 'C', 'C'), ((0, 0, 0), (2.2, 0, 0), (4.4, 0, 0)))
+    result = g0._geometry(frame, [(2, 1), (1, 2)])
+    assert [c['atoms'] for c in result['reaction_center_pairs']] == [[1, 2]]
+    assert [c['atoms'] for c in result['clashes']] == [[2, 3]]
+    assert '先核对是否为未声明的反应中心' in result['clashes'][0]['recommendation']
+
+
+def test_forming_carbon_pair_needs_explicit_window(water, capsys):
+    carbon_pair(water, 2.2)
+    before = files(water)
+    c = diagnose(water, window=[])['candidates'][0]
+    assert c['verdict'] == 'flagged' and c['counts']['ordinary_clashes'] == 1
+    assert not c['geometry']['reaction_center_pairs']
+    assert cli.main(['g0', str(water), '--object', 'water-a', '--all', '--window', '1-2:2.0:2.4']) == 0
+    output = capsys.readouterr().out
+    assert 'guess-a: clean' in output and 'geometry.reaction_center_pairs:' in output
+    assert 'ordinary_clash' not in output and '松弛' not in output
+    assert files(water) == before
+
+
+def test_other_channel_windows_do_not_exempt_candidate_or_mode_only_pairs(water):
+    carbon_pair(water)
+    catalog.change(water, 'channel', object='water-a', id='other', name='Other', definition='Synthetic')
+    catalog.change(water, 'candidate-result', object='water-a', candidate='guess-a', outcome='other_channel',
+                   assign='tentative', channel=['other'])
+    path = water / 'analyses/windows.json'
+    write_json(path, dict(channels={'other': [dict(atoms=[1, 2], min=2.0, max=2.4)]},
+                         reaction_coordinates={'other': [dict(kind='distance', atoms=[1, 2], role='forming')]}))
+    c = diagnose(water, candidate=None, channel='other', windows=path, window=[])['candidates'][0]
+    assert not c['geometry']['reaction_center_pairs']
+    assert c['counts']['ordinary_clashes'] == 1
+    assert c['verdict'] == 'flagged' and c['windows']['status'] == 'unset'
+
+
+def test_recorded_and_truncated_reaction_center_pairs(water, capsys):
+    carbon_pair(water)
+    assert cli.main(['g0', str(water), '--object', 'water-a', '--all', '--window', '1-2:2.0:2.4',
+                     '--record', '--json']) == 0
+    result = json.loads(capsys.readouterr().out)
+    c = result['candidates'][0]
+    assert result['record']['events'][0]['diagnosis'] == c
+    c['geometry']['reaction_center_pairs'] *= 2000
+    c['counts']['reaction_center_pairs'] = 2000
+    bounded = g0.bounded_diagnosis(c)
+    assert bounded['truncated'] and len(catalog.encode(bounded)) <= 65536
+    assert bounded['counts']['reaction_center_pairs'] == 2000 and bounded['verdict'] == 'clean'
+
+
+@pytest.mark.parametrize('bad', [[], {'all': None}, {'channels': []},
+                               {'all': [{'atoms': [1, 2], 'min': 3, 'max': 2}]}])
+def test_shared_file_still_validates_owned_window_sections(normal, bad):
+    root, _ = normal
+    path = root / 'analyses/bad-windows.json'
+    write_json(path, bad)
+    with pytest.raises(ValueError):
+        diagnose(root, windows=path)
+
+
+@pytest.mark.parametrize('key', ['reaction_coordinate', 'channnels', 'future_extension'])
+def test_shared_file_rejects_unknown_top_level_keys(normal, key, capsys):
+    root, _ = normal
+    path = root / 'analyses/bad-windows.json'
+    write_json(path, {key: {}})
+    snapshot = files(root)
+    assert cli.main(['g0', str(root), '--object', 'water-a', '--all', '--windows', str(path),
+                     '--record', '--json']) == 1
+    error = json.loads(capsys.readouterr().out)
+    assert 'Unknown windows file fields' in error['error']
+    assert 'candidates' not in error and files(root) == snapshot
+
+
+@pytest.mark.parametrize('distance', [1.5, 3.0])
+def test_reaction_center_listing_does_not_depend_on_bond_or_clash_cutoff(distance):
+    frame = geo.Frame(('C', 'C'), ((0, 0, 0), (distance, 0, 0)))
+    result = g0._geometry(frame, [(1, 2)])
+    assert result['reaction_center_pairs'][0]['distance_angstrom'] == distance
+    assert not result['clashes']
+
+
+def test_rdkit_heavy_pair_clash_thresholds():
+    from rdkit import Chem
+    table = Chem.GetPeriodicTable()
+    for elements, expected in [(('C', 'C'), 2.55), (('C', 'O'), 2.4375), (('C', 'N'), 2.475)]:
+        radii = [table.GetRvdw(element) for element in elements]
+        threshold = g0.VDW_FACTOR * sum(radii)
+        print(f"{'-'.join(elements)}: 0.75 * ({radii[0]} + {radii[1]}) = {threshold:.4f} Angstrom")
+        assert threshold == pytest.approx(expected)
+        frame = geo.Frame(elements, ((0, 0, 0), (2.2, 0, 0)))
+        assert g0._geometry(frame)['clashes'][0]['threshold_angstrom'] == threshold
+        assert not g0._geometry(frame, [(1, 2)])['clashes']
 
 
 def test_windows_sources_and_historical_channel_selection(normal):

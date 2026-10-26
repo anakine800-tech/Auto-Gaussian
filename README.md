@@ -305,6 +305,8 @@ ag qst-endpoints '<STUDY_DIR>' --reactant '<REACTANT_ATTEMPT>' \
 极端几何损坏记为 rejected。`--all` 或 `--channel '<CHANNEL>'` 支持批量分组排序。
 人设距离窗口通过 `--windows analyses/windows.json` 或可重复 `--window 1-5:1.8:2.6` 输入；
 普通冲突、超窗、立体不符和未核对项只作标记，不改 prepare/submit。
+适用窗口声明的原子对单列为反应中心，不标普通冲突，但仍检查超窗和几何损坏。
+窗口文件也接受 T138 使用的 `reaction_coordinates` 顶层键；T137 不读取其内容，其他未知键报错。
 三个几何数固定为 0.5 Å、0.5 倍共价半径和、0.75 倍范德华半径和。
 
 默认只报告、不写文件、不跑计算。可选 `--record [--upgrade-catalog] [--dry-run]` 追加 diagnosed

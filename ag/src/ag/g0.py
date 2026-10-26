@@ -110,13 +110,16 @@ def _integrity(root, obj, candidate, frame, reference):
     return checks, provenance
 
 
-def _geometry(frame):
+def _geometry(frame, reaction_pairs=()):
     try:
         from rdkit import Chem
     except ImportError as exc:
         raise ValueError('G0 geometry diagnostics require RDKit') from exc
     table = Chem.GetPeriodicTable()
-    damage, clashes = [], []
+    # Applicable human distance windows identify reaction pairs. Never infer
+    # them from a bond-state cutoff or exempt them from either damage check.
+    reaction_pairs = {tuple(sorted(atoms)) for atoms in reaction_pairs}
+    damage, clashes, reaction_center_pairs = [], [], []
     for atoms, pair in _pairs(frame, Chem).items():
         elements = [frame.symbols[i - 1] for i in atoms]
         distance = pair['distance']
@@ -124,6 +127,8 @@ def _geometry(frame):
         vdw = VDW_FACTOR * sum(table.GetRvdw(e) for e in elements)
         entry = dict(atoms=list(atoms), elements=elements, distance_angstrom=distance,
                      bond_state=pair['state'])
+        if atoms in reaction_pairs:
+            reaction_center_pairs.append(entry)
         criteria = []
         if distance < MIN_DISTANCE:
             criteria.append('distance_below_0.5_angstrom')
@@ -131,9 +136,12 @@ def _geometry(frame):
             criteria.append('distance_below_half_covalent_sum')
         if criteria:
             damage.append(dict(entry, criteria=criteria, covalent_threshold_angstrom=covalent))
-        if 'H' not in elements and pair['state'] != 'bonded' and distance < vdw:
-            clashes.append(dict(entry, threshold_angstrom=vdw, recommendation='建议先做受限松弛'))
-    return dict(damage=damage, clashes=clashes,
+        if ('H' not in elements and pair['state'] != 'bonded' and distance < vdw and
+                atoms not in reaction_pairs):
+            clashes.append(dict(entry, threshold_angstrom=vdw,
+                                recommendation='先核对是否为未声明的反应中心；仅确认普通空间冲突后，'
+                                               '再考虑保持反应坐标的受限松弛'))
+    return dict(damage=damage, clashes=clashes, reaction_center_pairs=reaction_center_pairs,
                 thresholds=dict(min_distance_angstrom=MIN_DISTANCE,
                                 covalent_sum_factor=COVALENT_FACTOR, vdw_sum_factor=VDW_FACTOR))
 
@@ -171,8 +179,12 @@ def _windows(root, filename, extra):
         path = study.local_path(root / 'analyses', path)
         raw = v2.read_bytes(path, 1024 * 1024)
         config = json.loads(raw)
-        if not isinstance(config, dict) or set(config) - {'channels', 'all'}:
-            raise ValueError('Windows file must contain channels and/or all')
+        if not isinstance(config, dict):
+            raise ValueError('Windows file must be a JSON object')
+        if set(config) - {'channels', 'all', 'reaction_coordinates'}:
+            raise ValueError('Unknown windows file fields; allowed: channels, all, reaction_coordinates')
+        # T138 owns reaction_coordinates. Allow its key without consuming or
+        # validating the contents; reject other keys to catch misspellings.
         source = dict(file=str(path.relative_to(root)), sha256=sha256(raw).hexdigest())
     channels, common = config.get('channels', {}), config.get('all', [])
     if not isinstance(channels, dict) or not isinstance(common, list):
@@ -271,8 +283,8 @@ def diagnose_candidate(root, obj, candidate, *, registration_order, windows,
     frame = _xyz_frame(raw)
     reference = reference_attempt or candidate['parent']['attempt']
     integrity, provenance = _integrity(root, obj, candidate, frame, reference)
-    geometry = _geometry(frame)
     distances = _window_report(frame, candidate, windows)
+    geometry = _geometry(frame, [row['atoms'] for row in distances['used']])
     stereo = _stereo(root, frame, stereo_json, stereo_attempt, expected_label)
     rejected, flags, unchecked = [], [], []
     for field, check in integrity.items():
@@ -283,7 +295,7 @@ def diagnose_candidate(root, obj, candidate, *, registration_order, windows,
             unchecked.append(field)
             flags.append(dict(entry, message='未核对：' + check['reason']))
     rejected.extend(dict(category='geometry_damage', message='几何损坏', **pair) for pair in geometry['damage'])
-    flags.extend(dict(category='ordinary_clash', message='普通冲突；建议先做受限松弛', **pair)
+    flags.extend(dict(category='ordinary_clash', message='疑似普通冲突；' + pair['recommendation'], **pair)
                  for pair in geometry['clashes'])
     flags.extend(dict(category='distance_window', message='距离超出人设窗口', **row)
                  for row in distances['used'] if row['status'] == 'outside')
@@ -299,6 +311,7 @@ def diagnose_candidate(root, obj, candidate, *, registration_order, windows,
                 reject_reasons=rejected, flags=flags, unchecked=unchecked,
                 counts=dict(reject_reasons=len(rejected), flags=len(flags), unchecked=len(unchecked),
                             geometry_damage=len(geometry['damage']), ordinary_clashes=len(geometry['clashes']),
+                            reaction_center_pairs=len(geometry['reaction_center_pairs']),
                             windows=len(distances['used']),
                             outside_windows=sum(w['status'] == 'outside' for w in distances['used'])),
                 notice=NOTICE, order_notice=ORDER_NOTICE, atom_order_limitation=ORDER_LIMIT)
@@ -348,7 +361,7 @@ def bounded_diagnosis(report):
         return result
     result.update(truncated=True, truncation_note='已截断；结论与各项原始计数保留')
     lists = [result['reject_reasons'], result['flags'], result['geometry']['damage'],
-             result['geometry']['clashes'], result['windows']['used']]
+             result['geometry']['clashes'], result['geometry']['reaction_center_pairs'], result['windows']['used']]
     for check in result['integrity'].values():
         lists.extend(v for v in check.values() if isinstance(v, list))
     while len(catalog.encode(result)) > MAX_DIAGNOSIS_BYTES and any(lists):
@@ -389,6 +402,9 @@ def run(args):
                 print(f"  {field}: " + json.dumps(check, ensure_ascii=False))
             for field in ('reference', 'windows', 'stereo'):
                 print(f"  {field}: " + json.dumps(c[field], ensure_ascii=False))
+            if c['geometry']['reaction_center_pairs']:
+                print('  geometry.reaction_center_pairs: ' +
+                      json.dumps(c['geometry']['reaction_center_pairs'], ensure_ascii=False))
             for entry in c['reject_reasons'] + c['flags']:
                 print('  ' + json.dumps(entry, ensure_ascii=False))
         print('order: ' + ', '.join(report['order']))
