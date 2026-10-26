@@ -16,7 +16,7 @@
     - 对每个声明的反应内坐标 k，算 δc_k = B_k · q（B_k 是该内坐标对笛卡尔坐标的导数行，即 Wilson B 矩阵的一行）；
     - 距离坐标的期望符号 s_k：断裂键（breaking）为 +1，形成键（forming）为 −1；角度坐标可以声明 increasing（+1）、decreasing（−1）或 report（只报告，不参与符号判断）；
     - 模式向量的整体符号是任意的，因此对 σ ∈ {+1, −1} 分别计算吻合数 Σ_k [σ s_k δc_k > 0]，取吻合数多的那个 σ；吻合数相同时取 σ·Σ s_k δc_k 为正的那个；
-    - |δc_k| < 1e-3 Å 的记为“≈0，符号不定”，既不算吻合也不算不吻合。**1e-3 Å 只是数值上判断“是否为零”的容差，不是科学判据。**
+    - 距离 |δc_k| < 1e-3 Å、角度 |δc_k| < 1e-3 rad（角度为 v1.1 补充，来源见版本记录）的记为“≈0，符号不定”，既不算吻合也不算不吻合。**这只是数值上判断“是否为零”的容差，不是科学判据。**
   - M4 **重叠度（排序用）**：d = Σ_k s_k ∇c_k（只用有期望符号的坐标；∇c_k 就是 B_k 这一行），重叠度 O = |q · d| / ‖d‖（q 已是单位向量）。只用于排序和报告，**不设阈值**。
   - M5 **哪些模式**：频率结果中**全部虚频模式**都要分析；另附最低的 3 个实频模式作参考（不参与标记）。最匹配的模式 = 吻合数最多、其次重叠度最高的那个虚频模式。
   - M6 **标记**（只标记，不拒绝）：
@@ -35,7 +35,7 @@
       ]
     }
     ```
-    T137 只读 `channels` 和 `all`，其他顶层键忽略（已与 T137 协调）。
+    T137 只读 `channels` 和 `all`，允许但不读取 `reaction_coordinates`；其他顶层键报错（v1.1 审阅修正，防止拼写错误被忽略）。T138 接入后读取并校验 `reaction_coordinates`。
 - **资料：** 规格 T-E；审计拆单建议中 T-E 的说明（`mode_review.displace` 已有逐距离的有符号导数，可作对照）；`ag/src/ag/mode_review.py`（`frequency_section` 104、`read_modes` 125、`displace` 32）；`ag/src/ag/geometry.py`（`kabsch`）；T137 工单（报告结构、窗口文件、排序）。
 - **新增检查防的事故：** 只看最负虚频，而它其实是无关扭转；把共享原子上的位移按原子相加，导致质子转移这类反应的贡献互相抵消，判断失真（复审指出的原方案错误）；没有虚频或虚频方向不对的候选，没有被排到后面。
 
@@ -113,7 +113,7 @@ analyze_modes(elements, coordinates, frequencies, displacements, coordinates_spe
 | 角度接近 180° | 报错“角度坐标退化” |
 | 坐标原子编号越界、重复、kind 与原子数不符 | 报错 |
 | 频率结果来自非驻点几何 | 标记 non_stationary_frequencies |
-| 频率 Attempt 未取回、没有 Freq 段、取向无法确认 | 报错（沿用 `read_modes` 的错误） |
+| 显式指定的频率 Attempt 未取回、没有 Freq 段、取向无法确认 | 报错（沿用 `read_modes` 的错误）；批量中的缺失按第 6 节记无模式数据，取向错误仍报错 |
 | 候选与频率结果元素序列不同 | 报错 |
 | 候选几何与频率几何不同（优化后的） | 正常分析，报告对齐 RMSD |
 | 没有声明反应坐标 | 记“未声明反应坐标”，不做投影 |
@@ -144,7 +144,7 @@ analyze_modes(elements, coordinates, frequencies, displacements, coordinates_spe
 - v1.1（2026-10-26，核心审阅补充）：角度的数值零容差明确为 **1e-3 rad（约 0.0573°）**。来源是本任务对话中的补充问答：Codex 提出按角度原生单位处理，负责人选择“角度采用 1e-3 rad（建议）”；本次转达的核心审阅再次确认“数值合理，我同意”。这是 v1 未指定的角度容差补充，不追溯表述为原工单或监督方此前已确认；距离仍用 1e-3 Å，两者都只是数值零容差，不是科学阈值。
 - v1.1 接入要求（2026-10-26，#339 核心审阅基于 `74b2731` 通过）：等 #338 合并后，由 `g0._windows` 只读取、解析一次窗口文件，将同一份内容和哈希传给 `reaction_coordinates()`；study 根目录统一经 `catalog.resolve_study` 解析。读取 `reaction_coordinates` 时校验通道 ID；其中 distance 类坐标的原子对与适用距离窗口的原子对一样，排除出普通冲突并列入 `geometry.reaction_center_pairs`，仍适用两条几何损坏硬拒绝。窗口文件顶层白名单由 T137 保持为 `channels`、`all`、`reaction_coordinates`，其他未知键仍报错。
 
-## 执行记录（核心阶段，尚未完成整单）
+## 执行记录（核心阶段历史）
 
 - 基线 main `26391ed`（T136 #337 已合并），分支 `codex/t138-g0-modes`。
 - 负责人于 2026-10-26 在本任务对话确认：“角度采用 1e-3 rad（建议）”。距离仍为 1e-3 Å；两者只作各自单位下的数值零容差。
@@ -156,7 +156,20 @@ analyze_modes(elements, coordinates, frequencies, displacements, coordinates_spe
 - 驻点只由 facts 中来源可对应的收敛 Opt 建立；后来的 Opt、旧 facts 缺来源、来源与所读频率段不符均为未知。单段 Opt Freq 另确认收敛标记在谐振块之前。未知也加 `non_stationary_frequencies`，报告明确写未知。
 - 频率几何哈希针对同一取向的元素及坐标紧凑 JSON（键顺序 elements、coordinates；UTF-8、无空格）；日志与频率段另保留原始字节 SHA-256。候选比较只对几何做正规旋转 RMSD，不动位移向量，不重排原子。
 - 合成共享氢夹具：δ(O1–H)=+1 Å、δ(H–O2)=−1 Å，吻合 2/2，O=2/√6=0.8164965809；反号模式选择 σ=−1，校正后数值不变。对照的无符号逐原子相加在 H 上为零。
-- 当前阻塞（环境/集成依赖）：T137 尚未合并。按本单开工条件，不提前改 `g0.py`，不另写 G0 报告或排序。第 6 节的 CLI、批量、排序、64 KiB diagnosis，以及 `docs/g0.md` / README 接入说明和完整 CLI 验证，留待 T137 合并后 rebase 完成；本阶段 PR 保持 draft。
+- 当时阻塞（环境/集成依赖）：T137 尚未合并。按本单开工条件，不提前改 `g0.py`，不另写 G0 报告或排序。第 6 节的 CLI、批量、排序、64 KiB diagnosis，以及 `docs/g0.md` / README 接入说明和完整 CLI 验证，留待 T137 合并后 rebase 完成；核心阶段 PR 保持 draft。
 - 2026-10-26 验证：相关测试 `test_g0_modes.py` + `test_mode_review.py` 共 124 passed；最终全量 `PYTHONPATH=ag/src python -m pytest ag/tests skills-next -q -rs` 为 5297 passed、19 skipped（271.45 s，Python 3.11.15）。跳过 18 项 Linux 方言检查和 1 项未启用的私有日志测试；Linux 检查交由 CI。
 - 本地合成验证：临时非研究 study 中使用新增夹具建立合成 fetched Attempt，经过真实 cclib 读取、候选分析与 JSON 序列化，best_mode=2，数值与上表一致，原 Attempt 全部文件字节保持不变。没有远程验证；完整 G0 CLI 验证仍待接入。
-- 含本机词表的暂存区扫描（5 文件）、全仓库扫描（1819 文件）、PR 正文扫描均为 0 errors；`git diff --cached --check` 通过。T137 依赖 PR 为 #338，当前未合并。
+- 含本机词表的暂存区扫描（5 文件）、全仓库扫描（1819 文件）、PR 正文扫描均为 0 errors；`git diff --cached --check` 通过。当时 T137 依赖 PR 为 #338，尚未合并。
+
+## 执行记录（G0 接入，2026-10-26）
+
+- #338 已合并；rebase 到 main `bdb83dc` 后，按第 6 节在既有 `g0.py` 接入 CLI、文本/JSON、批量来源、分组排序及 diagnosis 记录。核心科学计算与频率解析器不变。
+- 窗口 JSON 由 `g0._windows` 读取、解析一次，模式坐标共用相同内容和哈希；配置 study 名与路径统一经 `catalog.resolve_study`。测试在首次读取后改写文件，确认两个候选仍共用最初快照，读取/解析计数均为 1。
+- 目标通道和命令行中的 distance 坐标原子对并入 `geometry.reaction_center_pairs`，仍受两条几何损坏拒绝规则约束；校验全部声明的通道 ID。角度容差来源与日期见 v1.1 版本记录。
+- 批量只取最新 candidate-result 的 attempt，不回退；缺失、未取回、非 Gaussian、无 Freq 记无模式数据。损坏、取向不明等读取错误仍报错，不记作缺失。`--record` 沿用 attempt=null 的既有语义，后续批量也不回溯旧频率。
+- mode 标记只进入 flagged；组内按有数据、符号全吻合、最佳虚频重叠度、T137 标记数、登记顺序排序。64 KiB 记录先去实频再截坐标明细，保留全部虚频摘要；即使摘要仍超限也不丢虚频，报记录失败且整批不写。完整标准输出不截断。
+- 当前阻塞：无开发依赖阻塞；接入完成后仍需监督方审阅及负责人合并。
+- 接入相关测试 `test_g0.py`、`test_g0_modes.py`、`test_mode_review.py`：247 passed（8.89 s）。覆盖窗口单次读取/解析、通道 ID、距离反应中心及损坏、最新结果缺失、模式来源错误、分组排序、单/批记录和台账、压缩优先级与摘要无法容纳时整批不写。
+- 本地非研究合成 CLI 验证：独立进程执行 `g0 --help`、单候选文本/JSON、批量、dry-run、record、catalog ledger。最佳模式 2，δc=+1/−1 Å，吻合 2/2，O=0.8164965809277261；分析 2 个虚频与 3 个实频参考，记录两个候选，最大 diagnosis 为 7310 bytes。只读及 dry-run 文件完全不变，记录后原 Attempt 文件仍完全不变。证据保存在仓库外临时目录；未运行真实计算或远程验证。
+- 最终全量 `PYTHONPATH=ag/src python -m pytest ag/tests skills-next -q -rs`：5421 passed、19 skipped（283.44 s，Python 3.11.15）。跳过 18 项 Linux 方言检查与 1 项未启用的私有日志测试；Linux 检查由 CI 补足。
+- 暂存区 8 文件、全仓库 1823 文件及 PR 正文的敏感信息扫描均为 0 errors（带本机词表）；`git diff --cached --check` 通过。

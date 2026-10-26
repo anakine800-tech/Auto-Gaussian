@@ -4,7 +4,6 @@ Diagnostics only: no Hessian, mode rotation, mass weighting or acceptance gate.
 """
 from hashlib import sha256
 import json
-from pathlib import Path
 import re
 
 from ag import attempt, catalog, geometry, mode_review, study as study_paths
@@ -51,27 +50,22 @@ def coordinate_argument(value):
     return coordinate_spec(dict(kind=match[1], atoms=list(map(int, match[2].split('-'))), role=match[3]))
 
 
-def reaction_coordinates(study, target_channel, filename=None, extra=()):
-    """Read declarations from the same analyses JSON used for G0 windows."""
-    from ag.catalog_v2 import read_bytes
-
-    root = Path(study).expanduser().absolute()
+def reaction_coordinates(config, target_channel, source=None, extra=()):
+    """Use G0's already-read JSON and byte hash; never reopen its window file."""
     specs, sources = [], []
-    if filename:
-        path = Path(filename).expanduser()
-        if not path.is_absolute():
-            path = root / path
-        path = study_paths.local_path(root / 'analyses', path)
-        raw = read_bytes(path, 1024 * 1024)
-        config = json.loads(raw)
-        if not isinstance(config, dict) or not isinstance(config.get('reaction_coordinates', {}), dict):
-            raise ValueError('reaction_coordinates must be a channel-keyed object')
-        values = config.get('reaction_coordinates', {}).get(target_channel, []) if target_channel else []
+    if not isinstance(config, dict) or not isinstance(config.get('reaction_coordinates', {}), dict):
+        raise ValueError('reaction_coordinates must be a channel-keyed object')
+    for channel, values in config.get('reaction_coordinates', {}).items():
+        study_paths.identifier(channel)
         if not isinstance(values, list):
             raise ValueError('Channel reaction coordinates must be a list')
-        specs = [coordinate_spec(value) for value in values]
-        sources.append(dict(file=path.relative_to(root).as_posix(), sha256=sha256(raw).hexdigest(),
-                            channel=target_channel, count=len(specs)))
+        parsed = [coordinate_spec(value) for value in values]
+        if channel == target_channel:
+            specs = parsed
+    if target_channel is not None:
+        study_paths.identifier(target_channel)
+    if source is not None:
+        sources.append(dict(source, channel=target_channel, count=len(specs)))
     for value in extra:
         specs.append(coordinate_argument(value))
         sources.append(dict(command_line=value))
@@ -220,20 +214,30 @@ def _stationarity(facts, section, block):
     return 'stationary'
 
 
-def read_frequency_attempt(study, attempt_id):
+def read_frequency_attempt(study, attempt_id, *, allow_unavailable=False):
     """Read an exact fetched Gaussian Attempt, retaining its own mode frame."""
-    root = Path(study).expanduser().absolute()
-    root = study_paths.local_path(root, root)
+    root = catalog.resolve_study(study)
     path = study_paths.local_path(root, root / 'attempts' / study_paths.identifier(attempt_id))
     manifest, status, _ = attempt.local_record(path)
     if manifest.get('template') != 'gaussian':
+        if allow_unavailable:
+            return None
         raise ValueError('Mode projection requires a Gaussian Attempt')
     if status['state'] != 'fetched':
+        if allow_unavailable:
+            return None
         raise ValueError('Mode projection requires a fetched Attempt')
     facts = catalog.read_facts(root, path)
     log = study_paths.local_path(path / 'outputs', gaussian_log(path))
     raw = log.read_bytes()
-    section, block = mode_review.frequency_section(raw)
+    try:
+        section, block = mode_review.frequency_section(raw)
+    except ValueError as exc:
+        # Only absence is optional in a batch. Ambiguous sections, abnormal
+        # termination and malformed vectors remain errors, not missing data.
+        if allow_unavailable and str(exc) == 'No identifiable frequency job section':
+            return None
+        raise
     elements, coords, frequencies, displacements, orientation = mode_review.read_modes(block)
     geometry_bytes = json.dumps(dict(elements=elements, coordinates=coords.tolist()),
                                 separators=(',', ':'), allow_nan=False).encode()

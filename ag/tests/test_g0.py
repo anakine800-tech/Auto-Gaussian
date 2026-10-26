@@ -1,5 +1,6 @@
-"""T137 synthetic local diagnostics; no calculations or real study data."""
+"""T137/T138 synthetic local diagnostics; no calculations or real study data."""
 from contextlib import contextmanager
+from copy import deepcopy
 from hashlib import sha256
 import importlib.util
 import json
@@ -7,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from ag import catalog, catalog_v2 as v2, cli, g0, geometry as geo
+from ag import _parse_outputs, catalog, catalog_v2 as v2, cli, g0, geometry as geo
 from test_catalog import files, make_attempt, water, write_json
 from test_catalog_v2 import GEOMETRY, XYZ, tree
 
@@ -165,7 +166,7 @@ def carbon_pair(root, distance=2.2):
     candidate_(root, data=('2\nSynthetic carbon pair\n' + geometry + '\n').encode(), parent=identity)
 
 
-def test_shared_window_file_accepts_but_does_not_validate_reaction_coordinates(water):
+def test_shared_window_file_keeps_other_channel_coordinates_unapplied(water):
     carbon_pair(water)
     path = water / 'analyses/windows.json'
     config = dict(all=[dict(atoms=[1, 2], min=2.0, max=2.4)])
@@ -174,14 +175,14 @@ def test_shared_window_file_accepts_but_does_not_validate_reaction_coordinates(w
     config['reaction_coordinates'] = {'approach-a': [
         dict(kind='distance', atoms=[1, 2], role='forming', label='Synthetic forming pair'),
         dict(kind='angle', atoms=[1, 2, 3], role='report')]}
-    # The angle is not applicable to this two-atom candidate: G0 must not
-    # validate a section owned by the later mode reader.
+    # A different target channel's atom count must not constrain this candidate.
     write_json(path, config)
     snapshot = files(water)
     after = diagnose(water, windows=path, window=[])
     assert after['candidates'][0]['verdict'] == 'clean'
     assert after['candidates'][0]['windows']['source']['sha256'] == sha256(path.read_bytes()).hexdigest()
     before['candidates'][0]['windows']['source'] = after['candidates'][0]['windows']['source']
+    before['candidates'][0]['modes']['coordinate_sources'] = after['candidates'][0]['modes']['coordinate_sources']
     assert before == after and files(water) == snapshot
 
 
@@ -610,3 +611,321 @@ def test_record_options_require_record(normal, option, capsys):
     root, _ = normal
     assert cli.main(['g0', str(root), '--object', 'water-a', '--all', option, '--json']) != 0
     assert 'require --record' in json.loads(capsys.readouterr().out)['error']
+
+
+MODE_XYZ = b'3\nSynthetic transfer\nO 0 0 0\nH 1 0 0\nO 2.6 0 0\n'
+MODE_SPECS = [dict(kind='distance', atoms=[1, 2], role='breaking'),
+              dict(kind='distance', atoms=[2, 3], role='forming')]
+
+
+def frequency_attempt(root, suffix='002-freq', *, positive=False, stationary=False, weak=False):
+    identity = make_attempt(root, suffix, route='# HF/3-21G Freq',
+                            geometry='O 0 0 0\nH 1 0 0\nO 2.6 0 0', charge=1, multiplicity=1)
+    path = root / 'attempts' / identity
+    (path / 'outputs').mkdir()
+    text = (Path(__file__).parent / 'fixtures/g0_modes_synthetic.log').read_text()
+    if positive:
+        text = text.replace('-300.0000', '300.0000').replace('-100.0000', '100.0000')
+    if weak:
+        text = text.replace('1.00   0.00   0.00   0.00   0.00   0.00\n',
+                            '0.60   0.80   0.00   0.00   0.00   0.00\n', 1)
+    if stationary:
+        text = (' Entering Gaussian System\n -----\n # opt\n -----\n'
+                ' Optimization completed.\n Normal termination of Gaussian\n' +
+                text.replace(' Entering Gaussian System', ' --Link1--'))
+    log = path / 'outputs/job.log'
+    log.write_text(text)
+    facts, _ = _parse_outputs.parse_gaussian(log)
+    write_json(path / 'facts.json', dict(facts, schema='ag-facts/1'))
+    return identity
+
+
+@pytest.fixture
+def mode_case(water):
+    object_(water, formula='HO2', charge='1')
+    catalog.change(water, 'channel', object='water-a', id='transfer', name='Transfer', definition='Synthetic')
+    identity = frequency_attempt(water)
+    candidate_(water, data=MODE_XYZ, parent=identity, target_channel='transfer')
+    path = water / 'analyses/windows.json'
+    write_json(path, dict(all=[dict(atoms=[1, 2], min=0.9, max=1.1)],
+                         reaction_coordinates={'transfer': MODE_SPECS}))
+    return water, identity, path
+
+
+def link_result(root, candidate, identity):
+    catalog.change(root, 'candidate-result', object='water-a', candidate=candidate,
+                   outcome='diagnosed', attempt=identity, assign='none')
+
+
+def test_modes_cli_json_text_and_read_only(mode_case, capsys):
+    root, identity, path = mode_case
+    argv = ['g0', str(root), '--object', 'water-a', '--candidate', 'guess-a',
+            '--modes-attempt', identity, '--windows', str(path)]
+    before = files(root)
+    assert cli.main(argv + ['--json']) == 0
+    c = json.loads(capsys.readouterr().out)['candidates'][0]
+    modes = c['modes']
+    assert modes['best_mode'] == 2 and modes['available'] and c['verdict'] == 'flagged'
+    assert c['reject_reasons'] == [] and c['counts']['g0_flags'] == 0
+    assert c['counts']['mode_flags'] == 3
+    assert {f['category'] for f in c['flags']} == {
+        'mode:multiple_imaginary_modes', 'mode:most_negative_not_best', 'mode:non_stationary_frequencies'}
+    assert modes['coordinate_sources'][0]['sha256'] == c['windows']['source']['sha256']
+    assert len(modes['geometry_sha256']) == 64 and modes['attempt'] == identity
+    assert modes['aligned_rmsd_angstrom'] == pytest.approx(0)
+    assert cli.main(argv) == 0
+    text = capsys.readouterr().out
+    assert '*2 | -100.000000' in text and '0.816497' in text and 'δc=+1.000000' in text
+    assert '≈0，符号不定' in text and '实频参考' in text and '结果是诊断，不是 TS 验收' in text
+    assert files(root) == before
+
+
+def test_window_file_read_and_parsed_once_even_if_changed(mode_case, monkeypatch):
+    root, identity, path = mode_case
+    candidate_(root, 'second', MODE_XYZ, parent=identity, target_channel='transfer')
+    for name in ('guess-a', 'second'):
+        link_result(root, name, identity)
+    original = path.read_bytes()
+    read, loads = v2.read_bytes, json.loads
+    reads, parses = [], []
+    def capture_read(value, limit):
+        data = read(value, limit)
+        if Path(value) == path:
+            reads.append(value)
+            path.write_text('{}')  # later read would lose the coordinates
+        return data
+    def capture_parse(value, *args, **kwargs):
+        if value == original:
+            parses.append(value)
+        return loads(value, *args, **kwargs)
+    monkeypatch.setattr(v2, 'read_bytes', capture_read)
+    monkeypatch.setattr(json, 'loads', capture_parse)
+    result = diagnose(root, candidate=None, all_candidates=True, windows=path)
+    assert len(reads) == len(parses) == 1
+    for c in result['candidates']:
+        assert c['modes']['available']
+        assert c['modes']['coordinate_sources'][0]['sha256'] == sha256(original).hexdigest()
+        assert c['windows']['source']['sha256'] == sha256(original).hexdigest()
+        assert c['modes']['coordinates_spec'][0]['role'] == 'breaking'
+
+
+@pytest.mark.parametrize('distance', [2.2, 0.4, 0.7])
+@pytest.mark.parametrize('source', ['channel', 'cli'])
+def test_mode_distances_exempt_clashes_but_not_damage(water, distance, source):
+    carbon_pair(water, distance)
+    extra, path, name = ['distance:2-1:forming'], None, 'guess-a'
+    if source == 'channel':
+        catalog.change(water, 'channel', object='water-a', id='a', name='A', definition='Synthetic')
+        parent = catalog.show(water)[0]['objects'][0]['candidates'][0]['parent']['attempt']
+        candidate_(water, 'target', f'2\nSynthetic\nC 0 0 0\nC {distance} 0 0\n'.encode(),
+                   parent=parent, target_channel='a')
+        path = water / 'analyses/modes.json'
+        write_json(path, {'reaction_coordinates': {'a': [dict(kind='distance', atoms=[2, 1], role='forming')]}})
+        extra, name = [], 'target'
+    c = diagnose(water, candidate=name, windows=path, window=[], reaction_coordinate=extra)['candidates'][0]
+    assert c['geometry']['clashes'] == []
+    assert c['geometry']['reaction_center_pairs'][0]['atoms'] == [1, 2]
+    assert c['counts']['reaction_center_pairs'] == 1
+    assert c['verdict'] == ('flagged' if distance == 2.2 else 'rejected')
+    assert bool(c['geometry']['damage']) is (distance < 1)
+    assert not any(f['category'] == 'ordinary_clash' for f in c['flags'])
+
+
+def test_mode_coordinates_validate_channel_and_atom_indices(normal):
+    root, _ = normal
+    for key in ('../escape', 'UPPER', 'bad id'):
+        path = root / 'analyses/invalid.json'
+        write_json(path, {'reaction_coordinates': {key: []}})
+        with pytest.raises(ValueError, match='IDs'):
+            diagnose(root, windows=path)
+    with pytest.raises(ValueError, match='in-range'):
+        diagnose(root, reaction_coordinate=['distance:1-4:forming'])
+
+
+def test_batch_uses_only_latest_result_and_missing_is_not_flag(mode_case):
+    root, identity, path = mode_case
+    link_result(root, 'guess-a', identity)
+    for name in ('no-result', 'latest-null', 'not-fetched', 'no-freq', 'non-gaussian'):
+        candidate_(root, name, MODE_XYZ, parent=identity, target_channel='transfer')
+    link_result(root, 'latest-null', identity)
+    link_result(root, 'latest-null', None)
+    pending = make_attempt(root, '003-pending', status='prepared')
+    link_result(root, 'not-fetched', pending)
+    sp = frequency_attempt(root, '004-sp')
+    log = root / 'attempts' / sp / 'outputs/job.log'
+    log.write_text(log.read_text().replace('HF/3-21G Freq', 'HF/3-21G SP'))
+    link_result(root, 'no-freq', sp)
+    other = make_attempt(root, '005-xtb', template='xtb')
+    link_result(root, 'non-gaussian', other)
+    result = diagnose(root, candidate=None, all_candidates=True, windows=path)
+    by_id = {c['candidate']: c for c in result['candidates']}
+    assert by_id['guess-a']['modes']['available']
+    for name in ('no-result', 'latest-null', 'not-fetched', 'no-freq', 'non-gaussian'):
+        assert not by_id[name]['modes']['available']
+        assert by_id[name]['modes']['reason'].startswith('无模式数据')
+        assert by_id[name]['verdict'] == 'clean'
+    assert by_id['latest-null']['modes']['attempt'] is None
+    with pytest.raises(ValueError, match='single --candidate'):
+        diagnose(root, candidate=None, all_candidates=True, modes_attempt=identity)
+
+
+def test_batch_bad_mode_evidence_does_not_write_partial_records(mode_case, capsys):
+    root, identity, path = mode_case
+    link_result(root, 'guess-a', identity)
+    broken = frequency_attempt(root, '003-bad-frame')
+    log = root / 'attempts' / broken / 'outputs/job.log'
+    log.write_text(log.read_text().replace('Standard orientation', 'Input orientation'))
+    candidate_(root, 'broken', MODE_XYZ, parent=identity, target_channel='transfer')
+    link_result(root, 'broken', broken)
+    before = files(root)
+    assert cli.main(['g0', str(root), '--object', 'water-a', '--all', '--windows', str(path),
+                     '--record', '--json']) == 1
+    assert 'orientation' in json.loads(capsys.readouterr().out)['error']
+    assert files(root) == before
+
+
+def test_no_imaginary_modes_and_missing_declaration(mode_case):
+    root, identity, path = mode_case
+    positive = frequency_attempt(root, '003-positive', positive=True)
+    c = diagnose(root, windows=path, modes_attempt=positive)['candidates'][0]
+    assert c['verdict'] == 'flagged' and not c['reject_reasons']
+    assert 'mode:no_imaginary_mode' in [f['category'] for f in c['flags']]
+    assert len(c['modes']['modes']) == 3
+    no_spec = diagnose(root, modes_attempt=identity)['candidates'][0]['modes']
+    assert not no_spec['available'] and no_spec['reason'] == '未声明反应坐标'
+
+
+@pytest.mark.parametrize('batch', [False, True])
+def test_modes_record_and_catalog_ledger(mode_case, capsys, batch):
+    root, identity, path = mode_case
+    link_result(root, 'guess-a', identity)
+    if batch:
+        candidate_(root, 'second', MODE_XYZ, parent=identity, target_channel='transfer')
+        link_result(root, 'second', identity)
+    selection = ['--all'] if batch else ['--candidate', 'guess-a', '--modes-attempt', identity]
+    argv = ['g0', str(root), '--object', 'water-a', *selection, '--windows', str(path), '--record', '--json']
+    before = files(root)
+    assert cli.main(argv + ['--dry-run']) == 0
+    assert json.loads(capsys.readouterr().out)['record']['dry_run']
+    assert files(root) == before
+    assert cli.main(argv) == 0
+    report = json.loads(capsys.readouterr().out)
+    _, events, _ = catalog.read_journal(root)
+    count = 2 if batch else 1
+    for event, row in zip(events[-count:], report['candidates']):
+        assert event['outcome'] == 'diagnosed' and event['attempt'] is None
+        assert event['diagnosis']['modes'] == row['modes']
+        assert len(catalog.encode(event['diagnosis'])) <= 65536
+    assert cli.main(['catalog', 'ledger', str(root), '--object', 'water-a', '--json']) == 0
+    assert 'diagnosed' in capsys.readouterr().out
+
+
+def test_mode_sorting_end_to_end(mode_case):
+    root, identity, path = mode_case
+    weak = frequency_attempt(root, '003-weak', weak=True)
+    positive = frequency_attempt(root, '004-positive', positive=True)
+    stationary = frequency_attempt(root, '005-stationary', stationary=True)
+    for name, frequency in [('guess-a', weak), ('strong', identity), ('real-only', positive),
+                            ('missing', None), ('less-mode-flags', stationary), ('tie', identity)]:
+        if name != 'guess-a':
+            candidate_(root, name, MODE_XYZ, parent=identity, target_channel='transfer')
+        link_result(root, name, frequency)
+    # Same group: a deliberately out-of-window pair flags all six candidates.
+    result = diagnose(root, candidate=None, all_candidates=True, windows=path, window=['1-2:2:3'])
+    assert result['order'] == ['strong', 'less-mode-flags', 'tie', 'guess-a', 'real-only', 'missing']
+    assert all(c['verdict'] == 'flagged' for c in result['candidates'])
+    assert result['candidates'][0]['counts']['mode_flags'] > result['candidates'][1]['counts']['mode_flags']
+    # Only the original T137 flag count breaks an overlap tie, not mode flags.
+    sample = deepcopy(result['candidates'][0])
+    higher_flags = deepcopy(sample)
+    higher_flags['counts']['g0_flags'] += 1
+    assert g0._mode_order(sample) < g0._mode_order(higher_flags)
+
+
+def test_bounded_modes_drop_references_before_coordinates_and_keep_all_imaginary(mode_case):
+    root, identity, path = mode_case
+    report = diagnose(root, windows=path, modes_attempt=identity)['candidates'][0]
+    for mode in report['modes']['modes']:
+        if not mode['imaginary']:
+            mode['delta'][0]['label'] = '参考' * 40000
+    bounded = g0.bounded_diagnosis(report)
+    assert bounded['truncated'] and bounded['modes']['reference_modes_removed'] == 3
+    assert all(m['imaginary'] for m in bounded['modes']['modes'])
+    assert all(m['delta'] for m in bounded['modes']['modes'])  # no need to trim imaginary details yet
+    for mode in report['modes']['modes']:
+        mode['delta'][0]['label'] = '坐标' * 40000
+    bounded = g0.bounded_diagnosis(report)
+    imaginary = [m for m in report['modes']['modes'] if m['imaginary']]
+    for original, saved in zip(imaginary, bounded['modes']['modes'], strict=True):
+        assert saved['delta'] == [] and saved['delta_count'] == 2
+        for key in ('index', 'frequency_cm1', 'consistent_count', 'signed_count', 'overlap'):
+            assert saved[key] == original[key]
+    assert bounded['modes']['coordinates_spec_count'] == 2
+    assert len(catalog.encode(bounded)) <= 65536
+    # Even the final scalar fallback must retain mode summaries.
+    report['stereo']['expected_label'] = '长' * 40000
+    bounded = g0.bounded_diagnosis(report)
+    assert len(bounded['modes']['modes']) == len(imaginary)
+    assert bounded['counts'] == report['counts'] and len(catalog.encode(bounded)) <= 65536
+    assert len(report['modes']['modes']) == 5  # input/stdout report untouched
+
+
+def test_modes_never_change_rejected_group_to_flagged(mode_case):
+    root, identity, path = mode_case
+    damaged = MODE_XYZ.replace(b'H 1 0 0', b'H 0.4 0 0')
+    candidate_(root, 'damaged', damaged, parent=identity, target_channel='transfer')
+    link_result(root, 'guess-a', identity)
+    link_result(root, 'damaged', identity)
+    result = diagnose(root, candidate=None, all_candidates=True, windows=path)
+    assert result['order'][0] == 'damaged'
+    assert result['candidates'][0]['verdict'] == 'rejected'
+    assert result['candidates'][0]['modes']['aligned_rmsd_angstrom'] > 0
+
+
+def test_cli_repeated_coordinates_without_window_file(mode_case, capsys):
+    root, identity, _ = mode_case
+    assert cli.main(['g0', str(root), '--object', 'water-a', '--candidate', 'guess-a',
+                     '--modes-attempt', identity, '--reaction-coordinate', 'distance:1-2:breaking',
+                     '--reaction-coordinate', 'distance:2-3:forming', '--json']) == 0
+    row = json.loads(capsys.readouterr().out)['candidates'][0]
+    modes = row['modes']
+    assert modes['best_mode'] == 2 and len(modes['coordinates_spec']) == 2
+    assert modes['coordinate_sources'] == [dict(command_line='distance:1-2:breaking'),
+                                           dict(command_line='distance:2-3:forming')]
+    assert row['counts']['reaction_center_pairs'] == 2
+
+
+def test_oversized_mode_record_keeps_all_imaginary_and_full_stdout(mode_case, capsys):
+    root, identity, path = mode_case
+    config = json.loads(path.read_bytes())
+    for spec in config['reaction_coordinates']['transfer']:
+        spec['label'] = '合成标签' * 4000
+    write_json(path, config)
+    before = files(root / 'attempts')
+    assert cli.main(['g0', str(root), '--object', 'water-a', '--candidate', 'guess-a',
+                     '--modes-attempt', identity, '--windows', str(path), '--record', '--json']) == 0
+    report = json.loads(capsys.readouterr().out)['candidates'][0]
+    _, events, _ = catalog.read_journal(root)
+    saved = events[-1]['diagnosis']
+    assert len(catalog.encode(report)) > 65536 >= len(catalog.encode(saved))
+    assert saved['truncated'] and saved['modes']['reference_modes_removed'] == 3
+    assert len(report['modes']['modes']) == 5
+    for original, compact in zip(report['modes']['modes'][:2], saved['modes']['modes'], strict=True):
+        assert original['delta'] and compact['delta'] == []
+        for key in ('index', 'frequency_cm1', 'sigma', 'consistent_count', 'signed_count', 'overlap'):
+            assert compact[key] == original[key]
+    assert files(root / 'attempts') == before
+
+
+def test_unrepresentable_mode_summary_refuses_record_without_partial_write(mode_case, capsys, monkeypatch):
+    root, identity, path = mode_case
+    # Force the existing byte budget below even the mandatory summaries to
+    # exercise the failure path without a physically huge molecule fixture.
+    monkeypatch.setattr(g0, 'MAX_DIAGNOSIS_BYTES', 1024)
+    before = files(root)
+    assert cli.main(['g0', str(root), '--object', 'water-a', '--candidate', 'guess-a',
+                     '--modes-attempt', identity, '--windows', str(path), '--record', '--json']) == 2
+    report = json.loads(capsys.readouterr().out)
+    assert 'every imaginary mode' in report['record']['error']
+    assert len(report['candidates'][0]['modes']['modes']) == 5
+    assert files(root) == before

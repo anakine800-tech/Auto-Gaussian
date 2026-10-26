@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from ag import _parse_outputs, g0_modes as gm
+from ag import _parse_outputs, g0, g0_modes as gm
 
 
 XYZ = np.array([[0., 0., 0.], [1., 0., 0.], [2.6, 0., 0.]])
@@ -322,12 +322,13 @@ def test_reaction_coordinate_file_cli_provenance_and_missing(fetched):
     root, path = fetched
     config = root / 'analyses/windows.json'
     config.write_text(json.dumps(dict(channels={}, all=[], reaction_coordinates={'transfer': SPECS})))
-    specs, sources = gm.reaction_coordinates(root, 'transfer', 'analyses/windows.json', ['angle:1-2-3:report'])
+    loaded = g0._windows(root, 'analyses/windows.json', [])
+    specs, sources = gm.reaction_coordinates(loaded['content'], 'transfer', loaded['source'], ['angle:1-2-3:report'])
     assert specs[:2] == SPECS and specs[-1]['kind'] == 'angle'
     assert sources[0]['sha256'] == sha256(config.read_bytes()).hexdigest()
     assert sources[1] == dict(command_line='angle:1-2-3:report')
     for channel in (None, 'absent'):
-        assert gm.reaction_coordinates(root, channel, config)[0] == []
+        assert gm.reaction_coordinates(loaded['content'], channel, loaded['source'])[0] == []
     frequency = gm.read_frequency_attempt(root, path.name)
     report = gm.analyze_candidate(ELEMENTS, XYZ, frequency, [])
     assert not report['available'] and report['reason'] == '未声明反应坐标' and report['flags'] == []
@@ -359,4 +360,17 @@ def test_coordinate_file_validation(fetched, kind):
     else:
         config.write_text('{"reaction_coordinates": {"transfer": {}}}')
     with pytest.raises(ValueError):
-        gm.reaction_coordinates(root, 'transfer', config)
+        loaded = g0._windows(root, config, [])
+        gm.reaction_coordinates(loaded['content'], 'transfer', loaded['source'])
+
+
+@pytest.mark.parametrize('channel', ['../escape', 'Bad-ID', '', 'x y'])
+def test_coordinate_channel_ids_validated_even_when_unselected(channel):
+    with pytest.raises(ValueError, match='IDs'):
+        gm.reaction_coordinates({'reaction_coordinates': {channel: []}}, 'transfer')
+
+
+def test_frequency_reader_resolves_configured_study_name(fetched, monkeypatch):
+    root, path = fetched
+    monkeypatch.setattr(gm.catalog, 'load_config', lambda **kw: {'local': {'studies_root': str(root.parent)}})
+    assert gm.read_frequency_attempt(root.name, path.name)['attempt'] == path.name
