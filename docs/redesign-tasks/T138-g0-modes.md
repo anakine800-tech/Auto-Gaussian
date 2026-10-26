@@ -1,6 +1,6 @@
 # T138：G0 模式投影——反应内坐标的 Wilson B 投影与排序细化
 
-版本：v1.1（2026-10-26；监督方 v1 工单加核心审阅补充，见版本记录）。**开发机做。** 后端出一个 PR，PR 描述第一行写 `Task: T138`。
+版本：v1.2（2026-10-26；监督方 v1 工单加核心及接入审阅补充，见版本记录）。**开发机做。** 后端出一个 PR，PR 描述第一行写 `Task: T138`。
 
 ## 分支与目标
 
@@ -88,7 +88,7 @@ analyze_modes(elements, coordinates, frequencies, displacements, coordinates_spe
 
 ### 6. 并入 `ag g0`（T137 合并后 rebase 再做）
 
-- `ag g0 ... --modes-attempt <ID>`（单个候选）；批量时，对每个候选取它最新的 candidate-result 中关联的 Attempt：若该 Attempt 已取回且含 Freq 段，就用它，否则记“无模式数据”。
+- `ag g0 ... --modes-attempt <ID>`（单个候选）；批量时，对每个候选取它**最新一条 attempt 非空的 candidate-result** 关联的 Attempt，跳过 diagnosed 等 attempt 为空的结果，不按 outcome 筛选。一条非空来源都没有时记“无模式数据”。选中后，若该 Attempt 已取回且含 Gaussian Freq 段就使用，否则记“无模式数据”，不再退到更早的非空 Attempt（v1.2 接入审阅修正）。
 - 候选报告新增 `modes` 一节；M6 的标记并入 T137 的 `flags`（类别前缀 `mode:`）；T137 的结论规则不变：模式标记只会让候选进入“有标记”组，**不会导致 rejected**。
 - 排序按 M7 扩展 T137 的排序键；`--record` 写入的 diagnosis 包含 `modes` 一节（仍受 64 KiB 限制，超出时先截掉实频参考模式，再截断坐标细节，保留每个虚频模式的吻合数和重叠度）。
 
@@ -118,6 +118,7 @@ analyze_modes(elements, coordinates, frequencies, displacements, coordinates_spe
 | 候选几何与频率几何不同（优化后的） | 正常分析，报告对齐 RMSD |
 | 没有声明反应坐标 | 记“未声明反应坐标”，不做投影 |
 | （T137 合并后）`ag g0 --modes-attempt`、批量、排序、`--record` | 模式标记只进“有标记”组、不导致 rejected；排序按 M7；diagnosis 含 modes 且不超过 64 KiB |
+| 先关联 Freq Attempt，再 `--record` 追加 diagnosed，随后批量诊断 | 跳过 attempt=null 的诊断结果，仍读取最新非空 Attempt 的模式；全部为空时无模式数据 |
 | `mode_review` 现有全部测试 | 不变 |
 
 推送前本地跑一次全量 `PYTHONPATH=ag/src python -m pytest ag/tests skills-next -q -rs`，之后以 CI 为准；运行 `python scripts/scan_public.py`（带本机词表）和 `git diff --cached --check`。
@@ -140,6 +141,7 @@ analyze_modes(elements, coordinates, frequencies, displacements, coordinates_spe
 
 ## 版本记录
 
+- v1.2（2026-10-26，负责人转达 #339 基于 `c7ba131` 的接入审阅）：批量来源改为最新一条 attempt 非空的 candidate-result，跳过没有 Attempt 的 diagnosed 等结果；避免 `--record` 遮住已有频率来源。没有非空来源时记无模式数据；最新非空 Attempt 不可用时仍不退到更早 Attempt。其余接入与核心审阅通过。
 - v1（2026-10-26，监督方）：负责人授权“按推荐”，监督方依据规格 T-E 与审计拟定 M1–M8；对应审计拆单建议中 T-E 的“模式诊断”部分。xTB Hessian 记入后续工作。
 - v1.1（2026-10-26，核心审阅补充）：角度的数值零容差明确为 **1e-3 rad（约 0.0573°）**。来源是本任务对话中的补充问答：Codex 提出按角度原生单位处理，负责人选择“角度采用 1e-3 rad（建议）”；本次转达的核心审阅再次确认“数值合理，我同意”。这是 v1 未指定的角度容差补充，不追溯表述为原工单或监督方此前已确认；距离仍用 1e-3 Å，两者都只是数值零容差，不是科学阈值。
 - v1.1 接入要求（2026-10-26，#339 核心审阅基于 `74b2731` 通过）：等 #338 合并后，由 `g0._windows` 只读取、解析一次窗口文件，将同一份内容和哈希传给 `reaction_coordinates()`；study 根目录统一经 `catalog.resolve_study` 解析。读取 `reaction_coordinates` 时校验通道 ID；其中 distance 类坐标的原子对与适用距离窗口的原子对一样，排除出普通冲突并列入 `geometry.reaction_center_pairs`，仍适用两条几何损坏硬拒绝。窗口文件顶层白名单由 T137 保持为 `channels`、`all`、`reaction_coordinates`，其他未知键仍报错。
@@ -161,15 +163,23 @@ analyze_modes(elements, coordinates, frequencies, displacements, coordinates_spe
 - 本地合成验证：临时非研究 study 中使用新增夹具建立合成 fetched Attempt，经过真实 cclib 读取、候选分析与 JSON 序列化，best_mode=2，数值与上表一致，原 Attempt 全部文件字节保持不变。没有远程验证；完整 G0 CLI 验证仍待接入。
 - 含本机词表的暂存区扫描（5 文件）、全仓库扫描（1819 文件）、PR 正文扫描均为 0 errors；`git diff --cached --check` 通过。当时 T137 依赖 PR 为 #338，尚未合并。
 
-## 执行记录（G0 接入，2026-10-26）
+## 执行记录（G0 接入，`c7ba131`，2026-10-26）
 
 - #338 已合并；rebase 到 main `bdb83dc` 后，按第 6 节在既有 `g0.py` 接入 CLI、文本/JSON、批量来源、分组排序及 diagnosis 记录。核心科学计算与频率解析器不变。
 - 窗口 JSON 由 `g0._windows` 读取、解析一次，模式坐标共用相同内容和哈希；配置 study 名与路径统一经 `catalog.resolve_study`。测试在首次读取后改写文件，确认两个候选仍共用最初快照，读取/解析计数均为 1。
 - 目标通道和命令行中的 distance 坐标原子对并入 `geometry.reaction_center_pairs`，仍受两条几何损坏拒绝规则约束；校验全部声明的通道 ID。角度容差来源与日期见 v1.1 版本记录。
-- 批量只取最新 candidate-result 的 attempt，不回退；缺失、未取回、非 Gaussian、无 Freq 记无模式数据。损坏、取向不明等读取错误仍报错，不记作缺失。`--record` 沿用 attempt=null 的既有语义，后续批量也不回溯旧频率。
+- 批量取最新一条 attempt 非空的 candidate-result（v1.2 修正），跳过空来源结果；没有非空来源、选中的 Attempt 未取回、非 Gaussian 或无 Freq 时记无模式数据，不继续退到更早的非空 Attempt。损坏、取向不明等读取错误仍报错，不记作缺失。`--record` 沿用 attempt=null 的既有语义，后续批量会跳过该诊断结果，继续使用最新非空来源。
 - mode 标记只进入 flagged；组内按有数据、符号全吻合、最佳虚频重叠度、T137 标记数、登记顺序排序。64 KiB 记录先去实频再截坐标明细，保留全部虚频摘要；即使摘要仍超限也不丢虚频，报记录失败且整批不写。完整标准输出不截断。
 - 当前阻塞：无开发依赖阻塞；接入完成后仍需监督方审阅及负责人合并。
 - 接入相关测试 `test_g0.py`、`test_g0_modes.py`、`test_mode_review.py`：247 passed（8.89 s）。覆盖窗口单次读取/解析、通道 ID、距离反应中心及损坏、最新结果缺失、模式来源错误、分组排序、单/批记录和台账、压缩优先级与摘要无法容纳时整批不写。
 - 本地非研究合成 CLI 验证：独立进程执行 `g0 --help`、单候选文本/JSON、批量、dry-run、record、catalog ledger。最佳模式 2，δc=+1/−1 Å，吻合 2/2，O=0.8164965809277261；分析 2 个虚频与 3 个实频参考，记录两个候选，最大 diagnosis 为 7310 bytes。只读及 dry-run 文件完全不变，记录后原 Attempt 文件仍完全不变。证据保存在仓库外临时目录；未运行真实计算或远程验证。
 - 最终全量 `PYTHONPATH=ag/src python -m pytest ag/tests skills-next -q -rs`：5421 passed、19 skipped（283.44 s，Python 3.11.15）。跳过 18 项 Linux 方言检查与 1 项未启用的私有日志测试；Linux 检查由 CI 补足。
 - 暂存区 8 文件、全仓库 1823 文件及 PR 正文的敏感信息扫描均为 0 errors（带本机词表）；`git diff --cached --check` 通过。
+
+## 执行记录（接入审阅修正，2026-10-26）
+
+- 按负责人转达的 `c7ba131` 审阅，仅修正批量来源选择为倒序找到第一条 attempt 非空的结果。同步使用说明和 README，模式计算、候选结论及 catalog 写入语义不变。
+- 回归覆盖 `--all` / `--channel` 在 `--record` 后仍获得相同频率来源与完整模式报告；另覆盖连续空结果、多个非空来源取最新、全部为空，以及最新非空来源不可用时不退到更早可用来源。
+- 相关测试 `test_g0.py`、`test_g0_modes.py`、`test_mode_review.py`：249 passed（9.31 s）。记录后再次批量诊断保持相同 Attempt、best_mode=2 及完整 modes 内容；只读诊断和原 Attempt 文件均未改动。
+- 最终全量 `PYTHONPATH=ag/src python -m pytest ag/tests skills-next -q -rs`：5423 passed、19 skipped（302.44 s）。跳过 18 项 Linux 方言检查和 1 项未启用的私有日志测试；Linux 检查由 CI 补足。
+- 本轮暂存 5 文件、全仓库 1823 文件及 PR 正文的敏感信息扫描（含本机词表）均为 0 errors；`git diff --cached --check` 通过。

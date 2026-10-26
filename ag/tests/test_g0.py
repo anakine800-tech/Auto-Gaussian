@@ -742,31 +742,64 @@ def test_mode_coordinates_validate_channel_and_atom_indices(normal):
         diagnose(root, reaction_coordinate=['distance:1-4:forming'])
 
 
-def test_batch_uses_only_latest_result_and_missing_is_not_flag(mode_case):
+def test_batch_uses_latest_nonempty_attempt_and_missing_is_not_flag(mode_case):
     root, identity, path = mode_case
     link_result(root, 'guess-a', identity)
-    for name in ('no-result', 'latest-null', 'not-fetched', 'no-freq', 'non-gaussian'):
+    for name in ('no-result', 'only-null', 'latest-null', 'not-fetched', 'no-freq', 'non-gaussian'):
         candidate_(root, name, MODE_XYZ, parent=identity, target_channel='transfer')
+    link_result(root, 'only-null', None)
     link_result(root, 'latest-null', identity)
+    newer = frequency_attempt(root, '006-newer', positive=True)
+    link_result(root, 'latest-null', newer)
+    link_result(root, 'latest-null', None)
     link_result(root, 'latest-null', None)
     pending = make_attempt(root, '003-pending', status='prepared')
+    link_result(root, 'not-fetched', identity)
     link_result(root, 'not-fetched', pending)
+    link_result(root, 'not-fetched', None)
     sp = frequency_attempt(root, '004-sp')
     log = root / 'attempts' / sp / 'outputs/job.log'
     log.write_text(log.read_text().replace('HF/3-21G Freq', 'HF/3-21G SP'))
+    link_result(root, 'no-freq', identity)
     link_result(root, 'no-freq', sp)
+    link_result(root, 'no-freq', None)
     other = make_attempt(root, '005-xtb', template='xtb')
+    link_result(root, 'non-gaussian', identity)
     link_result(root, 'non-gaussian', other)
+    link_result(root, 'non-gaussian', None)
     result = diagnose(root, candidate=None, all_candidates=True, windows=path)
     by_id = {c['candidate']: c for c in result['candidates']}
     assert by_id['guess-a']['modes']['available']
-    for name in ('no-result', 'latest-null', 'not-fetched', 'no-freq', 'non-gaussian'):
+    for name in ('no-result', 'only-null', 'not-fetched', 'no-freq', 'non-gaussian'):
         assert not by_id[name]['modes']['available']
         assert by_id[name]['modes']['reason'].startswith('无模式数据')
         assert by_id[name]['verdict'] == 'clean'
-    assert by_id['latest-null']['modes']['attempt'] is None
+    assert by_id['only-null']['modes']['attempt'] is None
+    assert by_id['latest-null']['modes']['available']
+    assert by_id['latest-null']['modes']['attempt'] == newer
+    assert by_id['latest-null']['modes']['best_mode'] is None
+    for name, expected in [('not-fetched', pending), ('no-freq', sp), ('non-gaussian', other)]:
+        assert by_id[name]['modes']['attempt'] == expected
     with pytest.raises(ValueError, match='single --candidate'):
         diagnose(root, candidate=None, all_candidates=True, modes_attempt=identity)
+
+
+@pytest.mark.parametrize('selection', [['--all'], ['--channel', 'transfer']])
+def test_batch_modes_survive_recorded_diagnosis(mode_case, capsys, selection):
+    root, identity, path = mode_case
+    link_result(root, 'guess-a', identity)
+    argv = ['g0', str(root), '--object', 'water-a', *selection, '--windows', str(path), '--json']
+    attempt_files = files(root / 'attempts')
+    assert cli.main(argv + ['--record']) == 0
+    recorded = json.loads(capsys.readouterr().out)['candidates'][0]['modes']
+    _, events, _ = catalog.read_journal(root)
+    assert events[-1]['outcome'] == 'diagnosed' and events[-1]['attempt'] is None
+    before = files(root)
+    assert cli.main(argv) == 0
+    modes = json.loads(capsys.readouterr().out)['candidates'][0]['modes']
+    assert modes['available'] and modes['attempt'] == identity and modes['best_mode'] == 2
+    assert modes == recorded
+    assert files(root) == before and files(root / 'attempts') == attempt_files
 
 
 def test_batch_bad_mode_evidence_does_not_write_partial_records(mode_case, capsys):

@@ -334,15 +334,16 @@ MODE_MESSAGES = dict(no_imaginary_mode='没有虚频模式', multiple_imaginary_
 
 def _modes(root, candidate, frame, specs, sources, explicit, auto):
     identity = explicit
-    if auto and candidate['results']:
-        identity = candidate['results'][-1]['attempt']
+    if auto:
+        identity = next((r['attempt'] for r in reversed(candidate['results'])
+                         if r['attempt'] is not None), None)
     result = dict(available=False, reason='未声明反应坐标' if not specs else '无模式数据',
                   attempt=identity, flags=[], coordinates_spec=specs, coordinate_sources=sources)
     if not specs or identity is None:
         return result
     frequency = g0_modes.read_frequency_attempt(root, identity, allow_unavailable=auto)
     if frequency is None:
-        result['reason'] = '无模式数据：最新结果的 Attempt 未取回或没有 Gaussian Freq 段'
+        result['reason'] = '无模式数据：最新非空 Attempt 未取回或没有 Gaussian Freq 段'
         return result
     result = g0_modes.analyze_candidate(frame.symbols, frame.coordinates, frequency, specs)
     result['coordinate_sources'] = sources

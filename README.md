@@ -309,8 +309,8 @@ ag qst-endpoints '<STUDY_DIR>' --reactant '<REACTANT_ATTEMPT>' \
 窗口文件只读一次，顶层允许 `channels`、`all`、`reaction_coordinates`，其他未知键报错。
 三个几何数固定为 0.5 Å、0.5 倍共价半径和、0.75 倍范德华半径和。
 
-单候选可加 `--modes-attempt '<FREQ_ATTEMPT>'`，读取已取回的 Gaussian 频率；批量取最新
-candidate-result 关联的 Attempt，无可用频率时记“无模式数据”。反应坐标来自同一窗口文件的
+单候选可加 `--modes-attempt '<FREQ_ATTEMPT>'`，读取已取回的 Gaussian 频率；批量取最新一条
+attempt 非空的 candidate-result 关联的 Attempt，跳过诊断等空来源结果；无可用频率时记“无模式数据”。反应坐标来自同一窗口文件的
 `reaction_coordinates[目标通道]`，或可重复 `--reaction-coordinate distance:3-7:forming`。
 按 Wilson B 行逐坐标投影，报告全部虚频、最低三个实频参考及最佳虚频；模式标记只影响分组与排序，
 不拒绝候选。距离/角度零容差分别为 1e-3 Å / 1e-3 rad，不设重叠度阈值。
