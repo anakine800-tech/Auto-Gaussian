@@ -158,12 +158,16 @@ def test_files_have_no_private_addresses_or_user_paths():
 # T17 baseline at main 6525b43: profile.md was the longest card, 190 lines.
 # Fixed at 1.5 * 190 = 285; do not recompute from today's cards and let it drift.
 MAX_CARD_LINES = 285
+# T139 owner approval (2026-10-26): keep the existing TS paragraphs' line breaks.
+# Only ts.md may grow to 400 lines; other cards retain the fixed T17 limit.
+MAX_TS_CARD_LINES = 400
 MAX_PITFALLS = 10
 
 
-def check_card_size(text):
+def check_card_size(text, *, card_name=None):
     # Bound accumulated advice so actionable criteria do not get buried.
-    assert len(text.splitlines()) <= MAX_CARD_LINES, '卡片超出 285 行：先合并或删除，再追加'
+    limit = MAX_TS_CARD_LINES if card_name == 'ts' else MAX_CARD_LINES
+    assert len(text.splitlines()) <= limit, f'卡片超出 {limit} 行：先合并或删除，再追加'
     section = re.search(r'^## 8\. 常见坑\s*\n(.*?)(?=^## |\Z)', text, re.M | re.S)
     assert section, 'Missing 常见坑 section'
     count = len(re.findall(r'^\s*(?:[-*+] |\d+[.)] )', section.group(1), re.M))
@@ -172,7 +176,7 @@ def check_card_size(text):
 
 @pytest.mark.parametrize('path', sorted((ROOT / 'auto-g16-recipes/cards').glob('*.md')), ids=lambda p: p.stem)
 def test_card_size_limits(path):
-    check_card_size(path.read_text(encoding='utf-8'))
+    check_card_size(path.read_text(encoding='utf-8'), card_name=path.stem)
 
 
 def test_card_size_limits_reject_growth():
@@ -180,7 +184,18 @@ def test_card_size_limits_reject_growth():
     check_card_size(ten)
     with pytest.raises(AssertionError, match='先合并或删除，再追加'):
         check_card_size(ten + '- another\n')
+    with pytest.raises(AssertionError, match='常见坑超过 10 条'):
+        check_card_size(ten + '- another\n', card_name='ts')
     exactly = ten + '\n' * (MAX_CARD_LINES - len(ten.splitlines()))
     check_card_size(exactly)
     with pytest.raises(AssertionError, match='先合并或删除，再追加'):
         check_card_size(exactly + '\n')
+
+
+@pytest.mark.parametrize('card_name,limit', [('ts', 400), ('profile', 285), (None, 285)])
+def test_card_size_limit_boundaries(card_name, limit):
+    text = '## 8. 常见坑\n- pitfall\n'
+    exactly = text + '\n' * (limit - len(text.splitlines()))
+    check_card_size(exactly, card_name=card_name)
+    with pytest.raises(AssertionError, match=f'卡片超出 {limit} 行'):
+        check_card_size(exactly + '\n', card_name=card_name)

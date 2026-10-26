@@ -18,9 +18,7 @@
 
 - Hessian 引导的单结构初猜：已有合理 TS 状几何时，用反应坐标与曲率信息判断适用性；CalcFC 不能弥补错误原子映射。
 - 沿反应坐标做一维弛豫扫描：记录坐标、范围、步长、冻结项及选点依据，局部极大仅是初猜，具体做法见下。
-- QST2：用 `ag qst-endpoints <study> --reactant <Attempt> --product <Attempt> --mapping <映射.json> --route '# <方法/基组> Opt=(QST2,CalcFC)' --out <新.gjf>` 处理已 fetched、优化收敛的两端；人工提供完整 `product_to_reactant` 映射，不接受任意 XYZ。
-  审阅等价排列、RMSD 与位移；有更优排列时改映射，或用 `--keep-mapping --reason '<理由>'` 明确保留。工具只正规旋转和平移、不镜像、不推断映射；新取向不能读取旧 chk 的 Cartesian 力常数。
-  逐组审阅草稿、电荷多重度、实际行顺序与对应，补资源 Link0 后再 prepare；登记可选，T132 部署前真实研究不使用 `--register-candidate`。QST3 仍需额外 TS 初猜，使用已有多结构输入并逐组审阅。
+- QST2：已优化端点的完整映射、正规旋转、歧义处理及草稿复核见下方“TS 初猜工作流”。QST3 仍需额外 TS 初猜，使用已有多结构输入并逐组审阅。
 - 类比已知 TS：记录 DOI/结构来源、映射及差异；类比几何不意味着该方法或机理已获验证。
 - 扫描初猜可用 `ag scan-peak`；全自动 TS 搜索不在当前范围，工具给的结构仍需人工审阅。
 
@@ -83,21 +81,14 @@ prepare 摘要显示编号、元素、初值、步数、步长、终值和冻结
   结合分离渐近区与完整曲线判断，必要时扩大有物理依据的范围并提出新 Attempt；
   该提示不证明内部局部峰错误，也不能把单调曲线里的内部最高点当成峰。
 - “可能跳到了另一条路径或另一个构象”：相邻能差超过 20 kcal/mol，或按原子编号
-  对齐的全原子 RMSD 超过 0.5 Å。仅为启发式提示；检查结构、电子态和坐标步长，
+  对齐的全原子 RMSD 超过 0.5 Å。这些阈值只决定是否列出启发式提示，不是科学判据；检查结构、电子态和坐标步长，
   不能自动删除这些点或断言机理改变；平滑曲线也不能证明同一路径。
 - “有未收敛的点或收敛证据缺失”：这些点及紧邻它们的点不参与选择；缺点可能隐藏局部峰。
   回看原日志并人工决定是否重新设计扫描；不自动重提。
 
 scan_points.xyz 保存各已报告点的最终几何；未收敛点只是最后迭代几何，未计算点
 无几何。文件已存在且相同则沿用，不同则停止核对；scan-peak 的输出必须是新文件。
-生成草稿前先看 `ag scan-path <attempt>` 的诊断，审阅逐段成键与构象变化。
-用局部峰生成 TS 草稿：`ag scan-peak <attempt> --out <新文件.xyz> --gaussian-ts <新文件.gjf>
---route '# <METHOD>/<BASIS> Opt=(TS,CalcFC) Freq' [--point <序号>]`（合为一条命令）。
-route 由人或卡片给出，工具从 manifest 取电荷与多重度并拒绝扫描/冻结关键词及父 chk 力常数读取；
-审阅几何、方法、电荷与多重度及立体警告后，按现有规则补 Link0 再 prepare：
-至少补匹配档位的 `%nprocshared`，`%mem` 可由 prepare 补齐；不自动 prepare 或提交。
-默认不登记候选；T132 部署前真实 study 不用 `--register-candidate`。随后仍需 Freq、恰好一个虚频、
-振动方向人工审核及双向 IRC 端点识别，扫描局部极大自身不能判定 TS。
+生成草稿前先看 `ag scan-path <attempt>` 的诊断，按下方“TS 初猜工作流”生成并审阅草稿；扫描局部极大自身不能判定 TS。
 
 ### 初猜来源：Gaussian 二维弛豫扫描
 
@@ -142,9 +133,98 @@ TS 族必须双路线：约束 CREST 与按特定相互作用/进攻方向假设
 出现“采样可能不足”时讨论延长 CREST、对适用极小点增加 ETKDG 种子或补
 定向构造，经人确认扩大后重出报告；覆盖报告不能证明采样已经完备。
 
+### 覆盖与失败记录
+
+覆盖结论统一为 **在声明的通道范围与采样预算内稳定**；列明通道范围、预算及未覆盖部分，未再找到新结构不能证明全局完备。catalog 的“候选 / 采用 / 退役”是对象采用状态，不是通道覆盖状态。通道六态按下列优先顺序派生：
+
+| 通道状态 | 含义及来源 |
+|---|---|
+| 已验证（verified） | 负责人声明并附原话，声明时至少有最新归属 verified 的候选指向该通道；仍须满足第 6 节与双向 IRC 科学要求。 |
+| 低置信度排除（excluded_low_confidence） | 负责人以 `excluded-low-confidence` 声明并附理由、原话；只表达有限证据下的判断。 |
+| 待确认通道（pending_confirmation） | 采样中新发现，以 `--discovered` 登记且尚未确认；优先于候选归属派生。 |
+| 暂定找到（待负责人确认，tentative_found） | 有候选最新归属 tentative 或 verified 指向本通道，但没有有效通道声明；候选 verified 本身不等于通道已验证。 |
+| 已尝试未找到（attempted_not_found） | 有关联候选、但不满足以上状态；登记本身即可派生，不保证已运行计算，须查 ledger 的实际结果。 |
+| 未尝试（untried） | 无有效声明、无待确认发现、无关联候选。 |
+
+候选通过目标通道或历史任一次归属关联；“暂定找到”只看最新归属，不回退到旧 verified。`cleared` 需负责人原话，撤销声明后按发现/候选规则重算；整体 coverage 不改变通道状态。通道确认可用 `channel --update --confirm`，无需原话，不等于科学验证；具体命令见下节。涉及写入时：**v4.6.0 在两台电脑部署完成之前，真实研究 study 不写 v2 事件**。
+来源：[catalog v2 第 5 节](../../../docs/ag-catalog-2.md#5-通道派生与查询)、[T139](../../../docs/redesign-tasks/T139-card-wording.md) A4/X3/X4。
+
 保留所有失败搜索、错误鞍点、振动模式塌缩、组分脱离及重复收敛，记录
 步骤/通道、初猜策略、构象来源、实际结果与后续处置（R10）。有限预算只能
 支持有限覆盖；失败的搜索不等于该机理不存在。
+
+### TS 初猜工作流
+
+下列尖括号均为占位符，按已审阅方案填写；生成文件须用新名字。命令与参数已按 T137、T138 合入后的实际 `--help` 核对。每个写入步骤均受部署限制；`--upgrade-catalog` 只是明确确认格式升级，不能替代部署。
+
+1. **定义对象与通道。** `ag catalog object-suggest <study> --attempt <参考Attempt>` 只提供建议；人确认各对象期望组成、电荷与多重度，通道化学定义由人写。**v4.6.0 在两台电脑部署完成之前，真实研究 study 不写 v2 事件**。
+
+   ```sh
+   ag catalog object <study> --id <对象> --name <名称> --formula <组成> --charge <电荷> --multiplicity <多重度>
+   ag catalog channel <study> --object <对象> --id <通道> --name <名称> --definition '<化学定义>' --product-branch <产物标签>
+   ```
+   采样中新发现的通道加 `--discovered`，人确认定义后用 `ag catalog channel <study> --object <对象> --id <通道> --update --confirm`；没有确认不抹掉“待确认通道”。来源：[catalog v2](../../../docs/ag-catalog-2.md)。
+
+2. **产生候选。**一维扫描先看沿程诊断，逐段审阅成键与构象变化，再从合格局部峰生成草稿。点几何存档与文件沿用规则见[一维扫描说明](#初猜来源一维弛豫扫描)；以下两条扫描命令的预期成断键声明保持一致：
+
+   ```sh
+   ag scan-path <扫描Attempt> --study <study> --expect-bond <I-J>
+   ag scan-peak <扫描Attempt> --study <study> --out <新XYZ> --gaussian-ts <新GJF> --route '# <方法/基组> Opt=(TS,CalcFC) Freq' --expect-bond <I-J>
+   ag qst-endpoints <study> --reactant <反应物Attempt> --product <产物Attempt> --mapping <完整映射JSON> --route '# <方法/基组> Opt=(QST2,CalcFC) Freq' --out <新QST2_GJF>
+   ```
+   峰附近有警告先人工审阅，不自动换峰；一维可用 `--point <序号>` 指定另一个合格局部峰；沿程点多为受约束非驻点，成键差异不证明极小点身份；诊断阈值只决定是否列出。scan-path 不支持二维，二维 scan-peak 仍须显式 `--point <i,j>` 并人工审阅。
+   QST 两端须已 fetched 且优化收敛，映射文件含完整 `product_to_reactant`；对称等价排列歧义报错后，人改映射或以 `--keep-mapping --reason '<理由>'` 明确保留。只做正规旋转和平移，不镜像、不推断映射；审阅 RMSD、位移、每段电荷多重度及实际行顺序。新取向不能读取旧 chk 的 Cartesian 力常数。
+   生成命令不自动 prepare 或提交；扫描草稿的电荷、多重度取自 manifest。人须逐项审阅几何、方法、电荷与多重度及立体警告。草稿不含 Link0；按现有规则补 Link0 后再 prepare，至少补匹配档位的 `%nprocshared`，`%mem` 可由 prepare 补齐。route 由人或卡片从已审阅方法表填写，扫描草稿拒绝扫描/冻结关键词和父 chk 力常数读取。手工或文献结构也按同样要求审阅，再走第 3 步。随后仍须解除扫描约束，完成 TS 优化、Freq、恰好一个虚频的检查、振动方向人工审核及双向 IRC 端点识别；扫描局部极大自身不能判定 TS。
+   来源：[T133](../../../docs/redesign-tasks/T133-scan-peak-ts-input.md)、[T134](../../../docs/redesign-tasks/T134-endpoint-qst2.md)、[T136](../../../docs/redesign-tasks/T136-scan-path.md)。
+
+3. **登记候选。**默认不登记候选；可在第 2 步 scan-peak 或 qst-endpoints 命令末尾加 `--register-candidate --object <对象> --candidate-id <候选> --target-channel <通道>`；或者独立登记已审阅的 XYZ：
+
+   ```sh
+   ag catalog candidate <study> --object <对象> --id <候选> --xyz <XYZ> --origin <来源类别> --target-channel <通道>
+   ```
+   `--origin` 可为 scan、qst、template-transform、path-search、manual、literature；有父 Attempt 才加 `--parent-attempt <父Attempt>`。文献来源必须加 `--doi <DOI>`，并记录 `--si-location '<SI位置>'`；登记只核验 DOI 格式，来源内容须人工核实。
+   登记只是来源记录，不是科学判断；不重复登记同一候选。QST 自动存档的是映射对齐后的产物端点，并非已找到的 TS。生成命令的 `--dry-run` 只预览登记，仍写草稿；登记失败保留导出，先核对现场，不自动重跑生成。**v4.6.0 在两台电脑部署完成之前，真实研究 study 不写 v2 事件**。
+   来源：[catalog v2](../../../docs/ag-catalog-2.md)、[T133](../../../docs/redesign-tasks/T133-scan-peak-ts-input.md)、[T134](../../../docs/redesign-tasks/T134-endpoint-qst2.md)。
+
+4. **G0 诊断。**默认只报告；按候选所属对象核对完整性，只比较元素序列，不能检出同元素原子交换。没有参考或期望未知记未核对；手工来源可加 `--reference-attempt <参考Attempt>`。
+
+   ```sh
+   ag g0 <study> --object <对象> --candidate <候选> --windows <窗口JSON> --json
+   ag g0 <study> --object <对象> --candidate <候选> --windows <窗口JSON> --modes-attempt <频率Attempt> --reaction-coordinate distance:<I-J>:forming --json
+   ```
+   只有输入完整性和几何损坏两类硬拒绝；普通冲突、距离超窗和立体差异仅标记，不自动改归属。报告 rejected/flagged/clean 不等于科学验收，clean 只表示未发现问题。**G0 是本地诊断，不是门禁；提交与否由负责人决定。**
+   窗口文件须在 study 的 `analyses/` 下，相对路径以 study 为基准；顶层只允许 `channels`、`all`、`reaction_coordinates`。距离窗口应用 all + 候选原登记目标通道 + 命令行 `--window`；反应坐标取 `reaction_coordinates[目标通道]`，再追加可重复的 `--reaction-coordinate kind:atoms:role`，编号从 1 开始。distance 角色为 breaking/forming，angle 为 increasing/decreasing/report；通道 ID 须合法。
+   适用距离窗口及 distance 反应坐标声明的原子对列在 `geometry.reaction_center_pairs`（原子、元素、距离、成键状态），不标普通冲突，但仍适用两条几何硬拒绝：距离 < 0.5 Å 或 < 0.5 × 共价半径之和。有窗口仍检查超窗；没有模式数据也适用反应中心规则，angle 坐标不声明原子对。
+   有已取回 Gaussian 频率结果时用第二条命令，按目标补充坐标：断键伸长、成键缩短。逐坐标投影并考虑模式整体正负号；审阅全部虚频及模式来源，重叠度只供排序，不设科学阈值。非驻点频率只供诊断；本期不读取 xTB Hessian。
+   批量从第一条命令把 `--candidate <候选>` 换成 `--all` 或 `--channel <通道>`，不加 `--modes-attempt`；模式来源取候选最新一条 Attempt 非空的结果，跳过 diagnosed 等空 Attempt 记录，不按 outcome 筛选。全为空时记“无模式数据”；选中的 Attempt 未取回或没有 Gaussian Freq 段也记无模式数据，不再回退；未声明反应坐标时不做投影。顺序只是建议。显式 `--record` 才写 diagnosed，归属 none、Attempt 为空，不能借此保留旧的最新归属；历史结果仍可查。**v4.6.0 在两台电脑部署完成之前，真实研究 study 不写 v2 事件**。
+   来源：[G0 文档](../../../docs/g0.md)（T137/T138）、[T139](../../../docs/redesign-tasks/T139-card-wording.md) B4/X4。
+
+5. **准备与提交。**按第 3–5 节审阅完整输入与摘要，照常运行：
+
+   ```sh
+   ag prepare --study <study> --template gaussian --input <GJF> --tier <档位> --walltime <时限> --label <标签> --method-basis '<方法依据>' --card ts
+   ag submit <新Attempt>
+   ```
+   按 [AGENTS.md 3.4](../../../AGENTS.md) 取得当前会话明确批准并绑定记录、匹配已设长期规则或由人点击 Mac 对话框；前两种分别显式加 `--approval <批准ID>` 或 `--policy <规则名>`，不能从 G0 推定授权。每个 Attempt 至多提交一次，UNKNOWN 仅只读核对。来源：[AGENTS.md 3.1–3.5](../../../AGENTS.md)。
+
+6. **登记结果。**审阅后记录实际 outcome 与归属；暂定归属不需原话，已验证归属需负责人原话并满足第 6 节及 IRC 要求：
+
+   ```sh
+   ag catalog candidate-result <study> --object <对象> --candidate <候选> --outcome <实际结果> --attempt <结果Attempt> --assign tentative --channel <通道>
+   ag catalog member <study> --object <对象> --attempt <已验证Attempt> --role ts
+   ag catalog candidate-result <study> --object <对象> --candidate <候选> --outcome accepted --attempt <已验证Attempt> --assign verified --channel <通道> --quote '<负责人原话>'
+   ```
+   verified 还要求 Attempt 是本对象成员、已 fetched、facts 可读且 n_imag=1；这些机器检查不证明方向或双向 IRC 已验收。accepted 本身不等于 verified；产物不唯一用 `--assign undetermined --channel <候选通道一> --channel <候选通道二>`，并列全体可能通道。**v4.6.0 在两台电脑部署完成之前，真实研究 study 不写 v2 事件**。
+   来源：[catalog v2](../../../docs/ag-catalog-2.md)、[T139](../../../docs/redesign-tasks/T139-card-wording.md) A9/B6/X3/X4。
+
+7. **通道声明与覆盖结论。**先查 `ag catalog ledger <study> --object <对象> --channel <通道> --json`，以实际尝试结果支撑“已尝试未找到”，区分仅登记、诊断与已计算失败。负责人审阅后才声明：
+
+   ```sh
+   ag catalog channel-status <study> --object <对象> --channel <通道> --status <声明类别> --quote '<负责人原话>'
+   ag catalog coverage <study> --object <对象> --statement stable --scope '<通道范围>' --budget '<采样预算>' --quote '<负责人原话>'
+   ```
+   声明类别为 verified / excluded-low-confidence / cleared；排除另需 `--reason '<理由>'`，三者都需原话，不能因一次低层失败而排除。整体结论只写“在声明的通道范围与采样预算内稳定”，撤销用 `--statement withdrawn`，保留 scope/budget/quote。原话逐字来自本 study 当前对话，CLI 不能验证发言身份。
+   **v4.6.0 在两台电脑部署完成之前，真实研究 study 不写 v2 事件**。来源：[catalog v2](../../../docs/ag-catalog-2.md)、[T139](../../../docs/redesign-tasks/T139-card-wording.md) B7/X3/X4。
 
 ## 3. 输入模板
 
@@ -249,7 +329,21 @@ prepare 只做本地声明；submit 在授权前只读取得父 chk 大小与 SH
 - 出现长键、断键、强电荷转移、SCF 多个解或近简并迹象时，审查电子态并提出独立 Stable 诊断，按 [失败诊断](failure-diagnosis.md#电子态与-stable-诊断) 审阅 T30 的 `wavefunction_stability` 及原文行；未诊断不算稳定，稳定也不证明闭壳层方法足够。需要非限制性或多参考方法时明确超出本卡范围。
 - 确认最终身份与预期一致；柔性 TS 列出审阅过的构象和未覆盖部分，不将单个 TS 的能量直接当作唯一反应能垒。
 - 可用 [TS 立体标签](../../auto-g16-structures/SKILL.md#ts-立体标签) 按已签参照产物与原子映射标注构型并核对催化剂，通道建议须人工确认，不替代本节判据。
-- `review.md` 写清判据、事实位置与人的方向审核意见；更新 study 假设。通过后只提出双向 IRC，未完成端点识别不能写“已验证 TS/机理”。
+- `review.md` 写清判据、事实位置与人的方向审核意见；更新 study 假设。IRC 按各产物分支内部的重要性和结构新颖性安排，不按全局权重；暂缓的候选仍为“未验证”。未双向完成并识别端点不能写“已验证 TS/机理”。
+
+按**各产物分支内部**的重要性和结构新颖性安排 IRC，不按全局权重筛掉次要分支。以下情形必须做 IRC：
+
+- 引入新的成断键集合或质子转移方式。
+- 引入新的活化模式。
+- 在所属产物分支内贡献显著。
+- 改变最低 TS 排名或明显改变预测的 ee / dr。
+- 模式或产物归属存在歧义。
+
+高选择性反应中次要产物的全部 TS 全局权重都可能很小，但它们决定 er 的分母。暂缓 IRC 的候选仍是“未验证”，不能称为已验证；任何“TS 已验证”仍须恰好一个虚频、振动方向经人审核符合目标反应坐标、双向 IRC 走完并识别端点。IRC 两端必须继续独立 Opt+Freq 并确认为极小点，有限步数的路径终点不能直接当作稳定物种。
+来源：[T139](../../../docs/redesign-tasks/T139-card-wording.md) A5/X3、[AGENTS.md 第 6 节](../../../AGENTS.md)。
+
+TS 后分岔或产物分支不能唯一确定时，候选结果的归属用 `undetermined` 并列出候选通道；这些 TS 不放入 profile 的简单选择性定义，每个 TS 必须唯一归属，不能把同一 TS 重复塞入多个产物。报告标注“简单 TS 能垒比不适用”。单条 IRC 不能排除另一分支；本期不做轨迹计算。涉及上述 catalog v2 登记时：**v4.6.0 在两台电脑部署完成之前，真实研究 study 不写 v2 事件**。
+来源：[T139](../../../docs/redesign-tasks/T139-card-wording.md) A9/X4、[catalog v2](../../../docs/ag-catalog-2.md)、[审计第 11 节](../../../docs/research/ts-guess-audit.md)。
 
 ## 7. 常见失败与处理
 
@@ -265,6 +359,13 @@ RCFC 只适用于父 chk 中确有 Freq 写入的适用笛卡尔力常数；没�
 起点与目标方向合理但难收敛时，若 Hessian 更新不足，可在方法支持解析二阶导数时用 `RecalcFC=N`
 在第一步及此后每 N 步重算，说明额外 Hessian 成本；若步长过大、优化振荡或越过目标区域，可减小 `MaxStep`。
 参数与依据写进 review，每次修改都作为新 Attempt，经人确认后提交；不能用 `NoEigenTest` 掩盖错误曲率。
+
+**一组模板和变换全部冲突，只说明这组模板和变换失败，不构成排除该通道的依据。**在台账登记失败类型；有已登记候选可用 `candidate-result --outcome other` 并在 note 写明模板/变换和冲突，不设通道排除；无可登记几何时先保留本地失败记录，不虚构候选。
+
+**低层优化塌缩到端点，只说明这条低层路线失败；通道应改用其他方法继续，不能据此排除。**已登记候选使用 `ag catalog candidate-result <study> --object <对象> --candidate <候选> --outcome minimum --note '低层路线失败（<方法>）'`，有关联 Attempt 时补 `--attempt <结果Attempt>`，不声明 excluded。
+
+xTB 无虚频或方向不对只降优先级或转为直接做 DFT，不排除候选；G0 的 Gaussian 模式标记 `mode:no_imaginary_mode`、`mode:sign_inconsistent` 同样不导致 rejected。还须审阅 `mode:multiple_imaginary_modes`、`mode:most_negative_not_best`、`mode:non_stationary_frequencies`；这些类别不表示本期支持 xTB Hessian。涉及上述台账写入时：**v4.6.0 在两台电脑部署完成之前，真实研究 study 不写 v2 事件**。
+来源：[T139](../../../docs/redesign-tasks/T139-card-wording.md) A7/A8/X4、[catalog v2](../../../docs/ag-catalog-2.md)、[G0 模式标记](../../../docs/g0.md#模式投影)。
 
 不得将 `Stable=Opt` 机械地加到所有计算里；它可能改变电子态，不能以较低能量自动接受新态。
 

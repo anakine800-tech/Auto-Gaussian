@@ -82,6 +82,14 @@ R = 8.31446261815324/4184 kcal·mol⁻¹·K⁻¹；298.15 K 时 RT ≈ 0.592485 
 
 ### 选择性：ΔΔG‡、er、ee 与 dr
 
+**局部能垒只在同一前体内有意义；跨前体比较必须回到共同参考态。**
+例如前体 A 的 G=0、局部垒=10；前体 B 的 G=3、局部垒=9（均为 kcal/mol），共同参考下 TS 分别为 10 和 12，不是 10 和 9。不同前体的局部垒不得直接相加或比较；系综加权/比较前逐项核对共同参考态、标准态、热修正设置、计量与浓度项，并以独立动力学依据确认前体互变足够快。
+`highest_local_barrier_TS` 是各步局部正向能垒的最大者标识；`step_decomposition` 是生成逐步分解的内部函数，结果写入 `steps[]` 的局部正逆垒及分解/换算字段，并非同名 JSON 顶层字段。两者都不能跨前体直接用作产物通量比较。
+选择性同时报告 `lowest_ts.pairwise` 的 `lowest_ts_ddG_kcal`、`ensemble_ddG_kcal`、`difference_kcal`（系综减单结构），保留相同的产物顺序与 G_eff(b)−G_eff(a) 符号。
+`lowest_ts` 在每个产物分支的全部 TS species/构象中选修正后自由能最低的单个结构，保留所在通道的真实 `paths`；不对构象求和、不乘构象简并度，后者仅报告。附 species、Attempt 来源与修正后 G；`lowest_conformer` 则对每个 TS species 各取最低构象，仍对多个通道及 paths 求和，不能替代单结构结果。
+**单结构结果和系综结果不是同一个物理量；差值大说明结论对构象采样敏感，不代表哪个更正确。**
+来源：[T139](../../../docs/redesign-tasks/T139-card-wording.md) A1–A3、[审计第 1、2、10 节](../../../docs/research/ts-guess-audit.md)；Laplaza 等，*J. Phys. Chem. Lett.* **2024**, *15*, 7363–7370，[DOI:10.1021/acs.jpclett.4c01657](https://pubs.acs.org/doi/10.1021/acs.jpclett.4c01657)。
+
 在共同反应物参考态、相同前因子及 κ 下，令
 `ΔΔG‡ = G‡eff,minor − G‡eff,major ≥ 0`：
 
@@ -111,6 +119,15 @@ Curtin–Hammett 要求反应物构象/中间体间互变快于各自生成产�
 慢交换时按可快交换的盆地分别处理，以初始布居、交换和各生成/逆反应速率
 构建动力学网络；这些网络拟合/积分当前不由 profile 提供，须记录能力缺口。
 
+**约束、带偏置的低层采样中出现通道泄漏，不证明真实体系中两条通道快速互变，不能用来支持 Curtin–Hammett 条件。**
+Curtin–Hammett 及上述可逆性判断都需要独立动力学依据，不能用采样轨迹替代互变速率证据。
+来源：[T139](../../../docs/redesign-tasks/T139-card-wording.md) A6、[审计第 11 节](../../../docs/research/ts-guess-audit.md)。
+
+**重复找到同一个 TS 的次数不是简并度。**
+进入系综前先在 DFT 层核对最终几何并跨搜索来源、跨 species 去重：多个低层构象可能收敛到同一个 DFT TS；不同 Attempt 不保证不同驻点，工具不自动完成这项审阅。
+只使用有来源的真实对称简并，分别列构象简并度 d、等价路径数 `paths`、转动对称数 σ；已显式枚举的等价项不再重复计权，σ 不得再乘进前两者。`cluster --mirror` 的计数依赖去重输入和映射判据，不能直接当作真实简并导入 TS 统计。
+来源：[T139](../../../docs/redesign-tasks/T139-card-wording.md) A1–A3、[审计第 1、2、10 节](../../../docs/research/ts-guess-audit.md)；Laplaza 等，*J. Phys. Chem. Lett.* **2024**, *15*, 7363–7370，[DOI:10.1021/acs.jpclett.4c01657](https://pubs.acs.org/doi/10.1021/acs.jpclett.4c01657)。
+
 通道 c 中先跨搜索家族去重，再汇总保留的全部可比 TS：
 
 ```text
@@ -136,6 +153,13 @@ profile 的 `selectivity` 是输入 JSON 字段，不是单独命令：
 `ratio_a_over_b = W_a/W_b`；`ee_percent` 按输入第一标签减第二标签，可能为负。
 只有标签确为对映产物才解释为 ee。统一组分的共同参考态会在比例中消去，
 但不同参考盆地、不同浓度或不平衡组分不能靠此消去。
+
+覆盖结论统一使用 **在声明的通道范围与采样预算内稳定**，并列范围、预算、未覆盖通道和证据；数值稳定或未再发现新结构不证明全局完备。通道六态及派生/声明规则见 [TS 覆盖与失败记录](ts.md#覆盖与失败记录)；catalog 的“候选 / 采用 / 退役”是对象采用状态，不能当作通道覆盖状态。
+来源：[T139](../../../docs/redesign-tasks/T139-card-wording.md) A4、[catalog v2 第 5 节](../../../docs/ag-catalog-2.md#5-通道派生与查询)。
+
+TS 后分岔或产物分支不能唯一确定时，候选结果的归属用 `undetermined` 并列出候选通道；这些 TS 不放入 profile 的简单选择性定义，每个 TS 必须唯一归属，不能把同一 TS 重复塞入多个产物。报告标注“简单 TS 能垒比不适用”。单条 IRC 不能排除另一分支；本期不做轨迹计算。
+涉及上述 catalog v2 登记时：**v4.6.0 在两台电脑部署完成之前，真实研究 study 不写 v2 事件**。
+来源：[T139](../../../docs/redesign-tasks/T139-card-wording.md) A9/X4、[catalog v2](../../../docs/ag-catalog-2.md)、[审计第 11 节](../../../docs/research/ts-guess-audit.md)。
 
 ### 误差口径与 S7 隧穿
 

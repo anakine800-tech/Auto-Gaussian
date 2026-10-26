@@ -113,6 +113,10 @@ $end
 
 prepare 将原文件字节作为 `constraints.inp` 纳入 bundle 和逐文件 SHA-256 摘要，模板自动加 `--cinp constraints.inp`；不要通过 `--param` 直接传 `--cinp`。提交前同时审阅约束内容、输入结构、完整参数和摘要中的文件哈希。
 
+**约束、带偏置的低层采样中出现通道泄漏，不证明真实体系中两条通道快速互变，不能用来支持 Curtin–Hammett 条件。**
+Curtin–Hammett 的快速互变条件须有独立动力学依据，结合 [kinetics](kinetics.md) 的选择性与可逆性模型审阅。
+来源：[T139](../../../docs/redesign-tasks/T139-card-wording.md) A6、[审计第 11 节](../../../docs/research/ts-guess-audit.md)。
+
 搜到的结构只是 TS 候选；正式 DFT TS 优化前释放采样约束、移除冻结段，重新优化为 TS，并逐个按 [TS 卡片](ts.md) 审阅：恰好一个虚频，且振动方向与目标成键/断键坐标一致。需要 IRC 验证时，必须双向完成并识别端点，才能声称验证；CREST 正常终止不能代替 TS 验证。
 
 ### 合并与覆盖报告
