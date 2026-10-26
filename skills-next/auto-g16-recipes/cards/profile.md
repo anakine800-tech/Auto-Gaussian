@@ -266,7 +266,11 @@ TS 后分岔或产物分支不能唯一确定时，候选结果的归属用 `und
 
 ### 畸变–相互作用分析
 
-已有可比的复合物与片段单点时，可用 `ag asm` 做电子能分解。先人工指定片段原子列表、 电荷和多重度，再用 `ag asm split <Attempt> --geometry input --atoms 1-3 --name first --out analyses/first.xyz --study <study>` 导出片段；优化或 TS 的最终坐标改用 `--geometry final`，读取 `final_input.xyz`。 保留 `original_atoms` 映射，按升序坐标准备片段单点，沿用复合物的方法和溶剂模型。 计算仍走正常 prepare / 人工确认提交流程，本命令不会准备或提交计算。
+已有可比的复合物与片段单点时，可用 `ag asm` 做电子能分解。先人工指定片段原子列表、
+电荷和多重度，再用 `ag asm split <Attempt> --geometry input --atoms 1-3 --name first --out analyses/first.xyz --study <study>`
+导出片段；优化或 TS 的最终坐标改用 `--geometry final`，读取 `final_input.xyz`。
+保留 `original_atoms` 映射，按升序坐标准备片段单点，沿用复合物的方法和溶剂模型。
+计算仍走正常 prepare / 人工确认提交流程，本命令不会准备或提交计算。
 
 将人工定义保存到 analyses JSON 后运行
 `ag asm summary --definition analyses/asm-definition.json --out analyses/asm.json --study <study>`。
