@@ -18,6 +18,9 @@ max_cores = 44
 # Omitted: 120 GB. Each tier stays at or below the configured ceiling.
 # This does not verify node capacity or scheduler/account permission.
 # pbs_max_mem_gb = 200
+# Optional hard per-job walltime; positive HH:MM:SS, 2..4 hour digits.
+# Omitted: no extra ag limit; the scheduler may still impose one.
+# max_walltime = "36:00:00"
 # max_committed_cores = 264
 # max_queued_cores = 198
 # scheduler_max_running_cores = 66
@@ -33,6 +36,8 @@ mem_gb = 50
 [resources.tiers.complex]
 cores = 44
 mem_gb = 120
+# Optional resources.tiers.max / resources.tiers.ultra use cores and mem_gb.
+# Only configure tiers supported by one eligible node and approved local caps.
 [programs.gaussian]
 g16root = "<absolute Gaussian executable directory>"
 [programs.xtb]

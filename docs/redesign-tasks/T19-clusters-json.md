@@ -24,7 +24,8 @@
 | `is_default` | 布尔值，名称为 `default` 时为 true，与 `prepare --cluster` 的缺省选择一致 |
 | `resources.max_cores` | 配置核数上限，整数 |
 | `resources.max_committed_cores` | 规范化后的配置值；未配置时等于 `max_cores`，不代表实时可提交额度 |
-| `resources.tiers` | 固定四档 `mini`、`simple`、`general`、`complex`；每档只含整数 `cores` 和 `mem_gb` |
+| `resources.tiers` | 必需 `mini`、`simple`、`general`、`complex`，可选 `max`、`ultra`；按此顺序只输出已配置档位，每档只含整数 `cores` 和 `mem_gb` |
+| `resources.max_walltime` | T142：仅配置时输出入口单作业上限，正值 `HH:MM:SS`，小时 2–4 位 ASCII 数字、分秒 00–59；未配置省略，不表示调度器无限制 |
 | `budget` | 仅 Slurm 且配置 `resources.budget_core_hours` 时出现，见下文 |
 | `expires` | 配置到期日期 `YYYY-MM-DD`，未配置为 null |
 | `programs_enabled` | 仅 `gaussian`、`xtb`、`crest` 三个布尔值，表示相应程序根目录是否配置 |
@@ -99,6 +100,8 @@ CREST 与 xTB 共用 `programs.xtb.root`，两个布尔值一致；这些值不�
 | `last_ok_at` | 最后成功时间，首次失败为 null |
 | `own.cores_in_use`、`own.core_cap` | 本用户运行加排队核数及配置核数上限 |
 | `own.cores_running`、`own.cores_queued`、`own.committed_cap` | 成功采样后的核数分解与额度；首个失败快照可能缺失 |
+| `own.tiers` | T142：按 mini/simple/general/complex/max/ultra 固定顺序输出实际配置的四至六档；每档仅 cores/mem_gb |
+| `own.max_walltime` | T142：仅配置时输出与 resources.max_walltime 相同的字符串，未配置省略；不增加 schema 版本 |
 | `own.jobs` | 本用户作业数组；包含 job_id、name、state、cores、queue、walltime_used、study、attempt；PBS 另含 mem、walltime_limit、start_time。找不到本地关联时 study/attempt 为 null |
 | `cluster.nodes`、`cluster.queues` | PBS 节点与队列统计；Slurm 为 [] |
 | `cluster.cores_total`、`cluster.cores_used` | PBS 硬件统计；Slurm 保留旧占位 0，不表示实际容量为零 |
@@ -117,6 +120,10 @@ Slurm 首次采样失败时，budget/storage_kib 为 null；有历史成功快�
 同时 `ok=false`、`error` 非空、`last_ok_at` 保持旧时间。读取旧版快照缺失的新字段时补 null。
 expires 与 expiry_warning 仍反映当前本地配置。前端不能把旧预算、存储值标为实时，也不能将 null/缺失当零。
 PBS 不增加 budget/expires/storage_kib，保持原快照行为。
+
+T142 的档位与 max_walltime 在成功/失败快照中均使用当前有效配置；移除可选档位或
+max_walltime 后清除保留缓存中的旧值，不透传未知 tiers 元数据。时限省略不填 null/0，
+不能显示为“无限制”。这是本机配置上限而非调度器权限或实际空闲容量。
 
 ## 验证范围
 

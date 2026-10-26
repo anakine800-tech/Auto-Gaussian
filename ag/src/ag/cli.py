@@ -4,7 +4,7 @@ from importlib import import_module
 import json
 import sys
 from ag import __version__
-from ag.config import load_config, select_cluster, for_manifest
+from ag.config import load_config, select_cluster, for_manifest, RESOURCE_TIERS
 
 
 CONFIG_COMMANDS = ('init', 'prepare', 'approve', 'submit', 'status', 'fetch', 'snapshot', 'cancel', 'list', 'doctor', 'monitor', 'review', 'clusters')
@@ -64,10 +64,7 @@ def core_command(args):
         elif command in ('fetch', 'cancel'):
             cfg = for_manifest(cfg, attempt.read_manifest(attempt.find(cfg, args.id)))
         elif command == 'submit':
-            names = {attempt.read_manifest(attempt.find(cfg, id_)).get('cluster', 'default') for id_ in args.ids}
-            if len(names) != 1:
-                raise ValueError('Submit one cluster per confirmed batch')
-            cfg = for_manifest(cfg, attempt.read_manifest(attempt.find(cfg, args.ids[0])))
+            cfg = submit.preflight(cfg, args.ids)
         transport = None if command == 'status' else SSHTransport(cfg, read_only=command in ('doctor', 'fetch', 'snapshot'))
         if command == 'doctor':
             result = doctor.doctor(cfg, transport)
@@ -153,7 +150,7 @@ def register(subparsers):
             p.add_argument('--fragments', help='Multiwfn: fragment,atoms (2–4); gaussian-cp: fragment,atoms,charge,multiplicity (exactly 2)')
             p.add_argument('--card', help='Recipe name; capture its text, Skills Git commit and dirty state')
             p.add_argument('--constraints', help='xTB/CREST xcontrol file, bundled as constraints.inp')
-            p.add_argument('--tier', choices=('mini', 'simple', 'general', 'complex'), required=True)
+            p.add_argument('--tier', choices=RESOURCE_TIERS, required=True)
             p.add_argument('--walltime', required=True)
             p.add_argument('--label', required=True)
             p.add_argument('--method-basis', required=True,

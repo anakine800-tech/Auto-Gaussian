@@ -2,7 +2,7 @@
 from pathlib import Path
 
 from ag import budget
-from ag.config import scheduler_kind, select_cluster, optional_resource_caps
+from ag.config import scheduler_kind, select_cluster, optional_resource_caps, RESOURCE_TIERS
 
 
 def describe(cfg, *, verify_studies_root=None):
@@ -21,10 +21,12 @@ def describe(cfg, *, verify_studies_root=None):
                 max_committed_cores=resources['max_committed_cores'],
                 **optional_resource_caps(selected),
                 tiers={tier: {key: resources['tiers'][tier][key] for key in ('cores', 'mem_gb')}
-                       for tier in ('mini', 'simple', 'general', 'complex')}),
+                       for tier in RESOURCE_TIERS if tier in resources['tiers']}),
             expires=selected.get('expires'),
             programs_enabled=dict(gaussian=bool(programs.get('gaussian', {}).get('g16root')),
                                   xtb=xtb, crest=bool(programs.get('crest', {}).get('executable')) or xtb))
+        if 'max_walltime' in resources:
+            row['resources']['max_walltime'] = resources['max_walltime']
         summary = budget.public_summary(selected)
         if 'display_name' in selected:
             row['display_name'] = selected['display_name']

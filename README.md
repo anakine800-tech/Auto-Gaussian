@@ -129,6 +129,12 @@ prepare 的文本摘要在所选入口不同于建议时追加一行提示；缺
 
 资源示例：`mini` 4 核/10 GB、`simple` 8 核/12 GB、`general` 22 核/50 GB、`complex` 44 核/120 GB，均按实际配置调整。
 
+前四档仍必需；每个入口可另外配置 `resources.tiers.max` 和/或 `resources.tiers.ultra`，
+使用相同的整数 `cores` / `mem_gb` 字段和资源限制。只识别固定六名，
+入口列表与监控按 `mini → simple → general → complex → max → ultra` 顺序输出实际配置项，
+没有的档位不补空值，既有未知元数据不透传。prepare 拒绝该入口未配置的档位；
+route 对缺档入口显示“不支持该档位”，不把它列为立即运行或排队建议。
+
 PBS 档位内存默认最高 **120 GB**。负责人明确授权后，可在该入口的
 `[clusters.<CLUSTER>.resources]`（旧单集群为 `[resources]`）设置
 `pbs_max_mem_gb`：严格整数 **120–200**，各档位 `mem_gb` 不得超过该值。
@@ -137,6 +143,15 @@ PBS 档位内存默认最高 **120 GB**。负责人明确授权后，可在该�
 未配置该字段的 Slurm 内存行为不变。这只是本机授权上限，不证明节点容量、调度器许可或账号配额；
 仍需按一个合格节点留足系统余量，Gaussian 的 85% 限制和每次提交批准规则不变。
 回退至不支持该字段的版本前，须先恢复不超过 120 GB 的 PBS 档位配置；不能只保留新字段来延续授权。
+
+PBS 与 Slurm 都可配置入口级 `resources.max_walltime`，如 `"36:00:00"`；
+必须为正值 `HH:MM:SS`，小时使用 2–4 位 ASCII 数字，分秒为 00–59。
+省略时没有额外 AG 入口时限，**不代表调度器无限制**。prepare 在写入新 Attempt 或远程检查之前拒绝超限；
+旧 prepared 在下一次 submit 时按本次调用加载的有效配置重核，在 Transport/日志/锁/批准消费/claim 前拒绝，
+确认后与 claim 前再核对；人工批准记录、长期规则和对话框均不能覆盖此上限。
+配置收紧只会拒绝提交，不改 manifest、输入或脚本；确认期间不重新加载整份磁盘配置。
+`ag clusters --json` 的 `resources.max_walltime` 与监控的 `own.max_walltime` 仅配置时出现，
+未配置时省略；失败快照也更新当前限制，移除配置后不保留旧限额。共享排队上限机制保持不变。
 
 PBS 和 Slurm 的 `resources.max_cores` 均由配置的正整数决定；default 必须在本机配置里明确写 `max_cores = 44`，代码不再提供 PBS 44 核硬上限。Gaussian 仅在单节点运行，单作业上限不得超过队列中最小可用节点的核数，内存档位也按该节点并为系统留余量。
 `max_committed_cores` 不小于 `max_cores`，总上限由负责人按集群设定，没有四倍上限。可选 `max_queued_cores` 在确认前和确认后限制排队（含挂起、本人非 ag 作业及适用的未观测预留）加本次申请；同集群取所有已配置排队上限的最小值，未配置的入口也不能绕过。

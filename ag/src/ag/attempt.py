@@ -5,7 +5,8 @@ import json
 from pathlib import Path
 import re
 from ag import __version__, cards, crest_input, gaussian_input, journal, render, state, study
-from ag.config import select_cluster, for_manifest, scheduler_kind, cluster_name, shared_cap_summary
+from ag.config import (select_cluster, for_manifest, scheduler_kind, cluster_name,
+                       shared_cap_summary, RESOURCE_TIERS, validate_walltime)
 from ag.locks import claim
 from ag.remote import filename
 
@@ -107,12 +108,15 @@ def prepare(cfg, *, study_name, template, input_path, tier, walltime, label, par
     if 'allowed_templates' in cfg and template not in cfg['allowed_templates']:
         allowed = ', '.join(cfg['allowed_templates']) or '(none)'
         raise ValueError(f'Cluster {cluster}: template {template} is not allowed; allowed_templates: {allowed}')
+    if tier not in RESOURCE_TIERS:
+        raise ValueError('Invalid resource tier')
+    if tier not in cfg['resources']['tiers']:
+        raise ValueError('Resource tier is not configured for this cluster')
+    validate_walltime(cfg, walltime)
     s = study.locate(cfg, study_name)
     if not (s / 'study.md').is_file() or not (s / 'attempts').is_dir():
         raise ValueError('Initialize the study first')
     study.identifier(label)
-    if tier not in ('mini', 'simple', 'general', 'complex'):
-        raise ValueError('Invalid resource tier')
     resource = cfg['resources']['tiers'][tier]
     if template != 'multiwfn' and any(v is not None for v in (analysis, grid)):
         raise ValueError('--analysis/--grid require the multiwfn template')
@@ -279,6 +283,7 @@ def prepare(cfg, *, study_name, template, input_path, tier, walltime, label, par
 def verified_files(cfg, path, manifest):
     m = manifest
     cfg = for_manifest(cfg, m)
+    validate_walltime(cfg, m['walltime'])
     script = 'job.slurm' if m.get('scheduler') == 'slurm' else 'job.pbs'
     resource = cfg['resources']['tiers'].get(m['tier'])
     if not resource or any(m[k] != resource[k] for k in ('cores', 'mem_gb')):

@@ -14,7 +14,8 @@ import time
 import threading
 
 from ag import remote, status, slurm, attempt, budget, pbs
-from ag.config import load_config, select_cluster, scheduler_kind, committed_cap, shared_clusters, optional_resource_caps
+from ag.config import (load_config, select_cluster, scheduler_kind, committed_cap,
+                       shared_clusters, optional_resource_caps, RESOURCE_TIERS)
 from ag.pbs import parse_nodes
 from ag.transport import SSHTransport, SSHConnectionError, TransportError, Result, redact_stderr, require_ok
 
@@ -286,8 +287,11 @@ def sample(cfg, transport, interval=None, *, config_warning=None, schedule=None,
     snapshot['own'].update(max_cores=cfg['resources']['max_cores'],
                            tiers={name: {key: cfg['resources']['tiers'][name][key]
                                          for key in ('cores', 'mem_gb')}
-                                  for name in ('mini', 'simple', 'general', 'complex')
+                                  for name in RESOURCE_TIERS
                                   if name in cfg['resources'].get('tiers', {})})
+    snapshot['own'].pop('max_walltime', None)
+    if 'max_walltime' in cfg['resources']:
+        snapshot['own']['max_walltime'] = cfg['resources']['max_walltime']
     # Configuration labels stay current even when retained scheduler data is old.
     snapshot['cluster'].pop('display_name', None)
     if 'display_name' in cfg:
