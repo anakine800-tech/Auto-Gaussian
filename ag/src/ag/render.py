@@ -64,17 +64,20 @@ def render(cfg, manifest, input_name):
     work = attempt_dir(cfg, m)
     values = {key: shlex.quote(str(value)) for key, value in dict(
         allowed_root=cfg['remote']['ag_root'], work_dir=work,
-        g16root=cfg['programs']['gaussian']['g16root'],
-        xtb_bin=cfg['programs']['xtb']['root'] + '/bin',
-        xtb_share=cfg['programs']['xtb']['root'] + '/share/xtb',
         cores=m['cores'], input_name=input_name,
         log_name=Path(input_name).stem + '.log').items()}
+    if m['template'] in ('gaussian', 'gaussian-cp', 'multiwfn'):
+        values['g16root'] = shlex.quote(cfg['programs']['gaussian']['g16root'])
+    if m['template'] in ('xtb', 'crest'):
+        values.update(xtb_bin=shlex.quote(cfg['programs']['xtb']['root'] + '/bin'),
+                      xtb_share=shlex.quote(cfg['programs']['xtb']['root'] + '/share/xtb'))
     if mdopt:
         values['input_name'] = '--mdopt ' + shlex.quote(input_name)
     values.update(parameters=p, path_checks=path_checks(work))
     # Preserve every byte of the legacy script when no independent path is set.
-    values['crest_command'] = (shlex.quote(crest_executable(cfg['programs']))
-                               if 'crest' in cfg['programs'] else 'crest')
+    if m['template'] == 'crest':
+        values['crest_command'] = (shlex.quote(crest_executable(cfg['programs']))
+                                  if 'crest' in cfg['programs'] else 'crest')
     header = (f"#!/bin/sh\n#PBS -N {m['pbs_job_name']}\n#PBS -q {(cfg['scheduler']['queue'] if isinstance(cfg['scheduler'], dict) else '')}\n"
               f"#PBS -l nodes=1:ppn={m['cores']}\n#PBS -l mem={m['mem_gb']}gb\n"
               f"#PBS -l walltime={m['walltime']}\n#PBS -j oe\n#PBS -r n\n#PBS -o {work}/job.pbs.out\n")

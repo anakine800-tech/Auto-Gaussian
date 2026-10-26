@@ -39,9 +39,10 @@ def doctor(cfg, transport):
     else:
         require_ok(transport.run(remote.queues()), 'scheduler queues')
     require_ok(transport.run(remote.root_check(cfg)), 'allowed root')
-    paths = {'gaussian': cfg['programs']['gaussian']['g16root'] + '/g16',
-             'xtb': cfg['programs']['xtb']['root'] + '/bin/xtb',
-             'crest': crest_executable(cfg['programs'])}
+    paths = {'gaussian': cfg['programs']['gaussian']['g16root'] + '/g16'}
+    if 'xtb' in cfg['programs']:
+        paths.update(xtb=cfg['programs']['xtb']['root'] + '/bin/xtb',
+                     crest=crest_executable(cfg['programs']))
     for name, path in paths.items():
         require_ok(transport.run(remote.executable(path)), f'{name} executable')
     checkpoint = parent_chk_environment(transport)
