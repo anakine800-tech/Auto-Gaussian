@@ -14,6 +14,10 @@ queue = "<queue>"
 # Optional scheduler running cap is advisory; admins must enforce it.
 # ag does not set or verify a scheduler runtime cap.
 max_cores = 44
+# PBS-only, owner-authorized per-entry memory ceiling: integer 120..200 GB.
+# Omitted: 120 GB. Each tier stays at or below the configured ceiling.
+# This does not verify node capacity or scheduler/account permission.
+# pbs_max_mem_gb = 200
 # max_committed_cores = 264
 # max_queued_cores = 198
 # scheduler_max_running_cores = 66

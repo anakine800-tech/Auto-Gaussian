@@ -51,6 +51,10 @@ root = "<absolute xtb and crest installation root>"
 # [clusters.default.programs.crest]
 # executable = "<absolute CREST executable>"
 [clusters.default.resources]
+# PBS-only, explicit owner authorization: integer 120..200 GB; omitted = 120.
+# Each tier must fit this entry's ceiling and one eligible node with headroom.
+# This is not scheduler/account permission; do not add this field to Slurm.
+# pbs_max_mem_gb = 200
 # default MUST explicitly retain max_cores = 44 in local configuration.
 # Per-job/tier cap: positive integer, no larger than one eligible node.
 # Gaussian runs on one node; size for the smallest eligible node.

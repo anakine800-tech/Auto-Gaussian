@@ -230,11 +230,17 @@ def validate_cluster(cfg):
             value = cfg['resources'][key]
             if type(value) is not int or value < 1:
                 raise ConfigError(f'{key} must be a positive integer')
+    memory_limit = cfg['resources'].get('pbs_max_mem_gb', 120)
+    if 'pbs_max_mem_gb' in cfg['resources']:
+        if scheduler != 'pbs':
+            raise ConfigError('resources.pbs_max_mem_gb is only supported for PBS')
+        if type(memory_limit) is not int or not 120 <= memory_limit <= 200:
+            raise ConfigError('resources.pbs_max_mem_gb must be an integer from 120 to 200')
     for name in ('mini', 'simple', 'general', 'complex'):
         tier = cfg['resources']['tiers'][name]
         if (type(tier['cores']) is not int or not 1 <= tier['cores'] <= limit
                 or type(tier['mem_gb']) is not int or tier['mem_gb'] < 1
-                or (scheduler == 'pbs' and tier['mem_gb'] > 120)):
+                or (scheduler == 'pbs' and tier['mem_gb'] > memory_limit)):
             raise ConfigError(f'Invalid resource tier: {name}')
     if not Path(cfg['ssh']['config_file']).is_file():
         raise ConfigError('SSH configuration file does not exist')
