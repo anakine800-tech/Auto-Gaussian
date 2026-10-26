@@ -1,6 +1,8 @@
-# v4.6.0 交接
+# v4.6.1 交接
 
-2026-10-26，后端与前端统一为 v4.6.0，发布准备由两份 T140 PR 完成。本版包含后端 T130 #332、T135 #333、T131 #334、T133 #335、T134 #336、T136 #337、T137 #338、T138 #339、T139 #340，以及前端 T132 #40；升级和部署以 [v4.6.0 CHANGELOG](../CHANGELOG.md#v460) 与 [OPERATIONS.md](OPERATIONS.md) 为准，取代下文历史版本的部署步骤。发版不等于部署完成；本轮不设观察时长，至少逐入口 doctor、监控加载后 180 秒内写出首轮快照、心跳不超过 90 秒且 PID 对应、快照字段与前端各入口卡片正常。先部署开发机并通过首轮核对，当天暂停研究会话，再部署研究用计算机；后者通过后，在临时非研究 study 登记候选、执行 `ag g0 --record` 并核对前端台账，通过后真实研究 study 才能写 v2 事件。已有研究 study 第一次写入须经负责人批准后加 `--upgrade-catalog`；升级不可降级，试写 study 移入以下划线开头的容器目录保留。两边均须监督方审阅、负责人合并，再由负责人在各自 PR 的确切合并提交上创建 tag 和 release。本文供接手的人与新会话读取当前状态和使用规则。提交审批以 [v4.5.0 升级须知](../CHANGELOG.md#v450) 为准：显式聊天批准记录或长期规则经核对后可用于提交，未指定时弹 Mac 确认框；取消仍须人亲手确认。此规则取代下文旧的统一提交弹窗表述。
+2026-10-27，T144 准备后端与前端同号 v4.6.1 发布 PR。功能范围为已合并的后端 T141 #342、T142 #343 及前端 T143 #42；升级和回退以 [v4.6.1 CHANGELOG](../CHANGELOG.md#v461) 与 [OPERATIONS.md](OPERATIONS.md) 为准，取代下文历史版本的部署步骤。两个发布 PR 仍须监督方审阅和负责人合并；随后由负责人在各自确切合并提交创建 tag/release，部署另行批准。开发机必须通过逐入口 doctor、180 秒首轮快照、90 秒内心跳且 PID 对应、原入口回归、前端和指定观察期，以及部署计划要求的其他独立验收后，才可安排研究机配置。研究机须有无研究写入的批准维护窗口并独立验收，不能复用开发机结果。共享目录、Gaussian 计算节点环境、单节点资源和调度限制、认证持久化仍以现场证据为准；发布不等于服务器接入成功。真实配置、备份、哈希、观察时长和结果仅写入私有交接。回退须恢复旧版本兼容配置，不改已有 Attempt 或研究证据。
+
+本补丁不增加 study/catalog 迁移。既有 catalog v2 启用条件保留：两台电脑部署完成后，研究机临时非研究 study 的候选登记、`ag g0 --record` 与前端台账核对通过前，真实研究 study 不写 v2 事件；第一次 `--upgrade-catalog` 须负责人批准，升级不可降级，试写 study 保留在以下划线开头的容器目录。提交审批仍以 [v4.5.0 升级须知](../CHANGELOG.md#v450) 为准：显式聊天批准记录或长期规则经核对后可用于提交，未指定时弹 Mac 确认框；取消仍须人亲手确认，此规则取代下文旧的统一提交弹窗表述。
 
 ## 现状
 
@@ -62,7 +64,7 @@ v4.2.2 汇总 v4.2.1 后已合并的 T73–T77：topology 不确定接触修复�
   2. `job_nodes` 合并 `exec_host` 与 `pbsnodes` 节点名时，短名/全名可能误判跨节点；当前内存保持 null，但原因描述需修正。
   3. 主循环每不超过 2 秒重读配置；可改为入口到期、有待处理请求或配置 mtime 变化时再读。
   4. 重试登记后、执行前若入口暂停，请求会被静默丢弃，前端可能等待 120 秒；后续在摘要中反馈丢弃原因。
-- 前端 `autog_frontend/__init__.py` 的 `__version__` 仍为 4.0.0；本次仅 Python 包元数据与网页包升至 4.6.0。证据库冷启动已有测量约 2.5 秒，source-map-js 临时 override 待上游修复后删除。
+- 前端 `autog_frontend/__init__.py` 的 `__version__` 仍为 4.0.0；本次仅 Python 包元数据与网页包升至 4.6.1。证据库冷启动已有测量约 2.5 秒，source-map-js 临时 override 待上游修复后删除。
 - 后续允许 Slurm 入口未配置 Gaussian 时仍运行 xTB/CREST；CREST 异常结束时读取 stderr，以补全诊断。本次不修改配置校验或解析逻辑。
 - T108 facts 语义、T109 等价原子映射与 `--mirror report`、T112 doctor 独立 PBS 集群误报均已修复；既有 facts 是否重算及 catalog 是否补登记，由负责人逐 study 决定，不自动改写证据。
 - **C 批：TS 初猜工具链（T130–T139）已完成。** `ag catalog` v2（[#334](https://github.com/anakine800-tech/Auto-Gaussian/pull/334)）、`ag scan-peak --gaussian-ts --route`（[#335](https://github.com/anakine800-tech/Auto-Gaussian/pull/335)）、`ag qst-endpoints`（[#336](https://github.com/anakine800-tech/Auto-Gaussian/pull/336)）、`ag scan-path`（[#337](https://github.com/anakine800-tech/Auto-Gaussian/pull/337)）、`ag g0` 与模式投影（[#338](https://github.com/anakine800-tech/Auto-Gaussian/pull/338)、[#339](https://github.com/anakine800-tech/Auto-Gaussian/pull/339)）、`ag profile` 的最低 TS / 系综 / 差值三数报告（[#333](https://github.com/anakine800-tech/Auto-Gaussian/pull/333)）、卡片口径（[#340](https://github.com/anakine800-tech/Auto-Gaussian/pull/340)）和连接超时（[#332](https://github.com/anakine800-tech/Auto-Gaussian/pull/332)）均已合并；前端通道与候选只读面板见 [#40](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/40)。诊断和登记不是门禁或科学验收。
