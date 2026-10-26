@@ -133,6 +133,8 @@ PBS 和 Slurm 的 `resources.max_cores` 均由配置的正整数决定；default
 `max_committed_cores` 不小于 `max_cores`，总上限由负责人按集群设定，没有四倍上限。可选 `max_queued_cores` 在确认前和确认后限制排队（含挂起、本人非 ag 作业及适用的未观测预留）加本次申请；同集群取所有已配置排队上限的最小值，未配置的入口也不能绕过。
 可选 `scheduler_max_running_cores` 仅记录同时运行上限：**由调度器执行，ag 未核实**，不是 ag 的运行限流。确认框显示单作业上限、排队/排队上限和运行加排队/总上限；未设排队上限时保持原提交行为。
 
+仅有 Gaussian 安装的入口须显式设置 `allowed_templates = ["gaussian"]`；也可只列 `gaussian-cp` 或同时列这两个 Gaussian 家族模板。此时可省略整个 `programs.xtb` 表，`doctor` 仅检查 Gaussian，静态入口列表将 xTB/CREST 标为未配置。`programs.gaussian.g16root` 仍必须填写直接包含 `g16` 的真实绝对目录；不填空串、占位路径或假软件。省略 `allowed_templates`、空白名单或包含其他模板时仍须提供原有完整程序配置；独立 CREST 路径仍要求 xTB 配置。已有完整配置的程序检查和脚本字节保持不变，`prepare` 在创建 Attempt 前拒绝白名单外模板。静态配置通过不替代远程 `doctor` 或实际运行验收。
+
 CREST 可选 `programs.crest.executable`（多集群为 `clusters.<CLUSTER>.programs.crest.executable`），用于与 xTB 分开安装的情况。设定后配置校验、doctor 和脚本使用同一个绝对路径，prepare 在创建 Attempt 前执行一次只读可执行检查，失败（含 SSH 错误）立即拒绝、不重试、不回退到旧位置；省略时继续从 xTB 根目录的 `bin/crest` 定位，旧 PBS/Slurm 渲染字节保持不变。
 配置独立 CREST 路径后，`ag prepare --template crest` 需要连接目标集群；SSH 不可用时无法 prepare，也不会创建 Attempt。这是准备前核实可执行文件的取舍；未配置独立路径时，prepare 仍保持纯本地行为。
 

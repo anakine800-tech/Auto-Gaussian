@@ -30,6 +30,10 @@ studies_root = "<absolute local studies directory outside Git>"
 [clusters.default]
 scheduler = "pbs"
 queue = "<PBS queue>"
+# A Gaussian-only entry may set allowed_templates = ["gaussian"] here
+# (also supports gaussian-cp), then omit the programs.xtb table below.
+# Keep only the templates with real installations; never invent software paths.
+# Omitting allowed_templates retains the full legacy program requirements.
 # Optional, only after confirming the scheduler's timezone. Omit if unknown.
 # 必须填 IANA 时区名，不要填固定偏移（例如 America/New_York 会随夏令时变化）。
 scheduler_timezone = "Asia/Shanghai"

@@ -192,11 +192,21 @@ def validate_cluster(cfg):
     # Named PBS configs use scheduler="pbs" plus queue; legacy retains its table.
     if scheduler == 'pbs' and cfg.get('scheduler') == 'pbs':
         cfg['scheduler'] = {'queue': cfg['queue']}
-    for section, key, remote in (
+    allowed = cfg.get('allowed_templates')
+    gaussian_only = (isinstance(allowed, list) and bool(allowed)
+                     and all(t in ('gaussian', 'gaussian-cp') for t in allowed))
+    has_xtb = 'xtb' in cfg['programs']
+    if not has_xtb and not gaussian_only:
+        raise ConfigError('programs.xtb.root is required unless allowed_templates contains only Gaussian templates')
+    if not has_xtb and 'crest' in cfg['programs']:
+        raise ConfigError('programs.crest requires programs.xtb.root')
+    paths = [
         ('ssh', 'config_file', False), ('remote', 'allowed_root', True),
         ('remote', 'ag_root', True), ('programs.gaussian', 'g16root', True),
-        ('programs.xtb', 'root', True),
-    ):
+    ]
+    if has_xtb:
+        paths.append(('programs.xtb', 'root', True))
+    for section, key, remote in paths:
         target = cfg
         for part in section.split('.'):
             target = target[part]
@@ -206,7 +216,8 @@ def validate_cluster(cfg):
             raise ConfigError(f'Invalid configuration: {section}.{key}')
     if cfg['remote']['ag_root'] != cfg['remote']['allowed_root'] + '/ag':
         raise ConfigError('remote.ag_root must equal remote.allowed_root/ag')
-    crest_executable(cfg['programs'])
+    if has_xtb:
+        crest_executable(cfg['programs'])
     limit = cfg['resources']['max_cores']
     if type(limit) is not int or limit < 1:
         raise ConfigError('max_cores must be a positive integer')
