@@ -1,4 +1,4 @@
-"""Local candidate integrity, geometry and channel diagnostics (T137)."""
+"""Local candidate integrity, geometry, channel and mode diagnostics (T137/T138)."""
 from collections import Counter
 from copy import deepcopy
 from hashlib import sha256
@@ -8,7 +8,7 @@ from pathlib import Path
 import re
 import sys
 
-from ag import attempt, catalog, catalog_v2 as v2, gaussian_input, geometry as geo, study
+from ag import attempt, catalog, catalog_v2 as v2, g0_modes, gaussian_input, geometry as geo, study
 from ag.irc_compare import _pairs
 
 NOTICE = 'G0 是本地诊断，不是门禁；不替代 DFT 验收；clean 只表示未发现问题。'
@@ -116,7 +116,7 @@ def _geometry(frame, reaction_pairs=()):
     except ImportError as exc:
         raise ValueError('G0 geometry diagnostics require RDKit') from exc
     table = Chem.GetPeriodicTable()
-    # Applicable human distance windows identify reaction pairs. Never infer
+    # Applicable human distance windows/coordinates identify reaction pairs. Never infer
     # them from a bond-state cutoff or exempt them from either damage check.
     reaction_pairs = {tuple(sorted(atoms)) for atoms in reaction_pairs}
     damage, clashes, reaction_center_pairs = [], [], []
@@ -183,8 +183,7 @@ def _windows(root, filename, extra):
             raise ValueError('Windows file must be a JSON object')
         if set(config) - {'channels', 'all', 'reaction_coordinates'}:
             raise ValueError('Unknown windows file fields; allowed: channels, all, reaction_coordinates')
-        # T138 owns reaction_coordinates. Allow its key without consuming or
-        # validating the contents; reject other keys to catch misspellings.
+        # Retain this exact parsed snapshot for modes, including its byte hash.
         source = dict(file=str(path.relative_to(root)), sha256=sha256(raw).hexdigest())
     channels, common = config.get('channels', {}), config.get('all', [])
     if not isinstance(channels, dict) or not isinstance(common, list):
@@ -195,7 +194,7 @@ def _windows(root, filename, extra):
         if not isinstance(rows, list):
             raise ValueError('Channel windows must be a list')
         parsed[key] = [_window(w) for w in rows]
-    return dict(source=source, all=[_window(w) for w in common], channels=parsed,
+    return dict(source=source, content=config, all=[_window(w) for w in common], channels=parsed,
                 extra=[window_argument(w) if isinstance(w, str) else _window(w) for w in extra])
 
 
@@ -275,7 +274,8 @@ def _stereo(root, frame, filename, identity, expected):
 
 
 def diagnose_candidate(root, obj, candidate, *, registration_order, windows,
-                       reference_attempt=None, stereo_json=None, stereo_attempt=None, expected_label=None):
+                       reference_attempt=None, stereo_json=None, stereo_attempt=None, expected_label=None,
+                       modes_attempt=None, auto_modes=False, reaction_coordinate=()):
     path = study.local_path(root, root / candidate['file'])
     raw = v2.read_bytes(path, 1024 * 1024)
     if sha256(raw).hexdigest() != candidate['sha256']:
@@ -284,8 +284,14 @@ def diagnose_candidate(root, obj, candidate, *, registration_order, windows,
     reference = reference_attempt or candidate['parent']['attempt']
     integrity, provenance = _integrity(root, obj, candidate, frame, reference)
     distances = _window_report(frame, candidate, windows)
-    geometry = _geometry(frame, [row['atoms'] for row in distances['used']])
+    specs, sources = g0_modes.reaction_coordinates(windows['content'], candidate['target_channel'],
+                                                  windows['source'], reaction_coordinate)
+    specs = [g0_modes.coordinate_spec(s, len(frame.symbols)) for s in specs]
+    reaction_pairs = ([row['atoms'] for row in distances['used']] +
+                      [s['atoms'] for s in specs if s['kind'] == 'distance'])
+    geometry = _geometry(frame, reaction_pairs)
     stereo = _stereo(root, frame, stereo_json, stereo_attempt, expected_label)
+    modes = _modes(root, candidate, frame, specs, sources, modes_attempt, auto_modes)
     rejected, flags, unchecked = [], [], []
     for field, check in integrity.items():
         entry = dict(category='input_integrity', field=field, message=check['reason'])
@@ -303,13 +309,16 @@ def diagnose_candidate(root, obj, candidate, *, registration_order, windows,
         flags.append(dict(category='distance_window', message='未设窗口'))
     if stereo['status'] in ('pending', 'other_channel'):
         flags.append(dict(category='stereo', message=stereo['reason']))
+    g0_flag_count = len(flags)
+    flags.extend(dict(category='mode:' + flag, message=MODE_MESSAGES[flag]) for flag in modes['flags'])
     return dict(candidate=candidate['id'], object=obj['id'], origin=candidate['origin'],
                 target_channel=candidate['target_channel'], candidate_sha256=candidate['sha256'],
                 registration_order=registration_order, reference=provenance,
-                integrity=integrity, geometry=geometry, windows=distances, stereo=stereo,
+                integrity=integrity, geometry=geometry, windows=distances, stereo=stereo, modes=modes,
                 verdict='rejected' if rejected else 'flagged' if flags else 'clean',
                 reject_reasons=rejected, flags=flags, unchecked=unchecked,
                 counts=dict(reject_reasons=len(rejected), flags=len(flags), unchecked=len(unchecked),
+                            g0_flags=g0_flag_count, mode_flags=len(modes['flags']),
                             geometry_damage=len(geometry['damage']), ordinary_clashes=len(geometry['clashes']),
                             reaction_center_pairs=len(geometry['reaction_center_pairs']),
                             windows=len(distances['used']),
@@ -317,20 +326,58 @@ def diagnose_candidate(root, obj, candidate, *, registration_order, windows,
                 notice=NOTICE, order_notice=ORDER_NOTICE, atom_order_limitation=ORDER_LIMIT)
 
 
+MODE_MESSAGES = dict(no_imaginary_mode='没有虚频模式', multiple_imaginary_modes='存在多个虚频模式',
+                     most_negative_not_best='最负虚频不是最匹配模式',
+                     sign_inconsistent='最匹配模式未能吻合全部有期望符号的反应坐标',
+                     non_stationary_frequencies='非驻点或驻点未知的频率，仅作诊断参考')
+
+
+def _modes(root, candidate, frame, specs, sources, explicit, auto):
+    identity = explicit
+    if auto:
+        identity = next((r['attempt'] for r in reversed(candidate['results'])
+                         if r['attempt'] is not None), None)
+    result = dict(available=False, reason='未声明反应坐标' if not specs else '无模式数据',
+                  attempt=identity, flags=[], coordinates_spec=specs, coordinate_sources=sources)
+    if not specs or identity is None:
+        return result
+    frequency = g0_modes.read_frequency_attempt(root, identity, allow_unavailable=auto)
+    if frequency is None:
+        result['reason'] = '无模式数据：最新非空 Attempt 未取回或没有 Gaussian Freq 段'
+        return result
+    result = g0_modes.analyze_candidate(frame.symbols, frame.coordinates, frequency, specs)
+    result['coordinate_sources'] = sources
+    return result
+
+
+def _mode_order(report):
+    modes = report['modes']
+    best = next((m for m in modes.get('modes', []) if m['index'] == modes.get('best_mode')), None)
+    complete = any(m['imaginary'] and m['signed_count'] > 0 and
+                   m['consistent_count'] == m['signed_count'] for m in modes.get('modes', []))
+    return (not modes['available'], not complete, -(best['overlap'] if best else 0),
+            report['counts']['g0_flags'], report['registration_order'])
+
+
 def diagnose(root, *, object, candidate=None, all_candidates=False, channel=None,
              reference_attempt=None, windows=None, window=(),
-             stereo_json=None, stereo_attempt=None, expected_label=None):
+             stereo_json=None, stereo_attempt=None, expected_label=None,
+             modes_attempt=None, reaction_coordinate=()):
     if sum((candidate is not None, bool(all_candidates), channel is not None)) != 1:
         raise ValueError('Select exactly one of --candidate, --all, --channel')
     stereo_options = [stereo_json, stereo_attempt, expected_label]
     if any(v is not None for v in stereo_options) and not all(v is not None for v in stereo_options):
         raise ValueError('--stereo-json, --stereo-attempt and --expected-label must be supplied together')
-    if candidate is None and (reference_attempt is not None or stereo_json is not None):
-        raise ValueError('Reference and stereo options require a single --candidate')
+    if candidate is None and (reference_attempt is not None or stereo_json is not None or modes_attempt is not None):
+        raise ValueError('Reference, stereo and --modes-attempt options require a single --candidate')
+    if modes_attempt is not None:
+        study.identifier(modes_attempt)
     if expected_label is not None and not expected_label.strip():
         raise ValueError('--expected-label must not be empty')
     root = catalog.resolve_study(root)
     window_config = _windows(root, windows, window)
+    # Validate even when the selected object has no candidates. No second read.
+    g0_modes.reaction_coordinates(window_config['content'], None, window_config['source'], reaction_coordinate)
     with catalog.catalog_lock(root):
         raw, events, _ = catalog.read_journal(root)
         objects, _ = catalog.replay(events)
@@ -345,9 +392,11 @@ def diagnose(root, *, object, candidate=None, all_candidates=False, channel=None
         order = {c['id']: i for i, c in enumerate(obj['candidates'], 1)}
         results = [diagnose_candidate(root, obj, c, registration_order=order[c['id']], windows=window_config,
                                      reference_attempt=reference_attempt, stereo_json=stereo_json,
-                                     stereo_attempt=stereo_attempt, expected_label=expected_label) for c in selected]
+                                     stereo_attempt=stereo_attempt, expected_label=expected_label,
+                                     modes_attempt=modes_attempt, auto_modes=candidate is None,
+                                     reaction_coordinate=reaction_coordinate) for c in selected]
     groups = {'rejected': 0, 'flagged': 1, 'clean': 2}
-    results.sort(key=lambda c: (groups[c['verdict']], c['counts']['flags'], c['registration_order']))
+    results.sort(key=lambda c: (groups[c['verdict']], *_mode_order(c)))
     return dict(schema='ag-g0/1', object=object, journal_sha256=sha256(raw).hexdigest(),
                 candidates=results, order=[c['candidate'] for c in results],
                 counts={group: sum(c['verdict'] == group for c in results) for group in groups},
@@ -355,11 +404,25 @@ def diagnose(root, *, object, candidate=None, all_candidates=False, channel=None
 
 
 def bounded_diagnosis(report):
-    """Keep verdicts and original counts when pair/window details exceed 64 KiB."""
+    """Fit 64 KiB while retaining verdicts, counts and every imaginary summary."""
     result = deepcopy(report)
     if len(catalog.encode(result)) <= MAX_DIAGNOSIS_BYTES:
         return result
     result.update(truncated=True, truncation_note='已截断；结论与各项原始计数保留')
+    modes = result.get('modes')
+    if modes and modes.get('available'):
+        modes['reference_modes_removed'] = sum(not m['imaginary'] for m in modes['modes'])
+        modes['modes'] = [m for m in modes['modes'] if m['imaginary']]
+        if len(catalog.encode(result)) > MAX_DIAGNOSIS_BYTES:
+            # Preserve every imaginary mode's sign counts/overlap before
+            # reducing any older G0 details. Full stdout remains unchanged.
+            modes['coordinates_spec_count'] = len(modes['coordinates_spec'])
+            modes['coordinates_spec'] = []
+            for mode in modes['modes']:
+                mode['delta_count'] = len(mode['delta'])
+                mode['delta'] = []
+            modes['coordinate_sources_count'] = len(modes['coordinate_sources'])
+            modes['coordinate_sources'] = [s for s in modes['coordinate_sources'] if 'file' in s]
     lists = [result['reject_reasons'], result['flags'], result['geometry']['damage'],
              result['geometry']['clashes'], result['geometry']['reaction_center_pairs'], result['windows']['used']]
     for check in result['integrity'].values():
@@ -371,7 +434,39 @@ def bounded_diagnosis(report):
         result = {k: result[k] for k in ('candidate', 'object', 'verdict', 'counts', 'candidate_sha256',
                                         'notice', 'order_notice', 'truncated', 'truncation_note')}
         result['integrity_statuses'] = {k: v['status'] for k, v in report['integrity'].items()}
+        if modes is not None:
+            if modes.get('available'):
+                result['modes'] = modes
+            else:
+                result['modes'] = {k: modes[k] for k in ('available', 'reason', 'attempt', 'flags')}
+    if len(catalog.encode(result)) > MAX_DIAGNOSIS_BYTES:
+        raise ValueError('Cannot retain every imaginary mode within 64 KiB; diagnosis was not recorded')
     return result
+
+
+def _print_modes(report):
+    print('  modes: ' + ('' if report['available'] else report['reason']))
+    if not report['available']:
+        return
+    print('    ' + report['convention'])
+    print(f"    Attempt={report['attempt']}; orientation={report['orientation']}; "
+          f"stationarity={report['stationarity']}; RMSD={report['aligned_rmsd_angstrom']:.6f} Å")
+    print('    模式 | 频率 (cm^-1) | σ | 吻合 | 重叠度 | 类型')
+    for mode in report['modes']:
+        mark = '*' if mode['index'] == report['best_mode'] else ' '
+        print(f"    {mark}{mode['index']} | {mode['frequency_cm1']:.6f} | {mode['sigma']:+d} | "
+              f"{mode['consistent_count']}/{mode['signed_count']} | {mode['overlap']:.6f} | "
+              + ('虚频' if mode['imaginary'] else '实频参考'))
+        for delta in mode['delta']:
+            match = ('≈0，符号不定' if delta['near_zero'] else '只报告' if delta['expected_sign'] is None
+                     else '吻合' if delta['matches'] else '不吻合')
+            degrees = f" ({delta['degrees']:+.6f}°)" if delta['kind'] == 'angle' else ''
+            print(f"      {delta['kind']} {delta['atoms']} {delta['label']}: "
+                  f"δc={delta['value']:+.6f} {delta['unit']}{degrees}; "
+                  f"σδc={delta['corrected_value']:+.6f}; {match}")
+    print('    标记: ' + (', '.join(report['flags']) or '无'))
+    for note in report['notes']:
+        print('    ' + note)
 
 
 def run(args):
@@ -380,7 +475,8 @@ def run(args):
     report = diagnose(args.study, object=args.object, candidate=args.candidate,
                       all_candidates=args.all, channel=args.channel, reference_attempt=args.reference_attempt,
                       windows=args.windows, window=args.window, stereo_json=args.stereo_json,
-                      stereo_attempt=args.stereo_attempt, expected_label=args.expected_label)
+                      stereo_attempt=args.stereo_attempt, expected_label=args.expected_label,
+                      modes_attempt=args.modes_attempt, reaction_coordinate=args.reaction_coordinate)
     code = int(bool(report['counts']['rejected']))
     if args.record:
         try:
@@ -405,6 +501,7 @@ def run(args):
             if c['geometry']['reaction_center_pairs']:
                 print('  geometry.reaction_center_pairs: ' +
                       json.dumps(c['geometry']['reaction_center_pairs'], ensure_ascii=False))
+            _print_modes(c['modes'])
             for entry in c['reject_reasons'] + c['flags']:
                 print('  ' + json.dumps(entry, ensure_ascii=False))
         print('order: ' + ', '.join(report['order']))
@@ -423,9 +520,10 @@ def register(subparsers):
     selection.add_argument('--candidate')
     selection.add_argument('--all', action='store_true')
     selection.add_argument('--channel')
-    for option in ('reference-attempt', 'windows', 'stereo-json', 'stereo-attempt', 'expected-label'):
+    for option in ('reference-attempt', 'windows', 'stereo-json', 'stereo-attempt', 'expected-label', 'modes-attempt'):
         parser.add_argument('--' + option)
     parser.add_argument('--window', action='append', default=[])
+    parser.add_argument('--reaction-coordinate', action='append', default=[], help='kind:atoms:role; repeatable')
     for option in ('record', 'upgrade-catalog', 'dry-run', 'json'):
         parser.add_argument('--' + option, action='store_true')
     parser.set_defaults(func=run)

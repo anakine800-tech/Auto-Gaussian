@@ -305,9 +305,15 @@ ag qst-endpoints '<STUDY_DIR>' --reactant '<REACTANT_ATTEMPT>' \
 极端几何损坏记为 rejected。`--all` 或 `--channel '<CHANNEL>'` 支持批量分组排序。
 人设距离窗口通过 `--windows analyses/windows.json` 或可重复 `--window 1-5:1.8:2.6` 输入；
 普通冲突、超窗、立体不符和未核对项只作标记，不改 prepare/submit。
-适用窗口声明的原子对单列为反应中心，不标普通冲突，但仍检查超窗和几何损坏。
-窗口文件也接受 T138 使用的 `reaction_coordinates` 顶层键；T137 不读取其内容，其他未知键报错。
+适用窗口或 distance 反应坐标声明的原子对单列为反应中心，不标普通冲突，但仍检查适用窗口和几何损坏。
+窗口文件只读一次，顶层允许 `channels`、`all`、`reaction_coordinates`，其他未知键报错。
 三个几何数固定为 0.5 Å、0.5 倍共价半径和、0.75 倍范德华半径和。
+
+单候选可加 `--modes-attempt '<FREQ_ATTEMPT>'`，读取已取回的 Gaussian 频率；批量取最新一条
+attempt 非空的 candidate-result 关联的 Attempt，跳过诊断等空来源结果；无可用频率时记“无模式数据”。反应坐标来自同一窗口文件的
+`reaction_coordinates[目标通道]`，或可重复 `--reaction-coordinate distance:3-7:forming`。
+按 Wilson B 行逐坐标投影，报告全部虚频、最低三个实频参考及最佳虚频；模式标记只影响分组与排序，
+不拒绝候选。距离/角度零容差分别为 1e-3 Å / 1e-3 rad，不设重叠度阈值。
 
 默认只报告、不写文件、不跑计算。可选 `--record [--upgrade-catalog] [--dry-run]` 追加 diagnosed
 候选结果；**T140 部署之前，真实研究 study 不使用 `--record`。**

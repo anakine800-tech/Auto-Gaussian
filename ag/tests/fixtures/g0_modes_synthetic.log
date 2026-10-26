@@ -1,0 +1,41 @@
+ Entering Gaussian System
+ Gaussian, Inc.
+ Gaussian 16, Revision A.03,
+ -----
+ #p HF/3-21G Freq
+ -----
+ Synthetic O-H-O vectors; invented diagnostic values, not a calculation.
+ Charge = 1 Multiplicity = 1
+ NAtoms=    3
+ Standard orientation:
+ ---------------------------------------------------------------------
+ Center     Atomic      Atomic             Coordinates (Angstroms)
+ Number     Number       Type             X           Y           Z
+ ---------------------------------------------------------------------
+      1          8           0        0.000000    0.000000    0.000000
+      2          1           0        1.000000    0.000000    0.000000
+      3          8           0        2.600000    0.000000    0.000000
+ ---------------------------------------------------------------------
+ Harmonic frequencies (cm**-1)
+                      1                      2                      3
+                      A                      A                      A
+ Frequencies --   -300.0000    -100.0000    20.0000
+ Red. masses --      1.0000      1.0000      1.0000
+ Frc consts  --      1.0000      1.0000      1.0000
+ IR Inten    --      1.0000      1.0000      1.0000
+  Atom  AN      X      Y      Z        X      Y      Z        X      Y      Z
+     1   8    0.00   0.00   0.00   0.00   0.00   0.00   0.00   1.00   0.00
+     2   1    0.00   1.00   0.00   1.00   0.00   0.00   0.00   0.00   0.00
+     3   8    0.00   0.00   0.00   0.00   0.00   0.00   0.00   -1.00   0.00
+                      4                      5                      6
+                      A                      A                      A
+ Frequencies --   50.0000    80.0000    100.0000
+ Red. masses --      1.0000      1.0000      1.0000
+ Frc consts  --      1.0000      1.0000      1.0000
+ IR Inten    --      1.0000      1.0000      1.0000
+  Atom  AN      X      Y      Z        X      Y      Z        X      Y      Z
+     1   8    1.00   0.00   0.00   0.00   0.00   1.00   1.00   0.00   0.00
+     2   1    0.00   0.00   0.00   0.00   0.00   0.00   1.00   0.00   0.00
+     3   8    -1.00   0.00   0.00   0.00   0.00   -1.00   1.00   0.00   0.00
+
+ Normal termination of Gaussian
