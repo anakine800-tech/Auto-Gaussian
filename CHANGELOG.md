@@ -1,5 +1,65 @@
 # Changelog
 
+## v4.6.0
+
+### 升级须知
+
+1. **catalog v2（T131）不能降级。** 第一次写入 v2 事件的命令必须带 `--upgrade-catalog`；升级后，ag 4.5.x 会拒绝该 study 的 journal，前端 4.5.x 会把它显示为未登记。ag 和前端必须同时升到 4.6.0；已升级的 study 不能再用 4.5.x 打开或写入，也不能靠删行降级。两台电脑都部署完成、并在研究用计算机上完成一次临时非研究 study 的合成试写和前端显示核对之前，真实研究 study 不写 v2 事件。已有研究 study 第一次升级须经负责人批准。
+2. **SSH 连接超时（T130）。** 入口级 `ssh.connect_timeout_seconds` 为整数 15–60，默认 15；命令总超时、上传超时和下载无进展阈值自动顺延（值 − 15）秒。经转发的 PBS 入口建议设为 40；本轮两台电脑的 PBS 入口均采用 40，并设置 `monitor_interval_seconds = 60`，Slurm 沿用默认。回退到 4.5.1 时必须一并恢复旧配置；已升级的 catalog 不能随服务回退而降级。
+3. **新命令和新输出只做加法。** `ag scan-path`（T136）诊断一维扫描沿程的成键、二面角和接触变化；`ag scan-peak` 并入同一份诊断，峰附近有问题时在输出最前面警告。`ag scan-peak --gaussian-ts --route`（T133）从扫描峰生成 TS 输入草稿，可选 `--register-candidate`。`ag qst-endpoints`（T134）由两个已取回端点和人给的完整映射生成 QST2 草稿，对称歧义时报错。`ag g0`（T137、T138）提供 DFT 之前的本地诊断，只有输入完整性和几何损坏两类硬拒绝，其余为标记和排序，可选模式投影，`--record` 写入 diagnosed 结果。`ag profile`（T135）新增 `lowest_ts` 和最低 TS / 系综 / 差值三个数。所有草稿都不含 Link0；prepare 仍要求先补匹配档位的 `%nprocshared`。
+4. **卡片（T139）。** ts、irc、profile、kinetics、crest-screen 五张卡修订 TS 初猜口径，ts 卡新增“TS 初猜工作流”。Skills 通过软链接指向检出，检出更新后卡片随之更新；研究会话须重新读取卡片。
+5. **G0、scan-path、catalog 状态都是登记和诊断，不是门禁，也不是科学验收。** 提交审批规则不变。
+
+后端与前端统一为 v4.6.0，配合前端 v4.6.0 使用。按 `git log v4.5.1..main --first-parent` 核对全部 9 个 PR：T130 #332、T135 #333、T131 #334、T133 #335、T134 #336、T136 #337、T137 #338、T138 #339、T139 #340。T140 只修改版本号和文档；其他小修另行安排。两个发布 PR 经监督方审阅、负责人合并后，由负责人在各自确切合并提交上创建 `v4.6.0` tag/release。
+
+### 连接
+
+- T130 提供入口级 SSH 连接超时，并使命令、上传和下载无进展阈值按增量顺延，保留共享核数统计、只读重试与提交审批语义。[#332](https://github.com/anakine800-tech/Auto-Gaussian/pull/332)
+
+### catalog v2
+
+- T131 增加通道、候选、诊断和负责人声明事件及派生视图；首次写入显式升级，不回写已有计算证据。登记状态不替代科学签字。[#334](https://github.com/anakine800-tech/Auto-Gaussian/pull/334)
+
+### TS 初猜输入
+
+- T133 从扫描局部峰生成无 Link0 的 Gaussian TS 草稿，可选登记候选及来源。[#335](https://github.com/anakine800-tech/Auto-Gaussian/pull/335)
+- T134 由已取回端点、完整原子映射生成 QST2 草稿并可选登记；对称映射歧义须由人解决。[#336](https://github.com/anakine800-tech/Auto-Gaussian/pull/336)
+
+### 扫描诊断
+
+- T136 新增一维 `ag scan-path`，报告沿程成键、二面角和接触变化；`scan-peak` 共用诊断并前置峰附近警告。[#337](https://github.com/anakine800-tech/Auto-Gaussian/pull/337)
+
+### G0
+
+- T137 新增本地输入完整性、几何和通道诊断、批量排序及可选 diagnosed 登记。[#338](https://github.com/anakine800-tech/Auto-Gaussian/pull/338)
+- T138 将可选模式投影接入 G0 报告、批量排序和登记；投影是诊断信息，不确认 TS 或反应机理。[#339](https://github.com/anakine800-tech/Auto-Gaussian/pull/339)
+
+### profile
+
+- T135 增加 `lowest_ts` 选择及最低 TS / 系综 / 差值三数报告，区分最低构象与系综结果。[#333](https://github.com/anakine800-tech/Auto-Gaussian/pull/333)
+
+### 卡片与运维文档
+
+- T139 修订 ts、irc、profile、kinetics、crest-screen 五张卡的 TS 初猜口径，补齐从构建、扫描/端点到 G0、DFT 和后续审阅的工作流。[#340](https://github.com/anakine800-tech/Auto-Gaussian/pull/340)
+- T140 修订 [OPERATIONS.md](docs/OPERATIONS.md)：至少完成首轮核对，观察时长由每次部署消息指定。本轮不设观察时长；先部署开发机，通过后当天暂停研究会话，再部署研究用计算机。逐入口 doctor、监控加载后 180 秒内首轮快照、90 秒内心跳且 PID 对应、快照字段和前端各入口卡片均须核对。研究用计算机通过后，用临时非研究 study 登记候选并执行 `ag g0 --record`，核对前端台账；通过后真实研究 study 才可写 v2 事件，试写 study 移入以下划线开头的容器目录保留。
+
+### 已知问题与验证边界
+
+- catalog v2 升级后不能降级，见升级须知第 1 条。
+- `ag g0` 的原子顺序检查只比较元素序列，同种元素互换查不出来；立体标签必须针对与候选完全相同的几何生成；批量诊断时，频率段有歧义会使整批报错而不是跳过。xTB Hessian 来源属于 T138 范围外的后续工作。
+- `ag scan-path` 只支持一维扫描。
+- ts 卡已接近放宽后的 400 行上限，再增内容前需要拆分；可将“TS 初猜工作流”移到单独卡片或参考文档。
+- prepare 尚不按档位自动补 `%nprocshared`；前端 Slurm“其他”状态核数仍被计入空闲，后续独立修正。
+- 监控仍串行采样；经转发时单条 SSH 约 10–20 秒，一轮可能 100–150 秒，实际耗时须现场记录。手动重试启动最多需等待当前一个入口采完，得到新快照还需加上目标入口自身的采样耗时。
+- 电脑睡眠期间停止采样，醒来自动恢复；刚醒来的一两轮可能因网络未就绪而失败并进入退避。不要求防睡眠，也不改电源设置。
+- 前端睡眠醒来后 `next_sample_at` 可能显示过去时间；核数和内存都未知时 notes 会重复显示。前端 Python 包的 `autog_frontend/__init__.py` 中 `__version__` 仍为 4.0.0，包元数据与网页包为 4.6.0。
+- 沿用 v4.5.0：`timezone-mismatch` 只让耗时退回 walltime，开始时间和提交时间仍按配置解析；后续应一并置为 null。
+- 沿用 v4.5.0：路由建议不考虑 walltime，公共分区有他人排队时通常被判为“没地方”；建议不保证启动。父 chk 的频率来源与可用力常数仍靠卡片和人工审阅，坐标框架核验不能替代来源审阅。
+- 沿用 v4.5.0：取回不支持断点续传；`cp-report --solvent-sp` 仍缺溶剂相片段单点，溶剂相相互作用能未知。已有 facts 是否重算及 catalog 是否补登记由负责人逐 study 决定，发版不改已有证据。
+- 前端重试被拒仍进入短暂快速轮询；暂停确认框文字有一个多余空格。两项均为 T128 非阻塞建议，后续修正。
+
+各项真实验证结果见对应 PR；本次发布准备只做离线验证。**发版不等于部署完成，也不等于科学验收；部署结果另行记录。**
+
 ## v4.5.1
 
 ### 升级须知

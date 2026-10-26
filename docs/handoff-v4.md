@@ -1,6 +1,6 @@
-# v4.5.1 交接
+# v4.6.0 交接
 
-2026-10-25，后端与前端统一为 v4.5.1，发布准备由两份 T129 PR 完成。v4.5.1 包含后端 T127 #329、#330 与前端 T128 #38；升级和部署以 [v4.5.1 CHANGELOG](../CHANGELOG.md#v451) 与 [OPERATIONS.md](OPERATIONS.md) 为准，取代下文历史版本的部署步骤。发版不等于部署完成；先部署开发机并观察通过，再部署研究用计算机。两边均须监督方审阅、负责人合并，再由负责人在各自 PR 的确切合并提交上创建 tag 和 release。本文供接手的人与新会话读取当前状态和使用规则。提交审批以 [v4.5.0 升级须知](../CHANGELOG.md#v450) 为准：显式聊天批准记录或长期规则经核对后可用于提交，未指定时弹 Mac 确认框；取消仍须人亲手确认。此规则取代下文旧的统一提交弹窗表述。
+2026-10-26，后端与前端统一为 v4.6.0，发布准备由两份 T140 PR 完成。本版包含后端 T130 #332、T135 #333、T131 #334、T133 #335、T134 #336、T136 #337、T137 #338、T138 #339、T139 #340，以及前端 T132 #40；升级和部署以 [v4.6.0 CHANGELOG](../CHANGELOG.md#v460) 与 [OPERATIONS.md](OPERATIONS.md) 为准，取代下文历史版本的部署步骤。发版不等于部署完成；本轮不设观察时长，至少逐入口 doctor、监控加载后 180 秒内写出首轮快照、心跳不超过 90 秒且 PID 对应、快照字段与前端各入口卡片正常。先部署开发机并通过首轮核对，当天暂停研究会话，再部署研究用计算机；后者通过后，在临时非研究 study 登记候选、执行 `ag g0 --record` 并核对前端台账，通过后真实研究 study 才能写 v2 事件。已有研究 study 第一次写入须经负责人批准后加 `--upgrade-catalog`；升级不可降级，试写 study 移入以下划线开头的容器目录保留。两边均须监督方审阅、负责人合并，再由负责人在各自 PR 的确切合并提交上创建 tag 和 release。本文供接手的人与新会话读取当前状态和使用规则。提交审批以 [v4.5.0 升级须知](../CHANGELOG.md#v450) 为准：显式聊天批准记录或长期规则经核对后可用于提交，未指定时弹 Mac 确认框；取消仍须人亲手确认。此规则取代下文旧的统一提交弹窗表述。
 
 ## 现状
 
@@ -50,6 +50,11 @@ v4.2.2 汇总 v4.2.1 后已合并的 T73–T77：topology 不确定接触修复�
 
 ## 已知问题与后续工作
 
+- prepare 按档位自动补 `%nprocshared` 尚待实现；当前 TS/QST2 草稿不含 Link0，须先补匹配档位的核数。
+- 前端 Slurm“其他”状态核数被计入空闲，后续独立修正。
+- catalog v2 升级不可降级；`ag g0` 只按元素序列核对原子顺序，同种元素互换查不出来，立体标签须来自完全相同的几何，频率段歧义会使批量诊断整体报错；`ag scan-path` 仅支持一维扫描。
+- G0 模式分析的 xTB Hessian 来源在 T138 范围外，留待后续工作。
+- ts 卡接近放宽后的 400 行上限；再加内容前拆分，将“TS 初猜工作流”移至单独卡片或参考文档。
 - T127 仍串行采样；经转发时单条 SSH 约 10–20 秒、一轮可能 100–150 秒。重试启动需等待当前入口完成，新快照还需目标入口自身采样时间；电脑睡眠时停采，醒来自动恢复，首轮网络未就绪可能失败或退避。部署按 OPERATIONS 的睡眠判断与观察标准记录。
 - **T128 四条非阻塞建议：** 核数和内存都未知时 notes 只显示一次；重试被拒不进入快速轮询；睡眠醒来后过去的 `next_sample_at` 显示“等待下一轮”；删除暂停确认框文案中的多余空格。当前均保留，后续独立修正。[前端 #38](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/38)
 - **T127 四条非阻塞建议：** 留待后续任务，不在发布单改功能。[#329](https://github.com/anakine800-tech/Auto-Gaussian/pull/329)
@@ -57,11 +62,10 @@ v4.2.2 汇总 v4.2.1 后已合并的 T73–T77：topology 不确定接触修复�
   2. `job_nodes` 合并 `exec_host` 与 `pbsnodes` 节点名时，短名/全名可能误判跨节点；当前内存保持 null，但原因描述需修正。
   3. 主循环每不超过 2 秒重读配置；可改为入口到期、有待处理请求或配置 mtime 变化时再读。
   4. 重试登记后、执行前若入口暂停，请求会被静默丢弃，前端可能等待 120 秒；后续在摘要中反馈丢弃原因。
-- 前端 `autog_frontend/__init__.py` 的 `__version__` 仍为 4.0.0；本次仅 Python 包元数据与网页包升至 4.5.1。证据库冷启动已有测量约 2.5 秒，source-map-js 临时 override 待上游修复后删除。
+- 前端 `autog_frontend/__init__.py` 的 `__version__` 仍为 4.0.0；本次仅 Python 包元数据与网页包升至 4.6.0。证据库冷启动已有测量约 2.5 秒，source-map-js 临时 override 待上游修复后删除。
 - 后续允许 Slurm 入口未配置 Gaussian 时仍运行 xTB/CREST；CREST 异常结束时读取 stderr，以补全诊断。本次不修改配置校验或解析逻辑。
 - T108 facts 语义、T109 等价原子映射与 `--mirror report`、T112 doctor 独立 PBS 集群误报均已修复；既有 facts 是否重算及 catalog 是否补登记，由负责人逐 study 决定，不自动改写证据。
-- **C 批：TS 初猜工具链（T130 起）。** catalog v2 的通道与候选事件、扫描峰到 TS 输入、端点映射与 QST2、G0 诊断、profile 的“最低 TS / 系综 / 差值”三数报告、卡片口径修订；范围与先后关系以 [TS 初猜审计](research/ts-guess-audit.md) 为准。T125 只有审计文档，这些能力尚待独立任务实现。
-- 前端应将 studies 根目录中以 `_` 或 `.` 开头的目录按容器处理，不作为 study；目前可能显示“File not available”，不影响有效 study 使用。
+- **C 批：TS 初猜工具链（T130–T139）已完成。** `ag catalog` v2（[#334](https://github.com/anakine800-tech/Auto-Gaussian/pull/334)）、`ag scan-peak --gaussian-ts --route`（[#335](https://github.com/anakine800-tech/Auto-Gaussian/pull/335)）、`ag qst-endpoints`（[#336](https://github.com/anakine800-tech/Auto-Gaussian/pull/336)）、`ag scan-path`（[#337](https://github.com/anakine800-tech/Auto-Gaussian/pull/337)）、`ag g0` 与模式投影（[#338](https://github.com/anakine800-tech/Auto-Gaussian/pull/338)、[#339](https://github.com/anakine800-tech/Auto-Gaussian/pull/339)）、`ag profile` 的最低 TS / 系综 / 差值三数报告（[#333](https://github.com/anakine800-tech/Auto-Gaussian/pull/333)）、卡片口径（[#340](https://github.com/anakine800-tech/Auto-Gaussian/pull/340)）和连接超时（[#332](https://github.com/anakine800-tech/Auto-Gaussian/pull/332)）均已合并；前端通道与候选只读面板见 [#40](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/40)。诊断和登记不是门禁或科学验收。
 - PBS `timezone-mismatch` 目前只将耗时退回 walltime，开始时间和提交时间仍按配置解析；后续把这两个时间也置为 null，时区以负责人实测为准。
 - 路由建议不考虑 walltime；超算公共分区几乎总有他人排队，通常被判为“没地方”，不保证实际启动。
 - 父 chk 的频率来源与可用力常数仍依赖卡片和人工审阅，程序未强制检查；不能从已有坐标框架检查推断力常数可用。
