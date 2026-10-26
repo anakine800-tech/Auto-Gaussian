@@ -5,12 +5,12 @@ import math
 from pathlib import Path
 
 from ag.config import (load_config, select_cluster, scheduler_kind, shared_clusters,
-                       committed_cap, optional_resource_caps, validate_routing)
+                       committed_cap, optional_resource_caps, validate_routing, RESOURCE_TIERS)
 from ag.study import identifier
 
 
 TEMPLATES = ('gaussian', 'gaussian-cp', 'multiwfn', 'crest', 'xtb')
-TIERS = ('mini', 'simple', 'general', 'complex')
+TIERS = RESOURCE_TIERS
 UNKNOWN = '快照非最新或缺字段'
 READY, FULL, DENIED = '可以马上运行', '没地方', '不允许'
 
@@ -187,13 +187,17 @@ def suggest(cfg, template, tier, study=None, *, now=None):
     rows = []
     for name in dict.fromkeys([*(order or []), *sorted(names)]):
         selected = select_cluster(cfg, name)
-        resource = selected['resources']['tiers'][tier]
-        cores, memory = resource['cores'], resource['mem_gb']
+        resource = selected['resources']['tiers'].get(tier)
+        cores, memory = (resource['cores'], resource['mem_gb']) if resource else (None, None)
         snapshot = snapshots[name]
         row = dict(name=name, display_name=selected.get('display_name', name),
                    cores=cores, mem_gb=memory, conclusion=DENIED, reasons=[], notes=[],
                    sampled_at=snapshot['sampled_at'], snapshot_fresh=snapshot['fresh'],
                    personal_allowed=False, usage_source=None, in_order=name in (order or []))
+        if resource is None:
+            row['reasons'] = ['不支持该档位']
+            rows.append(row)
+            continue
         if not _enabled(selected, template):
             row['reasons'] = ['不允许该模板（入口限制或程序未配置）']
         else:

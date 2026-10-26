@@ -7,6 +7,8 @@ from datetime import date
 import tomllib
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+RESOURCE_TIERS = ('mini', 'simple', 'general', 'complex', 'max', 'ultra')
+
 
 class ConfigError(ValueError):
     pass
@@ -161,6 +163,26 @@ def scheduler_kind(cfg):
     return 'pbs' if isinstance(value, dict) else value
 
 
+def _max_walltime_seconds(value):
+    from ag.approval import walltime_seconds
+    if not isinstance(value, str) or not re.fullmatch(r'[0-9]{2,4}:[0-5][0-9]:[0-5][0-9]', value):
+        raise ConfigError('resources.max_walltime must be positive HH:MM:SS')
+    try:
+        return walltime_seconds(value)
+    except ValueError as exc:
+        raise ConfigError('resources.max_walltime must be positive HH:MM:SS') from exc
+
+
+def validate_walltime(cfg, value):
+    """Apply the entry's optional hard limit without creating any artifacts."""
+    from ag.approval import walltime_seconds
+    requested = walltime_seconds(value)
+    if 'max_walltime' in cfg['resources']:
+        maximum = _max_walltime_seconds(cfg['resources']['max_walltime'])
+        if requested > maximum:
+            raise ConfigError('walltime exceeds resources.max_walltime')
+
+
 def validate_cluster(cfg):
     if 'connect_timeout_seconds' in cfg.get('ssh', {}):
         value = cfg['ssh']['connect_timeout_seconds']
@@ -230,11 +252,26 @@ def validate_cluster(cfg):
             value = cfg['resources'][key]
             if type(value) is not int or value < 1:
                 raise ConfigError(f'{key} must be a positive integer')
-    for name in ('mini', 'simple', 'general', 'complex'):
-        tier = cfg['resources']['tiers'][name]
+    memory_limit = cfg['resources'].get('pbs_max_mem_gb', 120)
+    if 'pbs_max_mem_gb' in cfg['resources']:
+        if scheduler != 'pbs':
+            raise ConfigError('resources.pbs_max_mem_gb is only supported for PBS')
+        if type(memory_limit) is not int or not 120 <= memory_limit <= 200:
+            raise ConfigError('resources.pbs_max_mem_gb must be an integer from 120 to 200')
+    if 'max_walltime' in cfg['resources']:
+        _max_walltime_seconds(cfg['resources']['max_walltime'])
+    tiers = cfg['resources']['tiers']
+    if not isinstance(tiers, dict) or not all(name in tiers for name in RESOURCE_TIERS[:4]):
+        raise ConfigError('Resource tiers require mini, simple, general and complex')
+    for name in RESOURCE_TIERS:
+        if name not in tiers:
+            continue
+        tier = tiers[name]
+        if not isinstance(tier, dict):
+            raise ConfigError(f'Invalid resource tier: {name}')
         if (type(tier['cores']) is not int or not 1 <= tier['cores'] <= limit
                 or type(tier['mem_gb']) is not int or tier['mem_gb'] < 1
-                or (scheduler == 'pbs' and tier['mem_gb'] > 120)):
+                or (scheduler == 'pbs' and tier['mem_gb'] > memory_limit)):
             raise ConfigError(f'Invalid resource tier: {name}')
     if not Path(cfg['ssh']['config_file']).is_file():
         raise ConfigError('SSH configuration file does not exist')

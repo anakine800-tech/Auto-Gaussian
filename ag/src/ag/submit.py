@@ -4,7 +4,8 @@ from pathlib import Path
 import tempfile
 import sys
 from ag import approval, attempt, cards, confirm, journal, parent_chk, remote, state, status, slurm, submission, budget
-from ag.config import for_manifest, scheduler_kind, committed_cap, shared_cap_summary, optional_resource_caps
+from ag.config import (for_manifest, scheduler_kind, committed_cap, shared_cap_summary,
+                       optional_resource_caps, validate_walltime)
 from ag.transport import bound_transport
 from ag.locks import claim, submission_lock
 from ag.transport import require_ok, TransportError
@@ -36,13 +37,21 @@ def capacity(cfg):
     return committed_cap(cfg)
 
 
-def submit(cfg, ids, transport, *, approval_id=None, policy_name=None):
+def preflight(cfg, ids):
+    """Reject changed hard limits before constructing or recording a transport."""
     if not ids or len(ids) != len(set(ids)):
         raise ValueError('Expected unique Attempt IDs')
     manifests = [attempt.read_manifest(attempt.find(cfg, id_)) for id_ in ids]
     if len({m.get('cluster', 'default') for m in manifests}) != 1:
         raise ValueError('Submit one cluster per confirmed batch')
     cfg = for_manifest(cfg, manifests[0])
+    for m in manifests:
+        validate_walltime(cfg, m['walltime'])
+    return cfg
+
+
+def submit(cfg, ids, transport, *, approval_id=None, policy_name=None):
+    cfg = preflight(cfg, ids)
     transport = bound_transport(transport, cfg)
     is_slurm = scheduler_kind(cfg) == 'slurm'
     scheduler_command = 'sbatch' if is_slurm else 'qsub'

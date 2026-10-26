@@ -51,6 +51,13 @@ root = "<absolute xtb and crest installation root>"
 # [clusters.default.programs.crest]
 # executable = "<absolute CREST executable>"
 [clusters.default.resources]
+# PBS-only, explicit owner authorization: integer 120..200 GB; omitted = 120.
+# Each tier must fit this entry's ceiling and one eligible node with headroom.
+# This is not scheduler/account permission; do not add this field to Slurm.
+# pbs_max_mem_gb = 200
+# Optional hard per-job walltime; omitted means no extra ag limit.
+# A scheduler may still impose its own limit.
+# max_walltime = "36:00:00"
 # default MUST explicitly retain max_cores = 44 in local configuration.
 # Per-job/tier cap: positive integer, no larger than one eligible node.
 # Gaussian runs on one node; size for the smallest eligible node.
@@ -76,6 +83,8 @@ mem_gb = 50
 [clusters.default.resources.tiers.complex]
 cores = 44
 mem_gb = 120
+# Optional clusters.default.resources.tiers.max / .ultra use cores and mem_gb.
+# Unconfigured optional tiers are not offered for this entry.
 
 [clusters.batch]
 scheduler = "slurm"
@@ -103,6 +112,8 @@ modules = ["<Gaussian module name>"]
 [clusters.batch.programs.xtb]
 root = "<absolute xtb and crest installation root>"
 [clusters.batch.resources]
+# The same optional hard walltime is supported for Slurm.
+# max_walltime = "24:00:00"
 # Example limits only; replace with the intended local allowance.
 # Per-job/tier cap: positive integer, no larger than one eligible node.
 # Gaussian runs on one node; size for the smallest eligible node.
@@ -124,6 +135,7 @@ mem_gb = 50
 [clusters.batch.resources.tiers.complex]
 cores = 44
 mem_gb = 120
+# Optional clusters.batch.resources.tiers.max / .ultra use cores and mem_gb.
 
 # A second queue entry for the SAME login: copy the exact SSH config_file and
 # host from batch. Different partition/account/qos do not create another cap.
