@@ -7,7 +7,7 @@ from ag import __version__
 from ag.config import load_config, select_cluster, for_manifest, RESOURCE_TIERS
 
 
-CONFIG_COMMANDS = ('init', 'prepare', 'approve', 'submit', 'status', 'fetch', 'snapshot', 'cancel', 'list', 'doctor', 'monitor', 'review', 'clusters')
+CONFIG_COMMANDS = ('init', 'prepare', 'approve', 'submit', 'status', 'fetch', 'snapshot', 'cancel', 'list', 'doctor', 'monitor', 'review', 'clusters', 'nodes')
 
 
 def core_command(args):
@@ -30,6 +30,9 @@ def core_command(args):
     if command == 'clusters':
         from ag.clusters import describe
         result = describe(cfg, verify_studies_root=args.verify_studies_root)
+    elif command == 'nodes':
+        from ag.node_targeting import candidates
+        result = candidates(cfg, args.cluster)
     elif command == 'init':
         result = study.init(cfg, args.directory)
     elif command == 'approve':
@@ -47,6 +50,7 @@ def core_command(args):
                                  input_path=args.input, tier=args.tier, walltime=args.walltime,
                                  label=args.label, params=params, method_basis=args.method_basis,
                                  constraints=args.constraints, cluster=args.cluster, card=args.card,
+                                 target_node=args.target_node, node_fraction=args.node_fraction,
                                  parent_chk=args.parent_chk, analysis=args.analysis, grid=args.grid, fragments=args.fragments,
                                  parents=[dict(attempt_id=p, relation=r) for p, r in zip(args.parent, args.relation)])
         if not args.json:
@@ -110,7 +114,7 @@ def register(subparsers):
         p = subparsers.add_parser(name)
         p.add_argument('--json', action='store_true')
         p.set_defaults(func=core_command)
-        if name in ('prepare', 'doctor'):
+        if name in ('prepare', 'doctor', 'nodes'):
             p.add_argument('--cluster', default='default')
         if name == 'init':
             p.add_argument('directory')
@@ -150,6 +154,8 @@ def register(subparsers):
             p.add_argument('--fragments', help='Multiwfn: fragment,atoms (2–4); gaussian-cp: fragment,atoms,charge,multiplicity (exactly 2)')
             p.add_argument('--card', help='Recipe name; capture its text, Skills Git commit and dirty state')
             p.add_argument('--constraints', help='xTB/CREST xcontrol file, bundled as constraints.inp')
+            p.add_argument('--target-node', help='Explicit PBS node; no automatic selection')
+            p.add_argument('--node-fraction', choices=('1/2', '1/4'))
             p.add_argument('--tier', choices=RESOURCE_TIERS, required=True)
             p.add_argument('--walltime', required=True)
             p.add_argument('--label', required=True)

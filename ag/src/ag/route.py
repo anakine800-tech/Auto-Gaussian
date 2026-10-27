@@ -216,6 +216,15 @@ def suggest(cfg, template, tier, study=None, *, now=None):
                 hardware_reasons, notes = _hardware(data, scheduler_kind(selected), cores, memory)
                 reasons.extend(hardware_reasons)
                 row['notes'] = notes
+            if 'node_targeting' in selected:
+                from ag.node_targeting import candidates
+                targets = candidates(cfg, name, now=now)
+                row['node_candidates'] = targets
+                row['notes'].append('必须明确选择并确认目标节点；排序不授权自动选择')
+                if template != 'gaussian' or not any(
+                        n['status'] == 'available' and any(o['tier'] == tier for o in n['options'])
+                        for n in targets['nodes']):
+                    reasons.append('没有满足此档位的具名节点候选')
             row.update(conclusion=FULL if reasons else READY, reasons=list(dict.fromkeys(reasons)))
         rows.append(row)
     eligible = [r for r in rows if r['in_order'] and r['personal_allowed']]

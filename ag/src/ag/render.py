@@ -51,6 +51,8 @@ def render(cfg, manifest, input_name):
     from ag.config import for_manifest, crest_executable
     cfg = for_manifest(cfg, manifest)
     m = manifest
+    from ag.node_targeting import validate_binding
+    validate_binding(cfg, m)
     if not re.fullmatch(r'\d{2,4}:[0-5]\d:[0-5]\d', m['walltime']) or not int(m['walltime'].replace(':', '')):
         raise ValueError('walltime must be positive HH:MM:SS')
     p = parameters(m['template'], m['template_params'])
@@ -91,6 +93,12 @@ def render(cfg, manifest, input_name):
         for key in ('partition', 'account', 'qos'):
             if key in cfg:
                 header += f"#SBATCH --{key}={slurm_token(cfg[key])}\n"
+    if 'node_target' in m:
+        target = m['node_target']['name']
+        header = header.replace(f'nodes=1:ppn={m["cores"]}', f'nodes={target}:ppn={m["cores"]}')
+        # Include the fraction/capacity in the hash, not merely the node name.
+        header += f"# AG target fraction={m['node_target']['fraction']} slots={m['node_target']['slots']}\n"
+        values['target_node'] = target
     program_template = 'gaussian.pbs' if m['template'] == 'gaussian-cp' else f"{m['template']}.pbs"
     if (m.get('scheduler') == 'slurm' and m['template'] in ('gaussian', 'gaussian-cp')
             and cfg['programs']['gaussian'].get('environment') == 'scnet-a03'):
@@ -104,6 +112,8 @@ def render(cfg, manifest, input_name):
                                   else '"' + executable + '"')
         values['multiwfn_pipeline'] = pipeline(m)
     body = (TEMPLATES / '_guard.sh').read_text() + (TEMPLATES / program_template).read_text()
+    if 'node_target' in m:
+        body = (TEMPLATES / 'node-target.pbs').read_text() + body
     # Substitute only the scheduler-specific inputs; PBS scripts retain their
     # original bytes so prepared PBS bundles remain verifiable after upgrade.
     values.update(workdir_variable='PBS_O_WORKDIR', jobid_variable='PBS_JOBID', receipt_job_key='PBS_JOBID')

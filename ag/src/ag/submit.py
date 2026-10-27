@@ -3,7 +3,7 @@ from hashlib import sha256
 from pathlib import Path
 import tempfile
 import sys
-from ag import approval, attempt, cards, confirm, journal, parent_chk, remote, state, status, slurm, submission, budget
+from ag import node_targeting, approval, attempt, cards, confirm, journal, parent_chk, remote, state, status, slurm, submission, budget
 from ag.config import (for_manifest, scheduler_kind, committed_cap, shared_cap_summary,
                        optional_resource_caps, validate_walltime)
 from ag.transport import bound_transport
@@ -45,13 +45,18 @@ def preflight(cfg, ids):
     if len({m.get('cluster', 'default') for m in manifests}) != 1:
         raise ValueError('Submit one cluster per confirmed batch')
     cfg = for_manifest(cfg, manifests[0])
+    if any('node_target' in m for m in manifests) and len(ids) != 1:
+        raise ValueError('Submit exactly one targeted Attempt per confirmation')
     for m in manifests:
+        node_targeting.validate_binding(cfg, m)
         validate_walltime(cfg, m['walltime'])
     return cfg
 
 
 def submit(cfg, ids, transport, *, approval_id=None, policy_name=None):
     cfg = preflight(cfg, ids)
+    if 'node_targeting' in cfg and policy_name is not None:
+        raise ValueError('Targeted submission requires explicit node-bound approval or dialog, not a standing policy')
     transport = bound_transport(transport, cfg)
     is_slurm = scheduler_kind(cfg) == 'slurm'
     scheduler_command = 'sbatch' if is_slurm else 'qsub'
@@ -109,7 +114,7 @@ def submit(cfg, ids, transport, *, approval_id=None, policy_name=None):
         if shared_text:
             text += '\n' + shared_text
         for path, m, _ in prepared:
-            text += '\n' + path.name + '\n' + attempt.resource_summary(cfg, m)
+            text += '\n' + path.name + '\n' + attempt.resource_summary(cfg, m) + node_targeting.summary(m)
             if path.name in attachments:
                 text += '\n' + path.name + ' | ' + parent_chk.summary(m['parent_chk'], attachments[path.name][1])
         text += (f'\n当前占用 {used} 核（运行 {running}、排队 {queued}；按集群上本人全部作业统计，含其他电脑和非 ag 提交的作业），'
@@ -135,6 +140,9 @@ def submit(cfg, ids, transport, *, approval_id=None, policy_name=None):
         for path, m, files in prepared:
             if attempt.read_manifest(path) != m or attempt.verified_files(cfg, path, m) != files:
                 raise ValueError('Inputs changed during confirmation')
+        # Re-query after human confirmation, before authorization/Claim consumption.
+        for _, m, _ in prepared:
+            node_targeting.fresh_check(cfg, m, transport)
         approval.consume(cfg, prepared, authorization)
         results = []
         submitted = {}
@@ -208,6 +216,8 @@ def submit(cfg, ids, transport, *, approval_id=None, policy_name=None):
                         size, digest = metadata(transport, cfg, m, name)
                         if (size, digest) != (len(data), sha256(data).hexdigest()):
                             raise ValueError('Uploaded file hash mismatch; stop')
+                # Upload can take time: do not admit using the earlier observation.
+                node_targeting.fresh_check(cfg, m, transport)
                 qsub_started = True
                 result = transport.run(remote.slurm_submit(cfg, m) if is_slurm else remote.submit(cfg, m))
                 if result.returncode:
@@ -233,4 +243,8 @@ def submit(cfg, ids, transport, *, approval_id=None, policy_name=None):
                 if qsub_started:
                     raise UnknownSubmission(f'{scheduler_command} outcome unknown; no further remote writes') from exc
                 raise
+            if 'node_target' in m:
+                # Acceptance is already durably bound. A placement-query failure
+                # must not turn a known job into an ambiguous qsub outcome.
+                results[-1] = dict(attempt_id=path.name, **node_targeting.observe(cfg, path, m, job, transport))
         return results
