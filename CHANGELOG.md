@@ -1,5 +1,30 @@
 # Changelog
 
+## v4.6.1
+
+### 升级须知
+
+1. **Gaussian-only 入口（T141）。** 仅当非空 `allowed_templates` 完全由 `gaussian` / `gaussian-cp` 组成时，才允许省略 xTB；未配置 xTB 时不得单独配置 CREST。doctor 与渲染使用真实已配置的程序，不填写假路径；原完整程序配置保持兼容，禁用模板不能 prepare。
+2. **资源能力按入口显式配置（T142）。** 原四档仍合法，`max` / `ultra` 可选；PBS 默认内存上限仍为 120 GB，显式入口能力最高支持 200 GB。可选 `resources.max_walltime` 在 prepare 和 submit 前强制校验，人工批准不能绕过。配置收紧后也重新核对单作业资源；不改旧 Attempt 的 manifest、输入或哈希。AG 本地上限不代表物理单节点容量、调度器许可或账号配额。
+3. **前后端配套。** 使用前端 v4.6.1 展示 PBS 节点分配、全部已配置档位和可选单作业时限；`ag-monitor/1` 保持版本，仅扩展可选资源字段。排队总量继续使用已有 `max_queued_cores` 机制。配置入口、路由和真实资源值留在本机，不随发布自动变更。
+4. **先备份再升级或回退。** 保存两仓版本、依赖、构建、配置、SSH 与 LaunchAgent 备份和 SHA-256。回退至 v4.6.0 必须同步恢复旧版兼容配置：缺 xTB 的 Gaussian-only 入口不能直接交给旧版，新增档位和时限也不能依赖旧版忽略字段。恢复原四档 PBS 内存限制及原完整程序配置；不伪造软件路径、不改历史研究证据。具体顺序见 [OPERATIONS.md](docs/OPERATIONS.md)。
+5. **部署仍单独批准。** 两个发版 PR 审阅并由负责人合并后，负责人在各自确切合并提交创建同号 tag/release。先完成开发机所有必要验收，再在批准的研究机维护窗口独立验收；观察时长以私有部署消息为准。发布准备不连接真实集群、不提交作业，也不代表新增入口、共享目录、计算节点环境、高资源档位或长期认证已验收。
+
+按 `git log v4.6.0..main --first-parent` 核对本版功能增量：后端 T141 #342、T142 #343；配套前端 T143 #42。T144 仅调整版本、版本断言与发布文档，不增加功能、依赖或 study/catalog 迁移。
+
+### 兼容性与资源
+
+- T141 增加显式 Gaussian-only 配置、doctor 与渲染兼容，保留完整配置行为和模板白名单限制。[#342](https://github.com/anakine800-tech/Auto-Gaussian/pull/342)
+- T142 统一 config、prepare、CLI、route、monitor、clusters 的可选六档资源；不支持的档位给出明确原因。新增入口级 PBS 高内存与 walltime 硬上限，提交时重新校验收紧后的配置，保持原脚本字节兼容。[#343](https://github.com/anakine800-tech/Auto-Gaussian/pull/343)
+- 前端 T143 展示 PBS 节点状态、已分配/总/剩余 slots、作业与内存；`free` 不代表未分配，slots 不代表真实 CPU 利用率。未知与失败/过期数据明确提示，复用快照不增加远程查询。[前端 #42](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/42)
+
+### 验证与已知边界
+
+- 发布 PR 记录本次版本的后端全量、前端 Python/Playwright、跨页面集成、构建及本机有效词表扫描结果；不以功能 PR 或 CI 通过代替真实部署验收。
+- Gaussian 初始化、共享目录与计算节点可见性、单节点容量及调度限制、双调度器冲突风险均须现场独立核实。Keychain 正常重新登录后的持久化验证另行记录，不为测试清空 agent 或重启电脑。
+- 既有 prepared Attempt 与当前资源配置不一致时保留原证据并报告，不重写 manifest 或自动重建/提交。
+- v4.6.0 的 catalog v2 不可降级与启用批准要求继续适用；本补丁不触发升级。既有监控串行采样、睡眠后退避及 Slurm“其他”核数显示等已知问题保留，详见下方 v4.6.0。前端 runtime `__version__` 仍为 4.0.0，按包元数据与网页包版本核对 4.6.1。
+
 ## v4.6.0
 
 ### 升级须知

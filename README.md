@@ -1,4 +1,4 @@
-# Auto-Gaussian v4.6.0
+# Auto-Gaussian v4.6.1
 
 Auto-Gaussian 是人在回路中的计算化学助手：LLM 按 Skills 规划研究，人签字和确认，`ag` 负责安全把关与确定性计算。
 
@@ -385,7 +385,7 @@ TS 必须恰好一个虚频且振动方向与反应坐标一致；只有双向 I
 
 ## 前端
 
-ag 4.6.0 配合前端 [Auto-Gaussian-Frontend](https://github.com/anakine800-tech/Auto-Gaussian-Frontend) v4.6.0 使用；两边同号发布，启动方式见其 README。
+ag 4.6.1 配合前端 [Auto-Gaussian-Frontend](https://github.com/anakine800-tech/Auto-Gaussian-Frontend) v4.6.1 使用；两边同号发布，启动方式见其 README。
 已只读核对前端 main（`e224d5a`）：结果表读取 `route`、`termination`、`energies.scf`、`energies.g`、`n_imag` 和 `frequencies_low`，这些字段未改名或删除；缺失值显示为空。
 分析页将 profile 作为完整 JSON 展示，没有专用剖面字段依赖。`ag-facts/1` 和 `ag-profile/1` 保持不变，新增字段不影响读取；分段解析修正可能改变旧值，不能把字段兼容理解成重新解析后数值必然不变。
 默认只读，读取本地 study、结果与保存的监控快照。`--enable-actions` 显式开启经本机 ag 执行的准备、提交、状态刷新、取回和取消；不绕过 ag 的提交授权核对或取消确认，也不直接执行远程命令。
@@ -534,6 +534,7 @@ python scripts/scan_public.py --staged
 
 - **v4.4.0**：T101 共享队列核数与核时提示、T102 按进展取回与取消后取回、T105 气相 Counterpoise 诊断、T106 可配置 PBS/排队上限与独立 CREST 路径；配合前端 v4.4.0，详见 [CHANGELOG.md](CHANGELOG.md#v440)。
 
+- **v4.6.1**：T141 Gaussian-only 显式模板白名单、T142 可选六档资源、入口级 PBS 高内存与单作业时限硬上限；配合前端 T143 节点分配与资源展示。升级和回退须同时核对配置兼容性，发布不等于服务器接入验收。[发布说明](CHANGELOG.md#v461)
 - **v4.6.0**：T130–T139 的 C 批 TS 初猜工具链：catalog v2、扫描峰 TS 与端点 QST2 草稿、scan-path、G0/模式诊断、profile 三数报告、卡片及连接超时；配合前端 v4.6.0，catalog 升级不可降级。[发布说明](CHANGELOG.md#v460)
 - **v4.5.1**：T127 监控退避、暂停、手动重试、Torque 内存及拒绝零新增文件；新增运维文档，配合前端 v4.5.1。[发布说明](CHANGELOG.md#v451)
 - **v4.5.0**：T108 facts 语义、T109 等价映射、T111 提交批准、T112 自动内存与配置重读、T114/T123/T124 监控与时区、T117 路由建议、T119 采用登记、T116 公开扫描和 T125 TS 初猜审计；配合前端 v4.5.0，详见 [CHANGELOG.md](CHANGELOG.md#v450)。
