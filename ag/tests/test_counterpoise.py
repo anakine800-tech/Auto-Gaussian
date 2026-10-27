@@ -142,18 +142,41 @@ NH4_WATER = ('N 0 0 0\nH .59 .59 .59\nH .59 -.59 -.59\n'
 NH4_CSV = HEADER + 'ammonium,1-5,1,1\nwater,6-8,0,1\n'
 
 
-def prepare_cp(cfg, tmp_path, route=ROUTE, geometry=WATER, charge=0, csv=CSV, **options):
+def prepare_cp(cfg, tmp_path, route=ROUTE, geometry=WATER, charge=0, csv=CSV,
+               resource_lines='%nprocshared=4\n%mem=8GB\n', **options):
     root = Path(cfg['local']['studies_root']) / 'cp-test'
     if not root.exists():
         study.init(cfg, root.name)
     source = tmp_path / 'water.gjf'
-    source.write_text(f'%nprocshared=4\n%mem=8GB\n{route}\n\nSynthetic test\n\n{charge} 1\n{geometry}\n\n')
+    source.write_text(f'{resource_lines}{route}\n\nSynthetic test\n\n{charge} 1\n{geometry}\n\n')
     fragments = tmp_path / 'fragments.csv'
     fragments.write_text(csv)
     args = dict(study_name=root.name, template='gaussian-cp', input_path=source, fragments=fragments,
                 tier='mini', walltime='00:30:00', label='cp', method_basis='兜底方法：合成测试')
     m = attempt.prepare(cfg, **{**args, **options})
     return attempt.find(cfg, m['attempt_id']), m
+
+
+@pytest.mark.parametrize('cluster', ['default', 'batch'])
+@pytest.mark.parametrize('resource_lines', ['', '%mem=8GB\n'])
+def test_cp_auto_cores_precede_existing_fragment_conversion(multi, tmp_path, cluster, resource_lines):
+    p, m = prepare_cp(multi, tmp_path, resource_lines=resource_lines, cluster=cluster)
+    original = (f'{resource_lines}{ROUTE}\n\nSynthetic test\n\n0 1\n{WATER}\n\n').encode()
+    source = tmp_path / 'water.gjf'
+    assert source.read_bytes() == original
+    assert m['auto_nprocshared'] == 4
+    assert ('auto_mem_gb' in m) is (not resource_lines)
+    files = attempt.verified_files(multi, p, m)
+    assert files['water.gjf'].startswith(b'%nprocshared=4\n%mem=8GB\n')
+    assert files['water.gjf'].count(b'(Fragment=1)') == 3
+    assert files['water.gjf'].count(b'(Fragment=2)') == 3
+    assert b'\n0 1 0 1 0 1\n' in files['water.gjf']
+    record = next(r for r in m['inputs'] if r['name'] == 'water.gjf')
+    assert record == dict(name='water.gjf', size=len(files['water.gjf']),
+                          sha256=sha256(files['water.gjf']).hexdigest())
+    assert attempt.bundle(files)[1] == m['bundle_sha256']
+    assert record['sha256'] in attempt.summary(multi, m)
+    assert '%nprocshared 由 ag 自动填写：4' in attempt.summary(multi, m)
 
 
 @pytest.mark.parametrize('geometry,charge,csv,state', [(WATER,0,CSV,'0 1 0 1 0 1'),

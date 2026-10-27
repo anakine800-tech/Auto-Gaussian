@@ -188,6 +188,21 @@ def _qst_displacements(structures):
             for i in indices]
 
 
+def fill_nprocshared(data, cores):
+    """Prepend only a missing Link0 core count, leaving explicit values to validate."""
+    lines = data.splitlines(keepends=True)
+    if not lines:
+        return data, None
+    for line in lines:
+        if not line.startswith(b'%'):
+            break
+        # Even malformed or conflicting explicit directives must not be repaired.
+        if re.match(rb'%nprocshared\b', line, re.I):
+            return data, None
+    ending = b'\r\n' if lines[0].endswith(b'\r\n') else b'\n'
+    return f'%nprocshared={cores}'.encode() + ending + data, cores
+
+
 def fill_memory(data, cores, mem_gb):
     """Fill only a missing Link0 memory directive; preserve every other byte."""
     lines = data.splitlines(keepends=True)

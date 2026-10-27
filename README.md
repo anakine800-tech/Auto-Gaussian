@@ -163,9 +163,11 @@ CREST 可选 `programs.crest.executable`（多集群为 `clusters.<CLUSTER>.prog
 配置独立 CREST 路径后，`ag prepare --template crest` 需要连接目标集群；SSH 不可用时无法 prepare，也不会创建 Attempt。这是准备前核实可执行文件的取舍；未配置独立路径时，prepare 仍保持纯本地行为。
 
 Gaussian `%nprocshared` 必须等于档位核数，`%mem` 不超过档位内存的 85%。
-Gaussian（包括 `gaussian-cp`）输入可省略 `%mem`：prepare 在 `%nprocshared` 后填入
+Gaussian（包括 `gaussian-cp`）输入可省略 `%nprocshared`：人先明确选择档位与 walltime，prepare 在文件开头补入档位核数。
+仅检查开头连续 Link0 行；显式核数不覆盖、不修正，冲突、重复或非法值仍拒绝。输入也可省略 `%mem`：prepare 在 `%nprocshared` 后填入
 `min(核数 × 2, floor(档位内存 × 0.85))` 整数 GB，并纳入输入哈希、在确认摘要注明。
-显式填写的 `%mem` 保持原字节并继续检查 85% 上限；旧 Attempt 不重写。
+显式填写的 `%mem` 保持原字节并继续检查 85% 上限；完整合法的普通 Gaussian 输入逐字节保留，CP 的既有片段转换保持。
+只在实际补齐时记录 `auto_nprocshared` / `auto_mem_gb`；摘要注明补齐值，不构成提交授权。输入及 bundle 哈希绑定补齐、校验和既有 CP 转换后实际保存的字节；源文件和旧 Attempt 不重写，后续核验不再次补齐。
 确认摘要附本机已完成且有 facts 的资源参考：模板、规范化方法/基组相同，原子数 ±20%，
 按原子数接近程度最多列 5 条。耗时只取开始/退出回执，缺失写“未知”；没有匹配写“无参考”，不会自动选档位或 walltime。
 SSH 准备说明见 [ag/README.md](ag/README.md)；配置后按需运行 `ag doctor --cluster '<CLUSTER>' --json` 做只读自检。
@@ -277,7 +279,7 @@ ag profile '<STUDY_DIR>/analyses/<PROFILE_JSON>' --name '<NEW_PROFILE_NAME>' --j
 - `--contact-cutoff` 默认 3.5 Å：重原子非成键接触；`--hbond-cutoff` 默认 2.5 Å：与 N/O/F 成键的 H 到其他 N/O/F 的距离接触（无角度条件，不判定真实氢键）。仅列距离跨截断的出现/消失，任一侧已成键的原子对排除；保留原相邻绝对能差 >20 kcal/mol、全原子对齐 RMSD >0.5 Å 提示。**所有阈值只决定是否列出，不是科学判据或拒绝条件。沿程点多为受约束的非驻点；成键差异只说明几何变化，不说明极小点身份。** clean 只表示未列出变化；flagged 仍可带未知部分，须查看 `unknown_reason`，不能据此断言路径连续或 TS 已验证。
 - `scan-peak --gaussian-ts <新 .gjf> --route '<route>' [--title '<标题>']` 同时独占输出 XYZ 和 Gaussian TS 输入正文，不覆盖文件。电荷与多重度取扫描 Attempt 的 manifest（xTB 的 `--uhf` 转为多重度时加 1），缺失或电子数奇偶不相容就拒绝，不默认 0/1。默认标题仅含扫描 Attempt 和点号；正文保留原子顺序，坐标与导出 XYZ 相同，末尾有空行。二维仍须 `--point i,j`。
 - TS route 必须含 `Opt=TS` 或 `Opt=(TS,...)`，大小写、空格及 `Opt(...)` 写法均支持。扫描/冻结拒绝清单为 `ModRedundant`、`ModRedun`、`ModRed`、`AddRedundant`、`AddRedun`、`AddRed`、`Scan`、`ReadOptimize`、`ReadOpt`、`RdOpt`、`ReadFreeze`、`RdFreeze`、`Freeze`、`FreezeAll`、`AddGIC`、`ReadGIC`、`ReadAllGIC`；`RCFC`、`ReadFC`、`ReadCartesianFC` 必须另走 `prepare --parent-chk` 的父 chk 流程。通用 Gaussian 校验仍适用（包括拒绝 `Geom=Check/AllCheck`、External、Link1）。工具不判断方法、基组、CalcFC 或 NoEigenTest，不自动 prepare、不提交，也不把峰当作已验证 TS。
-- 草稿不含 Link0。当前 `prepare` 要求输入已有匹配档位的 `%nprocshared`，仅自动补缺少的 `%mem`，且没有 `--dry-run`。审阅正文后按现有规则补齐所需 Link0 再 prepare；正文校验使用仅在内存中的临时资源行，不写入草稿，也不代表实际资源已选择。
+- 草稿不含 Link0，也未选择资源。审阅正文并明确选择档位与 walltime 后，`prepare` 可补缺失的 `%nprocshared` 和 `%mem`，其他所需 Link0 仍由人明确填写；`prepare` 没有 `--dry-run`。正文校验使用仅在内存中的临时资源行，不写入草稿，也不代表实际资源已选择。
 - 默认不读写 catalog。显式加 `--register-candidate --object <已有对象> --candidate-id <新 ID> [--target-channel <已有通道>]`，才登记同一 XYZ 字节为 `origin=scan`，保存父 Attempt、点号、坐标值、能量、邻点、扫描文件哈希、选择方式和警告；二维的 `coordinate_value` 为两维值列表。`--json` 的 `gaussian_ts` 返回路径、route、电荷、多重度、标题和 SHA-256，`candidate` 返回 T131 的事件摘要。catalog /1 升 /2 须另加 `--upgrade-catalog`；`--dry-run` 仅预览登记、不写 catalog，XYZ 和 `.gjf` 仍会独占写出。登记失败返回非零、说明原因并保留导出文件，不重试；需要后续登记时复用文件走 `ag catalog candidate`。来源登记不作科学签字，T131 的原话规则不变。**T132 部署前，真实研究 study 禁用此登记选项。**
 - `profile` 输入定义放在 study 的 `analyses/`，引用已审阅物种及可比的热化学来源；输出到新的名称，不覆盖。`--perturb 1` 可逐个 TS 状态做 ±1 kcal/mol 扰动分析。新增焓熵分项、分子数、正反 Eyring 速率/半衰期和 σ 来源/警告；可选 `selectivity: [{"id": "products", "products": {"R": [{"species": "ts_r1"}, {"species": "ts_r2", "paths": 2}], "S": [{"species": "ts_s"}]}, "perturb_kcal": 1.0}]` 按产物汇总同组成同电荷 TS，输出产物比例、有效能垒、两两比例及最低构象对照。两产物给有符号 ee（首标签占优为正），多产物给分布/dr；可选扰动逐 TS 物种报告比例区间和翻转。paths 与构象简并度分开，省略标为默认 1。换算均为 κ=1 的简单 TST，缔合用标准态准一级近似，不等同于实验速率/ee。schema 保持 `ag-profile/1`，既有能量不变。SP/Freq 配对须有几何证据，热化学审计分项不能重复加到 qh_G；无势垒步骤不支持表达。
   选择性另以 `lowest_ts` 给出“最低 TS / 系综 / 差值”：每个产物分支在所有 TS species 的全部构象中取修正后自由能最低的单个结构，复用该 species 的标准态与浓度修正；保留所选通道的真实 paths，不对构象求和、不乘构象简并度（仅报告其值），并列出 species、Attempt 和修正后自由能。相差不超过 1e-9 kcal/mol 的最低候选按通道定义顺序、再按 Attempt ID 选取；`ties` 列出所有并列项，无并列时为空。每对产物的符号为 G_eff(b)−G_eff(a)，系综数值直接沿用原结果，差值为系综减最低 TS；两产物另报同符号约定的单结构 ee。原 `lowest_conformer` 仍对每个 TS species 各取最低构象后汇总多个通道及 paths，字段与数值不变。单结构结果和系综结果不是同一个物理量，差值大说明结论对构象采样敏感，不代表哪个更正确。
@@ -314,7 +316,7 @@ ag qst-endpoints '<STUDY_DIR>' --reactant '<REACTANT_ATTEMPT>' \
 `QST2 reactant <Attempt>`、`QST2 product <Attempt>`，可用 `--title-reactant`、`--title-product`
 覆盖。route 必须包含 QST2 优化且不含 QST3；扫描、冻结及 RCFC/ReadFC/ReadCartesianFC
 检查复用 scan-peak 的 TS 草稿规则。输出通过现有 Gaussian 校验、末尾有空行、不写 Link0、不覆盖。
-审阅后按资源档位补 `%nprocshared` 等 Link0，再走现有 prepare；工具不自动 prepare 或提交。
+审阅后明确选择资源档位与 walltime，再走现有 prepare 补缺失的 `%nprocshared` / `%mem`；其他所需 Link0 仍由人明确填写，草稿工具不自动 prepare 或提交。
 **新取向不能用于读取旧 chk 的 Cartesian 力常数**；相关复用必须另走 `prepare --parent-chk`
 的来源和取向核对，不能以对齐 RMSD 代替。
 

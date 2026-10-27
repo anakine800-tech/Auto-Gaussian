@@ -53,6 +53,11 @@
 - `_profile_sources.py`：反应曲线的来源、物种、方法和审阅检查。
 - `profile.py`：守恒反应自由能曲线、能垒和敏感性分析。
 
+Gaussian prepare 在档位与 walltime 检查后依次补缺失的 `%nprocshared`、`%mem`，并在分配序号/目录前完成输入校验。
+核数只取人已选入口和档位，显式值不修正；内存仍按 R1 和 85% 上限处理。普通完整输入字节不变，CP 沿用原片段转换。
+仅实际补齐时新增可选 `auto_nprocshared` 整数或 `auto_mem_gb`，摘要注明来源；二者都不是提交授权。
+输入和 bundle 哈希绑定最终保存字节，源文件不变；verified_files 只核验，不补齐、不重写旧 manifest 或哈希，缺少可选说明的旧记录照常读取。
+
 ## 提交流程：规范顺序
 
 规范顺序与当前 `submit.submit` 实现一致，参见已合并 [#209](https://github.com/anakine800-tech/Auto-Gaussian/pull/209)、[#224](https://github.com/anakine800-tech/Auto-Gaussian/pull/224)：
