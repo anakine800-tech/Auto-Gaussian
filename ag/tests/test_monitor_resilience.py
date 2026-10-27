@@ -93,7 +93,7 @@ def requested(cfg, capsys, **kwargs):
     return code, json.loads(capsys.readouterr().out.splitlines()[-1])
 
 
-def test_retry_lifecycle_and_request_merging(cfg, capsys, monkeypatch):
+def test_retry_lifecycle_and_request_merging(cfg, identity, capsys, monkeypatch):
     clock = Clock(monkeypatch)
     schedule = monitor.Sampling(60)
     with monitor.WatchControl(cfg) as control:
@@ -109,8 +109,8 @@ def test_retry_lifecycle_and_request_merging(cfg, capsys, monkeypatch):
         assert not (monitor.cache_dir(cfg) / monitor.REQUEST_FILE).exists()
         code, value = requested(cfg, capsys)
         assert code == 0 and value['result'] == 'in_progress'
-        schedule.record(True, None, 'manual', clock.tick, clock.now)
-        control.finish('default', schedule)
+        snapshot = monitor.sample(cfg, Fake(), 60, schedule=schedule, trigger='manual')
+        control.finish('default', schedule, snapshot)
         assert control.begin('default', cfg, schedule) is None
     code, value = requested(cfg, capsys)
     assert code == 1 and value['reason'] == 'monitor_not_running'
@@ -119,7 +119,7 @@ def test_retry_lifecycle_and_request_merging(cfg, capsys, monkeypatch):
 
 
 @pytest.mark.parametrize('category', ['auth', 'host_key'])
-def test_paused_retry_requires_confirmation_and_only_attempts_once(cfg, capsys, monkeypatch, category):
+def test_paused_retry_requires_confirmation_and_only_attempts_once(cfg, identity, capsys, monkeypatch, category):
     clock = Clock(monkeypatch)
     schedule = monitor.Sampling(60)
     schedule.record(False, category, 'scheduled', clock.tick, clock.now)
@@ -131,8 +131,11 @@ def test_paused_retry_requires_confirmation_and_only_attempts_once(cfg, capsys, 
         assert not (monitor.cache_dir(cfg) / monitor.REQUEST_FILE).exists()
         assert requested(cfg, capsys, auth_fixed=True)[1]['result'] == 'queued'
         assert control.begin('default', cfg, schedule) == 'manual_auth_fixed'
-        schedule.record(False, category, 'manual_auth_fixed', clock.tick, clock.now)
-        control.finish('default', schedule)
+        fake = Fake()
+        fake.replies['jobs'] = Result(255, stderr=('Permission denied (publickey).'
+            if category == 'auth' else 'Host key verification failed.'))
+        snapshot = monitor.sample(cfg, fake, 60, schedule=schedule, trigger='manual_auth_fixed')
+        control.finish('default', schedule, snapshot)
         assert control.begin('default', cfg, schedule) is None
 
 
@@ -803,3 +806,597 @@ def test_v450_frontend_accepts_new_snapshots(cfg, identity, multi, scheduler):
     snapshot = monitor.sample(entry, fake, 60, schedule=monitor.Sampling(60))
     assert validate_monitor(snapshot) is snapshot
     assert 'sampling' in snapshot and 'notes' in snapshot['cluster']['hardware']
+
+
+# T149: actual local IPC and publication, with synthetic clocks/config/transports.
+def tracked_status(cfg):
+    return monitor.retry_status(monitor.cache_dir(cfg), cfg.get('_cluster', 'default'))
+
+
+def complete_sample(control, cfg, schedule, fake, trigger):
+    snapshot = monitor.sample(cfg, fake, 60, schedule=schedule, trigger=trigger)
+    control.finish(cfg.get('_cluster', 'default'), schedule, snapshot)
+    return snapshot
+
+
+@pytest.mark.parametrize('args', [
+    ['--track'], ['--track', '--json'], ['--track', '--retry', 'default'],
+    ['--track', '--watch', '30', '--json'],
+])
+def test_track_combinations_fail_before_config_or_io(monkeypatch, args):
+    monkeypatch.setattr(cli, 'load_config', lambda: pytest.fail('Invalid combination read configuration'))
+    monkeypatch.setattr(monitor, 'MonitorTransport', lambda *a, **k: pytest.fail('Invalid combination used SSH'))
+    assert cli.main(['monitor', *args]) == 1
+
+
+@pytest.mark.parametrize('track', [False, True])
+def test_cli_tracking_shape_and_refusal(cfg, monkeypatch, capsys, track):
+    monkeypatch.setattr(cli, 'load_config', lambda: cfg)
+    monkeypatch.setattr(monitor, 'MonitorTransport', lambda *a, **k: pytest.fail('Retry used SSH'))
+    args = ['monitor', '--retry', 'default', '--json'] + (['--track'] if track else [])
+    keys = {'entry', 'result', 'reason', 'requested_at'} | ({'request_id'} if track else set())
+    assert cli.main(args) == 1
+    value = json.loads(capsys.readouterr().out)
+    assert set(value) == keys and value['reason'] == 'monitor_not_running'
+    if track:
+        assert value['request_id'] is None
+    with monitor.WatchControl(cfg):
+        assert cli.main(args) == 0
+        first = json.loads(capsys.readouterr().out)
+        assert set(first) == keys and first['result'] == 'queued'
+        assert cli.main(args) == 0
+        second = json.loads(capsys.readouterr().out)
+        assert second['result'] == 'already_queued'
+        if track:
+            assert first['request_id'] == second['request_id'] == tracked_status(cfg)['request_id']
+
+
+@pytest.mark.parametrize('scheduled,ok', [(False, True), (False, False), (True, True), (True, False)])
+def test_tracking_merges_real_sample_and_preserves_terminal(cfg, identity, capsys, monkeypatch, scheduled, ok):
+    clock = Clock(monkeypatch)
+    schedule, fake = monitor.Sampling(60), Fake()
+    if not ok:
+        fake.replies['jobs'] = Result(1, stderr='synthetic ordinary failure')
+    with monitor.WatchControl(cfg) as control:
+        if not scheduled:
+            first = requested(cfg, capsys, track=True)[1]
+            assert tracked_status(cfg)['state'] == 'queued'
+            # An untracked call merges into the same request and preserves its ID.
+            assert requested(cfg, capsys)[1]['result'] == 'already_queued'
+        trigger = control.begin('default', cfg, schedule)
+        assert trigger == ('scheduled' if scheduled else 'manual')
+        if scheduled:
+            assert tracked_status(cfg) is None  # no request yet
+            first = requested(cfg, capsys, track=True)[1]
+        for _ in range(3):
+            value = requested(cfg, capsys, track=True)[1]
+            assert value['result'] == 'in_progress' and value['request_id'] == first['request_id']
+        assert tracked_status(cfg)['state'] == 'running'
+        snapshot = complete_sample(control, cfg, schedule, fake, trigger)
+        terminal = tracked_status(cfg)
+        assert terminal == dict(version=1, entry='default', request_id=first['request_id'],
+            requested_at=first['requested_at'], state='finished', reason=None,
+            finished_at=monitor.iso_at(clock.now), sampled_at=snapshot['sampled_at'], ok=ok)
+        assert len(fake.calls) == (3 if ok else 1)
+        # A later scheduled round cannot replace the tracked result.
+        clock.advance(60)
+        assert control.begin('default', cfg, schedule) == 'scheduled'
+        complete_sample(control, cfg, schedule, fake, 'scheduled')
+        assert tracked_status(cfg) == terminal
+        second = requested(cfg, capsys, track=True)[1]
+        assert second['result'] == 'queued' and second['request_id'] != first['request_id']
+
+
+def test_two_finished_requests_in_same_second_are_distinct(cfg, identity, capsys, monkeypatch):
+    Clock(monkeypatch)
+    schedule, ids, times = monitor.Sampling(60), [], []
+    with monitor.WatchControl(cfg) as control:
+        for _ in range(2):
+            value = requested(cfg, capsys, track=True)[1]
+            ids.append(value['request_id'])
+            times.append(value['requested_at'])
+            assert control.begin('default', cfg, schedule) == 'manual'
+            complete_sample(control, cfg, schedule, Fake(), 'manual')
+            assert tracked_status(cfg)['request_id'] == ids[-1]
+    assert ids[0] != ids[1] and times[0] == times[1]
+
+
+@pytest.mark.parametrize('category', ['auth', 'host_key'])
+@pytest.mark.parametrize('confirmed', [False, True])
+def test_queued_then_paused_has_reason_without_authorization_upgrade(cfg, capsys, monkeypatch, category, confirmed):
+    clock = Clock(monkeypatch)
+    schedule = monitor.Sampling(60)
+    with monitor.WatchControl(cfg) as control:
+        first = requested(cfg, capsys, track=True, auth_fixed=confirmed)[1]
+        # A subsequent confirmation merges, but cannot elevate an earlier request.
+        assert requested(cfg, capsys, track=True, auth_fixed=True)[1]['request_id'] == first['request_id']
+        schedule.record(False, category, 'scheduled', clock.tick, clock.now)
+        trigger = control.begin('default', cfg, schedule)
+        value = tracked_status(cfg)
+        assert trigger == ('manual_auth_fixed' if confirmed else None)
+        assert value['state'] == ('running' if confirmed else 'discarded')
+        assert value['reason'] == (None if confirmed else 'auth_confirmation_required')
+        assert value['sampled_at'] is None and value['ok'] is None
+        assert not (monitor.cache_dir(cfg) / monitor.REQUEST_FILE).exists()
+        assert not (monitor.cache_dir(cfg) / 'latest.json').exists()
+        assert not (monitor.cache_dir(cfg) / 'history.jsonl').exists()
+
+
+@pytest.mark.parametrize('state', ['queued', 'running'])
+@pytest.mark.parametrize('named', [False, True])
+def test_restart_discards_tracked_state_without_replay(cfg, identity, capsys, monkeypatch, state, named):
+    Clock(monkeypatch)
+    if named:
+        cfg = config.select_cluster(cfg)
+    name, schedule = 'default', monitor.Sampling(60)
+    with monitor.WatchControl(cfg) as control:
+        first = requested(cfg, capsys, track=True)[1]
+        if state == 'running':
+            assert control.begin(name, cfg, schedule) == 'manual'
+    fake = Fake()
+    monkeypatch.setattr(monitor, 'MonitorTransport', lambda *a, **k: fake)
+    monkeypatch.setattr(monitor.time, 'sleep', lambda _: (_ for _ in ()).throw(KeyboardInterrupt()))
+    assert monitor.run(cfg, 60) == 0
+    value = tracked_status(cfg)
+    assert value['request_id'] == first['request_id']
+    assert (value['state'], value['reason'], value['sampled_at'], value['ok']) == (
+        'discarded', 'monitor_restarted', None, None)
+    assert value['finished_at'] is not None
+    assert len(fake.calls) == 3  # T127 startup scheduled sample only; no replay
+    assert json.loads((monitor.cache_dir(cfg) / 'latest.json').read_text())['sampling']['trigger'] == 'scheduled'
+
+
+def test_restart_covers_removed_entry_from_previous_watch(multi, capsys, monkeypatch):
+    Clock(monkeypatch)
+    old = config.select_cluster(multi, 'batch')
+    with monitor.WatchControl(multi):
+        assert monitor.retry(multi, 'batch', track=True, json_output=True) == 0
+    first = json.loads(capsys.readouterr().out)
+    del multi['clusters']['batch']
+    with monitor.WatchControl(multi):
+        value = tracked_status(old)
+        assert value['request_id'] == first['request_id'] and value['reason'] == 'monitor_restarted'
+        assert not (monitor.cache_dir(old) / monitor.REQUEST_FILE).exists()
+
+
+@pytest.mark.parametrize('change', ['removed', 'connection', 'interval', 'peer_cap'])
+def test_reload_discard_precedes_rebuild_and_preserves_real_history(multi, monkeypatch, capsys, change):
+    clock = Clock(monkeypatch)
+    multi['clusters']['batch'] = deepcopy(multi['clusters']['default'])
+    multi['clusters']['default']['monitor_interval_seconds'] = 600
+    multi['clusters']['batch']['monitor_interval_seconds'] = 600
+    loaded = config.load_config(write_config(multi))
+    old = config.select_cluster(loaded, 'default')
+    calls, accepted = [], []
+    def build(entry, **kwargs):
+        calls.append(entry['_cluster'])
+        if len(calls) > 2 and entry['_cluster'] == 'default':
+            assert tracked_status(old)['reason'] == 'config_changed'
+        return Fake()
+    monkeypatch.setattr(monitor, 'MonitorTransport', build)
+    monkeypatch.setattr(monitor, 'login_user', lambda _: 'fixture')
+    def sleep(seconds):
+        clock.advance(seconds)
+        if accepted:
+            raise KeyboardInterrupt
+        accepted.append(requested(loaded, capsys, track=True)[1])
+        if change == 'removed':
+            del multi['clusters']['default']
+        elif change == 'connection':
+            multi['clusters']['default']['ssh']['host'] = 'changed-fixture'
+        elif change == 'interval':
+            multi['clusters']['default']['monitor_interval_seconds'] = 300
+        else:
+            multi['clusters']['batch']['resources']['max_committed_cores'] = 80
+        write_config(multi)
+    monkeypatch.setattr(monitor.time, 'sleep', sleep)
+    assert monitor.run(loaded, 60) == 0
+    value = tracked_status(old)
+    assert value['request_id'] == accepted[0]['request_id']
+    history = [json.loads(row) for row in (monitor.cache_dir(old) / 'history.jsonl').read_text().splitlines()]
+    if change == 'peer_cap':
+        assert value['state'] == 'finished'
+        assert [row['trigger'] for row in history] == ['scheduled', 'manual']
+        assert calls.count('default') == 1
+    else:
+        assert value['state'] == 'discarded'
+        assert value['reason'] == ('entry_removed' if change == 'removed' else 'config_changed')
+        assert value['sampled_at'] is None and value['ok'] is None
+        assert [row['trigger'] for row in history] == ['scheduled'] * (1 if change == 'removed' else 2)
+    assert not (monitor.cache_dir(old) / monitor.REQUEST_FILE).exists()
+    lines = [json.loads(row) for row in capsys.readouterr().out.splitlines()]
+    if change == 'removed':
+        assert lines[-1]['discarded_retry_requests'] == ['default']
+        assert all(not row['sampled'] for row in lines[-1]['entries'].values())
+
+
+@pytest.mark.parametrize('stage', ['queued', 'running', 'discarded', 'finished'])
+def test_status_publish_failure_never_acknowledges_or_reexecutes(cfg, identity, capsys, monkeypatch, stage):
+    clock = Clock(monkeypatch)
+    schedule, fake = monitor.Sampling(60), Fake()
+    original = monitor.write_control
+    def fail(root, value, filename=monitor.WATCH_FILE):
+        if filename == monitor.STATUS_FILE and value['state'] == stage:
+            raise OSError('synthetic status write failure')
+        return original(root, value, filename)
+    with monitor.WatchControl(cfg) as control:
+        if stage == 'queued':
+            monkeypatch.setattr(monitor, 'write_control', fail)
+            with pytest.raises(OSError, match='synthetic'):
+                requested(cfg, capsys, track=True)
+            assert capsys.readouterr().out == ''
+            assert tracked_status(cfg) is None
+            assert (monitor.cache_dir(cfg) / monitor.REQUEST_FILE).exists()
+            with pytest.raises(ValueError, match='Inconsistent'):
+                control.begin('default', cfg, schedule)
+        else:
+            requested(cfg, capsys, track=True)
+            monkeypatch.setattr(monitor, 'write_control', fail)
+            if stage == 'discarded':
+                schedule.record(False, 'auth', 'scheduled', clock.tick, clock.now)
+            if stage in ('running', 'discarded'):
+                with pytest.raises(OSError, match='synthetic'):
+                    control.begin('default', cfg, schedule)
+                assert tracked_status(cfg)['state'] == 'queued'
+                assert (monitor.cache_dir(cfg) / monitor.REQUEST_FILE).exists()
+            else:
+                assert control.begin('default', cfg, schedule) == 'manual'
+                snapshot = monitor.sample(cfg, fake, 60, schedule=schedule, trigger='manual')
+                with pytest.raises(OSError, match='synthetic'):
+                    control.finish('default', schedule, snapshot)
+                assert tracked_status(cfg)['state'] == 'running'
+                assert control.begin('default', cfg, schedule) is None
+        assert len(fake.calls) == (3 if stage == 'finished' else 0)
+
+
+@pytest.mark.parametrize('discard', [False, True])
+def test_request_unlink_failure_preserves_claim_and_cannot_execute_twice(cfg, capsys, monkeypatch, discard):
+    clock = Clock(monkeypatch)
+    schedule = monitor.Sampling(60)
+    original = Path.unlink
+    def fail(path, *a, **k):
+        if path.name == monitor.REQUEST_FILE:
+            raise OSError('synthetic unlink failure')
+        return original(path, *a, **k)
+    with monitor.WatchControl(cfg) as control:
+        requested(cfg, capsys, track=True)
+        if discard:
+            schedule.record(False, 'auth', 'scheduled', clock.tick, clock.now)
+        monkeypatch.setattr(Path, 'unlink', fail)
+        with pytest.raises(OSError, match='synthetic'):
+            control.begin('default', cfg, schedule)
+        assert tracked_status(cfg)['state'] == ('discarded' if discard else 'running')
+        assert (monitor.cache_dir(cfg) / monitor.REQUEST_FILE).exists()
+        with pytest.raises(ValueError, match='Inconsistent'):
+            control.begin('default', cfg, schedule)
+        assert not (monitor.cache_dir(cfg) / 'latest.json').exists()
+
+
+@pytest.mark.parametrize('failure', ['sample', 'latest', 'history'])
+def test_run_failure_leaves_running_status_without_second_sample(cfg, identity, capsys, monkeypatch, failure):
+    Clock(monkeypatch)
+    calls = []
+    fake = Fake()
+    original_run = fake.run
+    def run(command):
+        if command.operation == 'jobs':
+            calls.append(command.operation)
+            assert requested(cfg, capsys, track=True)[1]['result'] == 'in_progress'
+            if failure == 'sample':
+                raise RuntimeError('synthetic process failure')
+        return original_run(command)
+    fake.run = run
+    monkeypatch.setattr(monitor, 'MonitorTransport', lambda *a, **k: fake)
+    if failure == 'latest':
+        original = monitor.os.replace
+        def replace(source, target):
+            if Path(target).name == 'latest.json':
+                raise OSError('synthetic latest failure')
+            return original(source, target)
+        monkeypatch.setattr(monitor.os, 'replace', replace)
+    elif failure == 'history':
+        original = Path.open
+        def opened(path, *a, **k):
+            if path.name == 'history.jsonl':
+                raise OSError('synthetic history failure')
+            return original(path, *a, **k)
+        monkeypatch.setattr(Path, 'open', opened)
+    with pytest.raises((RuntimeError, OSError), match='synthetic'):
+        monitor.run(cfg, 60)
+    assert calls == ['jobs'] and tracked_status(cfg)['state'] == 'running'
+    assert not (monitor.cache_dir(cfg) / monitor.REQUEST_FILE).exists()
+
+
+@pytest.mark.parametrize('damage', [
+    {'version': True}, {'version': 2}, {'state': 'unknown'}, {'entry': 'other'},
+    {'request_id': 'A' * 32}, {'requested_at': '2026-01-01'}, {'ok': False},
+    {'reason': 'config_changed'}, {'finished_at': '2026-01-01T00:00:00Z'},
+])
+def test_invalid_status_cannot_be_merged_or_claimed(cfg, capsys, monkeypatch, damage):
+    Clock(monkeypatch)
+    with monitor.WatchControl(cfg) as control:
+        requested(cfg, capsys, track=True)
+        root = monitor.cache_dir(cfg)
+        value = dict(tracked_status(cfg), **damage)
+        (root / monitor.STATUS_FILE).write_text(json.dumps(value))
+        before = (root / monitor.REQUEST_FILE).read_bytes()
+        with pytest.raises(ValueError, match='Invalid monitor retry status'):
+            requested(cfg, capsys, track=True)
+        with pytest.raises(ValueError, match='Invalid monitor retry status'):
+            control.begin('default', cfg, monitor.Sampling(60))
+        assert (root / monitor.REQUEST_FILE).read_bytes() == before
+
+
+@pytest.mark.parametrize('mode', ['symlink', 'oversize', 'invalid-json'])
+def test_status_read_failure_keeps_snapshot_and_request(cfg, identity, capsys, monkeypatch, mode):
+    Clock(monkeypatch)
+    monitor.sample(cfg, Fake())
+    with monitor.WatchControl(cfg):
+        requested(cfg, capsys, track=True)
+        root = monitor.cache_dir(cfg)
+        original = {name: (root / name).read_bytes() for name in ('latest.json', 'history.jsonl', monitor.REQUEST_FILE)}
+        path = root / monitor.STATUS_FILE
+        path.unlink()
+        if mode == 'symlink':
+            path.symlink_to(root / 'latest.json')
+        else:
+            path.write_bytes(b' ' * (monitor.CONTROL_BYTES + 1) if mode == 'oversize' else b'{')
+        with pytest.raises(ValueError):
+            requested(cfg, capsys, track=True)
+        assert original == {name: (root / name).read_bytes() for name in original}
+
+
+def test_source_marker_follows_actual_layout_and_mismatch_refuses(cfg, capsys, monkeypatch):
+    Clock(monkeypatch)
+    with monitor.WatchControl(cfg):
+        value = monitor.read_control(monitor.control_root(cfg) / monitor.WATCH_FILE)
+        assert value['retry_tracking_version'] == 1 and value['entries']['default']['source'] == 'legacy'
+        assert requested(config.select_cluster(cfg), capsys, track=True)[1]['reason'] == 'monitor_not_running'
+        assert not (monitor.control_root(cfg) / 'default').exists()
+    selected = config.select_cluster(cfg)
+    with monitor.WatchControl(selected):
+        value = monitor.read_control(monitor.control_root(cfg) / monitor.WATCH_FILE)
+        assert value['entries']['default']['source'] == 'named'
+        assert requested(cfg, capsys, track=True)[1]['reason'] == 'monitor_not_running'
+
+
+def test_concurrent_clients_share_one_id(cfg, monkeypatch, capsys):
+    from concurrent.futures import ThreadPoolExecutor
+    Clock(monkeypatch)
+    with monitor.WatchControl(cfg):
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            assert list(pool.map(lambda _: monitor.retry(cfg, 'default', track=True, json_output=True), range(6))) == [0] * 6
+        values = [json.loads(row) for row in capsys.readouterr().out.splitlines()]
+        assert len({value['request_id'] for value in values}) == 1
+        assert [value['result'] for value in values].count('queued') == 1
+        assert [value['result'] for value in values].count('already_queued') == 5
+
+
+@pytest.mark.parametrize('track', [False, True])
+def test_cli_request_through_real_watch_loop(cfg, identity, capsys, monkeypatch, track):
+    clock = Clock(monkeypatch)
+    fake, accepted = Fake(), []
+    monkeypatch.setattr(monitor, 'MonitorTransport', lambda *a, **k: fake)
+    monkeypatch.setattr(cli, 'load_config', lambda: cfg)
+    def sleep(seconds):
+        clock.advance(seconds)
+        if accepted:
+            raise KeyboardInterrupt
+        args = ['monitor', '--retry', 'default', '--json'] + (['--track'] if track else [])
+        assert cli.main(args) == 0
+        accepted.append(json.loads(capsys.readouterr().out.splitlines()[-1]))
+    monkeypatch.setattr(monitor.time, 'sleep', sleep)
+    assert cli.main(['monitor', '--watch', '60']) == 0
+    assert len(fake.calls) == 6
+    value = tracked_status(cfg)
+    assert value['state'] == 'finished' and value['ok'] is True
+    assert value['requested_at'] == accepted[0]['requested_at']
+    if track:
+        assert value['request_id'] == accepted[0]['request_id']
+    else:
+        assert set(accepted[0]) == {'entry', 'result', 'reason', 'requested_at'}
+    history = [json.loads(row) for row in (monitor.cache_dir(cfg) / 'history.jsonl').read_text().splitlines()]
+    assert [row['trigger'] for row in history] == ['scheduled', 'manual']
+
+
+@pytest.mark.parametrize('legacy', ['null', '[]', '3', '"legacy"', '{}', '{'])
+def test_startup_cleanup_untracked_records_has_no_invented_id(cfg, capsys, monkeypatch, legacy):
+    Clock(monkeypatch)
+    path = monitor.cache_dir(cfg) / monitor.REQUEST_FILE
+    path.write_text(legacy)
+    with monitor.WatchControl(cfg) as control:
+        assert control.discarded == ['default']
+        assert not path.exists() and tracked_status(cfg) is None
+
+
+def test_unknown_extra_status_fields_are_ignored_not_republished(cfg, identity, capsys, monkeypatch):
+    Clock(monkeypatch)
+    schedule = monitor.Sampling(60)
+    with monitor.WatchControl(cfg) as control:
+        requested(cfg, capsys, track=True)
+        root = monitor.cache_dir(cfg)
+        value = dict(tracked_status(cfg), future_field='synthetic future value')
+        (root / monitor.STATUS_FILE).write_text(json.dumps(value))
+        assert requested(cfg, capsys, track=True)[1]['result'] == 'already_queued'
+        assert control.begin('default', cfg, schedule) == 'manual'
+        complete_sample(control, cfg, schedule, Fake(), 'manual')
+        assert 'future_field' not in monitor.read_control(root / monitor.STATUS_FILE)
+
+
+@pytest.mark.parametrize('version', [None, 2, True, '1'])
+def test_track_cannot_claim_unknown_or_old_capability(cfg, capsys, monkeypatch, version):
+    Clock(monkeypatch)
+    with monitor.WatchControl(cfg) as control:
+        watching = dict(control.value)
+        if version is None:
+            watching.pop('retry_tracking_version')
+        else:
+            watching['retry_tracking_version'] = version
+        monitor.write_control(monitor.control_root(cfg), watching)
+        with pytest.raises(ValueError, match='tracking is unavailable'):
+            requested(cfg, capsys, track=True)
+        assert not (monitor.cache_dir(cfg) / monitor.REQUEST_FILE).exists()
+        assert tracked_status(cfg) is None
+
+
+def test_old_watch_accepts_default_four_key_client(cfg, capsys, monkeypatch):
+    Clock(monkeypatch)
+    with monitor.WatchControl(cfg) as control:
+        watching = dict(control.value)
+        watching.pop('retry_tracking_version')
+        monitor.write_control(monitor.control_root(cfg), watching)
+        value = requested(cfg, capsys)[1]
+        assert set(value) == {'entry', 'result', 'reason', 'requested_at'}
+        assert value['result'] == 'queued' and tracked_status(cfg) is None
+        pending = monitor.read_control(monitor.cache_dir(cfg) / monitor.REQUEST_FILE)
+        assert set(pending) == {'requested_at', 'auth_fixed'}
+
+
+@pytest.mark.parametrize('operation', ['replace', 'fsync'])
+def test_atomic_status_failure_preserves_old_bytes(cfg, capsys, monkeypatch, operation):
+    Clock(monkeypatch)
+    with monitor.WatchControl(cfg) as control:
+        requested(cfg, capsys, track=True)
+        path = monitor.cache_dir(cfg) / monitor.STATUS_FILE
+        before = path.read_bytes()
+        with monkeypatch.context() as fault:
+            if operation == 'replace':
+                original = monitor.os.replace
+                def replace(source, target):
+                    if Path(target).name == monitor.STATUS_FILE:
+                        raise OSError('synthetic replace failure')
+                    return original(source, target)
+                fault.setattr(monitor.os, 'replace', replace)
+            else:
+                fault.setattr(monitor.os, 'fsync', lambda _: (_ for _ in ()).throw(OSError('synthetic fsync failure')))
+            with pytest.raises(OSError, match='synthetic'):
+                control.begin('default', cfg, monitor.Sampling(60))
+        assert path.read_bytes() == before
+        assert (path.parent / monitor.REQUEST_FILE).exists()
+        assert not list(path.parent.glob('.watch-*'))
+
+
+def test_request_persistence_failure_has_no_queued_response(cfg, capsys, monkeypatch):
+    Clock(monkeypatch)
+    with monitor.WatchControl(cfg):
+        with monkeypatch.context() as fault:
+            fault.setattr(monitor.os, 'fsync', lambda _: (_ for _ in ()).throw(OSError('synthetic fsync failure')))
+            with pytest.raises(OSError, match='synthetic'):
+                requested(cfg, capsys, track=True)
+        assert capsys.readouterr().out == '' and tracked_status(cfg) is None
+        assert (monitor.cache_dir(cfg) / monitor.REQUEST_FILE).exists()
+
+
+def test_other_entry_sample_cannot_finish_queued_request(multi, identity, capsys, monkeypatch):
+    Clock(monkeypatch)
+    multi['clusters']['batch'] = deepcopy(multi['clusters']['default'])
+    selected = monitor.entries(multi)
+    with monitor.WatchControl(multi) as control:
+        assert monitor.retry(multi, 'default', track=True, json_output=True) == 0
+        first = json.loads(capsys.readouterr().out)
+        schedule = monitor.Sampling(60)
+        assert control.begin('batch', selected['batch'], schedule) == 'scheduled'
+        complete_sample(control, selected['batch'], schedule, Fake(), 'scheduled')
+        assert tracked_status(selected['default'])['state'] == 'queued'
+        assert tracked_status(selected['default'])['request_id'] == first['request_id']
+        assert tracked_status(selected['batch']) is None
+
+
+@pytest.mark.parametrize('named,change', [
+    (False, 'unchanged'), (True, 'unchanged'),
+    (False, 'connection'), (True, 'connection'),
+    (False, 'interval'), (True, 'interval'),
+    (True, 'peer_cap'), (True, 'added'), (True, 'removed'),
+])
+def test_retry_between_watch_publication_and_first_reload(cfg, multi, identity, capsys, monkeypatch, named, change):
+    clock = Clock(monkeypatch)
+    source = multi if named else cfg
+    if named:
+        source['clusters']['batch'] = deepcopy(source['clusters']['default'])
+    file = write_config(source)
+    loaded = config.load_config(file)
+    original_entry = monitor.entries(loaded)['default']
+    root = monitor.cache_dir(original_entry, create=False)
+    accepted, transports, calls = [], {}, []
+    original_read = monitor.ConfigReload.read
+    preserve = change in ('unchanged', 'peer_cap', 'added')
+
+    def first_read(cache, active):
+        if not accepted:
+            watching = monitor.read_control(monitor.control_root(active) / monitor.WATCH_FILE)
+            assert monitor.watch_alive(watching) and watching['retry_tracking_version'] == 1
+            assert watching['entries']['default']['source'] == ('named' if named else 'legacy')
+            assert not transports and not (root / 'latest.json').exists()
+            # The request is acknowledged after the capability marker is visible,
+            # before the first real stat/load_config cycle and any sampling.
+            reply = requested(active, capsys, track=True)[1]
+            assert reply['result'] == 'queued'
+            accepted.append(reply)
+            assert tracked_status(original_entry)['state'] == 'queued'
+            if change != 'unchanged':
+                entry = source['clusters']['default'] if named else source
+                if change == 'connection':
+                    entry['ssh']['host'] = 'changed-fixture'
+                elif change == 'interval':
+                    if named:
+                        entry['monitor_interval_seconds'] = 90
+                elif change == 'peer_cap':
+                    source['clusters']['batch']['resources']['max_committed_cores'] = 80
+                elif change == 'added':
+                    source['clusters']['added'] = deepcopy(source['clusters']['batch'])
+                else:
+                    del source['clusters']['default']
+                write_config(source)
+                if change == 'interval' and not named:
+                    file.write_text('monitor_interval_seconds = 90\n' + file.read_text())
+        return original_read(cache, active)
+
+    def build(entry, **kwargs):
+        name = entry.get('_cluster', 'default')
+        assert name not in transports
+        if name == 'default':
+            # A real change must discard before constructing the new transport;
+            # mere initialization must leave the acknowledged request queued.
+            assert tracked_status(original_entry)['state'] == ('queued' if preserve else 'discarded')
+        fake = Fake()
+        original_run = fake.run
+        def run(command):
+            if command.operation == 'jobs':
+                calls.append(name)
+                if name == 'default':
+                    assert tracked_status(original_entry)['state'] == ('running' if preserve else 'discarded')
+            return original_run(command)
+        fake.run = run
+        transports[name] = fake
+        return fake
+
+    def sleep(seconds):
+        clock.advance(seconds)
+        if clock.tick >= 6:
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(monitor.ConfigReload, 'read', first_read)
+    monkeypatch.setattr(monitor, 'MonitorTransport', build)
+    monkeypatch.setattr(monitor.time, 'sleep', sleep)
+    assert monitor.run(loaded, 60) == 0
+    assert len(accepted) == 1
+    result = tracked_status(original_entry)
+    assert result['request_id'] == accepted[0]['request_id']
+    assert result['requested_at'] == accepted[0]['requested_at']
+    assert result['state'] == ('finished' if preserve else 'discarded')
+    assert result['reason'] == (None if preserve else 'entry_removed' if change == 'removed' else 'config_changed')
+    assert result['finished_at'] is not None
+    assert not (root / monitor.REQUEST_FILE).exists()
+    if change == 'removed':
+        assert 'default' not in transports and 'default' not in calls
+        assert not (root / 'history.jsonl').exists()
+    else:
+        assert calls.count('default') == 1 and len(transports['default'].calls) == 3
+        snapshot = json.loads((root / 'latest.json').read_text())
+        history = [json.loads(line) for line in (root / 'history.jsonl').read_text().splitlines()]
+        assert len(history) == 1
+        assert snapshot['sampling']['trigger'] == history[0]['trigger'] == ('manual' if preserve else 'scheduled')
+        if preserve:
+            assert result['sampled_at'] == snapshot['sampled_at'] and result['ok'] is True
+    if not preserve:
+        assert result['sampled_at'] is None and result['ok'] is None

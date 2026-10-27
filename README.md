@@ -397,8 +397,12 @@ T7e 已适配多集群（[Frontend #9](https://github.com/anakine800-tech/Auto-G
 `<STUDIES_ROOT>/.ag-monitor/latest.json`；两种 default 来源并存时显示歧义，不能擅自视为最新。
 监控数据始终来自 ag monitor 快照，前端不启动采样器；缺失、过期或失败不当成空闲或零预算。
 更新、备份、LaunchAgent 替换与回退、睡眠判断及部署观察统一见 [运维文档](docs/OPERATIONS.md)。
-监控每轮重读启动时的配置文件，新增入口开始采样，移除入口停止采样并在最后快照新增
-`config_removed=true` 与“配置已移除”说明。配置损坏时沿用上一轮配置，快照附 `config_warning` 和警告。
+监控每次本地唤醒检查启动配置的设备、文件身份、大小、mtime_ns、ctime_ns；变化立即重读，
+未变化时以 monotonic 时间每至多 30 秒完整重读一次。缓存只属于本次 monitor 调用；
+加载前后元数据不一致或读取失败时保留最近有效配置、下轮重试，快照附 `config_warning` 和警告，恢复后清除。
+新增入口开始采样，移除入口停止采样并在最后快照新增 `config_removed=true` 与“配置已移除”说明，
+不改变真实采样时间或追加采样历史。坏/缺缓存的移除标记没有观测，`sampled_at=null`。
+studies_root 改变会停止监控并要求核对，不自动迁移控制根。慢查询不因 30 秒兜底而被中断。
 采样失败只影响该入口；连续失败 1–2 次仍用基础间隔，第 k ≥ 3 次失败后间隔为
 `min(600, 基础间隔 × 2^(k−2))` 秒，成功一次清零。硬件或存储的局部失败不计入退避。
 SSH 认证失败（明确的认证方法列表）或主机指纹失败会暂停该入口，其他入口继续采样。
@@ -421,10 +425,23 @@ Slurm 存储用量每小时查询一次，独立超时 30 秒；失败查询也�
 同入口正在采样或已排队的请求合并，成功恢复基础间隔，普通手动失败不改连续失败数和自动时间，
 认证/主机指纹失败仍暂停。JSON 返回 queued/already_queued/in_progress（退出 0）或 refused（退出 1），
 原因是 monitor_not_running/auth_confirmation_required/unknown_entry；无运行监控不登记请求。
-本地心跳每 30 秒更新，超过 90 秒或进程不存在即视为未运行，启动会丢弃遗留请求并在首条摘要记录。
+默认 JSON 严格保留 `entry/result/reason/requested_at` 四键。显式 `--track` 必须与 `--retry`、`--json` 同用，
+才额外返回 `request_id`（受理为 32 位小写十六进制随机标识，refused 为 null）。新 watch 在根部 watch.json
+发布 `retry_tracking_version: 1`，entries 中的 source 为实际布局 legacy/named；标记仅表示能力，仍须核对心跳和进程。
+未追踪调用也使用相同的登记/合并逻辑；queued 新建标识，already_queued/in_progress 返回所合并请求/采样的标识。
+每入口在请求文件同级原子保存最近一次 `retry-status.json`，字段和前端约定见
+[T149](docs/redesign-tasks/T149-monitor-retry-reload.md)。
+queued/running 尚无采样结果；finished 仅在真实快照发布完成后写入，ok 可为 true 或 false。
+discarded 的原因分别为 auth_confirmation_required、entry_removed、config_changed、monitor_restarted，
+表示请求未执行或重启后无法确认完成，不是作业取消；sampled_at/ok 为 null，不能当作失败采样或成功恢复。
+普通定时采样不覆盖追踪终态，新请求可替换最近状态；只凭新快照时间不能确认某个请求完成。
+状态写入或清除请求失败会停止处理并保留核对文件，不自动重发；新确认不会提高已合并旧请求的 auth_fixed 权限。
+本地心跳每 30 秒更新，超过 90 秒或进程不存在即视为未运行。启动将遗留 queued/running 标为
+monitor_restarted，不重放；旧无标识请求沿用清理摘要，不捏造标识。
 
 默认 stdout 在有采样的循环仅输出一行 `ag-monitor-line/1` JSON 摘要，含本人作业数及警告数，
-不含作业明细和用户名；空闲唤醒不输出。`--json` 输出完整快照（多入口使用 clusters 包装）。
+不含作业明细和用户名；空闲唤醒不输出，发生请求丢弃时输出一次匿名控制摘要，即使本轮没有采样。
+`--json` 输出完整快照（多入口使用 clusters 包装），控制摘要不追加采样 history。
 本地 latest.json 仍保存完整 `ag-monitor/1`；history.jsonl 增加 sampling_state、consecutive_failures、trigger。
 常驻服务直接运行 `ag monitor`，不再需要包装脚本。LaunchAgent 样例见
 [local.autogaussian.monitor.plist.example](docs/ops/launchd/local.autogaussian.monitor.plist.example)；

@@ -390,3 +390,175 @@ def test_display_name_legacy_mixed_default(cfg, multi):
     file.write_text('display_name = "默认入口"\n' + file.read_text())
     loaded = config.load_config(file)
     assert config.select_cluster(loaded, 'default')['display_name'] == '默认入口'
+
+
+# T149 configuration cache: real local files, no sleeping or remote commands.
+def test_reload_cache_wakeup_count_and_thirty_second_fallback(cfg, monkeypatch):
+    from test_monitor_resilience import Clock
+    clock = Clock(monkeypatch)
+    file = write_config(cfg)
+    loaded = config.load_config(file)
+    calls, original = [], monitor.load_config
+    def load(path):
+        calls.append(clock.tick)
+        return original(path)
+    monkeypatch.setattr(monitor, 'load_config', load)
+    cache = monitor.ConfigReload()
+    for _ in range(31):
+        loaded, warning = cache.read(loaded)
+        assert warning is None
+        clock.advance(2)
+    assert calls == [0, 30, 60]
+    # Separate monitor lifetimes never share the cache.
+    assert monitor.ConfigReload().read(loaded)[1] is None
+    assert calls == [0, 30, 60, 62]
+
+
+@pytest.mark.parametrize('change', ['inplace', 'same-size', 'replace', 'touch'])
+def test_reload_cache_detects_file_identity_and_metadata(cfg, monkeypatch, change):
+    import os
+    from test_monitor_resilience import Clock
+    clock = Clock(monkeypatch)
+    file = write_config(cfg)
+    loaded = config.load_config(file)
+    cache = monitor.ConfigReload()
+    loaded, warning = cache.read(loaded)
+    before = monitor.config_signature(file)
+    original, calls = monitor.load_config, []
+    def load(path):
+        calls.append(path)
+        return original(path)
+    monkeypatch.setattr(monitor, 'load_config', load)
+    raw = file.read_bytes()
+    if change == 'replace':
+        replacement = file.with_suffix('.replacement')
+        replacement.write_bytes(raw)
+        replacement.replace(file)
+    elif change == 'touch':
+        os.utime(file, ns=(file.stat().st_atime_ns, file.stat().st_mtime_ns + 1000000))
+    elif change == 'same-size':
+        file.write_bytes(raw.replace(b'max_cores = 44', b'max_cores = 48'))
+    else:
+        file.write_bytes(raw + b'\n# synthetic edit\n')
+    assert monitor.config_signature(file) != before
+    clock.advance(2)
+    loaded, warning = cache.read(loaded)
+    assert len(calls) == 1 and warning is None
+    assert loaded['resources']['max_cores'] == (48 if change == 'same-size' else 44)
+
+
+@pytest.mark.parametrize('field', range(5))
+def test_reload_cache_checks_each_signature_field(cfg, monkeypatch, field):
+    file = write_config(cfg)
+    loaded = config.load_config(file)
+    signature = [1, 2, 3, 4, 5]
+    monkeypatch.setattr(monitor, 'config_signature', lambda _: tuple(signature))
+    calls = []
+    monkeypatch.setattr(monitor, 'load_config', lambda _: calls.append(1) or loaded)
+    cache = monitor.ConfigReload()
+    cache.read(loaded)
+    signature[field] += 1
+    cache.read(loaded)
+    assert len(calls) == 2
+
+
+def test_reload_cache_fallback_catches_metadata_preserving_change(cfg, monkeypatch):
+    from test_monitor_resilience import Clock
+    clock = Clock(monkeypatch)
+    file = write_config(cfg)
+    loaded = config.load_config(file)
+    signature = monitor.config_signature(file)
+    monkeypatch.setattr(monitor, 'config_signature', lambda _: signature)
+    cache = monitor.ConfigReload()
+    loaded, _ = cache.read(loaded)
+    cfg['resources']['max_cores'] = 48
+    write_config(cfg)
+    clock.advance(29.9)
+    assert cache.read(loaded)[0]['resources']['max_cores'] == 44
+    clock.advance(.1)
+    loaded, warning = cache.read(loaded)
+    assert loaded['resources']['max_cores'] == 48 and warning is None
+
+
+@pytest.mark.parametrize('failure', ['stat', 'parse', 'read', 'unstable'])
+def test_reload_failure_retains_config_and_recovers_without_metadata_change(cfg, monkeypatch, failure):
+    from test_monitor_resilience import Clock
+    clock = Clock(monkeypatch)
+    file = write_config(cfg)
+    loaded = config.load_config(file)
+    stable = monitor.config_signature(file)
+    cache = monitor.ConfigReload()
+    loaded, _ = cache.read(loaded)
+    clock.advance(30)
+    original, calls = monitor.load_config, []
+    broken = [True]
+    def signature(_):
+        if broken[0] and failure == 'stat':
+            raise OSError('synthetic stat failure')
+        return (*stable[:-1], stable[-1] + len(calls)) if broken[0] and failure == 'unstable' else stable
+    def load(path):
+        calls.append(path)
+        if broken[0] and failure in ('parse', 'read'):
+            raise ValueError('synthetic parse failure') if failure == 'parse' else OSError('synthetic read failure')
+        fresh = original(path)
+        fresh['resources']['max_cores'] = 48
+        return fresh
+    monkeypatch.setattr(monitor, 'config_signature', signature)
+    monkeypatch.setattr(monitor, 'load_config', load)
+    retained, warning = cache.read(loaded)
+    assert retained is loaded and retained['resources']['max_cores'] == 44 and warning
+    assert cache.signature is None
+    broken[0] = False
+    clock.advance(2)
+    fresh, warning = cache.read(retained)
+    assert fresh['resources']['max_cores'] == 48 and warning is None
+    assert cache.signature == (loaded['_config_path'], stable)
+
+
+def test_in_memory_reload_never_reads_file(cfg, monkeypatch):
+    monkeypatch.setattr(monitor, 'load_config', lambda _: pytest.fail('In-memory config parsed a file'))
+    monkeypatch.setattr(monitor, 'config_signature', lambda _: pytest.fail('In-memory config statted a file'))
+    cache = monitor.ConfigReload()
+    for _ in range(20):
+        assert cache.read(cfg) == (cfg, None)
+
+
+def test_selected_custom_config_preserves_binding_on_reload(multi, tmp_path, monkeypatch):
+    custom = tmp_path / 'custom-monitor.toml'
+    custom.write_bytes(write_config(multi).read_bytes())
+    loaded = config.select_cluster(config.load_config(custom), 'batch')
+    value, warning = monitor.ConfigReload().read(loaded)
+    assert value['_cluster'] == 'batch' and value['_config_path'] == str(custom)
+    assert warning is None and config.scheduler_kind(value) == 'slurm'
+
+
+def test_changed_control_root_stops_before_migration_or_second_sample(cfg, monkeypatch, capsys):
+    from test_monitor_resilience import Clock
+    clock = Clock(monkeypatch)
+    loaded = config.load_config(write_config(cfg))
+    original_root = Path(cfg['local']['studies_root'])
+    new_root = original_root.with_name('other-studies')
+    fake = PBSFake()
+    monkeypatch.setattr(monitor, 'MonitorTransport', lambda *a, **k: fake)
+    monkeypatch.setattr(monitor, 'login_user', lambda _: 'fixture')
+    def sleep(seconds):
+        clock.advance(seconds)
+        cfg['local']['studies_root'] = str(new_root)
+        write_config(cfg)
+    monkeypatch.setattr(monitor.time, 'sleep', sleep)
+    with pytest.raises(ValueError, match='control root changed'):
+        monitor.run(loaded, 60)
+    assert len(fake.calls) == 3 and not new_root.exists()
+    assert (original_root / '.ag-monitor/latest.json').exists()
+
+
+def test_removed_marker_never_appends_sampling_history(cfg, monkeypatch):
+    monkeypatch.setattr(monitor, 'login_user', lambda _: 'fixture')
+    snapshot = monitor.sample(cfg, PBSFake())
+    root = monitor.cache_dir(cfg)
+    before = (root / 'history.jsonl').read_bytes()
+    monitor.mark_removed(cfg)
+    removed = json.loads((root / 'latest.json').read_text())
+    assert {key: removed[key] for key in ('sampled_at', 'last_ok_at', 'ok')} == {
+        key: snapshot[key] for key in ('sampled_at', 'last_ok_at', 'ok')}
+    assert (root / 'history.jsonl').read_bytes() == before
