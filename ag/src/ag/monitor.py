@@ -8,6 +8,8 @@ import json
 import os
 from pathlib import Path
 import re
+import secrets
+import stat
 import subprocess
 import tempfile
 import time
@@ -15,7 +17,7 @@ import threading
 
 from ag import remote, status, slurm, attempt, budget, pbs
 from ag.config import (load_config, select_cluster, scheduler_kind, committed_cap,
-                       shared_clusters, optional_resource_caps, RESOURCE_TIERS)
+                       shared_clusters, optional_resource_caps, RESOURCE_TIERS, cluster_name)
 from ag.pbs import parse_nodes
 from ag.transport import SSHTransport, SSHConnectionError, TransportError, Result, redact_stderr, require_ok
 
@@ -199,7 +201,7 @@ def cache_dir(cfg, *, create=True):
     return root
 
 
-def publish(root, snapshot):
+def publish(root, snapshot, *, record_history=True):
     temporary = None
     try:
         with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=root,
@@ -213,6 +215,8 @@ def publish(root, snapshot):
     finally:
         if temporary is not None and temporary.exists():
             temporary.unlink()
+    if not record_history:
+        return
     summary = {key: snapshot[key] for key in ('sampled_at', 'interval_seconds', 'ok', 'error', 'last_ok_at')}
     summary.update(sampling_state=snapshot.get('sampling', once_sampling())['state'],
                    consecutive_failures=snapshot.get('sampling', once_sampling())['consecutive_failures'],
@@ -466,6 +470,9 @@ def once_sampling():
 
 
 REQUEST_FILE = 'retry-request.json'
+STATUS_FILE = 'retry-status.json'
+CONTROL_BYTES = 2 * 1024 * 1024
+DISCARD_REASONS = ('auth_confirmation_required', 'entry_removed', 'config_changed', 'monitor_restarted')
 WATCH_FILE = 'watch.json'
 
 
@@ -499,15 +506,20 @@ def read_control(path):
     if path.is_symlink():
         raise ValueError('Monitor cache must not contain symbolic links')
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     except FileNotFoundError:
         return None
-    with os.fdopen(fd, encoding='utf-8') as handle:
-        return json.load(handle)
+    with os.fdopen(fd, 'rb') as handle:
+        if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+            raise ValueError('Invalid monitor control file')
+        raw = handle.read(CONTROL_BYTES + 1)
+        if len(raw) > CONTROL_BYTES:
+            raise ValueError('Monitor control file exceeds size limit')
+        return json.loads(raw)
 
 
-def write_control(root, value):
-    target = root / WATCH_FILE
+def write_control(root, value, filename=WATCH_FILE):
+    target = root / filename
     if target.is_symlink():
         raise ValueError('Monitor cache must not contain symbolic links')
     temporary = None
@@ -543,35 +555,132 @@ def entries(cfg):
     return {cfg.get('_cluster', 'default'): cfg}
 
 
-def retry(cfg, name, *, auth_fixed=False, json_output=False):
+def control_source(entry):
+    return 'named' if entry.get('_cluster') else 'legacy'
+
+
+def utc_stamp(value):
+    if not isinstance(value, str):
+        return False
+    try:
+        return datetime.fromisoformat(value).utcoffset() == timedelta(0)
+    except ValueError:
+        return False
+
+
+def request_identity(value):
+    return (isinstance(value, dict) and isinstance(value.get('request_id'), str)
+            and re.fullmatch(r'[0-9a-f]{32}', value['request_id']) is not None
+            and utc_stamp(value.get('requested_at')))
+
+
+def retry_status(root, name):
+    value = read_control(root / STATUS_FILE)
+    if value is None and not (root / STATUS_FILE).exists():
+        return None
+    valid = (request_identity(value) and type(value.get('version')) is int and value['version'] == 1
+             and value.get('entry') == name
+             and all(key in value for key in ('state', 'reason', 'finished_at', 'sampled_at', 'ok')))
+    if valid:
+        state = value['state']
+        if state in ('queued', 'running'):
+            valid = all(value[key] is None for key in ('reason', 'finished_at', 'sampled_at', 'ok'))
+        elif state == 'finished':
+            valid = (value['reason'] is None and utc_stamp(value['finished_at'])
+                     and utc_stamp(value['sampled_at']) and type(value['ok']) is bool)
+        elif state == 'discarded':
+            valid = (value['reason'] in DISCARD_REASONS and utc_stamp(value['finished_at'])
+                     and value['sampled_at'] is None and value['ok'] is None)
+        else:
+            valid = False
+    if not valid:
+        raise ValueError('Invalid monitor retry status; inspect local control files')
+    return {key: value[key] for key in ('version', 'entry', 'request_id', 'requested_at',
+            'state', 'reason', 'finished_at', 'sampled_at', 'ok')}
+
+
+def new_retry_status(name, request, state):
+    return dict(version=1, entry=name, request_id=request['request_id'],
+                requested_at=request['requested_at'], state=state, reason=None,
+                finished_at=None, sampled_at=None, ok=None)
+
+
+def queued_status(root, name, request):
+    value = retry_status(root, name)
+    if (not request_identity(request) or type(request.get('auth_fixed')) is not bool
+            or value is None or value['state'] != 'queued'
+            or any(value[key] != request[key] for key in ('request_id', 'requested_at'))):
+        raise ValueError('Inconsistent monitor retry request; inspect local control files')
+    return value
+
+
+def retry(cfg, name, *, auth_fixed=False, json_output=False, track=False):
+    if track and not json_output:
+        raise ValueError('--track requires --retry and --json')
     result = dict(entry=name, result='refused', reason=None, requested_at=None)
+    if track:
+        result['request_id'] = None
     selected = entries(cfg)
     if name not in selected:
         result['reason'] = 'unknown_entry'
     else:
-        # Only the daemon creates its cache/lock; a refused click must leave
-        # an old monitor's cache (or an absent cache) exactly as it was.
+        # Only the daemon creates its cache/lock; a refused click leaves no files.
         with control_lock(cfg, create=False) as root:
             watching = read_control(root / WATCH_FILE) if root is not None else None
-            if not watch_alive(watching) or name not in watching.get('entries', {}):
+            rows = watching.get('entries') if isinstance(watching, dict) else None
+            row = rows.get(name) if isinstance(rows, dict) else None
+            if not watch_alive(watching) or not isinstance(row, dict):
                 result['reason'] = 'monitor_not_running'
-            elif watching['entries'][name].get('pause_reason') in ('auth', 'host_key') and not auth_fixed:
+            elif row.get('pause_reason') in ('auth', 'host_key') and not auth_fixed:
                 result['reason'] = 'auth_confirmation_required'
-            elif watching.get('sampling') == name:
-                result.update(result='in_progress', requested_at=watching['sample_started_at'])
             else:
-                path = cache_dir(selected[name]) / REQUEST_FILE
-                pending = read_control(path)
-                if pending is not None:
-                    result.update(result='already_queued', requested_at=pending['requested_at'])
+                version = watching.get('retry_tracking_version')
+                supported = type(version) is int and version == 1
+                if (version is not None or track) and not supported:
+                    raise ValueError('Monitor retry tracking is unavailable')
+                if supported and row.get('source') != control_source(selected[name]):
+                    result['reason'] = 'monitor_not_running'
                 else:
-                    requested = dict(requested_at=iso_at(utc_now()), auth_fixed=auth_fixed)
-                    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-                    with os.fdopen(fd, 'w', encoding='utf-8') as handle:
-                        json.dump(requested, handle)
-                        handle.flush()
-                        os.fsync(handle.fileno())
-                    result.update(result='queued', requested_at=requested['requested_at'])
+                    entry_root = cache_dir(selected[name], create=False)
+                    path = entry_root / REQUEST_FILE
+                    if watching.get('sampling') == name:
+                        request = dict(requested_at=watching['sample_started_at'],
+                                       request_id=watching.get('sample_request_id'))
+                        if supported:
+                            if not request_identity(request):
+                                raise ValueError('Invalid monitor sampling identity')
+                            value = retry_status(entry_root, name)
+                            if value is None or value['request_id'] != request['request_id']:
+                                value = new_retry_status(name, request, 'running')
+                                write_control(entry_root, value, STATUS_FILE)
+                            elif value['state'] != 'running':
+                                raise ValueError('Inconsistent monitor sampling status')
+                        outcome = 'in_progress'
+                    else:
+                        request = read_control(path)
+                        if request is not None:
+                            if supported:
+                                queued_status(entry_root, name, request)
+                            outcome = 'already_queued'
+                        else:
+                            request = dict(requested_at=iso_at(utc_now()), auth_fixed=auth_fixed)
+                            if supported:
+                                # Validate the previous record before replacing it; never hide corruption.
+                                previous = retry_status(entry_root, name)
+                                if previous is not None and previous['state'] in ('queued', 'running'):
+                                    raise ValueError('Inconsistent monitor retry request; inspect local control files')
+                                request['request_id'] = secrets.token_hex(16)
+                            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+                            with os.fdopen(fd, 'w', encoding='utf-8') as handle:
+                                json.dump(request, handle)
+                                handle.flush()
+                                os.fsync(handle.fileno())
+                            if supported:
+                                write_control(entry_root, new_retry_status(name, request, 'queued'), STATUS_FILE)
+                            outcome = 'queued'
+                    result.update(result=outcome, requested_at=request['requested_at'])
+                    if track:
+                        result['request_id'] = request['request_id']
     if json_output:
         print(json.dumps(result, ensure_ascii=False), flush=True)
     else:
@@ -595,22 +704,81 @@ class WatchControl:
 
     def __enter__(self):
         with control_lock(self.cfg) as root:
-            if watch_alive(read_control(root / WATCH_FILE)):
+            previous = read_control(root / WATCH_FILE)
+            if watch_alive(previous):
                 raise ValueError('A monitor is already running for this cache')
             selected = entries(self.cfg)
-            for name, entry in selected.items():
-                path = cache_dir(entry) / REQUEST_FILE
-                if path.is_symlink():
-                    raise ValueError('Monitor cache must not contain symbolic links')
-                if path.exists():
-                    path.unlink()
-                    self.discarded.append(name)
+            # A removed entry can still have an acknowledged request after a crash.
+            # Use only validated names/layouts under the same configured root.
+            leftovers = {(name, control_source(entry)): entry for name, entry in selected.items()}
+            if (isinstance(previous, dict) and type(previous.get('retry_tracking_version')) is int
+                    and previous['retry_tracking_version'] == 1):
+                if not isinstance(previous.get('entries'), dict):
+                    raise ValueError('Invalid monitor control entries')
+                for name, row in previous['entries'].items():
+                    cluster_name(name)
+                    if not isinstance(row, dict) or row.get('source') not in ('legacy', 'named'):
+                        raise ValueError('Invalid monitor control source')
+                    if row['source'] == 'legacy' and name != 'default':
+                        raise ValueError('Invalid legacy monitor entry')
+                    leftovers[(name, row['source'])] = dict(self.cfg, _cluster=name if row['source'] == 'named' else None)
+            for (name, _), entry in leftovers.items():
+                self.discard(name, entry, 'monitor_restarted', startup=True)
+            for entry in selected.values():
+                cache_dir(entry)
+            self.selected = selected
             self.value = dict(pid=os.getpid(), heartbeat_at=iso_at(utc_now()), sampling=None,
-                              sample_started_at=None, entries={name: {} for name in selected})
+                              sample_started_at=None, sample_request_id=None, retry_tracking_version=1,
+                              entries={name: dict(source=control_source(entry), pause_reason=None)
+                                       for name, entry in selected.items()})
             write_control(root, self.value)
         self.thread = threading.Thread(target=self.heartbeat, daemon=True)
         self.thread.start()
         return self
+
+    def discard(self, name, entry, reason, *, startup=False):
+        # Caller holds watch.lock. Publish a reason before unlinking any request.
+        root = cache_dir(entry, create=False)
+        path = root / REQUEST_FILE
+        value = retry_status(root, name)
+        try:
+            request = read_control(path)
+        except (ValueError, UnicodeError):
+            if not startup or path.is_symlink():
+                raise
+            request = {}  # T127's pre-tracking startup cleanup, with no invented ID.
+        present = path.exists()
+        if isinstance(request, dict) and 'request_id' in request:
+            if (not request_identity(request) or value is None
+                    or any(request[key] != value[key] for key in ('request_id', 'requested_at'))):
+                raise ValueError('Inconsistent monitor retry request; inspect local control files')
+        elif present and not startup:
+            raise ValueError('Untracked monitor retry request; restart required')
+        if value is not None and value['state'] in ('queued', 'running'):
+            write_control(root, dict(value, state='discarded', reason=reason,
+                                     finished_at=iso_at(utc_now()), sampled_at=None, ok=None), STATUS_FILE)
+            self.discarded.append(name)
+        if present:
+            path.unlink()
+            if name not in self.discarded:
+                self.discarded.append(name)
+
+    def reconfigure(self, selected, changed):
+        with control_lock(self.cfg) as root:
+            if self.failure is not None:
+                raise self.failure
+            for name, entry in self.selected.items():
+                if name not in selected or name in changed:
+                    self.discard(name, entry, 'entry_removed' if name not in selected else 'config_changed')
+            for entry in selected.values():
+                cache_dir(entry)
+            self.value['entries'] = {
+                name: dict(source=control_source(entry), pause_reason=(
+                    None if name in changed else self.value['entries'].get(name, {}).get('pause_reason')))
+                for name, entry in selected.items()}
+            self.selected = selected
+            self.value['heartbeat_at'] = iso_at(utc_now())
+            write_control(root, self.value)
 
     def heartbeat(self):
         while not self.stopped.wait(30):
@@ -626,29 +794,51 @@ class WatchControl:
         with control_lock(self.cfg) as root:
             if self.failure is not None:
                 raise self.failure
-            request_path = cache_dir(entry) / REQUEST_FILE
+            entry_root = cache_dir(entry)
+            request_path = entry_root / REQUEST_FILE
             request = read_control(request_path)
             if request is not None:
-                request_path.unlink()
-            if request is not None and (schedule.state != 'paused' or request['auth_fixed']):
+                value = queued_status(entry_root, name, request)
+                if schedule.state == 'paused' and not request['auth_fixed']:
+                    self.discard(name, entry, 'auth_confirmation_required')
+                    return None
                 trigger = 'manual_auth_fixed' if request['auth_fixed'] else 'manual'
+                # Claim first. If either write/unlink fails, stop without sampling;
+                # another claim cannot execute a running request a second time.
+                write_control(entry_root, dict(value, state='running'), STATUS_FILE)
+                request_path.unlink()
+            elif request_path.exists():
+                raise ValueError('Invalid monitor retry request')
             elif time.monotonic() >= schedule.due:
                 trigger = 'scheduled'
+                request = dict(request_id=secrets.token_hex(16), requested_at=iso_at(utc_now()))
             else:
                 return None
-            self.value.update(sampling=name, sample_started_at=iso_at(utc_now()),
-                              heartbeat_at=iso_at(utc_now()))
+            self.value.update(sampling=name, sample_started_at=request['requested_at'],
+                              sample_request_id=request['request_id'], heartbeat_at=iso_at(utc_now()))
             write_control(root, self.value)
             return trigger
 
-    def finish(self, name, schedule):
+    def finish(self, name, schedule, snapshot):
+        # sample() has returned only after both snapshot and history publication.
         with control_lock(self.cfg) as root:
-            self.value['entries'][name] = dict(pause_reason=schedule.pause_reason)
-            self.value.update(sampling=None, sample_started_at=None, heartbeat_at=iso_at(utc_now()))
+            if self.failure is not None:
+                raise self.failure
+            entry_root = cache_dir(self.selected[name])
+            value = retry_status(entry_root, name)
+            if value is not None and value['request_id'] == self.value['sample_request_id']:
+                if value['state'] != 'running':
+                    raise ValueError('Inconsistent monitor sampling status')
+                write_control(entry_root, dict(value, state='finished', finished_at=iso_at(utc_now()),
+                                                sampled_at=snapshot['sampled_at'], ok=snapshot['ok']), STATUS_FILE)
+            self.value['entries'][name]['pause_reason'] = schedule.pause_reason
+            self.value.update(sampling=None, sample_started_at=None, sample_request_id=None,
+                              heartbeat_at=iso_at(utc_now()))
             write_control(root, self.value)
 
     def configure(self, selected, schedules):
-        values = {name: dict(pause_reason=schedules[name].pause_reason) for name in selected}
+        values = {name: dict(pause_reason=schedules[name].pause_reason, source=control_source(entry))
+                  for name, entry in selected.items()}
         if values != self.value['entries']:
             with control_lock(self.cfg) as root:
                 self.value['entries'] = values
@@ -670,7 +860,7 @@ class WatchControl:
 
 def print_round(snapshots, sampled, *, json_output, multi, discarded=()):
     if json_output:
-        value = dict(clusters=snapshots) if multi else next(iter(snapshots.values()))
+        value = dict(clusters=snapshots) if multi else next(iter(snapshots.values()), {})
     else:
         rows = {}
         for name, snapshot in snapshots.items():
@@ -696,18 +886,26 @@ def run_clusters(cfg, interval=None, *, json_output=True):
     # Preserve the existing Python entry point's full-snapshot default. The
     # CLI goes through run(), which explicitly selects compact stdout by default.
     selected, transports, schedules, snapshots = {}, {}, {}, {}
+    reload = ConfigReload()
+    original_root = cfg['local']['studies_root']
     try:
         with WatchControl(cfg) if interval is not None else nullcontext() as control:
             while True:
-                cfg, warning = reload_config(cfg)
+                cfg, warning = reload.read(cfg)
+                if cfg['local']['studies_root'] != original_root:
+                    raise ValueError('Monitor control root changed; stop and review before restarting')
                 current = entries(cfg)
+                comparable = lambda value: {k: v for k, v in value.items() if k != '_cluster_entries'}
+                changed = {name for name, entry in current.items()
+                           if name not in selected or comparable(entry) != comparable(selected[name])}
+                if control is not None and (changed or selected.keys() != current.keys()):
+                    control.reconfigure(current, changed)
                 for name in selected.keys() - current.keys():
                     mark_removed(selected[name])
                 for name, entry in current.items():
                     # Peer metadata changes are not changes to this entry's SSH
                     # configuration. Current peer caps still reach each sample.
-                    comparable = lambda value: {k: v for k, v in value.items() if k != '_cluster_entries'}
-                    if name not in selected or comparable(entry) != comparable(selected[name]):
+                    if name in changed:
                         transports[name] = MonitorTransport(entry, read_only=True)
                         schedules[name] = Sampling(entry_interval(entry, interval)) if interval is not None else None
                 selected = current
@@ -737,8 +935,8 @@ def run_clusters(cfg, interval=None, *, json_output=True):
                                              config_warning=warning, schedule=schedule, trigger=trigger)
                     sampled.add(name)
                     if control is not None:
-                        control.finish(name, schedule)
-                if sampled:
+                        control.finish(name, schedule, snapshots[name])
+                if sampled or (control is not None and control.discarded):
                     print_round(snapshots, sampled, json_output=json_output,
                                 multi='clusters' in cfg, discarded=control.discarded if control else ())
                     if control is not None:
@@ -749,6 +947,37 @@ def run_clusters(cfg, interval=None, *, json_output=True):
                 time.sleep(min(2, max(0, delay)))
     except KeyboardInterrupt:
         return 0
+
+
+def config_signature(path):
+    value = Path(path).stat()
+    return (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
+
+
+class ConfigReload:
+    """A single run's successful stable read; errors are never cached."""
+
+    def __init__(self):
+        self.signature = None
+        self.checked = float('-inf')
+
+    def read(self, cfg):
+        path = cfg.get('_config_path')
+        if path is None:
+            return reload_config(cfg)
+        try:
+            before = (path, config_signature(path))
+            if before == self.signature and time.monotonic() - self.checked < 30:
+                return cfg, None
+            fresh, warning = reload_config(cfg)
+            if warning or before != (path, config_signature(path)):
+                raise ValueError('Unstable monitor configuration')
+        except (OSError, ValueError, KeyError, TypeError):
+            self.signature = None
+            return cfg, '配置重读失败，沿用上一轮配置'
+        self.signature, self.checked = before, time.monotonic()
+        return fresh, None
+
 
 def reload_config(cfg):
     # In-memory callers (including offline fixtures) have no file to reload.
@@ -777,9 +1006,10 @@ def mark_removed(cfg):
             raise ValueError('Invalid cached monitor envelope')
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         snapshot = empty_snapshot(cfg)
+        snapshot['sampled_at'] = None  # no observation exists for this control-only tombstone
         snapshot['error'] = '缓存不可读，已按配置移除处理'
     snapshot.update(config_removed=True, config_note='配置已移除')
-    publish(root, snapshot)
+    publish(root, snapshot, record_history=False)
 
 
 def storage_sample(cfg, transport, values):

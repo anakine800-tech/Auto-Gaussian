@@ -18,7 +18,7 @@ def core_command(args):
     if command == 'monitor':
         from ag.monitor import run, retry
         if args.retry is not None:
-            return retry(cfg, args.retry, auth_fixed=args.auth_fixed, json_output=args.json)
+            return retry(cfg, args.retry, auth_fixed=args.auth_fixed, json_output=args.json, track=args.track)
         if args.auth_fixed:
             raise ValueError('--auth-fixed requires --retry')
         return run(cfg, args.watch, json_output=args.json)
@@ -143,6 +143,8 @@ def register(subparsers):
             mode.add_argument('--watch', type=watch_seconds, metavar='SECONDS',
                               help='Sample in the foreground every 30–600 seconds; Ctrl-C exits')
             mode.add_argument('--retry', metavar='ENTRY', help='Queue one local monitor retry')
+            p.add_argument('--track', action='store_true',
+                           help='Return a retry identity (requires --retry and --json)')
             p.add_argument('--auth-fixed', action='store_true',
                            help='Confirm authentication or host-key configuration has been repaired')
         elif name == 'prepare':
@@ -220,6 +222,8 @@ def main(argv=None):
         return 0
     from ag.submit import UnknownSubmission
     try:
+        if args.command == 'monitor' and args.track and (args.retry is None or not args.json):
+            raise ValueError('--track requires --retry and --json')
         if args.command in CONFIG_COMMANDS and not (args.command == 'review' and args.action == 'manifest'):
             args.config = load_config(local_only=True) if args.command in ('review', 'approve') else load_config()
         return args.func(args)
