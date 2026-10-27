@@ -885,7 +885,10 @@ def run(cfg, interval=None, *, json_output=False):
 def run_clusters(cfg, interval=None, *, json_output=True):
     # Preserve the existing Python entry point's full-snapshot default. The
     # CLI goes through run(), which explicitly selects compact stdout by default.
-    selected, transports, schedules, snapshots = {}, {}, {}, {}
+    # WatchControl advertises these entries before the first reload. Requests
+    # accepted in that window must be compared against this actual baseline.
+    selected = entries(cfg)
+    transports, schedules, snapshots = {}, {}, {}
     reload = ConfigReload()
     original_root = cfg['local']['studies_root']
     try:
@@ -896,8 +899,8 @@ def run_clusters(cfg, interval=None, *, json_output=True):
                     raise ValueError('Monitor control root changed; stop and review before restarting')
                 current = entries(cfg)
                 comparable = lambda value: {k: v for k, v in value.items() if k != '_cluster_entries'}
-                changed = {name for name, entry in current.items()
-                           if name not in selected or comparable(entry) != comparable(selected[name])}
+                changed = {name for name in current.keys() & selected.keys()
+                           if comparable(current[name]) != comparable(selected[name])}
                 if control is not None and (changed or selected.keys() != current.keys()):
                     control.reconfigure(current, changed)
                 for name in selected.keys() - current.keys():
@@ -905,7 +908,7 @@ def run_clusters(cfg, interval=None, *, json_output=True):
                 for name, entry in current.items():
                     # Peer metadata changes are not changes to this entry's SSH
                     # configuration. Current peer caps still reach each sample.
-                    if name in changed:
+                    if name not in transports or name in changed:
                         transports[name] = MonitorTransport(entry, read_only=True)
                         schedules[name] = Sampling(entry_interval(entry, interval)) if interval is not None else None
                 selected = current

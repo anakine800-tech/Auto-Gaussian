@@ -122,6 +122,7 @@ T148 先合并；T149 再合并；T151 合并前按 T149 最终字段核对并�
 | --- | --- |
 | 默认四键、退出码、--track 组合 | test_cli_tracking_shape_and_refusal；test_track_combinations_fail_before_config_or_io；test_cli_request_through_real_watch_loop |
 | 连点与并发、采样中合并、同秒不同请求 | test_concurrent_clients_share_one_id；test_tracking_merges_real_sample_and_preserves_terminal；test_two_finished_requests_in_same_second_are_distinct |
+| watch 标记发布后、首次重读完成前登记 | test_retry_between_watch_publication_and_first_reload：旧/具名单入口配置未变时保留请求且仅采样一次；本入口连接/间隔变化才 config_changed，共享额度/新增其他入口不误丢弃，移除仍为 entry_removed |
 | 认证/主机指纹暂停后丢弃、不提升旧请求授权 | test_queued_then_paused_has_reason_without_authorization_upgrade |
 | 入口移除、本入口变化、共享额度不误判 | test_reload_discard_precedes_rebuild_and_preserves_real_history（removed/connection/interval/peer_cap） |
 | queued/running 重启不重放、已移除入口、旧请求 | test_restart_discards_tracked_state_without_replay；test_restart_covers_removed_entry_from_previous_watch；test_startup_cleanup_untracked_records_has_no_invented_id |
@@ -137,5 +138,6 @@ T148 先合并；T149 再合并；T151 合并前按 T149 最终字段核对并�
 | 空闲丢弃摘要、无假 history、根变化停止 | test_reload_discard_precedes_rebuild_and_preserves_real_history；test_removed_marker_never_appends_sampling_history；test_changed_control_root_stops_before_migration_or_second_sample |
 
 状态只保留已知字段，未知附加字段不复制到下一次写入。运行中断后 running 的 monitor_restarted 表示没有可确认的发布完成结果，不能推断远端从未被查询。
+增量修正：以 watch 发布时的启动配置作为首次比较基准；changed 仅包含已有入口的实际配置差异，首次或新增入口的 transport/schedule 建立单独按缺失判断。共用字段没有变化。
 移除入口只更新本地移除标记；已有有效快照的 sampled_at/last_ok_at/ok 保留，缺失或坏快照的标记 sampled_at 为 null，没有新采样 history。
 真实验证边界：以配置替身装配 CLI，假 Transport、假时钟走真实本地锁、原子请求/状态文件和 run_clusters；**未新增现场查询**。未启动第二个真实 watch、未修改正式配置或常驻服务、未部署、未提交计算。正式服务现场兼容由后续部署单验证；离线通过不替代该验收。

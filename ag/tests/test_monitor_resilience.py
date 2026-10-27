@@ -1300,3 +1300,103 @@ def test_other_entry_sample_cannot_finish_queued_request(multi, identity, capsys
         assert tracked_status(selected['default'])['state'] == 'queued'
         assert tracked_status(selected['default'])['request_id'] == first['request_id']
         assert tracked_status(selected['batch']) is None
+
+
+@pytest.mark.parametrize('named,change', [
+    (False, 'unchanged'), (True, 'unchanged'),
+    (False, 'connection'), (True, 'connection'),
+    (False, 'interval'), (True, 'interval'),
+    (True, 'peer_cap'), (True, 'added'), (True, 'removed'),
+])
+def test_retry_between_watch_publication_and_first_reload(cfg, multi, identity, capsys, monkeypatch, named, change):
+    clock = Clock(monkeypatch)
+    source = multi if named else cfg
+    if named:
+        source['clusters']['batch'] = deepcopy(source['clusters']['default'])
+    file = write_config(source)
+    loaded = config.load_config(file)
+    original_entry = monitor.entries(loaded)['default']
+    root = monitor.cache_dir(original_entry, create=False)
+    accepted, transports, calls = [], {}, []
+    original_read = monitor.ConfigReload.read
+    preserve = change in ('unchanged', 'peer_cap', 'added')
+
+    def first_read(cache, active):
+        if not accepted:
+            watching = monitor.read_control(monitor.control_root(active) / monitor.WATCH_FILE)
+            assert monitor.watch_alive(watching) and watching['retry_tracking_version'] == 1
+            assert watching['entries']['default']['source'] == ('named' if named else 'legacy')
+            assert not transports and not (root / 'latest.json').exists()
+            # The request is acknowledged after the capability marker is visible,
+            # before the first real stat/load_config cycle and any sampling.
+            reply = requested(active, capsys, track=True)[1]
+            assert reply['result'] == 'queued'
+            accepted.append(reply)
+            assert tracked_status(original_entry)['state'] == 'queued'
+            if change != 'unchanged':
+                entry = source['clusters']['default'] if named else source
+                if change == 'connection':
+                    entry['ssh']['host'] = 'changed-fixture'
+                elif change == 'interval':
+                    if named:
+                        entry['monitor_interval_seconds'] = 90
+                elif change == 'peer_cap':
+                    source['clusters']['batch']['resources']['max_committed_cores'] = 80
+                elif change == 'added':
+                    source['clusters']['added'] = deepcopy(source['clusters']['batch'])
+                else:
+                    del source['clusters']['default']
+                write_config(source)
+                if change == 'interval' and not named:
+                    file.write_text('monitor_interval_seconds = 90\n' + file.read_text())
+        return original_read(cache, active)
+
+    def build(entry, **kwargs):
+        name = entry.get('_cluster', 'default')
+        assert name not in transports
+        if name == 'default':
+            # A real change must discard before constructing the new transport;
+            # mere initialization must leave the acknowledged request queued.
+            assert tracked_status(original_entry)['state'] == ('queued' if preserve else 'discarded')
+        fake = Fake()
+        original_run = fake.run
+        def run(command):
+            if command.operation == 'jobs':
+                calls.append(name)
+                if name == 'default':
+                    assert tracked_status(original_entry)['state'] == ('running' if preserve else 'discarded')
+            return original_run(command)
+        fake.run = run
+        transports[name] = fake
+        return fake
+
+    def sleep(seconds):
+        clock.advance(seconds)
+        if clock.tick >= 6:
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(monitor.ConfigReload, 'read', first_read)
+    monkeypatch.setattr(monitor, 'MonitorTransport', build)
+    monkeypatch.setattr(monitor.time, 'sleep', sleep)
+    assert monitor.run(loaded, 60) == 0
+    assert len(accepted) == 1
+    result = tracked_status(original_entry)
+    assert result['request_id'] == accepted[0]['request_id']
+    assert result['requested_at'] == accepted[0]['requested_at']
+    assert result['state'] == ('finished' if preserve else 'discarded')
+    assert result['reason'] == (None if preserve else 'entry_removed' if change == 'removed' else 'config_changed')
+    assert result['finished_at'] is not None
+    assert not (root / monitor.REQUEST_FILE).exists()
+    if change == 'removed':
+        assert 'default' not in transports and 'default' not in calls
+        assert not (root / 'history.jsonl').exists()
+    else:
+        assert calls.count('default') == 1 and len(transports['default'].calls) == 3
+        snapshot = json.loads((root / 'latest.json').read_text())
+        history = [json.loads(line) for line in (root / 'history.jsonl').read_text().splitlines()]
+        assert len(history) == 1
+        assert snapshot['sampling']['trigger'] == history[0]['trigger'] == ('manual' if preserve else 'scheduled')
+        if preserve:
+            assert result['sampled_at'] == snapshot['sampled_at'] and result['ok'] is True
+    if not preserve:
+        assert result['sampled_at'] is None and result['ok'] is None
