@@ -103,7 +103,9 @@ def all_attempts(cfg, name=None):
     return result
 
 
-def prepare(cfg, *, study_name, template, input_path, tier, walltime, label, params=None, parents=None, method_basis, constraints=None, cluster='default', card=None, parent_chk=None, analysis=None, grid=None, fragments=None, transport=None):
+def prepare(cfg, *, study_name, template, input_path, tier, walltime, label, params=None, parents=None, method_basis, constraints=None, cluster='default', card=None, parent_chk=None, analysis=None, grid=None, fragments=None, transport=None, target_node=None, node_fraction=None):
+    from ag import node_targeting
+    binding = node_targeting.prepare(cfg, cluster, template, tier, target_node, node_fraction)
     cfg = select_cluster(cfg, cluster)
     if 'allowed_templates' in cfg and template not in cfg['allowed_templates']:
         allowed = ', '.join(cfg['allowed_templates']) or '(none)'
@@ -255,6 +257,8 @@ def prepare(cfg, *, study_name, template, input_path, tier, walltime, label, par
              pbs_job_name='ag' + sha256(attempt_id.encode()).hexdigest()[:12],
              remote_dir=f'{s.name}/{attempt_id}', parents=parents, created_at=journal.now(),
              ag_version=__version__, card=card_record, completion_receipts=True, science={**science, 'method_basis': method_basis})
+    if binding is not None:
+        m['node_target'] = binding
     if attachment is not None:
         m['parent_chk'] = attachment
     if auto_mem is not None:
@@ -284,6 +288,8 @@ def verified_files(cfg, path, manifest):
     m = manifest
     cfg = for_manifest(cfg, m)
     validate_walltime(cfg, m['walltime'])
+    from ag.node_targeting import validate_binding
+    validate_binding(cfg, m)
     script = 'job.slurm' if m.get('scheduler') == 'slurm' else 'job.pbs'
     resource = cfg['resources']['tiers'].get(m['tier'])
     if not resource or any(m[k] != resource[k] for k in ('cores', 'mem_gb')):
@@ -369,11 +375,13 @@ def summary(cfg, m):
     from ag import budget
     cost = (budget.summary(cfg, budget.requested(m)) if m.get('scheduler') == 'slurm'
             else cost_line(m))
+    from ag.node_targeting import summary as node_summary
     destination = f"Cluster: {m.get('cluster', 'default')}"
     if 'display_name' in cfg:
         destination = f"Cluster: {cfg['display_name']}（{m.get('cluster', 'default')}）"
     if m.get('scheduler') == 'slurm':
         destination += f"\n\nPartition: {cfg.get('partition', 'scheduler default')}"
+    destination += node_summary(m)
     shared_text = shared_cap_summary(cfg)
     if shared_text:
         destination += '\n\n' + shared_text

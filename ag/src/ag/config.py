@@ -70,7 +70,7 @@ def load_config(path=None, *, local_only=False):
                 if 'default' in cfg['clusters']:
                     raise ConfigError('Legacy configuration and clusters.default are ambiguous')
                 cfg['clusters']['default'] = {key: cfg[key] for key in ('ssh', 'remote', 'scheduler', 'programs', 'resources')}
-                for key in ('allowed_templates', 'display_name', 'display_order', 'scheduler_timezone', 'monitor_interval_seconds'):
+                for key in ('allowed_templates', 'display_name', 'display_order', 'scheduler_timezone', 'monitor_interval_seconds', 'node_targeting'):
                     if key in cfg:
                         cfg['clusters']['default'][key] = cfg[key]
             for name, cluster in cfg['clusters'].items():
@@ -201,6 +201,8 @@ def validate_cluster(cfg):
     scheduler = scheduler_kind(cfg)
     if scheduler not in ('pbs', 'slurm'):
         raise ConfigError('scheduler must be pbs or slurm')
+    from ag.node_targeting import validate_policy
+    validate_policy(cfg)
     if 'scheduler_timezone' in cfg:
         if scheduler != 'pbs':
             raise ConfigError('scheduler_timezone is only supported for PBS')

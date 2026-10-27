@@ -811,7 +811,17 @@ def known_sum(values):
 def pbs_hardware(cfg, transport, jobs):
     try:
         hardware = empty_hardware('pbsnodes')
-        nodes = parse_nodes(require_ok(transport.run(remote.nodes()), 'pbsnodes'), jobs, notes=hardware['notes'])
+        raw = require_ok(transport.run(remote.nodes()), 'pbsnodes')
+        nodes = parse_nodes(raw, jobs, notes=hardware['notes'])
+        if 'node_targeting' in cfg:
+            from ag.node_targeting import strict_nodes
+            try:
+                nodes = strict_nodes(raw, jobs)
+            except ValueError:
+                # Ambiguous targeting evidence must not erase the read-only view.
+                for node in nodes:
+                    node['targeting_consistent'] = False
+                hardware['notes'].append('Node targeting evidence is inconsistent; read-only display retained, targeting unavailable')
         if nodes:
             hardware.update(cores_total=sum(n['cores_total'] for n in nodes),
                             cores_allocated=sum(n['cores_used'] for n in nodes),

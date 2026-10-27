@@ -179,6 +179,8 @@ def check(cfg, path, transport):
     if hasattr(transport, 'record_to'):
         transport.record_to([path])
     m, current = attempt.read_manifest(path), state.read(path)
+    if current.get('node_placement', {}).get('state') == 'mismatch':
+        raise ValueError('Recorded target-node mismatch; human review required before further operations')
     journal.append(path.parent.parent, 'status', path.name, 'query', current['state'])
     if current['state'] == 'submitting':
         current = state.write(path, 'unknown', note='Interrupted submission; read-only reconciliation required')
@@ -191,7 +193,11 @@ def check(cfg, path, transport):
             if 'cluster' in m:
                 submission.record(path, m, job)
                 job = submission.qualified(m, job)
-            return state.write(path, 'submitted', job_id=job, note='Read-only scheduler reconciliation')
+            reconciled = state.write(path, 'submitted', job_id=job, note='Read-only scheduler reconciliation')
+            if 'node_target' in m:
+                from ag.node_targeting import retain_placement
+                return retain_placement(path, m, matches[0])
+            return reconciled
         require_ok(transport.run(remote.listing(cfg, m)), 'unknown directory inspection')
         journal.append(path.parent.parent, 'status', path.name, 'unknown', 'No unique scheduler evidence; human review required')
         return {**current, 'note': 'No unique scheduler evidence; remains unknown. Human review required.'}
@@ -211,6 +217,12 @@ def check(cfg, path, transport):
             raise ValueError('Scheduler state missing')
     elif not scheduler_absent(result):
         require_ok(result, 'qstat')
+    if 'node_target' in m:
+        from ag.node_targeting import retain_placement
+        evidence_job = job
+        if job is None and (start is not None or end is not None) and current.get('node_placement', {}).get('state') != 'verified':
+            evidence_job = {'job_state': 'C'}
+        retain_placement(path, m, evidence_job)
     scheduler = job.get('job_state') if job else None
     details = {'scheduler_state': scheduler, 'scheduler_residue': False,
                'receipts': {'start': start, 'exit': end}, 'cput': job.get('resources_used.cput') if job else None}

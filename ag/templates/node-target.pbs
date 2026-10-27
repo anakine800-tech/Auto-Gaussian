@@ -1,0 +1,12 @@
+# Named-node launch guard; stop before scratch creation or the program.
+set -eu
+test -n "$${PBS_NODEFILE:-}"
+test -f "$$PBS_NODEFILE"
+test ! -L "$$PBS_NODEFILE"
+ag_slots=0
+while IFS= read -r ag_node || test -n "$$ag_node"; do
+    test "$$ag_node" = "$target_node" || exit 43
+    ag_slots=$$((ag_slots + 1))
+done < "$$PBS_NODEFILE"
+test "$$ag_slots" -eq "$cores" || exit 43
+# This nodefile check proves neither CPU-index affinity nor exclusive access.
