@@ -52,6 +52,32 @@ def prepared(targeted):
     return cfg, attempt.find(cfg, m['attempt_id']), m
 
 
+@pytest.mark.parametrize('fraction,tier,cores,memory', [('1/2', 'general', 24, 40), ('1/4', 'mini', 12, 20)])
+def test_auto_cores_use_explicit_node_fraction_tier(targeted, fraction, tier, cores, memory):
+    cfg, args = targeted
+    source = args['input_path']
+    data = source.read_bytes().replace(b'%nprocshared=24\n%mem=40GB\n', b'')
+    source.write_bytes(data)
+    m = attempt.prepare(cfg, **(args | dict(node_fraction=fraction, tier=tier)))
+    path = attempt.find(cfg, m['attempt_id'])
+    assert m['cores'] == m['auto_nprocshared'] == cores
+    assert m['node_target']['fraction'] == fraction
+    assert attempt.verified_files(cfg, path, m)['water.gjf'] == (
+        f'%nprocshared={cores}\n%mem={memory}GB\n'.encode() + data)
+    assert source.read_bytes() == data
+
+
+@pytest.mark.parametrize('change', [dict(target_node='not-listed'), dict(tier='simple'),
+                                  dict(node_fraction='1/4'), dict(walltime='invalid')])
+def test_auto_cores_do_not_bypass_node_or_walltime_checks(targeted, change):
+    cfg, args = targeted
+    source = args['input_path']
+    source.write_bytes(source.read_bytes().replace(b'%nprocshared=24\n', b''))
+    with pytest.raises(ValueError):
+        attempt.prepare(cfg, **(args | change))
+    assert list((Path(cfg['local']['studies_root']) / 'target-demo/attempts').iterdir()) == []
+
+
 class TargetFake(Fake):
     def __init__(self, cfg):
         super().__init__(cfg)

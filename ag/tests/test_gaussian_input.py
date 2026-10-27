@@ -1,13 +1,15 @@
 """T13-1 Cartesian QST validation; synthetic geometries, no Gaussian execution."""
 from copy import deepcopy
 from hashlib import sha256
+from itertools import permutations
 import json
 from pathlib import Path
 
 import pytest
 
 from ag import attempt, gaussian_input, study
-from test_core import INPUT, cfg
+from test_core import INPUT, cfg, prepared
+from test_parent_chk import parent
 
 
 WATER = 'O 0 0 0\nH 0 0 1\nH 0 1 0'
@@ -23,6 +25,106 @@ def qst(mode=2, *, route=None, blocks=None):
 
 def validate(text):
     return gaussian_input.validate(text, 8, 12)
+
+
+@pytest.mark.parametrize('ending', [b'\n', b'\r\n'])
+@pytest.mark.parametrize('link0', list(permutations([b'%MeM = 10GB', b'%chk=water.chk', b'%oldchk=parent.chk'])))
+def test_fill_cores_preserves_link0_order_and_all_other_bytes(ending, link0):
+    data = ending.join(link0) + ending + b'# HF/STO-3G\n\nTitle %nprocshared=99\n\n0 1\n' + WATER.encode() + b'\n\n'
+    filled, cores = gaussian_input.fill_nprocshared(data, 8)
+    assert filled == b'%nprocshared=8' + ending + data and cores == 8
+    assert gaussian_input.fill_memory(filled, 8, 12) == (filled, None)
+    gaussian_input.validate(filled.decode(), 8, 12, parent_chk=True)
+
+
+@pytest.mark.parametrize('directive', [b'%nprocshared=8', b'%NpRoCsHaReD \t= 8 \t',
+    b'%nprocshared=99', b'%nprocshared=invalid', b'%nprocshared=', b'%nprocshared',
+    b'%nprocshared 8', b'%nprocshared=8\n%nprocshared=8'])
+def test_fill_cores_never_repairs_explicit_directive(directive):
+    data = b'%chk=water.chk\n' + directive + b'\n%mem=10GB\n#' + INPUT.split('#', 1)[1].encode()
+    assert gaussian_input.fill_nprocshared(data, 8) == (data, None)
+
+
+@pytest.mark.parametrize('data', [b'# HF/STO-3G %nprocshared=99\n',
+    b'# HF/STO-3G\n\n%nprocshared=99\n', b'# HF/STO-3G\n\nTitle\n\n0 1\n%nprocshared=99\n',
+    b'\n%nprocshared=99\n', b' %nprocshared=99\n'])
+def test_fill_cores_only_scans_initial_contiguous_link0(data):
+    assert gaussian_input.fill_nprocshared(data, 8) == (b'%nprocshared=8\n' + data, 8)
+
+
+def test_fill_cores_empty_input_stays_empty():
+    assert gaussian_input.fill_nprocshared(b'', 8) == (b'', None)
+
+
+@pytest.mark.parametrize('text,error', [
+    ('', 'nprocshared'), ('\n\r\n', 'Expected route'),
+    (INPUT.replace('nprocshared=8', 'nprocshared=4'), 'resource tier'),
+    (INPUT.replace('nprocshared=8', 'nprocshared=bad'), 'resource tier'),
+    (INPUT.replace('nprocshared=8', 'nprocshared='), 'Invalid Link0'),
+    (INPUT.replace('nprocshared=8', 'nprocshared 8'), 'Invalid Link0'),
+    ('%nprocshared=8\n' + INPUT, 'duplicate Link0'),
+    (INPUT.replace('%nprocshared=8\n', '%foo=8\n'), 'Unsupported'),
+    (INPUT.replace('%nprocshared=8\n', '').replace('water.chk', '../water.chk'), 'plain filename'),
+    ('%oldchk=../parent.chk\n' + INPUT.replace('%nprocshared=8\n', ''), 'plain filename'),
+    (INPUT.replace('%nprocshared=8\n', '').replace('10GB', '11GB'), '85%'),
+    (INPUT.replace('%nprocshared=8\n', '').replace('10GB', 'invalid'), '%mem'),
+    (INPUT.replace('%nprocshared=8\n', '').replace('0 1\n', '0 2\n'), 'parity'),
+    (qst(2).replace('%nprocshared=8\n', '').replace('Water group 2\n\n0 1', 'Water group 2\n\n0 3'), 'multiplicity differs'),
+    (qst(3).replace('%nprocshared=8\n', '').replace('Water group 3\n\n0 1', 'Water group 3\n\n0 3'), 'multiplicity differs'),
+])
+def test_fill_cores_invalid_prepare_never_allocates(cfg, tmp_path, text, error):
+    study.init(cfg, 'fill-invalid')
+    source = tmp_path / 'water.gjf'
+    source.write_bytes(text.encode())
+    with pytest.raises(ValueError, match=error):
+        attempt.prepare(cfg, study_name='fill-invalid', template='gaussian', input_path=source,
+                        tier='simple', walltime='00:05:00', label='sp', method_basis='Synthetic fallback')
+    assert source.read_bytes() == text.encode()
+    assert list((Path(cfg['local']['studies_root']) / 'fill-invalid/attempts').iterdir()) == []
+
+
+@pytest.mark.parametrize('mode', [1, 2, 3])
+@pytest.mark.parametrize('missing_memory', [False, True])
+def test_fill_cores_single_and_qst_titles_are_not_link0(cfg, tmp_path, mode, missing_memory):
+    study.init(cfg, 'fill-qst')
+    text = (INPUT if mode == 1 else qst(mode)).replace('%nprocshared=8\n', '')
+    text = text.replace('Water smoke' if mode == 1 else 'Water group 1', '%nprocshared=99')
+    if missing_memory:
+        text = text.replace('%mem=10GB\n', '')
+    source = tmp_path / 'water.gjf'
+    source.write_text(text)
+    m = attempt.prepare(cfg, study_name='fill-qst', template='gaussian', input_path=source,
+                        tier='simple', walltime='00:05:00', label='sp', method_basis='Synthetic fallback')
+    path = attempt.find(cfg, m['attempt_id'])
+    expected = ('%nprocshared=8\n' + ('%mem=10GB\n' if missing_memory else '') + text).encode()
+    assert attempt.verified_files(cfg, path, m)['water.gjf'] == expected
+    assert m['auto_nprocshared'] == 8 and source.read_bytes() == text.encode()
+    if mode > 1:
+        assert m['science']['qst_mode'] == f'QST{mode}'
+        assert len(m['science']['structures']) == mode
+
+
+@pytest.mark.parametrize('missing_memory', [False, True])
+def test_fill_cores_declared_parent_chk_preserves_source_and_binding(cfg, tmp_path, parent, missing_memory):
+    parent_path, _ = parent
+    before = {p: p.read_bytes() for p in parent_path.rglob('*') if p.is_file()}
+    data = ('%oldchk=parent.chk\n' + INPUT.replace('%nprocshared=8\n', '').replace(
+        ' SP', ' guess=read irc=(rcfc,forward)'))
+    if missing_memory:
+        data = data.replace('%mem=10GB\n', '')
+    source = tmp_path / 'child.gjf'
+    source.write_text(data)
+    m = attempt.prepare(cfg, study_name='smoke', template='gaussian', input_path=source,
+                        tier='simple', walltime='00:05:00', label='child', method_basis='Synthetic fallback',
+                        parents=[dict(attempt_id=parent_path.name, relation='irc_from')],
+                        parent_chk=parent_path.name + ':water.chk')
+    path = attempt.find(cfg, m['attempt_id'])
+    files = attempt.verified_files(cfg, path, m)
+    expected = ('%nprocshared=8\n' + ('%mem=10GB\n' if missing_memory else '') + data).encode()
+    assert files['child.gjf'] == expected and source.read_bytes() == data.encode()
+    assert m['auto_nprocshared'] == 8 and m['parent_chk']['attempt_id'] == parent_path.name
+    assert 'parent.chk' not in files
+    assert before == {p: p.read_bytes() for p in before}
 
 
 @pytest.mark.parametrize('mode', [2, 3])

@@ -1,6 +1,7 @@
 """T112: synthetic resources, local histories, config reloads and timeout recovery."""
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
+from hashlib import sha256
 import json
 from pathlib import Path
 import subprocess
@@ -31,28 +32,87 @@ def prepare(cfg, tmp_path, *, tier='general', text=None, template='gaussian', **
     (4, 10, 8), (8, 12, 10), (22, 50, 42), (44, 120, 88),
     (8, 16, 13), (16, 32, 27), (24, 48, 40), (36, 72, 61),
 ])
-def test_memory_tiers_and_bundle(cfg, tmp_path, cores, mem, expected):
+@pytest.mark.parametrize('missing_cores', [False, True])
+def test_memory_tiers_and_bundle(cfg, tmp_path, cores, mem, expected, missing_cores):
     cfg['resources']['tiers']['general'] = dict(cores=cores, mem_gb=mem)
-    path, m = prepare(cfg, tmp_path)
+    text = INPUT.replace('%mem=10GB\n', '').replace('nprocshared=8', f'nprocshared={cores}')
+    if missing_cores:
+        text = text.replace(f'%nprocshared={cores}\n', '')
+    path, m = prepare(cfg, tmp_path, text=text.encode())
     data = (path / 'inputs/water.gjf').read_bytes()
     assert data.startswith(f'%nprocshared={cores}\n%mem={expected}GB\n'.encode())
     assert b'%mem' not in (tmp_path / 'water.gjf').read_bytes()
     assert m['auto_mem_gb'] == expected
+    assert m.get('auto_nprocshared') == (cores if missing_cores else None)
     assert f'%mem 由 ag 自动填写：{expected} GB（规则 R1）' in attempt.summary(cfg, m)
     assert attempt.verified_files(cfg, path, m)['water.gjf'] == data
     assert 'resource_references' not in json.loads((path / 'manifest.json').read_text())
 
 
-def test_existing_bytes_and_old_bundle(cfg, tmp_path):
+def test_existing_bytes_and_old_bundle(cfg, tmp_path, monkeypatch):
     data = INPUT.replace('nprocshared=8', 'nprocshared=22').replace('10GB', '30GB').replace(
         '\n', '\r\n').encode()
     path, m = prepare(cfg, tmp_path, text=data)
     assert 'auto_mem_gb' not in m
+    assert 'auto_nprocshared' not in m
     assert (path / 'inputs/water.gjf').read_bytes() == data
-    # An old manifest has no auto-memory metadata; verification is unchanged.
-    assert attempt.verified_files(cfg, path, m)['water.gjf'] == data
+    # Verification must never invoke either fill step or rewrite an old bundle.
+    before = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in path.rglob('*') if p.is_file()}
+    with monkeypatch.context() as guard:
+        def no_fill(*args, **kwargs):
+            pytest.fail('saved bundles must not be filled again')
+        guard.setattr(gaussian_input, 'fill_nprocshared', no_fill)
+        guard.setattr(gaussian_input, 'fill_memory', no_fill)
+        assert attempt.verified_files(cfg, path, attempt.read_manifest(path))['water.gjf'] == data
+        assert '由 ag 自动填写' not in attempt.summary(cfg, m)
+    assert before == {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in before}
     with pytest.raises(ValueError, match='85%'):
         prepare(cfg, tmp_path, text=data.replace(b'30GB', b'43GB'))
+    (path / 'inputs/water.gjf').write_bytes(data.replace(b'%nprocshared=22\r\n', b''))
+    with pytest.raises(ValueError, match='Input bundle differs'):
+        attempt.verified_files(cfg, path, m)
+
+
+@pytest.mark.parametrize('cluster,cores', [('default', 8), ('batch', 16)])
+@pytest.mark.parametrize('ending', ['\n', '\r\n'])
+@pytest.mark.parametrize('missing_cores,missing_memory', [(True, True), (True, False),
+                                                       (False, True), (False, False)])
+def test_resource_fill_selected_entry_bytes_and_hashes(multi, tmp_path, cluster, cores,
+                                                       ending, missing_cores, missing_memory):
+    multi['clusters']['batch']['resources']['tiers']['simple'] = dict(cores=16, mem_gb=32)
+    study.init(multi, 'fill-test')
+    core_line = f'%NpRoCsHaReD \t= {cores} \t{ending}'.encode()
+    memory_line = f'%MeM \t= 8000MB \t{ending}'.encode()
+    body = INPUT.split('#', 1)[1]
+    source_data = ((b'' if missing_cores else core_line) + (b'' if missing_memory else memory_line)
+                   + ('%chk=water.chk\n#' + body).replace('\n', ending).encode())
+    source = tmp_path / 'water.gjf'
+    source.write_bytes(source_data)
+    source_hash = sha256(source_data).hexdigest()
+    m = attempt.prepare(multi, study_name='fill-test', template='gaussian', input_path=source,
+                        tier='simple', cluster=cluster, walltime='00:10:00', label='sp',
+                        method_basis='Synthetic fallback')
+    path = attempt.find(multi, m['attempt_id'])
+    filled_core = f'%nprocshared={cores}{ending}'.encode() if missing_cores else core_line
+    expected_memory = 10 if cluster == 'default' else 27
+    filled_memory = f'%mem={expected_memory}GB{ending}'.encode() if missing_memory else memory_line
+    expected = filled_core + filled_memory + ('%chk=water.chk\n#' + body).replace('\n', ending).encode()
+    assert (path / 'inputs/water.gjf').read_bytes() == expected
+    assert source.read_bytes() == source_data and sha256(source.read_bytes()).hexdigest() == source_hash
+    assert m.get('auto_nprocshared') == (cores if missing_cores else None)
+    assert m.get('auto_mem_gb') == (expected_memory if missing_memory else None)
+    assert ('auto_nprocshared' in m) is missing_cores
+    assert ('auto_mem_gb' in m) is missing_memory
+    summary = attempt.summary(multi, m)
+    assert (f'%nprocshared 由 ag 自动填写：{cores}' in summary) is missing_cores
+    assert ('%mem 由 ag 自动填写' in summary) is missing_memory
+    assert sha256(expected).hexdigest() in summary
+    files = attempt.verified_files(multi, path, attempt.read_manifest(path))
+    assert files['water.gjf'] == expected
+    records = [dict(name=name, size=len(data), sha256=sha256(data).hexdigest())
+               for name, data in sorted(files.items())]
+    digest = sha256(''.join(f"{r['name']}\0{r['sha256']}\n" for r in records).encode()).hexdigest()
+    assert m['inputs'] == records and m['bundle_sha256'] == digest
 
 
 def test_link0_only_and_line_endings():

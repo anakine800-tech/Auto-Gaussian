@@ -174,7 +174,7 @@ TS 族必须双路线：约束 CREST 与按特定相互作用/进攻方向假设
    ```
    峰附近有警告先人工审阅，不自动换峰；一维可用 `--point <序号>` 指定另一个合格局部峰；沿程点多为受约束非驻点，成键差异不证明极小点身份；诊断阈值只决定是否列出。scan-path 不支持二维，二维 scan-peak 仍须显式 `--point <i,j>` 并人工审阅。
    QST 两端须已 fetched 且优化收敛，映射文件含完整 `product_to_reactant`；对称等价排列歧义报错后，人改映射或以 `--keep-mapping --reason '<理由>'` 明确保留。只做正规旋转和平移，不镜像、不推断映射；审阅 RMSD、位移、每段电荷多重度及实际行顺序。新取向不能读取旧 chk 的 Cartesian 力常数。
-   生成命令不自动 prepare 或提交；扫描草稿的电荷、多重度取自 manifest。人须逐项审阅几何、方法、电荷与多重度及立体警告。草稿不含 Link0；按现有规则补 Link0 后再 prepare，至少补匹配档位的 `%nprocshared`，`%mem` 可由 prepare 补齐。route 由人或卡片从已审阅方法表填写，扫描草稿拒绝扫描/冻结关键词和父 chk 力常数读取。手工或文献结构也按同样要求审阅，再走第 3 步。随后仍须解除扫描约束，完成 TS 优化、Freq、恰好一个虚频的检查、振动方向人工审核及双向 IRC 端点识别；扫描局部极大自身不能判定 TS。
+   生成命令不自动 prepare 或提交；扫描草稿的电荷、多重度取自 manifest。人须逐项审阅几何、方法、电荷与多重度及立体警告。草稿不含 Link0，也未选择资源；人先明确档位与 walltime，prepare 可补缺失的 `%nprocshared` 和 `%mem`，其他所需 Link0 仍由人明确填写。route 由人或卡片从已审阅方法表填写，扫描草稿拒绝扫描/冻结关键词和父 chk 力常数读取。手工或文献结构也按同样要求审阅，再走第 3 步。随后仍须解除扫描约束，完成 TS 优化、Freq、恰好一个虚频的检查、振动方向人工审核及双向 IRC 端点识别；扫描局部极大自身不能判定 TS。
    来源：[T133](../../../docs/redesign-tasks/T133-scan-peak-ts-input.md)、[T134](../../../docs/redesign-tasks/T134-endpoint-qst2.md)、[T136](../../../docs/redesign-tasks/T136-scan-path.md)。
 
 3. **登记候选。**默认不登记候选；可在第 2 步 scan-peak 或 qst-endpoints 命令末尾加 `--register-candidate --object <对象> --candidate-id <候选> --target-channel <通道>`；或者独立登记已审阅的 XYZ：

@@ -149,8 +149,10 @@ def prepare(cfg, *, study_name, template, input_path, tier, walltime, label, par
         attachment = declare(cfg, s, template, parents or [], parent_chk)
     nci_files = None
     cp_fragments = None
+    auto_nprocshared = None
     auto_mem = None
     if template in ('gaussian', 'gaussian-cp'):
+        data, auto_nprocshared = gaussian_input.fill_nprocshared(data, resource['cores'])
         data, auto_mem = gaussian_input.fill_memory(data, **resource)
     if template == 'multiwfn':
         from ag.nci_report import prepare_inputs
@@ -261,6 +263,8 @@ def prepare(cfg, *, study_name, template, input_path, tier, walltime, label, par
         m['node_target'] = binding
     if attachment is not None:
         m['parent_chk'] = attachment
+    if auto_nprocshared is not None:
+        m['auto_nprocshared'] = auto_nprocshared
     if auto_mem is not None:
         m['auto_mem_gb'] = auto_mem
     script = 'job.slurm' if m['scheduler'] == 'slurm' else 'job.pbs'
@@ -434,9 +438,11 @@ def cost_line(m):
 
 
 def resource_summary(cfg, m):
+    cores = (f"%nprocshared 由 ag 自动填写：{m['auto_nprocshared']}\n\n"
+             if 'auto_nprocshared' in m else '')
     memory = (f"%mem 由 ag 自动填写：{m['auto_mem_gb']} GB（规则 R1）\n\n"
               if 'auto_mem_gb' in m else '')
-    return memory + resource_references(cfg, m)
+    return cores + memory + resource_references(cfg, m)
 
 
 def resource_references(cfg, target):
