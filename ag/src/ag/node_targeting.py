@@ -167,6 +167,7 @@ def candidates(cfg, cluster='default', *, now=None):
     if not isinstance(rows, list) or any(not isinstance(r, dict) for r in rows):
         rows = []
     policy = selected['node_targeting']
+    groups = {n: i + 1 for i, group in enumerate(policy['priority']) for n in group}
     order = [n for g in policy['priority'] for n in g]
     order += [n for n in policy['denied_nodes'] if n not in order]
     result = []
@@ -187,7 +188,8 @@ def candidates(cfg, cluster='default', *, now=None):
                 o['tier'] = None
         if status == 'available' and not any(o['tier'] for o in opts):
             status, reason = 'insufficient', 'No configured tier fits this node and fraction'
-        result.append(dict(name=name, priority=i + 1, status=status, reason=reason, options=opts))
+        result.append(dict(name=name, priority_group=groups.get(name), order=i + 1,
+                           priority=i + 1, status=status, reason=reason, options=opts))
     valid_until = ((datetime.fromisoformat(snapshot['sampled_at']) +
                     timedelta(seconds=3 * data['interval_seconds'])).isoformat()
                    if snapshot['fresh'] else None)
@@ -256,9 +258,11 @@ def placement(m, job):
     b = m['node_target']
     hosts = job.get('exec_host', '') if job else ''
     evidence = dict(target=b['name'], exec_host=hosts, state='pending')
-    if not hosts:
-        if job and job.get('job_state') in ('R', 'E', 'C', 'S'):
-            evidence['state'] = 'unverified'
+    if job is None or job.get('job_state') in ('Q', 'H', 'W', 'T'):
+        return evidence
+    # An allocated exec_host on a queued job is not evidence of execution.
+    if job.get('job_state') not in ('R', 'E', 'S', 'C') or not hosts:
+        evidence['state'] = 'unverified'
         return evidence
     count, names, slots_by_node = 0, set(), {}
     try:
@@ -290,7 +294,7 @@ def retain_placement(path, m, job):
     evidence['observed_at'] = datetime.now(timezone.utc).isoformat()
     # Never erase earlier verified execution identity after scheduler cleanup.
     previous = current.get('node_placement', {})
-    if previous.get('state') == 'verified' and (not job or (job.get('job_state') == 'C' and not job.get('exec_host'))):
+    if previous.get('state') == 'verified' and (job is None or (job.get('job_state') == 'C' and not job.get('exec_host'))):
         return current
     result = state.write(path, current['state'], node_placement=evidence,
                          exit_status=current.get('exit_status'), note=current.get('note'))

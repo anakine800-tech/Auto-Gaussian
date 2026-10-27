@@ -6,7 +6,7 @@ from pathlib import Path
 import subprocess
 
 import pytest
-from ag import approval, attempt, config, confirm, node_targeting as nt, render, state, status, study, submit
+from ag import approval, attempt, config, confirm, monitor, node_targeting as nt, render, state, status, study, submit
 from ag.transport import Result, TransportError
 from test_core import cfg, Fake
 
@@ -86,6 +86,8 @@ def test_order_default_binding_and_render(targeted):
     c = nt.candidates(cfg)
     assert [n['name'] for n in c['nodes']] == ['compute-b','compute-a','compute-c','compute-fast','compute-last','login-a']
     assert [n['priority'] for n in c['nodes']] == list(range(1,7))
+    assert [n['order'] for n in c['nodes']] == list(range(1,7))
+    assert [n['priority_group'] for n in c['nodes']] == [1,1,2,3,4,None]
     assert c['nodes'][-1]['status'] == 'forbidden'
     assert c['nodes'][3]['status'] == 'restricted'
     assert m['node_target'] == dict(name='compute-a', fraction='1/2', slots=48, queue='batch')
@@ -95,6 +97,67 @@ def test_order_default_binding_and_render(targeted):
     assert 'PBS_NODEFILE' in script
     assert script.index('Named-node launch guard') < script.index('mkdir -- "$scratch"')
     assert attempt.verified_files(cfg,path,m)
+
+
+def test_priority_groups_and_member_order_are_preserved(targeted):
+    cfg, _ = targeted
+    cfg['node_targeting'] = dict(allowed_nodes=list('ABCDEFGH'), denied_nodes=['I'],
+                                priority=[list('ABC'), ['D'], ['E'], list('FG'), ['H']],
+                                restricted_nodes=['G'])
+    rows = [dict(nt.strict_nodes(nodes(), [])[0], name=name) for name in 'ABCDEFGHI']
+    snapshot(cfg, rows)
+    result = nt.candidates(cfg)['nodes']
+    assert [r['name'] for r in result] == list('ABCDEFGHI')
+    assert [r['priority_group'] for r in result] == [1,1,1,2,3,4,4,5,None]
+    assert [r['order'] for r in result] == list(range(1,10))
+    assert all(r['priority'] == r['order'] for r in result)
+    assert result[6]['status'] == 'restricted'
+    assert result[7]['status'] == 'available' and result[8]['status'] == 'forbidden'
+    # Denying an allowlisted member retains its original group, but deny wins.
+    cfg['node_targeting']['denied_nodes'].append('B')
+    denied = nt.candidates(cfg)['nodes'][1]
+    assert denied['priority_group'] == 1 and denied['status'] == 'forbidden'
+
+
+def test_strict_monitor_failure_keeps_readonly_nodes_but_blocks_targeting(targeted, monkeypatch):
+    cfg, path, m = prepared(targeted)
+    fake = TargetFake(cfg)
+    baseline, baseline_hardware = monitor.pbs_hardware(
+        {k:v for k,v in cfg.items() if k != 'node_targeting'}, fake, [])
+    before = (path/'manifest.json').read_bytes()
+
+    def inconsistent(*args):
+        raise ValueError('Synthetic strict evidence failure')
+
+    monkeypatch.setattr(nt, 'strict_nodes', inconsistent)
+    start = len(fake.calls)
+    rows, hardware = monitor.pbs_hardware(cfg, fake, [])
+    assert rows == [r | dict(targeting_consistent=False) for r in baseline]
+    assert {k:v for k,v in hardware.items() if k != 'notes'} == {
+        k:v for k,v in baseline_hardware.items() if k != 'notes'}
+    assert any('targeting unavailable' in note for note in hardware['notes'])
+    assert [c.operation for c in fake.calls[start:]] == ['nodes']
+    snapshot(cfg, rows)
+    assert nt.candidates(cfg)['nodes'][1]['status'] == 'unknown'
+    monkeypatch.setattr(confirm, 'confirm', lambda _: True)
+    with pytest.raises(ValueError, match='strict evidence'):
+        submit.submit(cfg, [m['attempt_id']], fake)
+    assert (path/'manifest.json').read_bytes() == before
+    assert not (path/'.submit-claim').exists() and 'submit' not in fake.operations()
+
+
+def test_duplicate_node_identity_keeps_monitor_display_and_fails_closed(targeted):
+    cfg, _ = targeted
+    fake = TargetFake(cfg)
+    fake.node_text = nodes() + nodes()
+    rows, hardware = monitor.pbs_hardware(cfg, fake, [])
+    assert len(rows) == 2 and hardware['cores_total'] == 96
+    assert all(nt.idle(row)[0] == 'unknown' for row in rows)
+    assert hardware['notes'] and 'targeting unavailable' in hardware['notes'][-1]
+    snapshot(cfg, rows)
+    assert nt.candidates(cfg)['nodes'][1]['status'] == 'unknown'
+    with pytest.raises(ValueError, match='duplicate'):
+        nt.strict_nodes(fake.node_text, [])
 
 
 @pytest.mark.parametrize('age,ok', [(181,True),(0,False),(-5,True)])
@@ -175,11 +238,13 @@ def test_immutable_binding_tamper(targeted, mutation):
         attempt.verified_files(cfg,path,altered)
 
 
-@pytest.mark.parametrize('placement,expected', [('', 'pending'),('compute-a/0-23','verified'),
-    ('compute-b/0-23','mismatch'),('compute-a/0-11+compute-b/0-11','mismatch'),('compute-a/0-47','mismatch')])
-def test_post_acceptance_placement(targeted, monkeypatch, placement, expected):
+@pytest.mark.parametrize('job_state,placement,expected', [('Q','', 'pending'),('Q','compute-a/0-23','pending'),
+    ('R','compute-a/0-23','verified'),('R','compute-b/0-23','mismatch'),
+    ('R','compute-a/0-11+compute-b/0-11','mismatch'),('R','compute-a/0-47','mismatch')])
+def test_post_acceptance_placement(targeted, monkeypatch, job_state, placement, expected):
     cfg,path,m = prepared(targeted); fake=TargetFake(cfg)
-    fake.job=Result(stdout=f"Job Id: 123.fixture\n    Job_Name = {m['pbs_job_name']}\n    job_state = {'R' if placement else 'Q'}\n"+
+    before = (path/'manifest.json').read_bytes()
+    fake.job=Result(stdout=f"Job Id: 123.fixture\n    Job_Name = {m['pbs_job_name']}\n    job_state = {job_state}\n"+
                     (f'    exec_host = {placement}\n' if placement else ''))
     monkeypatch.setattr(confirm,'confirm',lambda _:True)
     if expected=='mismatch':
@@ -194,7 +259,45 @@ def test_post_acceptance_placement(targeted, monkeypatch, placement, expected):
     assert state.read(path)['node_placement']['state']==expected
     assert state.read(path)['state']=='submitted'
     assert (path/'submission.json').exists() and (path/'.submit-claim').exists()
+    assert (path/'manifest.json').read_bytes() == before
+    assert attempt.verified_files(cfg,path,m)
     assert fake.operations().count('submit')==1 and 'cancel' not in fake.operations()
+
+
+@pytest.mark.parametrize('job_state', ['Q','H','W','T'])
+@pytest.mark.parametrize('hosts', ['', 'compute-a/0-23', 'compute-b/0-23', 'malformed'])
+def test_nonrunning_placement_is_pending_even_with_exec_host(job_state, hosts):
+    m = dict(node_target=dict(name='compute-a'), cores=24)
+    assert nt.placement(m, dict(job_state=job_state, exec_host=hosts))['state'] == 'pending'
+
+
+@pytest.mark.parametrize('job_state', ['R','E','S','C'])
+@pytest.mark.parametrize('hosts,expected', [('', 'unverified'), ('compute-a/0-23','verified'),
+    ('compute-b/0-23','mismatch'), ('compute-a/0-22','mismatch'), ('malformed','mismatch'),
+    ('compute-a/0-11+compute-a/0-11','mismatch')])
+def test_running_and_completed_placement_requires_exact_evidence(job_state, hosts, expected):
+    m = dict(node_target=dict(name='compute-a'), cores=24)
+    assert nt.placement(m, dict(job_state=job_state, exec_host=hosts))['state'] == expected
+
+
+@pytest.mark.parametrize('job_state', [None, '', 'X', 'r', ' R', 0])
+def test_missing_or_abnormal_scheduler_state_never_verifies(job_state):
+    m = dict(node_target=dict(name='compute-a'), cores=24)
+    job = dict(exec_host='compute-a/0-23')
+    if job_state is not None:
+        job['job_state'] = job_state
+    assert nt.placement(m, job)['state'] == 'unverified'
+
+
+@pytest.mark.parametrize('job', [{}, dict(job_state='X',exec_host='compute-a/0-23')])
+def test_invalid_observation_does_not_retain_verified_as_current(targeted, job):
+    _,path,m = prepared(targeted)
+    state.write(path,'submitting');state.write(path,'submitted',job_id='123.fixture')
+    nt.retain_placement(path,m,dict(job_state='R',exec_host='compute-a/0-23'))
+    with pytest.raises(ValueError,match='not verified'):
+        nt.retain_placement(path,m,job)
+    assert state.read(path)['state'] == 'submitted'
+    assert state.read(path)['node_placement']['state'] == 'unverified'
 
 
 def test_second_computer_observed_request_blocks_without_claim(targeted, monkeypatch):
@@ -278,7 +381,7 @@ def test_pending_then_verified_and_disappeared_evidence_is_retained(targeted):
     prior=state.read(path)
     assert nt.retain_placement(path,m,None)==prior
     assert nt.retain_placement(path,m,dict(job_state='C'))==prior
-    assert nt.placement(m,dict(exec_host='compute-a/0-11+compute-a/0-11'))['state']=='mismatch'
+    assert nt.placement(m,dict(job_state='R',exec_host='compute-a/0-11+compute-a/0-11'))['state']=='mismatch'
 
 
 def test_cli_discovery_local_only_and_no_implicit_target(targeted,monkeypatch,capsys):

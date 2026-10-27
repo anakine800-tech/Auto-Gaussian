@@ -815,7 +815,13 @@ def pbs_hardware(cfg, transport, jobs):
         nodes = parse_nodes(raw, jobs, notes=hardware['notes'])
         if 'node_targeting' in cfg:
             from ag.node_targeting import strict_nodes
-            nodes = strict_nodes(raw, jobs)
+            try:
+                nodes = strict_nodes(raw, jobs)
+            except ValueError:
+                # Ambiguous targeting evidence must not erase the read-only view.
+                for node in nodes:
+                    node['targeting_consistent'] = False
+                hardware['notes'].append('Node targeting evidence is inconsistent; read-only display retained, targeting unavailable')
         if nodes:
             hardware.update(cores_total=sum(n['cores_total'] for n in nodes),
                             cores_allocated=sum(n['cores_used'] for n in nodes),

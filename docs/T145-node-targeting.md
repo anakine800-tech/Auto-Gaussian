@@ -13,12 +13,22 @@ An old unbound Attempt is refused on a newly opted-in entry, leaving it unchange
 
 `ag nodes --cluster ENTRY --json` reads the local monitor cache without SSH or
 writes. Its `ag-node-targets/1` response includes `fresh`, `sampled_at`,
-`valid_until`, ordered nodes with `priority`, `status`, `reason` and `options`.
+`valid_until`, ordered nodes with `priority_group`, `order`, `priority`, `status`,
+`reason` and `options`. `priority_group` is the original 1-based configured group;
+deny-only names appended after the allowlist have null group. `order` is the
+1-based overall sequence, preserving order within each group. `priority` remains
+an alias of `order` for compatibility; it is not a group number. For synthetic
+groups `[A,B,C], [D], [E], [F,G], [H]` and deny-only `I`, groups are
+`1,1,1,2,3,4,4,5,null` and order is `1..9`. Deny wins even for grouped names.
 Each option has `fraction`, `cores`, `mem_gb` and a matching configured `tier`, or
 null if no tier fits. Failed/expired snapshots never authorize preparation.
 The normal monitor adds consistency fields for opted-in nodes using its existing
 PBS node/job queries; no extra per-node SSH is used. The first upgraded snapshot
 is required; older snapshots without consistency evidence remain unknown.
+If strict targeting parsing fails, the ordinary read-only node display and its
+hardware fields are retained with a diagnostic note. All retained nodes are
+marked inconsistent for targeting; neither recommendations nor live admission
+can use this fallback to authorize a submission. No extra query is introduced.
 
 Prepare requires `--target-node NAME` and accepts `--node-fraction 1/2` (default)
 or `1/4`. Half/quarter of registered slots must divide exactly, with two GB per
@@ -36,12 +46,16 @@ request; no node substitution or automatic retry occurs. A late failure retains
 the consumed Claim and failed-presubmit state, as in the existing lifecycle.
 
 After scheduler acceptance the job binding is retained even if the placement
-query fails. `node_placement` in status is pending while queued, verified only
-when exact exec_host names and slot counts match, and mismatch/unverified when
-the evidence is wrong or insufficient. Mismatch stops later status processing;
+query fails. `node_placement` is pending for Q/H/W/T, even when exec_host already
+appears. Only R/E/S or completed C with complete scheduler allocation history
+can be verified, and exact exec_host names and slot counts must match. Missing
+allocation or missing/abnormal job state is unverified; conflicting allocation
+is mismatch. Both mismatch and unverified stop later status processing;
 no automatic cancellation is added. Program launch also checks the scheduler's
 PBS_NODEFILE before creating scratch or starting Gaussian. Unknown short-lived
 jobs without observed placement are not declared placement-verified.
+Previously verified execution evidence is retained after scheduler disappearance
+or a C record without allocation; a malformed present record is not disappearance.
 
 ## Limits requiring separate site acceptance
 
