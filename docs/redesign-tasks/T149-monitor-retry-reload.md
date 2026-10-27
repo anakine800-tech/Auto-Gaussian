@@ -37,7 +37,7 @@
    - `state: "queued" | "running" | "finished" | "discarded"`；
    - `reason: null | "auth_confirmation_required" | "entry_removed" | "config_changed" | "monitor_restarted"`；
    - `finished_at: UTC ISO | null`、`sampled_at: UTC ISO | null`、`ok: boolean | null`。
-6. queued/running：后三项为 null，reason 为 null。finished：真实采样及快照发布完成后写入，finished_at、sampled_at 非空、ok 为本轮真实布尔值、reason 为 null。discarded：未执行该请求，finished_at 非空，sampled_at/ok 为 null，reason 必须为上述具体原因；不是作业取消。
+6. queued/running：后三项为 null，reason 为 null。finished：真实采样及快照发布完成后写入，finished_at、sampled_at 非空、ok 为本轮真实布尔值、reason 为 null。discarded：本条追踪请求已终止，不再继续处理或重放；finished_at 非空，sampled_at/ok 为 null，reason 必须为上述具体原因；不是作业取消。auth_confirmation_required、entry_removed、config_changed 表示待处理请求未执行。monitor_restarted 表示监控已重启，本次请求结果尚未确认；重启前已为 running 时可能已经查询，但没有可确认的发布完成结果，不能据此断言从未执行。
 7. 状态原子发布，在现有 `watch.lock` 下与登记/领取串行处理。未采样不得更新 `latest.json.sampled_at`、`last_ok_at`、`ok`，不得往采样 history 添加假轮次。正常定时采样不覆盖上一条追踪终态；收到新请求可以替换最近状态。
 8. 新前端仅在同一已核对根下、心跳新鲜且来源唯一的版本 1 标记存在时使用 --track。旧标记缺失则使用原命令；未知/损坏版本不能宣称支持。若调用失败，不再次换命令登记请求。标记只能表示能力；真正是否运行、能否受理由 ag 原有检查决定。
 9. 前端 `GET /api/monitor` 的每个 ClusterRow 增加可选 `retry_tracking_supported: boolean`、`retry_status: object | null`、`retry_status_error: string | null`。数据来自同一 name/source 的本地控制文件，绝不混入保存的 ag-monitor/1 快照；即使还没有快照或入口已移除，已有控制结果仍可展示。
@@ -112,6 +112,7 @@ T148 先合并；T149 再合并；T151 合并前按 T149 最终字段核对并�
 ## 9. 版本记录
 
 - v1.0：负责人选择本批同时补前端反馈，增加与 T151 的最小追踪接口；保留旧默认四字段协议。
+- v1.1（2026-10-27，T152）：仅澄清共用字段第 6 项的重启语义；重启前 running 可能已查询，结果尚未确认，不重放。字段、状态枚举、CLI、磁盘格式和运行逻辑不变；历史验收记录保留，待 T153 同步 T151 后逐字比较完整共用字段块。
 
 ## 10. 实现与验收记录
 

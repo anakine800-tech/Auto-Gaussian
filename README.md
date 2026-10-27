@@ -1,6 +1,8 @@
-# Auto-Gaussian v4.6.2
+# Auto-Gaussian v4.6.3
 
 Auto-Gaussian 是人在回路中的计算化学助手：LLM 按 Skills 规划研究，人签字和确认，`ag` 负责安全把关与确定性计算。
+
+本次 v4.6.3 发布准备汇总已合并的 T148 PBS 监控准确性、T149 重试追踪与配置重读、T150 新 Gaussian 输入资源补齐；配套前端 v4.6.3 汇总 T147 显示修补与 T151 请求反馈，由 T153 独立准备。发布准备与已合入功能不代表已发布或已部署，详情见 [v4.6.3 发布说明](CHANGELOG.md#v463)。
 
 ## 架构
 
@@ -387,8 +389,8 @@ TS 必须恰好一个虚频且振动方向与反应坐标一致；只有双向 I
 
 ## 前端
 
-ag 4.6.2 配合前端 [Auto-Gaussian-Frontend](https://github.com/anakine800-tech/Auto-Gaussian-Frontend) v4.6.2 使用；两边同号发布，启动方式见其 README。T145 具名 PBS 节点能力仅对显式配置入口启用，必须明确选择节点；分组、实时复查与现场限制见 [节点说明](docs/T145-node-targeting.md)。发布候选须经审阅后按明确授权发布，部署与真实计算分别验收。
-已只读核对前端 main（`e224d5a`）：结果表读取 `route`、`termination`、`energies.scf`、`energies.g`、`n_imag` 和 `frequencies_low`，这些字段未改名或删除；缺失值显示为空。
+ag 4.6.3 配合前端 [Auto-Gaussian-Frontend](https://github.com/anakine800-tech/Auto-Gaussian-Frontend) v4.6.3 使用；前端 T147 修正 Slurm Other/Idle 和四项页面反馈，T151 按入口、来源及请求标识展示采样终态。T153 独立同步前端包元数据、运行时与网页包版本，配套验收待其完成；启动方式见其 README。T145 具名 PBS 节点能力仅对显式配置入口启用，必须明确选择节点；分组、实时复查与现场限制见 [节点说明](docs/T145-node-targeting.md)。发布候选须经审阅后按明确授权发布，部署与真实计算分别验收。
+历史字段兼容性核对（前端提交 `e224d5a`）：结果表读取 `route`、`termination`、`energies.scf`、`energies.g`、`n_imag` 和 `frequencies_low`，这些字段未改名或删除；缺失值显示为空。
 分析页将 profile 作为完整 JSON 展示，没有专用剖面字段依赖。`ag-facts/1` 和 `ag-profile/1` 保持不变，新增字段不影响读取；分段解析修正可能改变旧值，不能把字段兼容理解成重新解析后数值必然不变。
 默认只读，读取本地 study、结果与保存的监控快照。`--enable-actions` 显式开启经本机 ag 执行的准备、提交、状态刷新、取回和取消；不绕过 ag 的提交授权核对或取消确认，也不直接执行远程命令。
 
@@ -435,7 +437,8 @@ Slurm 存储用量每小时查询一次，独立超时 30 秒；失败查询也�
 [T149](docs/redesign-tasks/T149-monitor-retry-reload.md)。
 queued/running 尚无采样结果；finished 仅在真实快照发布完成后写入，ok 可为 true 或 false。
 discarded 的原因分别为 auth_confirmation_required、entry_removed、config_changed、monitor_restarted，
-表示请求未执行或重启后无法确认完成，不是作业取消；sampled_at/ok 为 null，不能当作失败采样或成功恢复。
+表示本条追踪请求已终止，不再继续处理或重放，不是作业取消；sampled_at/ok 为 null，不能当作失败采样或成功恢复。
+前三类原因表示待处理请求未执行；monitor_restarted 表示结果尚未确认，重启前已为 running 时可能已经查询，但没有可确认的发布完成结果，不能断言从未执行。
 普通定时采样不覆盖追踪终态，新请求可替换最近状态；只凭新快照时间不能确认某个请求完成。
 状态写入或清除请求失败会停止处理并保留核对文件，不自动重发；新确认不会提高已合并旧请求的 auth_fixed 权限。
 本地心跳每 30 秒更新，超过 90 秒或进程不存在即视为未运行。启动将遗留 queued/running 标为
@@ -558,6 +561,7 @@ python scripts/scan_public.py --staged
 
 - **v4.4.0**：T101 共享队列核数与核时提示、T102 按进展取回与取消后取回、T105 气相 Counterpoise 诊断、T106 可配置 PBS/排队上限与独立 CREST 路径；配合前端 v4.4.0，详见 [CHANGELOG.md](CHANGELOG.md#v440)。
 
+- **v4.6.3**：T148 PBS 重复节点容量、时间可信度和只读内存归属修正；T149 兼容默认四键的显式请求追踪、丢弃原因和配置重读缓存；T150 仅为新输入补缺失资源，不重写旧 Attempt。配套前端 T147/T151，发布准备与部署分开。[发布说明](CHANGELOG.md#v463)
 - **v4.6.2**：T145 显式 PBS 具名节点、半数/四分之一档位匹配、优先级分组、实时提交检查与运行位置核对；配套前端明确选择节点。原入口兼容，特殊 CPU 与现场竞争限制保留。[发布说明](CHANGELOG.md#v462)
 - **v4.6.1**：T141 Gaussian-only 显式模板白名单、T142 可选六档资源、入口级 PBS 高内存与单作业时限硬上限；配合前端 T143 节点分配与资源展示。升级和回退须同时核对配置兼容性，发布不等于服务器接入验收。[发布说明](CHANGELOG.md#v461)
 - **v4.6.0**：T130–T139 的 C 批 TS 初猜工具链：catalog v2、扫描峰 TS 与端点 QST2 草稿、scan-path、G0/模式诊断、profile 三数报告、卡片及连接超时；配合前端 v4.6.0，catalog 升级不可降级。[发布说明](CHANGELOG.md#v460)

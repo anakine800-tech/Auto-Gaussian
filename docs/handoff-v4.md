@@ -1,4 +1,14 @@
-# v4.6.2 交接
+# v4.6.3 交接
+
+2026-10-27，T152 在后端基线 `8011bccce078439cc8c80bd0790ec532c40d1a04` 上准备 v4.6.3，汇总已合并的 T148 #347、T149 #349、T150 #348；前端基线 `a65e4854c219cc819533fdfd6699080ee6b68a96` 已含 T147/T151，发布准备由 T153 独立负责。范围和兼容边界见 [CHANGELOG v4.6.3](../CHANGELOG.md#v463)，后续部署步骤见 [OPERATIONS](OPERATIONS.md)。
+
+本批已合入 PBS 重复节点容量、时间可信度/只读内存名称归属、重试终态/配置重读与首次比较、新输入核数补齐，以及前端 Slurm Other/Idle 和四项页面反馈修补。它们不再作为待开发项；正式服务是否已采用这些修补只据私有部署证据，本次不部署。D01 前端运行时版本显示由 T153 同步为 4.6.3，属于配套发布准备验收，不另列为功能待开发。
+
+重启前 running 的请求可能已查询，但没有可确认的发布完成结果；monitor_restarted 不表示从未执行，也不重放请求或取消作业。T149 仅澄清共用字段第 6 项，T153 修改 T151 后须比较完整共同字段块，当前不宣称两仓已同步。新输入仅补缺失资源；普通完整输入保持字节，既有 CP 转换保留，最终哈希绑定实际保存字节，旧 Attempt 不重写。
+
+交付终点为一个发布准备 PR，待监督方复核、负责人合并；再将实际完整合并 SHA 交给 T153。最终 HEAD、测试、扫描与 CI 见本单 PR。tag/Release 和部署均须后续明确指示；两仓 tag 只能指向各自发布 PR 的确切合并提交，不用届时 main 代替。本次仅离线合成与发布准备验证；未新增现场查询、未部署、未运行真实计算。节点策略、资源上限、既有部署顺序、180 秒首轮/90 秒心跳、观察及停止条件不变；不新增 study/catalog 迁移或研究写入授权。
+
+## v4.6.2 历史交接
 
 2026-10-27，T146 准备同号 v4.6.2 发布 PR，基于已审阅并合并的后端 T145 #345 与前端 #44。两个发布 PR 经监督方审阅后，按负责人明确授权合并并在确切发布合并提交创建同号 tag/release；两仓版本验证完成后才部署。发布准备不等于部署或现场计算验收。当前步骤见 [v4.6.2 CHANGELOG](../CHANGELOG.md#v462) 和 [OPERATIONS.md](OPERATIONS.md)。
 
@@ -60,23 +70,15 @@ v4.2.2 汇总 v4.2.1 后已合并的 T73–T77：topology 不确定接触修复�
 
 ## 已知问题与后续工作
 
-- prepare 按档位自动补 `%nprocshared` 尚待实现；当前 TS/QST2 草稿不含 Link0，须先补匹配档位的核数。
-- 前端 Slurm“其他”状态核数被计入空闲，后续独立修正。
 - catalog v2 升级不可降级；`ag g0` 只按元素序列核对原子顺序，同种元素互换查不出来，立体标签须来自完全相同的几何，频率段歧义会使批量诊断整体报错；`ag scan-path` 仅支持一维扫描。
 - G0 模式分析的 xTB Hessian 来源在 T138 范围外，留待后续工作。
 - ts 卡接近放宽后的 400 行上限；再加内容前拆分，将“TS 初猜工作流”移至单独卡片或参考文档。
 - T127 仍串行采样；经转发时单条 SSH 约 10–20 秒、一轮可能 100–150 秒。重试启动需等待当前入口完成，新快照还需目标入口自身采样时间；电脑睡眠时停采，醒来自动恢复，首轮网络未就绪可能失败或退避。部署按 OPERATIONS 的睡眠判断与观察标准记录。
-- **T128 四条非阻塞建议：** 核数和内存都未知时 notes 只显示一次；重试被拒不进入快速轮询；睡眠醒来后过去的 `next_sample_at` 显示“等待下一轮”；删除暂停确认框文案中的多余空格。当前均保留，后续独立修正。[前端 #38](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/38)
-- **T127 四条非阻塞建议：** 留待后续任务，不在发布单改功能。[#329](https://github.com/anakine800-tech/Auto-Gaussian/pull/329)
-  1. `MonitorTransport._execute` 复制基类逻辑，补测试核对超时文案和返回结构，防止以后只改基类。
-  2. `job_nodes` 合并 `exec_host` 与 `pbsnodes` 节点名时，短名/全名可能误判跨节点；当前内存保持 null，但原因描述需修正。
-  3. 主循环每不超过 2 秒重读配置；可改为入口到期、有待处理请求或配置 mtime 变化时再读。
-  4. 重试登记后、执行前若入口暂停，请求会被静默丢弃，前端可能等待 120 秒；后续在摘要中反馈丢弃原因。
-- 前端 `autog_frontend/__init__.py` 的 `__version__` 仍为 4.0.0；本次仅 Python 包元数据与网页包升至 4.6.1。证据库冷启动已有测量约 2.5 秒，source-map-js 临时 override 待上游修复后删除。
+- **T127 尚未解决：** `MonitorTransport._execute` 复制基类逻辑，后续补测试核对超时文案和返回结构，防止以后只改基类；本发布单不改功能。[#329](https://github.com/anakine800-tech/Auto-Gaussian/pull/329)
+- 前端证据库冷启动已有测量约 2.5 秒，source-map-js 临时 override 待上游修复后删除。
 - 后续允许 Slurm 入口未配置 Gaussian 时仍运行 xTB/CREST；CREST 异常结束时读取 stderr，以补全诊断。本次不修改配置校验或解析逻辑。
 - T108 facts 语义、T109 等价原子映射与 `--mirror report`、T112 doctor 独立 PBS 集群误报均已修复；既有 facts 是否重算及 catalog 是否补登记，由负责人逐 study 决定，不自动改写证据。
 - **C 批：TS 初猜工具链（T130–T139）已完成。** `ag catalog` v2（[#334](https://github.com/anakine800-tech/Auto-Gaussian/pull/334)）、`ag scan-peak --gaussian-ts --route`（[#335](https://github.com/anakine800-tech/Auto-Gaussian/pull/335)）、`ag qst-endpoints`（[#336](https://github.com/anakine800-tech/Auto-Gaussian/pull/336)）、`ag scan-path`（[#337](https://github.com/anakine800-tech/Auto-Gaussian/pull/337)）、`ag g0` 与模式投影（[#338](https://github.com/anakine800-tech/Auto-Gaussian/pull/338)、[#339](https://github.com/anakine800-tech/Auto-Gaussian/pull/339)）、`ag profile` 的最低 TS / 系综 / 差值三数报告（[#333](https://github.com/anakine800-tech/Auto-Gaussian/pull/333)）、卡片口径（[#340](https://github.com/anakine800-tech/Auto-Gaussian/pull/340)）和连接超时（[#332](https://github.com/anakine800-tech/Auto-Gaussian/pull/332)）均已合并；前端通道与候选只读面板见 [#40](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/40)。诊断和登记不是门禁或科学验收。
-- PBS `timezone-mismatch` 目前只将耗时退回 walltime，开始时间和提交时间仍按配置解析；后续把这两个时间也置为 null，时区以负责人实测为准。
 - 路由建议不考虑 walltime；超算公共分区几乎总有他人排队，通常被判为“没地方”，不保证实际启动。
 - 父 chk 的频率来源与可用力常数仍依赖卡片和人工审阅，程序未强制检查；不能从已有坐标框架检查推断力常数可用。
 - CP 溶剂相片段单点：`cp-report --solvent-sp` 目前只有复合物单点输入，缺两个片段 SMD 能量时相互作用能未知。后续支持两个片段在复合物几何下、使用自身基组的 SMD 单点；不以气相值代替。[#312](https://github.com/anakine800-tech/Auto-Gaussian/pull/312)
