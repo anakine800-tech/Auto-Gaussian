@@ -344,6 +344,128 @@ def test_torque_idle_and_pbs_pro_priority():
     assert node['mem_total_gb'] == 128.0 and node['mem_assigned_gb'] == 7.0
 
 
+@pytest.mark.parametrize('name,host,other_nodes,other_host,expected', [
+    ('node-a', 'node-a.example', '', '', 12.0),
+    ('node-a.example', 'node-a', '', '', 12.0),
+    ('node-a.example', 'node-a.example', torque('node-a.other'), '', 12.0),
+    ('node-a', 'node-a.example', torque('node-a.other'), '', None),
+    ('node-a', 'node-a.example', torque('node-a.example'), '', None),
+    ('node-a.example', 'node-a', torque('node-a.other'), '', None),
+    ('node-a', 'node-a.example', '', 'node-a.other', None),
+    ('node-a.example', 'node-a', '', 'node-a.other', None),
+    ('node-a', 'node-a.example/0-1+node-b.example', '', '', None),
+])
+def test_torque_memory_name_equivalence_is_unique_and_local(name, host, other_nodes, other_host, expected):
+    raw = torque(name, '0-3/901.fixture') + other_nodes
+    jobs = status.parse_jobs(job('901.fixture', extra=f'    exec_host = {host}/0-3\n'))
+    if other_host:
+        jobs += status.parse_jobs(job('902.fixture', extra=f'    exec_host = {other_host}/0-3\n'))
+    before = deepcopy(jobs)
+    notes = []
+    values = pbs.parse_nodes(raw, jobs, notes=notes)
+    assert values[0]['mem_assigned_gb'] == expected
+    assert (values[0]['name'], values[0]['cores_used'], values[0]['jobs']) == (name, 4, 1)
+    assert jobs == before  # No alias reaches another parser or admission caller.
+    assert bool(notes) == (expected is None)
+    assert all('node-' not in n and '901' not in n and '902' not in n for n in notes)
+
+
+@pytest.mark.parametrize('problem', ['missing_job', 'id_mismatch', 'missing_mem', 'invalid_mem'])
+def test_memory_alias_keeps_exact_job_and_request_requirements(problem):
+    jobs = status.parse_jobs(job('901.fixture', extra='    exec_host = node-a.example/0-3\n'))
+    if problem == 'missing_job':
+        jobs = []
+    elif problem == 'id_mismatch':
+        jobs[0]['job_id'] = '901.other'
+    elif problem == 'missing_mem':
+        jobs[0].pop('Resource_List.mem')
+    else:
+        jobs[0]['Resource_List.mem'] = 'unknown'
+    notes = []
+    assert pbs.parse_nodes(torque(assignments='0-3/901.fixture'), jobs, notes=notes)[0]['mem_assigned_gb'] is None
+    assert notes
+
+
+def test_completed_exec_host_still_reveals_name_ambiguity_without_allocation():
+    jobs = status.parse_jobs(job('901.fixture', extra='    exec_host = node-a.example/0-3\n') +
+                            job('902.fixture', state='C', extra='    exec_host = node-a.other/0-3\n'))
+    notes = []
+    values = pbs.parse_nodes(torque(assignments='0-3/901.fixture'), jobs, notes=notes)
+    assert values[0]['cores_used'] == 4 and values[0]['jobs'] == 1
+    assert values[0]['mem_assigned_gb'] is None
+    assert len(notes) == 1 and '歧义' in notes[0]
+
+
+@pytest.mark.parametrize('assigned,expected', [('7gb', 7.0), ('invalid', None)])
+def test_explicit_pbs_pro_memory_wins_over_ambiguous_alias(assigned, expected):
+    jobs = status.parse_jobs(job('901.fixture', extra='    exec_host = node-a.example/0-3\n'))
+    raw = torque(assignments='0-3/901.fixture', extra=f'    resources_assigned.mem = {assigned}\n')
+    raw += torque('node-a.other')
+    notes = []
+    assert pbs.parse_nodes(raw, jobs, notes=notes)[0]['mem_assigned_gb'] == expected
+    assert notes == []
+
+
+@pytest.mark.parametrize('second', [torque(), torque(extra='    jobs = 0/999.fixture\n'),
+                                   torque().replace('np = 64', 'np = 32')])
+def test_duplicate_node_sample_keeps_jobs_queue_and_frontend_shape(cfg, identity, second):
+    # load_config uses only this test's temporary files; no default config or SSH.
+    entry = config.select_cluster(config.load_config(write_config(cfg)), 'default')
+    raw_job = job('901.fixture', extra='    exec_host = node-a/0-3\n')
+    good = monitor.sample(entry, Fake(jobs=raw_job, nodes=torque()), 60)
+    root = monitor.cache_dir(entry)
+    history_before = (root / 'history.jsonl').read_bytes()
+    fake = Fake(jobs=raw_job, nodes=torque() + second)
+    result = monitor.sample(entry, fake, 60, schedule=monitor.Sampling(60))
+    assert result['ok'] and result['error'] is None
+    assert result['own'] == good['own']
+    assert result['cluster']['queues'] == good['cluster']['queues']
+    assert result['cluster']['nodes'] == []
+    assert result['cluster']['cores_total'] is None and result['cluster']['cores_used'] is None
+    hardware = result['cluster']['hardware']
+    assert all(hardware[k] is None for k in ('cores_total', 'cores_allocated', 'cores_idle',
+                                            'cores_other', 'mem_total_gb', 'mem_allocated_gb'))
+    assert 'duplicate' in hardware['error'] and 'node-a' not in hardware['error']
+    assert result['sampling']['state'] == 'normal' and result['sampling']['consecutive_failures'] == 0
+    assert len(fake.calls) == 3
+    assert validate_monitor(result) is result
+    assert json.loads((root / 'latest.json').read_text()) == result
+    assert (root / 'history.jsonl').read_bytes().startswith(history_before)
+
+
+def test_time_and_memory_fixes_survive_sample_publish(cfg, identity, monkeypatch):
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 1, 1, 1, tzinfo=timezone.utc)
+    monkeypatch.setattr(monitor, 'datetime', FixedDatetime)
+    cfg['scheduler_timezone'] = 'Asia/Shanghai'
+    raw = job('901.fixture', extra='    exec_host = node-a.example/0-3\n'
+              '    qtime = Thu Jan  1 08:00:00 2026\n').replace(
+        'start_time = synthetic-time', 'start_time = Thu Jan  1 08:50:00 2026')
+    fake = Fake(jobs=raw, nodes=torque(assignments='0-3/901.fixture'))
+    good = monitor.sample(cfg, fake, 60)
+    root = monitor.cache_dir(cfg)
+    history_before = (root / 'history.jsonl').read_bytes()
+    fake.replies['jobs'] = Result(stdout=raw + job('902.fixture', owner='other',
+                                  extra='    start_time_epoch = 1767232800\n'))
+    result = monitor.sample(cfg, fake, 60)
+    assert result['ok'] and len(fake.calls) == 6
+    assert result['own']['jobs'][0]['start_time'] is None
+    assert result['own']['jobs'][0]['qtime'] is None
+    assert result['own']['jobs'][0]['elapsed_seconds'] == 600
+    assert result['own']['jobs'][0]['elapsed_source'] == 'walltime_used'
+    assert result['cluster']['hardware']['mem_allocated_gb'] == 12
+    assert result['own']['jobs'][0] == result['cluster']['jobs'][0]
+    assert validate_monitor(result) is result
+    published = (root / 'latest.json').read_text()
+    assert json.loads(published) == result
+    assert 'configured_timezone' not in published and 'Thu Jan' not in published
+    assert (root / 'history.jsonl').read_bytes().startswith(history_before)
+    assert good['own']['jobs'][0]['start_time'] == '2026-01-01T00:50:00Z'
+    assert good['own']['jobs'][0]['qtime'] == '2026-01-01T00:00:00Z'
+
+
 def test_notes_scheduler_old_cache_and_history(cfg, identity, multi):
     root = monitor.cache_dir(cfg)
     old = monitor.sample(cfg, Fake())

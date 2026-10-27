@@ -112,36 +112,49 @@ def observation(cfg, transport, username, *, storage_state=None, sampled_at=None
     all_jobs = []
     scheduler_timezone = cfg.get('scheduler_timezone')
     timezone_mismatch = False
+    time_observations = []
     for job in jobs:
         if job['job_state'] == 'C':
             continue
         user = job['Job_Owner'].split('@')[0]
         mine = user == username
         link = by_job.get(job['job_id'], {}) if mine else {}
-        fields = pbs.job_fields(job, sampled_at, scheduler_timezone)
+        time_sources = {}
+        fields = pbs.job_fields(job, sampled_at, scheduler_timezone, time_sources=time_sources)
+        walltime = pbs.duration_seconds(job.get('resources_used.walltime'))
+        start_mismatch = False
         if scheduler_timezone is not None and fields['start_time'] is not None:
             # A wrong timezone can put a start in the future or add hours to
-            # elapsed time. Keep the parsed timestamp, but use walltime instead.
+            # elapsed time. The strict thresholds are unchanged from T124.
             seconds = (sampled_at - datetime.fromisoformat(fields['start_time'])).total_seconds()
-            walltime = pbs.duration_seconds(job.get('resources_used.walltime'))
             if seconds < -120 or (walltime is not None
                                   and (seconds < walltime - 120 or seconds > walltime + 3600)):
-                timezone_mismatch = True
-                fields.update(elapsed_seconds=walltime,
-                              elapsed_source='walltime_used' if walltime is not None else None)
-        all_jobs.append(dict(job_id=job['job_id'], user=user, mine=mine,
-                             name=job.get('Job_Name'), state=job['job_state'], queue=job.get('queue'),
-                             mem=job.get('Resource_List.mem'), mem_source='scheduler', walltime_used=job.get('resources_used.walltime'),
-                             walltime_limit=job.get('Resource_List.walltime'),
-                             study=link.get('study'), attempt=link.get('attempt'),
-                             **fields))
+                start_mismatch = timezone_mismatch = True
+        row = dict(job_id=job['job_id'], user=user, mine=mine,
+                   name=job.get('Job_Name'), state=job['job_state'], queue=job.get('queue'),
+                   mem=job.get('Resource_List.mem'), mem_source='scheduler',
+                   walltime_used=job.get('resources_used.walltime'),
+                   walltime_limit=job.get('Resource_List.walltime'),
+                   study=link.get('study'), attempt=link.get('attempt'),
+                   **fields)
+        all_jobs.append(row)
+        time_observations.append((row, time_sources, walltime, start_mismatch))
+    if timezone_mismatch:
+        # Invalidate this entry's timezone-dependent values before sorting or
+        # truncation. Absolute times survive unless that start itself failed.
+        for row, sources, walltime, start_mismatch in time_observations:
+            if start_mismatch or sources['start_time'] == 'configured_timezone':
+                row.update(start_time=None, elapsed_seconds=walltime,
+                           elapsed_source='walltime_used' if walltime is not None else None)
+            if sources['qtime'] == 'configured_timezone':
+                row['qtime'] = None
     all_jobs.sort(key=job_sort_key)
     own = [row for row in all_jobs if row['mine']]
     scheduler = {job['job_id']: job for job in jobs}
     warnings = []
     if timezone_mismatch:
         warnings.append(dict(kind='timezone-mismatch', job_id=None, study=None, attempt=None,
-                             detail='开始时间与采样时间或已用 walltime 不一致，可能配置了错误的调度器时区；已退回 walltime，缺失时为未知'))
+                             detail='开始时间与采样时间或已用 walltime 不一致，可能配置了错误的调度器时区；本轮依赖该时区的开始/提交时间及直接异常的开始时间已置为未知，清空开始时间的耗时退回 walltime，缺失时为未知'))
     for item in attempts:
         job = scheduler.get(item['job_id'])
         kind, detail = None, None
