@@ -438,10 +438,12 @@ PBS 的 `cluster.jobs` 列出全员非 C 作业，先本人、再运行开始时
 明确的开始时间用于计算 `elapsed_seconds`，否则退回已用 walltime，并用 `elapsed_source` 标明；
 `start_time` / `qtime` 只在时区明确时输出 UTC ISO 时间。时区不明或字段缺失写 null，不猜服务器时区。
 PBS 入口可配置 `scheduler_timezone = "Asia/Shanghai"` 等 IANA 时区名，必须先确认调度器实际使用的时区；
-不配置时保留原行为，epoch 和带时区 ISO 不受此配置影响。文本时间按固定英文月份/星期解析，支持日期空格补齐；
+不配置时保留原行为，epoch 和带时区 ISO 的解析不使用配置时区。文本时间按固定英文月份/星期解析，支持日期空格补齐；
 星期与日期不符、夏令时重复或不存在的本地时间均写 null。Slurm 入口拒绝此配置。
 配置时区后，若“采样时间 − 开始时间”比已用 walltime 少超过 120 秒或多超过 3600 秒，
-或开始时间晚于采样时间超过 120 秒，该作业的耗时退回 walltime（缺失则为 null）；解析出的开始时间保留。
+或开始时间晚于采样时间超过 120 秒，本入口本轮依赖配置时区的全部 `start_time` / `qtime` 置为 null（含排队作业）。
+直接触发异常的开始时间即使来自 epoch / 带偏移 ISO 也置为 null；其他显式绝对时间和绝对 `qtime` 保留。
+开始时间被清空的作业耗时退回 walltime（缺失则为 null），`elapsed_source` 同步；可信度处理先于排序和 500 条截断。
 每入口每轮最多一条 `timezone-mismatch` 警告，不含作业名、作业号或用户名；恰好等于阈值时不触发。
 快照新增 `cluster.scheduler_timezone`（配置值或 null），失败快照也显示当前有效配置；
 失败时保留的作业仍属于 `last_ok_at` 对应旧样本，不能用新时区字段重新解释旧样本。
@@ -451,12 +453,15 @@ Slurm 明细仅有本人；`cluster.job_summary` 按配置分区给出运行/排
 PBS 明确写 `cluster.scheduler="pbs"`。Torque 总内存取 status.physmem（不含 swap），
 优先保留 PBS Pro 的 resources_available.mem；Torque 已分配内存按节点上的完整作业集合汇总申请值。
 任一申请缺失/无法解析、跨节点或作业号不能精确对应时写 null，并在 hardware.notes 解释；无作业为 0.0。
+仅在 Torque 内存的跨节点判断中，短名/FQDN 可在节点记录与 exec_host 的联合名称集合内唯一对应；
+同短名多个域名或多个节点记录竞争时保持未知并说明歧义。精确名称匹配优先，CPU 分配、节点名及定向提交身份不变。
 不使用 physmem − availmem，不按核数分摊。PBS Pro 的 resources_assigned.mem 保持原口径。
 `sinfo` 异构节点内存显示为最小值加 `+` 时，总内存为 null；AllocMem 单独按节点汇总后保存。
 异构内存和他人汇总不一致的说明放入 `hardware.notes` 字符串列表，不使已采到的核数失效；
-`hardware.error` 只记录查询失败，旧缓存没有 notes 时补空列表。
+`hardware.error` 记录查询或解析失败，旧缓存没有 notes 时补空列表。
 未配置分区时不查询分区作业或硬件。现有 Slurm 本人查询不提供申请内存、开始/提交时间和 walltime 上限，这些字段为 null。
-硬件查询失败只将硬件标为未知并写脱敏错误；作业查询失败仍令 `ok=false`，保留旧数据及 `last_ok_at`，不能当作最新。
+硬件查询/解析失败（包括完整节点名称重复，即使内容相同）只将节点列表清空、硬件数值置为 null 并写脱敏错误；
+本人作业、额度及队列的独立成功结果保留，不把未知容量当作零或空闲。作业查询失败仍令 `ok=false`，保留旧数据及 `last_ok_at`，不能当作最新。
 `history.jsonl` 仅追加作业/告警计数与摘要，不保存全员作业明细。配置移除时即使缓存损坏，也写合法的移除快照。
 入口可配置整数 `display_order`，快照 `cluster.display_order` 缺省为 null；前端默认 PBS 在前、Slurm 在后，再按入口名排序。
 入口可配置 `display_name`（1–32 个可打印字符）。监控 `cluster.display_name`、`ag clusters --json`
@@ -496,7 +501,7 @@ Slurm 的 `cluster.budget` 为 null，clusters 查询省略 budget；本地台�
 
 ### 已知限制
 
-- `timezone-mismatch` 触发时，耗时退回 walltime；开始时间和提交时间仍按配置时区解析，可能失真，后续应一并置为 null。时区须由负责人实测确认。
+- `timezone-mismatch` 触发时按时间来源置未知并退回 walltime；walltime 本身可能滞后，时区仍须由负责人实测确认。
 - 路由建议不考虑 walltime；超算公共分区几乎总有他人排队，通常被判为“没地方”，不保证实际启动。
 - 父 chk 是否来自频率计算、是否含可用力常数，仍由卡片和人工审阅保证；程序的坐标框架核验不能替代该检查。
 - 已有 study 的 facts 是否按 T108 重算、catalog 是否补登记，由负责人逐 study 决定；升级不自动改写已签字证据。

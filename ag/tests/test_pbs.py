@@ -66,3 +66,10 @@ def test_jobs_assignment_boundaries(assignments, count):
 def test_malformed_jobs_rejected(assignments):
     with pytest.raises(ValueError):
         parse_nodes(node(jobs=assignments), [])
+
+
+@pytest.mark.parametrize('second', [node(), node().replace('44', '88'), node(jobs='0/101.srv')])
+def test_duplicate_full_node_identity_rejected_before_capacity_sum(second):
+    with pytest.raises(ValueError, match='duplicate PBS node identity') as error:
+        parse_nodes(node() + second, [])
+    assert 'n1' not in str(error.value)

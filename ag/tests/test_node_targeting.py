@@ -146,18 +146,34 @@ def test_strict_monitor_failure_keeps_readonly_nodes_but_blocks_targeting(target
     assert not (path/'.submit-claim').exists() and 'submit' not in fake.operations()
 
 
-def test_duplicate_node_identity_keeps_monitor_display_and_fails_closed(targeted):
+def test_duplicate_node_identity_invalidates_hardware_and_fails_closed(targeted):
     cfg, _ = targeted
     fake = TargetFake(cfg)
     fake.node_text = nodes() + nodes()
     rows, hardware = monitor.pbs_hardware(cfg, fake, [])
-    assert len(rows) == 2 and hardware['cores_total'] == 96
-    assert all(nt.idle(row)[0] == 'unknown' for row in rows)
-    assert hardware['notes'] and 'targeting unavailable' in hardware['notes'][-1]
+    assert rows == [] and hardware['cores_total'] is None
+    assert 'duplicate' in hardware['error'] and 'compute-a' not in hardware['error']
     snapshot(cfg, rows)
     assert nt.candidates(cfg)['nodes'][1]['status'] == 'unknown'
     with pytest.raises(ValueError, match='duplicate'):
         nt.strict_nodes(fake.node_text, [])
+
+
+def test_memory_alias_does_not_relax_exact_targeting_identity(targeted):
+    cfg, args = targeted
+    fake = TargetFake(cfg)
+    fake.node_text = nodes(extra='    jobs = 0-3/901.fixture\n')
+    jobs = [dict(job_id='901.fixture', job_state='R', exec_host='compute-a.example/0-3',
+                 **{'Resource_List.mem': '12gb'})]
+    rows, hardware = monitor.pbs_hardware(cfg, fake, jobs)
+    assert rows[0]['name'] == 'compute-a' and rows[0]['cores_used'] == 4 and rows[0]['jobs'] == 1
+    assert rows[0]['mem_assigned_gb'] == hardware['mem_allocated_gb'] == 12
+    assert rows[0]['targeting_consistent'] is False
+    snapshot(cfg, rows)
+    assert nt.candidates(cfg)['nodes'][1]['status'] == 'unknown'
+    with pytest.raises(ValueError, match='unavailable'):
+        attempt.prepare(cfg, **args)
+    assert not list(Path(cfg['local']['studies_root']).rglob('manifest.json'))
 
 
 @pytest.mark.parametrize('age,ok', [(181,True),(0,False),(-5,True)])

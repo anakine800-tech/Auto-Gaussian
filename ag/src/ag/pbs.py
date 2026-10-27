@@ -35,11 +35,15 @@ def slot_count(value):
 
 def parse_nodes(text, jobs, *, notes=None):
     records, current, key = [], None, None
+    record_names = set()
     for line in text.splitlines():
         if not line.strip():
             continue
         if not line[:1].isspace():
             current, key = {'name': line.strip()}, None
+            if current['name'] in record_names:
+                raise ValueError('Ambiguous duplicate PBS node identity')
+            record_names.add(current['name'])
             records.append(current)
         elif current is not None and ' = ' in line:
             key, value = line.strip().split(' = ', 1)
@@ -51,8 +55,13 @@ def parse_nodes(text, jobs, *, notes=None):
         else:
             raise ValueError('Unrecognized pbsnodes output')
     allocated, node_jobs, job_nodes = {}, {}, {}
+    exec_names = set()
     by_job = {job['job_id']: job for job in jobs if 'job_id' in job}
     for job in jobs:
+        # Even completed rows can reveal a competing domain name; they still
+        # contribute no CPU allocation or node job membership.
+        exec_names.update(host.partition('/')[0] for host in
+                          filter(None, job.get('exec_host', '').split('+')))
         if job.get('job_state') == 'C':
             continue
         for host in filter(None, job.get('exec_host', '').split('+')):
@@ -62,6 +71,17 @@ def parse_nodes(text, jobs, *, notes=None):
             allocated[name] = allocated.get(name, 0) + slot_count(slot)
             node_jobs.setdefault(name, set()).add(job.get('job_id'))
             job_nodes.setdefault(job.get('job_id'), set()).add(name)
+    # Only the Torque memory cross-node check may equate a short name and an
+    # FQDN. Keep CPU allocations, job sets and targeting identities exact.
+    name_groups = {}
+    for name in record_names | exec_names:
+        name_groups.setdefault(name.split('.', 1)[0], set()).add(name)
+    memory_names, ambiguous_names = {}, set()
+    for short, names in name_groups.items():
+        if len(names & record_names) <= 1 and sum('.' in name for name in names) <= 1:
+            memory_names.update((name, short) for name in names)
+        else:
+            ambiguous_names.update(names)
     nodes = []
     for record in records:
         cores = record.get('np', record.get('resources_available.ncpus', ''))
@@ -103,8 +123,11 @@ def parse_nodes(text, jobs, *, notes=None):
                 job = by_job.get(job_id)
                 if job is None:
                     reasons.add('已分配内存未知：节点作业号无法与作业记录精确对应')
-                elif len(job_nodes[job_id]) > 1:
-                    reasons.add('已分配内存未知：节点上有跨多个节点的作业')
+                elif len({memory_names.get(name, name) for name in job_nodes[job_id]}) > 1:
+                    if job_nodes[job_id] & ambiguous_names:
+                        reasons.add('已分配内存未知：节点短名与完整名称的对应有歧义')
+                    else:
+                        reasons.add('已分配内存未知：节点上有跨多个节点的作业')
                 else:
                     value = memory_gb(job.get('Resource_List.mem'))
                     if value is None:
@@ -147,14 +170,20 @@ def duration_seconds(value):
 
 
 def timestamp(value, tz=None):
+    """Return UTC text only when the scheduler timestamp is unambiguous."""
+    return _timestamp(value, tz)[0]
+
+
+def _timestamp(value, tz=None):
     """Never apply the local machine timezone to an unzoned scheduler date.
 
     PBS text dates require a configured scheduler timezone. Reject ambiguous or
     nonexistent local times rather than choosing a DST fold or shifting a gap.
     """
     if not isinstance(value, str):
-        return None
+        return None, None
     try:
+        source = 'absolute'
         if re.fullmatch(r'\d{1,12}', value):
             stamp = datetime.fromtimestamp(int(value), timezone.utc)
         elif tz is not None and (match := re.fullmatch(
@@ -168,7 +197,7 @@ def timestamp(value, tz=None):
             local = datetime(int(year), months.index(month) + 1, int(day),
                              int(hour), int(minute), int(second))
             if local.weekday() != weekdays.index(weekday):
-                return None
+                return None, None
             zone = ZoneInfo(tz) if isinstance(tz, str) else tz
             candidates = set()
             for fold in (0, 1):
@@ -176,19 +205,20 @@ def timestamp(value, tz=None):
                 if utc.astimezone(zone).replace(tzinfo=None) == local:
                     candidates.add(utc)
             if len(candidates) != 1:
-                return None
+                return None, None
             stamp = candidates.pop()
+            source = 'configured_timezone'
         else:
             stamp = datetime.fromisoformat(value)
             if stamp.tzinfo is None:
-                return None
-        return stamp.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+                return None, None
+        return stamp.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'), source
     except (ValueError, OverflowError, OSError, ZoneInfoNotFoundError):
-        return None
+        return None, None
 
 
-def job_fields(job, sampled_at, tz=None):
-    """Display facts only; submit's conservative reservation rules stay intact."""
+def job_fields(job, sampled_at, tz=None, *, time_sources=None):
+    """Display facts; optional time_sources stays internal to this observation."""
     running = job['job_state'] in ('R', 'E')
     cores = None
     if running:
@@ -206,8 +236,12 @@ def job_fields(job, sampled_at, tz=None):
             if len(ppn) != 1 or not ppn[0].isdigit() or int(ppn[0]) < 1 or count < 1:
                 raise ValueError('Unrecognized ppn resource request; cannot count cores')
             cores += count * int(ppn[0])
-    start = next((value for key in ('start_time_epoch', 'start_time', 'stime')
-                  if (value := timestamp(job.get(key), tz)) is not None), None)
+    start, start_source = next((value for key in ('start_time_epoch', 'start_time', 'stime')
+                               if (value := _timestamp(job.get(key), tz))[0] is not None),
+                              (None, None))
+    queued, queue_source = _timestamp(job.get('qtime'), tz)
+    if time_sources is not None:
+        time_sources.update(start_time=start_source, qtime=queue_source)
     elapsed, source = None, None
     if start is not None:
         seconds = int((sampled_at - datetime.fromisoformat(start)).total_seconds())
@@ -219,5 +253,5 @@ def job_fields(job, sampled_at, tz=None):
             source = 'walltime_used'
     return dict(cores=cores, cores_kind='allocated' if running else 'requested',
                 mem_gb=memory_gb(job.get('Resource_List.mem')), start_time=start,
-                qtime=timestamp(job.get('qtime'), tz), elapsed_seconds=elapsed, elapsed_source=source,
+                qtime=queued, elapsed_seconds=elapsed, elapsed_source=source,
                 walltime_limit_seconds=duration_seconds(job.get('Resource_List.walltime')))

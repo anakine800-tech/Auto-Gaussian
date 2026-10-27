@@ -147,9 +147,9 @@ def test_no_timezone_keeps_explicit_start_elapsed_even_outside_new_threshold(cfg
 
 
 @pytest.mark.parametrize('seconds,walltime,mismatch', [
-    (600, 600, False), (480, 600, False), (479, 600, True),
-    (4200, 600, False), (4201, 600, True),
-    (-120, None, False), (-121, None, True), (-121, 600, True),
+    (600, 600, False), (481, 600, False), (480, 600, False), (479, 600, True),
+    (4199, 600, False), (4200, 600, False), (4201, 600, True),
+    (-119, None, False), (-120, None, False), (-121, None, True), (-121, 600, True),
     (600, None, False),
 ])
 def test_timezone_elapsed_thresholds_and_private_warning(cfg, seconds, walltime, mismatch):
@@ -167,7 +167,7 @@ def test_timezone_elapsed_thresholds_and_private_warning(cfg, seconds, walltime,
     assert fields['elapsed_seconds'] == expected
     assert fields['elapsed_source'] == (None if expected is None else
                                         'walltime_used' if mismatch or seconds < 0 else 'start_time')
-    assert fields['start_time'] is not None
+    assert (fields['start_time'] is None) == mismatch
     assert result['cluster']['scheduler_timezone'] == 'Asia/Shanghai'
     warnings = result['warnings']
     assert len(warnings) == int(mismatch)
@@ -189,8 +189,8 @@ def test_pbs_configured_timezone_and_unconfigured_compatibility(cfg, tz):
     fields = result['own']['jobs'][0]
     assert fields['elapsed_seconds'] == 600
     assert fields['elapsed_source'] == ('start_time' if tz == 'Asia/Shanghai' else 'walltime_used')
-    assert (fields['start_time'] is None) == (tz is None)
-    assert (fields['qtime'] is None) == (tz is None)
+    assert (fields['start_time'] is None) == (tz != 'Asia/Shanghai')
+    assert (fields['qtime'] is None) == (tz != 'Asia/Shanghai')
     assert bool(result['warnings']) == (tz == 'America/New_York')
 
 
@@ -203,6 +203,102 @@ def test_pbs_text_queue_time_sort_with_numeric_tie_break(cfg):
     assert [r['job_id'] for r in result['own']['jobs']] == [
         '1001.fixture', '999.fixture', '1000.fixture', '998.fixture']
     assert result['own']['jobs'][0]['qtime'] == '2026-10-24T00:00:00Z'
+
+
+@pytest.mark.parametrize('start_key', ['start_time_epoch', 'start_time', 'stime'])
+@pytest.mark.parametrize('value,source', [
+    ('1767225600', 'absolute'), ('2026-01-01T08:00:00+08:00', 'absolute'),
+    ('Thu Jan  1 08:00:00 2026', 'configured_timezone'), ('invalid', None),
+])
+def test_time_source_tracks_parsed_value_not_field_name(start_key, value, source):
+    parsed = status.parse_jobs(row(901))[0]
+    parsed.update({start_key: value, 'qtime': value})
+    sources = {}
+    fields = pbs.job_fields(parsed, NOW, 'Asia/Shanghai', time_sources=sources)
+    assert sources == dict(start_time=source, qtime=source)
+    assert fields['start_time'] == fields['qtime'] == (None if source is None else '2026-01-01T00:00:00Z')
+    assert all('source' not in key for key in fields if key != 'elapsed_source')
+
+
+@pytest.mark.parametrize('bad_start', ['Thu Jan  1 10:00:00 2026', '1767232800',
+                                      '2026-01-01T10:00:00+08:00'])
+@pytest.mark.parametrize('trigger_walltime', [True, False])
+def test_timezone_mismatch_invalidates_entry_by_source(cfg, bad_start, trigger_walltime):
+    cfg['scheduler_timezone'] = 'Asia/Shanghai'
+    cases = [
+        # Trigger, normal text, text without walltime, queued text, explicit
+        # start/queue, and a mixed text start + absolute queue time.
+        (901, 'R', bad_start, '1767222000', trigger_walltime),
+        (902, 'R', 'Thu Jan  1 08:50:00 2026', 'Thu Jan  1 08:00:00 2026', True),
+        (903, 'R', 'Thu Jan  1 08:50:00 2026', 'Thu Jan  1 08:00:00 2026', False),
+        (904, 'Q', 'invalid', 'Thu Jan  1 08:00:00 2026', False),
+        (905, 'R', '1767228600', '2026-01-01T07:00:00+08:00', True),
+        (906, 'R', '2026-01-01T08:50:00+08:00', '1767222000', False),
+        (907, 'R', 'Thu Jan  1 08:50:00 2026', '1767222000', True),
+        (908, 'R', '1767228600', 'Thu Jan  1 08:00:00 2026', True),
+    ]
+    raw = ''
+    for number, state_, start, queued, walltime in cases:
+        value = row(number, state=state_, extra=f'    qtime = {queued}\n').replace(
+            'start_time = synthetic-time', f'start_time = {start}')
+        if not walltime:
+            value = value.replace('    resources_used.walltime = 00:10:00\n', '')
+        raw += value
+    fake = PBSFake(jobs=raw)
+    result = monitor.observation(cfg, fake, 'userA', sampled_at=NOW)
+    rows = {int(r['job_id'].split('.')[0]): r for r in result['own']['jobs']}
+    assert result['own']['jobs'] == result['cluster']['jobs']
+    for number in (901, 902, 903, 904, 907):
+        assert rows[number]['start_time'] is None
+        has_walltime = number in (902, 907) or number == 901 and trigger_walltime
+        assert rows[number]['elapsed_seconds'] == (600 if has_walltime else None)
+        assert rows[number]['elapsed_source'] == ('walltime_used' if has_walltime else None)
+    for number in (902, 903, 904, 908):
+        assert rows[number]['qtime'] is None
+    for number in (901, 905, 906, 907):
+        assert rows[number]['qtime'] == '2025-12-31T23:00:00Z'
+    for number in (905, 906, 908):
+        assert rows[number]['start_time'] == '2026-01-01T00:50:00Z'
+        assert rows[number]['elapsed_seconds'] == 600 and rows[number]['elapsed_source'] == 'start_time'
+    assert len([w for w in result['warnings'] if w['kind'] == 'timezone-mismatch']) == 1
+    assert fake.replies['jobs'].stdout == raw
+    # The distrust lasts one observation and does not leak to another entry.
+    clean_raw = row(908, extra='    qtime = Thu Jan  1 08:00:00 2026\n').replace(
+        'start_time = synthetic-time', 'start_time = Thu Jan  1 08:50:00 2026')
+    clean = monitor.observation(cfg, PBSFake(jobs=clean_raw), 'userA', sampled_at=NOW)
+    assert clean['warnings'] == []
+    assert clean['own']['jobs'][0]['start_time'] == '2026-01-01T00:50:00Z'
+    assert clean['own']['jobs'][0]['qtime'] == '2026-01-01T00:00:00Z'
+
+
+def test_selected_absolute_start_source_survives_text_timezone_failure(cfg):
+    cfg['scheduler_timezone'] = 'Asia/Shanghai'
+    raw = row(901, extra='    start_time_epoch = 1767228600\n').replace(
+        'start_time = synthetic-time', 'start_time = Thu Jan  1 10:00:00 2026')
+    raw += row(902, extra='    stime = Thu Jan  1 10:00:00 2026\n')
+    result = monitor.observation(cfg, PBSFake(jobs=raw), 'userA', sampled_at=NOW)
+    assert result['own']['jobs'][0]['start_time'] == '2026-01-01T00:50:00Z'
+    assert result['own']['jobs'][0]['elapsed_source'] == 'start_time'
+    assert result['own']['jobs'][1]['start_time'] is None
+    assert any(w['kind'] == 'timezone-mismatch' for w in result['warnings'])
+
+
+def test_timezone_trust_applied_before_sort_and_truncation(cfg):
+    cfg['scheduler_timezone'] = 'Asia/Shanghai'
+    raw = ''.join(row(i, state='Q', extra=f'    qtime = Thu Jan  1 08:{1500-i:02d}:00 2026\n')
+                  for i in range(1500, 1490, -1))
+    raw += ''.join(row(i, state='Q', extra='    qtime = Thu Jan  1 08:00:00 2026\n')
+                   for i in range(1490, 990, -1))
+    # This other user's job sorts after all 510 own jobs and is never displayed.
+    raw += row(9000, 'userB', 'Q', '    start_time_epoch = 1767232800\n')
+    result = monitor.observation(cfg, PBSFake(jobs=raw), 'userA', sampled_at=NOW)
+    assert len(result['own']['jobs']) == 510
+    assert result['cluster']['jobs_omitted'] == 11
+    assert [r['job_id'] for r in result['cluster']['jobs']] == [f'{i}.fixture' for i in range(991, 1491)]
+    assert result['cluster']['jobs'] == result['own']['jobs'][:500]
+    assert all(r['qtime'] is None for r in result['own']['jobs'])
+    assert result['cluster']['job_summary']['queued_jobs'] == 511
+    assert any(w['kind'] == 'timezone-mismatch' for w in result['warnings'])
 
 
 def test_timezone_snapshot_initial_failure_reload_and_recovery(cfg, monkeypatch):
