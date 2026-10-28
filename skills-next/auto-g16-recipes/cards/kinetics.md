@@ -83,12 +83,10 @@ R = 8.31446261815324/4184 kcal·mol⁻¹·K⁻¹；298.15 K 时 RT ≈ 0.592485 
 ### 选择性：ΔΔG‡、er、ee 与 dr
 
 **局部能垒只在同一前体内有意义；跨前体比较必须回到共同参考态。**
-例如前体 A 的 G=0、局部垒=10；前体 B 的 G=3、局部垒=9（均为 kcal/mol），共同参考下 TS 分别为 10 和 12，不是 10 和 9。不同前体的局部垒不得直接相加或比较；系综加权/比较前逐项核对共同参考态、标准态、热修正设置、计量与浓度项，并以独立动力学依据确认前体互变足够快。
-`highest_local_barrier_TS` 是各步局部正向能垒的最大者标识；`step_decomposition` 是生成逐步分解的内部函数，结果写入 `steps[]` 的局部正逆垒及分解/换算字段，并非同名 JSON 顶层字段。两者都不能跨前体直接用作产物通量比较。
+系综加权/比较前核对共同参考态、标准态、热修正、计量与浓度，并以独立动力学依据确认前体互变足够快；不能跨前体用最大局部垒比较产物通量。
 选择性同时报告 `lowest_ts.pairwise` 的 `lowest_ts_ddG_kcal`、`ensemble_ddG_kcal`、`difference_kcal`（系综减单结构），保留相同的产物顺序与 G_eff(b)−G_eff(a) 符号。
-`lowest_ts` 在每个产物分支的全部 TS species/构象中选修正后自由能最低的单个结构，保留所在通道的真实 `paths`；不对构象求和、不乘构象简并度，后者仅报告。附 species、Attempt 来源与修正后 G；`lowest_conformer` 则对每个 TS species 各取最低构象，仍对多个通道及 paths 求和，不能替代单结构结果。
+共同参考态的数值例子、局部能垒字段及 `lowest_ts` / `lowest_conformer` 的区别见 [profile：选择性与共同参考态](profile.md#选择性与共同参考态)；后者不能替代单结构结果。
 **单结构结果和系综结果不是同一个物理量；差值大说明结论对构象采样敏感，不代表哪个更正确。**
-来源：[T139](../../../docs/redesign-tasks/T139-card-wording.md) A1–A3、[审计第 1、2、10 节](../../../docs/research/ts-guess-audit.md)；Laplaza 等，*J. Phys. Chem. Lett.* **2024**, *15*, 7363–7370，[DOI:10.1021/acs.jpclett.4c01657](https://pubs.acs.org/doi/10.1021/acs.jpclett.4c01657)。
 
 在共同反应物参考态、相同前因子及 κ 下，令
 `ΔΔG‡ = G‡eff,minor − G‡eff,major ≥ 0`：
@@ -124,9 +122,8 @@ Curtin–Hammett 及上述可逆性判断都需要独立动力学依据，不能
 来源：[T139](../../../docs/redesign-tasks/T139-card-wording.md) A6、[审计第 11 节](../../../docs/research/ts-guess-audit.md)。
 
 **重复找到同一个 TS 的次数不是简并度。**
-进入系综前先在 DFT 层核对最终几何并跨搜索来源、跨 species 去重：多个低层构象可能收敛到同一个 DFT TS；不同 Attempt 不保证不同驻点，工具不自动完成这项审阅。
-只使用有来源的真实对称简并，分别列构象简并度 d、等价路径数 `paths`、转动对称数 σ；已显式枚举的等价项不再重复计权，σ 不得再乘进前两者。`cluster --mirror` 的计数依赖去重输入和映射判据，不能直接当作真实简并导入 TS 统计。
-来源：[T139](../../../docs/redesign-tasks/T139-card-wording.md) A1–A3、[审计第 1、2、10 节](../../../docs/research/ts-guess-audit.md)；Laplaza 等，*J. Phys. Chem. Lett.* **2024**, *15*, 7363–7370，[DOI:10.1021/acs.jpclett.4c01657](https://pubs.acs.org/doi/10.1021/acs.jpclett.4c01657)。
+进入系综前由人按 DFT 最终几何跨搜索来源、跨 species 去重，分别记录真实构象简并度 d、等价路径数 `paths`、转动对称数 σ 及来源；已显式枚举的项不再重复计权，σ 不乘入 d 或 paths。
+`cluster --mirror` 计数不能直接当作真实 TS 简并度；重复驻点、映射与计数的解释及来源见 [profile 第 3 节](profile.md#3-输入模板)。
 
 通道 c 中先跨搜索家族去重，再汇总保留的全部可比 TS：
 
