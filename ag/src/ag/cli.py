@@ -208,6 +208,8 @@ def main(argv=None):
     register(subparsers)
     from ag.route import register as register_route
     register_route(subparsers)
+    from ag.parent_chk_report import register as register_parent_chk_report
+    register_parent_chk_report(subparsers)
     for name in ('facts', 'thermo', 'dedup', 'cluster', 'graph', 'irc_compare', 'profile', 'coverage', 'scan_peak', 'qst_endpoints', 'topology', 'mode_review', 'fragments', 'ensemble', 'channel_coverage', 'asm', 'irc_review', 'nci_report', 'cp_report', 'catalog', 'g0'):
         module_name = f'ag.{name}'
         try:
