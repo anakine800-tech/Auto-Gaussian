@@ -16,6 +16,7 @@
 - `skills-next/auto-g16-study/references/acceptance-methods.md（仅来源定位与核验日期）`
 - `skills-next/auto-g16-literature/references/group-literature.md（仅相应来源条目及核验日期）`
 - `skills-next/auto-g16-gaussian-learning-library/SKILL.md`
+- `skills-next/auto-g16-gaussian-learning-library/scripts/audit_library.py`：仅删除或最小同步已废弃的一律禁引检查，其他检查保持。
 - `docs/redesign-tasks/T173-method-source-locators.md`：本工单随自身实现 PR 纳入。
 - `docs/redesign-tasks/open-tasks.txt`：只增删本单条目，不覆盖其他任务。
 
@@ -27,11 +28,12 @@
 2. 为能核验的论断记录 DOI、SI 文件/版本、PDF 页码及印刷页码（若不同）、章节/表格、核验日期和支持范围；直接先例与类比、未找到的内容分开。拿不到正文/SI 时保留缺口，不编页码。
 3. 只修证据定位，不趁机改变已批准方法、基组、窗口或热化学设置；来源不支持原说法时记录具体不符并交负责人处理。
 4. 学习库的 description、Core Contract、默认答案结构及 GKB 来源说明一起修改：普通基础教学可简洁，用户要求依据或研究方法追溯时应提供可验证来源；区分公开来源、库内定位和推断，不能只给内部 ID 冒充公开引用。
-5. 不提交版权全文、私人论文库、未发表研究或私有批注。用简短必要摘要和公开链接定位，原始核查材料放私有验证目录。
+5. 同步 audit_library.py 中强制要求旧禁引句的单项检查，避免正确新文案必然产生方向相反的警告；保留其他隐私、必需文件、卡片数量和可移植性检查，不为零警告全面放宽。
+6. 不提交版权全文、私人论文库、未发表研究或私有批注。用简短必要摘要和公开链接定位，原始核查材料放私有验证目录。
 
 ## 不允许
 
-- 不改产品 Python/前端代码、模板、测试逻辑、版本号或 CHANGELOG；不通过放松检查掩盖文档问题。
+- 不改 ag 产品代码、前端代码、模板、测试逻辑、版本号或 CHANGELOG；本单仅允许上述本地审计脚本的一项废弃政策检查同步，不通过放松其他检查掩盖问题。
 - 不改其他任务负责的公共文件；不重写已保存的 Attempt、manifest、bundle、卡片快照、facts 或签字。
 - 不部署、不修改生产配置、不恢复监控、不连接集群、不提交/取消/重试计算；其他本批任务的权限不转入本单。
 - 不提交真实主机、账号、路径、作业号、配置、私有词表或研究数据；公开示例仅用占位符/合成小分子。
@@ -41,14 +43,14 @@
 - 由复核者按定位找到所引方法段；无法找到的来源明确列为未解决，不计为完成。
 - 学习库不再一律禁止来源，也不强迫所有入门回答堆积引用；研究场景仍满足来源追溯。
 - 来源精确定位不等于新方法获得研究授权，旧研究签字与卡片快照不变。
-- 纯文档本地按现行 DEVELOPING 运行 `PYTHONPATH=ag/src python -m pytest skills-next -q -rs`，相关链接、片段和语义人工核对；代码测试由 CI 按既有工作流运行。
+- 本地运行 `python skills-next/auto-g16-gaussian-learning-library/scripts/audit_library.py --format json`；本单含本地审计脚本修改，按现行 DEVELOPING 在推送前运行 `PYTHONPATH=ag/src python -m pytest ag/tests skills-next -q -rs`。相关链接、片段和语义人工核对，CI 按既有工作流运行。
 - 不为文字复述新写测试，不改已有测试来接受错误示例；失败先核对说明/接口，确需扩大范围时报告。
 - 只暂存本单文件；运行现行敏感扫描与 `git diff --cached --check`，核对 author/committer 为 GitHub noreply，并检查 PR 文本；私有词表不公开。
 - 写明实际通过/失败/跳过项。本单未执行检查前不能照搬报告的 177 通过数当作自己的结果。
 
 ## 真实环境验证
 
-本单不需要 SSH、调度器查询或计算。文档所描述的真实验证只是后续执行要求，不在本单顺手执行；网络文献读取仅 T173 的公开来源核验适用。纯文档通过不代表部署、实际调度或科学验收。
+本单不需要 SSH、调度器查询或计算。文档所描述的真实验证只是后续执行要求，不在本单顺手执行；网络文献读取仅 T173 的公开来源核验适用。本地审计和测试通过不代表部署、实际调度或科学验收。
 
 ## 停止条件与交付
 
