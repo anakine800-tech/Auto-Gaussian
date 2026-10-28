@@ -101,14 +101,15 @@ def _load(evidence, value, template):
     require(protocol(parsed['route'], 1) == protocol(science['route'], 1), 'Output/input method protocol differs')
     xyz = geometries.get('final_input.xyz') or geometries.get('final.xyz')
     require(xyz is not None, 'Missing output geometry')
-    paired_geometry(science['geometry'], '\n'.join(xyz.splitlines()[2:]))
+    output_geometry = '\n'.join(xyz.splitlines()[2:])
+    paired_geometry(science['geometry'], output_geometry)
     saved = directory / 'facts.json'
     if saved.exists():
         previous = evidence.json(saved)
         content = lambda v: json.dumps({k: x for k, x in v.items() if k != 'ag_provenance'},
                                       sort_keys=True, ensure_ascii=False, allow_nan=False)
         require(content(previous) == content(parsed), 'Saved facts differ from current log; review before refresh')
-    return directory, manifest, science, parsed, log
+    return directory, manifest, science, parsed, log, output_geometry
 
 
 def _quantity(hartree, operands, formula=None):
@@ -145,42 +146,70 @@ def _gas_values(cp, log_source):
                 printed_interaction_corrected=cp['interaction_corrected_printed'])
 
 
-def _solvent(evidence, value, cp_science, gas):
+def _solvent_source(evidence, value, reference, *, fragment_mode=False):
     import re
     from ag._parse_outputs import NUMBER, number
-    from ag._profile_sources import require, protocol, section_source, integration_grid, grid_warnings
-    directory, manifest, science, facts, log = _load(evidence, value, 'gaussian')
+    from ag._profile_sources import require, protocol, section_source, integration_grid
+    directory, manifest, science, facts, log, output_geometry = _load(evidence, value, 'gaussian')
     sections = facts['job_sections']
     route = facts['route']
     require(len(sections) == 1 and not re.search(
         r'\b(opt|freq|irc|scan|counterpoise|force|polar|stable|td|cis|guess)\b', route, re.I),
         'Solvent overlay requires one ordinary Gaussian single point')
-    pairing = paired_geometry(cp_science['geometry'], science['geometry'])
-    require((cp_science['charge'], cp_science['multiplicity']) == (science['charge'], science['multiplicity']),
-            'CP/solvent SP overall state differs')
+    pairing = paired_geometry(reference['geometry'], science['geometry'])
+    output_pairing = paired_geometry(reference['geometry'], output_geometry) if fragment_mode else None
+    require((reference['charge'], reference['multiplicity']) == (science['charge'], science['multiplicity']),
+            'CP/solvent SP declared state differs')
     method = protocol(science['route'], science['multiplicity'])
     require(method['solvent_model'] != 'none', '--solvent-sp requires an explicit solvent model')
-    require(all(method[k] == cp_science['protocol'][k]
+    require(all(method[k] == reference['protocol'][k]
                 for k in ('method', 'basis', 'basis_function_type', 'dispersion')),
             'CP/solvent SP method/basis/dispersion differs')
     source = section_source(facts, directory.name, frequency=False, directory=directory)
     require(source.get('printed_conditions', {}).get('solvent') is not None,
             'Solvent SP needs printed solvent execution evidence; route echo is insufficient')
     lines = evidence.saved[log].decode(errors='replace').splitlines()
-    matches = [(i, re.fullmatch(r'\s*SCF Done:\s+E\([^)]+\)\s*=\s*(' + NUMBER
+    if fragment_mode:
+        from ag.gaussian_input import counterpoise_route
+        require(method['solvent_model'] == 'smd', 'Solvent fragment mode requires SMD for every solvent SP')
+        # Reuse the reviewed SP route subset to exclude hidden geometry/basis
+        # changes, checkpoint inheritance and extra tasks from own-basis SPs.
+        for candidate in (science['route'], route):
+            without_scrf = re.sub(r'\bscrf\s*=?\s*\([^)]*\)', '', candidate, flags=re.I)
+            counterpoise_route(without_scrf + ' Counterpoise=2')
+        require(not re.search(r'\bcounterpoise\b|\bNewBq\b|\bBq\b|\bin fragment\s+\d',
+                              '\n'.join(lines), re.I),
+                'Solvent fragment mode requires ordinary own-basis SP output without ghost/CP fragments')
+    matches = [(i, re.fullmatch(r'\s*SCF Done:\s+E\(([^)]+)\)\s*=\s*(' + NUMBER
                                + r')\s+A\.U\. after\s+\d+\s+cycles\s*', line))
                for i, line in enumerate(lines, 1) if re.match(r'\s*SCF Done:', line)]
     require(len(matches) == 1 and matches[0][1] is not None, 'Ambiguous solvent SP SCF energy')
     line, match = matches[0]
-    energy = number(match[1])
+    if fragment_mode:
+        from ag._profile_sources import normalized_method
+        require(normalized_method(match[1], science['multiplicity']) == method['method'],
+                'Solvent SP SCF method differs from route')
+    energy = number(match[2])
     require(abs(energy - facts['energies']['scf']) <= 1e-8, 'Solvent SCF energy differs from parsed facts')
     energy_source = {**evidence.reference(log), 'line': line}
+    input_name = next(item['name'] for item in manifest['inputs'] if item['name'].lower().endswith('.gjf'))
+    return dict(attempt=directory.name, pairing=pairing, output_pairing=output_pairing,
+                protocol=source['protocol'], integration_grid=integration_grid(science['route']),
+                input_source=evidence.reference(directory / 'inputs' / input_name),
+                section_source={**source, **evidence.reference(log)},
+                energy=_quantity(energy, [energy_source]))
+
+
+def _solvent(evidence, value, cp_science, gas, fragment_sps, binding):
+    from ag._profile_sources import require, integration_grid, grid_warnings
+    complex_sp = _solvent_source(evidence, value, cp_science, fragment_mode=bool(fragment_sps))
+    energy = complex_sp['energy']
     # Ordinary Gaussian SP supplies E_AB only. Do not infer solvent monomer
     # energies from Mulliken populations or reuse gas MCBS/DCBS values.
-    return dict(attempt=directory.name, pairing=pairing, protocol=source['protocol'],
-                complex_energy=_quantity(energy, [energy_source]),
-                complex_energy_plus_gas_bsse=_quantity(energy + gas['bsse']['hartree'],
-                    [energy_source, *gas['bsse']['sources']], 'E_AB(solvent) + BSSE(gas)'),
+    result = dict(attempt=complex_sp['attempt'], pairing=complex_sp['pairing'], protocol=complex_sp['protocol'],
+                complex_energy=energy,
+                complex_energy_plus_gas_bsse=_quantity(energy['hartree'] + gas['bsse']['hartree'],
+                    [*energy['sources'], *gas['bsse']['sources']], 'E_AB(solvent) + BSSE(gas)'),
                 interaction_raw=None, interaction_corrected=None,
                 fragment_energies=[dict(index=f['index'], energy=None) for f in cp_science['counterpoise']['fragments']],
                 missing=[f"片段 {f['index']} ({f['fragment']}) 的同几何溶剂相单点能量"
@@ -188,7 +217,63 @@ def _solvent(evidence, value, cp_science, gas):
                 note=SOLVENT_NOTE,
                 limitation='普通单个溶剂相 SP 不提供两个片段能量；仅报告溶剂相复合物能量 + 气相 BSSE 修正量，不是相互作用能。',
                 warnings=grid_warnings([('CP', integration_grid(cp_science['route'])),
-                                        ('solvent SP', integration_grid(science['route']))]))
+                                        ('solvent SP', complex_sp['integration_grid'])]))
+    if not fragment_sps:
+        return result
+    result['complex_source'] = complex_sp
+    rows = cp_science['geometry'].splitlines()
+    grids = [('CP', integration_grid(cp_science['route'])), ('solvent SP', complex_sp['integration_grid'])]
+    missing = []
+    for definition, item in zip(cp_science['counterpoise']['fragments'], result['fragment_energies']):
+        index = definition['index']
+        if index not in fragment_sps:
+            missing.append(f"片段 {index} ({definition['fragment']}) 的同几何溶剂相单点能量")
+            continue
+        reference = dict(geometry='\n'.join(rows[i - 1] for i in definition['atoms']),
+                         charge=definition['charge'], multiplicity=definition['multiplicity'],
+                         protocol=cp_science['protocol'])
+        fragment = _solvent_source(evidence, fragment_sps[index], reference, fragment_mode=True)
+        require(fragment['protocol'] == complex_sp['protocol'],
+                f'Fragment {index}: solvent SP method or printed solvent parameters differ from complex')
+        item.update(fragment)
+        item['binding'] = dict(**binding, fragment_index=index, fragment=definition['fragment'],
+                               charge=definition['charge'], multiplicity=definition['multiplicity'],
+                               atom_mapping=[dict(complex_atom=atom, fragment_atom=local)
+                                             for local, atom in enumerate(definition['atoms'], 1)])
+        grids.append((f'fragment {index} solvent SP', fragment['integration_grid']))
+    result['missing'] = missing
+    result['warnings'] = grid_warnings(grids)
+    result['limitation'] = ('complex_energy_plus_gas_bsse 不是相互作用能。'
+                            '相互作用能使用复合物几何下各片段自身基组的 SMD 单点；'
+                            '加气相 BSSE 的结果是近似诊断量，不是计算出的结合自由能。')
+    if not missing:
+        a, b = [item['energy'] for item in result['fragment_energies']]
+        raw = energy['hartree'] - a['hartree'] - b['hartree']
+        sources = [*energy['sources'], *a['sources'], *b['sources']]
+        result['interaction_raw'] = _quantity(raw, sources, 'E_AB(SMD) - E_A(SMD) - E_B(SMD)')
+        result['interaction_corrected'] = _quantity(raw + gas['bsse']['hartree'],
+            [*sources, *gas['bsse']['sources']], 'E_AB(SMD) - E_A(SMD) - E_B(SMD) + BSSE(gas)')
+        pointers = ['/solvent/complex_energy', '/solvent/fragment_energies/0/energy',
+                    '/solvent/fragment_energies/1/energy']
+        result['interaction_raw']['operand_pointers'] = pointers
+        result['interaction_corrected']['operand_pointers'] = [*pointers, '/gas/bsse']
+    return result
+
+
+def _fragment_arguments(values, solvent_sp):
+    import re
+    from ag._profile_sources import require
+    from ag.study import identifier
+    result = {}
+    for value in values or []:
+        match = re.fullmatch(r'([12]):(.+)', value)
+        require(match is not None, '--solvent-fragment-sp requires 1:<attempt_id> or 2:<attempt_id>')
+        index, attempt_id = int(match[1]), identifier(match[2])
+        require(index not in result, f'Duplicate solvent fragment index {index}')
+        require(attempt_id not in result.values(), 'Same Attempt cannot supply both solvent fragments')
+        result[index] = attempt_id
+    require(not result or solvent_sp, '--solvent-fragment-sp requires --solvent-sp')
+    return result
 
 
 def _asm_comparison(evidence, value):
@@ -217,23 +302,27 @@ def _asm_comparison(evidence, value):
     return dict(systems=rows, note='仅并列展示原 ASM 形变能；不与 CP 组合成新的结合能结论。')
 
 
-def report(value, *, study=None, solvent_sp=None, asm=None):
+def report(value, *, study=None, solvent_sp=None, solvent_fragment_sp=None, asm=None):
     from ag.asm import _root
     from ag.ensemble import _Evidence
     from ag._profile_sources import integration_grid
     from ag import __version__
     from ag._parse_outputs import HARTREE_TO_KCAL
+    fragment_sps = _fragment_arguments(solvent_fragment_sp, solvent_sp)
     evidence = _Evidence(_root(study, value))
-    directory, manifest, science, facts, log = _load(evidence, value, 'gaussian-cp')
+    directory, manifest, science, facts, log, _ = _load(evidence, value, 'gaussian-cp')
     gas = _gas_values(facts['counterpoise'], evidence.reference(log))
     fragments = {**science['counterpoise'],
                  'source': evidence.reference(directory / 'inputs' / science['counterpoise']['file'])}
+    binding = dict(cp_attempt=directory.name, fragments_source=fragments['source'],
+                   complex_input_source=evidence.reference(directory / 'inputs' /
+                       science['counterpoise']['file'].removesuffix('.fragments.csv')))
     result = dict(schema='ag-cp/1', ag_version=__version__, attempt=directory.name,
                   program_version=facts.get('program_version'), protocol=science['protocol'],
                   integration_grid=integration_grid(science['route']), fragments=fragments,
                   units=dict(energy='Hartree', converted_energy='kcal/mol', distance='angstrom'),
                   hartree_to_kcal_mol=HARTREE_TO_KCAL, gas=gas,
-                  solvent=_solvent(evidence, solvent_sp, science, gas) if solvent_sp else None,
+                  solvent=_solvent(evidence, solvent_sp, science, gas, fragment_sps, binding) if solvent_sp else None,
                   asm=_asm_comparison(evidence, asm) if asm else None, notice=NOTICE)
     evidence.verify()
     result['sources'] = [evidence.reference(path) for path in sorted(evidence.saved)]
@@ -268,8 +357,20 @@ def markdown(result):
         solvent = result['solvent']
         lines += ['## 溶剂相叠加', '', SOLVENT_NOTE, '', solvent['limitation'], '',
                   *table([(key, solvent[key]) for key in ('complex_energy', 'complex_energy_plus_gas_bsse')]), '',
-                  '缺失：' + '；'.join(solvent['missing']), '',
-                  '溶剂相相互作用能（未校正/校正）：未知。', '', *solvent['warnings'], '']
+                  '缺失：' + ('；'.join(solvent['missing']) or '无'), '']
+        for fragment in solvent['fragment_energies']:
+            if fragment['energy'] is not None:
+                lines += table([(f"片段 {fragment['index']} 自身基组 SMD", fragment['energy'])]) + ['']
+                lines += [f"片段来源与几何匹配：{cell(json.dumps(fragment, ensure_ascii=False))}", '']
+        if solvent['interaction_raw'] is None:
+            lines += ['溶剂相相互作用能（未校正/校正）：未知。', '']
+        else:
+            lines += table([('SMD 相互作用能', solvent['interaction_raw']),
+                            ('SMD 相互作用能 + 气相 BSSE（近似）', solvent['interaction_corrected'])]) + ['']
+            lines += [f"公式：{cell(solvent[key]['formula'])}" for key in ('interaction_raw', 'interaction_corrected')]
+        if 'complex_source' in solvent:
+            lines += ['', f"复合物来源与几何匹配：{cell(json.dumps(solvent['complex_source'], ensure_ascii=False))}"]
+        lines += ['', *solvent['warnings'], '']
     if result['asm']:
         lines += ['## ASM 并列对照', '', result['asm']['note'], '']
         for row in result['asm']['systems']:
@@ -286,7 +387,8 @@ def run(args):
     from ag.fragments import _write_outputs
     root = _root(args.study, args.attempt)
     target = _output(root, args.out, '.json')
-    result = report(args.attempt, study=str(root), solvent_sp=args.solvent_sp, asm=args.asm)
+    result = report(args.attempt, study=str(root), solvent_sp=args.solvent_sp,
+                    solvent_fragment_sp=args.solvent_fragment_sp, asm=args.asm)
     content = json.dumps(result, ensure_ascii=False, indent=2, allow_nan=False) + '\n'
     _write_outputs(target.parent, {target.name: content.encode(),
                                   target.with_suffix('.md').name: markdown(result).encode()})
@@ -299,6 +401,8 @@ def register(subparsers):
     parser.add_argument('attempt', help='gaussian-cp Attempt ID or directory')
     parser.add_argument('--study', help='Study directory; inferred from absolute Attempt directory')
     parser.add_argument('--solvent-sp', help='Same-geometry ordinary Gaussian solvent SP Attempt')
+    parser.add_argument('--solvent-fragment-sp', action='append', default=[], metavar='INDEX:ATTEMPT',
+                        help='Existing own-basis SMD SP for CP fragment 1 or 2; repeat for each fragment')
     parser.add_argument('--asm', help='Existing ag-asm/1 report under study analyses/')
     parser.add_argument('--out', required=True, help='New JSON under study analyses/; also writes Markdown')
     parser.add_argument('--json', action='store_true')
