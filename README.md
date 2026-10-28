@@ -417,6 +417,10 @@ unknown（缺失、过期、矛盾或不可用状态）、not_applicable（已�
 结果包含请求 cores/mem_gb、cluster/target_node、sampled_at/valid_until、原因及 CPU/内存来源；
 无可信时间或过期元数据时有效期为空。有效快照沿用采样间隔三倍的期限，旧快照缺节点字段时保持未知。
 PBS 复用既有节点字段及内存来源优先级，精确目标名称不做短名映射；具名节点策略仍由原准入检查执行。
+PBS 节点另带 `capacity_cpu_consistent`、`mem_total_bytes`、`mem_assigned_bytes`，核对精确节点的
+exec_host、节点 jobs 与已分配核数是否冲突，容量内存按整数 byte 比较。原 GB 显示及汇总保留一位小数；
+Torque 作业申请先按原精度累加，不用显示值相加判断。缺少这些容量字段的旧 PBS 快照保持 unknown，
+不从已舍入的 GB 恢复边界容量；无法解析为整数 byte 的内存值也保持未知。
 Slurm 快照增量填写 `cluster.nodes`，每行包含 name/partition/partition_state/state、cores_total/cores_used/
 cores_idle/cores_other、mem_total_gb/mem_assigned_gb 和来源；节点查询局部失败记在 `cluster.nodes_error`，
 不清空成功的本人作业或旧硬件汇总。CPU 与内存来自同一条具名 sinfo 记录；二进制 GB 不向上舍入，

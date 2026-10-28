@@ -28,10 +28,20 @@ def evaluate_node(node, cores, mem_gb, *, scheduler, partition=None):
         return result
     total, used = node.get('cores_total'), node.get('cores_used')
     memory, assigned = node.get('mem_total_gb'), node.get('mem_assigned_gb')
-    if not (_count(total) and total > 0 and _memory(memory) and memory > 0):
+    memory_unit, valid_memory = 1, _memory
+    if scheduler == 'pbs':
+        if node.get('capacity_cpu_consistent') is not True:
+            reasons.append('PBS核数观测矛盾或旧快照缺少容量一致性信息')
+            return result
+        # GB fields are rounded display values, including sums of job requests.
+        # Missing byte fields in old caches cannot establish a boundary fit.
+        memory, assigned = node.get('mem_total_bytes'), node.get('mem_assigned_bytes')
+        memory_unit, valid_memory = 1024**3, _count
+    requested_memory = mem_gb * memory_unit
+    if not (_count(total) and total > 0 and valid_memory(memory) and memory > 0):
         reasons.append('节点总核数或总内存未知')
         return result
-    result['fits_total'] = cores <= total and mem_gb <= memory
+    result['fits_total'] = cores <= total and requested_memory <= memory
     if not result['fits_total']:
         result.update(availability='not_applicable')
         reasons.append('请求超过单节点总核数或总内存')
@@ -42,7 +52,7 @@ def evaluate_node(node, cores, mem_gb, *, scheduler, partition=None):
     if state not in states or (scheduler == 'slurm' and node.get('partition_state') != 'up'):
         reasons.append('节点或分区状态不允许确认当前容量')
         return result
-    if not (_count(used) and used <= total and _memory(assigned) and assigned <= memory):
+    if not (_count(used) and used <= total and valid_memory(assigned) and assigned <= memory):
         reasons.append('节点已分配核数或内存未知或无效')
         return result
     if scheduler == 'slurm' and state == 'idle' and used:
@@ -57,8 +67,8 @@ def evaluate_node(node, cores, mem_gb, *, scheduler, partition=None):
         if other:
             reasons.append('节点存在不可用CPU，当前容量未知')
             return result
-    result.update(cores_available=idle, mem_available_gb=memory - assigned)
-    if idle >= cores and memory - assigned >= mem_gb and state in ('free', 'idle', 'mixed'):
+    result.update(cores_available=idle, mem_available_gb=(memory - assigned) / memory_unit)
+    if idle >= cores and memory - assigned >= requested_memory and state in ('free', 'idle', 'mixed'):
         result['availability'] = 'enough'
         reasons.append('同一节点的可用核数和已分配口径剩余内存足够')
     else:

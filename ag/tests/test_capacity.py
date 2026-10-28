@@ -7,18 +7,23 @@ import subprocess
 
 import pytest
 
-from ag import capacity, cli, config, monitor, remote, slurm
+from ag import capacity, cli, config, monitor, pbs, remote, slurm
 from ag.transport import SSHTransport, Result
 from test_core import cfg
 from test_slurm import multi, SlurmFake
+from test_monitor import Fake as PBSFake
 
 
 NOW = datetime(2026, 10, 28, tzinfo=timezone.utc)
 
 
 def node(name='node-a', **values):
-    return dict(dict(name=name, state='free', cores_total=44, cores_used=0,
-                     mem_total_gb=120, mem_assigned_gb=0), **values)
+    row = dict(dict(name=name, state='free', cores_total=44, cores_used=0,
+                    mem_total_gb=120, mem_assigned_gb=0, capacity_cpu_consistent=True), **values)
+    for key in ('mem_total', 'mem_assigned'):
+        value = row[key + '_gb']
+        row[key + '_bytes'] = value * 1024**3 if type(value) is int and value >= 0 else None
+    return row
 
 
 def save(cfg, nodes, name='default', **values):
@@ -209,3 +214,87 @@ def test_shared_account_entries_keep_separate_node_capacity(multi):
     save(multi, slurm.parse_nodes('node-b|fixture|0/16/0/16|32768|0|idle|up', 'fixture'), 'second')
     assert capacity.assess(multi, 'batch', 'general', now=NOW)['availability'] == 'enough'
     assert capacity.assess(multi, 'second', 'general', now=NOW)['availability'] == 'not_applicable'
+
+
+@pytest.mark.parametrize('assigned,expected', [('28', 'unknown'), ('4', 'enough'), ('invalid', 'unknown')])
+def test_pbs_cpu_conflicts_without_targeting_preserve_display(cfg, assigned, expected):
+    assert 'node_targeting' not in cfg
+    raw = ('node-a\n    state = free\n    resources_available.ncpus = 32\n'
+           f'    resources_assigned.ncpus = {assigned}\n'
+           '    resources_available.mem = 64gb\n    resources_assigned.mem = 0gb\n')
+    jobs = [dict(job_id='101.fixture', job_state='R', exec_host='node-a/0-3')]
+    rows, hardware = monitor.pbs_hardware(cfg, PBSFake(nodes=raw), jobs)
+    assert rows[0]['cores_used'] == hardware['cores_allocated'] == 4
+    assert rows[0]['capacity_cpu_consistent'] is (assigned == '4')
+    save(cfg, rows)
+    assert capacity.assess(cfg, 'default', 'simple', now=NOW)['availability'] == expected
+
+
+@pytest.mark.parametrize('extra', ['    np = 16\n', '    jobs = 0-7/101.fixture\n',
+                                  '    jobs = 0-3/102.fixture\n'])
+def test_pbs_other_cpu_source_conflicts(extra):
+    raw = ('node-a\n    state = free\n    resources_available.ncpus = 32\n'
+           '    resources_assigned.ncpus = 4\n    resources_available.mem = 64gb\n'
+           '    resources_assigned.mem = 0gb\n' + extra)
+    jobs = [dict(job_id='101.fixture', job_state='R', exec_host='node-a/0-3')]
+    row = pbs.parse_nodes(raw, jobs)[0]
+    assert row['capacity_cpu_consistent'] is False
+    assert capacity.evaluate_node(row, 8, 12, scheduler='pbs')['availability'] == 'unknown'
+
+
+@pytest.mark.parametrize('total,assigned,requested_gb,fit,expected', [
+    ('65535mb', '0gb', 64, False, 'not_applicable'),
+    ('64gb', '40961mb', 24, True, 'queue'),
+    ('65536mb', '40960mb', 24, True, 'enough'),
+    ('64gb', '0gb', 64, True, 'enough'),
+])
+def test_pbs_capacity_uses_bytes_not_rounded_display(cfg, total, assigned, requested_gb, fit, expected):
+    raw = ('node-a\n    state = free\n    resources_available.ncpus = 32\n'
+           '    resources_assigned.ncpus = 0\n'
+           f'    resources_available.mem = {total}\n    resources_assigned.mem = {assigned}\n')
+    rows, hardware = monitor.pbs_hardware(cfg, PBSFake(nodes=raw), [])
+    assert rows[0]['mem_total_gb'] == hardware['mem_total_gb'] == 64
+    assert rows[0]['mem_assigned_gb'] == hardware['mem_allocated_gb'] == (40 if requested_gb == 24 else 0)
+    cfg['resources']['tiers']['simple']['mem_gb'] = requested_gb
+    save(cfg, rows)
+    result = capacity.assess(cfg, 'default', 'simple', now=NOW)
+    assert (result['fits_total'], result['availability']) == (fit, expected)
+
+
+@pytest.mark.parametrize('missing', ['capacity_cpu_consistent', 'mem_total_bytes', 'mem_assigned_bytes', 'all'])
+@pytest.mark.parametrize('assigned,requested_gb', [(0, 64), (40, 24)])
+def test_old_pbs_cache_cannot_prove_boundary_capacity(cfg, missing, assigned, requested_gb):
+    row = node(mem_total_gb=64, mem_assigned_gb=assigned)
+    for key in ('capacity_cpu_consistent', 'mem_total_bytes', 'mem_assigned_bytes'):
+        if missing in (key, 'all'):
+            del row[key]
+    save(cfg, [row])
+    cfg['resources']['tiers']['simple']['mem_gb'] = requested_gb
+    assert capacity.assess(cfg, 'default', 'simple', now=NOW)['availability'] == 'unknown'
+
+
+def test_torque_request_sum_preserves_capacity_precision_and_precedence():
+    raw = ('node-a\n    state = free\n    np = 32\n    status = physmem=65536mb\n'
+           '    jobs = 0-1/101.fixture, 2-3/102.fixture\n')
+    jobs = [dict(job_id=f'{101 + i}.fixture', job_state='R', exec_host=f'node-a/{2*i}-{2*i+1}',
+                 **{'Resource_List.mem': f'{20481 - i}mb'}) for i in range(2)]
+    row = pbs.parse_nodes(raw, jobs)[0]
+    assert row['mem_total_gb'] == 64 and row['mem_assigned_gb'] == 40
+    assert row['mem_assigned_bytes'] == 40961 * 1024**2
+    assert capacity.evaluate_node(row, 8, 24, scheduler='pbs')['availability'] == 'queue'
+    raw += '    resources_available.mem = 65gb\n    resources_assigned.mem = 7gb\n'
+    row = pbs.parse_nodes(raw, jobs)[0]
+    assert row['mem_total_bytes'] == 65 * 1024**3 and row['mem_assigned_bytes'] == 7 * 1024**3
+    row = pbs.parse_nodes(raw.replace('7gb', 'invalid'), jobs)[0]
+    assert row['mem_assigned_gb'] is None and row['mem_assigned_bytes'] is None
+    jobs[0]['Resource_List.mem'] = 'invalid'
+    row = pbs.parse_nodes(raw.split('    resources_available.mem')[0], jobs)[0]
+    assert row['mem_assigned_gb'] is None and row['mem_assigned_bytes'] is None
+
+
+@pytest.mark.parametrize('value,expected', [('0gb', 0), ('1b', 1), ('1KB', 1024),
+    ('65535mb', 65535 * 1024**2), ('1.5gb', 3 * 1024**3 // 2), ('0.0625tb', 64 * 1024**3),
+    ('0.5b', None), ('63.999999999999999999999999999999999gb', None),
+    ('invalid', None), ('-1gb', None), ('nangb', None), (None, None)])
+def test_pbs_capacity_memory_units(value, expected):
+    assert pbs.memory_bytes(value) == expected

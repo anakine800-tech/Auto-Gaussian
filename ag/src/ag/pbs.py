@@ -1,7 +1,7 @@
 """PBS node parsing for monitoring displays."""
 import re
 from datetime import datetime, timezone
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, localcontext
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from ag.remote import job_id as validate_job_id
@@ -110,15 +110,29 @@ def parse_nodes(text, jobs, *, notes=None):
         for job_id in job_ids:
             job_nodes.setdefault(job_id, set()).add(record['name'])
         record['_cores_used'] = used
+        # Preserve display precedence, but do not advertise room when the
+        # exact-name node/jobs/assigned-CPU observations disagree.
+        cpu_consistent = (0 <= used <= int(cores)
+                          and used == allocated.get(record['name'], 0)
+                          and job_ids == set(node_jobs.get(record['name'], ())))
+        for field, expected in (('resources_available.ncpus', int(cores)),
+                                ('resources_assigned.ncpus', used)):
+            if field in record:
+                value = record[field]
+                cpu_consistent &= value.isdigit() and int(value) == expected
+        record['_capacity_cpu_consistent'] = cpu_consistent
     for record in records:
         status = dict(part.strip().split('=', 1) for part in record.get('status', '').split(',')
                       if '=' in part)
-        total = memory_gb(record.get('resources_available.mem', status.get('physmem')))
+        total_raw = record.get('resources_available.mem', status.get('physmem'))
+        total = memory_gb(total_raw)
         assigned = memory_gb(record.get('resources_assigned.mem'))
+        total_bytes = memory_bytes(total_raw)
+        assigned_bytes = memory_bytes(record.get('resources_assigned.mem'))
         # Only Torque's status fallback uses job requests. PBS Pro keeps its
         # explicit assigned-memory field, including unknown/missing values.
         if 'status' in record and 'resources_assigned.mem' not in record:
-            values, reasons = [], set()
+            values, byte_values, reasons = [], [], set()
             for job_id in record['_job_ids']:
                 job = by_job.get(job_id)
                 if job is None:
@@ -134,15 +148,35 @@ def parse_nodes(text, jobs, *, notes=None):
                         reasons.add('已分配内存未知：节点上有作业未申请内存或申请值无法解析')
                     else:
                         values.append(value)
+                        byte_values.append(memory_bytes(job.get('Resource_List.mem')))
             assigned = None if reasons else round(sum(values), 1)
+            assigned_bytes = (None if reasons or None in byte_values else sum(byte_values))
             if notes is not None:
                 notes.extend(reason for reason in sorted(reasons) if reason not in notes)
         nodes.append(dict(name=record['name'], state=record['state'],
                           cores_total=int(record.get('np', record.get('resources_available.ncpus', ''))),
                           cores_used=record['_cores_used'], mem_total_gb=total,
                           mem_assigned_gb=assigned,
+                          capacity_cpu_consistent=record['_capacity_cpu_consistent'],
+                          mem_total_bytes=total_bytes, mem_assigned_bytes=assigned_bytes,
                           jobs=len(record['_job_ids']) if 'jobs' in record else None))
     return nodes
+
+
+def memory_bytes(value):
+    """Exact whole bytes for capacity; retain unknown/fractional bytes as None."""
+    if not isinstance(value, str):
+        return None
+    match = re.fullmatch(r'(\d+(?:\.\d+)?)\s*(b|kb|mb|gb|tb)', value.strip(), re.I)
+    if match is None:
+        return None
+    with localcontext() as context:
+        # Enough precision for the original decimal coefficient times 1024**4.
+        context.prec = len(match[1]) + 16
+        amount = Decimal(match[1]) * 1024 ** ('b', 'kb', 'mb', 'gb', 'tb').index(match[2].lower())
+        if amount < Decimal('1e100') * 1024**3 and amount == amount.to_integral_value():
+            return int(amount)
+    return None
 
 
 def memory_gb(value):
