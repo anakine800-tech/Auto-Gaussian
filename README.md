@@ -396,6 +396,7 @@ ln -s '<REPO_ROOT>/skills-next/<SKILL_NAME>' "$HOME/.codex/skills/<SKILL_NAME>"
 6. 人审核最终结果并签字；`study.md` 写入结论与适用边界。续接时读取 `study.md`、`ag list` 和已有文件，不凭对话记忆重复提交。
 
 TS 必须恰好一个虚频且振动方向与反应坐标一致；只有双向 IRC 完成、端点被识别并科学审阅后，才能声称验证。
+从 [TS 总入口](skills-next/auto-g16-recipes/cards/ts.md)按阶段进入[初猜准备与诊断](skills-next/auto-g16-recipes/cards/ts-guess.md)、[TS 搜索与频率](skills-next/auto-g16-recipes/cards/ts-search.md)、[IRC 与端点](skills-next/auto-g16-recipes/cards/irc.md)；[原初猜指南整理版](skills-next/auto-g16-recipes/references/ts-initial-guess-guide.md)记录来源及更正。
 
 ## 前端
 

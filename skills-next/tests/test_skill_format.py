@@ -18,7 +18,7 @@ SKILLS = tuple(ROOT / f"auto-g16-{name}" for name in (
 ))
 CARDS = (
     "opt-freq", "sp", "rdkit-screen", "crest-screen", "thermo", "failure-diagnosis",
-    "reaction-plan", "ts", "irc", "profile", "complex",
+    "reaction-plan", "ts", "ts-guess", "ts-search", "irc", "profile", "complex",
     "kinetics", "counterpoise",
 )
 SECTIONS = (
@@ -77,6 +77,42 @@ def check_card_sections(text, card):
     assert headings == [f"{i}. {name}" for i, name in enumerate(SECTIONS, 1)]
     bodies = re.split(r"(?m)^## .+$", text)[1:]
     assert all(body.strip() for body in bodies), f"Empty section: {card}"
+
+
+def markdown_heading_anchors(text):
+    # TS splitting must preserve incoming fragments, not merely target files.
+    text = re.sub(r"```.*?```", "", text, flags=re.S)
+    anchors, counts = set(), {}
+    for heading in re.findall(r"(?m)^#{1,6} (.+)$", text):
+        slug = re.sub(r"[^\w -]", "", heading.lower()).replace(" ", "-")
+        duplicate = counts.get(slug, 0)
+        anchors.add(f"{slug}-{duplicate}" if duplicate else slug)
+        counts[slug] = duplicate + 1
+    return anchors
+
+
+def test_ts_stage_links_and_incoming_fragments():
+    cards = ROOT / "auto-g16-recipes/cards"
+    stages = {cards / f"{name}.md" for name in ("ts", "ts-guess", "ts-search", "irc")}
+    for skill in SKILLS:
+        for source in skill.rglob("*.md"):
+            targets = re.findall(r"\[[^\]\n]*\]\(([^\s)]+)\)", source.read_text())
+            for target in targets:
+                url = urlsplit(target.strip("<>"))
+                if url.scheme or url.netloc:
+                    continue
+                destination = (source.parent / unquote(url.path)).resolve() if url.path else source
+                if source not in stages and destination not in stages:
+                    continue
+                assert destination.is_file(), f"Broken TS stage link in {source.name}: {target}"
+                if url.fragment:
+                    assert unquote(url.fragment) in markdown_heading_anchors(destination.read_text()), (
+                        f"Broken TS stage anchor in {source.name}: {target}")
+
+
+def test_markdown_heading_anchors_ignore_examples_and_keep_duplicates():
+    text = "# Card\n## 2. 前置条件\n```text\n# Fake route\n```\n## TS `Input`\n## TS `Input`\n"
+    assert markdown_heading_anchors(text) == {"card", "2-前置条件", "ts-input", "ts-input-1"}
 
 
 @pytest.mark.parametrize("card", CARDS)
@@ -158,15 +194,12 @@ def test_files_have_no_private_addresses_or_user_paths():
 # T17 baseline at main 6525b43: profile.md was the longest card, 190 lines.
 # Fixed at 1.5 * 190 = 285; do not recompute from today's cards and let it drift.
 MAX_CARD_LINES = 285
-# T139 owner approval (2026-10-26): keep the existing TS paragraphs' line breaks.
-# Only ts.md may grow to 400 lines; other cards retain the fixed T17 limit.
-MAX_TS_CARD_LINES = 400
 MAX_PITFALLS = 10
 
 
 def check_card_size(text, *, card_name=None):
     # Bound accumulated advice so actionable criteria do not get buried.
-    limit = MAX_TS_CARD_LINES if card_name == 'ts' else MAX_CARD_LINES
+    limit = MAX_CARD_LINES
     assert len(text.splitlines()) <= limit, f'卡片超出 {limit} 行：先合并或删除，再追加'
     section = re.search(r'^## 8\. 常见坑\s*\n(.*?)(?=^## |\Z)', text, re.M | re.S)
     assert section, 'Missing 常见坑 section'
@@ -192,7 +225,9 @@ def test_card_size_limits_reject_growth():
         check_card_size(exactly + '\n')
 
 
-@pytest.mark.parametrize('card_name,limit', [('ts', 400), ('profile', 285), (None, 285)])
+@pytest.mark.parametrize('card_name,limit', [
+    ('ts', 285), ('ts-guess', 285), ('ts-search', 285), ('profile', 285), (None, 285),
+])
 def test_card_size_limit_boundaries(card_name, limit):
     text = '## 8. 常见坑\n- pitfall\n'
     exactly = text + '\n' * (limit - len(text.splitlines()))

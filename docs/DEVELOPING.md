@@ -195,6 +195,7 @@ CREST 可选 `programs.crest.executable` 独立绝对路径，doctor 与模板�
 8. 常见坑
 
 每卡最多 **285 行**，“常见坑”最多 **10 条**；超限先合并或删除，不随最长卡片重新抬高上限。
+TS 拆分后总入口及各阶段卡均遵守此上限，不再保留 ts 的 400 行例外；入口保留现有锚点和可直接提取的第 6 节清单，旧 Attempt 快照不改。
 为防止已实现工具仍被卡片写成缺功能、复制的方法骨架继续漂移，CI 的
 `skills-next/tests/test_card_consistency.py` 从实际 CLI 注册核对子命令和选项。
 “待 Tn”只能引用 `docs/redesign-tasks/open-tasks.txt` 中的任务，完成时同 PR 移除记录与标记。

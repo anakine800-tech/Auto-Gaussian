@@ -13,7 +13,7 @@
 
 ## 2. 前置条件
 
-[TS 卡片](ts.md)的优化、完整频率、恰好一个虚频及目标方向审核全部通过；[机理假设](reaction-plan.md)已签字。两个方向使用同一已接受 TS 的最终几何、原子顺序、电荷、多重度和方法；预先列明可能的反应物/产物与原子映射，不预设 Forward 就是产物。
+[TS 搜索卡片](ts-search.md#6-结果判据清单)的优化、完整频率、恰好一个虚频及目标方向审核全部通过；[机理假设](reaction-plan.md)已签字，阶段导航与结果登记见 [TS 入口](ts.md)。两个方向使用同一已接受 TS 的最终几何、原子顺序、电荷、多重度和方法；预先列明可能的反应物/产物与原子映射，不预设 Forward 就是产物。
 
 按**各产物分支内部**的重要性和结构新颖性安排 IRC，不按全局权重筛掉次要分支。以下情形必须做 IRC：
 
@@ -30,7 +30,7 @@
 
 ## 3. 输入模板
 
-下列示例中的 `%mem` 可省略，由 ag 自动填写；显式填写时仍检查不超过档位内存的 85%。
+下列 Link0 数值、档位和 walltime 仅为输入骨架示例，须按所选入口与已审阅资源替换。`%nprocshared`、`%mem` 可省略，由 prepare 按实际档位补齐；显式核数须匹配档位，内存仍检查不超过档位的 85%。
 
 方法/基组：见 [acceptance-methods.md](../../auto-g16-study/references/acceptance-methods.md)。
 骨架中的 `<方法/基组>` 必须按已审阅方案替换，并补齐适用的色散与溶剂设置。
@@ -92,13 +92,15 @@ prepare 已在 `--parent-chk` + RCFC/ReadFC 时逐原子校验输入与父作业
 可用任一导出文件。也可预先让新的 TS Opt+Freq 带 `nosymm`；
 仅对子 IRC 加它不能补救父力常数与输入坐标的框架错配。
 
-prepare 纯本地；submit 在确认摘要中展示父 ID、来源文件名、大小、SHA256 前 12 位和固定目标 parent.chk。确认后只在新 Attempt 目录独占创建副本，源与目标哈希都等于确认值才继续上传/qsub，父文件只读。固定复制助手需要远端 Python ≥ 3.6 和 Linux /proc；缺少时停止；先运行 `ag doctor --cluster <cluster>` 查看 Python 版本和 /proc 支持。复制失败、SSH 255、超时或哈希变化均为 failed_presubmit，保留副本、不重试、不 qsub。
+可按 [TS 搜索的父 checkpoint 证据说明](ts-search.md#父-checkpoint-本地证据)运行 `ag parent-chk-report`，分别核对频率执行、历史复制关联和坐标来源；报告始终不核验 chk 内部力常数，科学适用性仍需人审。日志有 Freq、固定行坐标吻合或历史哈希相同都不能直接证明 RCFC 可用。
+
+prepare 纯本地；submit 的父 chk 摘要、独占复制、源/目标哈希及失败停止要求沿用 [TS 搜索的父 chk 流程](ts-search.md#3-输入模板)。父文件只读，复制失败、SSH 255、超时或哈希变化不重试、不提交，不用本地报告代替提交时核验。
 
 两侧端点经人工确认坐标后，要各自再按 [Opt+Freq](opt-freq.md)优化为极小点；可用现有 parent/relation 参数记录 `endpoint_of` 来源。`ag facts <irc_id>` 提取 `irc` 字段及 `irc_end.xyz`；后者只是最后报告路径点，不是已验证的端点。
 
 ## 4. 资源建议
 
-每个方向先估计 simple（8 核 / 12 GB，`%mem=10GB`），24:00:00；参照 TS 实际耗时再决定 general（22 核 / 50 GB，`%mem=42GB`），48:00:00。计入两次 CalcFC、路径各点和两个端点 Opt+Freq 的成本。MaxPoints 是上限，不是完成证据；增大点数/减小步长会增加代价，需新方案和确认。
+每个方向先评估 simple，再参照 TS 实际耗时考虑 general；档位核数、内存及默认值按 [TS 搜索资源说明](ts-search.md#4-资源建议)和所选入口实际配置核对，walltime 仍须明确。计入两次 CalcFC、路径各点和两个端点 Opt+Freq 的成本。MaxPoints 是上限，不是完成证据；增大点数/减小步长会增加代价，需新方案和确认。
 
 ## 5. 提交前检查清单
 

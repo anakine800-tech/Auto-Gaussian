@@ -72,7 +72,8 @@ catalog 只追加自身日志和生成自身状态，不改 manifest、facts、r
 | 已有初筛集合 | 去重、聚类、展示代表与简并度，请人签字 | 所选初筛卡片 |
 | 已签代表集合，目标是极小点 | 同一方法逐个准备 Opt+Freq | `opt-freq` |
 | 已接受极小点且计划有单点 | 对最终几何准备单点 | `sp` |
-| 已签机理假设与代表集合，有 TS 初猜 | 审阅成键/断键原子对，准备单结构 TS；缺能力或证据则记录具体阻塞 | [ts](../auto-g16-recipes/cards/ts.md) |
+| 已签机理假设与代表集合，待准备 TS 初猜 | 审阅扫描/端点/文献来源、映射及 G0 诊断；阶段总览与覆盖见 ts | [ts-guess](../auto-g16-recipes/cards/ts-guess.md) / [ts](../auto-g16-recipes/cards/ts.md) |
+| 有已审阅 TS 初猜 | 按目标原子对准备 TS 搜索、完整 Freq 和方向审核；缺能力或证据则记录具体阻塞 | [ts-search](../auto-g16-recipes/cards/ts-search.md) |
 | TS 恰好一个虚频且方向审核通过 | 提出双向 IRC；缺能力或证据则记录具体阻塞 | [irc](../auto-g16-recipes/cards/irc.md) |
 | 双向 IRC 已走完 | 两侧端点 Opt+Freq、身份与连接关系比对；缺证据不称验证 | [irc](../auto-g16-recipes/cards/irc.md) / `opt-freq` |
 | 刚完成里程碑或得到关键机理证据 | 更新假设；改变时重新请人签字 | [reaction-plan](../auto-g16-recipes/cards/reaction-plan.md) |
