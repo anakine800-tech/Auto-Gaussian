@@ -101,6 +101,10 @@ def displace(elements, coordinates, frequencies, displacements, pairs, mode=1, a
     return report, plus.tolist(), minus.tolist()
 
 
+class FrequencySectionAmbiguity(ValueError):
+    """Gaussian job boundaries cannot identify a unique frequency source."""
+
+
 def frequency_section(raw):
     """Use T42 boundaries; never fall back to a whole-log cclib parse."""
     splitter = getattr(outputs, 'gaussian_job_sections', None)
@@ -109,7 +113,7 @@ def frequency_section(raw):
     text = raw.decode('utf-8').replace('\r\n', '\n').replace('\r', '\n')
     sections, warnings = splitter(text)
     if warnings:
-        raise ValueError('Ambiguous Gaussian job sections: ' + '; '.join(warnings))
+        raise FrequencySectionAmbiguity('Ambiguous Gaussian job sections: ' + '; '.join(warnings))
     candidates = [section for section in sections if re.search(
         r'(?:^|[\s#])freq\b', section.get('route') or '', re.I)]
     if not candidates:

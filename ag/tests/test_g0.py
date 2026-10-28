@@ -817,6 +817,162 @@ def test_batch_bad_mode_evidence_does_not_write_partial_records(mode_case, capsy
     assert files(root) == before
 
 
+@pytest.fixture
+def mode_batch(mode_case):
+    root, identity, windows = mode_case
+    identities = [identity]
+    for index, name in enumerate(('middle', 'last'), 3):
+        frequency = frequency_attempt(root, f'{index:03d}-freq')
+        candidate_(root, name, MODE_XYZ, parent=frequency, target_channel='transfer')
+        identities.append(frequency)
+    names = ['guess-a', 'middle', 'last']
+    for name, frequency in zip(names, identities):
+        link_result(root, name, frequency)
+    return root, windows, names, identities
+
+
+def ambiguous_log(root, identity):
+    path = root / 'attempts' / identity / 'outputs/job.log'
+    path.write_bytes(path.read_bytes() + b' unexplained synthetic tail\n')
+    return path
+
+
+@pytest.mark.parametrize('failed', [(0,), (1,), (2,), (0, 1, 2)])
+@pytest.mark.parametrize('selection', [['--all'], ['--channel', 'transfer']])
+def test_batch_frequency_ambiguity_preserves_complete_successes(mode_batch, capsys, failed, selection):
+    root, windows, names, identities = mode_batch
+    baseline = diagnose(root, candidate=None, all_candidates=True, windows=windows)
+    sources = {i: ambiguous_log(root, identities[i]) for i in failed}
+    before, snapshot = files(root), tree(root)
+    argv = ['g0', str(root), '--object', 'water-a', *selection, '--windows', str(windows),
+            '--window', '1-2:0.9:1.1']
+    assert cli.main(argv + ['--json']) == 2
+    report = json.loads(capsys.readouterr().out)
+    expected = [c for c in baseline['candidates'] if c['candidate'] not in [names[i] for i in failed]]
+    assert report['candidates'] == expected
+    assert report['order'] == [c['candidate'] for c in expected]
+    assert report['counts'] == dict(rejected=0, flagged=len(expected), clean=0,
+                                    errors=len(failed), selected=len(names))
+    assert report['counts']['selected'] == len(report['order']) + len(report['errors'])
+    assert report['incomplete_notice'] == g0.INCOMPLETE_NOTICE
+    assert report['errors'] == [dict(
+        candidate=names[i], object='water-a', attempt=identities[i], stage='frequency_section',
+        category='ambiguous_frequency_sections', reason=report['errors'][n]['reason'],
+        source=dict(log=sources[i].relative_to(root).as_posix(),
+                    log_sha256=sha256(sources[i].read_bytes()).hexdigest())) for n, i in enumerate(failed)]
+    assert all('Ambiguous Gaussian job sections' in error['reason'] for error in report['errors'])
+    assert cli.main(argv) == 2
+    output = capsys.readouterr().out
+    assert g0.INCOMPLETE_NOTICE in output
+    assert all(f"{c['candidate']}: {c['verdict']}" in output for c in expected)
+    assert output.count('error: ') == len(failed)
+    assert all(f'"candidate": "{names[i]}"' in output for i in failed)
+    assert files(root) == before and tree(root) == snapshot
+
+
+@pytest.mark.parametrize('options', [[], ['--dry-run'], ['--upgrade-catalog']])
+def test_incomplete_batch_record_never_enters_catalog_writer(mode_batch, capsys, monkeypatch, options):
+    root, windows, _, identities = mode_batch
+    ambiguous_log(root, identities[1])
+    before, snapshot = files(root), tree(root)
+    monkeypatch.setattr(catalog, 'register_candidate_results',
+                        lambda *a, **kw: pytest.fail('incomplete batch entered catalog writer'))
+    for output in (['--json'], []):
+        assert cli.main(['g0', str(root), '--object', 'water-a', '--all', '--windows', str(windows),
+                         '--record', *options, *output]) == 2
+        captured = capsys.readouterr()
+        if output:
+            report = json.loads(captured.out)
+            assert len(report['candidates']) == 2 and len(report['errors']) == 1
+            assert report['record'] == dict(error=g0.UNRECORDED_NOTICE)
+        else:
+            assert g0.UNRECORDED_NOTICE in captured.out and g0.UNRECORDED_NOTICE in captured.err
+        assert files(root) == before and tree(root) == snapshot
+
+
+def test_ambiguity_without_coordinates_stays_unrequested_and_single_stays_fatal(mode_batch, capsys):
+    root, windows, names, identities = mode_batch
+    ambiguous_log(root, identities[1])
+    before = files(root)
+    argv = ['g0', str(root), '--object', 'water-a']
+    assert cli.main(argv + ['--all', '--json']) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert len(report['candidates']) == 3 and 'errors' not in report
+    assert all(c['modes']['reason'] == '未声明反应坐标' for c in report['candidates'])
+    assert cli.main(argv + ['--candidate', names[1], '--modes-attempt', identities[1],
+                            '--windows', str(windows), '--record', '--json']) == 1
+    error = json.loads(capsys.readouterr().out)
+    assert 'Ambiguous Gaussian job sections' in error['error'] and 'candidates' not in error
+    assert files(root) == before
+
+
+def test_ambiguity_is_separate_from_missing_modes_and_rejected(mode_batch, capsys):
+    root, windows, names, identities = mode_batch
+    ambiguous_log(root, identities[1])
+    log = root / 'attempts' / identities[2] / 'outputs/job.log'
+    log.write_bytes(log.read_bytes().replace(b'HF/3-21G Freq', b'HF/3-21G SP'))
+    candidate_(root, 'damaged', MODE_XYZ.replace(b'H 1 0 0', b'H 0.3 0 0'),
+               parent=identities[0], target_channel='transfer')
+    assert cli.main(['g0', str(root), '--object', 'water-a', '--all', '--windows', str(windows), '--json']) == 2
+    report = json.loads(capsys.readouterr().out)
+    assert report['counts'] == dict(rejected=1, flagged=1, clean=1, errors=1, selected=4)
+    assert report['order'] == ['damaged', names[0], names[2]]
+    assert report['candidates'][-1]['modes']['reason'].startswith('无模式数据')
+
+
+def test_empty_batch_has_no_error_or_partial_record(mode_case, capsys):
+    root, _, windows = mode_case
+    catalog.change(root, 'channel', object='water-a', id='empty', name='Empty', definition='Synthetic')
+    before = files(root)
+    assert cli.main(['g0', str(root), '--object', 'water-a', '--channel', 'empty',
+                     '--windows', str(windows), '--record', '--json']) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report['candidates'] == report['order'] == report['record']['events'] == []
+    assert report['counts'] == dict(rejected=0, flagged=0, clean=0) and 'errors' not in report
+    assert files(root) == before
+
+
+@pytest.mark.parametrize('fault,match', [
+    ('hash', 'hash mismatch'), ('journal', 'journal damaged'), ('symlink', 'Symbolic'),
+    ('reference', 'invalid manifest'), ('window', 'Window atom index'), ('abnormal', 'terminate normally'),
+    ('vectors', 'vectors'), ('facts', 'facts not readable')])
+def test_fatal_evidence_after_ambiguity_still_aborts_entire_batch(mode_batch, capsys, fault, match):
+    root, windows, _, identities = mode_batch
+    ambiguous_log(root, identities[0])
+    path = root / 'attempts' / identities[-1]
+    log = path / 'outputs/job.log'
+    if fault == 'hash':
+        candidate = catalog.show(root)[0]['objects'][0]['candidates'][-1]
+        archive = root / candidate['file']
+        archive.chmod(0o600)
+        archive.write_bytes(archive.read_bytes() + b'\n')
+    elif fault == 'journal':
+        journal = root / 'catalog/journal.jsonl'
+        journal.write_bytes(journal.read_bytes() + b'{')
+    elif fault == 'symlink':
+        log.unlink()
+        log.symlink_to(root / 'attempts' / identities[1] / 'outputs/job.log')
+    elif fault == 'reference':
+        manifest = path / 'manifest.json'
+        data = json.loads(manifest.read_text())
+        data['attempt_id'] = 'wrong-identity'
+        write_json(manifest, data)
+    elif fault == 'window':
+        write_json(windows, dict(all=[dict(atoms=[1, 4], min=0, max=2)]))
+    elif fault == 'abnormal':
+        log.write_text(log.read_text().replace('Normal termination of Gaussian', 'Error termination of Gaussian'))
+    elif fault == 'vectors':
+        log.write_text(log.read_text().replace('     3   8    ', '     3   1    '))
+    else:
+        write_json(path / 'facts.json', [])
+    before = files(root)
+    assert cli.main(['g0', str(root), '--object', 'water-a', '--all', '--windows', str(windows),
+                     '--record', '--json']) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert match in report['error'] and 'candidates' not in report and 'errors' not in report
+    assert files(root) == before
+
+
 def test_no_imaginary_modes_and_missing_declaration(mode_case):
     root, identity, path = mode_case
     positive = frequency_attempt(root, '003-positive', positive=True)

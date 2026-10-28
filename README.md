@@ -351,6 +351,8 @@ attempt 非空的 candidate-result 关联的 Attempt，跳过诊断等空来源�
 `reaction_coordinates[目标通道]`，或可重复 `--reaction-coordinate distance:3-7:forming`。
 按 Wilson B 行逐坐标投影，报告全部虚频、最低三个实频参考及最佳虚频；模式标记只影响分组与排序，
 不拒绝候选。距离/角度零容差分别为 1e-3 Å / 1e-3 rad，不设重叠度阈值。
+批量中明确的频率分段歧义单列于 `errors`，保留其他候选的完整诊断与排序，退出码为 2；
+批次未完整完成时 `--record` 不登记任何候选。哈希、台账、路径及其他证据错误仍停止整批。
 
 默认只报告、不写文件、不跑计算。可选 `--record [--upgrade-catalog] [--dry-run]` 追加 diagnosed
 候选结果；**T140 部署之前，真实研究 study 不使用 `--record`。**

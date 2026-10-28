@@ -14,6 +14,8 @@ from ag.irc_compare import _pairs
 NOTICE = 'G0 是本地诊断，不是门禁；不替代 DFT 验收；clean 只表示未发现问题。'
 ORDER_NOTICE = '顺序只是建议，提交与否由负责人决定。'
 ORDER_LIMIT = '只比较元素序列；同种元素原子互换无法检出，原子映射仍需人审。'
+INCOMPLETE_NOTICE = '批次未完整完成；频率分段歧义的候选单列于 errors，不参与诊断排序。'
+UNRECORDED_NOTICE = '批次未完整完成，未登记任何候选结果；可单独对成功候选执行诊断/记录。'
 # Fixed conservative damage/clash criteria; never submission checks.
 MIN_DISTANCE = 0.5
 COVALENT_FACTOR = 0.5
@@ -390,17 +392,31 @@ def diagnose(root, *, object, candidate=None, all_candidates=False, channel=None
             entry = v2.find(obj['channels'], channel, 'channel')
             selected = [c for c in selected if c['id'] in entry['candidate_ids']]
         order = {c['id']: i for i, c in enumerate(obj['candidates'], 1)}
-        results = [diagnose_candidate(root, obj, c, registration_order=order[c['id']], windows=window_config,
-                                     reference_attempt=reference_attempt, stereo_json=stereo_json,
-                                     stereo_attempt=stereo_attempt, expected_label=expected_label,
-                                     modes_attempt=modes_attempt, auto_modes=candidate is None,
-                                     reaction_coordinate=reaction_coordinate) for c in selected]
+        results, errors = [], []
+        for c in selected:
+            try:
+                results.append(diagnose_candidate(
+                    root, obj, c, registration_order=order[c['id']], windows=window_config,
+                    reference_attempt=reference_attempt, stereo_json=stereo_json,
+                    stereo_attempt=stereo_attempt, expected_label=expected_label,
+                    modes_attempt=modes_attempt, auto_modes=candidate is None,
+                    reaction_coordinate=reaction_coordinate))
+            except g0_modes.FrequencySourceAmbiguity as exc:
+                if candidate is not None:
+                    raise
+                errors.append(dict(candidate=c['id'], object=object, attempt=exc.attempt,
+                                   stage='frequency_section', category='ambiguous_frequency_sections',
+                                   reason=str(exc), source=exc.source))
     groups = {'rejected': 0, 'flagged': 1, 'clean': 2}
     results.sort(key=lambda c: (groups[c['verdict']], *_mode_order(c)))
-    return dict(schema='ag-g0/1', object=object, journal_sha256=sha256(raw).hexdigest(),
-                candidates=results, order=[c['candidate'] for c in results],
-                counts={group: sum(c['verdict'] == group for c in results) for group in groups},
-                notice=NOTICE, order_notice=ORDER_NOTICE)
+    report = dict(schema='ag-g0/1', object=object, journal_sha256=sha256(raw).hexdigest(),
+                  candidates=results, order=[c['candidate'] for c in results],
+                  counts={group: sum(c['verdict'] == group for c in results) for group in groups},
+                  notice=NOTICE, order_notice=ORDER_NOTICE)
+    if errors:
+        report.update(errors=errors, incomplete_notice=INCOMPLETE_NOTICE)
+        report['counts'].update(errors=len(errors), selected=len(selected))
+    return report
 
 
 def bounded_diagnosis(report):
@@ -477,8 +493,10 @@ def run(args):
                       windows=args.windows, window=args.window, stereo_json=args.stereo_json,
                       stereo_attempt=args.stereo_attempt, expected_label=args.expected_label,
                       modes_attempt=args.modes_attempt, reaction_coordinate=args.reaction_coordinate)
-    code = int(bool(report['counts']['rejected']))
-    if args.record:
+    code = 2 if report.get('errors') else int(bool(report['counts']['rejected']))
+    if args.record and report.get('errors'):
+        report['record'] = dict(error=UNRECORDED_NOTICE)
+    elif args.record:
         try:
             report['record'] = catalog.register_candidate_results(
                 args.study, [dict(object=args.object, candidate=c['candidate'], diagnosis=bounded_diagnosis(c))
@@ -505,6 +523,11 @@ def run(args):
             for entry in c['reject_reasons'] + c['flags']:
                 print('  ' + json.dumps(entry, ensure_ascii=False))
         print('order: ' + ', '.join(report['order']))
+        if report.get('errors'):
+            print(report['incomplete_notice'])
+            print('counts: ' + json.dumps(report['counts'], ensure_ascii=False))
+            for error in report['errors']:
+                print('error: ' + json.dumps(error, ensure_ascii=False))
         if args.record:
             print('record: ' + json.dumps(report['record'], ensure_ascii=False))
         if report.get('record', {}).get('error'):
