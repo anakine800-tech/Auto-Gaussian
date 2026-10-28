@@ -398,7 +398,7 @@ class PartitionFake(SlurmFake):
         return super().run(command)
 
 
-def test_slurm_partition_totals_own_account_and_no_node_rows(multi):
+def test_slurm_partition_totals_own_account_and_identified_node_rows(multi):
     entry = config.select_cluster(multi, 'batch')
     result = monitor.observation(entry, PartitionFake(entry), 'userA')
     assert result['own']['cores_in_use'] == 14
@@ -407,7 +407,9 @@ def test_slurm_partition_totals_own_account_and_no_node_rows(multi):
         others_queued_jobs=1, others_queued_cores=8)
     assert result['cluster']['hardware'] == dict(cores_total=64, cores_allocated=24, cores_idle=36,
         cores_other=4, mem_total_gb=128.0, mem_allocated_gb=24.0, source='sinfo', error=None, notes=[])
-    assert result['cluster']['nodes'] == [] and result['cluster']['hardware_capacity_known']
+    assert result['cluster']['hardware_capacity_known']
+    assert result['cluster']['nodes_error'] is None
+    assert [(n['name'], n['partition']) for n in result['cluster']['nodes']] == [('node-a', 'fixture')]
     assert result['cluster']['jobs'] == result['own']['jobs']
     assert all(r['mine'] and r['user'] == 'userA' for r in result['cluster']['jobs'])
     assert result['own']['mem_running_gb'] is None

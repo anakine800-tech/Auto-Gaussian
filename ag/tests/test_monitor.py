@@ -90,9 +90,12 @@ def test_parsers_and_shared_accounting():
     assert jobs[0]['exec_host'] == 'node-a/0+node-a/1+node-a/2+node-a/3'
     assert status.occupied(jobs, 'fixture') == 16
     assert monitor.parse_nodes(NODES, jobs) == [
-        dict(name='node-a', state='free', cores_total=44, cores_used=4, mem_total_gb=None, mem_assigned_gb=12.0, jobs=1),
-        dict(name='node-b', state='job-exclusive', cores_total=16, cores_used=6, mem_total_gb=None, mem_assigned_gb=None, jobs=None),
-        dict(name='node-c', state='down,offline', cores_total=8, cores_used=0, mem_total_gb=None, mem_assigned_gb=None, jobs=None)]
+        dict(name='node-a', state='free', cores_total=44, cores_used=4, mem_total_gb=None, mem_assigned_gb=12.0, jobs=1,
+             capacity_cpu_consistent=True, mem_total_bytes=None, mem_assigned_bytes=12 * 1024**3),
+        dict(name='node-b', state='job-exclusive', cores_total=16, cores_used=6, mem_total_gb=None, mem_assigned_gb=None, jobs=None,
+             capacity_cpu_consistent=True, mem_total_bytes=None, mem_assigned_bytes=None),
+        dict(name='node-c', state='down,offline', cores_total=8, cores_used=0, mem_total_gb=None, mem_assigned_gb=None, jobs=None,
+             capacity_cpu_consistent=True, mem_total_bytes=None, mem_assigned_bytes=None)]
     assert monitor.parse_queues(QUEUES) == [dict(name='batch', running=3, queued=1),
                                           dict(name='empty', running=0, queued=0)]
     assert monitor.parse_queues('') == []

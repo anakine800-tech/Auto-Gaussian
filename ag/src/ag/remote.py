@@ -356,6 +356,14 @@ def slurm_partition_allocmem(partition):
     return Command('slurm_partitions', f'sinfo -h -p {quote(slurm_token(partition))} -N -O AllocMem:20')
 
 
+def slurm_partition_nodes(partition):
+    # One identified row per node/partition; never join anonymous CPU/memory rows.
+    fields = ('NodeList:256|,PartitionName:256|,CPUsState:64|,Memory:64|,'
+              'AllocMem:64|,StateLong:64|,Available:32')
+    return Command('slurm_partitions', f'sinfo -h --local -N -e -p {quote(slurm_token(partition))} '
+                   f'-O {quote(fields)}')
+
+
 def slurm_submit(cfg, manifest):
     p = attempt_dir(cfg, manifest)
     return Command('submit', f'{path_checks(p + "/job.slurm")} && cd {quote(p)} && sbatch --parsable job.slurm', 120)

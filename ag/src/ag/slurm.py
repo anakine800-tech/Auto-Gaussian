@@ -133,3 +133,46 @@ def parse_allocmem(text):
     if not values or any(not value.strip().isdigit() for value in values):
         raise ValueError('Unknown sinfo AllocMem values')
     return round(sum(int(value.strip()) for value in values) / 1024, 1)
+
+
+def parse_nodes(text, partition):
+    """Fixed sinfo -N -e -O rows. Unknown values stay unknown, never zero."""
+    remote.slurm_token(partition)
+    rows = {}
+    if not text.strip():
+        raise ValueError('No partition nodes returned')
+    for line in text.splitlines():
+        fields = [v.strip() for v in line.split('|')]
+        if (len(fields) != 7 or any(len(v) >= width for v, width in
+                zip(fields, (256, 256, 64, 64, 64, 64, 32)))):
+            raise ValueError('Invalid or truncated sinfo node record')
+        name, entry, cpus, memory, allocated, state, available = fields
+        remote.slurm_token(name)
+        remote.slurm_token(entry)
+        if entry != partition:
+            raise ValueError('sinfo returned a different partition')
+        total = used = idle = other = None
+        counts = cpus.split('/')
+        if len(counts) == 4 and all(v.isdigit() for v in counts):
+            a, i, o, t = map(int, counts)
+            if a + i + o == t and t > 0:
+                used, idle, other, total = a, i, o, t
+        # Keep exact binary GB fractions: rounding up could manufacture room.
+        mem_total = int(memory) / 1024 if memory.isdigit() else None
+        mem_assigned = int(allocated) / 1024 if allocated.isdigit() else None
+        if mem_total is not None and mem_total <= 0:
+            mem_total = None
+        if mem_total is not None and mem_assigned is not None and mem_assigned > mem_total:
+            mem_assigned = None
+        row = dict(name=name, partition=entry, partition_state=available,
+                   state=state, cores_total=total, cores_used=used,
+                   cores_idle=idle, cores_other=other, mem_total_gb=mem_total,
+                   mem_assigned_gb=mem_assigned, cpu_source='sinfo CPUsState',
+                   memory_source='sinfo Memory/AllocMem')
+        # -N may repeat a node. Identical rows count once; disagreement cannot
+        # select whichever allocation happens to make a request look feasible.
+        if name in rows and rows[name] != row:
+            rows[name]['capacity_error'] = 'Conflicting duplicate node records'
+        else:
+            rows[name] = row
+    return list(rows.values())
