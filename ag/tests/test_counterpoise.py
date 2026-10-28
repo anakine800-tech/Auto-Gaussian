@@ -372,6 +372,300 @@ def test_solvent_missing_fragment_energies_never_substituted(cfg,tmp_path):
     assert result['note']==cp_report.SOLVENT_NOTE
 
 
+def smd_set(cfg, tmp_path, *, geometry=WATER, charge=0, csv=CSV):
+    """Independent synthetic operands: -152.01 - (-76.001) - (-75.998)."""
+    p, _ = prepare_cp(cfg, tmp_path, geometry=geometry, charge=charge, csv=csv)
+    (p / 'outputs/water.log').write_text(synthetic_log(geometry, charge))
+    s, _ = solvent_attempt(cfg, tmp_path, geometry=geometry, charge=charge)
+    definitions = validate(csv, geometry, charge)['fragments']
+    fragments = []
+    for definition, energy in zip(definitions, ('-76.001000000000', '-75.998000000000')):
+        subset = '\n'.join(geometry.splitlines()[i - 1] for i in definition['atoms'])
+        f, _ = solvent_attempt(cfg, tmp_path, geometry=subset, charge=definition['charge'])
+        log = f / 'outputs/water.log'
+        # CDS is already included in SCF Done. Its printed value is not added.
+        log.write_text(log.read_text().replace('-152.010000000000', energy).replace(
+            ' Normal termination', ' SMD-CDS (non-electrostatic) energy (kcal/mol) = 1.23\n'
+            ' (included in total energy above)\n Normal termination'))
+        fragments.append(f)
+    return p, s, fragments
+
+
+def fragment_options(fragments):
+    return [f'{i}:{f.name}' for i, f in enumerate(fragments, 1)]
+
+
+def test_smd_fragment_arithmetic_sources_mapping_and_cli(cfg, tmp_path, monkeypatch, capsys):
+    p, s, fs = smd_set(cfg, tmp_path)
+    root = p.parent.parent
+    for f in [p, s, *fs]:
+        facts.build_facts(f)
+    before = {f: f.read_bytes() for directory in [p, s, *fs] for f in directory.rglob('*') if f.is_file()}
+    monkeypatch.setattr(cli, 'load_config', lambda: pytest.fail('no config'))
+    monkeypatch.setattr('ag.transport.SSHTransport', lambda *a, **k: pytest.fail('no SSH'))
+    args = ['cp-report', str(p), '--solvent-sp', s.name, '--out', 'analyses/complete.json', '--json']
+    for option in reversed(fragment_options(fs)):
+        args += ['--solvent-fragment-sp', option]
+    assert cli.main(args) == 0
+    result = json.loads((root / 'analyses/complete.json').read_text())
+    solvent = result['solvent']
+    # Decimal hand calculation, independent of report implementation/constants.
+    from decimal import Decimal
+    raw = Decimal('-152.010') - Decimal('-76.001') - Decimal('-75.998')
+    corrected = raw + Decimal('0.002')
+    assert raw == Decimal('-0.011') and corrected == Decimal('-0.009')
+    for key, expected in [('interaction_raw', raw), ('interaction_corrected', corrected)]:
+        quantity = solvent[key]
+        assert quantity['hartree'] == pytest.approx(float(expected), abs=1e-12)
+        assert quantity['kcal_mol'] == pytest.approx(float(expected * Decimal('627.509541')), abs=1e-8)
+        assert len(quantity['operand_pointers']) == (3 if key == 'interaction_raw' else 4)
+        assert len(quantity['sources']) == len(quantity['operand_pointers'])
+        for source in quantity['sources']:
+            log = root / source['path']
+            assert source['sha256'] == sha256(log.read_bytes()).hexdigest()
+            assert 'SCF Done:' in log.read_text().splitlines()[source['line'] - 1] or key == 'interaction_corrected'
+    assert solvent['missing'] == []
+    assert solvent['complex_energy_plus_gas_bsse']['hartree'] == pytest.approx(-152.008)
+    for i, fragment in enumerate(solvent['fragment_energies']):
+        assert fragment['index'] == i + 1 and fragment['attempt'] == fs[i].name
+        assert fragment['binding']['atom_mapping'] == [
+            dict(complex_atom=i * 3 + n, fragment_atom=n) for n in (1, 2, 3)]
+        assert fragment['binding']['fragments_source'] == result['fragments']['source']
+        assert fragment['pairing']['rmsd_angstrom'] < 1e-12
+        assert fragment['output_pairing']['rmsd_angstrom'] < 1e-12
+        assert fragment['section_source']['printed_conditions']['solvent']['values']['model'] == 'smd'
+    md = (root / 'analyses/complete.md').read_text()
+    assert 'SMD 相互作用能 + 气相 BSSE（近似）' in md and '-6.90260495' in md and '-5.64758587' in md
+    assert '未知' not in md and '不是计算出的结合自由能' in md
+    assert 'E_AB(SMD) - E_A(SMD) - E_B(SMD)' in md
+    assert before == {f: f.read_bytes() for f in before}
+    saved = (root / 'analyses/complete.json').read_bytes()
+    assert cli.main(args) == 1
+    assert (root / 'analyses/complete.json').read_bytes() == saved
+
+
+@pytest.mark.parametrize('index', [1, 2])
+def test_one_smd_fragment_preserves_known_value_and_exact_missing_item(cfg, tmp_path, index):
+    p, s, fs = smd_set(cfg, tmp_path)
+    result = cp_report.report(str(p), solvent_sp=s.name,
+                             solvent_fragment_sp=[fragment_options(fs)[index - 1]])
+    solvent = result['solvent']
+    assert solvent['interaction_raw'] is solvent['interaction_corrected'] is None
+    assert solvent['fragment_energies'][index - 1]['energy'] is not None
+    assert solvent['fragment_energies'][2 - index]['energy'] is None
+    assert len(solvent['missing']) == 1 and f'片段 {3 - index}' in solvent['missing'][0]
+    assert '未知' in cp_report.markdown(result)
+
+
+@pytest.mark.parametrize('title', [
+    'Counterpoise fragment 1 SMD single point',
+    'Bq own-basis comparison',
+    'NewBq reference for ordinary SMD',
+    'Single point in fragment 1 at the complex geometry',
+    'Counterpoise / Bq / NewBq in fragment 1 comparison',
+])
+def test_smd_free_text_titles_are_not_cp_or_ghost_execution_evidence(cfg, tmp_path, title):
+    p, s, fs = smd_set(cfg, tmp_path)
+    expected = cp_report.report(str(p), solvent_sp=s.name, solvent_fragment_sp=fragment_options(fs))
+    for directory in [s, *fs]:
+        source = directory / 'inputs/water.gjf'
+        source.write_text(source.read_text().replace('Synthetic test', title))
+        path = directory / 'manifest.json'
+        manifest = json.loads(path.read_text())
+        manifest['inputs'], manifest['bundle_sha256'] = attempt.bundle({
+            item['name']: (directory / 'inputs' / item['name']).read_bytes() for item in manifest['inputs']})
+        path.write_text(json.dumps(manifest))
+        log = directory / 'outputs/water.log'
+        log.write_text(log.read_text().replace(' Charge =', f' {title}\n Charge =', 1))
+        facts.build_facts(directory)
+    result = cp_report.report(str(p), solvent_sp=s.name, solvent_fragment_sp=fragment_options(fs))
+    for field in ('interaction_raw', 'interaction_corrected'):
+        assert result['solvent'][field]['hartree'] == expected['solvent'][field]['hartree']
+        assert result['solvent'][field]['kcal_mol'] == expected['solvent'][field]['kcal_mol']
+        assert result['solvent'][field]['sources'] != expected['solvent'][field]['sources']
+
+
+@pytest.mark.parametrize('options,solvent,error', [
+    (['1:a', '1:b'], 's', 'Duplicate'), (['0:a'], 's', 'requires 1:'),
+    (['3:a'], 's', 'requires 1:'), (['water-a:a'], 's', 'requires 1:'),
+    (['1:a', '2:a'], 's', 'Same Attempt'), (['1:a'], None, 'requires --solvent-sp'),
+    (['1:../a'], 's', 'IDs must'), (['1:'], 's', 'requires 1:'),
+])
+def test_fragment_arguments_refuse_ambiguous_or_unsafe_assignment(options, solvent, error):
+    with pytest.raises(ValueError, match=error):
+        cp_report.report('never-read', solvent_sp=solvent, solvent_fragment_sp=options)
+
+
+def test_fragment_state_uses_each_cp_declaration(cfg, tmp_path):
+    p, s, fs = smd_set(cfg, tmp_path, geometry=NH4_WATER, charge=1, csv=NH4_CSV)
+    result = cp_report.report(str(p), solvent_sp=s.name, solvent_fragment_sp=fragment_options(fs))
+    assert [f['binding']['charge'] for f in result['solvent']['fragment_energies']] == [1, 0]
+    bad, _ = solvent_attempt(cfg, tmp_path, geometry='\n'.join(NH4_WATER.splitlines()[:5]), charge=-1)
+    with pytest.raises(ValueError, match='declared state differs'):
+        cp_report.report(str(p), solvent_sp=s.name, solvent_fragment_sp=[f'1:{bad.name}'])
+
+
+@pytest.mark.parametrize('change,error', [
+    ('geometry', 'RMSD'), ('extra_atom', 'element sequence'), ('swapped', 'RMSD'),
+    ('method', 'method/basis/dispersion'), ('basis_type', 'method/basis/dispersion'),
+    ('dispersion', 'method/basis/dispersion'), ('solvent', 'printed solvent parameters'),
+    ('epsilon', 'printed solvent parameters'), ('radii', 'disagrees'),
+    ('model', 'requires SMD'), ('missing_pcm', 'printed solvent'),
+    ('opt', 'single point'), ('freq', 'single point'), ('mixed', 'single point|protocol|sections'),
+    ('error', 'normally terminated'), ('cp_output', 'own-basis'), ('ghost_output', 'own-basis'),
+    ('gen', 'Custom basis'), ('extra_basis', 'Custom basis'), ('units', 'only supports'),
+    ('output_geometry', 'RMSD'), ('output_state', 'state differs'), ('scf_method', 'SCF method differs'),
+    ('cp_summary', 'own-basis'), ('fragment_state', 'own-basis'), ('ghost_structure', 'own-basis'),
+])
+def test_fragment_sources_fail_closed(cfg, tmp_path, change, error):
+    # A symmetric water's exchanged H rows can be rigidly indistinguishable.
+    reference = WATER.replace('0.9572', '1.05') if change == 'swapped' else WATER
+    p, s, fs = smd_set(cfg, tmp_path, geometry=reference)
+    geometry = '\n'.join(reference.splitlines()[:3])
+    route = ROUTE.replace(' Counterpoise=2', ' SCRF=(SMD,Solvent=DiChloroEthane)')
+    if change == 'geometry': geometry = geometry.replace('0.9572', '1.1')
+    if change == 'extra_atom': geometry += '\nHe 8 0 0'
+    if change == 'swapped': geometry = '\n'.join([*geometry.splitlines()[:1], *geometry.splitlines()[1:][::-1]])
+    if change == 'method': route = route.replace('6-31+G(d,p)', 'def2TZVP')
+    if change == 'basis_type': route += ' 5D'
+    if change == 'dispersion': route += ' EmpiricalDispersion=GD3'
+    if change == 'solvent': route = route.replace('DiChloroEthane', 'Water')
+    if change == 'model': route = route.replace('SMD', 'PCM')
+    if change in ('opt', 'freq'): route = route.replace(' SP', ' ' + change)
+    if change == 'gen': route = route.replace('6-31+G(d,p)', 'Gen')
+    if change == 'extra_basis': route += ' ExtraBasis'
+    if change == 'units': route += ' Units=Bohr'
+    f, _ = solvent_attempt(cfg, tmp_path, geometry=geometry, route=route)
+    log = f / 'outputs/water.log'
+    text = log.read_text()
+    if change == 'solvent': text = text.replace('DiChloroEthane', 'Water')
+    if change == 'epsilon': text = text.replace('10.125000', '10.225000')
+    if change in ('radii', 'model'): text = text.replace('SMD-Coulomb', 'UA0')
+    if change == 'missing_pcm': text = text[:text.index(' Polarizable Continuum')] + text[text.index(' SCF Done:'):]
+    if change == 'mixed': text += synthetic_log(geometry, route=route.replace(' SP', ' Freq'), solvent=True)
+    if change == 'error': text = text.replace('Normal termination', 'Error termination')
+    if change == 'cp_output': text = text.replace(' SCF Done:', ' Counterpoise: doing calculation for fragment 1\n SCF Done:')
+    if change == 'ghost_output': text = text.replace(' SCF Done:', ' NewBq=T\n SCF Done:')
+    if change == 'cp_summary': text = text.replace(' SCF Done:', ' Counterpoise corrected energy = -76.001\n SCF Done:')
+    if change == 'fragment_state': text = text.replace(' SCF Done:', ' Charge = 0 Multiplicity = 1 in fragment 1.\n SCF Done:')
+    if change == 'ghost_structure': text = text.replace(' SCF Done:', ' Bq 3.0 0.0 0.0\n SCF Done:')
+    if change == 'output_geometry': text = text.replace('0.9572', '1.1')
+    if change == 'output_state': text = text.replace('Multiplicity = 1', 'Multiplicity = 3')
+    if change == 'scf_method': text = text.replace('E(RM062X)', 'E(RB3LYP)')
+    log.write_text(text)
+    with pytest.raises(ValueError, match=error):
+        cp_report.report(str(p), solvent_sp=s.name, solvent_fragment_sp=[f'1:{f.name}'])
+
+
+@pytest.mark.parametrize('change', ['input', 'log', 'facts', 'symlink', 'read_change'])
+def test_fragment_evidence_failure_does_not_publish_or_refresh(cfg, tmp_path, monkeypatch, change):
+    from ag.ensemble import _Evidence
+    p, s, fs = smd_set(cfg, tmp_path)
+    f = fs[0]
+    facts.build_facts(f)
+    cache = f / 'facts.json'
+    if change == 'input':
+        path = f / 'inputs/water.gjf'
+        path.write_text(path.read_text() + '\n')
+    if change == 'log':
+        path = f / 'outputs/water.log'
+        path.write_text(path.read_text().replace('-76.001', '-76.002'))
+    if change == 'facts': cache.write_text(cache.read_text().replace('-76.001', '-76.002'))
+    if change == 'symlink':
+        log = f / 'outputs/water.log'
+        backup = tmp_path / 'outside.log'
+        backup.write_bytes(log.read_bytes())
+        log.unlink()
+        log.symlink_to(backup)
+    if change == 'read_change':
+        verify = _Evidence.verify
+        def changed(evidence):
+            log = f / 'outputs/water.log'
+            log.write_text(log.read_text() + '\n')
+            verify(evidence)
+        monkeypatch.setattr(_Evidence, 'verify', changed)
+    saved = cache.read_bytes()
+    assert cli.main(['cp-report', str(p), '--solvent-sp', s.name,
+                     '--solvent-fragment-sp', f'1:{f.name}', '--out', 'analyses/refused.json']) == 1
+    assert cache.read_bytes() == saved
+    assert not (p.parent.parent / 'analyses/refused.json').exists()
+    assert not (p.parent.parent / 'analyses/refused.md').exists()
+
+
+@pytest.mark.parametrize('change', ['ghost', 'fragment_label', 'external_basis'])
+def test_fragment_input_cannot_hide_ghost_or_external_basis_in_valid_bundle(cfg, tmp_path, change):
+    p, s, fs = smd_set(cfg, tmp_path)
+    f = fs[0]
+    source = f / 'inputs/water.gjf'
+    text = source.read_text()
+    if change == 'ghost': text = text.replace('O 0 0 0', 'Bq 0 0 0')
+    if change == 'fragment_label': text = text.replace('O 0 0 0', 'O(Fragment=1) 0 0 0')
+    if change == 'external_basis': text += '@custom.gbs\n'
+    source.write_text(text)
+    path = f / 'manifest.json'
+    manifest = json.loads(path.read_text())
+    manifest['inputs'], manifest['bundle_sha256'] = attempt.bundle({
+        item['name']: (f / 'inputs' / item['name']).read_bytes() for item in manifest['inputs']})
+    path.write_text(json.dumps(manifest))
+    with pytest.raises(ValueError, match='real element|includes'):
+        cp_report.report(str(p), solvent_sp=s.name, solvent_fragment_sp=[f'1:{f.name}'])
+
+
+def test_fragment_mode_requires_smd_complex_and_ordinary_fragment_template(cfg, tmp_path):
+    p, s, fs = smd_set(cfg, tmp_path)
+    route = ROUTE.replace(' Counterpoise=2', ' SCRF=(PCM,Solvent=DiChloroEthane)')
+    pcm, _ = solvent_attempt(cfg, tmp_path, route=route)
+    log = pcm / 'outputs/water.log'
+    log.write_text(log.read_text().replace('SMD-Coulomb', 'UA0'))
+    # The legacy overlay still supports its old solvent models.
+    assert cp_report.report(str(p), solvent_sp=pcm.name)['solvent']['interaction_raw'] is None
+    with pytest.raises(ValueError, match='requires SMD'):
+        cp_report.report(str(p), solvent_sp=pcm.name, solvent_fragment_sp=fragment_options(fs))
+    with pytest.raises(ValueError, match='expected gaussian Attempt'):
+        cp_report.report(str(p), solvent_sp=s.name, solvent_fragment_sp=[f'1:{p.name}'])
+
+
+def test_fragment_mirror_and_rigid_motion_with_noncontiguous_atom_mapping(cfg, tmp_path):
+    # Two separated synthetic CHBrClF molecules; fragment 1 is chiral and its
+    # atom numbers interleave with fragment 2. No identity/permutation search.
+    a = ['C 0 0 0', 'F .8 .8 .8', 'Cl 1 -1 -1', 'Br -1 1 -1', 'H -.6 -.6 .6']
+    b = [f'{s} {float(x)+10} {y} {z}' for s, x, y, z in (row.split() for row in a)]
+    geometry = '\n'.join(row for pair in zip(a, b) for row in pair)
+    csv = HEADER + 'a,"1,3,5,7,9",0,1\nb,"2,4,6,8,10",0,1\n'
+    p, s, fs = smd_set(cfg, tmp_path, geometry=geometry, csv=csv)
+    rotated = '\n'.join(f'{symbol} {-float(y)+2} {float(x)-3} {float(z)+4}'
+                        for symbol, x, y, z in (row.split() for row in a))
+    f, _ = solvent_attempt(cfg, tmp_path, geometry=rotated)
+    result = cp_report.report(str(p), solvent_sp=s.name, solvent_fragment_sp=[f'1:{f.name}'])
+    fragment = result['solvent']['fragment_energies'][0]
+    assert fragment['binding']['atom_mapping'] == [dict(complex_atom=i*2-1, fragment_atom=i) for i in range(1, 6)]
+    assert fragment['pairing']['rmsd_angstrom'] < 1e-12
+    mirrored = '\n'.join(f'{symbol} {-float(x)} {y} {z}' for symbol, x, y, z in (row.split() for row in a))
+    f, _ = solvent_attempt(cfg, tmp_path, geometry=mirrored)
+    with pytest.raises(ValueError, match='RMSD'):
+        cp_report.report(str(p), solvent_sp=s.name, solvent_fragment_sp=[f'1:{f.name}'])
+
+
+def test_fragment_grid_difference_is_warning_not_new_threshold(cfg, tmp_path):
+    p, s, fs = smd_set(cfg, tmp_path)
+    route = ROUTE.replace(' Counterpoise=2', ' SCRF=(SMD,Solvent=DiChloroEthane) Int=UltraFine')
+    f, _ = solvent_attempt(cfg, tmp_path, route=route, geometry='\n'.join(WATER.splitlines()[:3]))
+    result = cp_report.report(str(p), solvent_sp=s.name, solvent_fragment_sp=[f'1:{f.name}'])
+    assert result['solvent']['warnings']
+
+
+def test_fragment_report_paths_and_cross_study_sources_are_rejected(cfg, tmp_path, capsys):
+    p, s, fs = smd_set(cfg, tmp_path)
+    root = p.parent.parent
+    args = ['cp-report', str(p), '--solvent-sp', s.name, '--solvent-fragment-sp', f'1:{fs[0].name}']
+    assert cli.main([*args, '--out', '../outside.json']) == 1
+    link = root / 'analyses/link.json'
+    link.symlink_to(tmp_path / 'unused.json')
+    assert cli.main([*args, '--out', 'analyses/link.json']) == 1
+    with pytest.raises(ValueError, match='IDs must'):
+        cp_report.report(str(p), solvent_sp=s.name, solvent_fragment_sp=[f'1:{fs[0]}'])
+
+
 @pytest.mark.parametrize('change,error', [('geometry','RMSD'),('method','protocol|method'),('gas','solvent model'),
                                          ('missing_pcm','printed solvent'),('opt','single point')])
 def test_solvent_pairing_and_execution_evidence(cfg,tmp_path,change,error):

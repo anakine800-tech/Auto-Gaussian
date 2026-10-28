@@ -18,6 +18,7 @@ ag prepare --study <id> --cluster default --template gaussian-cp --input <cp.gjf
 ag facts <cp_attempt> --study <study_dir>
 ag cp-report <cp_attempt> --study <study_dir> --out analyses/cp.json
 ag cp-report <cp_attempt> --study <study_dir> --solvent-sp <solvent_sp_attempt> --asm analyses/asm.json --out analyses/cp-comparison.json
+ag cp-report <cp_attempt> --study <study_dir> --solvent-sp <complex_smd_attempt> --solvent-fragment-sp 1:<fragment_1_smd_attempt> --solvent-fragment-sp 2:<fragment_2_smd_attempt> --out analyses/cp-smd.json
 ```
 
 report 不加载集群配置、不连接网络、不写 facts，只独占创建新的 JSON 和同名 Markdown。
@@ -58,8 +59,50 @@ report 不加载集群配置、不连接网络、不写 facts，只独占创建�
 整体电子态、方法、基组、基函数类型和色散一致；网格差异仅警告；需要实际打印的溶剂参数块，route 回显不足以证明执行。
 
 固定说明：**溶剂相结果 = 溶剂相相互作用能 + 气相 BSSE；假设 BSSE 基本不受溶剂影响**。
-普通单个 Gaussian SP 不含独立的片段能量；本版明确列出两个缺项，`interaction_raw` / `interaction_corrected` 为 null。
-仅提供 `complex_energy` 和 `complex_energy_plus_gas_bsse`，后者不叫相互作用能。不用气相 MCBS/DCBS 补齐溶剂片段。
+普通单个 Gaussian SP 不含独立的片段能量；未指定片段时明确列出两个缺项，`interaction_raw` / `interaction_corrected` 为 null。
+此时仅提供 `complex_energy` 和 `complex_energy_plus_gas_bsse`，后者不叫相互作用能。不用气相 MCBS/DCBS 补齐溶剂片段。
+
+### 已有片段 SMD 单点（T165）
+
+可重复给出 `--solvent-fragment-sp <index>:<attempt_id>`，index 必须是已绑定 CP CSV 的 1 或 2。
+参数只接受本 study 已有 Attempt ID，不接受名称猜配、外部路径、重复 index 或同一 Attempt 兼作两片段。
+给片段参数必须同时给 `--solvent-sp`。三个来源均须是正常结束的 ordinary Gaussian SP，片段模式只接受受支持 SCF 方法的 SMD。
+不会生成输入、创建 Attempt、提交计算或刷新已有 facts；显式提供的损坏来源直接拒绝，不当作缺失跳过。
+
+片段参考坐标来自 CP 输入中该片段的真实原子，按全体系原子号升序抽取。
+对片段输入和输出分别作固定行顺序的 proper Kabsch 比较，沿用 RMSD ≤0.001 Å；只允许刚性移动，不反射、不搜索置换。
+电荷/多重度须等于 CP 的该片段声明。优化后片段、额外原子、ghost、CP 输出、Gen/ECP/外部基组和混合任务不接受。
+匹配几何不能证明所有同元素原子的化学身份：对称或近对称原子的换序可能无法由此阈值区分，原始原子映射仍需人工审阅。
+三个 SMD 来源和气相 CP 的方法、基组、基函数类型、色散一致；三个 SMD 来源的模型、溶剂及实际打印的关键溶剂参数也须一致。
+溶剂块缺失或与 route 矛盾时拒绝；网格差异沿用提示，不新增阈值。
+
+能量仍取各自唯一的 `SCF Done`（含日志 SHA-256 和行号），与解析 facts 核对。
+Gaussian 发布说明确认 SMD 非静电项已经包含在该能量中，不再加 SMD-CDS 或改取其他“溶剂能量”标签。
+依据：[Gaussian 09 Rev. D.01 Release Notes，第 12 页](https://info.mse.waseda.ac.jp/wp-content/uploads/2017/06/Gaussian09_RevD01_ReleaseNote.pdf)。
+这保留原报告的 SCF 能量口径，并不新增热化学处理。
+
+| 溶剂字段 | 内容 |
+| --- | --- |
+| `complex_energy` | E_AB(SMD)，既有复合物能量字段 |
+| `complex_energy_plus_gas_bsse` | E_AB(SMD) + BSSE(gas)，仍不是相互作用能 |
+| `fragment_energies[].energy` | 有效片段自身基组的 SMD SCF 能量；未提供则为 null |
+| `fragment_energies[].binding` | CP Attempt、CSV/复合物输入哈希、片段电子态、`complex_atom` → `fragment_atom` 映射 |
+| `fragment_energies[].pairing`, `output_pairing` | CP 几何子集与片段输入、输出的两份几何匹配证据 |
+| `fragment_energies[].input_source`, `section_source` | 输入哈希、日志哈希/段行号、实际溶剂执行证据和协议 |
+| `complex_source` | 片段模式下复合物的同类来源与匹配证据 |
+| `interaction_raw` | E_AB(SMD) − E_A(SMD) − E_B(SMD) |
+| `interaction_corrected` | interaction_raw + BSSE(gas)，假设 BSSE 基本不受溶剂影响的近似值 |
+
+两个片段都有效时先以 Hartree 运算，再用既有常数换算 kcal/mol。推导量列明公式、全部操作数的日志行/哈希及 `operand_pointers`；片段映射与几何证据位于对应 `fragment_energies` 条目。
+只给一个片段时保留其能量与来源，`missing` 逐一列出余下片段，两个 interaction 字段继续为 null。
+这些是固定几何相互作用能诊断，**不是计算出的结合自由能**；不加入形变能、标准态、热校正，不进入 thermo/profile。
+
+兼容性核查：保留 `ag-cp/1` 及所有核心字段名；旧命令仍生成气相/缺片段结果。仓库内直接读取这两个 interaction 字段的消费者是本模块 Markdown 渲染器与 CP 测试，已覆盖 null 和 quantity 两种情况；其他本地能量工具仍拒绝 CP Attempt。
+本核查不代表未提供的外部消费者已通过验证。
+
+合成水二聚体手算（不是实测）：E_AB = −152.010、E_A = −76.001、E_B = −75.998、BSSE = 0.002 Hartree。
+故 interaction_raw = −0.011 Hartree = −6.902604951 kcal/mol，interaction_corrected = −0.009 Hartree = −5.647585869 kcal/mol。
+测试 `test_smd_fragment_arithmetic_sources_mapping_and_cli` 独占生成完整 JSON/Markdown，独立用十进制数核算并逐项核验来源哈希、原子映射、文件不变与覆盖拒绝。
 
 ASM 的每项来源哈希会核验，输出原报告的对象标签和形变能；它是独立对照，不代表同一计算协议，也不自动与 CP 相加。
 
@@ -77,3 +120,5 @@ ASM 的每项来源哈希会核验，输出原报告的对象标签和形变能�
 两份原日志 SHA-256 分别为 `6bea540a4fb31615d2910b63aba963f03127e51d6cdd0a50176b3eee9a6d4db9` 和 `3b034d49ebab671a54bfc36e65093d2ebc6305908edb3755da5290171a5f615e`。
 同几何 NH₄⁺···H₂O SMD(DCE) 单点也正常结束并通过溶剂配对；实测报告正确保留两个片段溶剂能量缺项，未计算溶剂相相互作用能。
 这些是工程验证的固定几何结果；只检查量级和内部自洽，不作文献数值对标，不代表结构优化或科学研究验收。
+
+T165 没有三份真实配套 SMD 输出；新片段组合只完成合成数值、拒绝矩阵和既有脱敏气相日志回归，未进行新的现场验证或科学验收。

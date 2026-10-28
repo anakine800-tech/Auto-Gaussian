@@ -52,11 +52,16 @@ ag fetch <cp_attempt>
 ag facts <cp_attempt> --study <study_dir>
 ag cp-report <cp_attempt> --study <study_dir> --out analyses/cp.json
 ag cp-report <cp_attempt> --study <study_dir> --solvent-sp <ordinary_solvent_sp_attempt> --out analyses/cp-solvent.json
+ag cp-report <cp_attempt> --study <study_dir> --solvent-sp <complex_smd_attempt> --solvent-fragment-sp 1:<fragment_1_smd_attempt> --solvent-fragment-sp 2:<fragment_2_smd_attempt> --out analyses/cp-smd.json
 ag cp-report <cp_attempt> --study <study_dir> --asm analyses/asm.json --out analyses/cp-asm.json
 ```
 
 prepare 不等于授权提交。完整摘要经负责人核对后，仍须按 Study 流程取得聊天批准记录、匹配长期规则或 Mac 人工确认。
 `--solvent-sp` 使用普通 gaussian 模板、同原子序/几何、同方法/基组（含色散及基函数类型）；固定映射刚性对齐 RMSD ≤0.001 Å。
+可用重复的 `--solvent-fragment-sp <index>:<attempt_id>` 接入本 study 已有的片段 1、2 单点；不按片段名称猜配。
+新片段模式只接受正常结束的 SMD ordinary SP：片段只含 CP CSV 指定的真实原子，在复合物几何下使用自身基组，电子态取对应片段声明。
+按全体系号升序抽取并保留到片段局部号的映射；输入/输出都需固定行序 proper Kabsch 匹配，不反射、不交换原子、不用优化后的孤立片段。
+复合物、片段与气相 CP 的方法/基组/基函数类型/色散须一致；三个 SMD 的溶剂及实际打印参数须一致。报告纯本地，不补建/提交计算。
 
 ## 4. 资源建议
 
@@ -76,7 +81,8 @@ default 与 scnet 沿用普通 Gaussian 的资源和入口规则；scnet-test �
 - 正常终止，复合物及两个片段的 DCBS/MCBS 能量、汇总与行号可唯一对应；格式未知、缺项或加和不符即停止。
 - 对照未校正/校正复合物能量、BSSE（Hartree/kcal/mol）、未校正/校正相互作用能及各片段能量，核对每项来源文件/哈希/行号。
 - 溶剂相结果 = 溶剂相相互作用能 + 气相 BSSE；假设 BSSE 基本不受溶剂影响。
-- 普通单个溶剂 SP 仅给复合物能量，不给两个片段能量；报告明确缺失的片段，溶剂相相互作用能记未知，仅列“溶剂相复合物能量 + 气相 BSSE 修正量”。不用气相片段替代。
+- 两个有效片段齐全时，核对 E_AB(SMD) − E_A(SMD) − E_B(SMD) 及再加 BSSE(gas) 的近似值、全部操作数来源和原子映射。SMD 的 SCF Done 已含非静电项，不重复加 CDS。
+- 零个/一个片段时显示已知能量，逐一列出缺失项，相互作用能仍未知。不用气相片段替代；“复合物能量 + 气相 BSSE”始终不是相互作用能，也不是计算出的结合自由能。
 - ASM 形变能仅并列查看，不拼成新的结合能结论；所有数据均不进入 thermo/profile，不能声称得到已校正的自由能剖面。
 - BSSE >1 kcal/mol 的对象按最终 SP 层级补算后比较；在 study 保留诊断量、层级敏感性及剩余误差，不把量级检查称为文献对标。
 
@@ -94,5 +100,6 @@ SCRF 在 prepare 被拒绝：改为气相 CP，并把普通溶剂 SP 留给报�
 - 气相 BSSE 不是溶剂化自由能，也不是零点能或热校正。
 - 校正后的复合物电子能不等于相互作用能；缺溶剂片段能量时不能用气相值补齐。
 - 不同几何或不同方法/基组的 BSSE 不混用；同元素原子交换也不能靠重排对齐。
+- 对称/近对称原子的换序可能无法由几何阈值区分；配对通过不证明全部同元素原子的化学身份，仍须审阅原始映射。
 - 半径规则只用于拒绝有疑义的拆分，不替代成键化学判断。
 - 真实验证日志齐全前，离线合成夹具通过不表示已完成现场验收。

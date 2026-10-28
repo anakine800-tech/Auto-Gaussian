@@ -555,7 +555,7 @@ Slurm 的 `cluster.budget` 为 null，clusters 查询省略 budget；本地台�
 - 路由建议不考虑 walltime；超算公共分区几乎总有他人排队，通常被判为“没地方”，不保证实际启动。
 - 父 chk 是否来自频率计算、是否含可用力常数，仍由卡片和人工审阅保证；程序的坐标框架核验不能替代该检查。
 - 已有 study 的 facts 是否按 T108 重算、catalog 是否补登记，由负责人逐 study 决定；升级不自动改写已签字证据。
-- `cp-report --solvent-sp` 只接受复合物的溶剂相单点，缺两个片段的 SMD 单点，溶剂相相互作用能仍为“未知”；CP 仅作诊断，不进入 thermo/profile。
+- `cp-report --solvent-sp` 指定复合物单点，可重复用 `--solvent-fragment-sp 1:<id>` / `2:<id>` 接入同几何、自身基组的两个已有 SMD 片段单点；缺项时相互作用能仍为“未知”，CP 仅作诊断，不进入 thermo/profile。
 - 取回按连续 60 秒无进展判断超时，另设 24 小时兜底；超时不自动重试，不支持断点续传。
 - 二维扫描的前端能量面显示尚未支持；Gaussian 二维扫描与人工指定候选的 `scan-peak` 已在后端提供（T75，[#289](https://github.com/anakine800-tech/Auto-Gaussian/pull/289)）。
 - 证据清单会列出缺失或越界的说明性引用，须由签字人核对后显式 `--accept-unresolved`，不能静默忽略；不需改写历史卡片副本。study 内符号链接及专用证据指针的安全检查仍保留。
@@ -604,5 +604,6 @@ python scripts/scan_public.py --staged
 `gaussian-cp` 为双片段气相单点模板，prepare 校验四列片段 CSV 并生成 Gaussian 片段标签。
 G16 A.03 实测拒绝 CP 与 SCRF 同用，因此在 prepare 阶段拒绝 SCRF。
 本地 `ag cp-report` 输出独立 `ag-cp/1` JSON/Markdown，可核对同几何的普通溶剂 SP、并列 ASM 形变能。
+`--solvent-sp <complex_id> --solvent-fragment-sp 1:<fragment_id> --solvent-fragment-sp 2:<fragment_id>` 可接入已有 SMD 单点，输出相互作用能及加气相 BSSE 的近似值。
 缺溶剂片段能量时明确记未知，不用气相值替代；CP 不进入 thermo/profile。
 见 [报告格式与验证边界](docs/ag-cp-1.md) 和 [counterpoise 卡](skills-next/auto-g16-recipes/cards/counterpoise.md)。
