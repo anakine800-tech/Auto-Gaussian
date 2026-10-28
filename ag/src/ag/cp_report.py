@@ -177,8 +177,15 @@ def _solvent_source(evidence, value, reference, *, fragment_mode=False):
         for candidate in (science['route'], route):
             without_scrf = re.sub(r'\bscrf\s*=?\s*\([^)]*\)', '', candidate, flags=re.I)
             counterpoise_route(without_scrf + ' Counterpoise=2')
-        require(not re.search(r'\bcounterpoise\b|\bNewBq\b|\bBq\b|\bin fragment\s+\d',
-                              '\n'.join(lines), re.I),
+        # Free-text titles can mention Counterpoise/Bq/NewBq or "in fragment 1".
+        # Reject execution diagnostics, not those words; _load separately
+        # validates real-atom input and output geometry against the CP subset.
+        require(not re.search(
+            r'^[ \t]*(?:Counterpoise:[ \t]*doing\b|Counterpoise corrected energy[ \t]*='
+            r'|NewBq[ \t]*=[ \t]*[TF]\b'
+            r'|Charge[ \t]*=[ \t]*-?\d+[ \t]+Multiplicity[ \t]*=[ \t]*\d+'
+            r'[ \t]+in fragment[ \t]+\d+\b'
+            r'|Bq(?:[ \t]+' + NUMBER + r'){3}[ \t]*$)', '\n'.join(lines), re.I | re.M),
                 'Solvent fragment mode requires ordinary own-basis SP output without ghost/CP fragments')
     matches = [(i, re.fullmatch(r'\s*SCF Done:\s+E\(([^)]+)\)\s*=\s*(' + NUMBER
                                + r')\s+A\.U\. after\s+\d+\s+cycles\s*', line))

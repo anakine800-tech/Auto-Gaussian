@@ -457,6 +457,34 @@ def test_one_smd_fragment_preserves_known_value_and_exact_missing_item(cfg, tmp_
     assert '未知' in cp_report.markdown(result)
 
 
+@pytest.mark.parametrize('title', [
+    'Counterpoise fragment 1 SMD single point',
+    'Bq own-basis comparison',
+    'NewBq reference for ordinary SMD',
+    'Single point in fragment 1 at the complex geometry',
+    'Counterpoise / Bq / NewBq in fragment 1 comparison',
+])
+def test_smd_free_text_titles_are_not_cp_or_ghost_execution_evidence(cfg, tmp_path, title):
+    p, s, fs = smd_set(cfg, tmp_path)
+    expected = cp_report.report(str(p), solvent_sp=s.name, solvent_fragment_sp=fragment_options(fs))
+    for directory in [s, *fs]:
+        source = directory / 'inputs/water.gjf'
+        source.write_text(source.read_text().replace('Synthetic test', title))
+        path = directory / 'manifest.json'
+        manifest = json.loads(path.read_text())
+        manifest['inputs'], manifest['bundle_sha256'] = attempt.bundle({
+            item['name']: (directory / 'inputs' / item['name']).read_bytes() for item in manifest['inputs']})
+        path.write_text(json.dumps(manifest))
+        log = directory / 'outputs/water.log'
+        log.write_text(log.read_text().replace(' Charge =', f' {title}\n Charge =', 1))
+        facts.build_facts(directory)
+    result = cp_report.report(str(p), solvent_sp=s.name, solvent_fragment_sp=fragment_options(fs))
+    for field in ('interaction_raw', 'interaction_corrected'):
+        assert result['solvent'][field]['hartree'] == expected['solvent'][field]['hartree']
+        assert result['solvent'][field]['kcal_mol'] == expected['solvent'][field]['kcal_mol']
+        assert result['solvent'][field]['sources'] != expected['solvent'][field]['sources']
+
+
 @pytest.mark.parametrize('options,solvent,error', [
     (['1:a', '1:b'], 's', 'Duplicate'), (['0:a'], 's', 'requires 1:'),
     (['3:a'], 's', 'requires 1:'), (['water-a:a'], 's', 'requires 1:'),
@@ -487,6 +515,7 @@ def test_fragment_state_uses_each_cp_declaration(cfg, tmp_path):
     ('error', 'normally terminated'), ('cp_output', 'own-basis'), ('ghost_output', 'own-basis'),
     ('gen', 'Custom basis'), ('extra_basis', 'Custom basis'), ('units', 'only supports'),
     ('output_geometry', 'RMSD'), ('output_state', 'state differs'), ('scf_method', 'SCF method differs'),
+    ('cp_summary', 'own-basis'), ('fragment_state', 'own-basis'), ('ghost_structure', 'own-basis'),
 ])
 def test_fragment_sources_fail_closed(cfg, tmp_path, change, error):
     # A symmetric water's exchanged H rows can be rigidly indistinguishable.
@@ -517,6 +546,9 @@ def test_fragment_sources_fail_closed(cfg, tmp_path, change, error):
     if change == 'error': text = text.replace('Normal termination', 'Error termination')
     if change == 'cp_output': text = text.replace(' SCF Done:', ' Counterpoise: doing calculation for fragment 1\n SCF Done:')
     if change == 'ghost_output': text = text.replace(' SCF Done:', ' NewBq=T\n SCF Done:')
+    if change == 'cp_summary': text = text.replace(' SCF Done:', ' Counterpoise corrected energy = -76.001\n SCF Done:')
+    if change == 'fragment_state': text = text.replace(' SCF Done:', ' Charge = 0 Multiplicity = 1 in fragment 1.\n SCF Done:')
+    if change == 'ghost_structure': text = text.replace(' SCF Done:', ' Bq 3.0 0.0 0.0\n SCF Done:')
     if change == 'output_geometry': text = text.replace('0.9572', '1.1')
     if change == 'output_state': text = text.replace('Multiplicity = 1', 'Multiplicity = 3')
     if change == 'scf_method': text = text.replace('E(RM062X)', 'E(RB3LYP)')
