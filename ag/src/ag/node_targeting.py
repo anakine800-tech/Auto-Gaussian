@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 import math
 import re
 
-from ag import pbs, remote
+from ag import capacity, pbs, remote
 from ag.config import RESOURCE_TIERS, scheduler_kind, select_cluster
 from ag.transport import require_ok
 
@@ -114,7 +114,7 @@ def strict_nodes(text, jobs):
                 continue
             allocations[n] += pbs.slot_count(slot)
             jobsets[n].add(j['job_id'])
-        # A queued named request from another computer is already competition.
+        # Keep named requests as display evidence, not exclusive reservations.
         for chunk in j.get('Resource_List.nodes', '').split('+'):
             n = chunk.split(':')[0]
             if n in allocations:
@@ -138,6 +138,7 @@ def strict_nodes(text, jobs):
 
 
 def idle(row):
+    """Legacy display classification, not submission eligibility."""
     if (row.get('targeting_consistent') is not True
             or any(type(row.get(k)) is not int or row[k] < 0 for k in ('cores_used', 'jobs'))
             or type(row.get('targeting_reserved')) is not bool):
@@ -151,6 +152,35 @@ def idle(row):
             or type(total) not in (int, float) or not math.isfinite(total) or total <= 0):
         return 'unknown', 'Node capacity or memory is unknown'
     return 'available', 'Snapshot candidate only; explicit choice and fresh admission required'
+
+
+def admission(row, cores, mem_gb):
+    """Keep binding evidence mandatory; current allocation only advises timing."""
+    assessment = capacity.evaluate_node(row, cores, mem_gb, scheduler='pbs')
+    reason = None
+    if (row.get('targeting_consistent') is not True
+            or any(type(row.get(k)) is not int or row[k] < 0 for k in ('cores_used', 'jobs'))
+            or type(row.get('targeting_reserved')) is not bool):
+        reason = 'Node and job evidence is missing or contradictory'
+    # Same supported PBS states as T156. Unknown availability alone cannot
+    # distinguish an offline node from missing assigned-memory information.
+    elif row.get('state') not in ('free', 'job-busy', 'job-exclusive'):
+        reason = 'Node state is unavailable or unsupported'
+    elif assessment['fits_total'] is not True:
+        reason = 'Target capacity is unknown, inconsistent or insufficient'
+    elif row['cores_used'] > row['cores_total']:
+        reason = 'Node CPU allocation contradicts its total capacity'
+    else:
+        assigned = row.get('mem_assigned_bytes')
+        # Unknown assigned memory is advisory. Known contradictory allocation
+        # must not become admissible merely because capacity returns unknown.
+        if assigned is not None and (type(assigned) is not int or assigned < 0
+                or assigned > row['mem_total_bytes']
+                or (assigned > 0 and row['cores_used'] == 0 and row['jobs'] == 0)):
+            reason = 'Assigned memory contradicts node allocation evidence'
+    return dict(selectable=reason is None,
+                selectable_reason=reason or 'Total specs fit; sharing or queueing allowed; fresh admission required',
+                capacity=assessment)
 
 
 def candidates(cfg, cluster='default', *, now=None):
@@ -184,12 +214,21 @@ def candidates(cfg, cluster='default', *, now=None):
         else:
             status, reason = idle(row)
         for o in opts:
-            if row.get('mem_total_gb') is None or row['mem_total_gb'] < o['mem_gb']:
+            o.update(admission(row, o['cores'], o['mem_gb']))
+            if o['capacity']['fits_total'] is not True:
                 o['tier'] = None
+            if status in ('forbidden', 'restricted', 'stale'):
+                o.update(selectable=False, selectable_reason=reason)
+            elif o['tier'] is None and o['selectable']:
+                o.update(selectable=False, selectable_reason='No configured tier fits this node and fraction')
         if status == 'available' and not any(o['tier'] for o in opts):
             status, reason = 'insufficient', 'No configured tier fits this node and fraction'
+        selectable = any(o['selectable'] for o in opts)
+        selectable_reason = next((o['selectable_reason'] for o in opts if o['selectable']),
+                                 opts[0]['selectable_reason'] if opts else reason)
         result.append(dict(name=name, priority_group=groups.get(name), order=i + 1,
-                           priority=i + 1, status=status, reason=reason, options=opts))
+                           priority=i + 1, status=status, reason=reason, options=opts,
+                           selectable=selectable, selectable_reason=selectable_reason))
     valid_until = ((datetime.fromisoformat(snapshot['sampled_at']) +
                     timedelta(seconds=3 * data['interval_seconds'])).isoformat()
                    if snapshot['fresh'] else None)
@@ -209,9 +248,10 @@ def prepare(cfg, cluster, template, tier, target, fraction):
     fraction = fraction or '1/2'
     rows = candidates(cfg, cluster)['nodes']
     row = next(r for r in rows if r['name'] == target)
-    if row['status'] != 'available':
-        raise ValueError('Target node is unavailable: ' + row['reason'])
-    option = next((o for o in row['options'] if o['fraction'] == fraction and o['tier'] == tier), None)
+    if not row['selectable']:
+        raise ValueError('Target node is unavailable: ' + row['selectable_reason'])
+    option = next((o for o in row['options'] if o['fraction'] == fraction and o['tier'] == tier
+                   and o['selectable']), None)
     if option is None:
         raise ValueError('Selected tier must match target slots, fraction and memory')
     return dict(name=target, fraction=fraction, slots=option['cores'] * int(fraction[-1]),
@@ -247,10 +287,11 @@ def fresh_check(cfg, m, transport):
     if len(matches) != 1:
         raise ValueError('Target node missing or ambiguous')
     row = matches[0]
-    if idle(row)[0] != 'available':
-        raise ValueError('Target node no longer idle or evidence inconsistent; stop')
-    if row['cores_total'] != m['node_target']['slots'] or row['mem_total_gb'] < m['mem_gb']:
+    if row['cores_total'] != m['node_target']['slots']:
         raise ValueError('Target capacity changed or insufficient; stop')
+    decision = admission(row, m['cores'], m['mem_gb'])
+    if not decision['selectable']:
+        raise ValueError('Target node unavailable: ' + decision['selectable_reason'] + '; stop')
 
 
 def placement(m, job):

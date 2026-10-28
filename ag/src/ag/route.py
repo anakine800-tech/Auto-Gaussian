@@ -222,7 +222,8 @@ def suggest(cfg, template, tier, study=None, *, now=None):
                 row['node_candidates'] = targets
                 row['notes'].append('必须明确选择并确认目标节点；排序不授权自动选择')
                 if template != 'gaussian' or not any(
-                        n['status'] == 'available' and any(o['tier'] == tier for o in n['options'])
+                        n.get('selectable', n['status'] == 'available')
+                        and any(o['tier'] == tier and o.get('selectable', True) for o in n['options'])
                         for n in targets['nodes']):
                     reasons.append('没有满足此档位的具名节点候选')
             row.update(conclusion=FULL if reasons else READY, reasons=list(dict.fromkeys(reasons)))

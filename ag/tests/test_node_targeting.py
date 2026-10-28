@@ -6,7 +6,7 @@ from pathlib import Path
 import subprocess
 
 import pytest
-from ag import approval, attempt, config, confirm, monitor, node_targeting as nt, render, state, status, study, submit
+from ag import approval, attempt, capacity, config, confirm, monitor, node_targeting as nt, render, state, status, study, submit
 from ag.transport import Result, TransportError
 from test_core import cfg, Fake
 
@@ -213,7 +213,8 @@ def test_stale_blocks_prepare_without_artifacts(targeted, age, ok):
 
 
 @pytest.mark.parametrize('change,status_', [({'cores_used':1},'occupied'),({'jobs':1},'occupied'),
-    ({'state':'offline'},'occupied'),({'mem_total_gb':None},'unknown'),({'mem_total_gb':1},'insufficient'),
+    ({'state':'offline'},'occupied'),({'mem_total_gb':None,'mem_total_bytes':None},'unknown'),
+    ({'mem_total_gb':1,'mem_total_bytes':1024**3},'insufficient'),
     ({'targeting_consistent':False},'unknown'),({'targeting_reserved':True},'occupied'),
     ({'cores_used':48},'occupied')])
 def test_snapshot_fail_closed(targeted, change, status_):
@@ -243,7 +244,7 @@ def test_target_changes_during_dialog_preserve_approval_claim_manifest(targeted,
         fake.node_text = nodes(extra='    jobs = 0/9.fixture\n')
         return True
     monkeypatch.setattr(confirm,'confirm',change)
-    with pytest.raises(ValueError,match='no longer idle'):
+    with pytest.raises(ValueError,match='contradictory'):
         submit.submit(cfg,[m['attempt_id']],fake)
     for p,data in before.items():
         assert (path/p).read_bytes() == data
@@ -251,7 +252,7 @@ def test_target_changes_during_dialog_preserve_approval_claim_manifest(targeted,
     assert not {'create_attempt','upload','submit'} & set(fake.operations())
 
 
-def test_explicit_approval_not_consumed_on_occupation(targeted):
+def test_explicit_approval_not_consumed_on_insufficient_total_memory(targeted):
     cfg,path,m = prepared(targeted)
     a = approval.create(cfg,'target-demo',[m['attempt_id']],'Approve synthetic target only',1)
     fake = TargetFake(cfg); fake.node_text = nodes(memory='1gb')
@@ -342,16 +343,17 @@ def test_invalid_observation_does_not_retain_verified_as_current(targeted, job):
     assert state.read(path)['node_placement']['state'] == 'unverified'
 
 
-def test_second_computer_observed_request_blocks_without_claim(targeted, monkeypatch):
+def test_second_computer_named_request_allows_queueing(targeted, monkeypatch):
     cfg,path,m=prepared(targeted); fake=TargetFake(cfg)
-    # Separate client/local lock cannot hide a scheduler-visible named request.
+    # A scheduler-visible named request is not an exclusive reservation.
     def competing(_):
         fake.qstat=Result(stdout='Job Id: 999.fixture\n    Job_Name = other\n    Job_Owner = peer@fixture\n    job_state = Q\n    Resource_List.nodes = compute-a:ppn=24\n')
         return True
     monkeypatch.setattr(confirm,'confirm',competing)
-    with pytest.raises(ValueError,match='no longer idle'):
-        submit.submit(cfg,[m['attempt_id']],fake)
-    assert not (path/'.submit-claim').exists() and 'submit' not in fake.operations()
+    submit.submit(cfg,[m['attempt_id']],fake)
+    assert (path/'.submit-claim').exists() and (path/'submission.json').exists()
+    assert fake.operations().count('nodes') == 2
+    assert fake.operations().count('submit') == 1 and 'cancel' not in fake.operations()
 
 
 def test_runtime_nodefile_guard(tmp_path):
@@ -384,7 +386,7 @@ def test_second_live_check_before_qsub_stops_after_upload(targeted,monkeypatch):
     fake.upload=upload
     monkeypatch.setattr(confirm,'confirm',lambda _:True)
     original_manifest=(path/'manifest.json').read_bytes()
-    with pytest.raises(ValueError,match='no longer idle'):
+    with pytest.raises(ValueError,match='contradictory'):
         submit.submit(cfg,[m['attempt_id']],fake)
     assert (path/'manifest.json').read_bytes()==original_manifest
     assert (path/'.submit-claim').exists()
@@ -442,3 +444,246 @@ def test_explicit_quarter_uses_existing_tier(targeted):
     args['input_path'].write_text(args['input_path'].read_text().replace('24','12').replace('40GB','20GB'))
     m=attempt.prepare(cfg,**(args|dict(node_fraction='1/4',tier='mini')))
     assert m['node_target']['fraction']=='1/4' and m['cores']==12 and m['mem_gb']==24
+
+
+def shared_observation(*, used=16, memory='16gb', owners=('fixture', 'peer'), node_state='free'):
+    """Two synthetic allocations and a named queued request on one node."""
+    jobs, slots = [], []
+    for i, owner in enumerate(owners):
+        slot = f'{i * used // 2}-{(i + 1) * used // 2 - 1}'
+        job = (f'Job Id: {901+i}.fixture\n    Job_Name = synthetic\n'
+               f'    Job_Owner = {owner}@fixture\n    job_state = R\n'
+               f'    exec_host = compute-a/{slot}\n'
+               f'    Resource_List.nodes = compute-a:ppn={used // 2}\n')
+        if memory is not None:
+            job += f'    Resource_List.mem = {memory}\n'
+        jobs.append(job)
+        slots.append(f'{slot}/{901+i}.fixture')
+    jobs.append('Job Id: 903.fixture\n    Job_Name = synthetic-queued\n'
+                '    Job_Owner = peer@fixture\n    job_state = Q\n'
+                '    Resource_List.nodes = compute-a:ppn=24\n')
+    raw = nodes(extra='    jobs = ' + ', '.join(slots) + '\n')
+    return raw.replace('state = free', 'state = ' + node_state), ''.join(jobs)
+
+
+@pytest.mark.parametrize('owners', [('fixture', 'fixture'), ('peer', 'peer'), ('fixture', 'peer')])
+@pytest.mark.parametrize('used,memory,expected', [(16, '16gb', 'enough'), (40, '50gb', 'queue'),
+                                                (16, None, 'unknown')])
+def test_shared_candidates_prepare_and_capacity_agree(targeted, owners, used, memory, expected):
+    cfg, args = targeted
+    raw, qstat = shared_observation(used=used, memory=memory, owners=owners)
+    rows = nt.strict_nodes(raw, status.parse_jobs(qstat))
+    snapshot(cfg, rows)
+    candidate = nt.candidates(cfg)['nodes'][1]
+    assert candidate['status'] == 'occupied' and candidate['selectable'] is True
+    assert candidate['selectable_reason']
+    assert [o['cores'] for o in candidate['options']] == [24, 12]
+    option = candidate['options'][0]
+    assert option['selectable'] is True and option['capacity']['availability'] == expected
+    assert option['capacity'] == capacity.evaluate_node(rows[0], 24, 48, scheduler='pbs')
+    assert capacity.assess(cfg, 'default', 'general', 'compute-a')['availability'] == expected
+    m = attempt.prepare(cfg, **args)
+    assert m['cores'] == 24 and m['mem_gb'] == 48 and m['node_target']['slots'] == 48
+    fake = TargetFake(cfg)
+    fake.node_text, fake.qstat = raw, Result(stdout=qstat)
+    nt.fresh_check(config.select_cluster(cfg), m, fake)
+
+
+@pytest.mark.parametrize('node_state', ['free', 'job-busy', 'job-exclusive'])
+def test_supported_occupied_states_are_selectable(targeted, node_state):
+    cfg, args = targeted
+    raw, qstat = shared_observation(node_state=node_state)
+    snapshot(cfg, nt.strict_nodes(raw, status.parse_jobs(qstat)))
+    candidate = nt.candidates(cfg)['nodes'][1]
+    assert candidate['status'] == 'occupied' and candidate['selectable'] is True
+    assert candidate['options'][0]['capacity']['availability'] == ('enough' if node_state == 'free' else 'queue')
+    m = attempt.prepare(cfg, **args)
+    fake = TargetFake(cfg); fake.node_text, fake.qstat = raw, Result(stdout=qstat)
+    nt.fresh_check(config.select_cluster(cfg), m, fake)
+
+
+@pytest.mark.parametrize('node_state', ['offline', 'down', 'unknown', 'state-unknown', 'busy',
+    'free,offline', 'job-busy,down', 'free,job-busy', 'reserve', 'time-shared'])
+def test_bad_or_unsupported_states_never_admit(targeted, node_state):
+    cfg, args = targeted
+    raw, qstat = shared_observation(node_state=node_state)
+    snapshot(cfg, nt.strict_nodes(raw, status.parse_jobs(qstat)))
+    candidate = nt.candidates(cfg)['nodes'][1]
+    assert candidate['status'] == 'occupied' and candidate['selectable'] is False
+    assert 'state' in candidate['selectable_reason']
+    with pytest.raises(ValueError, match='unavailable'):
+        attempt.prepare(cfg, **args)
+    assert not list(Path(cfg['local']['studies_root']).rglob('manifest.json'))
+
+
+@pytest.mark.parametrize('change', [dict(targeting_consistent=False), dict(capacity_cpu_consistent=False),
+    dict(cores_used=49), dict(cores_used=-1), dict(jobs=None), dict(targeting_reserved=None),
+    dict(mem_total_bytes=None), dict(mem_total_bytes=48*1024**3-1),
+    dict(mem_assigned_bytes=129*1024**3), dict(mem_assigned_bytes=-1),
+    dict(mem_assigned_bytes=True), dict(capacity_error='Synthetic conflicting evidence')])
+def test_occupied_node_conflicts_and_missing_totals_do_not_admit(targeted, change):
+    cfg, args = targeted
+    raw, qstat = shared_observation()
+    row = nt.strict_nodes(raw, status.parse_jobs(qstat))[0] | change
+    snapshot(cfg, [row])
+    candidate = nt.candidates(cfg)['nodes'][1]
+    assert not candidate['options'][0]['selectable']
+    # The quarter may still fit a genuinely smaller total; it cannot silently
+    # replace the requested half-node allocation.
+    with pytest.raises(ValueError):
+        attempt.prepare(cfg, **args)
+
+
+@pytest.mark.parametrize('missing', ['mem_assigned_bytes', 'mem_assigned_gb', 'both'])
+def test_missing_assigned_memory_is_only_capacity_advice(targeted, missing):
+    cfg, args = targeted
+    raw, qstat = shared_observation()
+    row = nt.strict_nodes(raw, status.parse_jobs(qstat))[0]
+    for key in ('mem_assigned_bytes', 'mem_assigned_gb'):
+        if missing in (key, 'both'):
+            row.pop(key)
+    snapshot(cfg, [row])
+    candidate = nt.candidates(cfg)['nodes'][1]
+    assert candidate['selectable'] is True
+    assert candidate['options'][0]['capacity']['availability'] == (
+        'enough' if missing == 'mem_assigned_gb' else 'unknown')
+    assert attempt.prepare(cfg, **args)['cores'] == 24
+
+
+def test_positive_assigned_memory_without_allocations_is_contradictory(targeted):
+    cfg, args = targeted
+    # Less than the display rounding threshold still contradicts no jobs.
+    row = nt.strict_nodes(nodes(extra='    resources_assigned.mem = 1b\n'), [])[0]
+    assert row['mem_assigned_gb'] == 0
+    snapshot(cfg, [row])
+    assert nt.candidates(cfg)['nodes'][1]['selectable'] is False
+    with pytest.raises(ValueError, match='unavailable'):
+        attempt.prepare(cfg, **args)
+
+
+@pytest.mark.parametrize('when', ['confirmation', 'upload'])
+@pytest.mark.parametrize('used,memory', [(16, '16gb'), (40, '50gb'), (16, None)])
+def test_new_occupation_during_submit_runs_both_checks_once(targeted, monkeypatch, when, used, memory):
+    cfg, path, m = prepared(targeted)
+    fake = TargetFake(cfg)
+    immutable = {p: p.read_bytes() for p in [path/'manifest.json', *(path/'inputs').iterdir()]}
+    checks = []
+    original_check, original_upload = nt.fresh_check, fake.upload
+    def check(*args):
+        checks.append((len(fake.calls), (path/'.submit-claim').exists()))
+        return original_check(*args)
+    def occupy():
+        raw, jobs = shared_observation(used=used, memory=memory)
+        fake.node_text, fake.qstat = raw, Result(stdout=jobs)
+    def confirmation(_):
+        if when == 'confirmation':
+            occupy()
+        return True
+    def upload(*args):
+        original_upload(*args)
+        if when == 'upload':
+            occupy()
+    monkeypatch.setattr(nt, 'fresh_check', check)
+    monkeypatch.setattr(confirm, 'confirm', confirmation)
+    fake.upload = upload
+    submit.submit(cfg, [m['attempt_id']], fake)
+    assert len(checks) == 2 and [claimed for _, claimed in checks] == [False, True]
+    operations = fake.operations()
+    assert operations.count('nodes') == 2 and operations.count('submit') == 1 and 'cancel' not in operations
+    assert checks[0][0] < operations.index('create_attempt') < checks[1][0] < operations.index('submit')
+    assert max(i for i, op in enumerate(operations) if op == 'metadata') < checks[1][0]
+    assert (path/'submission.json').exists() and state.read(path)['state'] == 'submitted'
+    assert all(p.read_bytes() == data for p, data in immutable.items())
+    assert attempt.verified_files(cfg, path, m)
+    before = len(fake.calls)
+    with pytest.raises(ValueError, match='consumed'):
+        submit.submit(cfg, [m['attempt_id']], fake)
+    assert len(fake.calls) == before
+
+
+@pytest.mark.parametrize('when', ['confirmation', 'upload'])
+@pytest.mark.parametrize('bad', ['slots', 'memory', 'missing', 'duplicate', 'offline'])
+def test_spec_or_identity_change_still_stops_submit(targeted, monkeypatch, when, bad):
+    cfg, path, m = prepared(targeted)
+    fake = TargetFake(cfg)
+    original_upload = fake.upload
+    def change():
+        fake.node_text = dict(slots=nodes(slots=64), memory=nodes(memory='49151mb'),
+                             missing='', duplicate=nodes()+nodes(),
+                             offline=nodes().replace('state = free', 'state = offline'))[bad]
+    def confirmation(_):
+        if when == 'confirmation': change()
+        return True
+    def upload(*args):
+        original_upload(*args)
+        if when == 'upload': change()
+    fake.upload = upload
+    monkeypatch.setattr(confirm, 'confirm', confirmation)
+    with pytest.raises(ValueError):
+        submit.submit(cfg, [m['attempt_id']], fake)
+    assert 'submit' not in fake.operations() and 'cancel' not in fake.operations()
+    assert (path/'.submit-claim').exists() is (when == 'upload')
+    assert state.read(path)['state'] == ('failed_presubmit' if when == 'upload' else 'prepared')
+    assert attempt.verified_files(cfg, path, m)
+
+
+@pytest.mark.parametrize('cap', ['max_committed_cores', 'max_queued_cores'])
+def test_shared_node_does_not_bypass_account_caps(targeted, monkeypatch, cap):
+    cfg, path, m = prepared(targeted)
+    cfg['resources'][cap] = 48 if cap == 'max_committed_cores' else 24
+    fake = TargetFake(cfg)
+    fake.node_text, jobs = shared_observation(used=40, owners=('fixture', 'fixture'))
+    if cap == 'max_queued_cores':
+        jobs = jobs.replace('Job_Owner = peer@fixture', 'Job_Owner = fixture@fixture')
+    fake.qstat = Result(stdout=jobs)
+    monkeypatch.setattr(confirm, 'confirm', lambda _: pytest.fail('Must reject before confirmation'))
+    with pytest.raises(ValueError, match='[Cc]ore limit'):
+        submit.submit(cfg, [m['attempt_id']], fake)
+    assert not (path/'.submit-claim').exists() and 'submit' not in fake.operations()
+
+
+def test_targeted_shared_entry_uses_smallest_account_cap(targeted, monkeypatch):
+    cfg, path, m = prepared(targeted)
+    entry = {k: deepcopy(v) for k, v in cfg.items() if k not in ('local', '_config_dir')}
+    peer = deepcopy(entry)
+    peer['resources']['max_committed_cores'] = 48
+    combined = dict(local=cfg['local'], _config_dir=cfg['_config_dir'],
+                    clusters=dict(default=entry, peer=peer))
+    fake = TargetFake(combined)
+    fake.node_text, jobs = shared_observation(used=40, owners=('fixture', 'fixture'))
+    fake.qstat = Result(stdout=jobs)
+    monkeypatch.setattr(confirm, 'confirm', lambda _: pytest.fail('Must reject shared cap before confirmation'))
+    with pytest.raises(ValueError, match='Core limit'):
+        submit.submit(combined, [m['attempt_id']], fake)
+    assert not (path/'.submit-claim').exists() and 'submit' not in fake.operations()
+
+
+@pytest.mark.parametrize('failure', ['hash', 'confirmation', 'denied', 'restricted'])
+def test_sharing_preserves_hash_approval_and_policy_checks(targeted, monkeypatch, failure):
+    cfg, path, m = prepared(targeted)
+    fake = TargetFake(cfg)
+    fake.node_text, jobs = shared_observation()
+    fake.qstat = Result(stdout=jobs)
+    if failure == 'hash': fake.upload_corrupt = True
+    def confirmation(_):
+        if failure == 'denied': cfg['node_targeting']['denied_nodes'].append('compute-a')
+        if failure == 'restricted': cfg['node_targeting']['restricted_nodes'].append('compute-a')
+        return failure != 'confirmation'
+    monkeypatch.setattr(confirm, 'confirm', confirmation)
+    with pytest.raises(ValueError):
+        submit.submit(cfg, [m['attempt_id']], fake)
+    assert 'submit' not in fake.operations() and 'cancel' not in fake.operations()
+    assert (path/'.submit-claim').exists() is (failure == 'hash')
+
+
+def test_explicit_approval_still_binds_and_consumes_once_for_sharing(targeted):
+    cfg, path, m = prepared(targeted)
+    record = approval.create(cfg, 'target-demo', [m['attempt_id']], 'Approve synthetic target only', 1)
+    fake = TargetFake(cfg)
+    fake.node_text, jobs = shared_observation(used=40, memory=None)
+    fake.qstat = Result(stdout=jobs)
+    submit.submit(cfg, [m['attempt_id']], fake, approval_id=record['id'])
+    assert (path.parent.parent/'approvals'/f"{record['id']}.used").exists()
+    binding = json.loads((path/'submission.json').read_text())
+    assert binding['authorization']['method'] == 'approval'
+    assert fake.operations().count('nodes') == 2 and fake.operations().count('submit') == 1
