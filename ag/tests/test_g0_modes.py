@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from ag import _parse_outputs, g0, g0_modes as gm
+from ag import g0_mapping, _parse_outputs, g0, g0_modes as gm
 
 
 XYZ = np.array([[0., 0., 0.], [1., 0., 0.], [2.6, 0., 0.]])
@@ -203,6 +203,57 @@ def write_facts(path):
     return facts
 
 
+def mapped_candidate(elements, coordinates, frequency, specs, permutation=None):
+    permutation = permutation or list(range(1, len(elements) + 1))
+    # Synthetic caller supplies a complete binding through the same validator.
+    target = dict(kind='frequency', attempt=frequency['attempt'], source=frequency['source'])
+    config = dict(sha256='a' * 64, entries=[dict(object='synthetic', candidate='guess',
+        candidate_sha256='b' * 64, target=target, candidate_to_target=permutation)])
+    correspondence = g0_mapping.resolve(config, 'synthetic', dict(id='guess', sha256='b' * 64),
+                                        elements, {'frequency': (target, frequency['elements'])})['frequency']
+    return gm.analyze_candidate(elements, coordinates, frequency, specs, correspondence=correspondence)
+
+
+def test_same_element_swap_requires_declaration_and_maps_only_indices(fetched):
+    root, path = fetched
+    frequency = gm.read_frequency_attempt(root, path.name)
+    before_xyz, before_vectors = frequency['coordinates'].copy(), frequency['displacements'].copy()
+    swapped = XYZ[[2, 1, 0]]
+    candidate_specs = [dict(s, atoms=[4 - i for i in s['atoms']]) for s in SPECS]
+    unavailable = gm.analyze_candidate(ELEMENTS, swapped, frequency, candidate_specs)
+    assert unavailable['element_sequence_equal'] and not unavailable['available']
+    assert unavailable['atom_correspondence']['status'] == 'unverified'
+    assert 'modes' not in unavailable and '缺少' in unavailable['reason']
+    expected = mapped_candidate(ELEMENTS, XYZ, frequency, SPECS)
+    actual = mapped_candidate(ELEMENTS, swapped, frequency, candidate_specs, [3, 2, 1])
+    assert actual['best_mode'] == expected['best_mode']
+    for mode, control in zip(actual['modes'], expected['modes']):
+        assert mode['overlap'] == pytest.approx(control['overlap'])
+        assert mode['consistent_count'] == control['consistent_count']
+        for delta, original, spec in zip(mode['delta'], control['delta'], candidate_specs):
+            assert delta['atoms'] == original['atoms']
+            assert delta['candidate_atoms'] == spec['atoms']
+            assert delta['value'] == pytest.approx(original['value'])
+    assert actual['aligned_rmsd_angstrom'] == pytest.approx(0)
+    assert np.array_equal(before_xyz, frequency['coordinates'])
+    assert np.array_equal(before_vectors, frequency['displacements'])
+
+
+def test_angle_indices_map_without_changing_frequency_frame():
+    xyz = np.array([[0., 1., 0.], [0., 0., 0.], [1., 0., 0.]])
+    frequency = dict(elements=['H', 'O', 'H'], coordinates=xyz, frequencies=[-100.],
+                     displacements=[[[1., 0., 0.], [0., 0., 0.], [0., 1., 0.]]],
+                     attempt='synthetic', orientation='standard', stationarity='stationary',
+                     geometry_sha256='a' * 64, source={})
+    spec = dict(kind='angle', atoms=[1, 2, 3], role='increasing')
+    original = mapped_candidate(frequency['elements'], xyz, frequency, [spec])
+    mapped = mapped_candidate(['O', 'H', 'H'], xyz[[1, 0, 2]], frequency,
+                              [dict(spec, atoms=[2, 1, 3])], [2, 1, 3])
+    assert mapped['modes'][0]['delta'][0]['value'] == pytest.approx(original['modes'][0]['delta'][0]['value'])
+    assert mapped['modes'][0]['delta'][0]['candidate_atoms'] == [2, 1, 3]
+    assert mapped['modes'][0]['delta'][0]['atoms'] == [1, 2, 3]
+
+
 def test_retrieved_frequency_end_to_end_and_read_only(fetched):
     root, path = fetched
     before = {p: p.read_bytes() for p in root.rglob('*') if p.is_file()}
@@ -211,7 +262,7 @@ def test_retrieved_frequency_end_to_end_and_read_only(fetched):
     assert frequency['elements'] == ELEMENTS
     assert np.array_equal(frequency['coordinates'], XYZ)
     assert frequency['stationarity'] == 'non_stationary'
-    report = gm.analyze_candidate(ELEMENTS, XYZ, frequency, SPECS)
+    report = mapped_candidate(ELEMENTS, XYZ, frequency, SPECS)
     assert report['best_mode'] == 2
     assert set(report['flags']) == {'multiple_imaginary_modes', 'most_negative_not_best',
                                     'non_stationary_frequencies'}
@@ -228,13 +279,13 @@ def test_optimized_candidate_difference_is_only_rmsd(fetched):
     before = frequency['displacements'].copy()
     candidate = XYZ.copy()
     candidate[1, 0] += 0.3
-    changed = gm.analyze_candidate(ELEMENTS, candidate, frequency, SPECS)
-    original = gm.analyze_candidate(ELEMENTS, XYZ, frequency, SPECS)
+    changed = mapped_candidate(ELEMENTS, candidate, frequency, SPECS)
+    original = mapped_candidate(ELEMENTS, XYZ, frequency, SPECS)
     assert changed['aligned_rmsd_angstrom'] > 0.1
     assert changed['modes'] == original['modes']
     assert np.array_equal(before, frequency['displacements'])
-    with pytest.raises(ValueError, match='element sequences'):
-        gm.analyze_candidate(['O', 'O', 'H'], XYZ, frequency, SPECS)
+    with pytest.raises(ValueError, match='elements disagree'):
+        mapped_candidate(['O', 'O', 'H'], XYZ, frequency, SPECS)
 
 
 def test_rmsd_never_uses_reflection_or_remapping():
@@ -243,7 +294,7 @@ def test_rmsd_never_uses_reflection_or_remapping():
                      displacements=[np.ones((4, 3))], attempt='synthetic', orientation='standard',
                      stationarity='stationary', geometry_sha256='0' * 64, source={})
     reflected = xyz * [-1, 1, 1]
-    report = gm.analyze_candidate(frequency['elements'], reflected, frequency, [SPECS[0]])
+    report = mapped_candidate(frequency['elements'], reflected, frequency, [SPECS[0]])
     assert report['aligned_rmsd_angstrom'] > 0.5
 
 
@@ -311,7 +362,7 @@ def test_stationarity_uses_facts_opt_source_before_frequency(fetched):
     facts = write_facts(path)
     frequency = gm.read_frequency_attempt(root, path.name)
     assert frequency['stationarity'] == 'stationary'
-    assert 'non_stationary_frequencies' not in gm.analyze_candidate(ELEMENTS, XYZ, frequency, SPECS)['flags']
+    assert 'non_stationary_frequencies' not in mapped_candidate(ELEMENTS, XYZ, frequency, SPECS)['flags']
     # An Opt following the frequency does not establish its stationarity.
     log.write_bytes(FIXTURE.read_bytes() + opt.replace(' Entering Gaussian System', ' --Link1--').encode())
     write_facts(path)
@@ -321,7 +372,7 @@ def test_stationarity_uses_facts_opt_source_before_frequency(fetched):
     for bad in ({}, dict(facts, fact_sources={}), dict(facts, job_sections=[])):
         (path / 'facts.json').write_text(json.dumps(dict(bad, schema='ag-facts/1')))
         frequency = gm.read_frequency_attempt(root, path.name)
-        report = gm.analyze_candidate(ELEMENTS, XYZ, frequency, SPECS)
+        report = mapped_candidate(ELEMENTS, XYZ, frequency, SPECS)
         assert report['stationarity'] == 'unknown'
         assert 'non_stationary_frequencies' in report['flags']
 
@@ -355,7 +406,7 @@ def test_reaction_coordinate_file_cli_provenance_and_missing(fetched):
     for channel in (None, 'absent'):
         assert gm.reaction_coordinates(loaded['content'], channel, loaded['source'])[0] == []
     frequency = gm.read_frequency_attempt(root, path.name)
-    report = gm.analyze_candidate(ELEMENTS, XYZ, frequency, [])
+    report = mapped_candidate(ELEMENTS, XYZ, frequency, [])
     assert not report['available'] and report['reason'] == '未声明反应坐标' and report['flags'] == []
 
 
