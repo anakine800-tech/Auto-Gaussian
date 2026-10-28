@@ -20,13 +20,13 @@ tag 对应 commit `26b28010e805f7d1aeeef39813feb473e69cc4be`；不外推到其�
 
 | 编号 | 官方来源、精确位置 | 本次能确认的事实 |
 | --- | --- | --- |
-| S1 | [频率手册：简单计算、虚频、Advanced options][manual]；[固定文档源码][manual-src] 的同名小节 | `--hess` 在给定结构上求 Hessian，`--ohess` 先优化；非线性例子的 Hessian 已投影；可修改原子质量。只是命令来源说明，不是执行建议。 |
+| S1 | [频率手册：简单计算、虚频、Advanced options][manual]；[固定文档源码][manual-src] 的同名小节 | `--hess` 在给定结构上求 Hessian，`--ohess` 先优化；非线性例子的 Hessian 已投影；手册列出修改质量的选项，但不证明固定版本中的最终有效质量，见 S7。只是命令来源说明，不是执行建议。 |
 | S2 | [v6.7.1 CLI 手册][cli-man] L221–230、377–387、488–500 | `hessian` 为非质量加权 Cartesian Hessian；`xtbhess.coord` 是沿虚频扰动后的结构；结束码与几何警告分开。 |
 | S3 | [src/type/calculator.f90][calc] L115–191；[include/xtb.h][api] L119–139、250–260；[molecule.f90][molecule] L85–86 | 正负坐标位移的梯度差除以两倍步长；索引 `3*(atom-1)+component`；坐标 bohr、梯度 Hartree/bohr，故二阶导数 Hartree/bohr²。 |
 | S4 | [src/hessian.F90][hess] L139–179、299–383、416–470 | 内部小角度旋转；对称化；`hessian.out` 先写；非线性分子投影后写 `hessian`；随后才乘质量因子和 Hessian 缩放因子、对角化。 |
 | S5 | [src/freq/io.f90][freq-io] L29–101 | 两种 Hessian 的精确写法；`hessian` 写完整矩阵，内部 packed 存储不是文件布局。 |
 | S6 | [src/freq/project.f90][project] L149–314 | 当前 CLI 调用的是 `trproj`：未质量加权 Cartesian 刚体基、正交化、投影。不能把同文件另一个 `projectHessian` 的质量加权约定套过来。 |
-| S7 | [src/mctc/convert.f90][convert] L24–56；[atomic_masses.f90][masses] L24–67；[main.F90][main] L429–439；[constrain_param.f90][mass-options] L1256–1307 | bohr/Å、波数和质量换算；CLI 使用以 u 表示的逐原子 `atmass`；质量可以被覆盖，不能仅凭元素猜同位素。 |
+| S7 | [src/mctc/convert.f90][convert] L24–56；[atomic_masses.f90][masses] L24–67；[main.F90][mass-init] L427–431；[constrain_param.f90][mass-options] L1256–1307 | bohr/Å、波数和质量换算；CLI 使用以 u 表示的逐原子 `atmass`。`set_hess` 解析选项时修改质量并回显，但主程序 L427 `read_userdata` 返回后，L431 无条件重新赋默认元素质量；解析回显不证明最终 Hessian 使用了覆盖值。 |
 | S8 | [main/property.F90][property] L650–701；[freq/io.f90][freq-io] L196–301；[writer/turbomole.f90][mode-writer] L147–189 | `g98fake2` 直接打印对角化所得向量；另一个 `vib_normal_modes` writer 才显式逐原子除以质量平方根。 |
 | S9 | [main.F90][main] L924–944、1057–1084；[hessian.F90][hess] L632–720 | Hessian 之后、扰动结构之前的几何与 `g98.out` 同框架；`--ohess` 另写最终结构；输入 XYZ 或 `xtbhess` 不能自动充当 Hessian 几何。 |
 | S10 | [test/unit/test_hessian.f90][test-array] L147–240 | 官方 O,H,H 水分子的 GFN2 测试含几何和 9×9 参考数组，直接调用 calculator；没有经过 CLI 的对称化、投影及文件 writer。 |
@@ -112,9 +112,16 @@ S9 的主程序还可能做 CMA 变换，`--ohess` 则先改变几何。
    坐标由其明示单位换成 Å 给后续 Wilson B 使用；H 保持 `E_h/a_0²`。
    若仅为推导换到 `E_h/Å²`，`H_Å = H_bohr / (0.52917726)²`，不能反乘。
 2. 绑定每原子实际质量 `m_i`（u），要求有限且正；M 对角线上每个质量重复三次。
-   S7 默认质量表不是整数质量数，且控制输入可修改质量。
-   必须保留有效质量数组及其来源（固定版本默认表或明确覆盖/回显）；不能无声借用 RDKit 或 Gaussian 默认表。
-   无法核实覆盖是否生效时记未知，不从文档的选项存在推断某次运行的有效质量。
+   S7 默认质量表不是整数质量数。必须分开记录**请求的质量、解析阶段回显和最终有效质量**：
+   固定 v6.7.1 的 `set_hess` 虽修改 `atmass` 并打印 `mass changed`，但
+   [主程序 L427–431][mass-init] 在 `read_userdata` 返回后无条件执行
+   `atmass = atomic_mass(mol%at) * autoamu`，覆盖刚解析的质量值。
+   因此该路径的选项存在、覆盖请求或解析回显都不能单独作为最终有效质量来源。
+   有效数组必须绑定到实际版本/调用路径及其生效依据：默认表需追踪上述初始化顺序；
+   已证实走该初始化路径时，明确记录请求值被默认值覆盖，不将二者不同本身误记为未知。
+   非默认质量需有默认初始化之后仍保留并实际传入 Hessian 的证据，不能由先前回显代替。
+   来源不足或互相矛盾时记有效质量未知，按第 6 节不生成模式；不能静默选用请求值、
+   默认值或 RDKit/Gaussian 表来消解矛盾。本单未运行同位素计算，也不外推其他版本行为。
 3. `K = s M^(−1/2) H M^(−1/2)`，s 是该次 Hessian 的明确正缩放因子。
    常见的 s=1 仍要有来源；热化学频率缩放、SPH 的逐模式校正与此不是一回事。
    对称本征分解 `K e_k = λ_k e_k`，`e_k^T e_k=1`。
@@ -205,7 +212,7 @@ H = [[ .04, 0, 0, -.04, 0, 0],
 | 程序与计算来源 | 程序、可对应到已审计代码的版本/构建信息；原命令或输入回显及其出处；方法、溶剂、电荷/电子态分别记录，未知明确标记，不能从文件名推断 |
 | 几何 | N、元素和逐原子次序；同 Hessian 框架的几何文件、单位、精度、源段定位；派生 XYZ 还需其上游原始文件 |
 | Hessian | 原始文件、显式格式、`E_h/a_0²`、未质量加权、投影状态、完整/冻结/偏置状态、s 值和出处 |
-| 质量/同位素 | 长度 N 的正有限质量（u）；默认表版本和无覆盖依据，或各覆盖的有效值与来源；不补默认同位素 |
+| 质量/同位素 | 长度 N 的正有限有效质量（u），绑定实际版本、调用路径和最终生效依据；覆盖请求/解析回显单列，不作为有效值证明。固定 v6.7.1 的默认初始化覆盖顺序见第 3 节；缺最终依据时记未知，不补默认同位素 |
 | 计算结束与驻点 | 该次 stdout/stderr 或已有回执的来源、正常/失败/未知状态；优化/梯度依据独立记录；文件存在不代表正常结束，正常结束不代表驻点 |
 | 原子对应 | 候选身份、候选几何哈希、明确的逐原子对应声明或未知状态、声明原始字节；由 T162 最终接口确定字段名、方向及引用方式 |
 | 字节绑定 | Hessian、几何、几何上游源文件、质量/来源/映射声明、所引用结束证据逐一保存原始字节 SHA-256；解析后的数值摘要不能替代这些哈希 |
@@ -239,7 +246,7 @@ H = [[ .04, 0, 0, -.04, 0, 0],
 
 | 输入情形 | 拟议行为及所防事故 |
 | --- | --- |
-| 缺同框架几何、单位、可核验版本/格式来源、有效质量或缩放信息 | 导入错误；不生成模式，避免单位、质量、取向错配；不能靠用户给文件改名补齐 |
+| 缺同框架几何、单位、可核验版本/格式来源、有效质量或缩放信息 | 导入错误；不生成模式，避免单位、质量、取向错配；质量覆盖仅有解析回显而无最终生效依据仍算缺失，不能靠改文件名或照抄回显补齐 |
 | 维数/元素数不一致、非有限数、非正质量、非对称矩阵、格式歧义或多余内容 | 导入错误；报告具体类别，不截断、不补零、不擅自对称化 |
 | 输入哈希与声明不符、读取/发布期间变化、输出路径已存在 | 导入错误；保留旧数据，不重试覆盖或用新字节沿用旧身份 |
 | 冻结、偏置、周期、线性、外部引擎或其他未审计变体 | 不支持的来源；列出缺项，不把矩阵外观相同当成语义兼容 |
@@ -262,6 +269,7 @@ H = [[ .04, 0, 0, -.04, 0, 0],
    与 `--modes-attempt` 互斥；Gaussian 原有来源、打印位移处理和旧报告读取保持兼容。
    不把 xTB 的 `g98.out` 填成 Gaussian Attempt，不自动更换批量模式来源。
 4. 合成验收包括：A/B 的单位、质量权重、正负谱与刚体空间；同一 e 先后两种归一方式的差异；
+   质量覆盖回显随后被默认初始化覆盖时，不能将回显认定为最终有效质量；
    非自反原子置换、重复元素未知对应；刚体旋转时坐标与向量共同变换后 Bq 不变；
    截断/多余数值/非有限/非对称/哈希变化均无模式产物；来源未知明确展示；旧 Gaussian 行为不变。
 5. 真实格式验收只消费明确来源的本地已有文件，核对字节、布局、取向、谱及精度边界。
@@ -289,6 +297,7 @@ H = [[ .04, 0, 0, -.04, 0, 0],
 [convert]: https://github.com/grimme-lab/xtb/blob/26b28010e805f7d1aeeef39813feb473e69cc4be/src/mctc/convert.f90#L24-L56
 [masses]: https://github.com/grimme-lab/xtb/blob/26b28010e805f7d1aeeef39813feb473e69cc4be/src/mctc/param/atomic_masses.f90#L24-L67
 [main]: https://github.com/grimme-lab/xtb/blob/26b28010e805f7d1aeeef39813feb473e69cc4be/src/prog/main.F90#L924-L944
+[mass-init]: https://github.com/grimme-lab/xtb/blob/26b28010e805f7d1aeeef39813feb473e69cc4be/src/prog/main.F90#L427-L431
 [mass-options]: https://github.com/grimme-lab/xtb/blob/26b28010e805f7d1aeeef39813feb473e69cc4be/src/constrain_param.f90#L1256-L1307
 [property]: https://github.com/grimme-lab/xtb/blob/26b28010e805f7d1aeeef39813feb473e69cc4be/src/main/property.F90#L650-L701
 [mode-writer]: https://github.com/grimme-lab/xtb/blob/26b28010e805f7d1aeeef39813feb473e69cc4be/src/io/writer/turbomole.f90#L147-L189
