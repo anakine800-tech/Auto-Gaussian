@@ -174,7 +174,7 @@ DFT 单点后运行
 
 ## 7. 常见失败与处理
 
-异常结束、缺构象或解析不一致先停下报告，转 failure-diagnosis。搜索改变物种时先确认化学身份，不能自动进入原物种 DFT 集合；提出新 Attempt，等人确认。
+异常结束、缺构象或解析不一致先停下报告，读取 `crest_diagnostics` 的 summary、status、parse_error 和带 SHA-256／行号的 sources，转 failure-diagnosis。解析未完成时保留诊断 facts 但命令仍失败，不接受空构象数或缺失几何。搜索改变物种时先确认化学身份，不能自动进入原物种 DFT 集合；提出新 Attempt，等人确认。
 
 覆盖警告出现时提出扩大采样：去掉 CREST 快速模式并给足 walltime、增加 ETKDG 种子/候选数、加入定向构造；单加 walltime 不会延长已正常结束的采样。新 Attempt 人确认后运行，完成后重新合并、DFT 重排并出新报告。轨迹时长参数不在现有白名单时先走模板审阅，不自行透传。
 

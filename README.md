@@ -221,6 +221,11 @@ Multiwfn 为可选程序：只有使用 `multiwfn` 模板时才需配置 `progra
 作业命令退出码：0 成功，1 取消或校验失败，2 环境/连接错误，3 状态不确定。
 `unknown`、`failed_presubmit` 或计算失败不构成重提同一 Attempt 的理由。
 
+CREST 普通搜索和 mdopt 的本地 facts 可提供 `crest_diagnostics`：中文摘要、错误／警告分类、
+输出文件 SHA-256 与行号。构象解析失败仍保留诊断并返回失败，不把终止标记当作科学验收。
+新 Attempt 声明调度器输出，旧 manifest 保持原输出集合；缺日志只标来源缺失，
+不自动补取或刷新已有 facts。字段、读取上限和兼容规则见 [ag-facts/1](docs/ag-facts-1.md#t159crest-本地诊断)。
+
 ## 新增命令用法与证据维护
 
 `ag catalog object/member/adopt/retire/report-kind <study>` 在独立 catalog 日志登记对象、归属、采用和报告类别，

@@ -189,7 +189,7 @@ def parse_counterpoise(log):
 
 def parse_facts(attempt_dir):
     """Return facts and named geometry text in memory; never write evidence."""
-    from ag._parse_outputs import (parse_gaussian, parse_crest, parse_xtb,
+    from ag._parse_outputs import (parse_gaussian, parse_xtb,
                                    gaussian_orientation, gaussian_section_text)
 
     attempt_dir = Path(attempt_dir)
@@ -202,7 +202,7 @@ def parse_facts(attempt_dir):
     if incomplete:
         from ag.remote import output_names
         primary = output_names(manifest)[0]
-        if primary in incomplete[1]['missing']:
+        if primary in incomplete[1]['missing'] and program != 'crest':
             # No program log means no geometry/energy to infer. Still expose the
             # verified collection sources and scheduler error as incomplete facts.
             from ag._parse_outputs import annotate_fetch_sources
@@ -237,14 +237,12 @@ def parse_facts(attempt_dir):
                 geometries['irc_end.xyz'] = endpoint
                 facts['irc']['end_geometry'] = 'irc_end.xyz'
     elif program == 'crest':
-        if '--mdopt' in manifest.get('template_params', {}):
-            from ag._parse_outputs import parse_crest_mdopt
-            facts, geometry, ensemble = parse_crest_mdopt(outputs, manifest.get('science', {}).get('n_frames'))
+        from ag.crest_diagnostics import parse_outputs
+        facts, geometry, ensemble = parse_outputs(outputs, manifest)
+        if ensemble is not None:
             content = ensemble.encode('utf-8')
             geometries['mdopt.xyz'] = ensemble
             facts.update(ensemble_geometry='mdopt.xyz', ensemble_sha256=sha256(content).hexdigest())
-        else:
-            facts, geometry = parse_crest(outputs)
     elif program == 'xtb':
         facts, geometry = parse_xtb(outputs, 'job.slurm.err' if manifest.get('scheduler') == 'slurm' else 'job.pbs.out')
     else:
@@ -346,6 +344,18 @@ class FactsConflictError(ValueError):
     """Parsed facts differ from existing evidence and require explicit refresh."""
 
 
+class CrestParseIncomplete(ValueError):
+    def __init__(self, facts):
+        self.facts = facts
+        super().__init__(facts['crest_diagnostics']['parse_error'])
+
+
+def _parsed_result(facts):
+    if facts.get('crest_diagnostics', {}).get('parse_status') == 'incomplete':
+        raise CrestParseIncomplete(facts)
+    return facts
+
+
 def build_facts(attempt_dir, *, refresh=False):
     """The ag facts write entry point; preserve exact old bytes before refresh."""
     directory = Path(attempt_dir)
@@ -393,13 +403,13 @@ def build_facts(attempt_dir, *, refresh=False):
             _write_geometry(directory / name, geometry)
         if same:
             # Report the retained version, including its original/missing provenance.
-            return previous  # Keep bytes, mtime and the review fingerprint unchanged.
+            return _parsed_result(previous)  # Keep bytes, mtime and the review fingerprint unchanged.
         if old is None:
             with target.open('xb') as handle:
                 handle.write(content)
                 handle.flush()
                 os.fsync(handle.fileno())
-            return facts
+            return _parsed_result(facts)
         archive = directory / f'facts.{sha256(old).hexdigest()[:12]}.json'
         archived = _existing_bytes(archive)
         if archived is None:
@@ -428,7 +438,7 @@ def build_facts(attempt_dir, *, refresh=False):
                     os.unlink(temporary)  # Only an unpublished temporary, never an old version.
         finally:
             os.close(directory_fd)
-    return facts
+    return _parsed_result(facts)
 
 
 def _json_bytes(value):
@@ -551,6 +561,8 @@ def reparse_facts(attempt_dir, *, dry_run=False, out=None):
     result = dict(old_sha256=digest, new_sha256=sha256(content).hexdigest(),
                   differences=_field_differences(previous, facts),
                   references_to_old_sha256=references, dry_run=dry_run)
+    if 'crest_diagnostics' in facts:
+        result['crest_diagnostics'] = facts['crest_diagnostics']
     if dry_run:
         destination = Path(out).expanduser().absolute()
         destination = local_path(destination.parent, destination)
@@ -565,7 +577,7 @@ def reparse_facts(attempt_dir, *, dry_run=False, out=None):
                 destination.unlink()  # Only this unpublished preview, never old facts.
                 raise
         result['out'] = str(destination)
-        return result
+        return _parsed_result(result)
 
     history = local_path(study, directory / 'facts-history')
     if history.exists() and not history.is_dir():
@@ -616,7 +628,7 @@ def reparse_facts(attempt_dir, *, dry_run=False, out=None):
         finally:
             Path(temporary).unlink(missing_ok=True)
     result['archive'] = archive.relative_to(study).as_posix()
-    return result
+    return _parsed_result(result)
 
 
 def _run(args):
@@ -628,6 +640,10 @@ def _run(args):
                  build_facts(directory, refresh=args.refresh))
         print(json.dumps(facts, indent=2, ensure_ascii=False, allow_nan=False))
         return 0
+    except CrestParseIncomplete as exc:
+        print(json.dumps(exc.facts, indent=2, ensure_ascii=False, allow_nan=False))
+        print('CREST 解析未完成：' + str(exc), file=sys.stderr)
+        return 1
     except ImportError as exc:
         print(f'Chemistry dependency unavailable: {exc}', file=sys.stderr)
         return 2

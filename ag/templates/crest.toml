@@ -1,5 +1,6 @@
 outputs = ["crest.out", "crest_conformers.xyz", "crest.energies", "crest_best.xyz"]
 mdopt_outputs = ["crest.out", "crest_ensemble.xyz", "ensemble_energies.log"]
+diagnostic_outputs = ["job.pbs.out"]
 completion = "CREST terminated normally."
 [parameters]
 # Set by prepare --constraints after content validation, never an arbitrary path.

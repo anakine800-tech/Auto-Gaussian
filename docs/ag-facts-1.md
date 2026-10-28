@@ -1,4 +1,4 @@
-# ag-facts/1：Gaussian 解析与重新解析
+# ag-facts/1：本地输出解析与重新解析
 
 `facts.json` 记录本地已取回输出中的事实，`schema` 为 `ag-facts/1`。
 `normal` 只说明终止证据完整，不代表优化、频率、TS/IRC 或科学验收通过。
@@ -182,3 +182,62 @@ Freq 与每个 Opt 段的打印参数必须逐项一致，不借用 Opt route；
 `energies.scf` 为复合物自身能量，几何来自第一个片段计算之前的完整体系；不使用最后一个片段的 SCF 或几何。
 异常结束时 `counterpoise=null`，说明 unavailable 原因；已知 SCRF 拒绝记录报错来源行。正常但未知/不完整的 CP 格式报错，不产生猜测值。
 详见 [ag-cp/1](ag-cp-1.md)；CP Attempt 作为 thermo、profile 或 ASM 能量来源时提示“CP 单点仅用于 cp-report”。
+
+
+## T159：CREST 本地诊断
+
+普通 CREST 与 `--mdopt` 新解析增加可选 `crest_diagnostics`；旧 facts 不自动更新。
+`identified` 只表示发现明确错误证据，不表示成功，也不证明科学根因。
+
+| 字段 | 含义 |
+|---|---|
+| `summary` | 最多 300 个字符的固定中文摘要，不复制原日志；截断以 `…` 结尾 |
+| `status` | `identified` 有明确错误；`unresolved` 有未知文本、超长行或构象解析失败；`none` 在已读来源中未发现明确错误；`unavailable` 必要日志来源缺失。明确错误优先于来源缺失 |
+| `sources` | 定位列表；每项 `{file, sha256, line_start, line_end}`。file 是 outputs 内固定白名单的文件名；行号从 1 开始且包含两端；当前每项定位一行 |
+| `findings` | `{rule, level, message, source_index}`；level 为 `error`、`warning`、`info` 或 `unknown`；source_index 从 0 开始指向 sources，不保存原文 |
+| `files` | 实际读取的日志 `{file, sha256, size}`；包括空文件和没有命中规则的文件。SHA-256 覆盖完整字节，size 单位为字节 |
+| `missing_sources` | 缺失的白名单日志名；不伪造哈希或行号 |
+| `scan_truncated` / `summary_truncated` | 是否跳过了超长行／截短了摘要；false 不代表已识别所有可能错误 |
+| `parse_status` / `parse_error` | `complete` / null，或 `incomplete` / 有界解析错误说明；与程序 termination 分开 |
+
+例如 PBS 超时终止命中来源可以是：
+
+```json
+{"file":"job.pbs.out","sha256":"<完整文件的 SHA-256>","line_start":2,"line_end":2}
+```
+
+诊断仅识别固定格式的程序报错、运行时异常、PBS/Slurm 强杀证据。
+warning、资源说明中的 walltime、单独关键词、非空 stderr 或退出码都不能证明错误原因。
+明确错误与 CREST 正常标记并存时 termination 为 error，各条证据分别保留；
+缺错误输出不改变原有日志的 termination。有效不完整取回仍将非 error 降为 incomplete。
+
+读取仅发生在本地 outputs。流式哈希所有字节，每行最多分析 4096 字节（含换行）；
+更长的整行跳过并标 scan_truncated，后续行号仍正确。每个规则每文件只留第一处，
+最多 32 条 findings/sources；重复警告不扩张 facts。不存在或空文件不产生虚假行范围。
+完整 stderr 保留在输出文件内；展示上下文的读者必须核对文件名白名单、符号链接及 SHA-256，
+再按行范围有界读取并标明截断，不能把完整日志装入网页初始响应。
+
+构象缺失、数量不一致、mdopt `!failed` 或能量无效时仍保存诊断 facts，
+`parse_status=incomplete`，未核实的几何、能量、构象数为空，不导出 final.xyz/mdopt.xyz；
+`ag facts` 返回非零，取回后的自动 facts 报 failed，取回本身保持成功。
+解析失败不臆造程序终止原因；来源哈希变化、回执绑定错误或符号链接仍硬拒绝，不产出诊断 facts。
+已存在 facts 内容不同仍抛 FactsConflictError，人工核对后才能显式 refresh 并归档旧字节。
+显式 reparse（含 dry-run）的结果也返回 crest_diagnostics；解析未完成时保留预览／归档行为并返回非零。
+
+### 声明输出兼容
+
+脚本未改：crest.pbs 将 stdout 写入 crest.out；render.py 的 PBS `-j oe` 合入 job.pbs.out，
+Slurm 分别写 job.slurm.out 与 job.slurm.err。普通和 mdopt 的新 manifest 都增加
+`crest_output_set="diagnostics-v1"`；这是输出选择标识，不是提交授权。
+
+| manifest | PBS 追加 | Slurm 追加 |
+|---|---|---|
+| 无标识（旧） | 无 | job.slurm.err（原有行为） |
+| diagnostics-v1（新） | job.pbs.out | job.slurm.out、job.slurm.err |
+
+基础集合不变：普通为 crest.out、crest_conformers.xyz、crest.energies、crest_best.xyz；
+mdopt 为 crest.out、crest_ensemble.xyz、ensemble_energies.log。无标识永远选旧集合，
+不补写旧 manifest，不更改输入、脚本或 bundle 哈希，不改历史 outputs ∪ missing。
+旧 Attempt 已有本地错误日志仍可诊断；缺少时显示“错误输出未取回／来源缺失”。
+普通 fetch、--add-missing、--incomplete 的现有入口限制和缺失确认全部保留；
+旧无标识 Attempt 不会因升级而自动新增补取目标，也不自动刷新 facts。

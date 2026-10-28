@@ -77,6 +77,12 @@ stable 仅表示对所测扰动稳定，不证明全局最低电子态或单参�
 
 ## 7. 常见失败与处理
 
+CREST 普通搜索和 mdopt 先核对 `crest_diagnostics`：identified 只表示发现明确错误证据，
+不证明根因；warning 不当 error，unresolved/unavailable 说明尚未识别／来源缺失。
+按 sources 的文件名、SHA-256、1 基行范围核对本地输出，再有界读取上下文；日志哈希变化先停下。
+构象解析失败仍可有诊断 facts，parse_status=incomplete 时不能接受几何或能量结果。
+旧 manifest 的声明集合保持不变，缺错误日志不自动补取；已有 facts 差异须人工核对后显式 refresh。
+
 下列是建议阶梯，不是执行循环。只读诊断发现可接受结果就回原卡片审阅，不为升级而计算；每一级的退出条件都需要真实新证据才能判定达成。
 
 ### 作业被强杀
