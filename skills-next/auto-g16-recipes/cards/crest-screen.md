@@ -18,7 +18,7 @@ TS 族、关键中间体、复合物必须双路线交叉核对；可旋转键�
 
 已签字的结构及审阅过的 XYZ；电荷、多重度和溶剂明确；CREST 模板可用。闭壳层 `--uhf 0`，不从 XYZ 推断电荷。
 
-CREST 准备前先运行 `ag route --template crest --tier <档位> --study <study>`，优先查赠送入口 `scnet-test`；本机默认顺序设为 `scnet-test → default → newhpc`，实际以 `ag route` 的研究覆盖顺序、模板许可和快照建议为准。按建议显式选 `--cluster`；偏离时在 study.md 写明原因，未签字允许的入口从该研究顺序跳过。无路由配置时沿用研究已批准安排；“需要排队”或“内存未知”不等于保证立即运行。后续 Gaussian 另查自己的路由建议；ag 不自动改入口，已有 Attempt 不迁移，提交批准规则不变。
+CREST 准备前先运行 `ag route --template crest --tier <档位> --walltime <HH:MM:SS> --study <study>`，优先查赠送入口 `scnet-test`；本机默认顺序设为 `scnet-test → default → newhpc`，实际以 `ag route` 的研究覆盖顺序、模板许可和快照建议为准。按建议显式选 `--cluster`；偏离时在 study.md 写明原因，未签字允许的入口从该研究顺序跳过。无路由配置时沿用研究已批准安排；使用本次计划的 walltime；省略时未核对时限，入口未配置上限不代表无限制。超限入口不能回退推荐；容量未知须保留说明，容量足够或排队建议均不保证实际启动时间。后续 Gaussian 另查自己的路由建议；ag 不自动改入口，已有 Attempt 不迁移，提交批准规则不变。
 
 ## 3. 输入模板
 
