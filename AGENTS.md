@@ -16,7 +16,8 @@
 | `ag/` | 新 CLI、本地工具、程序模板（`ag/templates/`）、测试 |
 | `skills-next/` | 新 Skills 和任务卡片 |
 | `docs/`（入口 `docs/README.md`）、`docs/redesign-tasks/` | 开发手册、经验记录和任务单；`docs/REDESIGN-PLAN.md` 为历史设计记录 |
-| `auto_g16/`、`skills/`、`scripts/`、`tests/`（旧）、`contracts/`、`docs/v3/`、`docs/v2*` 等 | **冻结**。不修改、不扩展、不从新代码 import。需要旧代码里的知识时，复制或改写到新目录，并在提交说明里注明来源文件 |
+| `scripts/scan_public.py` | 现行维护的公开信息扫描器；供 CI 与本地提交 hook 使用 |
+| `auto_g16/`、`skills/`、`scripts/`（上述扫描器除外）、`tests/`（旧）、`contracts/`、`docs/v3/`、`docs/v2*` 等 | **冻结**。不修改、不扩展、不从新代码 import。需要旧代码里的知识时，复制或改写到新目录，并在提交说明里注明来源文件 |
 
 ## 3. 硬内核（任何情况下都不能违反）
 
