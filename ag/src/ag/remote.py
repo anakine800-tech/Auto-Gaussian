@@ -152,15 +152,24 @@ def cancel(job):
     return Command('cancel', 'qdel ' + quote(job_id(job)))
 
 
+def _observation(cfg, manifest, mode, names):
+    from ag.observation_remote import SCRIPT
+    directory = attempt_dir(cfg, manifest)
+    arguments = ' '.join(quote(filename(name)) for name in names)
+    # No installation, arbitrary shell input, procfs or weaker fallback.
+    text = (f'if ag_python=$(command -v python3); then python3 -I -S -B -c {quote(SCRIPT)} '
+            f'{mode} {quote(directory)} {arguments}; else '
+            "printf 'observation runtime PYTHON_MISSING\\n' >&2; exit 1; fi")
+    if len(text.encode()) >= 64 * 1024:
+        raise ValueError('Observation command exceeds 64 KiB; shorten configured path')
+    return text
+
+
 def receipt(cfg, manifest, name):
-    """Read only the two small receipts; an oversized/racing file is rejected."""
+    """Read only the two receipts from a pinned file, buffering at most 4097 bytes."""
     if name not in ('ag-start.json', 'ag-exit.json'):
         raise ValueError('Only start/exit receipts may be read')
-    p = attempt_dir(cfg, manifest) + '/' + name
-    q = quote(p)
-    return Command('receipt', f'{path_checks(p)} && if test ! -e {q}; then '
-                   f"printf 'absent\\n'; else test -f {q} && "
-                   f'test "$(stat -c %s -- {q})" -le 4096 && head -c 4096 -- {q} && test "$(stat -c %s -- {q})" -le 4096; fi')
+    return Command('receipt', _observation(cfg, manifest, 'receipt', [name]))
 
 
 def output_names(manifest):
@@ -194,34 +203,10 @@ def output_names(manifest):
 
 
 def output_observation(cfg, manifest):
-    if manifest['template'] == 'multiwfn':
-        # T92: expanded per-file guards exceed the SSH argument limit at 50
-        # frames. These fixed lists retain the same checks in the same order.
-        directory = attempt_dir(cfg, manifest)
-        names = ' '.join(quote(filename(name)) for name in output_names(manifest))
-        parts = ' '.join(quote(part) for part in PurePosixPath(directory).parts[1:])
-        body = (f'ag_directory={quote(directory)}; for ag_name in {names}; do '
-                f'ag_parent=; for ag_part in {parts}; do '
-                'ag_parent="$ag_parent/$ag_part"; test ! -L "$ag_parent" || exit; done; '
-                'ag_file="$ag_directory/$ag_name"; test ! -L "$ag_file" || exit; '
-                'if test ! -e "$ag_file"; then printf \'%s absent\\n\' "$ag_name"; '
-                'else test -f "$ag_file" && printf \'%s \' "$ag_name" && '
-                'stat -c \'%s %y\' -- "$ag_file" || exit; fi; done')
-        # Configuration has no path-length cap. Never emit an oversized SSH
-        # argument, even for a syntactically valid but unusably long root.
-        if len(body.encode()) >= 64 * 1024:
-            raise ValueError('Multiwfn observation command exceeds 64 KiB; shorten configured path')
-        return Command('output_observation', body)
-    # Query exactly the declared files, including absent ones. Nanosecond mtime
-    # detects writes within the same second; no directory traversal or globbing.
-    commands = []
-    for name in output_names(manifest):
-        p = attempt_dir(cfg, manifest) + '/' + name
-        q = quote(p)
-        commands.append(f'{path_checks(p)} && if test ! -e {q}; then '
-                        f"printf '%s absent\\n' {quote(name)}; else test -f {q} && "
-                        f"printf '%s ' {quote(name)} && stat -c '%s %y' -- {q}; fi")
-    return Command('output_observation', ' && '.join(f'{{ {c}; }}' for c in commands))
+    # The same bounded command/declared list handles ordinary and Multiwfn
+    # outputs. The remote helper buffers all rows; no partial observation.
+    return Command('output_observation',
+                   _observation(cfg, manifest, 'output', output_names(manifest)))
 
 
 def incomplete_output_observation(cfg, manifest, name):

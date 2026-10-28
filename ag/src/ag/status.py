@@ -217,12 +217,16 @@ def check(cfg, path, transport):
             raise ValueError('Scheduler state missing')
     elif not scheduler_absent(result):
         require_ok(result, 'qstat')
-    if 'node_target' in m:
-        from ag.node_targeting import retain_placement
-        evidence_job = job
-        if job is None and (start is not None or end is not None) and current.get('node_placement', {}).get('state') != 'verified':
-            evidence_job = {'job_state': 'C'}
-        retain_placement(path, m, evidence_job)
+    def save_observation(target, **fields):
+        # Placement also writes status.json. Defer it until every required
+        # receipt/output observation (including the legacy recheck) succeeds.
+        if 'node_target' in m:
+            from ag.node_targeting import retain_placement
+            evidence_job = job
+            if job is None and (start is not None or end is not None) and current.get('node_placement', {}).get('state') != 'verified':
+                evidence_job = {'job_state': 'C'}
+            retain_placement(path, m, evidence_job)
+        return state.write(path, target, **fields)
     scheduler = job.get('job_state') if job else None
     details = {'scheduler_state': scheduler, 'scheduler_residue': False,
                'receipts': {'start': start, 'exit': end}, 'cput': job.get('resources_used.cput') if job else None}
@@ -258,12 +262,12 @@ def check(cfg, path, transport):
         details['scheduler_residue'] = scheduler == 'R'
         note = 'Program exited; 调度器残留 (PBS R)' if scheduler == 'R' else 'Program exit receipt verified'
         target = 'fetched' if current['state'] == 'fetched' else 'finished'
-        return state.write(path, target, exit_status=end['returncode'], note=note,
+        return save_observation(target, exit_status=end['returncode'], note=note,
                            completion_source='ag-exit.json', **details)
     # Do not rewind a previously evidenced/fetched result after scheduler cleanup.
     if current['state'] in ('finished', 'fetched'):
         details['scheduler_residue'] = scheduler == 'R'
-        return state.write(path, current['state'], exit_status=current.get('exit_status'),
+        return save_observation(current['state'], exit_status=current.get('exit_status'),
                            note=('调度器残留 (PBS R); previous completion evidence retained'
                                  if scheduler == 'R' else 'Previous completion evidence retained; no PBS R residue'),
                            **details)
@@ -271,7 +275,7 @@ def check(cfg, path, transport):
         # Cancellation acceptance is not proof the writer has stopped. Reuse
         # the five-minute inactive observations without rewinding lifecycle.
         note = 'Cancelled; incomplete fetch requires two inactive, stable observations at least 300 seconds apart'
-        return state.write(path, 'cancelled', exit_status=current.get('exit_status'), note=note, **details)
+        return save_observation('cancelled', exit_status=current.get('exit_status'), note=note, **details)
     same = (previous.get('outputs') == observed and previous.get('session_id') == session
             and previous.get('job_id') == job_id and previous.get('at', now + 1) <= now)
     since = current.get('unchanged_since', previous.get('at', now)) if same else now
@@ -315,7 +319,7 @@ def check(cfg, path, transport):
                 details['scheduler_residue'] = scheduler == 'R'
                 source = ('legacy-marker-stable-scheduler-absent' if scheduler is None
                           else 'legacy-marker-stable-session-absent')
-                return state.write(path, 'finished', note='Legacy completion evidence verified' +
+                return save_observation('finished', note='Legacy completion evidence verified' +
                                    ('; 调度器残留 (PBS R)' if scheduler == 'R' else ''),
                                    completion_source=source, **details)
             details.update(observation={'at': time.time(), 'outputs': after,
@@ -325,7 +329,7 @@ def check(cfg, path, transport):
             if target == 'awaiting_second_observation':
                 details.update(wait_seconds=0, next_observation_at=details['unchanged_since'] + 60)
             note = 'Outputs changed during legacy completion check; 等待第二次观察，completion unverified'
-    return state.write(path, target, note=note, **details)
+    return save_observation(target, note=note, **details)
 
 
 def format_status(results):
