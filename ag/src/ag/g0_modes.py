@@ -214,6 +214,15 @@ def _stationarity(facts, section, block):
     return 'stationary'
 
 
+class FrequencySourceAmbiguity(mode_review.FrequencySectionAmbiguity):
+    """A classified parser ambiguity with the safely read source attached."""
+
+    def __init__(self, reason, *, attempt, source):
+        super().__init__(reason)
+        self.attempt = attempt
+        self.source = source
+
+
 def read_frequency_attempt(study, attempt_id, *, allow_unavailable=False):
     """Read an exact fetched Gaussian Attempt, retaining its own mode frame."""
     root = catalog.resolve_study(study)
@@ -232,6 +241,10 @@ def read_frequency_attempt(study, attempt_id, *, allow_unavailable=False):
     raw = log.read_bytes()
     try:
         section, block = mode_review.frequency_section(raw)
+    except mode_review.FrequencySectionAmbiguity as exc:
+        raise FrequencySourceAmbiguity(
+            str(exc), attempt=attempt_id,
+            source=dict(log=log.relative_to(root).as_posix(), log_sha256=sha256(raw).hexdigest())) from exc
     except ValueError as exc:
         # Only absence is optional in a batch. Ambiguous sections, abnormal
         # termination and malformed vectors remain errors, not missing data.

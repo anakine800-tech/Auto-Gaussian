@@ -276,6 +276,31 @@ def test_attempt_reader_refuses_bad_inputs(fetched, change, match):
         gm.read_frequency_attempt(root, identity)
 
 
+@pytest.mark.parametrize('optional', [False, True])
+def test_frequency_ambiguity_has_parser_type_and_exact_log_source(fetched, optional):
+    root, path = fetched
+    log = path / 'outputs/job.log'
+    raw = log.read_bytes() + b' unexplained synthetic tail\r\n'
+    log.write_bytes(raw)
+    with pytest.raises(gm.mode_review.FrequencySectionAmbiguity):
+        gm.mode_review.frequency_section(raw)
+    with pytest.raises(gm.FrequencySourceAmbiguity, match='Ambiguous') as error:
+        gm.read_frequency_attempt(root, path.name, allow_unavailable=optional)
+    assert error.value.attempt == path.name
+    assert error.value.source == dict(log=log.relative_to(root).as_posix(),
+                                      log_sha256=sha256(raw).hexdigest())
+
+
+def test_frequency_reader_does_not_classify_ambiguity_by_error_text(fetched, monkeypatch):
+    root, path = fetched
+    def unclassified(raw):
+        raise ValueError('Ambiguous Gaussian job sections: synthetic unrelated error')
+    monkeypatch.setattr(gm.mode_review, 'frequency_section', unclassified)
+    with pytest.raises(ValueError) as error:
+        gm.read_frequency_attempt(root, path.name, allow_unavailable=True)
+    assert type(error.value) is ValueError
+
+
 def test_stationarity_uses_facts_opt_source_before_frequency(fetched):
     root, path = fetched
     log = path / 'outputs/job.log'
