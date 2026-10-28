@@ -53,8 +53,12 @@
 - `_profile_sources.py`：反应曲线的来源、物种、方法和审阅检查。
 - `profile.py`：守恒反应自由能曲线、能垒和敏感性分析。
 
+prepare 先选择入口，再用 `config.resolve_tier` 解析显式档位或该入口的可选 `resources.default_tier`，之后才做节点映射、资源检查和编号/目录分配。
+省略档位且入口无默认值时明确报错；配置默认值必须是该入口已配置且合法的档位，不跨入口继承。
+全部允许模板共用此入口；manifest 仍只保存实际 tier/cores/mem，verified_files 不调用默认解析，不为旧记录补字段。
+clusters 的资源白名单仅在已配置时发布 default_tier；route 仍要求显式档位。
 Gaussian prepare 在档位与 walltime 检查后依次补缺失的 `%nprocshared`、`%mem`，并在分配序号/目录前完成输入校验。
-核数只取人已选入口和档位，显式值不修正；内存仍按 R1 和 85% 上限处理。普通完整输入字节不变，CP 沿用原片段转换。
+核数只取所选入口的最终档位，显式输入值不修正；内存仍按 R1 和 85% 上限处理。普通完整输入字节不变，CP 沿用原片段转换。
 仅实际补齐时新增可选 `auto_nprocshared` 整数或 `auto_mem_gb`，摘要注明来源；二者都不是提交授权。
 输入和 bundle 哈希绑定最终保存字节，源文件不变；verified_files 只核验，不补齐、不重写旧 manifest 或哈希，缺少可选说明的旧记录照常读取。
 

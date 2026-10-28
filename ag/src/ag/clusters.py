@@ -29,6 +29,8 @@ def describe(cfg, *, verify_studies_root=None):
             row['node_targeting'] = dict(default_fraction='1/2', fractions=['1/2', '1/4'])
         if 'max_walltime' in resources:
             row['resources']['max_walltime'] = resources['max_walltime']
+        if 'default_tier' in resources:
+            row['resources']['default_tier'] = resources['default_tier']
         summary = budget.public_summary(selected)
         if 'display_name' in selected:
             row['display_name'] = selected['display_name']

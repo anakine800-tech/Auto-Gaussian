@@ -51,6 +51,9 @@ root = "<absolute xtb and crest installation root>"
 # [clusters.default.programs.crest]
 # executable = "<absolute CREST executable>"
 [clusters.default.resources]
+# Optional prepare default, only from this entry's configured tiers.
+# Explicit --tier wins; without either value prepare asks for --tier.
+# default_tier = "simple"
 # PBS-only, explicit owner authorization: integer 120..200 GB; omitted = 120.
 # Each tier must fit this entry's ceiling and one eligible node with headroom.
 # This is not scheduler/account permission; do not add this field to Slurm.
@@ -112,6 +115,8 @@ modules = ["<Gaussian module name>"]
 [clusters.batch.programs.xtb]
 root = "<absolute xtb and crest installation root>"
 [clusters.batch.resources]
+# Entry defaults are independent; no inheritance from clusters.default.
+# default_tier = "mini"
 # The same optional hard walltime is supported for Slurm.
 # max_walltime = "24:00:00"
 # Example limits only; replace with the intended local allowance.

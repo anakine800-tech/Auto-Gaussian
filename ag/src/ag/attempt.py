@@ -6,7 +6,7 @@ from pathlib import Path
 import re
 from ag import __version__, cards, crest_input, gaussian_input, journal, render, state, study
 from ag.config import (select_cluster, for_manifest, scheduler_kind, cluster_name,
-                       shared_cap_summary, RESOURCE_TIERS, validate_walltime)
+                       shared_cap_summary, RESOURCE_TIERS, resolve_tier, validate_walltime)
 from ag.locks import claim
 from ag.remote import filename
 
@@ -103,17 +103,14 @@ def all_attempts(cfg, name=None):
     return result
 
 
-def prepare(cfg, *, study_name, template, input_path, tier, walltime, label, params=None, parents=None, method_basis, constraints=None, cluster='default', card=None, parent_chk=None, analysis=None, grid=None, fragments=None, transport=None, target_node=None, node_fraction=None):
+def prepare(cfg, *, study_name, template, input_path, tier=None, walltime, label, params=None, parents=None, method_basis, constraints=None, cluster='default', card=None, parent_chk=None, analysis=None, grid=None, fragments=None, transport=None, target_node=None, node_fraction=None):
     from ag import node_targeting
-    binding = node_targeting.prepare(cfg, cluster, template, tier, target_node, node_fraction)
     cfg = select_cluster(cfg, cluster)
+    tier = resolve_tier(cfg, tier)
+    binding = node_targeting.prepare(cfg, cluster, template, tier, target_node, node_fraction)
     if 'allowed_templates' in cfg and template not in cfg['allowed_templates']:
         allowed = ', '.join(cfg['allowed_templates']) or '(none)'
         raise ValueError(f'Cluster {cluster}: template {template} is not allowed; allowed_templates: {allowed}')
-    if tier not in RESOURCE_TIERS:
-        raise ValueError('Invalid resource tier')
-    if tier not in cfg['resources']['tiers']:
-        raise ValueError('Resource tier is not configured for this cluster')
     validate_walltime(cfg, walltime)
     s = study.locate(cfg, study_name)
     if not (s / 'study.md').is_file() or not (s / 'attempts').is_dir():
