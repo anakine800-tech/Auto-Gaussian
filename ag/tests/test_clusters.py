@@ -52,6 +52,16 @@ def test_legacy_single_cluster(cfg, tmp_path, monkeypatch, capsys):
         expires=None, programs_enabled=dict(gaussian=True, xtb=True, crest=True))]}
 
 
+def test_optional_default_tier_is_entry_local(multi, tmp_path, monkeypatch, capsys):
+    multi['clusters']['batch']['resources'].update(default_tier='simple', private_note='private-default-marker')
+    code, result = query(multi, tmp_path, monkeypatch, capsys)
+    assert code == 0
+    rows = {row['name']: row for row in result['clusters']}
+    assert rows['batch']['resources']['default_tier'] == 'simple'
+    assert 'default_tier' not in rows['default']['resources']
+    assert 'private-default-marker' not in json.dumps(result)
+
+
 @pytest.mark.parametrize('mode,expected', [
     ('same', True), ('different', False), ('supplied_symlink', True), ('configured_symlink', True)])
 def test_verify_studies_root(cfg, tmp_path, monkeypatch, capsys, mode, expected):

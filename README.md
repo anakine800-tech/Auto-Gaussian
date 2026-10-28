@@ -137,6 +137,13 @@ prepare 的文本摘要在所选入口不同于建议时追加一行提示；缺
 没有的档位不补空值，既有未知元数据不透传。prepare 拒绝该入口未配置的档位；
 route 对缺档入口显示“不支持该档位”，不把它列为立即运行或排队建议。
 
+每个入口可在 `resources` 配置 `default_tier = "simple"`（示例值），必须指向该入口已配置且合法的档位。
+`ag prepare --cluster <CLUSTER>` 省略 `--tier` 时只使用所选入口的默认值；显式 `--tier` 优先。
+未配置默认值时仍须选择 `--tier`，不会自行选 simple 或借用其他入口的值；空值、未知档位、未配置档位与超限资源拒绝。
+最终档位在节点映射和新 Attempt 编号/目录分配前解析，适用于入口允许的全部现有程序。
+`ag clusters --json` 仅在已配置时返回 `resources.default_tier`。新 manifest 保存实际档位、核数和内存，
+后续更改默认值不会改写旧 Attempt 或改变其资源绑定；`ag route` 仍要求显式 `--tier`。
+
 PBS 档位内存默认最高 **120 GB**。负责人明确授权后，可在该入口的
 `[clusters.<CLUSTER>.resources]`（旧单集群为 `[resources]`）设置
 `pbs_max_mem_gb`：严格整数 **120–200**，各档位 `mem_gb` 不得超过该值。
@@ -165,7 +172,7 @@ CREST 可选 `programs.crest.executable`（多集群为 `clusters.<CLUSTER>.prog
 配置独立 CREST 路径后，`ag prepare --template crest` 需要连接目标集群；SSH 不可用时无法 prepare，也不会创建 Attempt。这是准备前核实可执行文件的取舍；未配置独立路径时，prepare 仍保持纯本地行为。
 
 Gaussian `%nprocshared` 必须等于档位核数，`%mem` 不超过档位内存的 85%。
-Gaussian（包括 `gaussian-cp`）输入可省略 `%nprocshared`：人先明确选择档位与 walltime，prepare 在文件开头补入档位核数。
+Gaussian（包括 `gaussian-cp`）输入可省略 `%nprocshared`：档位由显式 `--tier` 或所选入口已配置的默认值确定，walltime 仍须明确选择；prepare 在文件开头补入档位核数。
 仅检查开头连续 Link0 行；显式核数不覆盖、不修正，冲突、重复或非法值仍拒绝。输入也可省略 `%mem`：prepare 在 `%nprocshared` 后填入
 `min(核数 × 2, floor(档位内存 × 0.85))` 整数 GB，并纳入输入哈希、在确认摘要注明。
 显式填写的 `%mem` 保持原字节并继续检查 85% 上限；完整合法的普通 Gaussian 输入逐字节保留，CP 的既有片段转换保持。

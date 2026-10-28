@@ -163,6 +163,22 @@ def scheduler_kind(cfg):
     return 'pbs' if isinstance(value, dict) else value
 
 
+def resolve_tier(cfg, tier=None):
+    """Resolve only the selected entry's default for a new preparation."""
+    resources = cfg['resources']
+    if tier is None:
+        if 'default_tier' not in resources:
+            raise ConfigError('Select --tier or configure resources.default_tier for this cluster')
+        tier = resources['default_tier']
+        if not isinstance(tier, str) or tier not in RESOURCE_TIERS or tier not in resources['tiers']:
+            raise ConfigError('resources.default_tier must name a configured resource tier')
+    if tier not in RESOURCE_TIERS:
+        raise ConfigError('Invalid resource tier')
+    if tier not in resources['tiers']:
+        raise ConfigError('Resource tier is not configured for this cluster')
+    return tier
+
+
 def _max_walltime_seconds(value):
     from ag.approval import walltime_seconds
     if not isinstance(value, str) or not re.fullmatch(r'[0-9]{2,4}:[0-5][0-9]:[0-5][0-9]', value):
@@ -275,6 +291,8 @@ def validate_cluster(cfg):
                 or type(tier['mem_gb']) is not int or tier['mem_gb'] < 1
                 or (scheduler == 'pbs' and tier['mem_gb'] > memory_limit)):
             raise ConfigError(f'Invalid resource tier: {name}')
+    if 'default_tier' in cfg['resources']:
+        resolve_tier(cfg)
     if not Path(cfg['ssh']['config_file']).is_file():
         raise ConfigError('SSH configuration file does not exist')
     if 'allowed_templates' in cfg:
