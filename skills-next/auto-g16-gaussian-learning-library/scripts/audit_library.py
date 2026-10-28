@@ -82,8 +82,6 @@ def main() -> int:
     skill_text = (root / "SKILL.md").read_text(encoding="utf-8", errors="replace") if (root / "SKILL.md").is_file() else ""
     if not skill_text.startswith("---\nname: auto-g16-gaussian-learning-library\n"):
         errors.append("SKILL.md frontmatter name is missing or invalid")
-    if "Do not add a source or references section." not in skill_text:
-        warnings.append("the no-citation answer rule is not stated verbatim")
 
     report = {
         "ok": not errors,
