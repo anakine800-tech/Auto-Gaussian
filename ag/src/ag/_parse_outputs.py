@@ -558,7 +558,8 @@ def annotate_fetch_sources(facts, directory):
     incomplete = incomplete_record(directory)
     scheduler_names = (['job.slurm.err', 'job.slurm.out']
                        if manifest.get('scheduler') == 'slurm' else ['job.pbs.out'])
-    walltime_sources = [name for name in scheduler_names if (outputs / name).is_file()
+    walltime_sources = [name for name in scheduler_names if facts.get('program') != 'crest'
+                       and (outputs / name).is_file()
                        and termination('', '', (outputs / name).read_text(errors='replace'))['error_hint'] == 'walltime']
     if walltime_sources:
         # A broad scheduler-text match is a hint, not termination evidence:
@@ -731,16 +732,17 @@ def parse_xtb(outputs, scheduler_output='job.pbs.out'):
     return facts, geometry
 
 
-def parse_crest(outputs):
-    text = (outputs / 'crest.out').read_text(errors='replace')
-    pbs = outputs / 'job.pbs.out'
-    facts = termination(text, 'CREST terminated normally.', pbs.read_text() if pbs.exists() else '')
+def parse_crest(outputs, *, diagnostics=None):
+    from ag.crest_diagnostics import diagnose, termination as crest_termination
+    facts = crest_termination(diagnostics if diagnostics is not None else diagnose(outputs))
+    if not (outputs / 'crest.out').is_file():
+        raise FileNotFoundError('CREST program log missing')
     facts.update(n_conformers=None, relative_energies_kcal=[], best_energy=None)
     if not (outputs / 'crest_conformers.xyz').exists():
-        return facts, None
+        raise FileNotFoundError('CREST conformer geometry missing')
     frames = read_xyz_frames(outputs / 'crest_conformers.xyz')
     if not frames:
-        return facts, None
+        raise ValueError('CREST conformer ensemble is empty')
     energies = []
     for line in (outputs / 'crest.energies').read_text().splitlines():
         if line.strip() and not line.lstrip().startswith('#'):
@@ -769,7 +771,7 @@ def gaussian_version(text):
                                          'Gaussian version not found in log' if not normalized else None))
 
 
-def parse_crest_mdopt(outputs, expected_frames=None):
+def parse_crest_mdopt(outputs, expected_frames=None, *, diagnostics=None):
     """CREST 3.0.2 optimization.f90 writes ordered Hartree XYZ, not crest.energies."""
     from ag import geometry as geo
     frames = geo.read_xyz(outputs / 'crest_ensemble.xyz')
@@ -784,8 +786,10 @@ def parse_crest_mdopt(outputs, expected_frames=None):
             raise ValueError('CREST mdopt atom counts or element sequences differ')
         if frame.energy is None or frame.energy_unit != 'hartree':
             raise ValueError('CREST mdopt requires a finite Hartree energy in every XYZ comment')
-    text = (outputs / 'crest.out').read_text(errors='replace')
-    facts = termination(text, 'CREST terminated normally.')
+    from ag.crest_diagnostics import diagnose, termination as crest_termination
+    facts = crest_termination(diagnostics if diagnostics is not None else diagnose(outputs))
+    if not (outputs / 'crest.out').is_file():
+        raise FileNotFoundError('CREST program log missing')
     best = min(frames, key=lambda frame: frame.energy)
     facts.update(mode='mdopt', n_atoms=len(best.symbols), n_conformers=len(frames),
                  conformer_energies_hartree=[frame.energy for frame in frames],

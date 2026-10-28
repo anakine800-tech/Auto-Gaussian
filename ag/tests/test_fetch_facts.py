@@ -52,7 +52,7 @@ def test_fetch_writes_real_facts_for_three_templates(cfg, ready, tmp_path, monke
         path = attempt.find(cfg, manifest['attempt_id'])
         finish(path)
         files = ({'crest.out': 'CREST terminated normally.\n', 'crest_conformers.xyz': XYZ,
-                  'crest.energies': '1 0.000\n', 'crest_best.xyz': XYZ}
+                  'crest.energies': '1 0.000\n', 'crest_best.xyz': XYZ, 'job.pbs.out': ''}
                  if program == 'crest' else
                  {'xtb.out': '| TOTAL ENERGY -5.000 Eh |\nGEOMETRY OPTIMIZATION CONVERGED\n',
                   'xtbopt.xyz': XYZ, 'xtbopt.log': XYZ,

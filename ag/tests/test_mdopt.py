@@ -31,8 +31,8 @@ def test_prepare_mdopt_and_render_bind_input(cfg, tmp_path):
     line = next(line for line in (path / 'inputs' / 'job.pbs').read_text().splitlines()
                 if line.startswith('ag_run crest'))
     assert shlex.split(line) == ['ag_run', 'crest', '--mdopt', 'ensemble.xyz', '--gfn2', '-T', '8', '>', 'crest.out']
-    assert remote.output_names(m) == ['crest.out', 'crest_ensemble.xyz', 'ensemble_energies.log']
-    assert remote.output_names({**m, 'scheduler': 'slurm'}) == ['crest.out', 'crest_ensemble.xyz', 'ensemble_energies.log', 'job.slurm.err']
+    assert remote.output_names(m) == ['crest.out', 'crest_ensemble.xyz', 'ensemble_energies.log', 'job.pbs.out']
+    assert remote.output_names({**m, 'scheduler': 'slurm'}) == ['crest.out', 'crest_ensemble.xyz', 'ensemble_energies.log', 'job.slurm.out', 'job.slurm.err']
     assert attempt.verified_files(cfg, path, m)['ensemble.xyz'] == (WATER * 2).encode()
 
 
@@ -69,7 +69,7 @@ def test_non_mdopt_single_frame_unchanged(cfg, tmp_path, template):
     assert m['science']['n_atoms'] == 3
     assert 'n_frames' not in m['science']
     if template == 'crest':
-        assert remote.output_names(m) == ['crest.out', 'crest_conformers.xyz', 'crest.energies', 'crest_best.xyz']
+        assert remote.output_names(m) == ['crest.out', 'crest_conformers.xyz', 'crest.energies', 'crest_best.xyz', 'job.pbs.out']
     source.write_text(WATER * 2)
     with pytest.raises(ValueError, match='atom count'):
         attempt.prepare(cfg, method_basis='兜底方法：合成测试', **kwargs)
@@ -187,10 +187,10 @@ def test_mdopt_fetch_collects_only_mode_outputs(cfg, tmp_path):
     # Synthetic finished state: no scheduler or real configuration is consulted.
     (path / 'status.json').write_text(json.dumps({'state': 'finished', 'exit_status': 0}))
     fake = Fake(cfg)
-    fake.files = {'crest.out': b'CREST terminated normally.\n', 'ensemble_energies.log': b'synthetic energy log\n',
+    fake.files = {'crest.out': b'CREST terminated normally.\n', 'job.pbs.out': b'', 'ensemble_energies.log': b'synthetic energy log\n',
                   'crest_ensemble.xyz': WATER.replace('MMFF energy=4 kcal/mol', '-5').encode() * 2}
     result = fetch(cfg, path, fake)
-    assert result['files'] == ['crest.out', 'crest_ensemble.xyz', 'ensemble_energies.log']
+    assert result['files'] == ['crest.out', 'crest_ensemble.xyz', 'ensemble_energies.log', 'job.pbs.out']
     assert state.read(path)['state'] == 'fetched'
     assert facts.build_facts(path)['n_conformers'] == 2
 
@@ -211,4 +211,7 @@ def test_mdopt_reports_all_failed_frame_indices(cfg, tmp_path, failed_frames):
     assert str(error.value) == (f'CREST mdopt contains failed optimizations in frames (1-based): '
                                 f'{indices}; review before dedup')
     assert not (path / 'mdopt.xyz').exists()
-    assert not (path / 'facts.json').exists()
+    diagnostic = json.loads((path / 'facts.json').read_text())
+    assert diagnostic['crest_diagnostics']['parse_status'] == 'incomplete'
+    assert diagnostic['crest_diagnostics']['parse_error'] == str(error.value)
+    assert diagnostic['n_conformers'] is None and diagnostic['final_geometry'] is None

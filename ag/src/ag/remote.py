@@ -183,6 +183,11 @@ def output_names(manifest):
     if manifest['template'] == 'crest' and '--mdopt' in manifest.get('template_params', {}):
         key = 'mdopt_outputs'
     names = [filename(n.format(stem=stem)) for n in declared[key]]
+    # Freeze old receipts' outputs union missing; only new CREST Attempts opt in.
+    if manifest['template'] == 'crest' and 'crest_output_set' in manifest:
+        if manifest['crest_output_set'] != 'diagnostics-v1':
+            raise ValueError('Unsupported CREST output set')
+        names += [filename(n) for n in declared['diagnostic_outputs']]
     if manifest.get('scheduler') == 'slurm':
         names = [n.replace('job.pbs.out', 'job.slurm.out') for n in names] + ['job.slurm.err']
     return names

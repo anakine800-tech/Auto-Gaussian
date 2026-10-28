@@ -256,6 +256,8 @@ def prepare(cfg, *, study_name, template, input_path, tier=None, walltime, label
              pbs_job_name='ag' + sha256(attempt_id.encode()).hexdigest()[:12],
              remote_dir=f'{s.name}/{attempt_id}', parents=parents, created_at=journal.now(),
              ag_version=__version__, card=card_record, completion_receipts=True, science={**science, 'method_basis': method_basis})
+    if template == 'crest':
+        m['crest_output_set'] = 'diagnostics-v1'
     if binding is not None:
         m['node_target'] = binding
     if attachment is not None:
