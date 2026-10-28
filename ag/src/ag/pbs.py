@@ -56,6 +56,7 @@ def parse_nodes(text, jobs, *, notes=None):
             raise ValueError('Unrecognized pbsnodes output')
     allocated, node_jobs, job_nodes = {}, {}, {}
     exec_names = set()
+    unlocated_jobs = False
     by_job = {job['job_id']: job for job in jobs if 'job_id' in job}
     for job in jobs:
         # Even completed rows can reveal a competing domain name; they still
@@ -64,10 +65,15 @@ def parse_nodes(text, jobs, *, notes=None):
                           filter(None, job.get('exec_host', '').split('+')))
         if job.get('job_state') == 'C':
             continue
-        for host in filter(None, job.get('exec_host', '').split('+')):
+        hosts = list(filter(None, job.get('exec_host', '').split('+')))
+        if job.get('job_state') in ('R', 'E', 'S') and not hosts:
+            unlocated_jobs = True
+        for host in hosts:
             name, sep, slot = host.partition('/')
             if not sep:
                 raise ValueError('Unrecognized exec_host allocation')
+            if name not in record_names:
+                unlocated_jobs = True
             allocated[name] = allocated.get(name, 0) + slot_count(slot)
             node_jobs.setdefault(name, set()).add(job.get('job_id'))
             job_nodes.setdefault(job.get('job_id'), set()).add(name)
@@ -112,7 +118,7 @@ def parse_nodes(text, jobs, *, notes=None):
         record['_cores_used'] = used
         # Preserve display precedence, but do not advertise room when the
         # exact-name node/jobs/assigned-CPU observations disagree.
-        cpu_consistent = (0 <= used <= int(cores)
+        cpu_consistent = (not unlocated_jobs and 0 <= used <= int(cores)
                           and used == allocated.get(record['name'], 0)
                           and job_ids == set(node_jobs.get(record['name'], ())))
         for field, expected in (('resources_available.ncpus', int(cores)),

@@ -419,6 +419,7 @@ unknown（缺失、过期、矛盾或不可用状态）、not_applicable（已�
 PBS 复用既有节点字段及内存来源优先级，精确目标名称不做短名映射；具名节点策略仍由原准入检查执行。
 PBS 节点另带 `capacity_cpu_consistent`、`mem_total_bytes`、`mem_assigned_bytes`，核对精确节点的
 exec_host、节点 jobs 与已分配核数是否冲突，容量内存按整数 byte 比较。原 GB 显示及汇总保留一位小数；
+活跃作业缺少 exec_host 或其节点名不能精确对应本轮节点时，容量保持 unknown，不能把缺失定位当空闲。
 Torque 作业申请先按原精度累加，不用显示值相加判断。缺少这些容量字段的旧 PBS 快照保持 unknown，
 不从已舍入的 GB 恢复边界容量；无法解析为整数 byte 的内存值也保持未知。
 Slurm 快照增量填写 `cluster.nodes`，每行包含 name/partition/partition_state/state、cores_total/cores_used/

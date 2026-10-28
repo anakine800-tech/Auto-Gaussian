@@ -230,6 +230,39 @@ def test_pbs_cpu_conflicts_without_targeting_preserve_display(cfg, assigned, exp
     assert capacity.assess(cfg, 'default', 'simple', now=NOW)['availability'] == expected
 
 
+@pytest.mark.parametrize('state', ['R', 'E', 'S'])
+@pytest.mark.parametrize('hosts', [None, '', '+', 'missing-node/0-3', 'node-a.synthetic/0-3'])
+def test_unlocated_active_pbs_jobs_make_capacity_unknown_only(cfg, state, hosts):
+    raw = ''.join(f'{name}\n    state = free\n    np = 32\n    status = physmem=64gb\n'
+                  for name in ('node-a', 'node-b'))
+    job = dict(job_id='101.fixture', job_state=state, **{'Resource_List.mem': '12gb'})
+    if hosts is not None:
+        job['exec_host'] = hosts
+    rows, hardware = monitor.pbs_hardware(cfg, PBSFake(nodes=raw), [job])
+    # Keep the established display, but do not infer an idle node from absent
+    # active-job placement. A second node cannot rescue this unknown mapping.
+    assert hardware['cores_allocated'] == 0 and hardware['mem_allocated_gb'] == 0
+    assert all(r['cores_used'] == 0 and r['mem_assigned_gb'] == 0 for r in rows)
+    assert all(r['capacity_cpu_consistent'] is False for r in rows)
+    save(cfg, rows)
+    result = capacity.assess(cfg, 'default', 'simple', now=NOW)
+    assert result['availability'] == 'unknown'
+
+
+@pytest.mark.parametrize('state', [None, 'Q', 'H', 'W', 'T', 'C', 'R', 'E', 'S'])
+def test_empty_or_located_pbs_jobs_can_still_fit_exactly(cfg, state):
+    raw = 'node-a\n    state = free\n    np = 32\n    status = physmem=64gb\n'
+    jobs = [] if state is None else [dict(job_id='101.fixture', job_state=state)]
+    active = state in ('R', 'E', 'S')
+    if active:
+        jobs[0].update(exec_host='node-a/0-3', **{'Resource_List.mem': '12gb'})
+    rows, _ = monitor.pbs_hardware(cfg, PBSFake(nodes=raw), jobs)
+    assert rows[0]['capacity_cpu_consistent'] is True
+    cfg['resources']['tiers']['general'] = dict(cores=28 if active else 32, mem_gb=52 if active else 64)
+    save(cfg, rows)
+    assert assess(cfg)['availability'] == 'enough'
+
+
 @pytest.mark.parametrize('extra', ['    np = 16\n', '    jobs = 0-7/101.fixture\n',
                                   '    jobs = 0-3/102.fixture\n'])
 def test_pbs_other_cpu_source_conflicts(extra):
