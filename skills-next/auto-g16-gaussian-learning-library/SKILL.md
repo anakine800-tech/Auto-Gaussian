@@ -1,6 +1,6 @@
 ---
 name: auto-g16-gaussian-learning-library
-description: Self-contained, portable Gaussian and computational chemistry learning knowledge base for beginner explanations, Gaussian input/output interpretation, method and basis-set concepts, optimization, frequency, TS/IRC, solvation, properties, troubleshooting, and research planning. Use when Codex needs to teach, explain, search, or apply the bundled Gaussian knowledge in any project. Do not cite source files or page numbers, and do not use it as authority to submit calculations or guess charge, multiplicity, connectivity, stereochemistry, active catalyst states, transition states, or protocols.
+description: Self-contained, portable Gaussian and computational chemistry learning knowledge base for beginner explanations, Gaussian input/output interpretation, method and basis-set concepts, optimization, frequency, TS/IRC, solvation, properties, troubleshooting, and research planning. Keep basic teaching concise; provide verifiable sources when requested or when tracing research methods. Do not use it as authority to submit calculations or guess charge, multiplicity, connectivity, stereochemistry, active catalyst states, transition states, or protocols.
 ---
 
 # Auto-G16 Gaussian Learning Library
@@ -9,7 +9,8 @@ Use this skill as a self-contained teaching and lookup library. It is designed f
 
 ## Core Contract
 
-- Answer directly from the bundled knowledge. Do not show source names, page numbers, URLs, provenance IDs, or internal file paths.
+- Use the bundled knowledge for concise basic explanations; a routine introductory answer need not include a bibliography. When the user asks for evidence, or an answer supports a research method or quantitative claim, give verifiable sources and the limits of their support.
+- Distinguish public evidence (paper DOI, SI section/page, or versioned official manual), a library locator (reference file/section or GKB ID), and your own inference. Cite only material actually checked; label unavailable text, uncertain versions, and unverified details rather than inventing a page or treating a library card as published evidence. Do not disclose private source paths or unpublished material.
 - Start with a plain-language explanation, then give the precise meaning, practical use, success evidence, and common failure modes.
 - Distinguish a teaching example from a recommended computational protocol.
 - Label version-dependent Gaussian/GaussView behavior and ask for the installed version when syntax or GUI details matter.
@@ -43,7 +44,7 @@ Use the smallest subset that fits the question:
 5. 常见错误
 6. 仍需确认
 
-Do not add a source or references section.
+For basic teaching, use only the explanation needed. For requested evidence or research-method traceability, add concise citations beside the supported claims or a short sources section: public link/DOI, relevant version and section/page, verification date, and support limits. Separate reported facts from analogies and inferences. If only the library has been read, identify that locator as an internal summary and state that the public source remains unverified; consult `auto-g16-literature` for method precedents when available.
 
 ## Task Routing
 
@@ -56,7 +57,7 @@ Do not add a source or references section.
 - Mechanisms, catalysis, energetic span, data tables, and research writing: `references/research-workflow.md`
 - Bibliographic metadata only: [参考书目](references/bibliography.md). No book text or excerpts are bundled.
 
-For broad or ambiguous questions, search first and combine only the relevant cards. Use `GKB-xxxx` identifiers internally to prevent duplicate or conflicting notes; never expose them as citations.
+For broad or ambiguous questions, search first and combine only the relevant cards. `GKB-xxxx` identifiers locate library cards and help prevent duplicate or conflicting notes; they are not public citations. When useful for an explicit library lookup, pair an ID with its reference file/section and label it as a library locator. For scientific support, trace the claim to a checked public source; an ID alone, or bibliographic metadata without the relevant text, cannot verify it.
 
 ## Safety Boundaries
 

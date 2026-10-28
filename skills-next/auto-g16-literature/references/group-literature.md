@@ -1,6 +1,6 @@
 # 本组已发表计算先例
 
-迁移来源：[旧本组先例清单](../../../archive/skills/auto-g16-asymmetric-catalysis/references/wang-group-computational-precedents.md)。原审计日期：2026-07-14；本次保留原证据等级与已核实方法，未重新获取出版商全文或 SI。以下 verified 均指原审计，不表示本次重新核验。
+迁移来源：[旧本组先例清单](../../../archive/skills/auto-g16-asymmetric-catalysis/references/wang-group-computational-precedents.md)。原审计日期：2026-07-14。2026-10-29 重新读取了下述 JACS 2022、JACS 2024 的出版商公开 SI 方法段及指定图；其余条目和未列入本轮定位的几何摘录仍保留历史审计状态，不能将本轮日期用于整张清单。原始 PDF 不进入仓库。
 
 ## Scope and evidence labels
 
@@ -27,12 +27,12 @@ stored in the repository.
 | 2019 | Hydrosilylation-promoted furan Diels-Alder cascade, DOI `10.1021/jacs.9b11909` | SI verified | Full competing mechanistic energy profiles, TS structures and IRC connectivity for hydride-transfer/cycloaddition pathways. This is a mechanistic precedent, not an asymmetric-selectivity calculation. |
 | 2020 | Enantioselective reduction of 2-vinylpyridines, DOI `10.1002/anie.202007352` | Partial | The accessible record establishes a 1,4-hydroboration/transfer-hydrogenation cascade with a chiral spiro-bisborane. No complete computational protocol was verified in this audit. |
 | 2021 | Asymmetric vinylogous Mannich reaction, DOI `10.1021/jacs.1c00006` | SI checked - no new DFT section | The SI rationalizes selectivity with catalyst-isoquinoline crystal structures and earlier hydrogenation calculations. It does not present a new enumerated TS study for this reaction. |
-| 2022 | Borane-catalyzed C3 alkylation of pyridines, DOI `10.1021/jacs.2c00962` | SI verified | Compared TSs for nucleophilic addition, proton abstraction and oxidative aromatization, and evaluated mono- versus dialkylation. This is a regio/mechanism precedent rather than asymmetric induction. |
+| 2022 | Borane-catalyzed C3 alkylation of pyridines, DOI `10.1021/jacs.2c00962` | SI verified; method rechecked 2026-10-29 (locator below) | Compared TSs for nucleophilic addition, proton abstraction and oxidative aromatization, and evaluated mono- versus dialkylation. This is a regio/mechanism precedent rather than asymmetric induction. |
 | 2022 | C3-selective trifluoromethylthiolation/difluoromethylthiolation, DOI `10.1021/jacs.2c06776` | SI checked - no DFT section | Extensive experimental SI was present, but no Gaussian/DFT/TS section was found. |
 | 2023 | Asymmetric C3 allylation of pyridines, DOI `10.1021/jacs.3c03056` | SI checked - no DFT section | The borane/Ir asymmetric method includes experimental mechanistic studies, matched/mismatched experiments and kinetic resolution, but no DFT TS ensemble in the SI. |
 | 2023 | C3 cyanation of pyridines, DOI `10.1002/anie.202216894` | Partial | The publisher abstract states that calculations and controls attribute regioselectivity of C2-substituted pyridines to combined electronic and steric effects. The SI method was not accessible, so do not quote a computational protocol from this audit. |
 | 2024 | B(C6F5)3-catalyzed tertiary-amine C(sp3)-H alkylation, DOI `10.1021/acscatal.4c01160` | SI verified | Site-selectivity and an asynchronous concerted hydride-transfer/C-C-bond-forming TS were studied; the SI includes IRC evidence and substrate/olefin comparisons. |
-| 2024 | Enantioselective alpha-alkylation of 2-alkylbenzoxazoles, DOI `10.1021/jacs.4c09067` | SI verified | DFT compared B(C6F5)3/BF3 coordination and reaction pathways with many TS topologies. The published computational section did not calculate the chiral CAT2 origin of enantioselectivity, so it must not be cited as a complete asymmetric TS model. |
+| 2024 | Enantioselective alpha-alkylation of 2-alkylbenzoxazoles, DOI `10.1021/jacs.4c09067` | SI verified; method rechecked 2026-10-29 (locator below) | DFT compared B(C6F5)3/BF3 coordination and reaction pathways with many TS topologies. The published computational section did not calculate the chiral CAT2 origin of enantioselectivity, so it must not be cited as a complete asymmetric TS model. |
 | 2025 | Vinylogous enone addition to allenes by borane/Pd catalysis, DOI `10.1021/jacs.4c16214` | SI checked - no DFT section | The asymmetric method and catalyst characterization are reported, but no computational section was found in the SI. |
 | 2025 | Borane/transition-metal allenylic and allylic alkylation, DOI `10.1021/jacs.5c13835` | SI verified | Six TSs were located for the stereodetermining allenylic step with a chiral Ni complex and a borane-bound nucleophile. The favored TS was interpreted through steric organization and multiple C-H...F interactions. |
 | 2026 | Asymmetric nitrone [3+2] cycloaddition with spiro-bicyclic bisboranes, DOI `10.31635/ccschem.026.202506952` | Metadata only | Relevant to the future module, but neither a publisher SI computational section nor a method statement was verified during this audit. |
@@ -51,12 +51,20 @@ stored in the repository.
 
 ### JACS 2022, `10.1021/jacs.2c00962`
 
+- 本轮定位（2026-10-29）：[论文 DOI](https://doi.org/10.1021/jacs.2c00962)；
+  [出版商 SI](https://doi.org/10.1021/jacs.2c00962.s001)，ACS Figshare v1，
+  发布于 2022-03-08，文件 [ja2c00962_si_001.pdf](https://ndownloader.figshare.com/files/34320559)。
+  PDF 第 48 页＝印刷 S48，§8 Computational Studies / Computational Method；
+  温度定位为 PDF 第 49 页＝S49，Fig. S1（353.15 K）。页码从 PDF 首张起按 1 计数。
 - Gaussian 09.
 - Geometry optimization and frequencies: omega-B97XD/6-31G(d).
 - Single points: omega-B97XD/def2-TZVPP with SMD.
 - Minima/TS assignment by zero/one imaginary frequency.
 - Gibbs energies at 353.15 K; Grimme low-frequency free-rotor treatment below
   100 cm-1 and 1 atm to 1 mol/L correction through GoodVibes.
+- 支持范围：两层方法/基组及单点 SMD 是原文直接报告；作为新体系的方法选择仅是类比。
+  S48 未说明优化层级的溶剂设置、SMD 的具体溶剂或 GoodVibes 版本，不能推定气相优化，
+  也不能据此支持项目的 GoodVibes 4.3.0、Head-Gordon 焓修正或构象筛选窗口。
 
 ### ACS Catalysis 2024, `10.1021/acscatal.4c01160`
 
@@ -71,11 +79,19 @@ stored in the repository.
 
 ### JACS 2024, `10.1021/jacs.4c09067`
 
+- 本轮定位（2026-10-29）：[论文 DOI](https://doi.org/10.1021/jacs.4c09067)；
+  [出版商 SI](https://doi.org/10.1021/jacs.4c09067.s001)，ACS Figshare v1，
+  发布于 2024-08-20，文件 [ja4c09067_si_001.pdf](https://ndownloader.figshare.com/files/48677064)。
+  PDF 第 67–68 页＝印刷 S67–S68，§14 DFT Calculations / Computational Methods；
+  S67 末段列程序，S68 续列两层方法、SMD、298.15 K 和 IRC。PDF 页码按 1 计数。
 - Gaussian 09.
 - Geometry optimization and frequencies: omega-B97XD/6-31G(d) with SMD.
 - Single points: omega-B97XD/def2-TZVPP with SMD.
 - Thermal corrections at 298.15 K.
 - IRC used to determine minima/TS connectivity.
+- 支持范围：两层均加 SMD 是直接报告；推广到新体系仍是类比。
+  方法段未给具体溶剂、低频修正、GoodVibes 版本或标准态换算，不能补写为项目现行热化学方案。
+  下列几何细节保留历史审计状态，本轮方法复核不升级其证据等级。
 - Multiple BF3 and B(C6F5)3 coordination/TS arrangements were compared, but
   the chiral bisborane selectivity itself was not calculated.
 - The SI coordinate tables give 57 atoms for `BF3-TS1` and 78 atoms each for
@@ -141,13 +157,15 @@ stored in the repository.
 
 ## 本次兜底选择的统计依据
 
-在本清单 5 篇 **SI verified** 且列出完整方法的论文中，ωB97X-D 用于
+在历史清单 5 篇 **SI verified** 且列出完整方法的论文中，ωB97X-D 用于
 3 篇单点（2022、2024 ACS Catalysis、2024 JACS）；相同的
 ωB97X-D/6-31G(d) 优化及 ωB97X-D/def2-TZVPP 单点组合出现 2 次
 （DOI `10.1021/jacs.2c00962`、`10.1021/jacs.4c09067`），其余完整组合各 1 次。
 因此 T12b 将该组合用于主族闭壳层、研究但无直接先例时的默认方案，
 并在溶液研究中加入 SMD；2024 JACS 明确记录优化层级也用 SMD，
 2022 条目没有核实优化层级的溶剂设置，不能把两篇写成完全相同的溶剂协议。
+2026-10-29 的复核确认上述两篇的基组组合及 SMD 报告范围，定位见各条目；
+没有重新核验另外三篇，原 5 篇频次不作为本轮全表重新审计的结果。
 这只是当前清单的频次，不是全部本组论文的统计，也不是精度验证。
 具体溶剂、元素覆盖和反应类型仍须逐项判断。
 
