@@ -150,9 +150,12 @@ class Observation:
                 rows.append(name + ' absent\n')
             else:
                 seconds, nanos = divmod(info.st_mtime_ns, 10**9)
-                stamp = datetime.datetime.fromtimestamp(seconds, datetime.timezone.utc)
-                rows.append('{} {} {}.{:09d} +0000\n'.format(
-                    name, info.st_size, stamp.strftime('%Y-%m-%d %H:%M:%S'), nanos))
+                # Match GNU stat %y used by the unchanged strict observer:
+                # local process timezone (including DST), integer nanoseconds.
+                stamp = datetime.datetime.fromtimestamp(seconds, datetime.timezone.utc).astimezone()
+                rows.append('{} {} {}.{:09d} {}\n'.format(
+                    name, info.st_size, stamp.strftime('%Y-%m-%d %H:%M:%S'), nanos,
+                    stamp.strftime('%z')))
         self.verify()
         return ''.join(rows).encode('ascii')
 

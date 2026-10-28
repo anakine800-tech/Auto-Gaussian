@@ -5,6 +5,7 @@ the explicit adapter substitutes O_RDONLY for O_PATH (directory-read permission
 is then required); it does NOT prove Linux runtime/search-only compatibility.
 """
 import ast
+from datetime import datetime, timezone
 import errno
 import json
 import os
@@ -25,7 +26,7 @@ from test_incomplete_fetch import cancelled
 from test_slurm import multi, submitted as slurm_submitted
 
 
-def run_local(command):
+def run_local(command, *, env=None):
     prefix = ''
     if sys.platform != 'linux':
         wrapper = ('import os,sys; os.O_PATH=os.O_RDONLY; '
@@ -40,7 +41,7 @@ stat() {
 }
 '''
     p = subprocess.run(['sh', '-c', prefix + command.text], capture_output=True,
-                       text=True, timeout=5)
+                       text=True, timeout=5, env={**os.environ, **(env or {})})
     return Result(p.returncode, p.stdout, p.stderr)
 
 
@@ -536,16 +537,58 @@ def test_output_identity_change_rejects_metadata(local_files, helper, monkeypatc
     assert seen and code != 0 and data == b'' and 'FILE_CHANGED' in error
 
 
-def test_metadata_preserves_nanoseconds_in_utc(local_files):
+@pytest.mark.parametrize('zone,expected_time', [
+    ('UTC0', '2026-01-01 00:00:00'),
+    ('Asia/Shanghai', '2026-01-01 08:00:00'),
+    ('Asia/Kathmandu', '2026-01-01 05:45:00'),
+])
+def test_metadata_preserves_nanoseconds_and_timezone(local_files, zone, expected_time):
     cfg, manifest, directory = local_files
     nanos = 1767225600123456789
     os.utime(directory / 'water.log', ns=(nanos, nanos))
-    result = run_local(remote.output_observation(cfg, manifest))
+    result = run_local(remote.output_observation(cfg, manifest), env={'TZ': zone})
     assert result.returncode == 0, result.stderr
     parsed = status.outputs(cfg, manifest, SimpleNamespace(run=lambda _: result))
     # macOS/APFS may store fewer digits; compare to what the real filesystem kept.
     actual = (directory / 'water.log').stat().st_mtime_ns % 10**9
-    assert parsed['water.log']['mtime'] == f'2026-01-01 00:00:00.{actual:09d} +0000'
+    offset = {'UTC0': '+0000', 'Asia/Shanghai': '+0800', 'Asia/Kathmandu': '+0545'}[zone]
+    assert parsed['water.log']['mtime'] == f'{expected_time}.{actual:09d} {offset}'
+
+
+@pytest.mark.skipif(sys.platform != 'linux', reason='cross-path mtime comparison requires actual GNU stat %y and O_PATH')
+@pytest.mark.parametrize('zone,month', [
+    ('UTC0', 1), ('Asia/Shanghai', 1), ('Asia/Kathmandu', 1),
+    ('America/New_York', 1), ('America/New_York', 7),
+])
+def test_pbs_status_strict_presence_incomplete_timezone_roundtrip(cancelled, monkeypatch, zone, month):
+    cfg, path, manifest, fake = cancelled
+    directory = Path(remote.attempt_dir(cfg, manifest))
+    directory.mkdir(parents=True)
+    timestamp = int(datetime(2026, month, 1, tzinfo=timezone.utc).timestamp()) * 10**9 + 123456789
+    for name, data in fake.files.items():
+        (directory / name).write_bytes(data)
+        os.utime(directory / name, ns=(timestamp, timestamp))
+    original = fake.run
+
+    def observe_files(command):
+        if command.operation == 'output_observation':
+            return run_local(command, env={'TZ': zone})
+        return original(command)
+
+    monkeypatch.setattr(fake, 'run', observe_files)
+    monkeypatch.setattr(status.time, 'time', lambda: 2000)
+    status.check(cfg, path, fake)
+    monkeypatch.setattr(status.time, 'time', lambda: 2300)
+    result = status.check(cfg, path, fake)
+    saved = result['incomplete_observations'][-1]['outputs']
+    # Real generated strict command invokes GNU stat %y, including timezone.
+    assert fetch._presence(cfg, manifest, fake) == saved
+    raw = run_local(remote.incomplete_output_observation(cfg, manifest, 'water.log'), env={'TZ': zone})
+    assert raw.stdout == f"{saved['water.log']['size']} {saved['water.log']['mtime']}\n"
+    before = (path / 'status.json').read_bytes()
+    assert fetch.fetch(cfg, path, fake, incomplete=True)['state'] == 'cancelled'
+    assert (path / 'status.json').read_bytes() == before
+    assert fake.downloaded == ['water.log']
 
 
 def test_quoted_root_cannot_execute_shell(local_files):
