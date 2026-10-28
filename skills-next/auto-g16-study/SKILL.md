@@ -9,7 +9,7 @@ description: 在 ag 新架构中创建、恢复和推进主族闭壳层计算研
 
 新建或恢复在 `scnet` 上运行 Gaussian 的研究时，按[研究模板](references/study-md-template.md)的“计算平台与软件许可”填写负责人决定；正式作业前核对正丁烷单点全流程验证记录。
 
-准备新 Attempt 前先运行 `ag route --template <模板> --tier <档位> --study <study>`，按建议显式选 `--cluster`；偏离建议时在 study.md 写明原因。默认路由顺序在本机配置中明确设置：Gaussian（含 gaussian-cp、multiwfn）为 `default → newhpc → scnet`，CREST（含 xTB）为 `scnet-test → default → newhpc`，仍须满足各入口的模板许可。研究尚未签字允许某入口时，用 `[routing.studies."<study>"]` 覆盖顺序并跳过该入口；未配置路由时沿用研究已批准安排，不猜建议。命令只读本机监控快照；“需要排队”与“内存未知”须保留在判断中，建议不保证立即运行。ag 不自动改入口；prepare 的不同入口提示不拦截，已有 Attempt 不迁移，批准时仍核对原绑定与输入哈希。
+准备新 Attempt 前先运行 `ag route --template <模板> --tier <档位> --walltime <HH:MM:SS> --study <study>`，按建议显式选 `--cluster`；偏离建议时在 study.md 写明原因。默认路由顺序在本机配置中明确设置：Gaussian（含 gaussian-cp、multiwfn）为 `default → newhpc → scnet`，CREST（含 xTB）为 `scnet-test → default → newhpc`，仍须满足各入口的模板许可。研究尚未签字允许某入口时，用 `[routing.studies."<study>"]` 覆盖顺序并跳过该入口；未配置路由时沿用研究已批准安排，不猜建议。命令只读本机配置与已有快照；用本次计划的 walltime 核对入口上限，省略时明确未核对，未配置上限不代表无限制。时限或单节点总规格不适用的入口不进入排队回退；容量未知须保留说明，容量足够或排队建议均不保证实际启动时间。ag 不自动改入口；prepare 的不同入口提示不拦截，已有 Attempt 不迁移，批准时仍核对原绑定与输入哈希。
 
 ## 开题参考
 

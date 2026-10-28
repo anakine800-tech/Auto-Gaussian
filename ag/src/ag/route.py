@@ -1,26 +1,24 @@
 """Advisory routing from local monitor snapshots; no transport or file writes."""
 from datetime import datetime, timezone
 import json
-import math
 from pathlib import Path
 
 from ag.config import (load_config, select_cluster, scheduler_kind, shared_clusters,
-                       committed_cap, optional_resource_caps, validate_routing, RESOURCE_TIERS)
+                       committed_cap, optional_resource_caps, validate_routing, RESOURCE_TIERS,
+                       walltime_seconds)
+from ag.capacity import assess
 from ag.study import identifier
 
 
 TEMPLATES = ('gaussian', 'gaussian-cp', 'multiwfn', 'crest', 'xtb')
 TIERS = RESOURCE_TIERS
 UNKNOWN = '快照非最新或缺字段'
-READY, FULL, DENIED = '可以马上运行', '没地方', '不允许'
+READY, FULL, DENIED = '快照下容量足够', '需排队或容量未知', '不允许'
+DISCLAIMER = '建议仅基于本机配置与已有快照，不保证实际启动时间。'
 
 
 def _count(value):
     return type(value) is int and value >= 0
-
-
-def _memory(value):
-    return type(value) in (int, float) and math.isfinite(value) and value >= 0
 
 
 def _timestamp(value):
@@ -99,63 +97,25 @@ def _personal(selected, snapshots, cores):
     return not reasons, reasons, source
 
 
-def _available_memory(row, total, used, required):
-    # Missing T114 fields differ from explicitly unknown memory (G7).
-    if total not in row or used not in row:
-        return False, f'{UNKNOWN}：内存字段缺失'
-    a, b = row[total], row[used]
-    if any(value is not None and not _memory(value) for value in (a, b)):
-        return False, f'{UNKNOWN}：内存数据无效'
-    if a is None or b is None:
-        return True, '内存未知'
-    if b > a:
-        return False, f'{UNKNOWN}：内存数据无效'
-    if a - b < required:
-        return False, '空闲内存不足'
-    return True, None
-
-
-def _hardware(data, scheduler, cores, memory):
-    cluster = data['cluster']
-    hardware = cluster.get('hardware')
-    if not isinstance(hardware, dict) or 'cores_idle' not in hardware:
-        return [f'{UNKNOWN}：硬件字段缺失'], []
-    if scheduler == 'slurm':
-        idle = hardware['cores_idle']
-        if not _count(idle):
-            return [f'{UNKNOWN}：空闲核数未知'], []
-        reasons = [] if idle >= cores else ['空闲核数不足']
-        fits, note = _available_memory(hardware, 'mem_total_gb', 'mem_allocated_gb', memory)
-        return reasons + ([note] if not fits else []), [note] if fits and note else []
-    nodes = cluster.get('nodes')
-    if not isinstance(nodes, list):
-        return [f'{UNKNOWN}：节点字段缺失'], []
-    reasons, unknown_fit = [], False
-    for node in nodes:
-        if not isinstance(node, dict) or not isinstance(node.get('state'), str):
-            reasons.append(f'{UNKNOWN}：节点状态未知')
-            continue
-        if node['state'] != 'free':
-            continue
-        total, used = node.get('cores_total'), node.get('cores_used')
-        if not _count(total) or not _count(used) or used > total:
-            reasons.append(f'{UNKNOWN}：空闲核数未知')
-            continue
-        if total - used < cores:
-            reasons.append('free 节点空闲核数不足')
-            continue
-        fits, note = _available_memory(node, 'mem_total_gb', 'mem_assigned_gb', memory)
-        if fits and note is None:
-            return [], []
-        if fits:
-            unknown_fit = True
-        else:
-            reasons.append(note)
-    if unknown_fit:
-        return [], ['内存未知']
-    if not _count(hardware['cores_idle']):
-        reasons.append(f'{UNKNOWN}：空闲核数未知')
-    return list(dict.fromkeys(reasons)) or ['没有符合要求的 free 节点'], []
+def _walltime(resources, requested):
+    """Compare with the configured limit; no limit means unknown, not unlimited."""
+    maximum = resources.get('max_walltime')
+    result = dict(requested=requested, maximum=maximum, status='not_checked')
+    seconds = walltime_seconds(requested) if requested is not None else None
+    if requested is None:
+        note = '未核对任务时限（未提供 --walltime）'
+        if maximum is None:
+            note += '；入口未配置时限上限，不代表无限制'
+    elif maximum is None:
+        result['status'] = 'unknown_limit'
+        note = '入口未配置 resources.max_walltime，调度器时限未知，不代表无限制'
+    elif seconds > walltime_seconds(maximum):
+        result['status'] = 'exceeded'
+        note = '任务时限超过入口 resources.max_walltime'
+    else:
+        result['status'] = 'within_limit'
+        note = '任务时限符合本机配置的入口上限'
+    return result, note
 
 
 def _enabled(selected, template):
@@ -172,11 +132,13 @@ def _enabled(selected, template):
     return xtb or (template == 'crest' and bool(programs.get('crest', {}).get('executable')))
 
 
-def suggest(cfg, template, tier, study=None, *, now=None):
+def suggest(cfg, template, tier, study=None, *, walltime=None, now=None):
     if template not in TEMPLATES or tier not in TIERS:
         raise ValueError('Unknown template or tier')
     if study is not None:
         identifier(study)
+    if walltime is not None:
+        walltime_seconds(walltime)
     validate_routing(cfg)
     now = now or datetime.now(timezone.utc)
     family = 'crest' if template in ('crest', 'xtb') else 'gaussian'
@@ -190,17 +152,24 @@ def suggest(cfg, template, tier, study=None, *, now=None):
         resource = selected['resources']['tiers'].get(tier)
         cores, memory = (resource['cores'], resource['mem_gb']) if resource else (None, None)
         snapshot = snapshots[name]
+        time_check, time_note = _walltime(selected['resources'], walltime)
         row = dict(name=name, display_name=selected.get('display_name', name),
                    cores=cores, mem_gb=memory, conclusion=DENIED, reasons=[], notes=[],
                    sampled_at=snapshot['sampled_at'], snapshot_fresh=snapshot['fresh'],
-                   personal_allowed=False, usage_source=None, in_order=name in (order or []))
+                   personal_allowed=False, usage_source=None, in_order=name in (order or []),
+                   specification_allowed=False, walltime=time_check)
+        row['notes'].append(time_note)
         if resource is None:
             row['reasons'] = ['不支持该档位']
             rows.append(row)
             continue
         if not _enabled(selected, template):
             row['reasons'] = ['不允许该模板（入口限制或程序未配置）']
+        elif time_check['status'] == 'exceeded':
+            row['reasons'] = [time_note]
+            row['notes'] = []
         else:
+            row['specification_allowed'] = True
             allowed, reasons, source = _personal(selected, snapshots, cores)
             row.update(personal_allowed=allowed, usage_source=source)
             if not snapshot['fresh']:
@@ -213,36 +182,60 @@ def suggest(cfg, template, tier, study=None, *, now=None):
                     reasons.append(f'{UNKNOWN}：他人排队数量未知')
                 elif others:
                     reasons.append('已有他人排队作业')
-                hardware_reasons, notes = _hardware(data, scheduler_kind(selected), cores, memory)
-                reasons.extend(hardware_reasons)
-                row['notes'] = notes
+            capacity = assess(cfg, name, tier, now=now)
             if 'node_targeting' in selected:
                 from ag.node_targeting import candidates
                 targets = candidates(cfg, name, now=now)
                 row['node_candidates'] = targets
                 row['notes'].append('必须明确选择并确认目标节点；排序不授权自动选择')
-                if template != 'gaussian' or not any(
-                        n.get('selectable', n['status'] == 'available')
-                        and any(o['tier'] == tier and o.get('selectable', True) for o in n['options'])
-                        for n in targets['nodes']):
-                    reasons.append('没有满足此档位的具名节点候选')
+                matches = [(n, o) for n in targets['nodes']
+                           if n.get('selectable', n['status'] == 'available')
+                           for o in n['options'] if o['tier'] == tier and o.get('selectable', True)]
+                if template != 'gaussian' or not matches:
+                    row['specification_allowed'] = False
+                    capacity.update(availability='unknown', fits_total=None,
+                                    reasons=['没有满足此档位的具名节点候选'])
+                else:
+                    # Only eligible mapped options can establish this entry's
+                    # capacity. Reuse T157's T156 results, not unrelated nodes.
+                    assessments = [o['capacity'] if 'capacity' in o else
+                                   assess(cfg, name, tier, target_node=n['name'], now=now)
+                                   for n, o in matches]
+                    choice = next(a for state in ('enough', 'unknown', 'queue', 'not_applicable')
+                                  for a in assessments if a['availability'] == state)
+                    capacity.update({key: choice[key] for key in ('fits_total', 'availability', 'reasons')})
+                capacity.update(sampled_at=targets.get('sampled_at', capacity['sampled_at']),
+                                valid_until=targets.get('valid_until', capacity['valid_until']),
+                                snapshot_fresh=targets.get('fresh', capacity['snapshot_fresh']))
+            row['capacity'] = {key: capacity[key] for key in (
+                'fits_total', 'availability', 'sampled_at', 'valid_until', 'snapshot_fresh', 'reasons')}
+            if capacity['availability'] == 'enough':
+                row['notes'].extend(capacity['reasons'])
+            else:
+                reasons.extend(capacity['reasons'])
+            if capacity['availability'] == 'unknown':
+                reasons.append(f'{UNKNOWN}：单节点容量未知')
+            if capacity['availability'] == 'not_applicable':
+                row['specification_allowed'] = False
             row.update(conclusion=FULL if reasons else READY, reasons=list(dict.fromkeys(reasons)))
         rows.append(row)
-    eligible = [r for r in rows if r['in_order'] and r['personal_allowed']]
+    eligible = [r for r in rows if r['in_order'] and r['personal_allowed']
+                and r['specification_allowed']]
     chosen = next((r for r in eligible if r['conclusion'] == READY), None)
     queued = chosen is None
     chosen = chosen or next(iter(eligible), None)
     recommendation = None
     if chosen:
         recommendation = dict(name=chosen['name'], needs_queue=queued,
-                              reason='需要排队' if queued else '可以马上运行',
+                              reason=('容量未知，建议核对后排队' if chosen['capacity']['availability'] == 'unknown'
+                                      else '快照下建议排队') if queued else READY,
                               reasons=chosen['reasons'] + chosen['notes'])
     message = ('未配置路由顺序' if order is None else
-               f"都需要排队：建议排在 {chosen['name']}" if chosen and queued else
+               f"快照下建议排队：{chosen['name']}" if chosen and queued else
                f"建议：{chosen['name']}" if chosen else
-               '无建议：顺序中没有本人上限允许的入口')
+               '无建议：顺序中没有规格适用且本人上限允许的入口')
     return dict(template=template, tier=tier, study=study, order=order, clusters=rows,
-                recommendation=recommendation, message=message)
+                recommendation=recommendation, message=message, walltime=walltime, notes=[DISCLAIMER])
 
 
 def format_result(result):
@@ -253,7 +246,7 @@ def format_result(result):
             name = f"{row['display_name']}（{name}）"
         reasons = row['reasons'] + row['notes'] or ['本人上限及硬件满足，未见他人排队']
         lines.append(f"{name} | {row['conclusion']} | {'；'.join(reasons)} | {row['sampled_at'] or '未知'}")
-    return '\n'.join([*lines, result['message']])
+    return '\n'.join([*lines, *result.get('notes', []), result['message']])
 
 
 def prepare_hint(cfg, manifest):
@@ -261,7 +254,8 @@ def prepare_hint(cfg, manifest):
     if 'routing' not in cfg:
         return ''
     try:
-        result = suggest(cfg, manifest['template'], manifest['tier'], manifest['study_id'])
+        result = suggest(cfg, manifest['template'], manifest['tier'], manifest['study_id'],
+                         walltime=manifest['walltime'])
         chosen = result['recommendation']
         if not chosen or chosen['name'] == manifest.get('cluster', 'default'):
             return ''
@@ -270,13 +264,15 @@ def prepare_hint(cfg, manifest):
             return ''
         reason = '；'.join([chosen['reason'], *chosen['reasons']])
         return (f"\n路由建议为 {chosen['name']}（{reason}）；"
-                f"本次按 --cluster {manifest.get('cluster', 'default')} 准备。")
-    except (OSError, ValueError, KeyError, TypeError, AttributeError, RecursionError):
+                f"本次按 --cluster {manifest.get('cluster', 'default')} 准备。{DISCLAIMER}")
+    except Exception:
+        # This boundary covers optional advice only, after prepare has succeeded.
+        # Even an unexpected advisor failure must not misreport that saved result.
         return ''
 
 
 def run(args):
-    result = suggest(load_config(), args.template, args.tier, args.study)
+    result = suggest(load_config(), args.template, args.tier, args.study, walltime=args.walltime)
     print(json.dumps(result, ensure_ascii=False, indent=2) if args.json else format_result(result))
     return 0
 
@@ -285,6 +281,7 @@ def register(subparsers):
     parser = subparsers.add_parser('route', help='Read local monitor snapshots for routing advice')
     parser.add_argument('--template', choices=TEMPLATES, required=True)
     parser.add_argument('--tier', choices=TIERS, required=True)
+    parser.add_argument('--walltime', help='Requested positive HH:MM:SS; omitted means unchecked')
     parser.add_argument('--study')
     parser.add_argument('--json', action='store_true')
     parser.set_defaults(func=run)

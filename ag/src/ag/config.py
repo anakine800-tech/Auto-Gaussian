@@ -179,8 +179,13 @@ def resolve_tier(cfg, tier=None):
     return tier
 
 
+def walltime_seconds(value):
+    """Reuse the existing positive-duration parser for local resource advice."""
+    from ag.approval import walltime_seconds as parse
+    return parse(value)
+
+
 def _max_walltime_seconds(value):
-    from ag.approval import walltime_seconds
     if not isinstance(value, str) or not re.fullmatch(r'[0-9]{2,4}:[0-5][0-9]:[0-5][0-9]', value):
         raise ConfigError('resources.max_walltime must be positive HH:MM:SS')
     try:
@@ -191,7 +196,6 @@ def _max_walltime_seconds(value):
 
 def validate_walltime(cfg, value):
     """Apply the entry's optional hard limit without creating any artifacts."""
-    from ag.approval import walltime_seconds
     requested = walltime_seconds(value)
     if 'max_walltime' in cfg['resources']:
         maximum = _max_walltime_seconds(cfg['resources']['max_walltime'])

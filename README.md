@@ -111,20 +111,31 @@ Gaussian、xTB、CREST、调度器及本机 OpenSSH 需另行准备，外部软�
 迁移 study 或切换配置目录必须同时带上各 Slurm 入口的台账。已有提交痕迹但缺账时，从备份或原配置目录找回该入口的台账；找不到则停止并交给负责人核对，不自动重建或归零。
 同组上限不一致时摘要列出各入口数值并采用最小值，单作业仍按目标入口的 max_cores 检查。
 
-新 Attempt 准备前运行 `ag route --template gaussian --tier general --study <study>`，按建议显式选择 `--cluster`；偏离建议时在 study.md 记明原因。
+新 Attempt 准备前运行 `ag route --template gaussian --tier general --walltime 04:00:00 --study <study>`，按建议显式选择 `--cluster`；偏离建议时在 study.md 记明原因。
 建议顺序由本机可选 `[routing]` 配置：Gaussian（含 gaussian-cp、multiwfn）为 `default → newhpc → scnet`，CREST（含 xTB）为 `scnet-test → default → newhpc`。
 仅列已配置的入口，名字不能重复；`[routing.studies."<study>"]` 可按研究覆盖某一程序族的顺序，未签字允许的入口应从该研究顺序中去掉。
 `allowed_templates` 仍逐入口生效，例如 scnet-test 只允许 CREST 时，xTB 虽使用相同顺序也会跳过该入口。
 没有配置对应程序族顺序时仍列出所有入口状态，并显示“未配置路由顺序”；空顺序不建议任何入口。
-`ag route --template crest --tier mini --json` 输出相同的结论、原因、快照时间、本人上限是否允许及建议，便于 Skills 和前端读取。
+`ag route --template crest --tier mini --walltime 04:00:00 --json` 输出相同的结论、原因、快照时间、本人上限是否允许及建议，便于 Skills 和前端读取。
 
 路由命令只读本机 `.ag-monitor/<入口>/latest.json`，不创建目录、不写文件、不运行 SSH 或调度器命令；旧单集群读取 `.ag-monitor/latest.json`，两种 default 来源并存时按未知处理。
-快照须成功且在采样间隔的三倍以内；失败、过期、缺字段、核数未知均为“没地方”。单次采样没有间隔，不能用于路由建议；请使用常驻监控快照。
+快照须成功且在采样间隔的三倍以内；失败、过期或缺少节点容量证据时明确显示未知。单次采样没有间隔，不能用于路由建议。
+`--tier` 仍显式必填；可选 `--walltime` 使用现有正时长解析，逐入口比较当前本机配置的 `resources.max_walltime`。
+等于上限允许，超限入口不能进入容量推荐或排队回退；未配置上限只表示调度器时限未知，不代表无限制。
+省略 walltime 的旧调用仍可运行，但每个入口明确显示“未核对任务时限”，不声称全部规格已匹配。
 本人占用取同一配置共享组最新的一份有效快照，不跨入口相加；总上限及可选排队/运行限额取组内最小值，单作业上限按目标入口检查。
-PBS 需要一个 free 节点同时容纳所选档位，Slurm 按分区空闲核数与内存判断；内存显式未知时只按核数判断并标注“内存未知”，有他人排队则不判为可立即运行。
-依次选择“可以马上运行”的入口；都不行时选择顺序中第一个本人上限允许的入口，并标“需要排队”；本人占用未知时不猜测上限允许。
-建议只是快照时刻的判断，不能保证调度器立即启动，也不包含未被快照观察到的变化；提交时原有额度、预留和批准检查照常执行。
-prepare 的文本摘要在所选入口不同于建议时追加一行提示；缺可读快照或无顺序时静默，JSON 和 manifest 不加路由字段，已有 Attempt 不迁移。
+PBS 与 Slurm 都复用 `ag capacity` 的单节点判断，不把分区核数或内存总和当作一个节点的容量；旧缓存缺少精确字段时保持未知。
+具名入口使用 T157 的节点及比例选项 `selectable`，只按匹配所请求 tier 的可选项附带的 T156 容量结果给建议；不匹配节点的空闲资源不能证明该档位可用。
+候选原有 `status`、顺序和分组保留；旧候选缺 `selectable` 时沿用 `status=available`，缺选项容量时按精确节点复用 `ag capacity`。无可选匹配项不进入排队回退，建议不自动选择目标节点。
+依次选择“快照下容量足够”的入口；当前容量不足时，只向规格适用且本人上限允许的入口建议排队。
+模板、档位、时限或已证实的单节点总规格不适用时不能回退推荐；容量未知可保留带未知说明的排队建议，本人占用未知仍不猜测上限允许。
+有他人排队时保留该原因。容量足够和排队建议都**不保证实际启动时间**，不估算等待时间；提交时原有额度、预留和批准检查照常执行。
+JSON 保留已有字段；新增可选顶层 `walltime`（省略请求时为 null）和 `notes`，每入口增量提供 `walltime` 对象：
+`requested`、`maximum`（未配置时 null）、`status`（not_checked / unknown_limit / within_limit / exceeded）。
+`specification_allowed` 表示未发现规格不适用且具名入口有可选匹配项，未知仍须看原因；`capacity` 给出 fits_total、availability、采样时间、有效期、新鲜度和原因。
+这些字段只作建议，不是提交许可；已有消费者可以忽略新增字段。结论文案统一为快照下的容量/排队描述。
+prepare 的文本摘要使用 manifest 保存的实际 tier 和 walltime，在所选入口不同于建议时追加提示；不重新采用入口默认档位。
+缺可读快照、无顺序或提示计算失败时静默，不使成功 prepare 失败；prepare JSON 和 manifest 不加路由字段，已有 Attempt 不迁移。
 核时摘要只显示本次最大消耗（核数 × walltime；实际以平台计费为准）；budget_core_hours 可删除，doctor 会提示。
 旧单集群 [config.example.toml](ag/config.example.toml) 仍支持为 `default` PBS 配置。
 `ag clusters --json` 只读列出本机配置的集群及资源档位；它不连接服务器，程序启用标记不等于远程安装验证。
@@ -563,7 +574,7 @@ Slurm 的 `cluster.budget` 为 null，clusters 查询省略 budget；本地台�
 ### 已知限制
 
 - `timezone-mismatch` 触发时按时间来源置未知并退回 walltime；walltime 本身可能滞后，时区仍须由负责人实测确认。
-- 路由建议不考虑 walltime；超算公共分区几乎总有他人排队，通常被判为“没地方”，不保证实际启动。
+- 路由只按本机配置核对已提供的 walltime，未配置上限时调度器时限仍未知；容量、他人排队和本人额度来自已有快照，不保证实际启动时间。
 - 父 chk 是否来自频率计算、是否含可用力常数，仍由卡片和人工审阅保证；程序的坐标框架核验不能替代该检查。
 - 已有 study 的 facts 是否按 T108 重算、catalog 是否补登记，由负责人逐 study 决定；升级不自动改写已签字证据。
 - `cp-report --solvent-sp` 指定复合物单点，可重复用 `--solvent-fragment-sp 1:<id>` / `2:<id>` 接入同几何、自身基组的两个已有 SMD 片段单点；缺项时相互作用能仍为“未知”，CP 仅作诊断，不进入 thermo/profile。
