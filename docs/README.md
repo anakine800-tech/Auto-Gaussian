@@ -7,12 +7,12 @@ v4.0.0 起，从这一页进入仓库文档。先按身份找到自己的入口�
 | 文档 | 什么时候读 |
 |---|---|
 | [仓库 README](../README.md) | 安装、配置、命令一览、一个 study 的典型流程、验收状态和已知限制 |
-| [v4.0 交接](handoff-v4.md) | 了解当前进度、未完成事项和下一步，开新对话前先读 |
-| [运维文档](OPERATIONS.md) | 更新与备份、常驻服务、观察标准、回退及连接切换 |
+| [当前交接](handoff-v4.md) | 当前进度、未完成事项和证据边界置顶；旧版本仅作历史，开新对话前先读 |
+| [运维文档](OPERATIONS.md) | 部署目标与授权适用表、备份、常驻服务、观察标准、回退及连接切换 |
 | 数据契约（`docs/ag-*.md`、[docs/g0.md](g0.md)） | 核对登记、报告和诊断的字段与兼容边界 |
 | [CHANGELOG](../CHANGELOG.md) | 查某个功能在哪个版本、哪个 PR 加入 |
 | [开发手册：角色与审批](DEVELOPING.md#角色与审批) | 判断一件事该由谁拍板 |
-| 前端仓库 Auto-Gaussian-Frontend 的 README | 启动只读查看器、3D 预览和服务器监控 |
+| [前端仓库 README](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/blob/main/README.md) | 可选只读查看、3D 和监控；标准部署显式启用操作模式并核对后端路径，计算授权仍单独核对 |
 
 ## LLM 研究会话
 
@@ -30,9 +30,9 @@ v4.0.0 起，从这一页进入仓库文档。先按身份找到自己的入口�
 按顺序读：
 
 1. [AGENTS.md](../AGENTS.md)：硬内核与开发流程，任何情况下都不能违反。
-2. [DEVELOPING.md](DEVELOPING.md)：模块地图、提交顺序、怎么加功能、测试、PR 与发布、角色与审批。
-3. [LESSONS.md](LESSONS.md)：开发与现场经验，新增功能前查一遍有没有踩过的坑。
-4. [任务单模板](redesign-tasks/TEMPLATE.md) 和本次任务单；未完成任务清单见 [open-tasks.txt](redesign-tasks/open-tasks.txt)。
+2. 本次任务单；[任务单模板](redesign-tasks/TEMPLATE.md)用于开单，未完成任务清单见 [open-tasks.txt](redesign-tasks/open-tasks.txt)。
+3. [DEVELOPING.md](DEVELOPING.md)：模块地图、提交顺序、怎么加功能、离线/合并前真实验证/部署验收、PR 与发布、角色与审批。
+4. [LESSONS.md](LESSONS.md)：开发与现场经验，新增功能前查一遍有没有踩过的坑。
 
 ## 审阅者
 
