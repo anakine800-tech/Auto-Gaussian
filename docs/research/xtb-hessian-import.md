@@ -1,7 +1,7 @@
 # xTB Hessian：来源核查与本地导入方案（T163）
 
 来源核查日期：2026-10-28；原子对应核对日期：2026-10-29。
-**来源与本地导入规格：部分来源待补；已按 T162 审阅通过的接口对齐，待依赖合并整合。**
+**来源与本地导入规格：部分来源待补；原子对应已与 T162 合并后的最终接口对齐。**
 本页是后续实施的设计输入，未实现导入器或 Hessian 生成器。
 当前 `g0_modes.read_frequency_attempt` 仍只读 Gaussian；`xtb.toml` 没有 Hessian 参数或输出声明。
 本单未运行 xTB、Gaussian、调度器或远程命令，未改任何 study、Attempt、候选或历史 evidence。
@@ -227,9 +227,10 @@ H = [[ .04, 0, 0, -.04, 0, 0],
 
 ### 与 T162 已审阅接口的对应
 
-以下核对固定在 [T162 PR #359][t162-pr] 已独立审阅通过的提交
-`ee2fa2f73d69babb97de04d8dc16d0cf7d142acd`，依据其 [映射读取与绑定][t162-mapping]、
-[模式投影][t162-modes] 和 [批量错误处理][t162-batch]；依赖合并后再核对合入版本。
+以下核对固定在 [T162 PR #359][t162-pr] 已审阅并合并的最终提交
+`8fea723c861d2073028f20effc8e27f3c79159c1`，依据其 [映射读取与绑定][t162-mapping]、
+[模式投影][t162-modes] 和 [批量错误处理][t162-batch]；已在 main 合并提交
+`a921a48750fe2426c06694ef75a3d2fc4bc11a89` 复核三份文件字节一致。
 **T162 的 `frequency` 目标仍只接受 Gaussian Attempt。** 其 xTB/CREST 支持仅指参考输入几何，
 不表示已能读取 xTB 频率；以下现有目标字段不能直接用作新的 xTB analyses 来源。
 
@@ -279,7 +280,7 @@ H = [[ .04, 0, 0, -.04, 0, 0],
 实现来源描述符，绑定本节要求的 Hessian、同框架几何、有效质量及声明原始字节。
 **不得伪造 Gaussian Attempt，或把 analyses 标识塞进当前 `target.attempt` 来绕过类型限制。**
 该适配及参数形式由后续实施单完成；T163 只确定兼容要求，不扩展 T162 的当前接口。
-`docs/g0.md` 的当前能力说明及本页入口按工单留待 T162 合并后整合。
+[G0 当前能力说明](../g0.md#模式投影) 已链接本规格；现有 CLI 的类型边界不因本设计改变。
 
 ## 6. 不足与失败的具体行为
 
@@ -303,7 +304,7 @@ H = [[ .04, 0, 0, -.04, 0, 0],
 
 后续另核任务号；T163 不扩成工具实现。最小路线为：
 
-1. 依赖合并后复核第 5 节已对齐的 T162 接口，再取得第 1/2 节所缺的小分子文件包；
+1. 沿用第 5 节已对齐的 T162 规则，先取得第 1/2 节所缺的小分子文件包；
    以一个已审计版本、一种明确格式、同框架几何和有效质量实现本地解析与转换。
 2. 本地入口独占写新的 analyses 记录；纯文件读写，不初始化 Transport。
    在实施单中锁定第 3 节尚未定的数值容差及对应未知行为。
@@ -325,7 +326,7 @@ H = [[ .04, 0, 0, -.04, 0, 0],
 
 新增 xTB Hessian **生成模板、上传/取回或远程命令**另立一单，重新核对模板参数白名单、
 文件声明、非研究验证对象和合并前真实验证。这里没有选定研究方法，也没有任何执行授权。
-本单 PR 保持 draft，直到 T162 合并、完成 rebase 和入口整合，并完成监督方对实际 head 的审阅；
+T162 依赖、rebase 和文档入口已整合；本单 PR 在监督方审阅实际 head 前保持 draft。
 源码和推演已可审阅，实际文件格式验收未完成，不能写“xTB Hessian 功能已支持”。
 
 [manual]: https://xtb-docs.readthedocs.io/en/latest/hessian.html
@@ -347,6 +348,6 @@ H = [[ .04, 0, 0, -.04, 0, 0],
 [test-array]: https://github.com/grimme-lab/xtb/blob/26b28010e805f7d1aeeef39813feb473e69cc4be/test/unit/test_hessian.f90#L147-L240
 [cclib-tree]: https://github.com/cclib/cclib-data/tree/127b2229d584d54fb84a74e383edb18a271fc283/XTB
 [t162-pr]: https://github.com/anakine800-tech/Auto-Gaussian/pull/359
-[t162-mapping]: https://github.com/anakine800-tech/Auto-Gaussian/blob/ee2fa2f73d69babb97de04d8dc16d0cf7d142acd/ag/src/ag/g0_mapping.py#L25-L134
-[t162-modes]: https://github.com/anakine800-tech/Auto-Gaussian/blob/ee2fa2f73d69babb97de04d8dc16d0cf7d142acd/ag/src/ag/g0_modes.py#L281-L312
-[t162-batch]: https://github.com/anakine800-tech/Auto-Gaussian/blob/ee2fa2f73d69babb97de04d8dc16d0cf7d142acd/ag/src/ag/g0.py#L387-L449
+[t162-mapping]: https://github.com/anakine800-tech/Auto-Gaussian/blob/8fea723c861d2073028f20effc8e27f3c79159c1/ag/src/ag/g0_mapping.py#L25-L134
+[t162-modes]: https://github.com/anakine800-tech/Auto-Gaussian/blob/8fea723c861d2073028f20effc8e27f3c79159c1/ag/src/ag/g0_modes.py#L281-L312
+[t162-batch]: https://github.com/anakine800-tech/Auto-Gaussian/blob/8fea723c861d2073028f20effc8e27f3c79159c1/ag/src/ag/g0.py#L387-L449
