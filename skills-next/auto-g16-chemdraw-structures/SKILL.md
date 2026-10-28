@@ -11,11 +11,24 @@ Produce editable, chemically defensible ChemDraw structures and consolidated rea
 
 ## Environment and outputs
 
-This skill is limited to structure preparation and drawing. Do not connect to RTwin, use SSH/SCP or PBS commands, submit or cancel calculations, or invoke legacy Auto-G16 execution scripts, directly or through another skill. Resolve every `scripts/` command below relative to this skill's directory, never the project's legacy `scripts/` directory.
+This skill is limited to structure preparation and drawing. Do not connect to RTwin, use SSH/SCP or PBS commands, submit or cancel calculations, or invoke legacy Auto-G16 execution scripts, directly or through another skill. Resolve every `scripts/` command below relative to this skill's directory, never the project's legacy `scripts/` directory; set `$CHEM_SKILL_DIR` to this skill's absolute directory for the examples below.
 
 Resolve a Python interpreter with RDKit and Pillow once per task and refer to it as `$CHEM_PYTHON`. Prefer an active environment; otherwise locate a compatible Conda or virtual environment. Never hand-write MOL blocks for chiral or complex structures.
 
-Save user-facing deliverables under the current workspace `outputs/` directory:
+Resolve the destination before creating any files. A caller working in a Git checkout must not cause research structures to be saved there. Use the request's existing study or explicitly designated delivery-directory context first; if the purpose or destination is still ambiguous, ask for the path before writing. Do not infer a destination from the caller's cwd, the skill installation, or a repository `outputs/` directory.
+
+Set `$CHEM_ROOT` and `$CHEM_OUTPUT_DIR` to resolved absolute paths according to the task:
+
+| Task | `$CHEM_ROOT` | `$CHEM_OUTPUT_DIR` |
+| --- | --- | --- |
+| Research structure or reaction drawing | The private study directory, outside Git checkouts | `$CHEM_ROOT/structures/chemdraw/NAME/` |
+| Standalone drawing | The explicitly designated delivery directory | `$CHEM_ROOT/outputs/NAME/` |
+
+`NAME` identifies this drawing task. Check every resolved write path, including depiction memory and symlink targets: research files must remain inside the private study and outside Git checkouts, even if ignored by Git. Keep newly generated `input.csv`, `layout.json`, intermediate MOL/SDF files, transcription, evidence, validation reports, previews, and bundles under `$CHEM_OUTPUT_DIR`; the script examples use `my_structures/` or `panel/` beneath it. Resolve any relative paths inside a CSV or layout against that file's directory, not the caller's cwd. Existing source files and reviewed built-in templates may be read in place. These rules select locations for new output; do not move or delete existing user files.
+
+Persistent depiction memory belongs to the same study or delivery root. Before any memory command, explicitly set `CHEMDRAW_DEPICTION_MEMORY` to the absolute `$CHEM_ROOT/.chemdraw-depiction-memory/` path for this task, including when an inherited setting points elsewhere. The script's cwd-based fallback is not a destination choice for this workflow.
+
+Save user-facing deliverables under `$CHEM_OUTPUT_DIR`:
 
 - `.mol` for one molecule; `.sdf` for a set
 - `.rxn` only when every reactant and product is resolved
@@ -38,10 +51,10 @@ When no suffix is supplied, automatically choose Quick for clear ordinary chemis
 
 ## Quick execution path
 
-1. Inspect the source once and use one layout JSON as the single source of truth.
+1. Resolve the destination and depiction-memory path as above, then inspect the source once and use `$CHEM_OUTPUT_DIR/layout.json` as the single source of truth.
 2. Reuse persistent depiction memory or the source orientation. Generate directly from `smiles` in the layout; avoid intermediate MOL/SDF packages.
 3. Reproduce every visible molecule on both sides of arrows plus arrows, text, conditions, quantities, yields, and table lines in one CDXML.
-4. Run `scripts/finalize_chemdraw_panel.py layout.json output_dir --stem NAME --quick`. This avoids the slow ChemDraw GUI round trip, preview export, evidence bundle, and ZIP creation while still checking XML integrity, object counts, and visible text.
+4. Run `"$CHEM_PYTHON" "$CHEM_SKILL_DIR/scripts/finalize_chemdraw_panel.py" "$CHEM_OUTPUT_DIR/layout.json" "$CHEM_OUTPUT_DIR/panel" --stem panel --quick`. This avoids the slow ChemDraw GUI round trip, preview export, evidence bundle, and ZIP creation while still checking XML integrity, object counts, and visible text.
 5. Make one visual spot check only. At about 105 seconds, stop optional work and deliver the generated CDXML.
 6. If anything is ambiguous, preserve it as `?`, `R`, or `unresolved` rather than silently inventing detail. Do not delay the quick draft for multi-source confirmation.
 
@@ -49,7 +62,7 @@ Quick mode is a speed/assurance tradeoff requested by the user. Never describe a
 
 ## Depiction memory
 
-- Treat local depiction memory as the first source for common drawing conventions. Initialize it once per workspace with `scripts/depiction_memory.py init`; by default it uses `.chemdraw-depiction-memory/`, or `CHEMDRAW_DEPICTION_MEMORY` when set.
+- Treat local depiction memory as the first source for common drawing conventions. After resolving `$CHEM_ROOT`, use `export CHEMDRAW_DEPICTION_MEMORY="$CHEM_ROOT/.chemdraw-depiction-memory"` and initialize it once per study or delivery root with `"$CHEM_PYTHON" "$CHEM_SKILL_DIR/scripts/depiction_memory.py" init`. Keep that explicit setting for every `lookup` and `record`; newly recorded structures and templates stay in this memory directory, never in the skill's built-in catalogs or the caller's Git checkout for research work.
 - The built-in memory contains two independent 50-entry catalogs: `common` for high-frequency carbocyclic/heterocyclic structures and `ligand-scaffold` for recurring ligand skeleton families. The latter spans P(III), P,P/P,N, polypyridyl, oxazoline, diamine, N/O chelates, carbene, pincer, pi, beta-diketiminate, and scorpionate frameworks.
 - A ligand-scaffold entry is an editable donor-topology prototype, not permission to substitute a named commercial ligand for the source structure. Read `variable_sites`, rebuild every source-specific substituent, and retain the catalog's donor-pocket direction and conventional core orientation. In Strict or automatic mode a ligand still requires strict validation; an explicit Quick command may use the prototype immediately but the result must remain a quick draft.
 - Tetrahedral ligand prototypes carry isomeric SMILES, wedged MOL coordinates, and CIP read-back. Entries marked `chirality.encoding: visual-only` (axial, spiro, or ferrocene-planar) must never be mirrored automatically and require comparison with a stereochemically explicit source plus native ChemDraw review. Entries marked `native_review_required` retain that requirement even when a connectivity/orientation MOL is present.
@@ -96,22 +109,22 @@ Use a CSV with:
 name,smiles,expected_cip,template_mol,depiction_reference_url,literature_examples,literature_consensus,source_url,source_id,source_role,secondary_source_url,secondary_source_id,accessed_at,confidence,representation_limits,note
 ```
 
-Run:
+Use the absolute variables resolved in **Environment and outputs** for all commands below; create the input CSV or layout JSON under `$CHEM_OUTPUT_DIR` before running. For resolved structures, run:
 
 ```bash
-"$CHEM_PYTHON" scripts/create_chemdraw_structures.py input.csv outputs/my_structures
+"$CHEM_PYTHON" "$CHEM_SKILL_DIR/scripts/create_chemdraw_structures.py" "$CHEM_OUTPUT_DIR/input.csv" "$CHEM_OUTPUT_DIR/my_structures"
 ```
 
 For one-panel reconstruction, prefer:
 
 ```bash
-"$CHEM_PYTHON" scripts/finalize_chemdraw_panel.py layout.json outputs/panel --stem panel
+"$CHEM_PYTHON" "$CHEM_SKILL_DIR/scripts/finalize_chemdraw_panel.py" "$CHEM_OUTPUT_DIR/layout.json" "$CHEM_OUTPUT_DIR/panel" --stem panel
 ```
 
 For Quick mode, always add `--quick`:
 
 ```bash
-"$CHEM_PYTHON" scripts/finalize_chemdraw_panel.py layout.json outputs/panel --stem panel --quick
+"$CHEM_PYTHON" "$CHEM_SKILL_DIR/scripts/finalize_chemdraw_panel.py" "$CHEM_OUTPUT_DIR/layout.json" "$CHEM_OUTPUT_DIR/panel" --stem panel --quick
 ```
 
 Quick mode requires only a well-formed CDXML, expected editable object counts, and preservation of supplied visible text. It intentionally skips native round trip and full chemical identity/stereochemistry validation. Label it `quick-draft`.
