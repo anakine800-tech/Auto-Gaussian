@@ -1,0 +1,167 @@
+# TS 搜索与频率审阅
+
+## 要点
+
+- 用于主族闭壳层同一势能面的 TS 候选优化与频率审核；通过本卡只得到方向经审阅的一阶鞍点候选，路径验证还需 IRC。（[见第 1 节](#1-适用范围)）
+- 机理假设须已签字，结构与代表集合已确认，目标原子对及映射明确；失败搜索不等于该机理不存在。（[见第 2 节](#2-前置条件)）
+- 提交前展示结构、立体警告、方法依据、完整 route、资源、walltime、远程目录与输入哈希，按 Study 流程取得聊天批准记录、匹配长期规则或 Mac 人工确认。（[见第 5 节](#5-提交前检查清单)）
+- Opt 和 Freq 须完整收敛，按原始负频计数恰好一个虚频，并人工审核协调的目标键变化；不能删小负频凑数。（[见第 6 节](#6-结果判据清单)）
+- 中断优化没有 Freq 时不能用 RCFC 接续；缺少 `final_input.xyz` 或 chk 不可读时停止报告，不猜几何或自动重提。（[见第 7 节](#7-常见失败与处理)）
+
+## 1. 适用范围
+
+主族闭壳层、同一势能面的过渡态候选优化与频率审核。适用于已审阅的初猜；不做自动反应发现、金属、开壳层或跨自旋面搜索。通过本卡只得到方向经审阅的一阶鞍点候选，路径验证还需 [IRC](irc.md)。
+
+## 2. 前置条件
+
+[机理假设](reaction-plan.md)已由人签字，目标步骤、反应物/产物身份和原子对应明确；结构与代表构象集合已确认。预先列出正在形成、断裂或迁移的原子对（按输入行号，从 1 开始），并说明方法依据、溶剂、电荷、多重度。
+初猜生成、来源登记和 G0 诊断见 [ts-guess](ts-guess.md)；统一入口、覆盖与结果归属见 [ts](ts.md)。本卡负责 TS 优化、完整频率与振动方向，不能单独给出路径验证结论。
+
+## 3. 输入模板
+
+下列 Link0 数值、档位和 walltime 仅为输入骨架示例，须按所选入口与已审阅资源替换。`%nprocshared`、`%mem` 可省略，由 prepare 按实际档位补齐；显式核数须匹配档位，内存仍检查不超过档位的 85%。
+
+方法/基组：见 [acceptance-methods.md](../../auto-g16-study/references/acceptance-methods.md)。
+骨架中的 `<方法/基组>` 必须按已审阅方案替换，并补齐适用的色散与溶剂设置。
+
+Hessian 策略是按体系与成本选择的可选路径，不强制两阶段计算：
+
+- **路径 A**：直接在完整方法下做 `Opt=(TS,CalcFC) Freq`，初始 Hessian 与目标势能面一致，
+  是稳妥的基线路径；初始完整 Hessian 的成本较高，最终 Freq 仍不可省。
+- **路径 B（较大体系推荐）**：先用小基组做 `Opt=(TS,CalcFC) Freq`，
+  例如方法表中不含弥散的同泛函组合，具体组合及适用性由计算方案签字确定。
+  审核恰好一个虚频且方向正确后，以它为父 Attempt，通过下述 `--parent-chk`
+  和 `Opt=(TS,RCFC) Freq` 在完整方法下重新优化并计算最终频率；
+  显式坐标取父 `final_input.xyz`，沿用下述取向和父 chk 校验。
+  小基组 TS 只作中间步骤，不进入剖面；完整方法仍按方法表保留所需弥散、色散与溶剂，
+  其最终 TS 必须重新满足第 6 节，后续 IRC 使用完整方法的 TS 与 Hessian。
+
+单结构基础 route 为 `opt=(ts,calcfc) freq`。以下仅为[研究方法](../../auto-g16-study/references/acceptance-methods.md)的输入骨架，填入已审阅的显式坐标，保留空行；正式方法须另有文献依据或明确兜底声明。
+
+```text
+%chk=ts.chk
+%nprocshared=8
+%mem=10GB
+#p <方法/基组> opt=(ts,calcfc) freq
+
+<TS 步骤与构象编号>
+
+<charge> <multiplicity>
+<element> <x> <y> <z>
+
+```
+
+阴离子弥散、色散和溶剂按方法表及已签方案填写，展示最终完整 route。决定结论的关键能垒按方法表
+做不同类型泛函的单点敏感性，包含 TS 和完整参考物种；连接到 [profile](profile.md)。`NoEigenTest` 仅在初始 Hessian 已确认有且只有一个负本征值、且对应目标反应方向时使用，在 review 和提交摘要写明曲率/初猜诊断依据及理由；它关闭优化中的曲率检查，不免除最终 Hessian、虚频数量和方向审阅，不能作为常规默认。
+
+```text
+ag prepare --study <study_id> --template gaussian --input <ts.gjf> --tier simple --walltime 24:00:00 --label ts-c01 --card ts-search --method-basis <文献先例 DOI 及位置 / 本课题既有方案及来源（不是文献先例，精度未经验证） / 兜底方法声明>
+```
+
+有真实上游 Attempt 才使用已有 `--parent` / `--relation` 参数；人提供的外部结构在 study 记录来源，不虚构 parent。复用父 chk 时，同时声明 `--parent <parent_id> --relation ts_from --parent-chk <parent_id>:<父输入中声明的chk文件名>`。父 Attempt 必须为 finished/fetched，submit 确认前和确认后都核对调度器中已无该作业；父子必须在同一集群。
+
+例如经审阅可复用波函数与力常数时，使用以下 Link0/route 替换上面的相应行，标题、电荷多重度和**显式坐标仍须写在输入中**：
+
+```text
+%oldchk=parent.chk
+%chk=ts-reuse.chk
+%nprocshared=8
+%mem=10GB
+#p <方法/基组> guess=read opt=(ts,rcfc) freq
+```
+
+RCFC 需要父 chk 中确有适用的力常数；仅复用波函数可用 `guess=read opt=(ts,calcfc) freq`。核对父 chk 的方法、几何、原子顺序、电荷与多重度是否适用；哈希相同不代表科学上适用。`Geom=Check` 和 `Geom=AllCheck` 继续拒绝，`%chk` 必须不同于固定的 `%oldchk=parent.chk`。
+
+RCFC 读取父 Freq 保存的 Cartesian Hessian；`Opt=(TS,ReadFC)` 可在内部坐标兼容、
+力常数来源明确时选用，不能把它和 RCFC 当成无条件互换的同义词。
+路径 B 采用完整小基组 Freq 的 Hessian，不把优化更新的近似 Hessian 冒充它。
+更换基组时，`Guess=Read` 是否适用须单独审阅；只复用 Hessian 时可移除该选项。
+选项语义见 [Gaussian Opt 手册转载](https://www.conflex.co.jp/gaussian_support/opt.php)，使用前核对实际版本。
+
+RCFC/ReadFC 复用时，先对父 Attempt 运行 `ag facts`，显式坐标取
+`final_input.xyz`（最终几何的 Input orientation，去掉 XYZ 前两行），保持原子顺序，
+不能直接拿通常为 Standard orientation 的 `final.xyz`。facts 分别记录取向；
+未打印 Input 表时不臆造该文件，须核对原日志或改用 CalcFC。
+prepare 已对 `--parent-chk` + RCFC/ReadFC 按固定原子顺序校验输入与父作业 `final_input.xyz` 的坐标，每个原子的偏差
+不得超过 1e-4 Å，不做旋转/平移对齐。旧导出文件相同则沿用，不同则停止人工核对。
+若后续要复用本 TS 的力常数，可在计算该 TS 时加入 `nosymm`，使两种取向一致；
+父 route 已带 `nosymm` 时可取任一导出坐标，仍须匹配父几何。
+仅在子作业加 `nosymm` 不能修正父 chk 已有的框架；取向匹配不替代力常数适用性审阅。
+
+prepare 只做本地声明；submit 在授权前只读取得父 chk 大小与 SHA256，并显示父 ID、来源文件名、大小、哈希前 12 位及目标 parent.chk。确认后专用操作独占创建副本，源/目标哈希都须等于确认值；父文件只读。远端需 Python ≥ 3.6 和 Linux /proc 支持固定描述符助手，缺少即停止；先运行 `ag doctor --cluster <cluster>` 查看 Python 版本和 /proc 支持。复制失败、255、超时或哈希改变均记 failed_presubmit，不 qsub、不重试、不删除副本；报告后由人决定新 Attempt。
+
+### 父 checkpoint 本地证据
+
+复用前可用 `ag parent-chk-report <父Attempt> --study <study目录> --out analyses/<新报告>.json --json` 汇总证据；已有子 Attempt 时可加 `--child <子Attempt>`。study 必须为现存目录，输出同时独占创建 JSON/Markdown，不能覆盖。
+报告分别列出日志频率执行事实、checkpoint 历史关联和科学适用性；`internal_force_constants` 始终为 `unverified`，`scientific_suitability` 始终为 `requires_human_review`。它不读取 chk/fchk、不运行 formchk、不访问远端，也不更改 prepare/submit。
+缺频率、分段歧义或坐标不符须逐项审阅；退出码 0 只表示报告生成。固定行坐标吻合不能证明同元素身份，复制哈希不能证明内部力常数可用。字段和来源限制见 [父 chk 报告](../../../docs/parent-chk-report.md)；报告不替代本节的力常数/方法/取向审阅。
+
+## 4. 资源建议
+
+小体系先评估 simple，规模或实测耗时支持时评估 general；complex 等高档位说明具体资源理由。核数、内存与可用档位以所选入口的实际配置和 `ag clusters --json` 为准，不把旧默认档位数值当作所有入口的资源。
+T154 允许省略 `--tier` 时使用所选入口已配置的 `resources.default_tier`；显式档位优先，没有默认值仍须选择档位。`ag route` 仍要求显式 `--tier`。walltime 另行明确选择，核对入口上限；prepare 按既有节点策略要求核验具体节点与比例，不从档位默认推定节点。
+T156 的 `ag capacity --cluster <入口> --tier <档位> --json` 只读已有本地快照，同一节点的核数和内存须同时可用；缺失、过期或矛盾证据保持 unknown。结果不保证何时启动，也不决定提交许可；详情见 [资源与监控说明](../../../README.md)。
+CalcFC 与 Freq 均有 Hessian 成本；每个 TS 构象分别估计，不把加核当作收敛修复。
+
+`MaxCycles` 只限制步数，不能保证不超 walltime。按
+`walltime ≥ 1.3 × (t_CalcFC + t_step × MaxCycles + t_Freq)` 估算，
+各项须用本体系**首个作业实测校准**，不能外推小分子的耗时；计入额外 Hessian 重算成本。
+
+## 5. 提交前检查清单
+
+- 假设签字、初猜来源、目标成键/断键原子对、构象覆盖与原子映射均明确，结构无未解释近接触。
+- 身份、电荷、多重度、立体化学与目标一致；route 的方法、色散、溶剂与比较物种一致。
+- 坐标和占位符已替换；核数匹配档位，内存不超过 85%，chk 仅文件名；当前输入不依赖尚未支持的额外段；使用父 chk 时核对附件声明和确认摘要。
+- 按 [确认摘要](../../auto-g16-study/references/confirmation-summary.md)展示结构、立体警告、方法依据、完整 route、资源、walltime、远程目录、输入哈希；按 Study 流程取得聊天批准记录、匹配长期规则或 Mac 人工确认。
+
+按本节审阅完整摘要后，由现行 Study 流程取得授权，再运行 `ag submit <新Attempt>`；批准记录或长期规则分别显式加 `--approval <批准ID>` 或 `--policy <规则名>`，其余由人点击 Mac 对话框。不能从 G0 或父 chk 报告推定授权。每个 Attempt 至多提交一次，UNKNOWN 仅只读核对；见 [AGENTS.md 3.1–3.5](../../../AGENTS.md)。
+
+## 6. 结果判据清单
+
+- `termination=normal`、`opt_converged=true`、`freq_step_converged=true`；缺失/不通过则读原日志，不能推定通过。Opt 和 Freq 都已完成，完整模式数应为非线性 3N−6 / 线性 3N−5。
+- **恰好一个虚频**：`n_imag=1`，按原始负频计数，小负频也不能删掉凑数。零或多个虚频均不满足 TS 判据。
+- **低频残余**：记录末次已完成频率段的 `Low frequencies ---` 第一行及原日志行号，核对平动、转动残余。
+  TS 的真实虚频可能排在这些残余之前，软振动也可能混排；必要时连同后续行及投影后的频率、模式辨认，
+  不能把首行所有数都当残余或按数值大小直接删除真实虚频。依据：[Gaussian 振动分析说明 §2.1](https://gaussian.com/wp-content/uploads/dl/vib.pdf)。
+  **辨认出的平动、转动残余**绝对值超过约 20 cm⁻¹ 时，在 review 标为“残余偏大”，提示几何收敛或积分网格可能不足、
+  热化学中的低频熵不可信，不直接接受；提出更严收敛标准或积分网格重新优化并做 Freq 的新 Attempt，经人确认后提交。
+  缺该行或无法区分模式则写缺证据。它不是 `facts.json` 的 `frequencies_low`（cclib 提取的最低几个振动频率），不能用该字段代替。
+- **振动方向对应目标键变化**：逐项核对 `facts.json` 的 `imag_modes[].pairs[].atoms`、`elements`、`distance`、`distance_change_rate` 与目标原子对。全局振动正负号任意，须查看同一方向上成键缩短/断键伸长等协调变化，不能仅靠频率大小或单个符号判断。
+- 当前 `imag_modes` 只列距离小于 3.5 Å 的原子对中变化率绝对值最大的五对；缺目标对并不证明它不动。先用 `ag mode-review <attempt> --study <dir> --pair 1-2 --pair 2-3 --mode 1 --amplitude 0.3 --out analyses/mode-review.json`（替换为目标原子编号，输出须为新文件）报告目标对距离变化并导出正负位移 XYZ，再人工审核协调方向；振幅为最大原子位移 Å，模式按频率升序编号。取向或频率段证据不足时写不通过并停下，命令不判定反应坐标是否正确。
+- 出现长键、断键、强电荷转移、SCF 多个解或近简并迹象时，审查电子态并提出独立 Stable 诊断，按 [失败诊断](failure-diagnosis.md#电子态与-stable-诊断) 审阅 T30 的 `wavefunction_stability` 及原文行；未诊断不算稳定，稳定也不证明闭壳层方法足够。需要非限制性或多参考方法时明确超出本卡范围。
+- 确认最终身份与预期一致；柔性 TS 列出审阅过的构象和未覆盖部分，不将单个 TS 的能量直接当作唯一反应能垒。
+- 可用 [TS 立体标签](../../auto-g16-structures/SKILL.md#ts-立体标签) 按已签参照产物与原子映射标注构型并核对催化剂，通道建议须人工确认，不替代本节判据。
+- `review.md` 写清判据、事实位置与人的方向审核意见；更新 study 假设。IRC 按各产物分支内部的重要性和结构新颖性安排，不按全局权重；暂缓的候选仍为“未验证”。未双向完成并识别端点不能写“已验证 TS/机理”。
+
+IRC 的分支选择、五类必做情形和两端独立 Opt+Freq 统一见 [IRC 前置](irc.md#2-前置条件)与[逐方向判据](irc.md#6-结果判据清单)。暂缓的仍为未验证；双向完成及端点身份明确之前，不登记已验证 TS/机理。结果归属和分岔处理回到 [TS 入口](ts.md#ts-初猜工作流)。
+
+## 7. 常见失败与处理
+
+**中断后接续：** 被强杀时，先按[失败诊断的“作业被强杀”](failure-diagnosis.md#作业被强杀)
+核对结束证据，显式 `ag fetch <attempt> --incomplete`，再用 `ag facts` 提取 `final_input.xyz`。
+经人审阅后，用该显式几何和父 chk 准备新 Attempt，采用 `Guess=Read Opt=(TS,CalcFC)`，
+重新计算初始力常数并完成最终 Freq；沿用第 3 节 `--parent-chk` 声明、同集群与哈希校验，提交仍须人确认。
+RCFC 只适用于父 chk 中确有 Freq 写入的适用笛卡尔力常数；没有 Freq 的中断优化不能用 RCFC 接续。
+缺少 `final_input.xyz` 或 chk 不可读时停止报告，不猜几何、不自动重提。
+
+零虚频说明落到极小点或尚缺完整证据；多虚频可能是高阶鞍点或软模问题；方向错误可能是另一步反应。分别核对完整输出和结构，重审初猜/构象或假设，转 [失败诊断](failure-diagnosis.md)；提出新 Attempt，等人确认。
+
+起点与目标方向合理但难收敛时，若 Hessian 更新不足，可在方法支持解析二阶导数时用 `RecalcFC=N`
+在第一步及此后每 N 步重算，说明额外 Hessian 成本；若步长过大、优化振荡或越过目标区域，可减小 `MaxStep`。
+参数与依据写进 review，每次修改都作为新 Attempt，经人确认后提交；不能用 `NoEigenTest` 掩盖错误曲率。
+
+不得将 `Stable=Opt` 机械地加到所有计算里；它可能改变电子态，不能以较低能量自动接受新态。
+
+真实作业异常先停止报告；不在原 Attempt 重跑，不用旧 Skill 执行。初猜或不支持的输入问题回到 [初猜卡](ts-guess.md#7-常见失败与处理)。
+
+## 8. 常见坑
+
+知识衔接：[GKB-0431、GKB-0422：TS 验证与优化排障](../../auto-g16-gaussian-learning-library/references/core-job-types.md)。
+
+以下科学经验改写自 [archive/skills/auto-g16-ts-irc/SKILL.md](../../../archive/skills/auto-g16-ts-irc/SKILL.md) 的 Safety and scope、Workflow、Interpretation gates；仅追溯经验，不恢复其历史流程：
+
+- Opt 结束时抓到的截断日志不能当作完整 Freq；须查完整模式数及位移。
+- 一个负频只是候选，键变化方向审核和双向 IRC 端点识别不可省略。
+- QST 同元素原子交换也可能改变反应映射；外部映射表不能修复实际输入行顺序。`End of file in ZSymb` 后不要反复试换空行提交。
+- 父 chk、几何和原子顺序不一致会把 IRC 引向错误起点；RCFC 坐标取 `final_input.xyz`，或预先在父 TS 使用 `nosymm`。副本哈希、对齐 RMSD 及相同起点能量均不能证明坐标框架正确。
+- 解离片段的近自由平移/转动可能导致优化困难，不默认把多个孤立片段当普通单分子极小点。

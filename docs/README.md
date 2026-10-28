@@ -23,6 +23,7 @@ v4.0.0 起，从这一页进入仓库文档。先按身份找到自己的入口�
 3. `skills-next/auto-g16-study/references/acceptance-methods.md`：方法、基组、筛选窗口与热化学设置的唯一来源。
 4. `skills-next/auto-g16-study/references/study-md-template.md`：新 study 的 `study.md` 模板。
 5. `skills-next/auto-g16-structures/`：结构读入、立体化学审阅和构象工作流。
+6. [TS 总入口](../skills-next/auto-g16-recipes/cards/ts.md)：按[初猜](../skills-next/auto-g16-recipes/cards/ts-guess.md)、[搜索/Freq](../skills-next/auto-g16-recipes/cards/ts-search.md)、[IRC/端点](../skills-next/auto-g16-recipes/cards/irc.md)选择阶段卡，旧 Attempt 快照不改。
 
 ## Codex 开发
 
@@ -46,4 +47,5 @@ v4.0.0 起，从这一页进入仓库文档。先按身份找到自己的入口�
 - [research/](research/)：改造期的调研记录。
 - [ORCA 接入调研](research/orca.md)：许可、模板、解析、DLPNO 资源证据与分期建议。
 - [仓库瘦身评估](research/repo-slimming.md)：文档、测试、脚本与卡片的候选清单及风险。
+- [TS 初猜工具指南整理版](../skills-next/auto-g16-recipes/references/ts-initial-guess-guide.md)：已核对 v4.6.0 使用指南原稿的来源、章节去向与过时说明更正；与开发交接规格区分。
 - `archive/`：v3 及更早版本，冻结，不修改、不引用为规则。

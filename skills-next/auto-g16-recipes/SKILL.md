@@ -11,7 +11,9 @@ description: 为 ag 新架构提供 Opt+Freq、单点、RDKit 或 CREST 初筛�
 |---|---|---|
 | [reaction-plan](cards/reaction-plan.md) | 主族闭壳层同面机理假设与修正 | 明确科学问题；假设需人签字后才能推进依赖计算 |
 | [complex](cards/complex.md) | 双分子步骤、反应物/产物复合物与离子对；仅已审阅原子对约束采样 | 已签机理假设、计算方案及各组分身份；原子对已审阅 |
-| [ts](cards/ts.md) | TS 初猜工作流、已审阅初猜的 TS 优化与振动审核 | 已签机理假设、结构与代表构象集合 |
+| [ts](cards/ts.md) | TS 阶段导航、共用判据、结果与覆盖登记 | 已签机理假设、结构与代表构象集合 |
+| [ts-guess](cards/ts-guess.md) | 扫描/端点/手工/文献初猜、来源登记与 G0 诊断 | 原子对应、目标坐标和科学方案明确 |
+| [ts-search](cards/ts-search.md) | 已审阅初猜的 TS 优化、频率与振动方向审核 | 初猜已审阅；方法和资源已明确 |
 | [irc](cards/irc.md) | 双向路径与端点极小点识别 | 已接受 TS 与振动方向；缺能力或证据时记录具体阻塞 |
 | [opt-freq](cards/opt-freq.md) | 主族闭壳层单分子极小点 | 已签结构与代表构象集合、已定方法 |
 | [sp](cards/sp.md) | 同一物种极小点的电子能精化 | 已接受的 Opt+Freq 最终几何 |
@@ -24,6 +26,8 @@ description: 为 ag 新架构提供 Opt+Freq、单点、RDKit 或 CREST 初筛�
 | [failure-diagnosis](cards/failure-diagnosis.md) | 已有结果的诊断与新 Attempt 建议 | 本地 facts、输出及原输入 |
 
 每张卡片固定八节：**适用范围、前置条件、输入模板、资源建议、提交前检查清单、结果判据清单、常见失败与处理、常见坑**。本地任务不产生提交，但仍按第 5 节检查分析输入。
+
+[TS 初猜工具指南整理版](references/ts-initial-guess-guide.md)保留 v4.6.0 原稿的来源、工具分工和更正索引；执行与科学审阅仍从 [TS 卡片](cards/ts.md)进入。
 
 所有卡片的签字步骤均为“先生成清单，再签字”：先在 study.md/review.md 以明确本地路径引用分析输出，运行 `ag review manifest --study <dir>`，展示生成的清单，再请求人签字。将清单相对路径及命令返回的 SHA-256 记入签字记录；清单覆盖全部 facts.json、review.md 和被引用的分析输出，生成成功不代表科学接受。后续证据变化时保留旧清单，重新审阅并生成新清单。
 

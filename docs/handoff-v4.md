@@ -70,18 +70,19 @@ v4.2.2 汇总 v4.2.1 后已合并的 T73–T77：topology 不确定接触修复�
 
 ## 已知问题与后续工作
 
-- catalog v2 升级不可降级；`ag g0` 只按元素序列核对原子顺序，同种元素互换查不出来，立体标签须来自完全相同的几何，频率段歧义会使批量诊断整体报错；`ag scan-path` 仅支持一维扫描。
-- G0 模式分析的 xTB Hessian 来源在 T138 范围外，留待后续工作。
-- ts 卡接近放宽后的 400 行上限；再加内容前拆分，将“TS 初猜工作流”移至单独卡片或参考文档。
+- catalog v2 升级不可降级；T162 已提供 [G0 显式原子对应](g0.md#显式原子对应t162)，reference/frequency 分别绑定来源。缺映射保持身份未核实、缺有效 frequency 映射不投影；`declared_verified` 只证明声明通过，不证明化学身份，也不新增提交门槛。立体标签仍须来自完全相同的几何。[T162 #359](https://github.com/anakine800-tech/Auto-Gaussian/pull/359)
+- T161/T162 批量在频率分段歧义或可定位到候选的映射声明/绑定错误时保留成功项，单列错误并返回 2，且不写任何候选事件；来源本身损坏等完整性错误仍停止。`ag scan-path` 仅支持一维扫描。[T161 #352](https://github.com/anakine800-tech/Auto-Gaussian/pull/352)
+- T163 已归档 [xTB Hessian 来源与本地导入规格](research/xtb-hessian-import.md)，并对齐 T162 映射接口；导入器仍未实现，真实配套文件、同框架几何和数值边界仍须补齐。G0 的 frequency 目标继续只接受 Gaussian，不能把 xTB `g98.out` 或 analyses 标识伪装成 Gaussian Attempt。[T163 #355](https://github.com/anakine800-tech/Auto-Gaussian/pull/355)
+- [TS 总入口](../skills-next/auto-g16-recipes/cards/ts.md)保留兼容锚点和核心判据，按[初猜](../skills-next/auto-g16-recipes/cards/ts-guess.md)、[搜索/Freq](../skills-next/auto-g16-recipes/cards/ts-search.md)、[IRC/端点](../skills-next/auto-g16-recipes/cards/irc.md)拆分；各卡恢复统一 285 行上限。[原指南整理稿](../skills-next/auto-g16-recipes/references/ts-initial-guess-guide.md)标注来源与过时说明，未改旧 Attempt 快照。
 - T127 仍串行采样；经转发时单条 SSH 约 10–20 秒、一轮可能 100–150 秒。重试启动需等待当前入口完成，新快照还需目标入口自身采样时间；电脑睡眠时停采，醒来自动恢复，首轮网络未就绪可能失败或退避。部署按 OPERATIONS 的睡眠判断与观察标准记录。
-- **T127 尚未解决：** `MonitorTransport._execute` 复制基类逻辑，后续补测试核对超时文案和返回结构，防止以后只改基类；本发布单不改功能。[#329](https://github.com/anakine800-tech/Auto-Gaussian/pull/329)
+- **T127 Transport 重复逻辑已由 T130 解决：** 当前 `MonitorTransport._execute` 通过 `super()._execute(..., observe_stderr=classify)` 复用基类执行与错误处理，仅在脱敏前分类错误；`ag/tests/test_connect_timeout.py` 已覆盖与基类的返回结果、超时及本地启动失败一致性。监控仍不立即重试，串行采样及睡眠恢复限制见上一条。[T130 #332](https://github.com/anakine800-tech/Auto-Gaussian/pull/332)
 - 前端证据库冷启动已有测量约 2.5 秒，source-map-js 临时 override 待上游修复后删除。
 - 后续允许 Slurm 入口未配置 Gaussian 时仍运行 xTB/CREST；CREST 异常结束时读取 stderr，以补全诊断。本次不修改配置校验或解析逻辑。
 - T108 facts 语义、T109 等价原子映射与 `--mirror report`、T112 doctor 独立 PBS 集群误报均已修复；既有 facts 是否重算及 catalog 是否补登记，由负责人逐 study 决定，不自动改写证据。
 - **C 批：TS 初猜工具链（T130–T139）已完成。** `ag catalog` v2（[#334](https://github.com/anakine800-tech/Auto-Gaussian/pull/334)）、`ag scan-peak --gaussian-ts --route`（[#335](https://github.com/anakine800-tech/Auto-Gaussian/pull/335)）、`ag qst-endpoints`（[#336](https://github.com/anakine800-tech/Auto-Gaussian/pull/336)）、`ag scan-path`（[#337](https://github.com/anakine800-tech/Auto-Gaussian/pull/337)）、`ag g0` 与模式投影（[#338](https://github.com/anakine800-tech/Auto-Gaussian/pull/338)、[#339](https://github.com/anakine800-tech/Auto-Gaussian/pull/339)）、`ag profile` 的最低 TS / 系综 / 差值三数报告（[#333](https://github.com/anakine800-tech/Auto-Gaussian/pull/333)）、卡片口径（[#340](https://github.com/anakine800-tech/Auto-Gaussian/pull/340)）和连接超时（[#332](https://github.com/anakine800-tech/Auto-Gaussian/pull/332)）均已合并；前端通道与候选只读面板见 [#40](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/40)。诊断和登记不是门禁或科学验收。
 - 路由建议不考虑 walltime；超算公共分区几乎总有他人排队，通常被判为“没地方”，不保证实际启动。
-- 父 chk 的频率来源与可用力常数仍依赖卡片和人工审阅，程序未强制检查；不能从已有坐标框架检查推断力常数可用。
-- CP 溶剂相片段单点：`cp-report --solvent-sp` 目前只有复合物单点输入，缺两个片段 SMD 能量时相互作用能未知。后续支持两个片段在复合物几何下、使用自身基组的 SMD 单点；不以气相值代替。[#312](https://github.com/anakine800-tech/Auto-Gaussian/pull/312)
+- T164 已提供[父 chk 本地报告](parent-chk-report.md)，分别汇总实际频率日志、历史 checkpoint 关联和坐标来源；不读取 chk/fchk，内部力常数仍为 unverified，科学适用性仍由人审。它不改变 prepare/submit，不把坐标匹配或复制哈希当作 RCFC 可用证明。[T164 #358](https://github.com/anakine800-tech/Auto-Gaussian/pull/358)
+- T165 已支持 `cp-report --solvent-sp` 配合两项 `--solvent-fragment-sp <index>:<attempt>`，读取复合物几何下、片段自身基组的既有 SMD 单点。缺任一片段时相互作用能仍为 null；齐全时报告差值及加气相 BSSE 的近似值，不是结合自由能，不进入 thermo/profile。只完成合成组合验证，未新增配套真实 SMD 验证；详见 [CP 报告](ag-cp-1.md#已有片段-smd-单点t165)。[T165 #356](https://github.com/anakine800-tech/Auto-Gaussian/pull/356)
 - T62 远程观察改动在真实运行中出现 unreadable，已由 T65 回退；T65 评论确认观察路径恢复，现场根因尚未确定。旧 receipt/普通输出观察对权限与缺失的判断局限仍在；带诊断信息的观察命令须在非研究 study 上真实验证后再合并。[#281](https://github.com/anakine800-tech/Auto-Gaussian/pull/281)
 - T68 的 R1 已由 T89 修复：topology / irc-compare 识别固定编号下的共振等价；失败或超限保留 `unknown`，仍检查立体化学，共振等价不是电子密度证据。R2 已由 T73 修复，不确定接触不再单独把状态提升为 changed；确定变化仍列出。不要只凭总电荷、顶层状态或空差异列表签字，需结合原子映射、警告与结构审阅。[T89 #303](https://github.com/anakine800-tech/Auto-Gaussian/pull/303)、[T73 #288](https://github.com/anakine800-tech/Auto-Gaussian/pull/288)
 - T77：其他用户的 PBS 数组作业不再阻断本人核数统计、提交和监控；本人数组（含已完成但仍保留在 qstat 中的 C 记录）仍拒绝提交，`ag monitor` 也会报错，须等记录消失后再提交。ag 不提交或取消数组作业。[#291](https://github.com/anakine800-tech/Auto-Gaussian/pull/291)
@@ -98,7 +99,7 @@ v4.2.2 汇总 v4.2.1 后已合并的 T73–T77：topology 不确定接触修复�
 - **已完成：** F1、F2、S1、S9、U3、U5（T36–T40、T46）；F3 动力学解释卡、S7 隧穿适用边界、S8 SMD/标准态核对、F4 核时估算与记录说明、Gaussian 报错速查（T58；不新增隧穿程序或核时额度拦截）。
 - **未完成，第二批：** U1 跨卡片重复段落；U2 拆卡（扫描单独成卡、crest-screen 拆分、profile 拆分）；U7 长句。U4 卡片要点和 F6 阶段决策表补行已由 T81 / T79 完成。
 - **已提供，使用设定仍需审阅：** F5 的定向构建与系统枚举已由 T86 / T90 完成；不自动选位点、进攻面或采样范围。
-- **推迟到第二阶段：** S2 几何层与阴离子基组；S4 质子转移与酸碱平衡；S5 高层级方法抽查（双杂化或 DLPNO，依赖 ORCA 的决定）。S10 已由 T105 提供固定两片段的气相 Counterpoise 诊断；G16 A.03 实测拒绝 CP/SCRF，溶剂相片段单点仍待扩展。
+- **推迟到第二阶段：** S2 几何层与阴离子基组；S4 质子转移与酸碱平衡；S5 高层级方法抽查（双杂化或 DLPNO，依赖 ORCA 的决定）。S10 已由 T105 提供固定两片段的气相 Counterpoise 诊断，T165 接入独立 SMD 片段单点的本地组合；G16 A.03 的 CP/SCRF 同作业限制仍保留，范围及验证边界见上文 CP 条目。
 - **部分完成：** S3 已有 σ 报告和修订版一致性检查，但 study 里没有强制写定 σ 约定；S6 已写明“端点只证明连接”，profile 卡片尚未专门补充。
 - **尚未开始：** 每周清理（AGENTS §4.3）。
 
