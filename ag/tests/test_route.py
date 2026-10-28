@@ -76,6 +76,26 @@ def test_default_then_newhpc(routed):
     assert '空闲核数不足' in ' '.join(row(result)['reasons'])
 
 
+@pytest.mark.parametrize('status_,selectable,option_selectable,expected', [
+    ('occupied', True, True, True), ('available', False, True, False),
+    ('occupied', None, None, False), ('available', None, None, True),
+    ('occupied', True, False, False)])
+def test_target_candidate_optional_selectability(routed, monkeypatch, status_, selectable,
+                                                option_selectable, expected):
+    from ag import node_targeting
+    routed['clusters']['default']['node_targeting'] = dict(
+        allowed_nodes=['compute-a'], denied_nodes=[], restricted_nodes=[], priority=[['compute-a']])
+    option = dict(tier='general')
+    candidate = dict(status=status_, options=[option])
+    if selectable is not None:
+        candidate['selectable'] = selectable
+    if option_selectable is not None:
+        option['selectable'] = option_selectable
+    monkeypatch.setattr(node_targeting, 'candidates', lambda *a, **kw: dict(nodes=[candidate]))
+    reasons = row(suggest(routed))['reasons']
+    assert ('没有满足此档位的具名节点候选' not in reasons) is expected
+
+
 @pytest.mark.parametrize('kind', ['others', 'total', 'queue', 'running', 'single', 'memory', 'not-free'])
 def test_capacity_reasons(routed, kind):
     data = snapshot(routed, 'default')

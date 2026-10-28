@@ -400,6 +400,11 @@ TS 必须恰好一个虚频且振动方向与反应坐标一致；只有双向 I
 ## 前端
 
 ag 4.6.3 配合前端 [Auto-Gaussian-Frontend](https://github.com/anakine800-tech/Auto-Gaussian-Frontend) v4.6.3 使用；前端 T147 修正 Slurm Other/Idle 和四项页面反馈，T151 按入口、来源及请求标识展示采样终态。T153 独立同步前端包元数据、运行时与网页包版本，配套验收待其完成；启动方式见其 README。T145 具名 PBS 节点能力仅对显式配置入口启用，必须明确选择节点；分组、实时复查与现场限制见 [节点说明](docs/T145-node-targeting.md)。发布候选须经审阅后按明确授权发布，部署与真实计算分别验收。
+
+T157 允许具名 PBS 节点已有本人/他人作业或具名排队时申请合法档位；半数/四分之一仍按注册总 slots 映射。
+`ag nodes --json` 的节点和比例选项新增 `selectable` / `selectable_reason`，选项附 T156 `capacity`；occupied 状态保持原意。
+总规格合法但当前资源不足可排队，分配内存未知仅作容量提示；精确身份、总规格、状态、一致性及两次提交复查仍必需。
+旧前端可继续保守禁选，T158 接续可选性展示；不改旧 manifest、脚本或 bundle。历史快照仅核对过期/未知与状态解释，未实测 PBS 并行共享。
 历史字段兼容性核对（前端提交 `e224d5a`）：结果表读取 `route`、`termination`、`energies.scf`、`energies.g`、`n_imag` 和 `frequencies_low`，这些字段未改名或删除；缺失值显示为空。
 分析页将 profile 作为完整 JSON 展示，没有专用剖面字段依赖。`ag-facts/1` 和 `ag-profile/1` 保持不变，新增字段不影响读取；分段解析修正可能改变旧值，不能把字段兼容理解成重新解析后数值必然不变。
 默认只读，读取本地 study、结果与保存的监控快照。`--enable-actions` 显式开启经本机 ag 执行的准备、提交、状态刷新、取回和取消；不绕过 ag 的提交授权核对或取消确认，也不直接执行远程命令。
