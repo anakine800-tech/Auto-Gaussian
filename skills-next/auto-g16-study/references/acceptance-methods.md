@@ -16,13 +16,21 @@
 
 ## 本组依据与输入关键词
 
-[本组先例](../../auto-g16-literature/references/group-literature.md)：
-DOI `10.1021/jacs.2c00962`、`10.1021/jacs.4c09067` 的 Computational details
-（原清单未保留精确 SI 页码）均记录 ωB97X-D/6-31G(d) 与
-ωB97X-D/def2-TZVPP 两层方案。在 5 篇 SI verified 中，该完整基组组合出现
-2 次，ωB97X-D 单点出现 3 次；“最常用”仅限此清单。
-2024 JACS 记录优化也加 SMD；当前两层 SMD 是据此选定。
-弥散优化、统一弥散单点与筛选窗口是 T12b 经负责人确认的方案，不冒充直接先例。
+[本组先例](../../auto-g16-literature/references/group-literature.md)的本轮来源复核日期为
+2026-10-29；以下页码从 PDF 首张起按 1 计数，均与印刷 S 页码对应：
+
+| 论文 / 公开 SI（版本） | 可复核位置 | 直接支持的报告及边界 |
+|---|---|---|
+| [10.1021/jacs.2c00962](https://doi.org/10.1021/jacs.2c00962)；[ja2c00962_si_001.pdf](https://ndownloader.figshare.com/files/34320559)，ACS Figshare v1（2022-03-08） | PDF 第 48 页 / S48，§8 Computational Studies，Computational Method；PDF 第 49 页 / S49，Fig. S1 | ωB97X-D/6-31G(d) 优化/频率，ωB97X-D/def2-TZVPP 单点加 SMD；优化溶剂设置及具体 SMD 溶剂未说明。S49 标 353.15 K，S48 说明 GoodVibes、低频熵处理及标准态换算，未给版本或 Head-Gordon 焓修正。 |
+| [10.1021/jacs.4c09067](https://doi.org/10.1021/jacs.4c09067)；[ja4c09067_si_001.pdf](https://ndownloader.figshare.com/files/48677064)，ACS Figshare v1（2024-08-20） | PDF 第 67–68 页 / S67–S68，§14 DFT Calculations，Computational Methods | ωB97X-D/6-31G(d) 优化/频率和 ωB97X-D/def2-TZVPP 单点，两层均加 SMD；298.15 K 热修正与 IRC。方法段未给具体溶剂或项目现行的低频/标准态方案。 |
+
+两篇直接支持的是各自已发表体系的方法报告；用于新研究是类比依据，不能据此声称
+精度已验证或获得研究授权。2024 JACS 的两层 SMD 报告支持现行选择，2022 SI
+未说明优化溶剂设置，不能推定两篇溶剂协议相同。历史 5 篇 SI verified 清单中，
+完整基组组合出现 2 次、ωB97X-D 单点出现 3 次；本轮只复核上述两篇，
+“最常见”仍仅限该历史清单。弥散优化、统一弥散单点与筛选窗口是 T12b 经
+负责人确认的方案，不冒充直接先例。本次仅补来源定位，既定方法、窗口、
+热化学设置和旧研究签字/卡片快照不变。
 
 Gaussian 输入组合只在下表维护；卡片骨架引用本表，流程验收示例也必须与之相符。
 表中未写 EmpiricalDispersion 表示不额外添加该选项，仍保留泛函自身的色散处理。
