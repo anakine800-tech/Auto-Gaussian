@@ -88,11 +88,12 @@ Every writer uses a fresh `STUDY/structures/NAME/` directory and refuses an
 existing name, including a partially written run. Choose a new descriptive name
 for a rerun. Read-only `audit_cartesian_input.py` needs no `--study` option.
 
-Optional GaussView inspection can still use the frozen
-`skills/auto-g16-view-rt-win/scripts/windows_gaussview.py` and
-`gaussview_load_probe.ps1` manually when requested. They are not imported or
-invoked by this Skill. `runtime_config.py` is omitted: no retained operation
-needs its machine paths or remote settings.
+Historical sources for the optional GaussView inspection note are
+[windows_gaussview.py（v3-frozen）](https://github.com/anakine800-tech/Auto-Gaussian/blob/v3-frozen/skills/auto-g16-view-rt-win/scripts/windows_gaussview.py) and
+[gaussview_load_probe.ps1（v3-frozen）](https://github.com/anakine800-tech/Auto-Gaussian/blob/v3-frozen/skills/auto-g16-view-rt-win/scripts/gaussview_load_probe.ps1).
+These links record provenance, not current execution rules. This Skill does not
+import or invoke these frozen files. `runtime_config.py` remains omitted: no
+retained operation needs its machine paths or remote settings.
 
 ## 开题物种核验
 

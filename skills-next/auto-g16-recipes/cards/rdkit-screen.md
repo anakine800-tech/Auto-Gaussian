@@ -90,8 +90,10 @@ coverage 与 cluster 继承 dedup JSON 的 hydrogens（旧文件无字段时为 
 
 ## 8. 常见坑
 
+本节历史来源链接固定到 `v3-frozen`，仅用于追溯经验出处；现行执行以本卡为准，不沿用冻结文档中的流程。
+
 知识衔接：[GKB-0420：局部极小点与构象覆盖](../../auto-g16-gaussian-learning-library/references/core-job-types.md)。
 
-- ChemDraw 显式氢和楔形键丢失会改变立体化学；ETKDG 的手性保持不能修复输入时已丢失的信息。来源：`skills/auto-g16-view-rt-win/references/conformer-workflow.md`。
-- 无四面体手性中心不代表没有轴手性；自动几何仅是初猜。来源：`skills/auto-g16-view-rt-win/references/chemistry-boundaries.md`。
-- 力场能量不能与 Gaussian 电子能或自由能混排。来源：`skills/auto-g16-view-rt-win/references/conformer-workflow.md`。
+- ChemDraw 显式氢和楔形键丢失会改变立体化学；ETKDG 的手性保持不能修复输入时已丢失的信息。来源：[conformer-workflow.md（v3-frozen）](https://github.com/anakine800-tech/Auto-Gaussian/blob/v3-frozen/skills/auto-g16-view-rt-win/references/conformer-workflow.md)。
+- 无四面体手性中心不代表没有轴手性；自动几何仅是初猜。来源：[chemistry-boundaries.md（v3-frozen）](https://github.com/anakine800-tech/Auto-Gaussian/blob/v3-frozen/skills/auto-g16-view-rt-win/references/chemistry-boundaries.md)。
+- 力场能量不能与 Gaussian 电子能或自由能混排。来源：[conformer-workflow.md（v3-frozen）](https://github.com/anakine800-tech/Auto-Gaussian/blob/v3-frozen/skills/auto-g16-view-rt-win/references/conformer-workflow.md)。
