@@ -6,7 +6,7 @@ from hashlib import sha256
 import json
 import re
 
-from ag import attempt, catalog, geometry, mode_review, study as study_paths
+from ag import attempt, catalog, g0_mapping, geometry, mode_review, study as study_paths
 from ag.facts import gaussian_log
 
 
@@ -106,12 +106,11 @@ def wilson_row(coordinates, spec):
     return row
 
 
-def analyze_modes(elements, coordinates, frequencies, displacements, coordinates_spec):
-    """Analyze all negative modes plus the lowest three nonnegative modes.
+def _mode_data(elements, coordinates, frequencies, displacements):
+    """Keep vector integrity checks independent of candidate mapping.
 
-    Indices are 1-based indices in the supplied Gaussian frequency list. The
-    mode's global sign maximizes nonzero sign matches, then the signed sum.
-    An exact tie retains +1. A zero direction d has overlap 0 (no direction).
+    Missing/invalid declarations must not hide zero or damaged vectors that
+    analyze_modes rejected before T162. The selected mode set is unchanged.
     """
     import numpy as np
 
@@ -121,6 +120,25 @@ def analyze_modes(elements, coordinates, frequencies, displacements, coordinates
             or vectors.shape != (len(freq), n, 3)
             or not all(np.isfinite(a).all() for a in (xyz, freq, vectors))):
         raise ValueError('Incomplete or non-finite geometry/frequency/displacement data')
+    order = sorted(range(len(freq)), key=lambda i: (freq[i], i))
+    selected = [i for i in order if freq[i] < 0] + [i for i in order if freq[i] >= 0][:3]
+    for i in selected:
+        if not np.any(vectors[i]):
+            raise ValueError(f'Mode {i + 1} has no nonzero displacement')
+    return xyz, freq, vectors
+
+
+def analyze_modes(elements, coordinates, frequencies, displacements, coordinates_spec):
+    """Analyze all negative modes plus the lowest three nonnegative modes.
+
+    Indices are 1-based indices in the supplied Gaussian frequency list. The
+    mode's global sign maximizes nonzero sign matches, then the signed sum.
+    An exact tie retains +1. A zero direction d has overlap 0 (no direction).
+    """
+    import numpy as np
+
+    xyz, freq, vectors = _mode_data(elements, coordinates, frequencies, displacements)
+    n = len(elements)
     if not isinstance(coordinates_spec, (list, tuple)) or not coordinates_spec:
         raise ValueError('未声明反应坐标')
     specs = [coordinate_spec(s, n) for s in coordinates_spec]
@@ -137,8 +155,6 @@ def analyze_modes(elements, coordinates, frequencies, displacements, coordinates
     for i in negative + reference:
         # Scaling before normalization avoids overflow/underflow in the norm.
         scale = float(np.max(np.abs(vectors[i])))
-        if scale == 0:
-            raise ValueError(f'Mode {i + 1} has no nonzero displacement')
         q = vectors[i] / scale
         q = q / np.linalg.norm(q)
         delta = np.einsum('kij,ij->k', rows, q)
@@ -252,6 +268,7 @@ def read_frequency_attempt(study, attempt_id, *, allow_unavailable=False):
             return None
         raise
     elements, coords, frequencies, displacements, orientation = mode_review.read_modes(block)
+    _mode_data(elements, coords, frequencies, displacements)
     geometry_bytes = json.dumps(dict(elements=elements, coordinates=coords.tolist()),
                                 separators=(',', ':'), allow_nan=False).encode()
     return dict(elements=elements, coordinates=coords, frequencies=frequencies, displacements=displacements,
@@ -261,19 +278,33 @@ def read_frequency_attempt(study, attempt_id, *, allow_unavailable=False):
                             section=section, section_sha256=sha256(block).hexdigest()))
 
 
-def analyze_candidate(elements, coordinates, frequency, coordinates_spec):
-    """Compare element order and report RMSD without transforming any mode."""
-    if list(elements) != list(frequency['elements']):
-        raise ValueError('Candidate and frequency element sequences differ; atom numbering cannot be matched')
-    _, rmsd = geometry.kabsch(coordinates, frequency['coordinates'])
-    if not coordinates_spec:
-        return dict(available=False, reason='未声明反应坐标', attempt=frequency['attempt'],
-                    aligned_rmsd_angstrom=float(rmsd), flags=[], coordinates_spec=[])
+def analyze_candidate(elements, coordinates, frequency, coordinates_spec, *, correspondence=None):
+    """Map only coordinate indices; geometry and vectors keep read_modes' frame."""
+    if correspondence is None:
+        correspondence = g0_mapping.unverified('frequency')
+    metadata = {key: frequency[key] for key in
+                ('attempt', 'orientation', 'stationarity', 'geometry_sha256', 'source')}
+    metadata.update(atom_correspondence=correspondence,
+                    element_sequence_equal=list(elements) == list(frequency['elements']))
+    if not coordinates_spec or correspondence['status'] != 'declared_verified':
+        return dict(available=False, reason='未声明反应坐标' if not coordinates_spec else correspondence['reason'],
+                    flags=[], coordinates_spec=coordinates_spec, **metadata)
+    permutation = correspondence['candidate_to_target']
+    # The reader validated the complete bijection and element correspondence.
+    # This view is for RMSD only; neither frequency array is changed or rotated.
+    paired = [frequency['coordinates'][i - 1] for i in permutation]
+    _, rmsd = geometry.kabsch(coordinates, paired)
+    specs = [coordinate_spec(s, len(elements)) for s in coordinates_spec]
+    mapped = [dict(s, atoms=[permutation[i - 1] for i in s['atoms']]) for s in specs]
     report = analyze_modes(frequency['elements'], frequency['coordinates'], frequency['frequencies'],
-                           frequency['displacements'], coordinates_spec)
-    report.update({key: frequency[key] for key in
-                   ('attempt', 'orientation', 'stationarity', 'geometry_sha256', 'source')})
-    report.update(available=True, aligned_rmsd_angstrom=float(rmsd), coordinates_spec=coordinates_spec)
+                           frequency['displacements'], mapped)
+    for mode in report['modes']:
+        for delta, original in zip(mode['delta'], specs):
+            delta['candidate_atoms'] = list(original['atoms'])
+    report.update(metadata)
+    report.update(available=True, aligned_rmsd_angstrom=float(rmsd), coordinates_spec=specs,
+                  frequency_coordinates_spec=mapped)
+    report['notes'].append(g0_mapping.LIMITATION)
     if frequency['stationarity'] != 'stationary':
         report['flags'].append('non_stationary_frequencies')
         if frequency['stationarity'] == 'unknown':

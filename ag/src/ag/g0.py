@@ -8,13 +8,13 @@ from pathlib import Path
 import re
 import sys
 
-from ag import attempt, catalog, catalog_v2 as v2, g0_modes, gaussian_input, geometry as geo, study
+from ag import attempt, catalog, catalog_v2 as v2, g0_mapping, g0_modes, gaussian_input, geometry as geo, study
 from ag.irc_compare import _pairs
 
 NOTICE = 'G0 是本地诊断，不是门禁；不替代 DFT 验收；clean 只表示未发现问题。'
 ORDER_NOTICE = '顺序只是建议，提交与否由负责人决定。'
-ORDER_LIMIT = '只比较元素序列；同种元素原子互换无法检出，原子映射仍需人审。'
-INCOMPLETE_NOTICE = '批次未完整完成；频率分段歧义的候选单列于 errors，不参与诊断排序。'
+ORDER_LIMIT = '元素序列检查只比较元素序列；同种元素原子互换无法检出，身份对应另列且仍需人审。'
+INCOMPLETE_NOTICE = '批次未完整完成；频率分段歧义或映射声明无效的候选单列于 errors，不参与诊断排序。'
 UNRECORDED_NOTICE = '批次未完整完成，未登记任何候选结果；可单独对成功候选执行诊断/记录。'
 # Fixed conservative damage/clash criteria; never submission checks.
 MIN_DISTANCE = 0.5
@@ -58,7 +58,8 @@ def _manifest_frame(root, identity, *, stereo=False):
             raise ValueError('Reference input XYZ hash/size differs from manifest; requires manual handling')
         v2.xyz(data, ensemble=True)
         count = int(data.splitlines()[0])
-        source.update(input_sha256=item['sha256'], geometry_frame=1)
+        source.update(input_sha256=item['sha256'], geometry_frame=1,
+                      input_file=(path / 'inputs' / item['name']).relative_to(root).as_posix())
         return _frame(data.decode('utf-8').splitlines()[2:count + 2]), source, None
     groups = science.get('structures')
     if groups is not None:
@@ -89,6 +90,7 @@ def _integrity(root, obj, candidate, frame, reference):
         values, unavailable = v2.manifest_info(root, reference)
     checks['atom_order'] = dict(
         status=('pass' if frame.symbols == ref.symbols else 'reject') if ref else 'unchecked',
+        sequence_status=('same' if frame.symbols == ref.symbols else 'different') if ref else 'unavailable',
         actual=list(frame.symbols), expected=list(ref.symbols) if ref else None,
         reason=ORDER_LIMIT if ref else missing, limitation=ORDER_LIMIT)
     charge, mult = expected['charge']['value'], obj['multiplicity']
@@ -109,7 +111,7 @@ def _integrity(root, obj, candidate, frame, reference):
                            reason=('对象期望值未提供或未知' if value is None else
                                    unavailable.get(key, '没有参考 Attempt') if key not in values else
                                    '对象期望值与参考 Attempt manifest 核对；XYZ 本身不携带电荷或多重度'))
-    return checks, provenance
+    return checks, provenance, ref
 
 
 def _geometry(frame, reaction_pairs=()):
@@ -277,14 +279,14 @@ def _stereo(root, frame, filename, identity, expected):
 
 def diagnose_candidate(root, obj, candidate, *, registration_order, windows,
                        reference_attempt=None, stereo_json=None, stereo_attempt=None, expected_label=None,
-                       modes_attempt=None, auto_modes=False, reaction_coordinate=()):
+                       modes_attempt=None, auto_modes=False, reaction_coordinate=(), atom_mapping=None):
     path = study.local_path(root, root / candidate['file'])
     raw = v2.read_bytes(path, 1024 * 1024)
     if sha256(raw).hexdigest() != candidate['sha256']:
         raise ValueError('Candidate archive hash mismatch; data damaged, requires manual handling')
     frame = _xyz_frame(raw)
     reference = reference_attempt or candidate['parent']['attempt']
-    integrity, provenance = _integrity(root, obj, candidate, frame, reference)
+    integrity, provenance, reference_frame = _integrity(root, obj, candidate, frame, reference)
     distances = _window_report(frame, candidate, windows)
     specs, sources = g0_modes.reaction_coordinates(windows['content'], candidate['target_channel'],
                                                   windows['source'], reaction_coordinate)
@@ -293,7 +295,24 @@ def diagnose_candidate(root, obj, candidate, *, registration_order, windows,
                       [s['atoms'] for s in specs if s['kind'] == 'distance'])
     geometry = _geometry(frame, reaction_pairs)
     stereo = _stereo(root, frame, stereo_json, stereo_attempt, expected_label)
-    modes = _modes(root, candidate, frame, specs, sources, modes_attempt, auto_modes)
+    # Read source evidence before recoverable mapping validation. A malformed
+    # declaration must not hide a damaged log or unsafe source path.
+    modes, frequency = _read_modes(root, obj['id'], candidate, specs, sources, modes_attempt, auto_modes,
+                                   atom_mapping)
+    correspondence = g0_mapping.resolve(atom_mapping, obj['id'], candidate, frame.symbols, dict(
+        reference=(g0_mapping.reference_target(provenance),
+                   reference_frame.symbols if reference_frame else None),
+        frequency=(g0_mapping.frequency_target(frequency), frequency['elements'] if frequency else None)))
+    if correspondence['reference']['status'] == 'declared_verified':
+        integrity['atom_order'].update(
+            sequence_status='same' if frame.symbols == reference_frame.symbols else 'different',
+            status='pass', reason='按已校验声明映射核对元素；原始序列一致性单列，化学身份仍须人审')
+    if frequency is not None:
+        modes = g0_modes.analyze_candidate(frame.symbols, frame.coordinates, frequency, specs,
+                                          correspondence=correspondence['frequency'])
+        modes['coordinate_sources'] = sources
+    else:
+        modes['atom_correspondence'] = correspondence['frequency']
     rejected, flags, unchecked = [], [], []
     for field, check in integrity.items():
         entry = dict(category='input_integrity', field=field, message=check['reason'])
@@ -317,6 +336,7 @@ def diagnose_candidate(root, obj, candidate, *, registration_order, windows,
                 target_channel=candidate['target_channel'], candidate_sha256=candidate['sha256'],
                 registration_order=registration_order, reference=provenance,
                 integrity=integrity, geometry=geometry, windows=distances, stereo=stereo, modes=modes,
+                atom_correspondence=correspondence,
                 verdict='rejected' if rejected else 'flagged' if flags else 'clean',
                 reject_reasons=rejected, flags=flags, unchecked=unchecked,
                 counts=dict(reject_reasons=len(rejected), flags=len(flags), unchecked=len(unchecked),
@@ -334,22 +354,22 @@ MODE_MESSAGES = dict(no_imaginary_mode='没有虚频模式', multiple_imaginary_
                      non_stationary_frequencies='非驻点或驻点未知的频率，仅作诊断参考')
 
 
-def _modes(root, candidate, frame, specs, sources, explicit, auto):
+def _read_modes(root, object_id, candidate, specs, sources, explicit, auto, mapping):
     identity = explicit
     if auto:
         identity = next((r['attempt'] for r in reversed(candidate['results'])
                          if r['attempt'] is not None), None)
     result = dict(available=False, reason='未声明反应坐标' if not specs else '无模式数据',
                   attempt=identity, flags=[], coordinates_spec=specs, coordinate_sources=sources)
-    if not specs or identity is None:
-        return result
+    declared = mapping is not None and any((e['object'], e['candidate']) == (object_id, candidate['id'])
+                                          for e in mapping['entries'])
+    if (not specs and not declared) or identity is None:
+        return result, None
     frequency = g0_modes.read_frequency_attempt(root, identity, allow_unavailable=auto)
     if frequency is None:
         result['reason'] = '无模式数据：最新非空 Attempt 未取回或没有 Gaussian Freq 段'
-        return result
-    result = g0_modes.analyze_candidate(frame.symbols, frame.coordinates, frequency, specs)
-    result['coordinate_sources'] = sources
-    return result
+        return result, None
+    return result, frequency
 
 
 def _mode_order(report):
@@ -364,7 +384,7 @@ def _mode_order(report):
 def diagnose(root, *, object, candidate=None, all_candidates=False, channel=None,
              reference_attempt=None, windows=None, window=(),
              stereo_json=None, stereo_attempt=None, expected_label=None,
-             modes_attempt=None, reaction_coordinate=()):
+             modes_attempt=None, reaction_coordinate=(), atom_mapping=None):
     if sum((candidate is not None, bool(all_candidates), channel is not None)) != 1:
         raise ValueError('Select exactly one of --candidate, --all, --channel')
     stereo_options = [stereo_json, stereo_attempt, expected_label]
@@ -377,6 +397,7 @@ def diagnose(root, *, object, candidate=None, all_candidates=False, channel=None
     if expected_label is not None and not expected_label.strip():
         raise ValueError('--expected-label must not be empty')
     root = catalog.resolve_study(root)
+    mapping_config = g0_mapping.read(atom_mapping)
     window_config = _windows(root, windows, window)
     # Validate even when the selected object has no candidates. No second read.
     g0_modes.reaction_coordinates(window_config['content'], None, window_config['source'], reaction_coordinate)
@@ -400,12 +421,18 @@ def diagnose(root, *, object, candidate=None, all_candidates=False, channel=None
                     reference_attempt=reference_attempt, stereo_json=stereo_json,
                     stereo_attempt=stereo_attempt, expected_label=expected_label,
                     modes_attempt=modes_attempt, auto_modes=candidate is None,
-                    reaction_coordinate=reaction_coordinate))
+                    reaction_coordinate=reaction_coordinate, atom_mapping=mapping_config))
             except g0_modes.FrequencySourceAmbiguity as exc:
                 if candidate is not None:
                     raise
                 errors.append(dict(candidate=c['id'], object=object, attempt=exc.attempt,
                                    stage='frequency_section', category='ambiguous_frequency_sections',
+                                   reason=str(exc), source=exc.source))
+            except g0_mapping.AtomMappingError as exc:
+                if candidate is not None:
+                    raise
+                errors.append(dict(candidate=c['id'], object=object, attempt=exc.attempt,
+                                   stage='atom_mapping', category=exc.category,
                                    reason=str(exc), source=exc.source))
     groups = {'rejected': 0, 'flagged': 1, 'clean': 2}
     results.sort(key=lambda c: (groups[c['verdict']], *_mode_order(c)))
@@ -425,6 +452,14 @@ def bounded_diagnosis(report):
     if len(catalog.encode(result)) <= MAX_DIAGNOSIS_BYTES:
         return result
     result.update(truncated=True, truncation_note='已截断；结论与各项原始计数保留')
+    # The byte hash and entry pointer retain the declaration even when a large
+    # permutation cannot fit. Never discard the target source binding.
+    declarations = list(result.get('atom_correspondence', {}).values())
+    if 'atom_correspondence' in result.get('modes', {}):
+        declarations.append(result['modes']['atom_correspondence'])
+    for correspondence in declarations:
+        if 'candidate_to_target' in correspondence:
+            correspondence['atom_count'] = len(correspondence.pop('candidate_to_target'))
     modes = result.get('modes')
     if modes and modes.get('available'):
         modes['reference_modes_removed'] = sum(not m['imaginary'] for m in modes['modes'])
@@ -434,6 +469,7 @@ def bounded_diagnosis(report):
             # reducing any older G0 details. Full stdout remains unchanged.
             modes['coordinates_spec_count'] = len(modes['coordinates_spec'])
             modes['coordinates_spec'] = []
+            modes['frequency_coordinates_spec'] = []
             for mode in modes['modes']:
                 mode['delta_count'] = len(mode['delta'])
                 mode['delta'] = []
@@ -450,11 +486,18 @@ def bounded_diagnosis(report):
         result = {k: result[k] for k in ('candidate', 'object', 'verdict', 'counts', 'candidate_sha256',
                                         'notice', 'order_notice', 'truncated', 'truncation_note')}
         result['integrity_statuses'] = {k: v['status'] for k, v in report['integrity'].items()}
+        result['atom_correspondence'] = deepcopy(report.get('atom_correspondence', {}))
+        for correspondence in result['atom_correspondence'].values():
+            if 'candidate_to_target' in correspondence:
+                correspondence['atom_count'] = len(correspondence.pop('candidate_to_target'))
         if modes is not None:
             if modes.get('available'):
                 result['modes'] = modes
             else:
                 result['modes'] = {k: modes[k] for k in ('available', 'reason', 'attempt', 'flags')}
+                for key in ('source', 'geometry_sha256', 'atom_correspondence'):
+                    if key in modes:
+                        result['modes'][key] = modes[key]
     if len(catalog.encode(result)) > MAX_DIAGNOSIS_BYTES:
         raise ValueError('Cannot retain every imaginary mode within 64 KiB; diagnosis was not recorded')
     return result
@@ -462,6 +505,8 @@ def bounded_diagnosis(report):
 
 def _print_modes(report):
     print('  modes: ' + ('' if report['available'] else report['reason']))
+    if 'atom_correspondence' in report:
+        print('    atom_correspondence: ' + json.dumps(report['atom_correspondence'], ensure_ascii=False))
     if not report['available']:
         return
     print('    ' + report['convention'])
@@ -477,7 +522,7 @@ def _print_modes(report):
             match = ('≈0，符号不定' if delta['near_zero'] else '只报告' if delta['expected_sign'] is None
                      else '吻合' if delta['matches'] else '不吻合')
             degrees = f" ({delta['degrees']:+.6f}°)" if delta['kind'] == 'angle' else ''
-            print(f"      {delta['kind']} {delta['atoms']} {delta['label']}: "
+            print(f"      {delta['kind']} candidate={delta['candidate_atoms']} frequency={delta['atoms']} {delta['label']}: "
                   f"δc={delta['value']:+.6f} {delta['unit']}{degrees}; "
                   f"σδc={delta['corrected_value']:+.6f}; {match}")
     print('    标记: ' + (', '.join(report['flags']) or '无'))
@@ -492,7 +537,8 @@ def run(args):
                       all_candidates=args.all, channel=args.channel, reference_attempt=args.reference_attempt,
                       windows=args.windows, window=args.window, stereo_json=args.stereo_json,
                       stereo_attempt=args.stereo_attempt, expected_label=args.expected_label,
-                      modes_attempt=args.modes_attempt, reaction_coordinate=args.reaction_coordinate)
+                      modes_attempt=args.modes_attempt, reaction_coordinate=args.reaction_coordinate,
+                      atom_mapping=args.atom_mapping)
     code = 2 if report.get('errors') else int(bool(report['counts']['rejected']))
     if args.record and report.get('errors'):
         report['record'] = dict(error=UNRECORDED_NOTICE)
@@ -514,7 +560,7 @@ def run(args):
             print(f"\n{c['candidate']}: {c['verdict']} (reject={c['counts']['reject_reasons']}, flags={c['counts']['flags']})")
             for field, check in c['integrity'].items():
                 print(f"  {field}: " + json.dumps(check, ensure_ascii=False))
-            for field in ('reference', 'windows', 'stereo'):
+            for field in ('reference', 'windows', 'stereo', 'atom_correspondence'):
                 print(f"  {field}: " + json.dumps(c[field], ensure_ascii=False))
             if c['geometry']['reaction_center_pairs']:
                 print('  geometry.reaction_center_pairs: ' +
@@ -543,7 +589,8 @@ def register(subparsers):
     selection.add_argument('--candidate')
     selection.add_argument('--all', action='store_true')
     selection.add_argument('--channel')
-    for option in ('reference-attempt', 'windows', 'stereo-json', 'stereo-attempt', 'expected-label', 'modes-attempt'):
+    for option in ('reference-attempt', 'windows', 'stereo-json', 'stereo-attempt', 'expected-label', 'modes-attempt',
+                   'atom-mapping'):
         parser.add_argument('--' + option)
     parser.add_argument('--window', action='append', default=[])
     parser.add_argument('--reaction-coordinate', action='append', default=[], help='kind:atoms:role; repeatable')
