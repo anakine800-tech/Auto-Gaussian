@@ -74,7 +74,7 @@ v4.2.2 汇总 v4.2.1 后已合并的 T73–T77：topology 不确定接触修复�
 - G0 模式分析的 xTB Hessian 来源在 T138 范围外，留待后续工作。
 - ts 卡接近放宽后的 400 行上限；再加内容前拆分，将“TS 初猜工作流”移至单独卡片或参考文档。
 - T127 仍串行采样；经转发时单条 SSH 约 10–20 秒、一轮可能 100–150 秒。重试启动需等待当前入口完成，新快照还需目标入口自身采样时间；电脑睡眠时停采，醒来自动恢复，首轮网络未就绪可能失败或退避。部署按 OPERATIONS 的睡眠判断与观察标准记录。
-- **T127 尚未解决：** `MonitorTransport._execute` 复制基类逻辑，后续补测试核对超时文案和返回结构，防止以后只改基类；本发布单不改功能。[#329](https://github.com/anakine800-tech/Auto-Gaussian/pull/329)
+- **T127 Transport 重复逻辑已由 T130 解决：** 当前 `MonitorTransport._execute` 通过 `super()._execute(..., observe_stderr=classify)` 复用基类执行与错误处理，仅在脱敏前分类错误；`ag/tests/test_connect_timeout.py` 已覆盖与基类的返回结果、超时及本地启动失败一致性。监控仍不立即重试，串行采样及睡眠恢复限制见上一条。[T130 #332](https://github.com/anakine800-tech/Auto-Gaussian/pull/332)
 - 前端证据库冷启动已有测量约 2.5 秒，source-map-js 临时 override 待上游修复后删除。
 - 后续允许 Slurm 入口未配置 Gaussian 时仍运行 xTB/CREST；CREST 异常结束时读取 stderr，以补全诊断。本次不修改配置校验或解析逻辑。
 - T108 facts 语义、T109 等价原子映射与 `--mirror report`、T112 doctor 独立 PBS 集群误报均已修复；既有 facts 是否重算及 catalog 是否补登记，由负责人逐 study 决定，不自动改写证据。
