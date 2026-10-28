@@ -11,7 +11,7 @@
 - `__init__.py`：包入口与 CLI 版本号。
 - `cli.py`：参数解析、子命令挂载、配置选择与退出码。
 - `config.py`：本机配置校验、集群选择及按 manifest 绑定目标。
-- `clusters.py`：只读输出供前端发现的集群、档位和预算白名单字段。
+- `clusters.py`：只读输出供前端发现的集群、档位和资源上限白名单字段；当前不发布预算余额。
 - `study.py`：study 骨架、标识符和本地路径校验。
 - `attempt.py`：prepare、不可变 manifest、输入哈希及统一的本地记录读取。
 - `state.py`：允许的状态迁移和本地 status 原子更新。
@@ -20,7 +20,7 @@
 - `confirm.py`：唯一的 macOS 人工点击确认入口。
 - `submit.py`：批次核验、确认、上传、提交及不确定结果处理。
 - `submission.py`：一次性提交绑定及确切作业身份交叉校验。
-- `budget.py`：按集群预留、核对、结算本地 ag 核时预算。
+- `budget.py`：按入口记录本地 ag 核时预估、预留与结算，保留共享入口未观测核数的核对。
 - `cancel.py`：确认后取消记录中的确切作业，取消声明也只能用一次。
 - `status.py`：PBS/Slurm 观察、程序完成证据及 unknown 只读核对；保留不完整取回所需的 PBS 首次/最近不活跃观察。
 - `fetch.py`：校验输出大小和哈希，以不覆盖方式发布到本地；显式不完整取回及绑定的独占记录。
@@ -65,7 +65,7 @@ Gaussian prepare 在档位与 walltime 检查后依次补缺失的 `%nprocshared
 ## 提交流程：规范顺序
 
 规范顺序与当前 `submit.submit` 实现一致，参见已合并 [#209](https://github.com/anakine800-tech/Auto-Gaussian/pull/209)、[#224](https://github.com/anakine800-tech/Auto-Gaussian/pull/224)：
-锁内校验输入和集群 → 核对显式批准记录/规则 → 核数/预算预检 → 打印摘要（无显式授权时 Mac 确认）→ 整批再校验字节和授权 → 独占消费批准 → 逐个 Attempt：声明 → Slurm 预算预留 → submitting → 独占存档本 Attempt 摘要 → 复查占用 → 建目录 → 上传并逐文件核对大小/SHA-256 → qsub/sbatch → submission.json → submitted。
+锁内校验输入和集群 → 核对显式批准记录/规则 → 核数及 Slurm 台账预检 → 打印摘要（无显式授权时 Mac 确认）→ 整批再校验字节和授权 → 独占消费批准 → 逐个 Attempt：声明 → Slurm 核时预留 → submitting → 独占存档本 Attempt 摘要 → 复查占用 → 建目录 → 上传并逐文件核对大小/SHA-256 → qsub/sbatch → submission.json → submitted。
 这里“声明”指以 `O_EXCL` 创建 `.submit-claim`；有声明就不能再次提交该 Attempt。
 声明放在确认之后，是为了让人在弹窗取消时 Attempt 仍保持 prepared、没有声明，之后可正常提交，不因取消而消耗一次提交机会。
 
@@ -77,8 +77,9 @@ PBS 和 Slurm 的单作业上限均为正整数 max_cores；运行加排队（�
 容量提示复用 T156 evaluate_node 和精确内存字节；分配内存未知只影响提示，身份、总规格和一致性仍必需。
 候选保留 status 显示，节点及各比例选项增量返回 selectable/selectable_reason，选项的 capacity 附原容量结果。
 每项声明后仍复查全部本人作业，Slurm 另计本地尚未读回的预留。ag 不限制运行中的核数。
-Slurm 核时预算在远程写入前预留，unknown 不释放；省略预算配置时不检查预算，台账照常记录。
-预算只记录本地 ag 消费，不等于平台余额，也不含外部网页作业的消费。
+Slurm 台账在远程写入前预留核数 × walltime，按结束证据结算，unknown 不释放。
+`budget_core_hours` 不再作核时额度拦截，配置了该字段仍须是正的有限数；台账记录本地 ag 的预估、预留与结算，不代表平台余额，也不包含外部网页作业的消费。
+这不取消核数、排队限额或台账完整性检查；缺失/损坏的台账及提交绑定仍拒绝，不能按零预留处理。
 父 chk 若已声明，在新目录中先专用复制并核对来源/目标哈希，再上传其他输入；不改变父文件。
 上传使用确认后核验过的字节快照；脚本、输入和附件都不能在确认后被悄悄替换。
 
@@ -95,7 +96,7 @@ Slurm 核时预算在远程写入前预留，unknown 不释放；省略预算配
 使用 `ag submit <ID> ... --policy <name>` 显式选择，核对核数和 walltime 上限；规则不匹配直接拒绝。
 `ag doctor` 的 CLI 输出包含 `approval_policies` 及适用范围。未给 `--approval` 或 `--policy` 时仍走 Mac 对话框，即使配置了匹配的规则也不自动选用。
 两参数互斥，取消不接受它们；`ag cancel` 始终由人点击 Mac 确认。具体配置见 `ag/config.clusters.example.toml`。
-提交授权方式以本节的 T111 流程为准，取代本文其他段落旧的“提交必须点击”表述；取消确认要求不变。
+三种提交方式受具体入口与验证对象的更窄要求约束：具名 PBS 不接受长期规则，只接受绑定节点的显式批准或 Mac 对话框；特定验证要求亲手点击时仍须点击。不能用一般提交概述扩大验证授权。
 
 每个实际获授权的提交在 Attempt 中独占保存 `submission-summary.json`（原始摘要、授权来源和 manifest 哈希），journal 追加 `submit_authorization`。
 `submission.json.authorization` 记录 `method`（`approval` / `policy` / `dialog`）、`approval_id` / `policy_name`、`quote`、`rule_sha256`；
@@ -128,10 +129,11 @@ PBS 有退出回执时可 finished 并取回，即使队列仍显示 R（调度�
 旧 PBS 无回执时：完成标记 + 两次输出稳定；队列仍有 R/C 记录时还需会话进程证据，读取标记后再复核输出。
 Slurm 从 squeue 消失仅触发 sacct 核对；终态中非零退出/信号以及 FAILED、TIMEOUT 等都不是科学成功。
 
-`fetch --incomplete` 不新增状态，也不把 interrupted/finished 改成 fetched。
+`fetch --incomplete` 不新增状态，也不把 interrupted/finished/cancelled 改成 fetched。
 PBS 的 `incomplete_observations` 只补充证据，不改变已有 60 秒观察规则或核心状态判定；输出变化、回执出现或重新入队都会清空/重置这组证据。
 Slurm 取回前后均只读核对 squeue 无此作业及 sacct 终态（TIMEOUT、CANCELLED、FAILED、OUT_OF_MEMORY、NODE_FAIL、COMPLETED）；COMPLETED 仅在缺声明输出时适用。
-本地 cancelled 仍拒绝：发出取消不证明作业已经停止；若 status 后续证实 Slurm 终态并成为 finished，才可按该证据取回。
+本地 cancelled 可显式不完整取回，但须核验 `.cancel-claim`、匹配确切作业号的 `cancel/succeeded` journal，以及 manifest/submission/status 绑定；单独改状态标签不能放行。
+取消请求成功不等于调度器已停止。取回前后仍独立核对结束证据：PBS 要有至少相隔 300 秒的不活跃、无退出回执、输出稳定的两次 status 观察，并实时核对确切作业不存在或为 C；Slurm 要有 squeue 无该作业及身份匹配的唯一受支持 sacct 终态。存在退出回执时改走普通 status/fetch；COMPLETED 且输出齐全也走普通 fetch。
 独占记录绑定 manifest SHA-256、集群/作业身份、存在输出哈希、确认缺失项、结束证据和 ag 版本；记录与本地字节不符时 facts/父 chk 均拒绝。
 已有不完整取回记录拒绝普通 fetch、重复 --incomplete 和 --add-missing，两个显式选项互斥；缺失文件不能被后续补放后静默升级成正常结果。
 失败保留 `.partial`，验证全部通过后独占发布；本地发布失败仅撤回本次已创建的链接，暂存字节仍保留。远端无写入。
@@ -201,8 +203,8 @@ TS 拆分后总入口及各阶段卡均遵守此上限，不再保留 ts 的 400
 “待 Tn”只能引用 `docs/redesign-tasks/open-tasks.txt` 中的任务，完成时同 PR 移除记录与标记。
 方法/基组只在 `acceptance-methods.md` 定义；骨架使用占位符，具体 route 仅限逐例标明的“流程验收示例”，且组合仍须在方法表中。
 
-第 6 节写可逐项审阅的判据；prepare 保存实际卡片快照，review 使用保存的判据，不能追着最新版改旧 Attempt。
-旧 manifest 可在 review init 时用 --card 补指定，明确标注审阅时来源，不补写 manifest；见 [#228](https://github.com/anakine800-tech/Auto-Gaussian/pull/228)。
+第 6 节写可逐项审阅的判据；只有显式 `prepare --card <名称>` 才保存卡片文本、Git 提交号和 dirty 状态。来源优先为本机部署的 recipes，未部署时才用当前检出的卡片；须核对实际来源。
+无快照的 manifest（包括未传 --card 的新 Attempt）须在 `review init --card <名称>` 指定审阅卡片，来源只保存在 review.md，不补写 manifest；已有快照不能被 --card 替换，review check 使用保存的判据，不追着最新版改旧 Attempt。见 [#228](https://github.com/anakine800-tech/Auto-Gaussian/pull/228)。
 
 ## 测试与敏感信息
 
@@ -210,6 +212,16 @@ TS 拆分后总入口及各阶段卡均遵守此上限，不再保留 ts 的 400
 
 负责人 2026-10-16 决定：开发机可以连接集群，所有开发任务（包括合并前真实验证）都在开发机完成；计算机只负责研究 A 计算。此决定取代历史经验中“开发会话不连接集群”的分工描述。
 T62 的远程观察改动虽通过离线测试，真实运行却出现 unreadable 并由 T65 回退；为避免再次将未验证的执行或证据路径带入研究，涉及**证据清单、远程命令、提交、状态、取回**的改动，工单必须写明真实验证对象和步骤，并在**合并前完成**。验证在开发机上使用非研究 study（L1、L2 或专门的验证 study）；涉及提交由负责人亲手点击确认，研究 A 只做观察，不作为验证对象。纯文档、纯本地分析工具不受此限。结果记录执行版本、范围和实际结论；遇到意外按 AGENTS.md 停止报告。
+
+工单应区分三类证据，不把缺授权或缺对象改写成“合并后补”：
+
+| 改动/目的 | 时机与证据 |
+| --- | --- |
+| 远程或上述证据路径改动 | 合并前：列出非研究对象、确切执行提交、固定命令/次数、预期结果、授权范围与停止条件；未获授权或缺样例记待验证，不能据离线通过宣称完成。 |
+| 纯文档、纯本地分析工具 | 合并前离线验收：文档做相关 Skills 测试及语义/链接核对；本地工具做合成回归。不因任务类型创建无意义的远程验证。 |
+| 发布后安装、构建、服务与配置验收 | 在具体部署授权和维护窗口内按 [运维文档](OPERATIONS.md) 执行；不能替代该代码合并前必需的真实验证。 |
+
+自主开发、旧的一次性命令授权、PR 合并都不授权新的现场操作。更窄的验证对象、命令和人工点击要求优先。
 
 ### 测试范围
 
@@ -230,8 +242,10 @@ review 快照绑定该来源，不能用当前 HEAD 或 Skills 提交号代替�
 以及从 study/review 和已引用分析文件递归发现的 analyses/ 输出，记录相对路径、字节数和 SHA-256。
 文档用 Markdown 链接、反引号路径或显式 `analyses/文件名`；分析 JSON 支持相对文件路径，
 包括 profile 的 `thermo` 引用。含空格路径用 Markdown 尖括号链接或反引号；二进制输出只哈希不解析。
-缺失引用、符号链接、越界会拒绝；远程 URL 不下载。未被引用的分析输出不纳入清单，
-因此签字前先在 study.md/review.md 写全依据。生成清单不是科学签字；向人展示清单后，
+普通引用的 `missing` / `escapes_study` 进入 `unresolved_references`，退出码 4 且不写清单；签字人逐项核对后可显式 `--accept-unresolved`，清单保存完整列表与确认时间，每次重跑重新收集。
+study 内存在的 analyses 外显式引用（`outside_analyses`）及无 analyses 同名文件的裸名（`unqualified_name`）只列信息，不新增收录，不需该参数。
+study 内符号链接、歧义、非法显式路径、空分析目录、收集期间哈希变化，以及 JSON 专用指针 `thermo` / `frozen_evidence` 的缺失或越界仍是硬错误，接受参数不能绕过。
+远程 URL 不下载。未被引用的分析输出不纳入清单，因此签字前先在 study.md/review.md 写全依据；分类细节见 [review manifest](../ag/README.md#签字证据清单review-manifest)。生成清单不是科学签字；向人展示清单后，
 将清单路径和命令返回的清单 SHA-256 一起记入签字记录。旧清单保留，每次签字生成新的清单。
 
 新测试只用合成配置、合成小分子和假 Transport/假 ag，不读取真实配置、研究数据或连接集群。
@@ -255,7 +269,7 @@ git diff --cached --check
 
 ## 角色与审批
 
-三方分工：负责人做决定、合并、签字和提交确认；监督方（Claude）写任务单、审阅 PR 并留评论，也可以提交文档 PR；执行方（Codex）按任务单开发，真实环境操作须经负责人授权。
+三方分工：负责人做决定、合并、科学签字和计算授权；监督方（Claude）写任务单、审阅 PR 并留评论，也可以提交文档 PR；执行方（Codex）按任务单开发，真实环境操作须经负责人授权。
 
 | 事项 | 由谁决定 | 说明 |
 | --- | --- | --- |
@@ -264,7 +278,8 @@ git diff --cached --check
 | 修改方法表（方法、基组、窗口、热化学设置） | 负责人确认 | 在 acceptance-methods.md 写明确认日期 |
 | 涉及 remote、submit、cancel、status、fetch 的代码 | 监督方审阅通过后再合并 | 新增远程命令须写明防的是哪个事故 |
 | 卡片与 Skills 修改 | 监督方审阅 | 卡片一致性测试必须通过 |
-| 真实计算的提交与取消 | 负责人在 Mac 上亲手点击 | 任何人不得代点或绕过 |
+| 真实计算的提交 | 负责人批准；ag 逐项核对 | 一次性显式批准记录、显式选择的本机长期规则、Mac 人工点击三选一；具体对象的更窄限制仍有效 |
+| 真实计算的取消 | 负责人在 Mac 上亲手点击 | 不接受提交批准记录或长期规则，任何人不得代点或绕过 |
 | 科学签字（机理假设、结构、代表构象集合、最终结果） | 负责人 | 签字前先生成证据清单 |
 | 计算平台与软件许可的科研用途认定 | 负责人 | 记入 study.md |
 | 创建 tag 和 release | 负责人在 GitHub 网页操作 | 版本号与 CHANGELOG 先经 PR 合并 |
@@ -286,13 +301,12 @@ git diff --cached --check
 
 ## 合并后同步本机运行版本
 
-每次合并后，本机的后端 main 检出和前端 main 检出都执行 `git pull --ff-only`。
-先确认分支是 main、工作区干净；若快进失败，报告本地分叉/改动，不强制重置。
-后端在该 main 检出的 `.venv` 中维护依赖；真实计算只调用该检出的 `.venv/bin/ag`，
-并核对版本和 Python 导入位置。清除临时 `PYTHONPATH`，不能用开发 worktree 或 PATH 中的旧 ag 执行日常真实计算。
+合并不会自动部署，也不要求每次合并立即更新运行检出。目标选择、安装来源、版本核验和回退统一见 [部署目标与授权适用表](OPERATIONS.md#部署目标与授权适用表)；常规发布按确切 tag，开发机采用已审阅合并提交的长期口径仍是待确认建议。
+已有具体更新授权只覆盖所列机器、前后端提交和操作。授权使用 main 检出时，先核对分支、干净工作区及确切目标；只有快进结果等于该目标时才执行 `git pull --ff-only`。目标漂移、分叉或本地改动时停止，不强制重置。
+后端在获准运行检出的 `.venv` 中维护依赖；日常真实计算只调用该检出的 `.venv/bin/ag`，核对完整 HEAD、包版本和 Python 导入位置。清除临时 `PYTHONPATH`，不能用开发 worktree 或 PATH 中的旧 ag 代替运行版本。
 用未合并代码做真实验证，必须在工单写明对象和步骤并取得批准，在开发机的临时 worktree 使用非研究 study，合并前完成；验证证据留在仓库外，worktree 不再需要时归档。计算机只负责研究 A 计算，研究 A 不作为开发验证对象。
-Skills 软链接指向后端 main 的 `skills-next`；合并 PR 本身不会更新本机检出。
-前端始终从本机约定的固定 main 检出目录运行，停止旧实例后从该目录重启，
+Skills 软链接指向获准运行检出的 `skills-next`，核对实际解析目标与 Git 来源；部署后核对链接不改变旧 Attempt 快照。
+前端从本机约定的固定运行检出目录构建和运行，停止旧实例后从该目录重启，
 核对其调用的后端也是上述 `.venv/bin/ag`；不从临时 worktree 启动日常前端。
 固定目录的具体值只记在本机配置，不写进公开仓库；同步检出不授权提交或取消计算。
 

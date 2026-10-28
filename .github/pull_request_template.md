@@ -1,49 +1,24 @@
-## Scope and classification
+Task: Tn
 
-- Task class: <!-- feature / maintenance / scientific-workflow code only -->
-- Review level: <!-- L1 / L2 / L3 -->
-- Codex task, worktree, branch, base SHA:
-- Intended outcome and non-goals:
-- Changed contracts/schemas/commands:
+## 改动
 
-## Safety and authority boundary
+- 触发问题、完成后的行为及对应任务单：
+- 基线与最终完整 head；允许路径及实际改动：
+- 兼容性、部署/回退影响（不涉及则写明）：
 
-- [ ] Versioned development is separated from private/live operational work.
-- [ ] This PR, its CI, review, and merge do **not** authorize deployment, Skill sync, SSH, RTwin, PBS, Gaussian, qsub/qdel, retry, cleanup, private-data apply, or scientific acceptance.
-- [ ] No existing server, scientific, immutable-artifact, or human-approval gate is weakened.
+## 验证
 
-## Configuration and data isolation
+记录实际命令、解释器版本、执行 head/工作树状态、日期时间、退出码、通过/失败/跳过及原因；不复用历史计数，不贴本机路径或私有环境值。
 
-- [ ] Only placeholders/synthetic or release-cleared fixtures are committed.
-- [ ] No credentials, private keys, machine paths, private studies, raw outputs, checkpoints, job evidence, scratch, or real local config is included.
-- Test profile and coverage-modifier environment variable **names** (never values):
+- 本地：代码改动按 DEVELOPING 跑相关测试及推送前后端全量；纯文档只跑 skills-next 并核对语义/链接。
+- CI：当前 head 的既有工作流结果及链接；本仓库 `.github/workflows/ag-tests.yml` 运行扫描器、自测、ag/tests 与 skills-next，不修改或推断分支保护要求。
+- 合并前真实验证：不涉及时说明；涉及证据清单/远程命令/提交/状态/取回时列具体对象、命令次数、执行提交、授权范围、实际结果和覆盖缺口。缺授权/样例写待验证，不能用“合并后补”代替。
+- 发布后部署验收：不涉及 / 另获具体授权后执行；不能代替合并前验证。
+- 公开扫描：暂存 blob、有效私有词表、`git diff --cached --check` 及人工 diff/PR 检查；Git author/committer 均为 noreply。只报告结果，不公开词表或身份原文。
 
-## Validation evidence
+## 实际阻塞与审阅
 
-For each run provide command, interpreter/profile, commit/tree, date/time, exit code, total/skips/failures, duration, and modifier names. Do not reuse historical totals.
-
-- Focused:
-- Adjacent:
-- Offline integration/regression:
-- Full offline suite, if warranted:
-- Uncovered or blocked surfaces:
-
-## Review and CI contract
-
-- Findings by severity (P0/P1/P2/P3) and disposition:
-- [ ] `scripts/audit_ci_contract.py` passes local declaration audit.
-- [ ] Current remote branch protection and the five expected required contexts were separately verified, or the exact blocker is reported.
-- [ ] CI permission limitations and run state are reported without claiming success.
-
-## Rollback, incident, and compatibility
-
-- Compatibility/migration impact:
-- Rollback or forward-fix plan and required authority:
-- Incident containment/evidence owner, if applicable:
-
-## Integration, cleanup, and release deduplication
-
-- [ ] Only intended files were staged; staged diff and `python scripts/scan_public.py --staged` were reviewed.
-- [ ] Worktree, local branch, and Codex task cleanup/archive owner is named.
-- [ ] Final complete release validation has not been duplicated; if release-bound, it will run once after exact candidate freeze.
-- [ ] Tag, release, deployment, and any live smoke remain separate exact approvals.
+- 实际阻塞：无，或结构/提交/解析/科学审阅/环境及具体原因；未验证项明确列出。
+- `<!-- ag-review head=... -->` 评论与逐项处理：待独立审阅 / 结果链接。head 更新后复核受影响差异和 CI。
+- 合并由负责人按现行规则和本次明确授权处理；实施者不自行合并、不直接推 main、不改保护。
+- PR、CI、审阅和合并不自动授权部署、监控恢复、SSH、提交/取消/重试计算或研究签字；更窄的任务授权仍有效。
