@@ -202,7 +202,9 @@ DFT 单点后运行
 
 ## 8. 常见坑
 
+本节历史来源链接固定到 `v3-frozen`，仅用于追溯经验出处；现行执行以本卡为准，不沿用冻结文档中的流程。
+
 知识衔接：[GKB-0420：局部性与构象覆盖](../../auto-g16-gaussian-learning-library/references/core-job-types.md)。
 
-- 排队不代表失败，也不能仅凭排队推断节点满载；不以重复计算解决等待。来源：`skills/auto-g16-rtwin-pbs/references/environment-and-failures.md`。
-- 不同初始构象可能在 DFT 后合并，最终布居前还要再去重。来源：`skills/auto-g16-view-rt-win/references/conformer-workflow.md`。
+- 排队不代表失败，也不能仅凭排队推断节点满载；不以重复计算解决等待。来源：[environment-and-failures.md（v3-frozen）](https://github.com/anakine800-tech/Auto-Gaussian/blob/v3-frozen/skills/auto-g16-rtwin-pbs/references/environment-and-failures.md)。
+- 不同初始构象可能在 DFT 后合并，最终布居前还要再去重。来源：[conformer-workflow.md（v3-frozen）](https://github.com/anakine800-tech/Auto-Gaussian/blob/v3-frozen/skills/auto-g16-view-rt-win/references/conformer-workflow.md)。

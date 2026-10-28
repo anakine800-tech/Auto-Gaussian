@@ -106,15 +106,17 @@ SCF 失败、内存或时长不足时按 failure-diagnosis 审阅已有事实。
 
 ## 8. 常见坑
 
+本节历史来源链接固定到 `v3-frozen`，仅用于追溯经验出处；现行执行以本卡为准，不沿用冻结文档中的流程。
+
 知识衔接：[GKB-0410、GKB-0411：单点边界与 SCF 排障](../../auto-g16-gaussian-learning-library/references/core-job-types.md)。
 
-- 单点电子能与低层级热修正必须分列，标准态按每个独立物种处理，不能把一次修正加到整个反应上。来源：`skills/auto-g16-rtwin-pbs/references/scientific-workflows.md`。
-- 旧预览输入中的方法只是占位示例，不能无依据用于正式研究。来源：`skills/auto-g16-view-rt-win/references/chemistry-boundaries.md`。
+- 单点电子能与低层级热修正必须分列，标准态按每个独立物种处理，不能把一次修正加到整个反应上。来源：[scientific-workflows.md（v3-frozen）](https://github.com/anakine800-tech/Auto-Gaussian/blob/v3-frozen/skills/auto-g16-rtwin-pbs/references/scientific-workflows.md)。
+- 旧预览输入中的方法只是占位示例，不能无依据用于正式研究。来源：[chemistry-boundaries.md（v3-frozen）](https://github.com/anakine800-tech/Auto-Gaussian/blob/v3-frozen/skills/auto-g16-view-rt-win/references/chemistry-boundaries.md)。
 
 ### S8：SMD 能量项与复合自由能
 
 为防止把已包含的溶剂项或标准态项重复相加，区分“单点模型能量”和
-“分子热修正”。改编自 `archive/skills/auto-g16-rtwin-pbs/references/scientific-workflows.md`
+“分子热修正”。改编自 [scientific-workflows.md（v3-frozen）](https://github.com/anakine800-tech/Auto-Gaussian/blob/v3-frozen/skills/auto-g16-rtwin-pbs/references/scientific-workflows.md)
 的复合热化学分项；当前 qRRHO 与独立 Attempt 规则优先。
 
 SMD 溶剂化自由能包括自洽体相静电项及空腔、色散、溶剂结构等 CDS 项；

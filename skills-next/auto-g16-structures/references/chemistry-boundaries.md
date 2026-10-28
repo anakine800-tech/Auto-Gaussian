@@ -1,6 +1,6 @@
 # Chemistry boundaries
 
-Adapted from `skills/auto-g16-view-rt-win/references/chemistry-boundaries.md`.
+Adapted from [chemistry-boundaries.md（v3-frozen）](https://github.com/anakine800-tech/Auto-Gaussian/blob/v3-frozen/skills/auto-g16-view-rt-win/references/chemistry-boundaries.md). Historical attribution only; use this document for current execution, not the frozen workflow.
 
 Ask the researcher about uncertain regioisomers, tautomers, salts, solvates,
 protonation, stereochemistry, charge or multiplicity. Use the structure's formal

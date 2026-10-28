@@ -78,18 +78,20 @@ SMD 下 H/S 分项只是当前 RRHO/qRRHO 与单点替换模型的审计分项�
 
 ## 8. 常见坑
 
+本节历史来源链接固定到 `v3-frozen`，仅用于追溯经验出处；现行执行以本卡为准，不沿用冻结文档中的流程。
+
 知识衔接：[GKB-0512：自由能与标准态](../../auto-g16-gaussian-learning-library/references/advanced-properties.md)。
 
-- 力场 / xTB 排序不是最终 Gibbs 布居；必须在同一化学身份与方法栈内比较。来源：`skills/auto-g16-rtwin-pbs/references/scientific-workflows.md`、`skills/auto-g16-view-rt-win/references/conformer-workflow.md`。
-- 标准态修正按独立物种计数，不能对整个反应只加一次；各物种的构象集合分别汇总，再比较系综自由能。来源：`skills/auto-g16-rtwin-pbs/references/scientific-workflows.md`。
-- 旧文档要求另议低频处理，新方案已选定 D21 qRRHO；保留“报告低频”的经验，不沿用其未选定处理的旧流程。来源：`skills/auto-g16-rtwin-pbs/references/scientific-workflows.md`。
+- 力场 / xTB 排序不是最终 Gibbs 布居；必须在同一化学身份与方法栈内比较。来源：[scientific-workflows.md（v3-frozen）](https://github.com/anakine800-tech/Auto-Gaussian/blob/v3-frozen/skills/auto-g16-rtwin-pbs/references/scientific-workflows.md)、[conformer-workflow.md（v3-frozen）](https://github.com/anakine800-tech/Auto-Gaussian/blob/v3-frozen/skills/auto-g16-view-rt-win/references/conformer-workflow.md)。
+- 标准态修正按独立物种计数，不能对整个反应只加一次；各物种的构象集合分别汇总，再比较系综自由能。来源：[scientific-workflows.md（v3-frozen）](https://github.com/anakine800-tech/Auto-Gaussian/blob/v3-frozen/skills/auto-g16-rtwin-pbs/references/scientific-workflows.md)。
+- 旧文档要求另议低频处理，新方案已选定 D21 qRRHO；保留“报告低频”的经验，不沿用其未选定处理的旧流程。来源：[scientific-workflows.md（v3-frozen）](https://github.com/anakine800-tech/Auto-Gaussian/blob/v3-frozen/skills/auto-g16-rtwin-pbs/references/scientific-workflows.md)。
 - SMD 下的 H/S 分项不能当成实验溶液中的焓熵分解；这里只是同一热化学模型下的审计分项。
 
 ### S8：标准态账目与离子适用性
 
-改编自 `archive/skills/auto-g16-rtwin-pbs/references/scientific-workflows.md`
+改编自 [scientific-workflows.md（v3-frozen）](https://github.com/anakine800-tech/Auto-Gaussian/blob/v3-frozen/skills/auto-g16-rtwin-pbs/references/scientific-workflows.md)
 的逐物种标准态记账，以及
-`archive/skills/auto-g16-reaction-workflow/references/thermochemistry-readiness-contract.md`
+[thermochemistry-readiness-contract.md（v3-frozen）](https://github.com/anakine800-tech/Auto-Gaussian/blob/v3-frozen/skills/auto-g16-reaction-workflow/references/thermochemistry-readiness-contract.md)
 的温度、溶剂、数量类型与单点配对信息要求；不沿用旧合同或“不能比较”的历史状态。
 SMD 各项及电子能替换见 [sp 的 S8](sp.md#s8smd-能量项与复合自由能)。
 

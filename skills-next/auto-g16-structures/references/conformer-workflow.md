@@ -1,6 +1,6 @@
 # Force-field conformer screening
 
-Adapted from `skills/auto-g16-view-rt-win/references/conformer-workflow.md`.
+Adapted from [conformer-workflow.md（v3-frozen）](https://github.com/anakine800-tech/Auto-Gaussian/blob/v3-frozen/skills/auto-g16-view-rt-win/references/conformer-workflow.md). Historical attribution only; use this document for current execution, not the frozen workflow.
 
 仅在本次决定使用 SCNet 时，CREST（含 `--mdopt`）显式用 `--cluster scnet-test`（`赠送分区`），Gaussian 只能用 `--cluster scnet`（`正式分区`）。default 与 SCNet 的选择沿用 study 安排；准备前读本机配置核对入口和 partition，并写入确认摘要，不把队列名当入口别名。`赠送分区` 不可用、无权限或额度满时停下报告，由负责人逐次决定，不自动改投 `scnet`。
 

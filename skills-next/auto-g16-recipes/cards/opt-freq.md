@@ -133,10 +133,12 @@ xTB 6 kcal/mol → DFT 单点重排 → 3 kcal/mol 内进入优化（研究最�
 
 ## 8. 常见坑
 
+本节历史来源链接固定到 `v3-frozen`，仅用于追溯经验出处；现行执行以本卡为准，不沿用冻结文档中的流程。
+
 知识衔接：[GKB-0422、GKB-0451：优化与虚频排障](../../auto-g16-gaussian-learning-library/references/core-job-types.md)。
 
-- 正常终止并不足以证明优化和频率均完成，要核对驻点与完整频率证据。来源：`archive/skills/auto-g16-rtwin-pbs/references/environment-and-failures.md`、`skills/auto-g16-rtwin-pbs/references/scientific-workflows.md`。
-- 多个初猜可能收敛为同一极小点，直接逐作业计数会重复加权。来源：`archive/skills/auto-g16-view-rt-win/references/conformer-workflow.md`。
-- 增加核数不会使不适用的方法变得可靠；方法和资源分别说明。来源：`archive/skills/auto-g16-rtwin-pbs/references/protocols.md`。
+- 正常终止并不足以证明优化和频率均完成，要核对驻点与完整频率证据。来源：[environment-and-failures.md（v3-frozen）](https://github.com/anakine800-tech/Auto-Gaussian/blob/v3-frozen/skills/auto-g16-rtwin-pbs/references/environment-and-failures.md)、[scientific-workflows.md（v3-frozen）](https://github.com/anakine800-tech/Auto-Gaussian/blob/v3-frozen/skills/auto-g16-rtwin-pbs/references/scientific-workflows.md)。
+- 多个初猜可能收敛为同一极小点，直接逐作业计数会重复加权。来源：[conformer-workflow.md（v3-frozen）](https://github.com/anakine800-tech/Auto-Gaussian/blob/v3-frozen/skills/auto-g16-view-rt-win/references/conformer-workflow.md)。
+- 增加核数不会使不适用的方法变得可靠；方法和资源分别说明。来源：[protocols.md（v3-frozen）](https://github.com/anakine800-tech/Auto-Gaussian/blob/v3-frozen/skills/auto-g16-rtwin-pbs/references/protocols.md)。
 
 - 正常终止、`opt_converged=true`、零虚频仍可能伴随频率阶段位移检查 NO；在频率阶段收敛复核通过前暂停热化学接受。来源：study `butane-l1-20261013`，`lessons/04-frequency-stage-convergence.md`。
