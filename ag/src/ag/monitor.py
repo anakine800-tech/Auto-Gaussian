@@ -392,10 +392,11 @@ def slurm_observation(cfg, transport, username, *, storage_state=None):
         warnings.append(dict(kind='over-cap', job_id=None, study=None, attempt=None,
                              detail=f'本人运行加排队 {running + queued} 核、同组本地未观测预留 {held} 核，超过上限 {total_cap} 核'))
     summary, hardware, summary_error = slurm_partition(cfg, transport, own)
+    nodes, nodes_error = slurm_nodes(cfg, transport)
     storage_sample(cfg, transport, storage_state)
     return dict(own=dict(cores_in_use=running + queued, cores_running=running, cores_queued=queued,
                          core_cap=cap, committed_cap=total_cap, jobs=own, **memory_totals(own), **shared_fields(cfg)),
-                cluster=dict(nodes=[], queues=[], cores_total=0, cores_used=0,
+                cluster=dict(nodes=nodes, nodes_error=nodes_error, queues=[], cores_total=0, cores_used=0,
                              hardware_capacity_known=hardware['cores_total'] is not None,
                              hardware=hardware, jobs=own, jobs_omitted=0, job_summary=summary,
                              job_summary_error=summary_error, scheduler_timezone=None,
@@ -1156,3 +1157,15 @@ def slurm_partition(cfg, transport, own):
                 summary[key] = None
         hardware['notes'].append('两次作业查询不一致，他人汇总出现负数')
     return summary, hardware, summary_error
+
+
+def slurm_nodes(cfg, transport):
+    partition = cfg.get('partition')
+    if not partition:
+        return [], '未配置分区'
+    try:
+        raw = require_ok(transport.run(remote.slurm_partition_nodes(partition)), 'sinfo nodes')
+        return slurm.parse_nodes(raw, partition), None
+    except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
+        # Independent from successful own-job and legacy hardware observations.
+        return [], redact_stderr(f'Node capacity query failed: {exc}', cfg)

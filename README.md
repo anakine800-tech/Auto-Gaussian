@@ -410,6 +410,19 @@ T7e 已适配多集群（[Frontend #9](https://github.com/anakine800-tech/Auto-G
 `<STUDIES_ROOT>/.ag-monitor/<CLUSTER>/latest.json`，同时兼容旧单集群的
 `<STUDIES_ROOT>/.ag-monitor/latest.json`；两种 default 来源并存时显示歧义，不能擅自视为最新。
 监控数据始终来自 ag monitor 快照，前端不启动采样器；缺失、过期或失败不当成空闲或零预算。
+`ag capacity --cluster <ENTRY> --tier <TIER> [--target-node <NODE>] --json` 只读本地配置和已有快照，
+不触发 SSH、不写缓存，也不决定提交许可。它按同一节点的核数和调度器已分配/已申请内存判断：
+`fits_total` 为 true/false/null，`availability` 为 enough（当前足够）、queue（总规格满足但当前分配不足）、
+unknown（缺失、过期、矛盾或不可用状态）、not_applicable（已证实超出节点总规格）。
+结果包含请求 cores/mem_gb、cluster/target_node、sampled_at/valid_until、原因及 CPU/内存来源；
+无可信时间或过期元数据时有效期为空。有效快照沿用采样间隔三倍的期限，旧快照缺节点字段时保持未知。
+PBS 复用既有节点字段及内存来源优先级，精确目标名称不做短名映射；具名节点策略仍由原准入检查执行。
+Slurm 快照增量填写 `cluster.nodes`，每行包含 name/partition/partition_state/state、cores_total/cores_used/
+cores_idle/cores_other、mem_total_gb/mem_assigned_gb 和来源；节点查询局部失败记在 `cluster.nodes_error`，
+不清空成功的本人作业或旧硬件汇总。CPU 与内存来自同一条具名 sinfo 记录；二进制 GB 不向上舍入，
+不取 RSS/FreeMem，不扣额外余量，不跨节点相加。相同重复行只算一次，冲突节点保持未知。
+固定字段格式依据 [Slurm sinfo 官方说明](https://slurm.schedmd.com/sinfo.html)；目标 Slurm 的新查询兼容证据尚待授权只读核验，
+离线合成回归不代替现场验证。此能力不改已有账号额度、节点绑定、审批或提交行为。
 更新、备份、LaunchAgent 替换与回退、睡眠判断及部署观察统一见 [运维文档](docs/OPERATIONS.md)。
 监控每次本地唤醒检查启动配置的设备、文件身份、大小、mtime_ns、ctime_ns；变化立即重读，
 未变化时以 monotonic 时间每至多 30 秒完整重读一次。缓存只属于本次 monitor 调用；

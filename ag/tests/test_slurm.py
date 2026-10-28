@@ -58,6 +58,9 @@ class SlurmFake(Fake):
         if command == remote.slurm_partition_allocmem(self.cfg.get('partition', 'fixture')):
             self.calls.append(command)
             return Result(stdout='8192                \n')
+        if command == remote.slurm_partition_nodes(self.cfg.get('partition', 'fixture')):
+            self.calls.append(command)
+            return Result(stdout='node-a|fixture|8/24/0/32|65536|8192|mixed|up\n')
         replies = dict(storage_usage=Result(stdout='1024\t' + self.cfg['remote']['ag_root'] + '\n'), slurm_jobs=self.exact if ' -j ' in command.text else self.queue,
                        slurm_accounting=self.accounting, slurm_find=self.find,
                        slurm_history=self.history, slurm_partitions=self.partitions)
@@ -255,6 +258,50 @@ def test_slurm_output_widths_and_history_window():
     history = shlex.split(remote.slurm_history('fixture').text)
     assert '--starttime=now-30days' in history and '--endtime=now' in history
     assert '--starttime=2026-01-01' in remote.slurm_find('fixture', 'water-001-optfreq', '2026-01-01').text
+
+
+def test_identified_node_query_and_selector_validation():
+    command = remote.slurm_partition_nodes('synthetic')
+    assert shlex.split(command.text) == [
+        'sinfo', '-h', '--local', '-N', '-e', '-p', 'synthetic', '-O',
+        'NodeList:256|,PartitionName:256|,CPUsState:64|,Memory:64|,AllocMem:64|,StateLong:64|,Available:32']
+    from ag.transport import READ_OPERATIONS
+    assert command.operation in READ_OPERATIONS
+    assert subprocess.run(['sh', '-n'], input=command.text, text=True).returncode == 0
+    for bad in ('--all', 'x;evil', '$(evil)', 'x\ny', '../path', '/path', 'a,b', 'a|b'):
+        with pytest.raises(ValueError):
+            remote.slurm_partition_nodes(bad)
+
+
+def test_identified_nodes_duplicates_heterogeneity_and_precision():
+    a = 'node-a|fixture|0/32/0/32|65535|0|idle|up\n'
+    b = 'node-b|fixture|8/56/0/64|131072|8192|mixed|up\n'
+    rows = slurm.parse_nodes(a + a + b, 'fixture')
+    assert len(rows) == 2
+    assert rows[0]['mem_total_gb'] == 65535 / 1024  # Do not round up to 64 GB.
+    assert rows[1]['cores_total'] == 64
+    rows = slurm.parse_nodes(a + a.replace('0/32/0/32', '8/24/0/32') + a, 'fixture')
+    assert rows[0]['capacity_error']
+
+
+@pytest.mark.parametrize('row', ['', 'node-a|fixture',
+    'node-a|different|0/32/0/32|65536|0|idle|up',
+    'node[1-2]|fixture|0/32/0/32|65536|0|idle|up',
+    ('n' * 256) + '|fixture|0/32/0/32|65536|0|idle|up'])
+def test_identified_node_bad_rows(row):
+    with pytest.raises(ValueError):
+        slurm.parse_nodes(row, 'fixture')
+
+
+@pytest.mark.parametrize('value,field', [('N/A', 'mem_assigned_gb'), ('65537', 'mem_assigned_gb')])
+def test_identified_node_unknown_memory(value, field):
+    row = slurm.parse_nodes(f'node-a|fixture|0/32/0/32|65536|{value}|idle|up', 'fixture')[0]
+    assert row[field] is None
+
+
+def test_identified_node_unknown_counts_and_memory():
+    row = slurm.parse_nodes('node-a|fixture|2/32/0/32|65536+|0|idle|up', 'fixture')[0]
+    assert row['cores_total'] is None and row['mem_total_gb'] is None
 
 
 def test_squeue_synthetic_diagnostic_shape():
