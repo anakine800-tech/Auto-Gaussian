@@ -46,4 +46,5 @@ v4.0.0 起，从这一页进入仓库文档。先按身份找到自己的入口�
 - [research/](research/)：改造期的调研记录。
 - [ORCA 接入调研](research/orca.md)：许可、模板、解析、DLPNO 资源证据与分期建议。
 - [仓库瘦身评估](research/repo-slimming.md)：文档、测试、脚本与卡片的候选清单及风险。
+- [TS 初猜工具指南整理版](../skills-next/auto-g16-recipes/references/ts-initial-guess-guide.md)：已核对 v4.6.0 使用指南原稿的来源、章节去向与过时说明更正；与开发交接规格区分。
 - `archive/`：v3 及更早版本，冻结，不修改、不引用为规则。

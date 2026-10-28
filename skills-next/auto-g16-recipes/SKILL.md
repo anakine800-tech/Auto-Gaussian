@@ -25,6 +25,8 @@ description: 为 ag 新架构提供 Opt+Freq、单点、RDKit 或 CREST 初筛�
 
 每张卡片固定八节：**适用范围、前置条件、输入模板、资源建议、提交前检查清单、结果判据清单、常见失败与处理、常见坑**。本地任务不产生提交，但仍按第 5 节检查分析输入。
 
+[TS 初猜工具指南整理版](references/ts-initial-guess-guide.md)保留 v4.6.0 原稿的来源、工具分工和更正索引；执行与科学审阅仍从 [TS 卡片](cards/ts.md)进入。
+
 所有卡片的签字步骤均为“先生成清单，再签字”：先在 study.md/review.md 以明确本地路径引用分析输出，运行 `ag review manifest --study <dir>`，展示生成的清单，再请求人签字。将清单相对路径及命令返回的 SHA-256 记入签字记录；清单覆盖全部 facts.json、review.md 和被引用的分析输出，生成成功不代表科学接受。后续证据变化时保留旧清单，重新审阅并生成新清单。
 
 在 Attempt 的 `review.md` 中逐项记录第 6 节判据，先运行 `ag review init <id>`，使用“判据 | 依据（facts 字段、日志行号或文件） | 结论”表，写完运行 `ag review check <id>`。信息不足写“无法判断”并说明缺少的证据；本地分析的 review 放在 `analyses/`，并在 study 引用。不得将正常终止、排队完成或一个较低能量直接当成科学结论。
