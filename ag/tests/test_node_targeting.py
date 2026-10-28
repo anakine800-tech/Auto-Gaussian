@@ -550,14 +550,50 @@ def test_missing_assigned_memory_is_only_capacity_advice(targeted, missing):
     assert attempt.prepare(cfg, **args)['cores'] == 24
 
 
-def test_positive_assigned_memory_without_allocations_is_contradictory(targeted):
+@pytest.mark.parametrize('memory', ['1b', '0.1gb'])
+def test_positive_assigned_memory_without_allocations_is_contradictory(targeted, memory):
     cfg, args = targeted
-    # Less than the display rounding threshold still contradicts no jobs.
-    row = nt.strict_nodes(nodes(extra='    resources_assigned.mem = 1b\n'), [])[0]
-    assert row['mem_assigned_gb'] == 0
+    # Either exact bytes or the legacy display can establish the contradiction;
+    # fractional bytes are unknown, not permission to discard the old check.
+    raw = nodes(extra=f'    resources_assigned.mem = {memory}\n')
+    row = nt.strict_nodes(raw, [])[0]
+    assert row['mem_assigned_gb'] == (0 if memory == '1b' else 0.1)
+    assert row['mem_assigned_bytes'] == (1 if memory == '1b' else None)
     snapshot(cfg, [row])
     assert nt.candidates(cfg)['nodes'][1]['selectable'] is False
     with pytest.raises(ValueError, match='unavailable'):
+        attempt.prepare(cfg, **args)
+
+
+def test_old_targeting_cache_keeps_display_tiers_but_unknown_admission(targeted):
+    cfg, args = targeted
+    row = nt.strict_nodes(nodes(), [])[0]
+    for key in ('capacity_cpu_consistent', 'mem_total_bytes', 'mem_assigned_bytes'):
+        row.pop(key)
+    snapshot(cfg, [row])
+    candidate = nt.candidates(cfg)['nodes'][1]
+    assert nt.idle(row)[0] == candidate['status'] == 'available'
+    assert [o['tier'] for o in candidate['options']] == ['general', 'mini']
+    assert not candidate['selectable'] and 'unknown' in candidate['selectable_reason']
+    for option in candidate['options']:
+        assert option['capacity']['fits_total'] is None
+        assert option['capacity']['availability'] == 'unknown'
+        assert not option['selectable'] and 'No configured tier' not in option['selectable_reason']
+    with pytest.raises(ValueError, match='unknown'):
+        attempt.prepare(cfg, **args)
+    assert not list(Path(cfg['local']['studies_root']).rglob('manifest.json'))
+
+
+def test_exact_memory_rejection_does_not_rewrite_legacy_display_mapping(targeted):
+    cfg, args = targeted
+    snapshot(cfg, nt.strict_nodes(nodes(memory='49151mb'), []))
+    candidate = nt.candidates(cfg)['nodes'][1]
+    assert candidate['status'] == 'available'
+    half, quarter = candidate['options']
+    assert half['tier'] == 'general' and quarter['tier'] == 'mini'
+    assert half['capacity']['fits_total'] is False and not half['selectable']
+    assert quarter['selectable'] is True
+    with pytest.raises(ValueError, match='match target slots'):
         attempt.prepare(cfg, **args)
 
 

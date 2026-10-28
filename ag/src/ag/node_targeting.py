@@ -178,6 +178,11 @@ def admission(row, cores, mem_gb):
                 or assigned > row['mem_total_bytes']
                 or (assigned > 0 and row['cores_used'] == 0 and row['jobs'] == 0)):
             reason = 'Assigned memory contradicts node allocation evidence'
+        elif (row['cores_used'] == 0 and row['jobs'] == 0
+              and row.get('mem_assigned_gb') not in (None, 0)):
+            # Preserve the old idle-memory contradiction even when exact
+            # assigned bytes are unavailable (e.g. fractional-byte requests).
+            reason = 'Assigned memory contradicts node allocation evidence'
     return dict(selectable=reason is None,
                 selectable_reason=reason or 'Total specs fit; sharing or queueing allowed; fresh admission required',
                 capacity=assessment)
@@ -215,7 +220,9 @@ def candidates(cfg, cluster='default', *, now=None):
             status, reason = idle(row)
         for o in opts:
             o.update(admission(row, o['cores'], o['mem_gb']))
-            if o['capacity']['fits_total'] is not True:
+            # Keep the legacy display mapping. Exact/unknown capacity is
+            # expressed by selectable, never relabelled as a missing tier.
+            if row.get('mem_total_gb') is None or row['mem_total_gb'] < o['mem_gb']:
                 o['tier'] = None
             if status in ('forbidden', 'restricted', 'stale'):
                 o.update(selectable=False, selectable_reason=reason)

@@ -29,7 +29,10 @@ T156 `capacity.evaluate_node` result for its `cores`/`mem_gb` request, including
 `fits_total`, `availability`, `reasons`, `cpu_source` and `memory_source`.
 The enclosing response supplies its sample time and validity window; evaluation
 uses the same snapshot rows rather than rereading the cache for each option.
-Legacy `status`/`reason` remain display fields: an occupied node stays occupied
+Legacy `status`/`reason` and display-based tier mapping remain display fields:
+unknown exact capacity does not become `insufficient` or erase a configured tier.
+Use the option's `selectable` for eligibility; the display can round memory at a
+boundary that exact capacity rejects. An occupied node stays occupied
 even when selectable. Consumers without `selectable` keep their old status-based
 behavior. Priority and fraction order are unchanged; no node is selected automatically.
 The normal monitor adds consistency fields for opted-in nodes using its existing
