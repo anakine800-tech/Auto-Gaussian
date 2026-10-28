@@ -109,6 +109,16 @@ def test_expiry_boundary(cfg):
     assert result['availability'] == 'enough' and result['valid_until'] == NOW.isoformat()
 
 
+def test_tier_metadata_does_not_become_evaluator_arguments(cfg):
+    # Existing configuration validation permits additional tier metadata.
+    cfg['resources']['tiers']['general']['description'] = 'Synthetic tier'
+    config.validate_cluster(cfg)
+    save(cfg, [node()])
+    result = assess(cfg)
+    assert result['availability'] == 'enough'
+    assert result['cores'] == 22 and result['mem_gb'] == 50
+
+
 @pytest.mark.parametrize('field,value', [('cores_total', True), ('cores_used', -1),
     ('mem_total_gb', float('nan')), ('mem_assigned_gb', float('inf')), ('mem_assigned_gb', False)])
 def test_numeric_unknowns(cfg, field, value):

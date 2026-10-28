@@ -118,8 +118,8 @@ def assess(cfg, cluster, tier, target_node=None, *, now=None):
         if policy and (name not in policy['allowed_nodes'] or name in policy['denied_nodes']
                        or name in policy['restricted_nodes']):
             continue
-        result['nodes'].append(evaluate_node(node, **request, scheduler=scheduler,
-                                             partition=selected.get('partition')))
+        result['nodes'].append(evaluate_node(node, request['cores'], request['mem_gb'],
+                                             scheduler=scheduler, partition=selected.get('partition')))
     rows = result['nodes']
     if not rows:
         result['reasons'] = ['目标节点没有精确观测或没有符合入口配置的节点']

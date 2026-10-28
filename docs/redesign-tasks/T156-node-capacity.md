@@ -17,6 +17,7 @@
 - `ag/src/ag/remote.py`、`ag/src/ag/slurm.py`、`ag/src/ag/monitor.py`：固定 Slurm 逐节点只读采样、解析与局部失败处理；`ag/src/ag/pbs.py`：仅确有必要的字段归一化，保留原身份与内存优先级。
 - `ag/src/ag/capacity.py`（新建）：纯本地单节点申请判断与CLI；`ag/src/ag/cli.py`：仅注册新命令。
 - `ag/tests/test_capacity.py`（新建）、`ag/tests/test_slurm.py`、`ag/tests/test_core.py`、`ag/tests/test_monitor.py`：容量、固定命令白名单和监控回归。
+- 2026-10-28 负责人补充授权：`ag/tests/test_clusters.py` 仅补一次节点查询的预期操作；`ag/tests/test_monitor_all_jobs.py` 仅将空节点列表预期及测试名更新为具名节点行为。两处是全量回归发现的既有断言适配。
 - `README.md`、`docs/LESSONS.md`：兼容新增字段与能力限制。快照字段说明交 T158 在前端仓库既有 `docs/ag-monitor-1.md` 同步，不在后端另建同名文档。
 - `docs/redesign-tasks/T156-node-capacity.md`：本单随实现 PR 纳入；`docs/redesign-tasks/open-tasks.txt`：只处理本单条目，不覆盖其他任务。
 
@@ -65,10 +66,3 @@
 - PR 写清行为前后差异、兼容处理、相关与全量测试、实际验证版本及范围、未观察项和实际阻塞类别。
 - 处理共享文件冲突时只保留本单增量，不复制一份解析或判断规则；rebase 后复核受影响行为。
 - 合并由负责人完成。发布、生产配置迁移及服务操作另行安排；本单不授权这些动作。
-
-## 开发交接检查点（2026-10-28）
-
-- 已实现逐节点 Slurm 采样、独立失败字段、纯本地 `capacity.assess` 和 CLI；未改变提交准入。
-- 相关回归：`ag/tests/test_capacity.py ag/tests/test_slurm.py ag/tests/test_monitor.py`，221 passed。
-- 为转入本单独立对话而保存检查点；全量回归、独立审阅、PR 与 CI 尚未完成。
-- 当前阻塞类别：环境。新 sinfo 格式只有官方格式说明和合成夹具依据；未执行真实远程查询，目标兼容证据待授权补充。
