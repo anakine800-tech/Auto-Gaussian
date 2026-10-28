@@ -171,20 +171,22 @@ A 3 1 2 S 2 5.0
    登记只是来源记录，不是科学判断；不重复登记同一候选。QST 自动存档的是映射对齐后的产物端点，并非已找到的 TS。生成命令的 `--dry-run` 只预览登记，仍写草稿；登记失败保留导出，先核对现场，不自动重跑生成。
    来源：[catalog v2](../../../docs/ag-catalog-2.md)、[T133](../../../docs/redesign-tasks/T133-scan-peak-ts-input.md)、[T134](../../../docs/redesign-tasks/T134-endpoint-qst2.md)。
 
-4. **G0 诊断。**默认只报告；按候选所属对象核对完整性，只比较元素序列，不能检出同元素原子交换。没有参考或期望未知记未核对；手工来源可加 `--reference-attempt <参考Attempt>`。
+4. **G0 诊断。**默认只报告；按候选所属对象核对完整性。元素序列一致不证明同元素身份；没有参考或期望未知记未核对，手工来源可加 `--reference-attempt <参考Attempt>`。
 
    ```sh
    ag g0 <study> --object <对象> --candidate <候选> --windows <窗口JSON> --json
-   ag g0 <study> --object <对象> --candidate <候选> --windows <窗口JSON> --modes-attempt <频率Attempt> --reaction-coordinate distance:<I-J>:forming --json
+   ag g0 <study> --object <对象> --candidate <候选> --windows <窗口JSON> --modes-attempt <频率Attempt> --reaction-coordinate distance:<I-J>:forming --atom-mapping <映射JSON> --json
    ```
+   T162 的 `--atom-mapping` 文件顶层为 `mappings`；每项按 object/candidate 和候选 SHA-256 绑定目标，完整 `candidate_to_target` 表示候选 i → 目标 j，两侧均从 1 开始。reference 与 frequency 分别声明并绑定实际来源哈希；频率目标还绑定所选日志段、行范围及段哈希。先按既有参数/结果规则选择来源，映射文件不替你选择 Attempt；格式见 [显式原子对应](../../../docs/g0.md#显式原子对应t162)。
+   `declared_verified` 只表示双射、元素与来源绑定校验通过，化学身份仍须人审；不能用元素序列、同源标签或 RMSD 自动推断映射。缺映射时身份为 `unverified`，不增加科学拒绝或提交门槛；缺有效 frequency 映射时模式不可用，不输出方向投影、最佳模式或依赖身份的 RMSD。
    只有输入完整性和几何损坏两类硬拒绝；普通冲突、距离超窗和立体差异仅标记，不自动改归属。报告 rejected/flagged/clean 不等于科学验收，clean 只表示未发现问题。**G0 是本地诊断，不是门禁；提交与否由负责人决定。**
    窗口文件须在 study 的 `analyses/` 下，相对路径以 study 为基准；顶层只允许 `channels`、`all`、`reaction_coordinates`。距离窗口应用 all + 候选原登记目标通道 + 命令行 `--window`；反应坐标取 `reaction_coordinates[目标通道]`，再追加可重复的 `--reaction-coordinate kind:atoms:role`，编号从 1 开始。distance 角色为 breaking/forming，angle 为 increasing/decreasing/report；通道 ID 须合法。
    适用距离窗口及 distance 反应坐标声明的原子对列在 `geometry.reaction_center_pairs`（原子、元素、距离、成键状态），不标普通冲突，但仍适用两条几何硬拒绝：距离 < 0.5 Å 或 < 0.5 × 共价半径之和。有窗口仍检查超窗；没有模式数据也适用反应中心规则，angle 坐标不声明原子对。
-   有已取回 Gaussian 频率结果时用第二条命令，按目标补充坐标：断键伸长、成键缩短。逐坐标投影并考虑模式整体正负号；审阅全部虚频及模式来源，重叠度只供排序，不设科学阈值。非驻点频率只供诊断；本期不读取 xTB Hessian。
-   批量从第一条命令把 `--candidate <候选>` 换成 `--all` 或 `--channel <通道>`，不加 `--modes-attempt`；模式来源取候选最新一条 Attempt 非空的结果，跳过 diagnosed 等空 Attempt 记录，不按 outcome 筛选。全为空时记“无模式数据”；选中的 Attempt 未取回或没有 Gaussian Freq 段也记无模式数据，不再回退；未声明反应坐标时不做投影。顺序只是建议。显式 `--record` 才写 diagnosed，归属 none、Attempt 为空，不能借此保留旧的最新归属；历史结果仍可查。
-   来源：[G0 文档](../../../docs/g0.md)（T137/T138/T161）、[T139](../../../docs/redesign-tasks/T139-card-wording.md) B4/X4。
+   有已取回 Gaussian 频率结果及经审阅映射时用第二条命令，反应坐标始终用候选编号：断键伸长、成键缩短。工具只转换坐标索引，使用频率原几何与原位移，不旋转、反射或重排；逐坐标投影并考虑模式整体正负号。审阅全部虚频及来源，重叠度只供排序，不设科学阈值。非驻点频率只供诊断；本期不读取 xTB Hessian。
+   批量从第一条命令把 `--candidate <候选>` 换成 `--all` 或 `--channel <通道>`，需要模式时另加 `--atom-mapping <映射JSON>`，不加 `--modes-attempt`；模式来源取候选最新一条 Attempt 非空的结果，跳过 diagnosed 等空 Attempt 记录，不按 outcome 筛选。全为空时记“无模式数据”；选中的 Attempt 未取回或没有 Gaussian Freq 段也记无模式数据，不再回退；未声明反应坐标时不做投影，但已提供的映射及所选来源仍须核对绑定。顺序只是建议。显式 `--record` 才写 diagnosed，归属 none、Attempt 为空，不能借此保留旧的最新归属；历史结果仍可查。
+   来源：[G0 文档](../../../docs/g0.md)（T137/T138/T161/T162）、[T139](../../../docs/redesign-tasks/T139-card-wording.md) B4/X4。[T163 调查规格](../../../docs/research/xtb-hessian-import.md)只规定后续本地导入方案，导入器未实现、真实配套文件和数值边界仍待补；不能把 xTB `g98.out` 当 Gaussian 频率输入。
 
-   T161：批量只对明确分类的频率分段歧义保留其他成功项，单列 errors 并返回 2；有局部错误时 `--record` 不写任何候选结果。单候选仍报错，哈希损坏、来源/路径或其他解析错误不按该例外容忍；错误不记 clean。
+   T161/T162：批量对明确分类的频率分段歧义、可定位到单候选的映射声明或绑定错误保留其他成功项，单列 errors 并返回 2；有局部错误时 `--record` 不写任何候选结果。单候选仍直接报错。映射文件读取或顶层身份错误、存档/来源本身损坏、非法路径及其他解析错误仍停止整批；错误不记 clean。
 
 ## 4. 资源建议
 

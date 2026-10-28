@@ -15,7 +15,7 @@
 
 本页是脱敏、去重并标注更正的整理版，不是原文逐字副本，也不新增科学默认、提交授权或签字层级。实际使用从 [TS 总入口](../cards/ts.md) 和 [Study 流程](../../auto-g16-study/SKILL.md)进入；方法与基组仍只在 [acceptance-methods.md](../../auto-g16-study/references/acceptance-methods.md) 中定义。
 
-当前行为核对基线为 `b6dc3cb`（已包含 T154/T161/T164）；后续功能需按实际合并实现再更新。原稿的两机部署前提只记录当时的发布背景，本页不据此推断部署已完成，也不把它新增为通用操作前置条件。研究写入、升级、计算提交仍依现行流程和该 study 已有授权执行。
+当前行为核对基线为 `a3cc131b`（已包含 T154/T156/T161–T165，其中 T163 仅为规格）；后续功能需按实际合并实现再更新。原稿的两机部署前提只记录当时的发布背景，本页不据此推断部署已完成，也不把它新增为通用操作前置条件。研究写入、升级、计算提交仍依现行流程和该 study 已有授权执行。
 
 ## 原章节去向与更正
 
@@ -26,7 +26,7 @@
 | 2 scan-path | 一维扫描相邻点的成键、二面角、接触和缺失诊断，见[仓库用法](../../../README.md) | 保留诊断含义，阈值与字段只引用实际文档，不再复制一套数值表 |
 | 3 scan-peak | 严格局部峰与 TS 草稿，见 [TS 扫描说明](../cards/ts.md#初猜来源一维弛豫扫描) | 缺 `%nprocshared` 不再一律拒绝；T150 已补核数，T154 已支持所选入口配置的默认档位 |
 | 4 qst-endpoints | 人给完整映射、正规对齐、歧义审阅、QST2 草稿 | 不保证能查出所有同元素身份错配；未知虚频数仍需人工核对极小点证据 |
-| 5 G0 | 几何/完整性诊断与模式投影，见 [G0 文档](../../../docs/g0.md) | 加入 T161 局部频率分段歧义的批量结果与登记边界；不把错误当 clean |
+| 5 G0 | 几何/完整性诊断与模式投影，见 [G0 文档](../../../docs/g0.md) | 加入 T161 批次局部错误和 T162 显式映射/来源绑定；不把错误当 clean，不以声明校验证明化学身份 |
 | 6 profile 三数 | 最低 TS、系综、差值，见 [profile](../cards/profile.md) | 保留量的区别与共同参考态；不复制非 TS 卡片的完整用法 |
 | 7 卡片口径 | 有限覆盖、失败记录、分支 IRC、归属边界，见 [TS](../cards/ts.md) / [IRC](../cards/irc.md) | 不带回旧候选阈值、阶段审批或部署规则 |
 | 8 典型流程 | 本页按已审阅输入说明步骤 | 原稿中的具体原子编号、距离窗及能量演示不复用，统一以占位符或现行说明替代 |
@@ -62,15 +62,17 @@ catalog v2 不可降级；已有 v1 日志首次写 v2 事件须显式 `--upgrad
 ```sh
 ag catalog ledger <study> --object <对象> --channel <通道> --json
 ag g0 <study> --object <对象> --candidate <候选> --windows analyses/<窗口JSON> --json
-ag g0 <study> --object <对象> --candidate <候选> --windows analyses/<窗口JSON> --modes-attempt <频率Attempt> --reaction-coordinate distance:<I-J>:forming --json
+ag g0 <study> --object <对象> --candidate <候选> --windows analyses/<窗口JSON> --modes-attempt <频率Attempt> --reaction-coordinate distance:<I-J>:forming --atom-mapping <映射JSON> --json
 ag g0 <study> --object <对象> --all --windows analyses/<窗口JSON> --json
 ```
 
-窗口、反应坐标及原子对应由人审阅，不能直接把原稿示例编号用于研究。当前基线的 G0 只按元素序列检查顺序，无法检出同元素身份交换。模式投影使用已取回 Gaussian 频率自身的几何与位移取向，逐内坐标报告变化并考虑模式整体正负号；重叠度只供排序，不设科学通过阈值。xTB Hessian 尚未接入。
+窗口、反应坐标及原子对应由人审阅，不能直接把原稿示例编号用于研究。T162 用 `--atom-mapping` 声明显式对应：顶层 `mappings`，完整且从 1 开始的 `candidate_to_target` 表示候选 → 目标；reference/frequency 分别绑定候选与实际来源的 SHA-256，频率还绑定确切日志段。详见 [显式原子对应](../../../docs/g0.md#显式原子对应t162)。`declared_verified` 只证明声明校验通过，不证明同元素化学身份。
+
+缺映射时身份保持 `unverified`，不增加科学拒绝或提交门槛；没有有效 frequency 映射就不提供模式投影。模式使用已取回 Gaussian 频率的原几何与原位移，只转换候选反应坐标的索引，不旋转/重排模式；逐内坐标报告变化并考虑整体正负号。重叠度只供排序，不设科学通过阈值。xTB Hessian 尚未接入；[T163 调查规格](../../../docs/research/xtb-hessian-import.md)保留真实配套文件与数值边界缺口，不能将 `g98.out` 交给现有 Gaussian 适配器。
 
 候选诊断只把输入完整性与极端几何损坏归为 rejected；普通冲突、超窗、立体和模式问题为标记。数据、来源或解析错误是操作错误，不能归入 clean/flagged/rejected 来掩盖。完整限制与阈值以 [G0 文档](../../../docs/g0.md)为准。
 
-T161 的批量诊断仅对明确分类的频率分段歧义保留成功项，并单列错误，退出码为 2；出现局部错误时 `--record` 不写任何候选事件。单候选仍直接报错，哈希损坏、非法路径等不因批量容错被放行。成功项的顺序只是建议，G0 不构成提交门禁。
+T161/T162 批量诊断对明确分类的频率分段歧义、可定位到候选的映射声明或绑定错误保留成功项，并单列错误，退出码为 2；出现局部错误时 `--record` 不写任何候选事件。单候选仍直接报错；映射文件读取/顶层身份错误、来源本身损坏、非法路径等仍停止整批。成功项的顺序只是建议，G0 不构成提交门禁。
 
 完成获批计算后，按实际结果登记。accepted 本身不等于 verified；verified 归属的机器条件不证明振动方向或 IRC 已验收；通道 verified 另需负责人声明。归属不唯一时记录 undetermined，不把同一 TS 重复计入不同产物的简单选择性。
 

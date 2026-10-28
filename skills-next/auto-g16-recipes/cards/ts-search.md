@@ -100,6 +100,7 @@ prepare 只做本地声明；submit 在授权前只读取得父 chk 大小与 SH
 
 小体系先评估 simple，规模或实测耗时支持时评估 general；complex 等高档位说明具体资源理由。核数、内存与可用档位以所选入口的实际配置和 `ag clusters --json` 为准，不把旧默认档位数值当作所有入口的资源。
 T154 允许省略 `--tier` 时使用所选入口已配置的 `resources.default_tier`；显式档位优先，没有默认值仍须选择档位。`ag route` 仍要求显式 `--tier`。walltime 另行明确选择，核对入口上限；prepare 按既有节点策略要求核验具体节点与比例，不从档位默认推定节点。
+T156 的 `ag capacity --cluster <入口> --tier <档位> --json` 只读已有本地快照，同一节点的核数和内存须同时可用；缺失、过期或矛盾证据保持 unknown。结果不保证何时启动，也不决定提交许可；详情见 [资源与监控说明](../../../README.md)。
 CalcFC 与 Freq 均有 Hessian 成本；每个 TS 构象分别估计，不把加核当作收敛修复。
 
 `MaxCycles` 只限制步数，不能保证不超 walltime。按
