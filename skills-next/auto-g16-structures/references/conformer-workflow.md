@@ -4,8 +4,8 @@ Adapted from `skills/auto-g16-view-rt-win/references/conformer-workflow.md`.
 
 仅在本次决定使用 SCNet 时，CREST（含 `--mdopt`）显式用 `--cluster scnet-test`（`赠送分区`），Gaussian 只能用 `--cluster scnet`（`正式分区`）。default 与 SCNet 的选择沿用 study 安排；准备前读本机配置核对入口和 partition，并写入确认摘要，不把队列名当入口别名。`赠送分区` 不可用、无权限或额度满时停下报告，由负责人逐次决定，不自动改投 `scnet`。
 
-After human structure confirmation, use one connected molecular graph, preserving
-ChemDraw explicit-H wedge/dash stereochemistry. Unassigned tetrahedral centers
+For ordinary ETKDG generation, after human structure confirmation use one connected
+molecular graph, preserving ChemDraw explicit-H wedge/dash stereochemistry. Unassigned tetrahedral centers
 and conflicting or unsupported CFG values stop generation.
 
 The migrated algorithm embeds with ETKDGv3 and `enforceChirality=True`, initially
@@ -17,7 +17,16 @@ Defaults are 50 requested conformers, seed 61453, 1000 minimization iterations,
 6 kcal/mol energy window, 0.5 Å all-atom symmetry-aware best-RMSD threshold and at
 most 10 retained conformers. Change `--num-conformers`, `--seed`, `--max-iters`,
 `--energy-window`, `--rmsd-threshold`, or `--max-keep` deliberately. These are the
-legacy screening defaults, not a claim that sampling is complete.
+legacy screening defaults, not a claim that sampling is complete. In each study
+example explicitly set `--num-conformers N_REQUESTED --max-keep N_KEEP`, replacing
+the placeholders with reviewed integers and recording why that retention count
+covers the intended sources/structural diversity within the available budget.
+Record requested, embedded and actually retained counts from `summary.json`;
+`N_KEEP` is a cap, not a promise of that many distinct candidates. The default
+10 may truncate candidates before xTB optimization or DFT reranking. Increasing
+the cap alone does not recover candidates removed by the force-field window or
+RMSD filter; record those limits too. An explicit cap of 10 remains valid when
+supported by the study's rationale; no larger fixed count applies to all studies.
 
 `conformers.xyz` contains retained explicit-H frames in increasing force-field
 energy order. Each comment starts with energy in kcal/mol, then the force-field
@@ -28,14 +37,13 @@ is disclosed even when minimization converges.
 
 Inspect identity, CIP centers, source atom count, formula, explicit-H count,
 force-field fallback, convergence and 3D geometry. Inspect axial configuration
-separately. For the combined CREST/ETKDG route, optimize the reviewed ensemble
-with CREST `--mdopt` at the same xTB level before merging and energy filtering;
-review the resulting representative set with the researcher. Multiple representatives can proceed;
-there is no single-conformer selection step.
+separately. Select the comparison branch below before combining CREST/ETKDG
+candidates, then review the resulting representative set with the researcher.
+Multiple representatives can proceed; there is no single-conformer selection step.
 
-For the T12b research workflow confirmed on 2026-10-14, retain enough force-field candidates
-for same-method CREST `--mdopt` optimization, merged xTB filtering, and DFT
-single-point reranking before applying the DFT optimization count limit.
+For the T12b research workflow confirmed on 2026-10-14, retain enough candidates
+for the selected prescreening branch and DFT single-point reranking before
+applying the DFT optimization count limit.
 The script's legacy `--max-keep 10` is not that research limit; deliberately
 choose and record candidate coverage. The force-field window is not an xTB
 window. See the [screening card](../../auto-g16-recipes/cards/rdkit-screen.md)
@@ -46,16 +54,43 @@ minima. Check whether different starting conformers converge to the same
 structure. Use the reviewed thermochemistry workflow for final relative Gibbs
 energies and populations; do not mix force-field and DFT energies.
 
+## 分支选择
+
+先按既有研究卡片选择候选来源，再选择在哪个能量层级统一比较；这是两个问题。
+以下表格整理现有 [RDKit](../../auto-g16-recipes/cards/rdkit-screen.md)、
+[CREST](../../auto-g16-recipes/cards/crest-screen.md) 和
+[complex](../../auto-g16-recipes/cards/complex.md) 卡片，不改变已批准方案。
+
+| 对象与前置条件 | 是否需要额外 ETKDG / 第二来源 | 审阅边界 |
+| --- | --- | --- |
+| 普通稳定单分子，非关键中间体，方案未要求双路线 | 可按方案仅 CREST；不因使用 CREST 就一律补 ETKDG | 记录实际来源与覆盖限制，不能声称已完成双路线核对 |
+| 连通、可参数化的关键中间体 | 必须保留 CREST + ETKDG | 逐路线审阅后做来源覆盖核对，不能无依据删掉独立来源 |
+| 可旋转键较多且符合 RDKit 范围的稳定分子 | 建议 CREST + ETKDG；方案已要求时照做 | 记录是否采用及理由，多个 ETKDG 种子仍是同一路线 |
+| TS 族、复合物 | 必须双路线：已审阅初猜的约束 CREST + 定向构造初猜的约束 CREST（directed） | 不强用 ETKDG；两路共享 CREST 引擎且有约束偏向，TS 不套用极小点剪枝 |
+| 需要双路线但第二来源不适用或尚无依据 | 保留“来源待决定”及具体缺口 | 不强行参数化，也不把缺失来源改写为单路线已充分 |
+
+复合物只开放已审阅原子对约束采样；T86 范围内的定向起点用
+[专用构建入口](../SKILL.md#定向复合物构建)。入口存在不证明一般配位、断开体系、
+金属或开壳层已验证。采样引擎仍为 CREST/RDKit，不自写 MD 或退火引擎。
+
+| 比较分支 | 前置条件与目的 | 来源对照、几何去重与能量排序 | 风险 |
+| --- | --- | --- | --- |
+| A：ETKDG → 统一 xTB 优化 → DFT 重排 | 计划在共同 xTB 标度预筛；ETKDG 系综先做与 CREST 同方法、溶剂、电荷、自旋及可比约束设置的 mdopt | 来源标签在优化前保留；优化后用 lowest 合并，结合 RMSD、能差容差及共同 xTB 窗口；再统一 DFT SP 并核对覆盖 | 低层级窗口可能漏候选，需保留窗外验证对象；mdopt 是逐帧优化，不是新独立搜索 |
+| B：各来源候选 → 仅几何合并 → 统一 DFT 重排 | 按既有 RDKit/SP 卡片，候选可按各自已审阅窗口进入 DFT；尚未统一低层能量或选择直接 DFT 比较 | 按输入顺序及 RMSD 合并并保留来源，不用 lowest、window 或 de；对全部保留代表做同层级 DFT SP 后才跨来源排序、核对覆盖 | 几何相近不保证能量相近，先出现者不保证最低能；不同来源几何质量及各自预筛也会漏候选 |
+
+两分支都审阅身份、立体化学、收敛、关键氢朝向和原始帧号。B 的几何合并
+不是能量筛选；换单位不能使力场、GFN-FF、GFN2-xTB 能量可比。约束方案不同
+的搜索能量也不能混排。选分支不豁免双路线要求，不因 B 可用而更改已签的
+筛选口径；若需改变，先提交具体候选数量、保留依据和影响供确认。
+
 ## 双路线交叉核对
 
-TS 族、关键中间体、复合物必须走双路线；可旋转键较多的分子也建议走。
-普通、连通且可参数化的稳定分子用 CREST + RDKit ETKDG；TS 与断开的
-复合物不能强塞进本地力场脚本，用 CREST + 按机理假设定向构造的约束
-CREST (`directed`) 交叉核对。这两条路线仍共享 CREST 引擎，报告此局限。
-采样引擎仍是 CREST/RDKit，不自写 MD 或退火引擎。
+按上表需要或已选择双路线时执行；单 CREST 方案将双路线项注明不适用及依据，
+不伪造第二来源。各路线分别记录输入数、保留数、上限及依据，缺证据时留待决定。
 
-每条路线先独立审核身份、立体化学和收敛，保留足够候选。
-ETKDG 的多帧 XYZ 必须先按 [CREST 卡片](../../auto-g16-recipes/cards/crest-screen.md)
+### A：统一 xTB 后合并
+
+本分支的 ETKDG 多帧 XYZ 先按 [CREST 卡片](../../auto-g16-recipes/cards/crest-screen.md)
 用 `--param=--mdopt` 做逐帧优化；与 CREST 路线使用相同 GFN2-xTB、溶剂、
 电荷及自旋。prepare 校验 1–1000 帧、原子数/元素序列一致、有限坐标。
 经人确认提交，status → fetch → facts 后取得 Attempt 下的 `mdopt.xyz`，
@@ -68,12 +103,26 @@ ETKDG 的多帧 XYZ 必须先按 [CREST 卡片](../../auto-g16-recipes/cards/cre
 关键结论比较放宽窗口后的最低构象、系综 G 和关键能垒；预算不足注明未验证。
 这些极小点窗口不直接用于剪除 TS 通道。
 相同方法多种子可以反复使用同一个路线名，不把多个 ETKDG 种子伪装成多条路线。
-把审阅过的多帧 XYZ 合并（以下路径均为 study 内占位符）：
+把审阅过的多帧 XYZ 合并（路径及电荷为示例；各来源数量及保留依据按上文填实）：
 
 ```text
 ag dedup --source crest=crest.xyz --source etkdg=attempts/ETKDG_MDOPT/mdopt.xyz --representative lowest --de 0.05 --hydrogens polar --window 6 --charge 0 --out analyses --json
-ag coverage --merged analyses/dedup-TIMESTAMP.json --energies attempts/SP_A attempts/SP_B --window 3 --out analyses/coverage-01.md
 ```
+
+### B：仅几何合并后统一 DFT
+
+各路线按自身已审阅窗口保留候选，记录实际数量、上限与筛除依据；保留原始集合
+及窗外独特验证对象。RDKit 候选无需先做 mdopt 才能进入本分支。示例：
+
+```text
+ag dedup --source crest=crest.xyz --source etkdg=structures/ff-screen/conformers.xyz --hydrogens polar --charge 0 --out analyses --json
+```
+
+此处仅按几何合并，不能把来源自带能量当作共同排序依据。全部保留代表原样进入
+同层级 DFT 筛选 SP，不能先按混合能量或研究 20 个/验收 10 个优化上限截断。
+预算不足记录未重排候选与影响；各来源自己的窗口与数量限制仍可能造成漏采样。
+
+### 两分支共同的去重与覆盖审阅
 
 `--hydrogens heavy|polar|all` 默认 polar，比较重原子及 N/O/S/P 上的氢，
 保留 OH 等极性氢朝向；普通甲基转动仍可合并。涉及氢键或参与反应的氢必须
@@ -110,6 +159,13 @@ RMSD、能差及可选二面角分箱条件的代表；仅几何来源合并按�
 
 对合并后的每个候选原样制作 DFT 单点输入，使用一致方法、基组、溶剂、
 电荷与多重度。`ag coverage` 读取已有 facts，不运行 DFT、不重写 facts。
+筛选 SP 的来源、prepare 的 `--card sp` 和后续判据见 [SP 卡片](../../auto-g16-recipes/cards/sp.md)；
+无 DFT Opt+Freq 父作业时不伪造父记录。完成 DFT SP 后才运行：
+
+```text
+ag coverage --merged analyses/dedup-TIMESTAMP.json --energies attempts/SP_A attempts/SP_B --window 3 --out analyses/coverage-01.md
+```
+
 coverage 与 cluster 自动继承 dedup 的 hydrogens；旧 JSON 缺少字段时按 heavy
 解释。旧 heavy 结果已丢失的氢朝向无法恢复，涉及相关氢时重新去重。
 对应按候选与 Attempt **输入**的元素顺序及所选原子坐标距离 ≤ 1e-4 Å 建立；
@@ -145,8 +201,9 @@ walltime（只加 walltime 不会自动增加已正常结束的采样）；增�
    或亲核进攻方向/反应面。记录备选取向，避免仅围绕预期答案构造。
 2. 在结构 Skill 中以已审阅结构为基础搭建特定取向的 Cartesian XYZ；
    保留各片段身份、原子顺序和立体化学，记录总电荷/多重度、质子位置。
-   片段可先分别准备，按明确距离/角度放置后逐项审阅；现有 connected-only
-   RDKit 脚本不负责拼接复合物，也不把人工构造当已优化结构。
+   符合 T86 主族单接触范围时用[定向复合物构建](../SKILL.md#定向复合物构建)，
+   按人给的距离/角度放置并逐项审阅；普通 connected-only RDKit 脚本不负责
+   拼接复合物，也不把人工构造当已优化结构。
 3. 与人核对所约束原子编号、目标距离/角度/二面角，按照
    [CREST 卡片](../../auto-g16-recipes/cards/crest-screen.md) 用 `--constraints`
    准备约束 CREST；非共价复合物可配 `--nci`。假设和约束会引入偏向，需记录。

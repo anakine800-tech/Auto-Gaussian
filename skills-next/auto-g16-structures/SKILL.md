@@ -11,12 +11,18 @@ scripts with `conda run -n chem python`; they use sibling modules and need no
 runtime configuration or installed legacy Skill. RDKit with ChemDraw CDX support
 is required for CDX/CDXML inputs.
 
-Read `study.md` and `references/chemistry-boundaries.md`. Multiplicity must come
-from the researcher or `study.md`, never be inferred from a structure. This first
-version handles connected, closed-shell main-group organic molecules. Stop and
-ask the researcher about radicals, metals, coordination systems, disconnected
-complexes, or unclear protonation/tautomer/stereochemistry. Unassigned tetrahedral
-centers and conflicting/unsupported ChemDraw CFG stop the scripts. Do not remove
+Read `study.md` and `references/chemistry-boundaries.md` for the ordinary
+single-molecule scripts: preview/import and ETKDG force-field generation handle
+connected, closed-shell main-group organic molecules. Multiplicity must come
+from the researcher or `study.md`, never be inferred from a structure.
+For two reviewed components within T86's main-group, single-contact scope, use
+[定向复合物构建](#定向复合物构建) and the [complex card](../auto-g16-recipes/cards/complex.md).
+That dedicated entry does not extend the ordinary scripts to coordination or
+disconnected systems, or validate general docking, multiple coordination sites,
+transition metals, open-shell or excited-state calculations. Stop and ask about
+systems outside those boundaries or unclear protonation/tautomer/stereochemistry.
+Unassigned tetrahedral centers and conflicting/unsupported ChemDraw CFG stop
+the ordinary scripts. Do not remove
 stereo annotations or change the source drawing to make an error disappear.
 
 ## Workflow
@@ -38,18 +44,24 @@ stereo annotations or change the source drawing to make an error disappear.
 3. **Ask the researcher to confirm the structure (milestone 1).** Record their
    confirmation in `study.md` before screening. A successful script is not a
    human signature. Do not invent a signature from a test run.
-4. Follow `references/conformer-workflow.md`: TS families, key intermediates and
-   complexes require two sampling routes; flexible molecules are also recommended.
-   Use CREST + ETKDG for supported minima, CREST + hypothesis-directed constrained
-   CREST for TS/complexes. Construct and review the proposed interaction/attack
-   direction before constrained CREST and label that route `directed`; do not feed
-   disconnected complexes/TS into the connected-only force-field script. The
-   coverage report cannot prove completeness. For supported minima run
+4. Select sources and the energy-comparison branch using the
+   [branch tables](references/conformer-workflow.md#分支选择). Key intermediates,
+   TS families and complexes retain the required two routes; ordinary minima do
+   not automatically require ETKDG in addition to CREST. Flexible molecules are
+   recommended for cross-checking. TS/complexes use reviewed constrained CREST
+   starts plus hypothesis-directed constrained CREST (`directed`); both share
+   the CREST engine. Do not feed them into the single-molecule force-field script.
+   The coverage report cannot prove completeness. For supported minima run
    `scripts/prepare_conformers.py generate SOURCE --study STUDY --name ff-screen
-   --multiplicity MULT`. Inspect warnings and force-field convergence. Keep the
-   original source for ChemDraw so explicit-H wedge information survives.
-5. Hand `structures/ff-screen/conformers.xyz` and `summary.json` to `ag dedup`
-   (consult `ag dedup --help` for its installed interface). XYZ comment lines
+   --multiplicity MULT --num-conformers N_REQUESTED --max-keep N_KEEP`.
+   Replace both counts with study-specific integers and record the retention
+   rationale and actual output count; the default 10 can truncate before DFT
+   reranking. Inspect warnings and convergence. Keep the original ChemDraw source
+   so explicit-H wedge information survives.
+5. Follow the selected branch with `structures/ff-screen/conformers.xyz` and
+   `summary.json`: same-level xTB optimization before energy-based merging, or
+   geometry-only merging followed by uniform DFT single-point reranking.
+   Consult `ag dedup --help` for its installed interface. XYZ comment lines
    begin with absolute force-field energy followed by the force field and
    `kcal/mol`; these are **not Hartree, DFT energies or Gibbs energies**. Keep
    this unit explicit when using dedup/cluster. Review the representative set

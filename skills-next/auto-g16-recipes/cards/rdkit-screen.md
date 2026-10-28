@@ -12,10 +12,11 @@
 
 主族、闭壳层、单个连通分子，所有原子能由 MMFF94s 或 UFF 参数化。不是金属、离子对、TS 或双分子相对取向搜索。
 
-TS 族、关键中间体、复合物必须双路线；可旋转键较多的分子建议也走。
-本卡适用的稳定单分子以 ETKDG 与 CREST 交叉核对；TS/复合物用 CREST +
-定向构造约束 CREST（directed），不扩大本卡力场适用范围。详见
-[conformer-workflow](../../auto-g16-structures/references/conformer-workflow.md)。
+关键中间体须保留双路线；本卡适用的稳定单分子用 ETKDG 与 CREST 交叉核对。
+普通稳定分子不因做过 CREST 就一律要求补 ETKDG；可旋转键较多时建议交叉核对，
+已签方案要求的来源不能无依据删去。TS/复合物也须双路线，但用已审阅初猜的
+约束 CREST + 定向构造约束 CREST（directed），不扩大本卡力场适用范围。
+来源选择与比较分支详见[分支表](../../auto-g16-structures/references/conformer-workflow.md#分支选择)。
 
 ## 2. 前置条件
 
@@ -25,7 +26,14 @@ TS 族、关键中间体、复合物必须双路线；可旋转键较多的分�
 
 把已审阅的 SMILES / ChemDraw 衍生结构交给 `auto-g16-structures` 初筛脚本，输出到 study 的 `structures/`。使用 ETKDGv3 并保持手性，完整记录随机种子、请求 / 成功构象数、能量窗口、RMSD 阈值和力场收敛情况。MMFF94s 全参数化时优先使用；否则仅在 UFF 也全参数化时回退。
 
-生成后调用 `ag dedup`，需要代表分组时再用 `ag cluster`。参数名与输入形式读取各工具帮助；不在这里发明脚本文件名或 CLI 选项。力场窗口由 study 明确记录，不能把 CREST 的xTB 6 kcal/mol 窗口当成跨力场相同精度。
+研究命令显式填写 `--num-conformers N_REQUESTED --max-keep N_KEEP`，两者用
+本研究已审阅整数替换，并写明保留数量的覆盖/预算依据。核对 summary 中实际
+生成与保留数；默认 `--max-keep 10` 可能在 xTB/DFT 前截断，不是 DFT 优化上限。
+以上是待填骨架，未填数量和依据不能视为已审阅研究方案；没有依据时保留数量
+待决定，不统一替换成某个更大的固定值。
+
+生成后按下述 A 或 B 分支调用 `ag dedup`，需要代表分组时再用 `ag cluster`。
+力场窗口由 study 明确记录，不能把 CREST 的 xTB 6 kcal/mol 窗口当成跨力场相同精度。
 去重使用 `--hydrogens heavy|polar|all`，默认 polar 保留 N/O/S/P 上的氢，避免丢失 OH 等转子；普通甲基转动仍可合并。
 涉及氢键或参与反应的氢必须参与构象区分；若相关氢连在 C 等其他元素上，选择 all。
 coverage 与 cluster 继承 dedup JSON 的 hydrogens（旧文件无字段时为 heavy）；旧 heavy 结果无法恢复丢失的氢朝向，需重新去重。
@@ -34,9 +42,19 @@ coverage 与 cluster 继承 dedup JSON 的 hydrogens（旧文件无字段时为 
 代表并请人确认集合和简并度，之后进入 opt-freq；优化后重新去重。
 数值及优化层级筛选单点方法见[方法表](../../auto-g16-study/references/acceptance-methods.md)，负责人已于 2026-10-14 确认。
 
-各路线独立预筛后，`ag dedup --source crest=crest.xyz --source etkdg=etkdg.xyz --charge 0 --out analyses`
-按几何合并并保留所有来源，不跨方法比较能量。
-同方法 Hartree 来源可显式选择 `--representative lowest`，此时还应用 `--de`（默认 0.05 kcal/mol），只有能差小于该容差且几何通过才合并；仅几何模式不接受能量容差。
+**A：统一 xTB 后合并。** 要在共同 xTB 标度筛选时，ETKDG 系综先按
+[CREST 卡片](crest-screen.md#etkdg-系综统一到-xtb-能量)做同方法 mdopt，
+保留 etkdg 来源标签。与 CREST 的方法、溶剂、电荷、自旋和约束口径一致且经审阅后，
+才选择 `--representative lowest`、共同 `--window 6` 及 `--de`（默认 0.05 kcal/mol）；
+几何和能差均通过才合并。Hartree 单位相同不能证明方法可比。
+
+**B：仅几何合并后统一 DFT。** 各路线独立预筛后，
+`ag dedup --source crest=crest.xyz --source etkdg=etkdg.xyz --hydrogens polar --charge 0 --out analyses`
+按输入顺序做几何合并并保留来源，无需先 mdopt；不用 lowest、window 或 de，
+不跨方法比较能量。几何相近不保证等能，首个代表不保证最低能；保留原始帧供复核。
+
+两分支都记录每个来源实际保留数、上限及依据，保留 [SP](sp.md) 要求的窗外
+独特验证对象；各自的预筛窗口也可能漏候选。不能在 DFT 重排前靠聚类数量上限截断。
 对合并候选用同层级 DFT 单点，再执行 `ag coverage --merged analyses/dedup-TIMESTAMP.json --energies attempts/SP_A attempts/SP_B --window 3 --out analyses/coverage-01.md`。
 先看所选原子的输入几何（1e-4 Å、保留原子顺序）未匹配项，再看窗口总数、路线命中数、
 最低 5 个构象来源和单路线独有低能构象。最低构象单路线独有或某路线独占
@@ -57,11 +75,11 @@ coverage 与 cluster 继承 dedup JSON 的 hydrogens（旧文件无字段时为 
 
 ## 6. 结果判据清单
 
-- 成功生成非空候选集合，记录每个候选的力场名称、能量单位、收敛状态和警告。
+- 成功生成非空候选集合，记录请求/成功/保留数量、保留上限及依据，以及每个候选的力场名称、能量单位、收敛状态和警告。
 - 元素组成、连通性与立体化学保持；轴手性需人工检查，不能只看四面体中心列表。
 - `ag dedup` 输出无重复代表；聚类保留代表与成员对应关系、氢模式、两种 RMSD、阈值、窗口和筛除原因，氢键或反应相关氢参与区分。
 - 先运行 `ag review manifest --study <dir>` 生成证据清单，再展示代表及简并度给人签字，并记录清单路径及 SHA-256；成员出现次数不直接等于物理简并度，依据不清就标待确认。
-- 双路线来源及覆盖报告已审阅，未匹配项、低能独有项、警告与采样限制已记录。
+- 所选比较分支与来源要求一致：A 的 ETKDG 经同层级 mdopt 后才作共同 xTB 能量筛选，B 仅几何合并后统一 DFT 重排；按方案所需的双路线来源及覆盖报告已审阅，未匹配项、低能独有项、警告与采样限制已记录。不适用双路线时写明依据，不把缺来源当作充分覆盖。
 - 明确结果是初筛；力场排序不能作为 DFT 自由能或最终 Boltzmann 布居。
 
 ## 7. 常见失败与处理
