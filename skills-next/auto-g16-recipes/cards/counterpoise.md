@@ -17,7 +17,7 @@
 
 ## 3. 输入模板
 
-下列示例中的 `%mem` 可省略，由 ag 自动填写；显式填写时仍检查不超过档位内存的 85%。
+下列 Link0 数值、档位和 walltime 仅为示例，须按所选入口与已审阅资源替换。`%nprocshared`、`%mem` 可省略，由新 prepare 按实际档位补齐；显式核数须匹配档位，内存仍检查不超过调度内存的 85%。
 
 输入为普通、未加片段标签的 Cartesian GJF 和四列 CSV；prepare 根据 CSV 生成片段标签和三组电荷/多重度。
 手动加标签或把完整片段电荷行直接放入源 GJF 会被拒绝，避免 CSV 与手写标签不一致。
@@ -65,7 +65,7 @@ prepare 不等于授权提交。完整摘要经负责人核对后，仍须按 St
 
 ## 4. 资源建议
 
-水二聚体和 NH₄⁺···H₂O 流程验证建议 mini：4 核、10 GB、30 分钟，Gaussian `%mem=8GB`，每作业申请上限 2 核时。
+水二聚体和 NH₄⁺···H₂O 流程验证的资源示例为 mini：4 核、10 GB、30 分钟，Gaussian `%mem=8GB`；该示例每作业最多申请 2 核时，不是所有入口的通用默认或上限。实际档位、核数及调度内存取所选入口配置，保存值以 manifest 为准，核时按实际核数与 walltime 重算；详见[资源表达](../../auto-g16-study/references/acceptance-methods.md#资源表达)。
 CP 包含复合物及两片段在两套基组下的多个单点，较普通 SP 更贵；研究体系据已观察耗时另估，不照搬小分子上限。
 default 与 scnet 沿用普通 Gaussian 的资源和入口规则；scnet-test 的 allowed_templates 不允许 Gaussian 类任务时即拒绝，不切换入口绕过。
 

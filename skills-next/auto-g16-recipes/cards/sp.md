@@ -46,7 +46,7 @@ TS 族、关键中间体、复合物必须双路线，可旋转键较多也建�
 
 ## 3. 输入模板
 
-下列示例中的 `%mem` 可省略，由 ag 自动填写；显式填写时仍检查不超过档位内存的 85%。
+下列 Link0 数值、档位和 walltime 仅为示例，须按所选入口与已审阅资源替换。`%nprocshared`、`%mem` 可省略，由新 prepare 按实际档位补齐；显式核数须匹配档位，内存仍检查不超过调度内存的 85%。
 
 方法/基组：见 [acceptance-methods.md](../../auto-g16-study/references/acceptance-methods.md)。
 骨架中的 `<方法/基组>` 必须按已审阅方案替换，并补齐适用的色散与溶剂设置。
@@ -77,12 +77,12 @@ parent，并用说明筛选来源的 relation 文本（如 `screening_sp_of`）�
 RDKit 坐标无 Attempt，不伪造 parent。relation 仅记录来源，不触发分析。
 
 ```text
-ag prepare --study <study_id> --template gaussian --input <sp.gjf> --tier simple --walltime 12:00:00 --label sp-c01 --parent <optfreq_id> --relation single_point_of --method-basis <文献先例 DOI 及位置 / 本课题既有方案及来源（不是文献先例，精度未经验证） / 兜底方法声明>
+ag prepare --study <study_id> --template gaussian --input <sp.gjf> --tier simple --walltime 12:00:00 --label sp-c01 --card sp --parent <optfreq_id> --relation single_point_of --method-basis <文献先例 DOI 及位置 / 本课题既有方案及来源（不是文献先例，精度未经验证） / 兜底方法声明>
 ```
 
 ## 4. 资源建议
 
-约 50 原子以下常规单点从 simple（8 核、12 GB，`%mem=10GB`）、12:00:00 起；大基组或既有耗时支持时考虑 general（22 核、50 GB，`%mem=42GB`）、24:00:00。复杂规模再提 complex（44 核、120 GB，`%mem=100GB`）；不因“高精度”字样直接占满节点。
+约 50 原子以下常规单点可先估较小档位，大基组或既有耗时支持时再增加资源。示例为 simple（8 核、12 GB，`%mem=10GB`）、12:00:00；general（22 核、50 GB，`%mem=42GB`）、24:00:00；复杂规模可考虑 complex（44 核、120 GB，`%mem=100GB`）。这些不是通用默认，实际档位按所选入口配置，保存值以 manifest 为准；详见[资源表达](../../auto-g16-study/references/acceptance-methods.md#资源表达)。walltime 须满足入口上限，不因“高精度”字样直接占满节点。
 
 ## 5. 提交前检查清单
 

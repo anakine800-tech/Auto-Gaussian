@@ -16,7 +16,7 @@ description: 为 ag 新架构提供 Opt+Freq、单点、RDKit 或 CREST 初筛�
 | [ts-search](cards/ts-search.md) | 已审阅初猜的 TS 优化、频率与振动方向审核 | 初猜已审阅；方法和资源已明确 |
 | [irc](cards/irc.md) | 双向路径与端点极小点识别 | 已接受 TS 与振动方向；缺能力或证据时记录具体阻塞 |
 | [opt-freq](cards/opt-freq.md) | 主族闭壳层单分子极小点 | 已签结构与代表构象集合、已定方法 |
-| [sp](cards/sp.md) | 同一物种极小点的电子能精化 | 已接受的 Opt+Freq 最终几何 |
+| [sp](cards/sp.md) | 候选筛选 SP、最终电子能精化、能垒方法敏感性 | 筛选用已审阅候选，无需 Opt+Freq 父作业；最终精化用已接受驻点最终几何；方法敏感性覆盖完整参考物种与竞争通道 |
 | [rdkit-screen](cards/rdkit-screen.md) | 力场可参数化的主族单分子初筛 | 已签结构，structures Skill 可用 |
 | [crest-screen](cards/crest-screen.md) | 主族闭壳层单分子构象搜索 | 已签结构、可用 CREST 模板 |
 | [thermo](cards/thermo.md) | 同一物种的相对自由能与布居 | 合格 Opt+Freq、最终去重集合及简并度 |
@@ -31,7 +31,9 @@ description: 为 ag 新架构提供 Opt+Freq、单点、RDKit 或 CREST 初筛�
 
 所有卡片的签字步骤均为“先生成清单，再签字”：先在 study.md/review.md 以明确本地路径引用分析输出，运行 `ag review manifest --study <dir>`，展示生成的清单，再请求人签字。将清单相对路径及命令返回的 SHA-256 记入签字记录；清单覆盖全部 facts.json、review.md 和被引用的分析输出，生成成功不代表科学接受。后续证据变化时保留旧清单，重新审阅并生成新清单。
 
-在 Attempt 的 `review.md` 中逐项记录第 6 节判据，先运行 `ag review init <id>`，使用“判据 | 依据（facts 字段、日志行号或文件） | 结论”表，写完运行 `ag review check <id>`。信息不足写“无法判断”并说明缺少的证据；本地分析的 review 放在 `analyses/`，并在 study 引用。不得将正常终止、排队完成或一个较低能量直接当成科学结论。
+新 Attempt 准备时显式传 `--card <卡片名>`，把实际使用卡片的文本、Git 提交号和 dirty 状态保存到 manifest；审阅使用该快照的第 6 节，不随卡片更新替换旧依据。卡片里的完整 prepare 示例按此填写；仅说明选项的片段须并入完整命令，不能单独执行。
+
+在 Attempt 的 `review.md` 中逐项记录第 6 节判据，先运行 `ag review init <id>`，使用“判据 | 依据（facts 字段、日志行号或文件） | 结论”表，写完运行 `ag review check <id>`。旧 manifest 未保存卡片时，可显式用 `ag review init <id> --card <卡片名>`；来源标为“审阅时补指定”，快照保存在 review.md，不补写 manifest，也不能替换准备时快照或覆盖已有 review。信息不足写“无法判断”并说明缺少的证据；本地分析的 review 放在 `analyses/`，并在 study 引用。不得将正常终止、排队完成或一个较低能量直接当成科学结论。
 
 卡片里的程序参数表示模板允许的参数值；具体 CLI 绑定方式先读当前 `ag <命令> --help`。未定义的选项不猜写；缺少方案要求的能力就报告。远程动作只通过 `ag`；所有计算失败先报告，提出新 Attempt，等人确认。提交按 [Study 提交流程](../auto-g16-study/SKILL.md)使用当前会话聊天批准记录、明确适用的长期规则或 Mac 人工确认；取消仍必须由人点击 Mac 对话框。
 

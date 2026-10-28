@@ -27,10 +27,10 @@ CREST 准备前先运行 `ag route --template crest --tier <档位> --walltime <
 以下窗口已由负责人于 2026-10-14 确认。首选 GFN2-xTB；示例（L1 正丁烷气相流程验收）：`--gfn2 --chrg 0 --uhf 0 --ewin 6 --quick`。正式研究的电荷、`--uhf`、溶剂及是否使用 `--quick` 按体系填写；溶液相加经过模板验证的 ALPB 溶剂。使用快速模式时只选一种；GFN-FF 是另一个方法选项，不能把其能量当 GFN2 能量。
 
 ```text
-ag prepare --study <study_id> --template crest --input <reviewed.xyz> --tier simple --walltime 04:00:00 --label crest --method-basis <构象筛选依据：文献先例 DOI 及位置 / 本课题既有方案及来源（不是文献先例，精度未经验证） / 兜底方法声明>
+ag prepare --study <study_id> --template crest --input <reviewed.xyz> --param=--gfn2 --param=--chrg=0 --param=--uhf=0 --param=--ewin=6 --param=--quick --tier simple --walltime 04:00:00 --label crest --card crest-screen --method-basis <构象筛选依据：文献先例 DOI 及位置 / 本课题既有方案及来源（不是文献先例，精度未经验证） / 兜底方法声明>
 ```
 
-上述是通用 prepare 参数，还须按当前 `ag prepare --help` 将完整 CREST 参数交给模板；它们不是随意透传的 shell 命令。准备后走确认摘要及 `ag submit`。完成后 status → fetch → facts，读取 `crest_conformers.xyz` 等声明输出，调用 `ag dedup` / `ag cluster`。保留 xTB 相对能量 ≤ 6 kcal/mol 的候选并去重；对这些候选先按
+上述完整 prepare 示例对应中性闭壳层气相快速验收；替换路径、方法依据并核对入口和资源后使用。正式研究按已审阅方案修改 `--param`，其值受模板白名单校验，不是随意透传的 shell 命令。准备后走确认摘要及 `ag submit`。完成后 status → fetch → facts，读取 `crest_conformers.xyz` 等声明输出，调用 `ag dedup` / `ag cluster`。保留 xTB 相对能量 ≤ 6 kcal/mol 的候选并去重；对这些候选先按
 [SP](sp.md) 做优化层级 DFT 单点重排；方法/基组：见
 [acceptance-methods.md](../../auto-g16-study/references/acceptance-methods.md)，包括溶剂与阴离子弥散方案；
 不能按 xTB 排序先截成 20 个。
@@ -48,7 +48,7 @@ ETKDG/MMFF 或 UFF 只负责生成候选；力场能量不能换单位后与 CRE
 保留足够候选，先用同一 GFN2-xTB、ALPB 溶剂、电荷及 `--uhf` 做系综优化：
 
 ```text
-ag prepare --study <study_id> --template crest --input <etkdg-ensemble.xyz> --param=--mdopt --param=--gfn2 --param=--alpb=<与 CREST 路线相同的溶剂> --param=--chrg=0 --param=--uhf=0 --tier simple --walltime 04:00:00 --label etkdg-mdopt --method-basis <构象筛选依据：文献先例 DOI 及位置 / 本课题既有方案及来源（不是文献先例，精度未经验证） / 兜底方法声明>
+ag prepare --study <study_id> --template crest --input <etkdg-ensemble.xyz> --param=--mdopt --param=--gfn2 --param=--alpb=<与 CREST 路线相同的溶剂> --param=--chrg=0 --param=--uhf=0 --tier simple --walltime 04:00:00 --label etkdg-mdopt --card crest-screen --method-basis <构象筛选依据：文献先例 DOI 及位置 / 本课题既有方案及来源（不是文献先例，精度未经验证） / 兜底方法声明>
 ```
 
 GFN 层级、ALPB 溶剂、电荷和 `--uhf` 必须与参与合并的 CREST 来源逐项一致，
@@ -149,7 +149,7 @@ DFT 单点后运行
 
 ## 4. 资源建议
 
-按体系规模、柔性和既有耗时选择档位与 walltime：约 50 原子以内的快速验收先用 simple（8 核、12 GB）；更柔性或已有耗时证据时提出 general（22 核、50 GB）、24:00:00；复杂体系确有需要再考虑 complex（44 核、120 GB）。示例（L1 正丁烷流程验收）：simple、04:00:00。模板负责线程数，不能额外拼接线程参数。
+按体系规模、柔性和既有耗时选择档位与 walltime。资源示例：约 50 原子以内的快速验收用 simple（8 核、12 GB）、04:00:00；更柔性或已有耗时证据时用 general（22 核、50 GB）、24:00:00；复杂体系确有需要再考虑 complex（44 核、120 GB）。这些不是通用默认，实际档位按所选入口配置，保存值以 manifest 为准；详见[资源表达](../../auto-g16-study/references/acceptance-methods.md#资源表达)。walltime 须满足入口上限；模板负责线程数，不能额外拼接线程参数。
 
 ## 5. 提交前检查清单
 

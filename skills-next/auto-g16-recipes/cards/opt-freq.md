@@ -24,7 +24,7 @@ TS 族、关键中间体、复合物必须双路线，可旋转键较多也建�
 
 ## 3. 输入模板
 
-下列示例中的 `%mem` 可省略，由 ag 自动填写；显式填写时仍检查不超过档位内存的 85%。
+下列 Link0 数值、档位和 walltime 仅为示例，须按所选入口与已审阅资源替换。`%nprocshared`、`%mem` 可省略，由新 prepare 按实际档位补齐；显式核数须匹配档位，内存仍检查不超过调度内存的 85%。
 
 中性流程验收示例（用审阅过的笛卡尔坐标替换占位行，保留 Gaussian 必需空行）：
 
@@ -55,14 +55,14 @@ TS 族、关键中间体、复合物必须双路线，可旋转键较多也建�
 [方法表](../../auto-g16-study/references/acceptance-methods.md#数值设置与热化学依据)，并随实际结果记录。
 
 ```text
-ag prepare --study <study_id> --template gaussian --input <conformer.gjf> --tier simple --walltime 24:00:00 --label optfreq-c01 --method-basis <文献先例 DOI 及位置 / 本课题既有方案及来源（不是文献先例，精度未经验证） / 兜底方法声明>
+ag prepare --study <study_id> --template gaussian --input <conformer.gjf> --tier simple --walltime 24:00:00 --label optfreq-c01 --card opt-freq --method-basis <文献先例 DOI 及位置 / 本课题既有方案及来源（不是文献先例，精度未经验证） / 兜底方法声明>
 ```
 
 若上游来自 CREST Attempt，补 `--parent <crest_id> --relation conformer_of`；本地 RDKit 产物不是 Attempt，不伪造 parent，在 study 记录结构来源。
 
 ## 4. 资源建议
 
-小于约 50 原子的验收或普通单分子先用 simple（8 核、12 GB，`%mem=10GB`），建议 24:00:00；较大或已有耗时证据的体系考虑 general（22 核、50 GB，`%mem=42GB`），48:00:00。complex（44 核、120 GB，`%mem=100GB`）仅在确有规模需求时提出。原子数是估计起点，不是方法精度；并发总量受配置上限限制。
+小于约 50 原子的验收或普通单分子可从较小档位估算，较大或已有耗时证据的体系再考虑增加资源。示例为 simple（8 核、12 GB，`%mem=10GB`）、24:00:00；general（22 核、50 GB，`%mem=42GB`）、48:00:00；确有规模需求时用 complex（44 核、120 GB，`%mem=100GB`）。这些不是通用默认，实际档位按所选入口配置，保存值以 manifest 为准；详见[资源表达](../../auto-g16-study/references/acceptance-methods.md#资源表达)。原子数是估计起点，不是方法精度；walltime 须满足入口上限，并发总量受配置上限限制。
 
 ## 5. 提交前检查清单
 

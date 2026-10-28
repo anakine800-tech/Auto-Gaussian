@@ -42,7 +42,7 @@ description: 在 ag 新架构中创建、恢复和推进主族闭壳层计算研
 8. **沉淀经验。** 解决问题或被人纠正后，按[经验格式](references/lessons.md)在 study 的 `lessons/` 起草，提议修改具体卡片小节，不直接改 Skill；在每周清理时经人审阅合并进卡片。
 9. **判定完成。** 只有目标中的量都算出、三个里程碑都签字、机理研究的当前假设已签字且里程碑后更新已记录、`study.md` 有结论，才能称 study 完成；否则说明目前结果及尚缺的证据。下次继续从第 1 步恢复。
 
-prepare 在 manifest 的 `card` 中记录 `name`、`git_commit`、`dirty` 和原始 `content`，优先读取已部署的 `auto-g16-recipes`（解析软链接），未部署时读取 ag 源码仓库的卡片。摘要显示提交号前 7 位和 dirty；保存文本防止 dirty 内容或后续改卡导致旧判据丢失。旧 Attempt 未记录卡片时，review init 会报错，不猜卡、不改 manifest；由 LLM 手工记录依据。check 只检查完整性和 facts 新鲜度，不代表科学接受。facts 重生成后，须逐行重新核对依据和结论，再把 review 顶部 `<!-- facts: ... -->` 的 JSON 更新为 check 返回的 `current_facts`，重跑 check；不要只改快照消除提示。check 本身不修改文件。
+新 Attempt 在 prepare 显式传入 `--card <卡片名>` 后，在 manifest 的 `card` 中记录 `name`、`git_commit`、`dirty` 和原始 `content`，优先读取已部署的 `auto-g16-recipes`（解析软链接），未部署时读取 ag 源码仓库的卡片。摘要显示提交号前 7 位和 dirty；保存文本防止 dirty 内容或后续改卡导致旧判据丢失。旧 Attempt 未记录卡片时，使用 `ag review init <id> --card <卡片名>` 显式指定；review.md 标明“审阅时补指定”并保存快照，不补写 manifest。不能用此选项替换准备时已有的卡片，也不覆盖已有 review 或换掉旧审阅依据。check 只检查完整性和 facts 新鲜度，不代表科学接受。facts 重生成后，须逐行重新核对依据和结论，再把 review 顶部 `<!-- facts: ... -->` 的 JSON 更新为 check 返回的 `current_facts`，重跑 check；不要只改快照消除提示。check 本身不修改文件。
 
 第 5 步审阅发现 facts 解析错误时，先运行 `ag facts <Attempt> --reparse --dry-run --out <study外的新文件.json>` 给负责人看逐字段差异；人同意后正式执行 `--reparse`（旧版归档保留），在 study.md 进度日志记录哪些 Attempt、重新解析原因及旧/新 SHA-256 前 12 位；命令列出的引用旧完整哈希的已签内容须由负责人重新确认，不自动继承旧签字。能量、频率或收敛字段出现非预期变化时停下报告，不直接正式执行。
 
@@ -69,9 +69,11 @@ catalog 只追加自身日志和生成自身状态，不改 manifest、facts、r
 | 结构未确认 | 按第 0 步核验并展示报告、预览，记录结构确认 | [开题物种核验](../auto-g16-structures/SKILL.md#开题物种核验) |
 | 双分子步骤或端点为复合物 | 审阅组分及原子对，约束采样；明确参考态、缔合熵与端点比较对象 | [complex](../auto-g16-recipes/cards/complex.md) |
 | 已确认结构，待初筛 | 选择本地 RDKit 或集群 CREST | `rdkit-screen` / `crest-screen` |
-| 已有初筛集合 | 去重、聚类、展示代表与简并度，请人签字 | 所选初筛卡片 |
+| 已有初筛候选，待 DFT 重排 | 按方法表及所选初筛卡片去重、审阅候选，做优化层级筛选 SP；不要求或伪造 Opt+Freq 父作业 | 所选初筛卡片 / `sp` |
+| 筛选 SP 已齐 | 按既定窗口及窗外验证要求选出优化代表，展示来源与简并度，请人签字 | `sp` / 所选初筛卡片 |
 | 已签代表集合，目标是极小点 | 同一方法逐个准备 Opt+Freq | `opt-freq` |
-| 已接受极小点且计划有单点 | 对最终几何准备单点 | `sp` |
+| 已接受驻点且计划有最终精化 | 对最终几何准备精化 SP；TS 另须频率与方向审核，路径结论仍需双向 IRC | `sp` |
+| 关键能垒待方法敏感性检查 | 按方法表在同一几何集合上，为各方法计算完整参考物种、关键 TS 与竞争通道的 SP | `sp` / `profile` |
 | 已签机理假设与代表集合，待准备 TS 初猜 | 审阅扫描/端点/文献来源、映射及 G0 诊断；阶段总览与覆盖见 ts | [ts-guess](../auto-g16-recipes/cards/ts-guess.md) / [ts](../auto-g16-recipes/cards/ts.md) |
 | 有已审阅 TS 初猜 | 按目标原子对准备 TS 搜索、完整 Freq 和方向审核；缺能力或证据则记录具体阻塞 | [ts-search](../auto-g16-recipes/cards/ts-search.md) |
 | TS 恰好一个虚频且方向审核通过 | 提出双向 IRC；缺能力或证据则记录具体阻塞 | [irc](../auto-g16-recipes/cards/irc.md) |

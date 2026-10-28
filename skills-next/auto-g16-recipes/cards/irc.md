@@ -61,7 +61,7 @@ Gaussian 路线形式为 `irc=(calcfc,maxpoints=<点数>,stepsize=<步长>,forwa
 方法、色散和溶剂（溶液相含 SMD）必须替换为该 TS 的实际设置。另建 reverse 输入、标签和 Attempt；每个方向完整展示输入摘要并经人确认。已有准备接口如下（反方向相应换输入和标签）：
 
 ```text
-ag prepare --study <study_id> --template gaussian --input <irc-forward.gjf> --tier simple --walltime 24:00:00 --label irc-forward --parent <ts_id> --relation irc_from --method-basis <与 TS 相同的依据：文献先例 DOI 及位置 / 本课题既有方案及来源（不是文献先例，精度未经验证） / 兜底方法声明>
+ag prepare --study <study_id> --template gaussian --input <irc-forward.gjf> --tier simple --walltime 24:00:00 --label irc-forward --card irc --parent <ts_id> --relation irc_from --method-basis <与 TS 相同的依据：文献先例 DOI 及位置 / 本课题既有方案及来源（不是文献先例，精度未经验证） / 兜底方法声明>
 ```
 
 `irc_from` 只是现有 relation 文本，不会复用 chk 或验证路径。经审阅复用 TS 力常数时，在 prepare 中追加 `--parent-chk <ts_id>:<父输入中声明的chk文件名>`，与现有 `--parent <ts_id>` 配套。父 Attempt 必须 finished/fetched，submit 确认前后均核对调度器中已无该作业，且父子属于同一集群。
@@ -100,7 +100,7 @@ prepare 纯本地；submit 的父 chk 摘要、独占复制、源/目标哈希�
 
 ## 4. 资源建议
 
-每个方向先评估 simple，再参照 TS 实际耗时考虑 general；档位核数、内存及默认值按 [TS 搜索资源说明](ts-search.md#4-资源建议)和所选入口实际配置核对，walltime 仍须明确。计入两次 CalcFC、路径各点和两个端点 Opt+Freq 的成本。MaxPoints 是上限，不是完成证据；增大点数/减小步长会增加代价，需新方案和确认。
+每个方向先评估 simple，再参照 TS 实际耗时考虑 general 或入口其他已配置档位；档位核数、内存及默认值按[资源表达](../../auto-g16-study/references/acceptance-methods.md#资源表达)和所选入口实际配置核对，保存值以 manifest 为准，walltime 仍须明确。计入两次 CalcFC、路径各点和两个端点 Opt+Freq 的成本。MaxPoints 是上限，不是完成证据；增大点数/减小步长会增加代价，需新方案和确认。
 
 ## 5. 提交前检查清单
 
