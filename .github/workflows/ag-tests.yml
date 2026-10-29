@@ -26,7 +26,7 @@ jobs:
           python scripts/scan_public.py --self-test
           python scripts/scan_public.py
       - name: Install ag and chemistry dependencies
-        run: python -m pip install -e "ag[test,chem]" rdkit
+        run: python -m pip install -e "ag[test,chem]" "rdkit==2026.3.3"
       - name: Test ag
         run: python -m pytest ag/tests
       - name: Test new Skills when present
