@@ -39,7 +39,7 @@
 coverage 与 cluster 继承 dedup JSON 的 hydrogens（旧文件无字段时为 heavy）；旧 heavy 结果无法恢复丢失的氢朝向，需重新去重。
 每次合并记录 heavy_rmsd 和实际判定 rmsd（Å），核对阈值是否保留了目标氢朝向。
 候选先按 [SP](sp.md) 做 DFT 单点重排，再选 DFT 单点能 3 kcal/mol 内
-代表并请人确认集合和简并度，之后进入 opt-freq；优化后重新去重。
+代表，手动模式请人确认集合和简并度后进入 opt-freq；符合 [AGENTS 自主运行规则](../../../AGENTS.md#自主运行)时可按计划暂定选择并标“待人确认”，仍须负责人签字。优化后重新去重。
 数值及优化层级筛选单点方法见[方法表](../../auto-g16-study/references/acceptance-methods.md)，负责人已于 2026-10-14 确认。
 
 **A：统一 xTB 后合并。** 要在共同 xTB 标度筛选时，ETKDG 系综先按
@@ -84,9 +84,9 @@ coverage 与 cluster 继承 dedup JSON 的 hydrogens（旧文件无字段时为 
 
 ## 7. 常见失败与处理
 
-参数化失败、嵌入失败或手性改变时保存报告，提出修正结构或调整本地生成方案，等人确认受影响的结构 / 集合。初筛能力不足可提出 CREST 路线；若需要远程计算，提出新 Attempt，等人确认。
+参数化失败、嵌入失败或手性改变时保存报告，提出修正结构或调整本地生成方案，等人确认受影响的结构 / 集合。初筛能力不足可提出 CREST 路线；若需要远程计算，新 Attempt 按 [Study 流程](../../auto-g16-study/SKILL.md)取得对应模式授权。
 
-出现覆盖警告时增加 ETKDG 随机种子/候选数（仍标 etkdg）、延长 CREST 有效采样（去掉快速模式、给足 walltime），或由结构 Skill 按特定相互作用/进攻方向假设搭建初猜再用约束 CREST，来源标 directed。新增远程计算经人确认；重做合并、同层级 DFT 重排和覆盖报告，不自动扩样或重提。
+出现覆盖警告时增加 ETKDG 随机种子/候选数（仍标 etkdg）、延长 CREST 有效采样（去掉快速模式、给足 walltime），或由结构 Skill 按特定相互作用/进攻方向假设搭建初猜再用约束 CREST，来源标 directed。新增远程计算按上述模式规则取得授权；重做合并、同层级 DFT 重排和覆盖报告。警告本身不授权扩样，不重提旧 Attempt。
 
 ## 8. 常见坑
 

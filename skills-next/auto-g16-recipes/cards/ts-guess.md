@@ -13,7 +13,7 @@
 
 ## 2. 前置条件
 
-[机理假设](reaction-plan.md)已由人签字，目标步骤、反应物/产物身份和原子对应明确；结构与代表构象集合已确认。预先列出正在形成、断裂或迁移的原子对（按输入行号，从 1 开始），并说明方法依据、溶剂、电荷、多重度。初猜来源可选（科学策略提炼自 [旧设计 R10](../../../archive/docs/end-to-end-reaction-computation-workflow.md)）：
+[机理假设](reaction-plan.md)已由人签字，目标步骤、反应物/产物身份和原子对应明确；结构已确认；代表集合的签字与暂定继续计算按 [TS 前置条件](ts.md#2-前置条件)处理。预先列出正在形成、断裂或迁移的原子对（按输入行号，从 1 开始），并说明方法依据、溶剂、电荷、多重度。初猜来源可选（科学策略提炼自 [旧设计 R10](../../../archive/docs/end-to-end-reaction-computation-workflow.md)）：
 
 - Hessian 引导的单结构初猜：已有合理 TS 状几何时，用反应坐标与曲率信息判断适用性；CalcFC 不能弥补错误原子映射。
 - 沿反应坐标做一维弛豫扫描：记录坐标、范围、步长、冻结项及选点依据，局部极大仅是初猜，具体做法见下。
@@ -76,7 +76,7 @@ $end
 的分母为点数减一，实际扫描应避免单点设置。`ag prepare --template xtb --input <起始.xyz>
 --constraints <扫描.inp> --param=--gfn=2 --param=--opt` 再加通用 study、tier、
 walltime、label 和 method-basis 参数。SCNet 使用已配置的 `--cluster`，仍须
-按 Study 流程取得聊天批准记录、匹配长期规则或 Mac 人工确认；不通过卡片拼接远程命令。
+按 [Study 流程](../../auto-g16-study/SKILL.md)取得对应模式的提交授权；不通过卡片拼接远程命令。
 
 DFT 输入用 `opt=modredundant`，采用默认 Å 坐标（不带 Units 选项，避免摘要
 单位与扫描范围错配）；显式坐标后留空行，再写一个段，例如：
@@ -110,7 +110,7 @@ prepare 摘要显示编号、元素、初值、步数、步长、终值和冻结
   对齐的全原子 RMSD 超过 0.5 Å。这些阈值只决定是否列出启发式提示，不是科学判据；检查结构、电子态和坐标步长，
   不能自动删除这些点或断言机理改变；平滑曲线也不能证明同一路径。
 - “有未收敛的点或收敛证据缺失”：这些点及紧邻它们的点不参与选择；缺点可能隐藏局部峰。
-  回看原日志并人工决定是否重新设计扫描；不自动重提。
+  回看原日志并按 [失败诊断](failure-diagnosis.md)判断是否重新设计扫描；手动模式请人决定，自主模式仅按 [AGENTS](../../../AGENTS.md#自主运行)处理，不重提旧 Attempt。
 
 scan_points.xyz 保存各已报告点的最终几何；未收敛点只是最后迭代几何，未计算点
 无几何。文件已存在且相同则沿用，不同则停止核对；scan-peak 的输出必须是新文件。
@@ -159,7 +159,7 @@ A 3 1 2 S 2 5.0
    ```
    峰附近有警告先人工审阅，不自动换峰；一维可用 `--point <序号>` 指定另一个合格局部峰；沿程点多为受约束非驻点，成键差异不证明极小点身份；诊断阈值只决定是否列出。scan-path 不支持二维，二维 scan-peak 仍须显式 `--point <i,j>` 并人工审阅。
    QST 两端须已 fetched 且优化收敛，映射文件含完整 `product_to_reactant`；对称等价排列歧义报错后，人改映射或以 `--keep-mapping --reason '<理由>'` 明确保留。只做正规旋转和平移，不镜像、不推断映射；审阅 RMSD、位移、每段电荷多重度及实际行顺序。新取向不能读取旧 chk 的 Cartesian 力常数。
-   生成命令不自动 prepare 或提交；扫描草稿的电荷、多重度取自 manifest。人须逐项审阅几何、方法、电荷与多重度及立体警告。草稿不含 Link0，也未选择资源；人先明确档位与 walltime，prepare 可补缺失的 `%nprocshared` 和 `%mem`，其他所需 Link0 仍由人明确填写。route 由人或卡片从已审阅方法表填写，扫描草稿拒绝扫描/冻结关键词和父 chk 力常数读取。手工或文献结构也按同样要求审阅，再走第 3 步。随后仍须解除扫描约束，完成 TS 优化、Freq、恰好一个虚频的检查、振动方向人工审核及双向 IRC 端点识别；扫描局部极大自身不能判定 TS。
+   生成命令不自动 prepare 或提交；扫描草稿的电荷、多重度取自 manifest。须逐项审阅几何、方法、电荷与多重度及立体警告；手动模式由人审阅，自主模式暂定继续计算的判断按上述 AGENTS 规则记录为“待人确认”。草稿不含 Link0，也未选择资源；先按已确认计划明确档位与 walltime，prepare 可补缺失的 `%nprocshared` 和 `%mem`，其他所需 Link0 仍按已审阅输入明确填写。route 由人或卡片从已审阅方法表填写，扫描草稿拒绝扫描/冻结关键词和父 chk 力常数读取。手工或文献结构也按同样要求审阅，再走第 3 步。随后仍须解除扫描约束，完成 TS 优化、Freq、恰好一个虚频的检查、振动方向人工审核及双向 IRC 端点识别；扫描局部极大自身不能判定 TS。
    来源：[T133](../../../docs/redesign-tasks/T133-scan-peak-ts-input.md)、[T134](../../../docs/redesign-tasks/T134-endpoint-qst2.md)、[T136](../../../docs/redesign-tasks/T136-scan-path.md)。
 
 3. **登记候选。**默认不登记候选；可在第 2 步 scan-peak 或 qst-endpoints 命令末尾加 `--register-candidate --object <对象> --candidate-id <候选> --target-channel <通道>`；或者独立登记已审阅的 XYZ：
@@ -197,7 +197,7 @@ G0、草稿导出和登记是本地操作，不自动启动计算。扫描及约
 - 核对结构、电荷、多重度、目标原子对、完整映射与立体警告；所有占位符已替换。
 - 核对扫描坐标、单位、点数、收敛和完整曲线；二维必须显式选择合格候选，约束采样不能当作真正 TS 优化。
 - 本地导出用新文件名，登记来源及对象/通道正确；文献内容经人工核实，不以 DOI 格式通过代替。
-- 涉及实际扫描/CREST 提交时按 [确认摘要](../../auto-g16-study/references/confirmation-summary.md)展示结构、方法依据、完整输入、资源、walltime、远程目录和输入哈希，经现行 Study 流程授权；候选诊断不授权提交。
+- 涉及实际扫描/CREST 提交时按 [确认摘要](../../auto-g16-study/references/confirmation-summary.md)保存结构、方法依据、完整输入、资源、walltime、远程目录和输入哈希，手动模式提交前展示；经 Study 流程取得对应模式授权；候选诊断不授权提交。
 
 ## 6. 结果判据清单
 
@@ -216,7 +216,7 @@ G0、草稿导出和登记是本地操作，不自动启动计算。扫描及约
 xTB 无虚频或方向不对只降优先级或转为直接做 DFT，不排除候选；G0 的 Gaussian 模式标记 `mode:no_imaginary_mode`、`mode:sign_inconsistent` 同样不导致 rejected。还须审阅 `mode:multiple_imaginary_modes`、`mode:most_negative_not_best`、`mode:non_stationary_frequencies`；这些类别不表示本期支持 xTB Hessian。
 来源：[T139](../../../docs/redesign-tasks/T139-card-wording.md) A7/A8/X4、[catalog v2](../../../docs/ag-catalog-2.md)、[G0 模式标记](../../../docs/g0.md#模式投影)。
 
-需要三维及以上扫描或 xTB 多维扫描、白名单外输入段或尚未支持的自动初猜时，写明具体缺口并暂停该步骤。真实作业异常先停止报告；不在原 Attempt 重跑，不用旧 Skill 执行。
+需要三维及以上扫描或 xTB 多维扫描、白名单外输入段或尚未支持的自动初猜时，写明具体缺口并暂停该步骤。真实作业异常按上述 AGENTS 模式规则处理；不在原 Attempt 重跑，不用旧 Skill 执行。
 
 ## 8. 常见坑
 

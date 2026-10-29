@@ -4,7 +4,7 @@
 
 - 单点可用于候选重排、电子能精化或能垒方法敏感性；单点本身不证明极小点/TS，也不单独产生布居用 Gibbs 自由能。（[见第 1 节](#1-适用范围)）
 - 先区分筛选、最终精化与方法敏感性：筛选不伪造父 Opt+Freq；最终精化须父 review 通过，TS 还须频率和方向审核。（[见第 2 节](#2-前置条件)）
-- 整组完整 route 与来源用途一致，不误加 Opt/Freq 或引用父 checkpoint；展示摘要，按 Study 流程取得聊天批准记录、匹配长期规则或 Mac 人工确认。（[见第 5 节](#5-提交前检查清单)）
+- 整组完整 route 与来源用途一致，不误加 Opt/Freq 或引用父 checkpoint；保存完整摘要，手动模式提交前展示，按 [Study 流程](../../auto-g16-study/SKILL.md)取得对应模式的提交授权。（[见第 5 节](#5-提交前检查清单)）
 - 比较须覆盖全部代表，缺项不能用低层级能量混填；方法敏感性逐种泛函重建完整能垒，结论翻转须记录数值与不稳健性。（[见第 6 节](#6-结果判据清单)）
 
 ## 1. 适用范围
@@ -88,7 +88,7 @@ ag prepare --study <study_id> --template gaussian --input <sp.gjf> --tier simple
 
 - 逐项核对元素顺序、电荷、多重度及本次用途：最终精化来自已接受驻点最终几何；筛选单点来自已审阅候选，不混用两者。
 - 完整 route 与整组单点方案一致，未误加 Opt 或 Freq；Link0 与档位一致且不引用父 checkpoint。
-- parent 与本次用途的实际来源一致；展示确认摘要，按 Study 流程取得聊天批准记录、匹配长期规则或 Mac 人工确认。
+- parent 与本次用途的实际来源一致；保存完整确认摘要，手动模式提交前展示，按 [Study 流程](../../auto-g16-study/SKILL.md)取得对应模式的提交授权。
 
 ## 6. 结果判据清单
 
@@ -102,7 +102,7 @@ ag prepare --study <study_id> --template gaussian --input <sp.gjf> --tier simple
 
 ## 7. 常见失败与处理
 
-SCF 失败、内存或时长不足时按 failure-diagnosis 审阅已有事实。最终精化若发现父驻点不合格，先回到 opt-freq 或 ts 卡片；筛选失败保留缺项，不能直接按高能筛除；提出新 Attempt，等人确认。
+SCF 失败、内存或时长不足时按 failure-diagnosis 审阅已有事实。最终精化若发现父驻点不合格，先回到 opt-freq 或 ts 卡片；筛选失败保留缺项，不能直接按高能筛除；新 Attempt 按 [失败诊断](failure-diagnosis.md)及 [AGENTS 自主运行规则](../../../AGENTS.md#自主运行)区分模式处理。
 
 ## 8. 常见坑
 

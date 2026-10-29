@@ -56,7 +56,7 @@ ag cp-report <cp_attempt> --study <study_dir> --solvent-sp <complex_smd_attempt>
 ag cp-report <cp_attempt> --study <study_dir> --asm analyses/asm.json --out analyses/cp-asm.json
 ```
 
-prepare 不等于授权提交。完整摘要经负责人核对后，仍须按 Study 流程取得聊天批准记录、匹配长期规则或 Mac 人工确认。
+prepare 不等于授权提交。保存完整摘要，手动模式提交前由负责人核对；按 [Study 流程](../../auto-g16-study/SKILL.md)取得对应模式的提交授权。
 `--solvent-sp` 使用普通 gaussian 模板、同原子序/几何、同方法/基组（含色散及基函数类型）；固定映射刚性对齐 RMSD ≤0.001 Å。
 可用重复的 `--solvent-fragment-sp <index>:<attempt_id>` 接入本 study 已有的片段 1、2 单点；不按片段名称猜配。
 新片段模式只接受正常结束的 SMD ordinary SP：片段只含 CP CSV 指定的真实原子，在复合物几何下使用自身基组，电子态取对应片段声明。
@@ -73,8 +73,8 @@ default 与 scnet 沿用普通 Gaussian 的资源和入口规则；scnet-test �
 
 - 整体及两个片段身份、原子数、分子式、电荷/多重度与摘要一致，原子无漏标/重复，跨片段无 bonded/uncertain 接触。
 - route 只有 Counterpoise=2 单点，不含 SCRF、Opt/Freq/IRC/Scan、Guess=Read 或自定义 Gen/ECP/IOp。
-- 结构与立体化学警告、方法依据、完整 route、入口、资源、walltime、远程目录、CSV/GJF/bundle 哈希均已展示。
-- 同一 Attempt 仅提交一次；未合并验证代码和每次真实作业均先获得批准，按 Study 流程使用聊天批准记录、匹配长期规则或 Mac 人工确认。
+- 结构与立体化学警告、方法依据、完整 route、入口、资源、walltime、远程目录、CSV/GJF/bundle 哈希均已保存，手动模式提交前展示。
+- 同一 Attempt 仅提交一次；手动提交沿用 [Study 流程](../../auto-g16-study/SKILL.md)，自主模式仅按 [AGENTS 自主运行规则](../../../AGENTS.md#自主运行)启用及核验。未合并代码的真实验证仍须单独获批。
 
 ## 6. 结果判据清单
 
@@ -90,7 +90,7 @@ default 与 scnet 沿用普通 Gaussian 的资源和入口规则；scnet-test �
 
 SCRF 在 prepare 被拒绝：改为气相 CP，并把普通溶剂 SP 留给报告叠加；不修改校验、不绕过模板。
 片段/电荷/拓扑被拒绝：先人工审阅映射或体系是否适合拆分，不靠移动原子躲过阈值。
-真实环境异常、输出格式不能唯一识别或能量加和异常：停下报告并保留日志，不重试、不自动重提。
+真实环境异常按 [失败诊断](failure-diagnosis.md)及上述 AGENTS 模式规则处理；输出格式不能唯一识别或能量加和异常时停止并交人核对，保留日志，不用新 Attempt 绕过证据问题。
 输出报告已存在时使用新的文件名；已有 facts 变化须先审阅差异，再按 facts 的显式刷新流程处理。
 
 ## 8. 常见坑

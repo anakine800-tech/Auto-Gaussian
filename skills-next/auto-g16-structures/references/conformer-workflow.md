@@ -93,7 +93,7 @@ energies and populations; do not mix force-field and DFT energies.
 本分支的 ETKDG 多帧 XYZ 先按 [CREST 卡片](../../auto-g16-recipes/cards/crest-screen.md)
 用 `--param=--mdopt` 做逐帧优化；与 CREST 路线使用相同 GFN2-xTB、溶剂、
 电荷及自旋。prepare 校验 1–1000 帧、原子数/元素序列一致、有限坐标。
-经人确认提交，status → fetch → facts 后取得 Attempt 下的 `mdopt.xyz`，
+按 [Study 提交流程](../../auto-g16-study/SKILL.md)核验适用模式的授权后提交，status → fetch → facts 后取得 Attempt 下的 `mdopt.xyz`，
 每帧注释为优化后的 Hartree 能量。力场预筛窗口不是 xTB 的 6 kcal/mol 窗口，
 不要用旧默认 `--max-keep 10` 提前截断研究候选；记录预筛造成的覆盖局限。
 审阅结果后先合并两路线，再相对共同最低 xTB 能量开 6 kcal/mol 窗口并去重，
@@ -192,8 +192,8 @@ coverage 与 cluster 自动继承 dedup 的 hydrogens；旧 JSON 缺少字段时
 出现警告时，LLM 与人结合遗漏构象讨论扩大采样：CREST 去掉快速模式并给足
 walltime（只加 walltime 不会自动增加已正常结束的采样）；增加 ETKDG 种子和
 候选数；加入下述定向构造。延长轨迹的其他参数须先经过模板白名单审阅，
-不得透传未审阅选项。新远程 Attempt 仍须按 Study 提交流程取得聊天批准、匹配长期规则或 Mac 人工确认；完成后重做合并、
-同层级 DFT 重排并用新文件名重出报告，记录限制，不能因警告自动重提。
+不得透传未审阅选项。新远程 Attempt 按 [Study 提交流程](../../auto-g16-study/SKILL.md)核验授权；自主模式仅在 [AGENTS](../../../AGENTS.md#自主运行)启用前提齐备后按已确认计划推进，中间判断逐条记“待人确认”。完成后重做合并、
+同层级 DFT 重排并用新文件名重出报告，记录限制；警告本身不是提交授权，任何模式均不重提原 Attempt。
 
 ## 定向构造
 
