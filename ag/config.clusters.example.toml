@@ -11,6 +11,40 @@
 # quote = "<verbatim human instruction defining this policy>"
 # set_at = "2026-10-23T00:00:00+00:00"
 
+
+# T186 staged verifier only: this table does NOT enable autonomous submission.
+# No CLI consumes it yet; --policy still selects only approval.policies.
+# Never populate a real rule until the round and final adapter are reviewed.
+# [approval.autonomous_policies.water-round]
+# schema = "ag-autonomy-policy/1"
+# study_id = "water-validation"
+# round_id = "<confirmed round id>"
+# plan_sha256 = "<confirmed plan SHA-256>"
+# routing_sha256 = "<reviewed ladder configuration SHA-256>"
+# templates = ["gaussian"]
+# max_cores_per_job = 8
+# max_walltime = "00:30:00"
+# max_attempts = 10
+# quote = "<verbatim human instruction>"
+# set_at = "<timezone-aware ISO timestamp>"
+# expires_at = "<timezone-aware ISO timestamp after set_at>"
+# allow_relaxed = false  # true also NEVER bypasses current normal input checks
+# [approval.autonomous_policies.water-round.clusters.default]
+# nodes = []  # only untargeted; targeted PBS needs exact nonempty node names
+# max_committed_cores = 16
+# max_queued_cores = 16
+# max_jobs = 2
+# [[approval.autonomous_policies.water-round.methods.gaussian]]
+# method = "rb3lyp"
+# basis = "6-31g(d)"
+# basis_function_type = "basis_default"
+# dispersion = "method_default"
+# solvent_model = "none"
+# solvent = "none"
+# integration_grid = "ultrafine"
+# opt_convergence = "tight"
+# scf_convergence = 8
+
 [local]
 python = "<absolute local Python executable>"
 studies_root = "<absolute local studies directory outside Git>"

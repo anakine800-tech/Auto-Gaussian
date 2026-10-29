@@ -93,6 +93,47 @@ SCNet 类末级运行加排队最多 4 个、兜底排队最多 2 个，按全�
 
 启动前逐项核对相关工具实现、敏感路径的合并前验证、非研究试点及本轮显式启用；缺任何一项都不能运行自主计算。本地状态工具的合成验证不代替这些证据；90% Attempt 阈值、失败分组暂停和六小时改投等完整规则仍待后续动作入口接入。开发会话的真实意外仍按 AGENTS 第 5 节立即停止；自主运行的暂停、补救和科学待确认事项按其专节，不把开发授权当运行授权。
 
+
+### T186 独立核验切片（未接入提交）
+
+`approval.autonomous_policies.<name>` 与旧 `approval.policies.<name>` 分开；
+旧 `--policy` 只选择后者。前者当前仅通过配置和本地 Python 核验，不提供 CLI 提交入口，
+不回退聊天批准或弹框，也不改变具名 PBS 的旧长期规则禁令。
+注释示例在 `ag/config.clusters.example.toml`；不据此填写或启用真实规则。
+
+字段包括 schema、study_id、round_id、plan_sha256、routing_sha256、templates、
+clusters、max_cores_per_job、max_walltime、max_attempts、quote、set_at、expires_at、
+methods、allow_relaxed；每个 cluster 明列 nodes、max_committed_cores、max_queued_cores、max_jobs。
+`nodes=[]` 只接受未具名目标，非空列表只接受精确具名目标；不接受通配符。
+所有字段参与规则内容哈希，原话空白保留；未知字段、矛盾上限、布尔核数或非有限数拒绝。
+
+`autonomy_policy.check_attempt` 重新核验冻结 bundle 和模板脚本。Gaussian 复用
+`protocol` / `integration_grid`，核对泛函、基组及基函数类型、色散、溶剂和网格，
+额外独立核对受支持的 SCF/Opt/Freq 选项。所有 Opt 均执行规则的收敛下限，
+不读取模型填写的最终/预优化标签；规则允许的 SCF 算法、循环数等可变。
+无法证明的 route 拼写拒绝，不改变 profile 的分析行为。
+当前只核验闭壳层 Gaussian 以及有显式方法参数的 CREST/xTB；后两者核对冻结模板参数，
+不生成 Gaussian 口径。`allow_relaxed=true` 仍不跳过普通输入检查，T188 尚未接入。
+
+`check_budget` 是纯拒绝检查：调用者必须提供已核验的本轮累计 Attempt 数和共享账号
+实际/未观测占用，多个入口用最小限额；规则改名、计划修订和新唤醒均不是重置理由。
+到 90% 返回需要暂停的结果，禁止批次越过首个暂停点；当前函数不消费、不写暂停、
+不证明调用者提供的分组或计数可信。T185 的特定格子数量及跨轮范围不在此函数中另写一套。
+
+`autonomy_submission.audit` 只读核对既有 manifest/bundle、永久 claim、摘要、
+journal、submission/status 精确作业绑定。未消费 prepared、既有手动提交、保留未明额度
+分别报告；损坏/截断/缺失证据拒绝，不能当零。现有 failed_presubmit 标签缺少不可变
+调度结果证明时仍保留额度；本地完成也不能证明已从调度器消失。它不推断自主本轮/唤醒
+归属，不产生 T185 placements，不能与调度器占用直接相加而重复计数。
+
+待上游最终提交后接入：T184 短锁内消费与暂停、每个动作边界重读租约和规则、
+实际发生的 Attempt/补救计数、T185 原始证据适配及同算法重算、只读 route CLI、
+持久自主归属及 UNKNOWN 恢复。长远程 IO 不得占短锁；暂停/失锁后在途动作的
+线性化分界还未实现或验证，不能拿当前检查返回值作长期通行证。
+到期暂停后应仍允许在计划及运行版本可核验时取得已有作业的观察/取回推进权，
+同时拒绝新 prepare/submit；此路径仍待与 T184 最终接口联合验证。
+SSH/快照跨唤醒统计、取消 T187 和放宽输入 T188 尚未接入；没有启用自主能力。
+
 ## 提交流程：规范顺序
 
 本节描述当前手动模式的 CLI 行为；自主模式的启用条件见上节。

@@ -1,4 +1,6 @@
 # Replace placeholders locally; never commit the populated configuration.
+# Staged plan-bound rule fields are documented in config.clusters.example.toml.
+# They do not enable autonomy; --policy continues to use manual policies only.
 [ssh]
 config_file = "<absolute SSH configuration file>"
 host = "<SSH host alias>"
