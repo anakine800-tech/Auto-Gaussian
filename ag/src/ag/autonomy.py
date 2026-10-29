@@ -113,7 +113,8 @@ def validate_plan(plan):
 
 def initial():
     return dict(schema='ag-autonomy/1', phase='ended', paused=False, plans={},
-                current_plan=None, lease=None, runs={}, summary='', pending=[], objects={},
+                current_plan=None, current_round=None, rounds={}, lease=None, runs={},
+                summary='', pending=[], objects={},
                 totals=dict.fromkeys(COUNTERS, 0), counts={}, updated_at=0)
 
 
@@ -151,7 +152,8 @@ def eligible(state, run_id, token_hash, current_versions, at, action, expected_s
         raise ValueError('Plan hash mismatch')
     if state['phase'] == 'ended' or (state['paused'] and action not in READ_ACTIONS):
         raise ValueError('Autonomy is paused or ended; new actions are blocked')
-    if action == 'prepare' and state['totals']['attempt'] >= plan['body']['spec']['attempt_limit']:
+    if (action == 'prepare'
+            and state['rounds'][state['current_round']]['totals']['attempt'] >= plan['body']['spec']['attempt_limit']):
         raise ValueError('Local Attempt intent limit reached; actual submissions still require reconciliation')
     return plan
 
@@ -187,8 +189,25 @@ def apply(previous, event):
                 raise ValueError('Plan expired or versions changed')
             text(data['quote'], 'Human confirmation quote')
             plan['confirmation'] = dict(at=at, quote=data['quote'], sha256=data['sha256'])
+        elif op == 'begin':
+            idle(state)
+            if state['phase'] != 'ended':
+                raise ValueError('End the current authorization round before explicitly beginning another')
+            plan = bound_plan(state, data['plan_id'], data['versions'], at)
+            text(data['quote'], 'Explicit human confirmation of a new authorization round')
+            round_id = study.identifier(data['round_id'])
+            if round_id in state['rounds']:
+                raise ValueError('Authorization round identity already used')
+            state['rounds'][round_id] = dict(started_at=at, ended_at=None, quote=data['quote'],
+                plan_ids=[data['plan_id']], initial_plan_sha256=plan['sha256'],
+                totals=dict.fromkeys(COUNTERS, 0))
+            state['current_round'] = round_id
+            state['current_plan'] = data['plan_id']
+            state['phase'] = 'paused' if state['paused'] else 'running'
         elif op == 'start':
             bound_plan(state, data['plan_id'], data['versions'], at)
+            if state['phase'] == 'ended' or state['current_round'] is None:
+                raise ValueError('Authorization round ended; explicit begin with human confirmation is required')
             old = state['lease']
             if old:
                 if at < old['expires_at']:
@@ -204,19 +223,25 @@ def apply(previous, event):
             if run_id in state['runs'] or not re.fullmatch('[0-9a-f]{64}', data['token_sha256']):
                 raise ValueError('Invalid or reused run identity')
             text(data['owner'], 'owner')
-            state['lease'] = dict(run_id=run_id, owner=data['owner'], token_sha256=data['token_sha256'],
+            state['lease'] = dict(run_id=run_id, round_id=state['current_round'], owner=data['owner'], token_sha256=data['token_sha256'],
                                   started_at=at, run_until=at + RUN_SECONDS, expires_at=at + LEASE_SECONDS)
-            state['runs'][run_id] = dict(owner=data['owner'], plan_id=data['plan_id'], started_at=at,
+            state['runs'][run_id] = dict(owner=data['owner'], plan_id=data['plan_id'], round_id=state['current_round'], started_at=at,
                                          ended_at=None, outcome=None, totals=dict.fromkeys(COUNTERS, 0))
+            plans = state['rounds'][state['current_round']]['plan_ids']
+            if data['plan_id'] not in plans:
+                plans.append(data['plan_id'])
             state['current_plan'] = data['plan_id']
             state['phase'] = 'paused' if state['paused'] else 'running'
         elif op == 'pause':
             text(data['reason'], 'Pause reason')
             state['paused'] = True
-            if state['lease']:
+            if state['phase'] != 'ended':
                 state['phase'] = 'paused'
-        elif op in ('resume', 'finish', 'update', 'count', 'recover'):
-            if op == 'recover' and data['run_id'] is None and data['token_sha256'] is None:
+        elif op in ('resume', 'finish', 'end', 'update', 'count', 'recover'):
+            if op == 'end' and state['lease'] is None:
+                if data['run_id'] is not None or data['token_sha256'] is not None:
+                    raise ValueError('No current wake lease; do not reuse a former run identity')
+            elif op == 'recover' and data['run_id'] is None and data['token_sha256'] is None:
                 old = state['lease']
                 if data['previous_lease'] != old:
                     raise ValueError('Recovery lease evidence mismatch')
@@ -225,7 +250,6 @@ def apply(previous, event):
                         raise ValueError('Recovery without the owner must wait for lease expiry')
                     state['runs'][old['run_id']].update(ended_at=at, outcome='expired-recovered')
                     state['lease'] = None
-                    state['phase'] = 'ended'
             else:
                 owner(state, data['run_id'], data['token_sha256'], at)
             if op == 'recover':
@@ -233,7 +257,17 @@ def apply(previous, event):
             elif op == 'finish':
                 text(data['reason'], 'Finish reason')
                 run = state['runs'][data['run_id']]
-                run.update(ended_at=at, outcome='ended')
+                run.update(ended_at=at, outcome='finished')
+                state['lease'] = None
+            elif op == 'end':
+                text(data['reason'], 'Explicit end of authorization round')
+                if state['phase'] == 'ended' or state['current_round'] is None:
+                    raise ValueError('Authorization round is already ended')
+                if data['round_id'] != state['current_round']:
+                    raise ValueError('Authorization round changed; stale end request rejected')
+                if state['lease']:
+                    state['runs'][state['lease']['run_id']].update(ended_at=at, outcome='round-ended')
+                state['rounds'][state['current_round']]['ended_at'] = at
                 state['lease'] = None
                 state['phase'] = 'ended'
             elif op == 'resume':
@@ -264,8 +298,9 @@ def apply(previous, event):
                 study.identifier(data['object_id'])
                 text(data['failure_class'], 'failure_class')
                 text(data['evidence'], 'Local intent reference (not submission proof)')
-                state['counts'][request_id] = dict(data, plan_id=state['current_plan'], at=at)
+                state['counts'][request_id] = dict(data, plan_id=state['current_plan'], round_id=state['current_round'], at=at)
                 state['totals'][kind] += 1
+                state['rounds'][state['current_round']]['totals'][kind] += 1
                 state['runs'][data['run_id']]['totals'][kind] += 1
         else:
             raise ValueError('Unknown autonomy event')
@@ -322,6 +357,13 @@ def confirm(cfg, name, plan_id, plan_sha256, quote):
                       sha256=plan_sha256, quote=quote, versions=versions()), apply))
 
 
+def begin(cfg, name, plan_id, quote):
+    with disk.locked(cfg, name, write=True) as store:
+        snapshot, _ = load(store)
+        data = dict(plan_id=plan_id, quote=quote, round_id=uuid4().hex, versions=versions())
+        return public(store.commit(snapshot, 'begin', now(), data, apply))
+
+
 def start(cfg, name, plan_id, owner_name, *, takeover_reason=None, recover=False):
     with disk.locked(cfg, name, write=True) as store:
         snapshot, stale = load(store, allow_stale=recover)
@@ -345,19 +387,20 @@ def pause(cfg, name, reason):
 
 
 def change(cfg, name, op, run_id, token, **fields):
-    if op not in ('update', 'resume', 'finish', 'count', 'recover'):
+    if op not in ('update', 'resume', 'finish', 'end', 'count', 'recover'):
         raise ValueError('Invalid run operation')
     with disk.locked(cfg, name, write=True) as store:
         snapshot, stale = load(store, allow_stale=op == 'recover')
         data = dict(fields, run_id=run_id, token_sha256=sha256(token.encode()).hexdigest() if token else None)
-        if op not in ('finish', 'recover'):
+        if op not in ('finish', 'end', 'recover'):
             data['versions'] = versions()
         at = now()
-        if op != 'recover' or run_id is not None or token is not None:
+        inactive_end = op == 'end' and snapshot['state']['lease'] is None
+        if not inactive_end and (op != 'recover' or run_id is not None or token is not None):
             owner(snapshot['state'], run_id, data['token_sha256'], at)
         if op == 'count' and fields.get('request_id') in snapshot['state']['counts']:
             saved = snapshot['state']['counts'][fields['request_id']]
-            if {k: v for k, v in saved.items() if k not in ('plan_id', 'at')} != data:
+            if {k: v for k, v in saved.items() if k not in ('plan_id', 'round_id', 'at')} != data:
                 raise ValueError('Count request ID reused with different content or run')
             # An acknowledgement only; no action eligibility or counter increment.
             return dict(public(snapshot), duplicate=True)
@@ -420,6 +463,8 @@ def run(args):
         result = create_plan(cfg, name, input_json(args.input))
     elif op == 'confirm':
         result = confirm(cfg, name, args.plan, args.sha256, args.quote)
+    elif op == 'begin':
+        result = begin(cfg, name, args.plan, args.quote)
     elif op == 'start':
         result = start(cfg, name, args.plan, args.owner, takeover_reason=args.takeover_reason, recover=args.recover)
     elif op == 'pause':
@@ -430,8 +475,10 @@ def run(args):
         result = check(cfg, name, args.run, args.token, action=args.for_action, plan_sha256=args.sha256)
     else:
         fields = {}
-        if op in ('resume', 'finish', 'recover'):
+        if op in ('resume', 'finish', 'end', 'recover'):
             fields['reason'] = args.reason
+            if op == 'end':
+                fields['round_id'] = args.round
         elif op == 'update':
             fields = input_json(args.input)
             if not isinstance(fields, dict) or set(fields) != {'summary', 'pending', 'objects'}:
@@ -446,28 +493,32 @@ def run(args):
 def register(subparsers):
     p = subparsers.add_parser('autonomy', help='Purely local plan, run lease, pause and journal (no submission)')
     children = p.add_subparsers(dest='action', required=True)
-    for op in ('init', 'plan', 'confirm', 'start', 'pause', 'resume', 'finish', 'update', 'count', 'recover', 'status', 'check'):
+    for op in ('init', 'plan', 'confirm', 'begin', 'start', 'pause', 'resume', 'finish', 'end', 'update', 'count', 'recover', 'status', 'check'):
         child = children.add_parser(op)
         child.set_defaults(func=run)
         child.add_argument('--study', required=True)
         child.add_argument('--json', action='store_true', help='JSON output (also the default)')
         if op in ('plan', 'update'):
             child.add_argument('--input', required=True, help='Local JSON input file')
-        if op in ('confirm', 'start'):
+        if op in ('confirm', 'begin', 'start'):
             child.add_argument('--plan', required=True)
         if op in ('confirm', 'check'):
             child.add_argument('--sha256', required=True, help='Expected immutable plan SHA-256')
-        if op == 'confirm':
-            child.add_argument('--quote', required=True, help='Verbatim human plan confirmation; NOT submission approval')
+        if op in ('confirm', 'begin'):
+            child.add_argument('--quote', required=True, help=(
+                'Verbatim human confirmation of a NEW authorization round and budget; NOT submission approval'
+                if op == 'begin' else 'Verbatim human plan confirmation; NOT submission approval'))
         if op == 'start':
             child.add_argument('--owner', required=True, help='Session identity')
             child.add_argument('--takeover-reason', help='Explicit reason to take over an expired lease')
             child.add_argument('--recover', action='store_true', help='Replay a verified stale snapshot during expired takeover')
-        if op in ('pause', 'resume', 'finish', 'recover'):
+        if op in ('pause', 'resume', 'finish', 'end', 'recover'):
             child.add_argument('--reason', required=True)
-        if op in ('resume', 'finish', 'update', 'count', 'recover', 'check'):
-            child.add_argument('--run', required=op != 'recover')
-            child.add_argument('--token', required=op != 'recover')
+        if op == 'end':
+            child.add_argument('--round', required=True, help='Expected authorization round ID; stale end requests are rejected')
+        if op in ('resume', 'finish', 'end', 'update', 'count', 'recover', 'check'):
+            child.add_argument('--run', required=op not in ('recover', 'end'))
+            child.add_argument('--token', required=op not in ('recover', 'end'))
         if op == 'check':
             child.add_argument('--for-action', choices=ACTIONS, required=True)
         if op == 'count':

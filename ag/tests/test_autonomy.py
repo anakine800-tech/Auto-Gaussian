@@ -46,6 +46,7 @@ def ready(env):
     a.initialize(cfg, study.name)
     plan = a.create_plan(cfg, study.name, spec())
     a.confirm(cfg, study.name, plan['plan_id'], plan['sha256'], 'Synthetic human plan confirmation')
+    a.begin(cfg, study.name, plan['plan_id'], 'Explicit synthetic round authorization')
     return plan
 
 
@@ -58,6 +59,8 @@ def running(env):
 
 def change(env, run, op='update', **fields):
     cfg, study, _ = env
+    if op == 'end':
+        fields.setdefault('round_id', run['state']['current_round'])
     if op == 'update':
         fields = dict(summary='Collected synthetic result', pending=['Choose model'],
                       objects={'water': {'attempt': 'synthetic-001'}}, **fields)
@@ -89,11 +92,12 @@ def test_plan_creation_is_not_confirmation_and_revision_has_new_hash(env):
     assert plan['plan']['versions'] == VERSIONS
     assert a.status(cfg, study.name)['state']['plans'][plan['plan_id']]['confirmation'] is None
     with pytest.raises(ValueError, match='confirmation'):
-        a.start(cfg, study.name, plan['plan_id'], 'session-one')
+        a.begin(cfg, study.name, plan['plan_id'], 'Cannot begin unconfirmed plan')
     with pytest.raises(ValueError, match='hash'):
         a.confirm(cfg, study.name, plan['plan_id'], '0' * 64, 'Synthetic quote')
     old_bytes = (study / 'autonomy' / f"plan-{plan['plan_id']}.json").read_bytes()
     a.confirm(cfg, study.name, plan['plan_id'], plan['sha256'], 'Synthetic quote')
+    a.begin(cfg, study.name, plan['plan_id'], 'Explicit synthetic round authorization')
     assert (study / 'autonomy' / f"plan-{plan['plan_id']}.json").read_bytes() == old_bytes
     new = a.create_plan(cfg, study.name, spec(goal='Revised synthetic goal'))
     assert new['sha256'] != plan['sha256']
@@ -123,8 +127,8 @@ def test_pause_resume_finish_and_readonly_views(env):
     assert updated['state']['objects']['water']['attempt'] == 'synthetic-001'
     change(env, run, 'resume', reason='Explicit synthetic resume')
     assert check(env, plan, run)['eligible_now']
-    ended = change(env, run, 'finish', reason='Synthetic round finished')
-    assert ended['state']['phase'] == 'ended' and ended['state']['lease'] is None
+    finished = change(env, run, 'finish', reason='Synthetic wake finished')
+    assert finished['state']['phase'] == 'running' and finished['state']['lease'] is None
     with pytest.raises(ValueError, match='owner'):
         check(env, plan, run)
 
@@ -150,7 +154,7 @@ def test_sixty_and_ninety_minute_boundaries_and_old_owner_fenced(env):
     new = a.start(cfg, study.name, plan['plan_id'], 'session-two', takeover_reason='Owner stopped responding')
     assert new['token'] != run['token']
     assert new['state']['runs'][run['run_id']]['outcome'] == 'expired-takeover'
-    for op in ('update', 'resume', 'finish', 'count', 'check'):
+    for op in ('update', 'resume', 'finish', 'end', 'count', 'check'):
         with pytest.raises(ValueError, match='owner'):
             if op == 'count':
                 count(env, run)
@@ -175,13 +179,15 @@ def test_takeover_preserves_pause_and_cumulative_counts(env):
     assert new['state']['totals']['attempt'] == 1
     assert new['state']['runs'][run['run_id']]['totals']['attempt'] == 1
     assert new['state']['runs'][new['run_id']]['totals']['attempt'] == 0
+    assert new['state']['current_round'] == run['state']['current_round']
+    assert new['state']['rounds'][run['state']['current_round']]['totals']['attempt'] == 1
     with pytest.raises(ValueError, match='paused'):
         check(env, plan, new)
     change(env, new, 'resume', reason='Explicit new-holder resume')
     assert check(env, plan, new)['eligible_now']
 
 
-def test_count_idempotence_limits_and_new_plan_cannot_reset_total(env):
+def test_count_idempotence_limits_and_plan_revision_cannot_reset_round(env):
     cfg, study, _ = env
     plan, run = running(env)
     result = count(env, run)
@@ -195,17 +201,117 @@ def test_count_idempotence_limits_and_new_plan_cannot_reset_total(env):
         count(env, run, 'request-' + kind, kind=kind, failure_class='synthetic-failure')
     state = a.status(cfg, study.name)['state']
     assert state['totals'] == dict.fromkeys(a.COUNTERS, 1)
+    round_id = state['current_round']
+    assert state['rounds'][round_id]['totals'] == dict.fromkeys(a.COUNTERS, 1)
+    assert state['counts']['request-remedy']['round_id'] == round_id
     assert state['counts']['request-remedy']['object_id'] == 'water'
     assert state['counts']['request-remedy']['failure_class'] == 'synthetic-failure'
-    change(env, run, 'finish', reason='End round')
+    change(env, run, 'finish', reason='Finish first wake')
     new_plan = a.create_plan(cfg, study.name, spec(attempt_limit=1))
     a.confirm(cfg, study.name, new_plan['plan_id'], new_plan['sha256'], 'Synthetic revised confirmation')
     new = a.start(cfg, study.name, new_plan['plan_id'], 'session-two')
     assert new['state']['totals']['attempt'] == 1
+    assert new['state']['current_round'] == round_id
+    assert new['state']['rounds'][round_id]['totals']['attempt'] == 1
     with pytest.raises(ValueError, match='limit'):
         check(env, new_plan, new)
     # The last already-counted Attempt is not barred by an aggregate counter.
     assert check(env, new_plan, new, 'submit')['eligible_now']
+
+
+def test_two_normal_wakes_continue_one_round_without_counter_reset(env):
+    cfg, study, clock = env
+    plan, first = running(env)
+    round_id = first['state']['current_round']
+    count(env, first, 'wake-one-attempt')
+    finished = change(env, first, 'finish', reason='First wake completed')
+    assert finished['state']['phase'] == 'running'
+    assert finished['state']['lease'] is None
+    assert finished['state']['current_round'] == round_id
+    clock[0] += 4000
+    second = a.start(cfg, study.name, plan['plan_id'], 'session-two')
+    assert second['run_id'] != first['run_id']
+    assert second['state']['current_round'] == round_id
+    count(env, second, 'wake-two-attempt')
+    second_finished = change(env, second, 'finish', reason='Second wake completed')
+    state = second_finished['state']
+    assert state['phase'] == 'running' and state['lease'] is None
+    assert state['totals']['attempt'] == state['rounds'][round_id]['totals']['attempt'] == 2
+    assert state['runs'][first['run_id']]['totals']['attempt'] == 1
+    assert state['runs'][second['run_id']]['totals']['attempt'] == 1
+    assert state['runs'][first['run_id']]['round_id'] == round_id
+    assert state['runs'][second['run_id']]['round_id'] == round_id
+
+
+def test_end_blocks_automatic_start_until_explicit_new_round_and_preserves_history(env):
+    cfg, study, _ = env
+    a.initialize(cfg, study.name)
+    plan = a.create_plan(cfg, study.name, spec(attempt_limit=1))
+    a.confirm(cfg, study.name, plan['plan_id'], plan['sha256'], 'Synthetic limited plan confirmation')
+    with pytest.raises(ValueError):
+        a.start(cfg, study.name, plan['plan_id'], 'no-implicit-begin')
+    a.begin(cfg, study.name, plan['plan_id'], 'Explicit first round authorization')
+    first = a.start(cfg, study.name, plan['plan_id'], 'session-one')
+    count(env, first, 'round-one-attempt')
+    first_round = first['state']['current_round']
+    with pytest.raises(ValueError):
+        a.change(cfg, study.name, 'end', None, None, round_id=first_round, reason='Cannot end another live wake')
+    ended = change(env, first, 'end', reason='Explicitly end the whole round')
+    assert ended['state']['phase'] == 'ended' and ended['state']['lease'] is None
+    before = image_tree(study)
+    with pytest.raises(ValueError):
+        a.start(cfg, study.name, plan['plan_id'], 'automatic-later-wake')
+    assert image_tree(study) == before
+    with pytest.raises(ValueError):
+        a.begin(cfg, study.name, plan['plan_id'], '')
+    a.begin(cfg, study.name, plan['plan_id'], 'Explicitly authorize a new round budget')
+    second = a.start(cfg, study.name, plan['plan_id'], 'session-two')
+    second_round = second['state']['current_round']
+    assert second_round != first_round
+    assert check(env, plan, second)['eligible_now']
+    result = count(env, second, 'round-two-attempt')
+    assert result['state']['totals']['attempt'] == 2
+    assert result['state']['rounds'][first_round]['totals']['attempt'] == 1
+    assert result['state']['rounds'][second_round]['totals']['attempt'] == 1
+    with pytest.raises(ValueError, match='limit'):
+        check(env, plan, second)
+    assert result['state']['counts']['round-one-attempt']['round_id'] == first_round
+    assert result['state']['counts']['round-two-attempt']['round_id'] == second_round
+
+
+def test_between_wake_pause_and_end_do_not_require_a_lease(env):
+    cfg, study, _ = env
+    plan, run = running(env)
+    change(env, run, 'finish', reason='Wake completed')
+    with pytest.raises(ValueError):
+        a.begin(cfg, study.name, plan['plan_id'], 'Cannot reset active round between wakes')
+    paused = a.pause(cfg, study.name, 'Pause between wakes')
+    assert paused['state']['phase'] == 'paused'
+    next_wake = a.start(cfg, study.name, plan['plan_id'], 'paused-next-wake')
+    with pytest.raises(ValueError, match='paused'):
+        check(env, plan, next_wake)
+    paused_finish = change(env, next_wake, 'finish', reason='Observation wake completed')
+    assert paused_finish['state']['phase'] == 'paused'
+    ended = a.change(cfg, study.name, 'end', None, None, round_id=run['state']['current_round'],
+                     reason='Explicit end between wakes')
+    assert ended['state']['phase'] == 'ended' and ended['state']['lease'] is None
+
+
+def test_delayed_tokenless_end_cannot_end_a_new_round(env):
+    cfg, study, _ = env
+    plan = ready(env)
+    first_round = a.status(cfg, study.name)['state']['current_round']
+    a.change(cfg, study.name, 'end', None, None, round_id=first_round, reason='End first round')
+    second = a.begin(cfg, study.name, plan['plan_id'], 'Explicitly begin second round')
+    second_round = second['state']['current_round']
+    assert second_round != first_round and second['state']['lease'] is None
+    before = image_tree(study)
+    with pytest.raises(ValueError, match='round'):
+        a.change(cfg, study.name, 'end', None, None, round_id=first_round,
+                 reason='Delayed end command originally intended for first round')
+    assert image_tree(study) == before
+    current = a.status(cfg, study.name)['state']
+    assert current['current_round'] == second_round and current['phase'] == 'running'
 
 
 def test_guard_rechecks_mutex_and_clock_after_version_inspection(env, monkeypatch):
@@ -289,7 +395,8 @@ def test_truncated_or_empty_records_fail_closed(env, target, damage):
     assert image_tree(study) == original
 
 
-def test_edited_counter_and_bool_state_cannot_be_recovered(env):
+@pytest.mark.parametrize('scope', ['global', 'round'])
+def test_edited_counter_and_bool_state_cannot_be_recovered(env, scope):
     cfg, study, _ = env
     _, run = running(env)
     count(env, run)
@@ -297,7 +404,8 @@ def test_edited_counter_and_bool_state_cannot_be_recovered(env):
     original = json.loads(path.read_text())
     for value in (0, True, -1):
         edited = deepcopy(original)
-        edited['state']['totals']['attempt'] = value
+        target = edited['state'] if scope == 'global' else edited['state']['rounds'][edited['state']['current_round']]
+        target['totals']['attempt'] = value
         path.write_bytes(disk.encode(edited))
         before = image_tree(study)
         with pytest.raises(ValueError):
@@ -377,6 +485,8 @@ def _crash_after_event(env, run, op):
     disk.Store.publish = lambda *args: os._exit(73)
     if op == 'count':
         count(env, run)
+    elif op == 'end':
+        change(env, run, 'end', reason='Explicit end before process crash')
     else:
         cfg, study, _ = env
         a.pause(cfg, study.name, 'Synthetic pause before crash')
@@ -448,6 +558,29 @@ def test_expired_takeover_recovers_stale_snapshot_and_keeps_pause(env):
         check(env, plan, new)
 
 
+def test_crash_after_durable_end_recovers_ended_and_refuses_automatic_restart(env):
+    cfg, study, _ = env
+    plan, run = running(env)
+    count(env, run)
+    round_id = run['state']['current_round']
+    process = multiprocessing.get_context('fork').Process(target=_crash_after_event, args=(env, run, 'end'))
+    process.start()
+    _join(process)
+    assert process.exitcode == 73
+    journal = study / 'autonomy/journal.jsonl'
+    preserved = journal.read_bytes()
+    with pytest.raises(ValueError, match='stale'):
+        a.status(cfg, study.name)
+    recovered = a.change(cfg, study.name, 'recover', None, None, reason='Recover explicit round end')
+    assert journal.read_bytes().startswith(preserved)
+    assert recovered['state']['phase'] == 'ended'
+    assert recovered['state']['lease'] is None
+    assert recovered['state']['rounds'][round_id]['totals']['attempt'] == 1
+    assert recovered['state']['totals']['attempt'] == 1
+    with pytest.raises(ValueError):
+        a.start(cfg, study.name, plan['plan_id'], 'automatic-wake-after-recovery')
+
+
 def test_expired_plan_does_not_prevent_explicit_lease_retirement(env):
     cfg, study, clock = env
     _, run = running(env)
@@ -459,7 +592,7 @@ def test_expired_plan_does_not_prevent_explicit_lease_retirement(env):
     clock[0] = 100000
     recovered = a.change(cfg, study.name, 'recover', None, None, reason='Retire expired lease and expired plan')
     assert recovered['state']['lease'] is None
-    assert recovered['state']['phase'] == 'ended'
+    assert recovered['state']['phase'] == 'paused'
     assert recovered['state']['paused']
     assert recovered['state']['totals']['attempt'] == 1
     assert recovered['state']['runs'][run['run_id']]['outcome'] == 'expired-recovered'
@@ -473,7 +606,7 @@ def _returning_owner(env, plan, run, gate, output):
     gate.wait(10)
     a.now = lambda: 6400
     rejected = []
-    for op in ('update', 'finish', 'resume', 'count', 'check'):
+    for op in ('update', 'finish', 'end', 'resume', 'count', 'check'):
         try:
             if op == 'count':
                 count(env, run)
@@ -498,7 +631,7 @@ def test_real_old_process_cannot_write_or_release_new_lease(env):
     gate.set()
     _join(process)
     assert process.exitcode == 0
-    assert output.get(timeout=3) == [(op, True) for op in ('update', 'finish', 'resume', 'count', 'check')]
+    assert output.get(timeout=3) == [(op, True) for op in ('update', 'finish', 'end', 'resume', 'count', 'check')]
     assert a.status(cfg, study.name)['state']['lease']['run_id'] == new['run_id']
 
 
@@ -630,7 +763,7 @@ def test_cli_lifecycle_is_local_only_and_never_constructs_transport(env, monkeyp
     def forbidden(*args, **kwargs):
         pytest.fail('Autonomy must not construct Transport or use network')
     monkeypatch.setattr(cli, 'load_config', local_config)
-    monkeypatch.setattr(transport, 'SSHTransport', forbidden)
+    monkeypatch.setattr(transport.SSHTransport, '__init__', forbidden)
     monkeypatch.setattr(socket, 'create_connection', forbidden)
     monkeypatch.setattr(socket.socket, 'connect', forbidden)
     def command(op, *args, expected=0):
@@ -643,6 +776,7 @@ def test_cli_lifecycle_is_local_only_and_never_constructs_transport(env, monkeyp
     input_path.write_bytes(disk.encode(spec()))
     plan = command('plan', '--input', str(input_path))
     command('confirm', '--plan', plan['plan_id'], '--sha256', plan['sha256'], '--quote', 'Synthetic confirmation')
+    command('begin', '--plan', plan['plan_id'], '--quote', 'Explicit synthetic round authorization')
     run = command('start', '--plan', plan['plan_id'], '--owner', 'synthetic-cli')
     credentials = ('--run', run['run_id'], '--token', run['token'])
     command('check', *credentials, '--for-action', 'prepare', '--sha256', plan['sha256'])
@@ -660,8 +794,9 @@ def test_cli_lifecycle_is_local_only_and_never_constructs_transport(env, monkeyp
         scoped.setattr(disk.Store, 'publish', fail_publish)
         command('update', *credentials, '--input', str(update_path), expected=2)
     command('recover', *credentials, '--reason', 'Explicit intact-journal recovery')
-    command('finish', *credentials, '--reason', 'Synthetic round complete')
+    assert command('finish', *credentials, '--reason', 'Synthetic wake complete')['state']['phase'] == 'running'
+    command('end', '--round', run['state']['current_round'], '--reason', 'Explicit synthetic round end')
     old = image_tree(study)
     assert command('status')['state']['phase'] == 'ended'
     assert image_tree(study) == old
-    assert len(loads) == 14
+    assert len(loads) == 16
