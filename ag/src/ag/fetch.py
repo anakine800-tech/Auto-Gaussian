@@ -1,5 +1,6 @@
 """Verified output collection and exclusive supplemental fetches."""
 from datetime import datetime, timezone
+from contextlib import ExitStack, nullcontext
 from hashlib import sha256
 import json
 import os
@@ -9,6 +10,7 @@ import re
 import sys
 import time
 import fcntl
+import stat
 from ag import attempt, journal, state, study, remote, status, submission, slurm, __version__
 from ag.config import for_manifest
 from ag.transport import TransportError, SSHTransport, bound_transport, require_ok
@@ -29,29 +31,36 @@ def _facts_reason(exc, path, *, conflict=False):
     return (message if conflict else f'{type(exc).__name__}: {message}')[:300]
 
 
-def auto_facts(path, *, skip=None):
+def auto_facts(path, *, skip=None, publication=None):
     """Best-effort local parsing after a successful CLI fetch; never refresh."""
     path = Path(path)
+    from ag.autonomy import PublicationRefused
     if skip is not None:
         result = dict(status='skipped', reason=skip)
     else:
         try:
             from ag.facts import FactsConflictError, build_facts
             existed = (path / 'facts.json').exists()
-            build_facts(path, refresh=False)
+            options = {'publication': publication} if publication is not None else {}
+            build_facts(path, refresh=False, **options)
             result = dict(status='unchanged' if existed else 'written')
+        except PublicationRefused:
+            raise
         except ImportError:
             result = dict(status='skipped', reason='dependency-unavailable')
         except Exception as exc:
             conflict = isinstance(exc, FactsConflictError)
             result = dict(status='conflict' if conflict else 'failed',
                           reason=_facts_reason(exc, path, conflict=conflict))
-    if result['status'] == 'conflict':
-        print('取回已成功；facts 与已有证据冲突，未覆盖；请人工核对后使用 ag facts --refresh。', file=sys.stderr)
-    elif result['status'] == 'failed':
-        print('取回已成功；自动 facts 解析失败，请核对 facts.reason 后手动运行 ag facts。', file=sys.stderr)
     try:
-        journal.append(path.parent.parent, 'facts', path.name, 'auto', result)
+        with (publication or nullcontext)():
+            if result['status'] == 'conflict':
+                print('取回已成功；facts 与已有证据冲突，未覆盖；请人工核对后使用 ag facts --refresh。', file=sys.stderr)
+            elif result['status'] == 'failed':
+                print('取回已成功；自动 facts 解析失败，请核对 facts.reason 后手动运行 ag facts。', file=sys.stderr)
+            journal.append(path.parent.parent, 'facts', path.name, 'auto', result)
+    except PublicationRefused:
+        raise
     except Exception:
         # A full/unwritable journal must not turn a completed fetch into failure.
         print('取回已成功；自动 facts 的 journal 记录写入失败，请保留本次输出并人工核对。', file=sys.stderr)
@@ -71,7 +80,7 @@ class _IncompleteSSHTransport(SSHTransport):
         return operation()
 
 
-def fetch(cfg, path, transport, *, add_missing=False, incomplete=False):
+def fetch(cfg, path, transport, *, add_missing=False, incomplete=False, publication=None):
     cfg = for_manifest(cfg, attempt.read_manifest(path))
     transport = bound_transport(transport, cfg)
     if incomplete and add_missing:
@@ -83,17 +92,19 @@ def fetch(cfg, path, transport, *, add_missing=False, incomplete=False):
             transport = _IncompleteSSHTransport(cfg)
         if hasattr(transport, 'record_to'):
             transport.record_to([])
-        return _incomplete(cfg, path, transport)
+        return _incomplete(cfg, path, transport, publication=publication)
     if add_missing:
         # Supplement records must not rewrite status or the original journal,
         # including the transport's usual SSH failure annotations.
         if hasattr(transport, 'record_to'):
             transport.record_to([])
-        return _add_missing(cfg, path, transport)
+        return _add_missing(cfg, path, transport, publication=publication)
     if hasattr(transport, 'record_to'):
-        transport.record_to([path])
+        # A transport error must not append Attempt evidence after lease loss.
+        transport.record_to([] if publication is not None else [path])
     m = attempt.read_manifest(path)
-    journal.append(path.parent.parent, 'fetch', path.name, 'requested')
+    with (publication or nullcontext)():
+        journal.append(path.parent.parent, 'fetch', path.name, 'requested')
     if state.read(path)['state'] != 'finished':
         raise ValueError('Only a finished Attempt can be fetched')
     names = remote.output_names(m)
@@ -111,10 +122,15 @@ def fetch(cfg, path, transport, *, add_missing=False, incomplete=False):
         data = (stage / name).read_bytes()
         if before != (len(data), sha256(data).hexdigest()) or before != metadata(transport, cfg, m, name):
             raise ValueError('Downloaded file hash/size mismatch or remote output changed; stop')
-    for name in names:
-        os.link(stage / name, output / name)
-    result = state.write(path, 'fetched', exit_status=state.read(path).get('exit_status'))
-    journal.append(path.parent.parent, 'fetch', path.name, detail={'files': names})
+    with (publication or nullcontext)():
+        if state.read(path)['state'] != 'finished' or attempt.read_manifest(path) != m:
+            raise ValueError('Local Attempt changed during fetch')
+        if list(path.glob('fetch-incomplete-*.json')):
+            raise FileExistsError('Incomplete fetch record appeared during download')
+        for name in names:
+            os.link(stage / name, output / name)
+        result = state.write(path, 'fetched', exit_status=state.read(path).get('exit_status'))
+        journal.append(path.parent.parent, 'fetch', path.name, detail={'files': names})
     reminder = None
     if result.get('scheduler_residue'):
         reminder = (f'结果已取回；最近状态观察仍有 PBS 调度器残留。先用 ag status {path.name} 核查；'
@@ -133,17 +149,47 @@ def _remote_metadata(transport, cfg, manifest, name):
                         f'(missing, unreadable or failed verification): {exc}') from exc
 
 
-def _local_matches(root, output, name, expected):
-    target = study.local_path(root, output / name)
-    data = target.read_bytes()
-    actual = len(data), sha256(data).hexdigest()
+def _output_identity(info):
+    # ctime detects writes even when a writer restores the old size and mtime.
+    return (info.st_dev, info.st_ino, info.st_mode, info.st_nlink,
+            info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+
+def _local_matches(root, target, name, expected, handles, *, sync=False):
+    """Hash outside publication, retaining the inode until the short commit."""
+    target = study.local_path(root, target)
+    fd = os.open(target, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    handle = handles.enter_context(os.fdopen(fd, 'rb'))
+    before = _output_identity(os.fstat(fd))
+    if not stat.S_ISREG(before[2]):
+        raise ValueError(f'Output is not a regular file: {name}')
+    digest, size = sha256(), 0
+    while block := handle.read(1024 * 1024):
+        digest.update(block)
+        size += len(block)
+    if sync:
+        # The downloaded file is already staged on the destination filesystem;
+        # finish its data IO before acquiring the publication guard.
+        os.fsync(fd)
+    if _output_identity(os.fstat(fd)) != before:
+        raise ValueError(f'Local output changed during verification: {name}')
+    actual = size, digest.hexdigest()
     if actual != expected:
         raise ValueError(f'Existing output mismatch: {name}; '
                          f'local size={actual[0]} sha256={actual[1]}; '
                          f'remote size={expected[0]} sha256={expected[1]}')
+    return target, handle, before
 
 
-def _add_missing(cfg, path, transport):
+def _unchanged_output(root, proof):
+    target, handle, identity = proof
+    target = study.local_path(root, target)
+    if (_output_identity(os.fstat(handle.fileno())) != identity
+            or _output_identity(target.stat(follow_symlinks=False)) != identity):
+        raise ValueError(f'Local output changed before publication: {target.name}')
+
+
+def _add_missing(cfg, path, transport, *, publication=None):
     current = state.read(path)
     if current['state'] != 'fetched':
         raise ValueError('--add-missing requires a fetched Attempt')
@@ -153,51 +199,70 @@ def _add_missing(cfg, path, transport):
     output = study.local_path(root, path / 'outputs')
     # Preflight every remote file and every existing local file before download.
     expected = {name: _remote_metadata(transport, cfg, manifest, name) for name in names}
-    missing, existing = [], []
-    for name in names:
-        target = study.local_path(root, output / name)
-        if target.exists():
-            _local_matches(root, output, name, expected[name])
-            existing.append(name)
-        else:
-            missing.append(name)
-    if not missing:
-        return dict(attempt_id=path.name, files=[], message='没有可补取的文件', **current)
-
-    partial = study.local_path(root, output / '.partial')
-    partial.mkdir(exist_ok=True)
-    stage = Path(tempfile.mkdtemp(prefix='fetch-add-missing-', dir=partial))
-    for name in missing:
-        transport.download(manifest, name, stage / name)
-        data = (stage / name).read_bytes()
-        if (len(data), sha256(data).hexdigest()) != expected[name]:
-            raise ValueError(f'Downloaded file hash/size mismatch: {name}; stop')
-    # Do not publish a supplement against evidence changed during download.
-    for name in names:
-        if _remote_metadata(transport, cfg, manifest, name) != expected[name]:
-            raise ValueError(f'Remote output changed during fetch: {name}; stop')
-    for name in existing:
-        _local_matches(root, output, name, expected[name])
-
-    now = datetime.now(timezone.utc)
-    record_name = 'fetch-add-missing-' + now.strftime('%Y%m%dT%H%M%S%fZ') + '.json'
-    record = dict(attempt_id=path.name, created_at=now.isoformat(), files=missing,
-                  outputs={name: dict(size=size, sha256=digest)
-                           for name, (size, digest) in expected.items()})
-    # xb uses O_CREAT | O_EXCL, for both results and the separate record.
-    # Reserve the record before publishing: a collision cannot alter old data.
-    # On I/O failure retain all evidence; an empty record is not a success.
-    with study.local_path(root, path / record_name).open('xb') as handle:
-        for name in missing:
+    missing, existing = [], {}
+    with ExitStack() as handles:
+        for name in names:
             target = study.local_path(root, output / name)
-            with target.open('xb') as destination:
-                destination.write((stage / name).read_bytes())
-                destination.flush()
-                os.fsync(destination.fileno())
-            _local_matches(root, output, name, expected[name])
-        handle.write((json.dumps(record, ensure_ascii=False, indent=2) + '\n').encode())
-        handle.flush()
-        os.fsync(handle.fileno())
+            if target.exists():
+                existing[name] = _local_matches(root, target, name, expected[name], handles)
+            else:
+                missing.append(name)
+        if not missing:
+            with (publication or nullcontext)():
+                if state.read(path) != current or attempt.read_manifest(path) != manifest:
+                    raise ValueError('Local Attempt changed during supplemental fetch')
+                for proof in existing.values():
+                    _unchanged_output(root, proof)
+                return dict(attempt_id=path.name, files=[], message='没有可补取的文件', **current)
+
+        partial = study.local_path(root, output / '.partial')
+        partial.mkdir(exist_ok=True)
+        stage = Path(tempfile.mkdtemp(prefix='fetch-add-missing-', dir=partial))
+        staged = {}
+        for name in missing:
+            transport.download(manifest, name, stage / name)
+            staged[name] = _local_matches(root, stage / name, name, expected[name], handles, sync=True)
+        # Do not publish a supplement against evidence changed during download.
+        for name in names:
+            if _remote_metadata(transport, cfg, manifest, name) != expected[name]:
+                raise ValueError(f'Remote output changed during fetch: {name}; stop')
+        for name, proof in existing.items():
+            _unchanged_output(root, proof)
+            _local_matches(root, output / name, name, expected[name], handles)
+
+        now = datetime.now(timezone.utc)
+        record_name = 'fetch-add-missing-' + now.strftime('%Y%m%dT%H%M%S%fZ') + '.json'
+        record = dict(attempt_id=path.name, created_at=now.isoformat(), files=missing,
+                      outputs={name: dict(size=size, sha256=digest)
+                               for name, (size, digest) in expected.items()})
+        # Only metadata, exclusive links and the small receipt remain under the
+        # guard. Keep pinned descriptors so inode reuse cannot pass this check.
+        # A collision or partial IO failure retains evidence, never overwrites.
+        with (publication or nullcontext)():
+            if state.read(path) != current or attempt.read_manifest(path) != manifest:
+                raise ValueError('Local Attempt changed during supplemental fetch')
+            if list(path.glob('fetch-incomplete-*.json')):
+                raise FileExistsError('Incomplete fetch record appeared during download')
+            for proof in (*existing.values(), *staged.values()):
+                _unchanged_output(root, proof)
+            with study.local_path(root, path / record_name).open('xb') as handle:
+                for name in missing:
+                    target = study.local_path(root, output / name)
+                    _unchanged_output(root, staged[name])
+                    os.link(staged[name][0], target, follow_symlinks=False)
+                    # Linking changes ctime/nlink, but must publish that exact
+                    # verified inode without changing its size, mode or mtime.
+                    linked = _output_identity(target.stat(follow_symlinks=False))
+                    before = staged[name][2]
+                    if (linked[:3] != before[:3] or linked[3] != before[3] + 1
+                            or linked[4:6] != before[4:6]
+                            or linked != _output_identity(os.fstat(staged[name][1].fileno()))):
+                        raise ValueError(f'Local output changed during publication: {name}')
+                for proof in existing.values():
+                    _unchanged_output(root, proof)
+                handle.write((json.dumps(record, ensure_ascii=False, indent=2) + '\n').encode())
+                handle.flush()
+                os.fsync(handle.fileno())
     return dict(attempt_id=path.name, files=missing, record=record_name, **current)
 
 
@@ -222,9 +287,12 @@ def _end_evidence(cfg, path, manifest, current, transport):
         if status.read_receipt(cfg, manifest, transport, 'ag-exit.json', job) is not None:
             raise ValueError('Exit receipt exists; use ordinary status/fetch')
     if manifest.get('scheduler') == 'slurm':
+        from ag.autonomy_submission import bound_scheduler_cluster
+        target = bound_scheduler_cluster(path)
+        query_options = {} if target is None else {'scheduler_cluster': target}
         username = require_ok(transport.run(remote.identity()), 'identity').strip()
         remote.slurm_token(username)
-        result = transport.run(remote.slurm_jobs(job))
+        result = transport.run(remote.slurm_jobs(job, **query_options))
         # Match status: a purged exact job may produce this diagnostic instead
         # of an empty queue. Only sacct below can establish terminal evidence.
         if result.returncode and result.returncode != 255 and 'Invalid job id specified' in result.stderr:
@@ -233,12 +301,15 @@ def _end_evidence(cfg, path, manifest, current, transport):
             active = slurm.parse_queue(require_ok(result, 'squeue exact job'))
         if active:
             raise ValueError('Job still present in squeue; incomplete fetch refused')
-        raw = require_ok(transport.run(remote.slurm_accounting(job)), 'sacct exact job')
+        raw = require_ok(transport.run(remote.slurm_accounting(job, **query_options)), 'sacct exact job')
         rows = slurm.parse_accounting(raw, job, name=manifest['attempt_id'], username=username)
         if len(rows) != 1 or rows[0]['state'] not in {
                 'TIMEOUT', 'CANCELLED', 'FAILED', 'OUT_OF_MEMORY', 'NODE_FAIL', 'COMPLETED'}:
             raise ValueError('Incomplete fetch requires a supported sacct terminal state')
-        return dict(scheduler='slurm', at=time.time(), queue_absent=True, accounting=rows[0])
+        evidence = dict(scheduler='slurm', at=time.time(), queue_absent=True, accounting=rows[0])
+        if target is not None:
+            evidence['scheduler_cluster'] = target
+        return evidence
     observations = current.get('incomplete_observations', [])
     if len(observations) != 2:
         raise ValueError('PBS requires two inactive status observations at least 300 seconds apart')
@@ -302,7 +373,7 @@ def incomplete_record(path):
     return records[0].name, record
 
 
-def _incomplete(cfg, path, transport):
+def _incomplete(cfg, path, transport, *, publication=None):
     current = state.read(path)
     manifest = attempt.read_manifest(path)
     required = 'finished' if manifest.get('scheduler') == 'slurm' else 'interrupted'
@@ -391,16 +462,19 @@ def _incomplete(cfg, path, transport):
             os.fsync(handle.fileno())
         # Exclusive links never overwrite. On a local publication failure remove
         # only our own links; all downloaded evidence remains under .partial.
-        published = []
-        try:
-            for name in expected:
-                target = study.local_path(root, output / name)
-                os.link(stage / name, target)
-                published.append((stage / name, target))
-            os.link(staged_record, study.local_path(root, path / record_name))
-        except (OSError, ValueError):
-            for source, target in reversed(published):
-                if not target.is_symlink() and target.exists() and os.path.samestat(source.stat(), target.stat()):
-                    target.unlink()
-            raise
+        with (publication or nullcontext)():
+            if state.read(path) != current or attempt.read_manifest(path) != manifest:
+                raise ValueError('Local Attempt changed before incomplete publication')
+            published = []
+            try:
+                for name in expected:
+                    target = study.local_path(root, output / name)
+                    os.link(stage / name, target)
+                    published.append((stage / name, target))
+                os.link(staged_record, study.local_path(root, path / record_name))
+            except (OSError, ValueError):
+                for source, target in reversed(published):
+                    if not target.is_symlink() and target.exists() and os.path.samestat(source.stat(), target.stat()):
+                        target.unlink()
+                raise
         return dict(attempt_id=path.name, files=list(expected), missing=missing, record=record_name, **current)

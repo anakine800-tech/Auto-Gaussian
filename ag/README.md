@@ -10,7 +10,7 @@ RDKit 与 CI 固定为同一精确版本；平台包边界见上述安装步骤�
 整体架构、常用命令和 Skill 部署见[根目录 README](../README.md)；
 规则见 [AGENTS.md](../AGENTS.md)，设计见[改造方案](../docs/REDESIGN-PLAN.md)。
 
-本文计算命令描述当前手动模式；T184 的 `autonomy` 仅保存本地计划和状态，T186 当前仅提供独立本地核验模块，尚未接入自主 prepare/submit/route。[自主运行规则](../AGENTS.md#自主运行)须待相关工具实现、敏感路径合并前验证、非研究试点及本轮显式启用全部完成；旧长期规则不提供自主权限，现有 cancel 仍须 Mac 人工点击。当前实现与后续要求见[开发手册](../docs/DEVELOPING.md#自主运行的实现边界)。
+本文计算命令描述当前手动模式；`autonomy` 保存本地计划、状态及实际提交消费，T186 已接入开发中的自主 prepare/submit/route 与最终本地发布保护，组合及真实验证尚未完成。[自主运行规则](../AGENTS.md#自主运行)须待相关工具实现、敏感路径合并前验证、非研究试点及本轮显式启用全部完成；旧长期规则不提供自主权限，现有 cancel 仍须 Mac 人工点击。当前实现与后续要求见[开发手册](../docs/DEVELOPING.md#自主运行的实现边界)。
 
 ## 提交阶梯与整节点（T185）
 
@@ -382,9 +382,10 @@ study 内符号链接、歧义、非法显式路径、空分析目录、收集�
 ## 本地自主运行记录：autonomy
 
 `ag autonomy` 在已有 study 的 `autonomy/` 内保存计划、运行租约和日志，
-只加载本地配置，不连接集群、不运行量化程序，也不修改 Attempt、facts、签字或 `study.md`。
-本模块尚未接入 `ag prepare`、`ag submit`、`ag cancel`；计划确认和资格检查都不是提交批准，
-这些记录本身不能启用自主计算。所有子命令默认输出 JSON，接受 `--json`。
+只加载本地配置，不连接集群或运行量化程序；`scientific-review` 另在原 Attempt
+保存待人确认的来源记录，不改 facts、签字或 `study.md`。T186 已接入开发中的
+自主 prepare/submit，取消与改投需组合 T187；计划确认和资格检查本身不能启用
+自主计算。所有子命令默认输出 JSON，接受 `--json`。
 
 先准备计划正文 JSON，再依次执行；尖括号内容须替换为实际值：
 
@@ -481,11 +482,20 @@ ag autonomy count --study '<STUDY>' --run '<RUN_ID>' --token '<TOKEN>' --kind re
 
 `kind` 为 `attempt`、`remedy`、`cancel` 或 `reroute`。同一请求 ID 在同次唤醒以相同内容重试仅返回确认，不重复计数；
 改内容或改运行复用请求 ID 会拒绝。`totals` 保留全部历史，`rounds` 保留逐轮计数，`runs` 保留逐次唤醒计数。
-`attempt_limit` 按当前授权轮次计数限制新增 `attempt` 意图和 `prepare` 资格；`finish`、再次唤醒、接管或修订计划均不重置本轮消耗。
+`attempt_limit` 限制新增 `attempt` 意图及旧本地 `check --action prepare` 预检；
+实际 prepare/submit 不用这些意图数作提交预算，而核验真实消费及不可变归属。
+`finish`、再次唤醒、接管或修订计划均不重置本轮消耗。
 只有显式 `end` 后重新 `begin` 才开始新的轮次预算，旧轮次和全历史累计仍保留。
 `submit` 检查不据计数拒绝已计数的最后一个 Attempt。
-真实提交数仍须由后续集成核对不可变声明和绑定；JSON 明示 `submission_counts_verified: false`，
-不能把人工增加计数当作实际提交或取消的证据。
+实际自主消费保存在 `state.submissions`，由提交入口与不可变归属、声明及绑定交叉核对。
+本命令不运行全机审计，JSON 仍明示 `submission_counts_verified: false`；
+不能把人工增加意图计数或本地状态显示当作实际提交或取消许可。
+
+与 T187 组合后的补救必须有正式停止及完整/不完整取回证据；无进展取消固定为
+`no-progress` 失败类别。独立改投使用 prepare/submit 的 `--reroute-source`，
+核验原排队作业的停止记录、同对象和一次谱系，并重新核对资源、科学输入与真实预算。
+当前改投只接已审阅的 T185 阶梯评估；CREST/xTB 保留原建议顺序，尚无对应改投评估入口。
+具体接口和验证边界见[开发手册](../docs/DEVELOPING.md#自主运行的实现边界)。
 
 文件均位于 study 的 `autonomy/`：`plan-<PLAN_ID>.json` 为不可变计划；`journal.jsonl` 为追加事件；
 `state.json` 是含 `seq`、`journal_sha256`、`state` 的原子快照；`store.lock` 是不删除、不更换的短操作 OS 互斥文件。
@@ -511,8 +521,9 @@ ag autonomy start --study '<STUDY>' --plan '<PLAN_ID>' --owner '<NEW_SESSION_ID>
 只能包住短本地声明或决定，不能包住网络操作或完整运行，也不能嵌套调用其他 autonomy API（会再次获取锁）。
 `check(...)` / CLI `check` 只表示检查当时的结果，
 不能缓存为以后提交的许可证；后续入口须在各动作边界重新检查，并独立满足现有提交、取消及证据要求。
-当前版本或计划哈希不符会拒绝本次检查，但尚未自动发布暂停。T186 接入时须扩展 guard，
-在同一次 `store.lock` 动作事务内追加并发布暂停后，才处理后续动作；不能在持锁的 `action_guard` 内嵌套调用 `pause()`。
+T186 的 submission_guard 在可核验的版本/计划失效时原子记录暂停；不得在持锁的
+`action_guard` 内嵌套调用 `pause()`。实际字段、提交/观察参数和 writer 恢复步骤见
+[开发手册](../docs/DEVELOPING.md#t186-绑定计划的提交接线开发验证中未启用)。
 
 ## 本地开发与验证
 

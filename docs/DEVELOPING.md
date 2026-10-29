@@ -17,7 +17,8 @@
 - `state.py`：允许的状态迁移和本地 status 原子更新。
 - `journal.py`：追加本地动作记录。
 - `locks.py`：提交串行锁和不可复用的独占声明。
-- `autonomy.py`：纯本地计划确认、授权轮次、唤醒租约、暂停、恢复和意图计数；提供后续动作校验接口。
+- `autonomy.py`：本地计划/轮次/租约、暂停与恢复、实际提交消费、手动写入登记及最终发布保护。
+- `autonomy_policy.py` / `autonomy_submission.py`：绑定计划的规则/方法核验、全机占用登记与提交/补救证据核对。
 - `_autonomy_store.py`：autonomy 的描述符相对文件操作、短 OS 互斥、追加日志与原子状态；不修复旧日志。
 - `confirm.py`：唯一的 macOS 人工点击确认入口。
 - `submit.py`：批次核验、确认、上传、提交及不确定结果处理。
@@ -85,7 +86,7 @@ SCNet 类末级运行加排队最多 4 个、兜底排队最多 2 个，按全�
 
 ## 自主运行的实现边界
 
-[AGENTS 自主运行规则](../AGENTS.md#自主运行)是唯一规则正文；T182 统一文档，T184 实现 `ag autonomy` 的本地计划、租约、暂停、日志和意图计数。计算入口仍是下文的手动流程：`approval.authorize` 的旧长期规则只核对 study、模板、集群、核数和 walltime；`submit.submit` 拒绝具名 PBS 的长期规则；`cancel.cancel` 仍调用 Mac 人工确认。旧 `--policy` 不能据新文档获得自主权限，autonomy 的本地记录也不能授权这些入口。
+[AGENTS 自主运行规则](../AGENTS.md#自主运行)是唯一规则正文；T182 统一文档，T184 实现 `ag autonomy` 的本地计划、租约、暂停、日志和意图计数。手动计算入口仍保留下文流程：`approval.authorize` 的旧长期规则只核对 study、模板、集群、核数和 walltime；`submit.submit` 拒绝具名 PBS 的长期规则；`cancel.cancel` 仍调用 Mac 人工确认。旧 `--policy` 不能据新文档获得自主权限，单独的 autonomy 本地记录也不能授权这些入口。T186 的独立自主参数已接入开发实现，细节与尚未完成的验证见下节。
 
 后续实现须让计划哈希及版本、有效期与计数、方法口径、节点与路由选择、唯一运行锁和状态检查在动作前实际生效，并保留逐 Attempt 摘要、授权来源、输入字节和上传后哈希核对。具名 PBS 的目标行为是仅放行有效规则中列出的节点；取消须有独立的归属与条件核验路径，不能把提交批准参数用于现有 cancel。前端运行中拒绝写操作、暂停后唯一持锁会话仍能取回整理结果，也须实际实现并验证。
 
@@ -94,72 +95,102 @@ SCNet 类末级运行加排队最多 4 个、兜底排队最多 2 个，按全�
 启动前逐项核对相关工具实现、敏感路径的合并前验证、非研究试点及本轮显式启用；缺任何一项都不能运行自主计算。本地状态工具的合成验证不代替这些证据；90% Attempt 阈值、失败分组暂停和六小时改投等完整规则仍待后续动作入口接入。开发会话的真实意外仍按 AGENTS 第 5 节立即停止；自主运行的暂停、补救和科学待确认事项按其专节，不把开发授权当运行授权。
 
 
-### T186 本地核验与生命周期扩展（未接入提交）
+### T186 绑定计划的提交接线（开发验证中，未启用）
 
-`approval.autonomous_policies.<name>` 与旧 `approval.policies.<name>` 分开；
-旧 `--policy` 只选择后者。前者当前仅通过配置和本地 Python 核验，不提供 CLI 提交入口，
-不回退聊天批准或弹框，也不改变具名 PBS 的旧长期规则禁令。
-注释示例在 `ag/config.clusters.example.toml`；不据此填写或启用真实规则。
+`approval.autonomous_policies.<name>` 与旧 `approval.policies.<name>` 分开。
+自主 prepare/submit 使用 `--autonomous-policy`，并同时要求 `--run`、`--token`、
+`--plan-sha256`、`--object-id`、`--job-class`；缺项或核验失败不回退聊天批准或弹框。
+旧 `--policy` 只选择手动规则，具名 PBS 的手动规则禁令保持不变。一个自主提交调用
+只处理一个 Attempt/对象；连续调用的部分成功仍由每个独立归属和真实消费核对。
+注释示例在 `ag/config.clusters.example.toml`；没有创建或启用真实规则。
 
-字段包括 schema、study_id、round_id、plan_sha256、routing_sha256、templates、
-clusters、max_cores_per_job、max_walltime、max_attempts、quote、set_at、expires_at、
-methods、allow_relaxed；每个 cluster 明列 nodes、max_committed_cores、max_queued_cores、max_jobs。
-`nodes=[]` 只接受未具名目标，非空列表只接受精确具名目标；不接受通配符。
-所有字段参与规则内容哈希，原话空白保留；未知字段、矛盾上限、布尔核数或非有限数拒绝。
+自主规则字段为 schema、study_id、study_key、round_id、plan_sha256、routing_sha256、
+templates、clusters、max_cores_per_job、max_walltime、max_attempts、quote、set_at、
+expires_at、methods、allow_relaxed。各 cluster 明列 nodes、max_committed_cores、
+max_queued_cores、max_jobs。`nodes=[]` 只接受未具名目标，非空只接受精确节点。
+study_key 取安全绝对 study 路径的 SHA-256，共同登记另绑定 device/inode；同名 study
+或不同配置根不能重置额度。全部字段参与规则哈希，未知/模糊字段和矛盾限额拒绝。
 
 计划可选 `spec.submission_policy` 保存 templates、clusters、max_cores_per_job、
-max_walltime、methods、routing_sha256、allow_relaxed 七项机器约束；
-Attempt 上限和有效期复用 `spec.attempt_limit` / `valid_until`，不重复设值。
-`check_plan_bounds` 要求规则与计划一致或更窄；方法及网格必须来自同一完整计划记录，
-不能跨记录组合较宽门槛。规则到期时间不得超过计划，计划不能被规则扩大。
-旧文本计划仍可回放，但不能通过此提交检查；新约束没有加到历史 count 事件的回放路径。
-各入口队列上限只要求不超过该入口总上限，不把异构入口的小额度当全局单作业上限；
-实际 Attempt 还需同时满足目标入口和全局限额。
+max_walltime、methods、routing_sha256、allow_relaxed；规则须一致或更窄，方法和
+网格来自同一完整计划记录，不跨记录拼接较宽条件。Attempt 上限和有效期复用
+`spec.attempt_limit` / `valid_until`。旧文本计划可回放，但不具备自主提交资格。
 
-`autonomy_policy.check_attempt` 重新核验冻结 bundle 和模板脚本。Gaussian 复用
-`protocol` / `integration_grid`，核对泛函、基组及基函数类型、色散、溶剂和网格，
-额外独立核对受支持的 SCF/Opt/Freq 选项。所有 Opt 均执行规则的收敛下限，
-不读取模型填写的最终/预优化标签；规则允许的 SCF 算法、循环数等可变。
-输出选项如 Pop=Full/Minimal、GFPrint/GFInput、Density=Current/SCF 保持普通方法核验，
-不要求放宽输入。未知关键字仍不能默认为不影响方法：第二个裸泛函、隐式色散、
-检查点继承或未识别的收敛拼写会绕过字段比较。只拒绝无法核验的语义或拼写，
-不把完整 route 的字节相等当作约束；profile 的分析行为不改。
-例如 [Gaussian Density 文档镜像](https://wanglab.hosted.uark.edu/g03guide/G03Guide/www.gaussian.com/g_ur/k_density.htm)
-说明 Density=Checkpoint 会隐含 ChkBasis/Guess=Only，因此不能把它当作单纯打印选项。
-当前五个已有模板均有核验路径：闭壳层 Gaussian、保留专用气相/片段限制的 gaussian-cp、
-显式方法参数的 CREST/xTB，以及显式 analysis/grid 的 Multiwfn。后三者核对冻结模板，
-不生成 Gaussian 口径；未知或未来模板拒绝。`allow_relaxed=true` 仍不跳过普通检查。
-T188 的单一 `manifest.input_validation` 字段尚未接线；本模块当前仍拒绝该标记。
+普通 Gaussian 从冻结文件核对方法、基组/类型、色散、溶剂、积分网格及 Opt/Freq/SCF
+收敛下限。允许已核验的算法/循环数和输出选项变化，不把完整 route 字节相等当约束。
+CREST/xTB/Multiwfn 使用各自受支持参数，gaussian-cp 保留专用片段限制。T188 组合时，
+仅其正式 `verified_files`、主输入和不可变 input_validation 标记能启用放宽例外；
+规则和计划均须允许，保存跳过清单并标“方法口径未核验”。每个 Link1 段仍核对
+收敛下限，不能用放宽输入绕过最终 Opt/Freq 要求；这不扩大科学支持范围。
 
-`check_budget` 是纯拒绝检查：调用者必须提供已核验的本轮累计 Attempt 数和共享账号
-实际/未观测占用，以及已确认计划的 spec，多个入口用规则与计划的最小限额；
-规则删去某个允许目标也不能丢掉计划中同账号较严入口的上限。
-规则改名、计划修订和新唤醒均不是重置理由。
-到 90% 返回需要暂停的结果，禁止批次越过首个暂停点；当前函数不消费、不写暂停、
-不证明调用者提供的分组或计数可信。T185 的特定格子数量及跨轮范围不在此函数中另写一套。
+提交固定按配置提交锁 → 全机登记锁 → study 状态锁核验并消费，长网络 IO 在锁外。
+全机登记位于标准本机配置根的 autonomy-studies/autonomy-reservations，独立
+`autonomy-submit.lock` 不被手动提交的长网络过程占用。全机扫描交叉核对目录登记、
+不可变 reservation、claim、摘要、submission/status、journal 以及 T184 消费；
+缺失或截断不是零，UNKNOWN 保留额度。非零自主调度响应也保持 UNKNOWN，不能只凭
+错误前缀断定从未提交；只有已记录的 dispatch 前 abort 证明未提交，且不退回历史计数。
 
-`autonomy_submission.audit` 只读核对既有 manifest/bundle、永久 claim、摘要、
-journal、submission/status 精确作业绑定。未消费 prepared、既有手动提交、保留未明额度
-分别报告；损坏/截断/缺失证据拒绝，不能当零。现有 failed_presubmit 标签缺少不可变
-调度结果证明时仍保留额度；本地完成也不能证明已从调度器消失。它不推断自主本轮/唤醒
-归属，不产生 T185 placements，不能与调度器占用直接相加而重复计数。
-审计按文件映射及同一 `attempt.bundle(files)` 核对，保留 manifest 的原始哈希；
-不要求清单顺序等于字母排序，也不按 `.gjf` 数量或顺序识别主输入。
-放宽输入的方法核验接线仍须等待 T188 正式主文件/verified_files 接口，不复制未合并实现。
+`state.submissions` 按当前 round 汇总实际消费；规则改名、换配置、计划修订和唤醒
+不清零。prepare 不消费提交次数；Attempt 上限及 90% 阈值只使用提交消费记录，
+已经消费后在 dispatch 前中止的记录保留。准备应随用随备，不预先准备整批。
+原始选择的请求、快照、placements、wakeups 和时间均持久化，再由 T185
+同一算法重算。SCNet4/兜底排队2按全机所有 study/轮次核对，手动/非 ag 作业仍计
+账号核心总数。CREST/xTB 复用旧路由顺序并叠加可信占用；不另建高斯阶梯。
+只读 route CLI 使用同一绑定上下文，拒绝时不创建等待记录或修改状态。
 
-待上游最终提交后接入：T184 短锁内消费与暂停、每个动作边界重读租约和规则、
-实际发生的 Attempt/补救计数、手动写动作保护、T185 原始证据适配及同算法重算、只读 route CLI、
-持久自主归属及 UNKNOWN 恢复。长远程 IO 不得占短锁；暂停/失锁后在途动作的
-线性化分界还未实现或验证，不能拿当前检查返回值作长期通行证。
-T184 的 `start --observe-only` 现在可为当前轮、当前已确认计划取得观察租约；
-到期仍可检查 observe/fetch/organize，版本、哈希及状态完整性仍必须可核验。
-观察租约禁止新计算、resume 和 count；普通 start 仍拒绝过期计划。
-租约的 60 分钟运行/90 分钟接管期限不变，接管换 token，旧 token 全部失效。
-普通 lease 内到期也可继续读取，不能恢复新动作。此扩展仍只是本地许可检查，
-尚未把 CLI status/fetch 接入该租约；旧 journal/state 的字段形状保持兼容。
-90 分钟只用于租约接管，不是跨唤醒监控证据的保鲜窗口；各次证据须绑定
-实际轮次、计划、运行记录与各自采样时间，动作时仍核验当前 owner。
-SSH/快照跨唤醒统计、取消 T187 和放宽输入 T188 尚未接入；没有启用自主能力。
+prepare 的最终分配、远端建目录、复制父 chk、每次上传、最终 dispatch 都重新核验。
+到 90% 原子记录暂停，已消费但未 dispatch 的成员保留 abort。dispatch 之前保存
+不可逆边界；暂停不能撤回已发请求。晚到确切响应可补原作业绑定，但不恢复动作资格、
+不倒退已观察到的 running/finished/fetched 状态，也不能重新提交同一 Attempt。
+
+与 T187 组合时，原始 Slurm probe 确认支持固定目标提交才使用其独立构造器。
+同次账号容量检查、逐作业查询与 UNKNOWN 找回均限制到该不可变实际集群；
+只有实际发出固定目标命令才可在提交回包省略 cluster 时保存这个目标。
+查询从原全机归属及 probe 交叉核验目标，不能因侧文件缺失退回默认控制器。
+普通兼容路径不补认目标或原始实例；缺少候选版本能力只禁相关新增能力，
+不成为所有 Slurm 提交的版本准入条件。首次实例采集失败保留已知作业绑定。
+
+`start --observe-only` 可观察到期计划，版本/哈希/60 分钟动作及 90 分钟接管限制保留，
+禁止新 prepare/submit/resume/count。status/snapshot/fetch 的观察参数为 `--run`、
+`--token`、`--plan-sha256`。网络与解析在锁外，最终状态/快照/输出/facts/journal 发布
+在短事务内再次核对 owner。Slurm 结算先在配置锁内复核并发布预算，再单独复核并发布
+状态；两者之间失锁不回滚先前合法结算。没有自主轮次的普通手动调用保留原行为。
+
+手动 prepare/submit/fetch、独立 facts/refresh/reparse，以及会发布本地证据的
+CLI status/snapshot 使用 writer 登记，
+running 或有效 lease 时拒绝；
+paused 且无有效 lease 方可写。90 分钟接管记录原租约，旧 token 不可用。
+专属 writer flock 跨实际操作，但不长持全机/study 锁。崩溃登记通过
+`ag autonomy manual-writers --study '<STUDY>'` 查看；只有没有活动 flock 的完整登记
+能由 `release-writer --writer-id '<ID>' --quote '<逐字确认>'` 独占解除。
+这不删除旧记录、不恢复自主、不更改作业/UNKNOWN/预算，不替代人工取消确认。facts 外部 dry-run 不写 study，仍可读取预览。
+
+同对象同 canonical 失败最多两次补救，必须由前次实际消费及取回/终止证据推导；
+`--failure-class` 只是可选断言，不能省略或改名绕过。TS 正常结束但零虚频或方向不符
+由 `ag autonomy scientific-review` 保存来源绑定的理由，标待人确认；方向判断必须
+有对应 mode-review 及位移文件，代码只检查来源，不替代科学判断。无进展取消后的
+补救还必须重验 T187 正式停止证明；完整 fetch 或带完整缺失清单的不完整 fetch
+均可提供取回证据，canonical 失败固定为 `no-progress`。
+
+独立改投后继使用 `--reroute-source <原Attempt>`，与失败类别断言互斥；原来源须有
+正式 never-started 停止证据和一次谱系消费，保持当前对象、计划及原 job_class。
+T185 的 `evaluate_from={study_key, attempt_id, record_sha256}` 保留全部占用，
+仅为确切原记录豁免对象重复判断，且必须选严格更高、可立即容纳的格。
+原来源已经是改投后继，或已有任何已消费后继时拒绝；新编号、规则改名不能重置。
+新 manifest 与全机 reservation 保存同一 reroute_source；新提交仍消耗本轮次数。
+科学输入只允许 Gaussian 的核数/内存指令变化，其余输入/附件字节、参数、方法摘要
+保持相同；新调度脚本按当前资源生成，父 chk 与放宽输入不获得改投资格。
+当前仅接 T185 阶梯，CREST/xTB 的原建议顺序没有对应改投评估入口。
+
+已接受取消的作业继续占名额；仅正式停止证明经重放后才可释放未观测占用，
+调度器仍报告活跃时继续保留。重解析在锁外完成，动作边界在短事务内复核收据、
+当前取消消费与文件身份；缺失停止证明、缺收据或证据冲突都不能当作零占用。
+这些路径的实际组合与现场能力仍以任务单最终验证为准。
+
+`autonomy_submission.audit` 继续只读审计旧手动证据；`autonomy status` 本身不扫描
+全机 reservation，不能把其意图数或未做全局交叉检查的 JSON 当作提交许可。
+SSH/快照跨唤醒统计、取消与改投由 T187 组合验证；敏感路径审阅、非研究真实试点和
+显式启用仍未完成。离线替身通过不代表真实调度器或科研结论通过。
 
 ## 提交流程：规范顺序
 
@@ -277,10 +308,9 @@ Slurm 取回前后均只读核对 squeue 无此作业及 sacct 终态（TIMEOUT�
 
 `action_guard(...)` 的锁只包短本地动作边界，不包网络或完整运行；`check(...)` 的返回值不能缓存为授权。
 暂停由任何会话发布，仅与短操作串行，发布后的新动作检查拒绝；当前持有者仍可在原期限内观察、取回和整理。
-T184 尚未把该接口接入 prepare/submit/cancel。后续敏感工单须在实际动作边界重查，
-按不可变 Attempt 声明/绑定核对真实提交次数，并保留原提交与取消控制；本地意图计数不是执行证据。
-版本或计划哈希不符目前只拒绝本次检查，尚未自动暂停。T186 须扩展 guard，在同一次 `store.lock` 动作事务内
-追加并发布暂停后再处理后续动作；不能在 `action_guard` 内嵌套调用再次获取锁的 `pause()`。
+T186 的 submission_guard 在 prepare/submit 边界重查，并按不可变声明/归属核对实际消费；
+本地意图计数不是执行证据。可核验的版本/计划失效会在短事务中记录暂停；
+不能在 `action_guard` 内嵌套调用再次获取锁的 `pause()`。取消及改投由 T187 接入。
 验证只用临时合成 study、模拟时钟及真实本地子进程；不读取研究数据、不改共享运行环境、不连接集群。
 
 ### 远程命令

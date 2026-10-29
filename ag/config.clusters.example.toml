@@ -12,12 +12,13 @@
 # set_at = "2026-10-23T00:00:00+00:00"
 
 
-# T186 staged verifier only: this table does NOT enable autonomous submission.
-# No CLI consumes it yet; --policy still selects only approval.policies.
+# T186 development adapter: this example does NOT enable autonomous operation.
+# --autonomous-policy uses this namespace; --policy selects only approval.policies.
 # Never populate a real rule until the round and final adapter are reviewed.
 # [approval.autonomous_policies.water-round]
 # schema = "ag-autonomy-policy/1"
 # study_id = "water-validation"
+# study_key = "<SHA-256 of the verified absolute study path>"
 # round_id = "<confirmed round id>"
 # plan_sha256 = "<confirmed plan SHA-256>"
 # routing_sha256 = "<reviewed ladder configuration SHA-256>"
@@ -28,7 +29,7 @@
 # quote = "<verbatim human instruction>"
 # set_at = "<timezone-aware ISO timestamp>"
 # expires_at = "<timezone-aware ISO timestamp after set_at>"
-# allow_relaxed = false  # true also NEVER bypasses current normal input checks
+# allow_relaxed = false  # true requires T188 frozen markers and plan permission; convergence floors remain
 # [approval.autonomous_policies.water-round.clusters.default]
 # nodes = []  # only untargeted; targeted PBS needs exact nonempty node names
 # max_committed_cores = 16

@@ -1,7 +1,9 @@
 """T186 pure rule checks. No leases, routing authorization or live transport."""
 from copy import deepcopy
 from datetime import datetime, timezone
+from hashlib import sha256
 import json
+from pathlib import Path
 
 import pytest
 
@@ -13,8 +15,17 @@ NOW = datetime(2026, 10, 29, tzinfo=timezone.utc)
 ROUTE = '# B3LYP/6-31G(d) Opt=Tight Freq Int=UltraFine SCF=(XQC,Conver=8)'
 
 
-def rule():
-    return dict(schema=policy.SCHEMA, study_id='smoke', round_id='round-1',
+@pytest.fixture(autouse=True)
+def isolated_machine_registry(tmp_path, monkeypatch):
+    home = tmp_path / 'synthetic-home'
+    home.mkdir()
+    monkeypatch.setattr(Path, 'home', classmethod(lambda cls: home))
+
+
+def rule(cfg=None):
+    key = (sha256(str(Path(cfg['local']['studies_root']).absolute() / 'smoke').encode()).hexdigest()
+           if cfg is not None else 'e' * 64)
+    return dict(schema=policy.SCHEMA, study_id='smoke', study_key=key, round_id='round-1',
                 plan_sha256='a' * 64, routing_sha256='b' * 64,
                 templates=['gaussian'], max_cores_per_job=8, max_walltime='01:00:00',
                 max_attempts=10, expires_at='2026-10-30T00:00:00+00:00',
@@ -29,7 +40,7 @@ def rule():
 
 
 def binding(value):
-    return {k: value[k] for k in ('study_id', 'round_id', 'plan_sha256', 'routing_sha256')}
+    return {k: value[k] for k in ('study_id', 'study_key', 'round_id', 'plan_sha256', 'routing_sha256')}
 
 
 def make(cfg, tmp_path, route=ROUTE, **kwargs):
@@ -51,7 +62,7 @@ def occupancy(**changes):
 
 def test_namespace_and_hash(cfg):
     manual_policy(cfg)
-    value = rule()
+    value = rule(cfg)
     cfg['approval']['autonomous_policies'] = {'validation': value}
     config.validate_approval(cfg)
     assert policy.read_policy(cfg, 'validation') == value
@@ -69,7 +80,7 @@ def test_namespace_and_hash(cfg):
 
 @pytest.mark.parametrize('field', sorted(policy.POLICY_KEYS))
 def test_each_required_field(cfg, field):
-    value = rule()
+    value = rule(cfg)
     del value[field]
     cfg['approval'] = {'autonomous_policies': {'bounded': value}}
     with pytest.raises(config.ConfigError):
@@ -78,6 +89,8 @@ def test_each_required_field(cfg, field):
 
 @pytest.mark.parametrize('key,value', [
     ('schema', 'ag-approval/1'), ('study_id', '*'), ('round_id', ' '),
+    ('study_key', 'a' * 63), ('study_key', 'A' * 64), ('study_key', False),
+    ('study_key', ''), ('study_key', 'synthetic/study'),
     ('plan_sha256', 'a' * 63), ('routing_sha256', 'x' * 64),
     ('templates', []), ('templates', ['gaussian', 'gaussian']),
     ('templates', ['gaussian*']), ('templates', ['multiwfn']),
@@ -123,7 +136,7 @@ def test_unknown_fields(location):
         policy.validate_policy(data)
 
 
-@pytest.mark.parametrize('key', ['study_id', 'round_id', 'plan_sha256', 'routing_sha256'])
+@pytest.mark.parametrize('key', ['study_id', 'study_key', 'round_id', 'plan_sha256', 'routing_sha256'])
 def test_changed_binding(key):
     value = rule()
     args = binding(value)
@@ -142,7 +155,7 @@ def test_time_boundary(date):
 
 def test_no_manual_policy_fallback(cfg, prepared):
     path, _ = prepared
-    cfg['approval'] = {'autonomous_policies': {'bounded': rule()}}
+    cfg['approval'] = {'autonomous_policies': {'bounded': rule(cfg)}}
     fake = Fake(cfg)
     with pytest.raises(ValueError, match='policy does not exist'):
         submit.submit(cfg, [path.name], fake, policy_name='bounded')
@@ -159,7 +172,7 @@ def test_no_manual_policy_fallback(cfg, prepared):
 def test_frozen_method_and_allowed_adjustments(cfg, tmp_path, route):
     path, manifest = make(cfg, tmp_path, route)
     before = (path / 'manifest.json').read_bytes()
-    result = policy.check_attempt(cfg, path, rule())
+    result = policy.check_attempt(cfg, path, rule(cfg))
     assert result['method_verified'] and result['bundle_sha256'] == manifest['bundle_sha256']
     assert result['inputs'] == manifest['inputs']
     assert (path / 'manifest.json').read_bytes() == before
@@ -182,7 +195,7 @@ def test_method_grid_or_convergence_change_rejected(cfg, tmp_path, route):
     m['label'] = 'preoptimization'
     (path / 'manifest.json').write_text(json.dumps(m))
     with pytest.raises(ValueError):
-        policy.check_attempt(cfg, path, rule())
+        policy.check_attempt(cfg, path, rule(cfg))
     assert not (path / '.submit-claim').exists()
 
 
@@ -191,13 +204,13 @@ def test_input_bytes_not_model_route(cfg, tmp_path):
     file = path / 'inputs' / 'autonomy-water.gjf'
     file.write_text(file.read_text().replace('B3LYP', 'PBE0'))
     with pytest.raises(ValueError, match='bundle'):
-        policy.check_attempt(cfg, path, rule())
+        policy.check_attempt(cfg, path, rule(cfg))
 
 
 @pytest.mark.parametrize('marker', [None, 'input_validation', 'relaxed_input', 'allow_relaxed', 'skipped_checks'])
 def test_allow_relaxed_is_not_a_bypass(cfg, tmp_path, marker):
     path, _ = make(cfg, tmp_path, ROUTE.replace('B3LYP', 'PBE0'))
-    value = rule()
+    value = rule(cfg)
     value['allow_relaxed'] = True
     if marker:
         m = json.loads((path / 'manifest.json').read_text())
@@ -211,7 +224,7 @@ def test_allow_relaxed_is_not_a_bypass(cfg, tmp_path, marker):
     ('max_cores_per_job', 4), ('max_walltime', '00:15:00'), ('clusters', {'other': {}})])
 def test_attempt_scope_rejected(cfg, tmp_path, key, value):
     path, _ = make(cfg, tmp_path)
-    data = rule()
+    data = rule(cfg)
     if key == 'clusters':
         value = {'other': data['clusters']['default']}
     elif key == 'templates':
@@ -223,7 +236,7 @@ def test_attempt_scope_rejected(cfg, tmp_path, key, value):
 
 def test_node_list_not_wildcard(cfg, tmp_path):
     path, _ = make(cfg, tmp_path)
-    value = rule()
+    value = rule(cfg)
     value['clusters']['default']['nodes'] = ['node-a']
     with pytest.raises(ValueError, match='explicit node target'):
         policy.check_attempt(cfg, path, value)
@@ -243,7 +256,7 @@ def test_non_gaussian_uses_frozen_template(cfg, tmp_path, template, params):
     manifest = attempt.prepare(cfg, study_name='smoke', template=template, input_path=source,
         tier='simple', walltime='00:30:00', label='pre', method_basis='合成方法检查', params=params)
     path = attempt.find(cfg, manifest['attempt_id'])
-    value = rule()
+    value = rule(cfg)
     value['templates'] = [template]
     value['methods'] = {template: [{'parameters': params}]}
     assert policy.check_attempt(cfg, path, value)['method'] == {'parameters': params}
@@ -295,14 +308,14 @@ def test_shared_entry_minimum_and_no_duplicate_groups():
 @pytest.mark.parametrize('functional', ['OPBE', 'OLYP', 'O3LYP'])
 def test_restricted_o_functionals_not_misread_as_ro(cfg, tmp_path, functional):
     path, _ = make(cfg, tmp_path, ROUTE.replace('B3LYP', functional))
-    data = rule()
+    data = rule(cfg)
     data['methods']['gaussian'][0]['method'] = 'r' + functional.lower()
     assert policy.check_attempt(cfg, path, data)['method_verified']
 
 
 def test_explicit_basis_type(cfg, tmp_path):
     path, _ = make(cfg, tmp_path, ROUTE + ' 5D 7F')
-    data = rule()
+    data = rule(cfg)
     data['methods']['gaussian'][0]['basis_function_type'] = '5D 7F'
     assert policy.check_attempt(cfg, path, data)['method_verified']
 
@@ -322,7 +335,7 @@ def test_bad_non_gaussian_method(template, params):
 def test_unparsed_method_options_never_claim_verified(cfg, tmp_path, extra):
     path, _ = make(cfg, tmp_path, ROUTE.replace(' SCF=(XQC,Conver=8)', '') + ' ' + extra)
     with pytest.raises(ValueError):
-        policy.check_attempt(cfg, path, rule())
+        policy.check_attempt(cfg, path, rule(cfg))
 
 
 @pytest.mark.parametrize('keyword', ['Opt=Loose(Tight)', 'SCF=Conver=4(Tight)',
@@ -330,7 +343,7 @@ def test_unparsed_method_options_never_claim_verified(cfg, tmp_path, extra):
 def test_malformed_route_options_fail_closed(cfg, tmp_path, keyword):
     path, _ = make(cfg, tmp_path, '# B3LYP/6-31G(d) Int=UltraFine ' + keyword)
     with pytest.raises(ValueError):
-        policy.check_attempt(cfg, path, rule())
+        policy.check_attempt(cfg, path, rule(cfg))
 
 
 @pytest.mark.parametrize('cores,jobs', [(1, 2), (9, 1)])
@@ -516,18 +529,18 @@ def test_rule_non_gaussian_parameters_must_match_plan(template, params):
     'Pop=Full GFInput Density=Current'])
 def test_printing_options_keep_normal_method_verification(cfg, tmp_path, extra):
     path, _ = make(cfg, tmp_path, ROUTE + ' ' + extra)
-    assert policy.check_attempt(cfg, path, rule())['method_verified']
+    assert policy.check_attempt(cfg, path, rule(cfg))['method_verified']
 
 
 @pytest.mark.parametrize('extra', ['Density=Checkpoint', 'Density=Check', 'Pop=NBORead'])
 def test_analysis_options_that_inherit_or_read_unverified_settings_refuse(cfg, tmp_path, extra):
     path, _ = make(cfg, tmp_path, ROUTE + ' ' + extra)
     with pytest.raises(ValueError):
-        policy.check_attempt(cfg, path, rule())
+        policy.check_attempt(cfg, path, rule(cfg))
 
 
 def test_heterogeneous_entry_caps_do_not_shrink_global_ceiling(cfg, tmp_path):
-    value = rule()
+    value = rule(cfg)
     value['max_cores_per_job'] = 32
     value['clusters']['other'] = dict(nodes=[], max_committed_cores=64,
                                       max_queued_cores=32, max_jobs=2)
@@ -544,7 +557,7 @@ def test_multiwfn_checked_by_its_actual_template_parameters(cfg, tmp_path):
     study.init(cfg, 'smoke')
     cfg['programs']['multiwfn'] = str(tmp_path / 'Multiwfn')
     path, manifest = prepare_nci(cfg, tmp_path)
-    value = rule()
+    value = rule(cfg)
     value['templates'] = ['multiwfn']
     value['methods'] = {'multiwfn': [{'parameters': {'--analysis': 'igm', '--grid': 'medium'}}]}
     result = policy.check_attempt(cfg, path, value)
@@ -565,7 +578,7 @@ def test_gaussian_cp_retains_its_gas_phase_fragment_boundary(cfg, tmp_path):
     manifest = attempt.prepare(cfg, study_name='smoke', template='gaussian-cp', input_path=source,
         tier='simple', walltime='00:30:00', label='cp', method_basis='合成水二聚体验证', fragments=fragments)
     path = attempt.find(cfg, manifest['attempt_id'])
-    value = rule()
+    value = rule(cfg)
     value['templates'] = ['gaussian-cp']
     value['methods'] = {'gaussian-cp': value['methods']['gaussian']}
     assert policy.check_attempt(cfg, path, value)['method_verified']
@@ -582,7 +595,7 @@ def checked_budget(value, **kwargs):
 def test_counterpoise_cannot_use_ordinary_gaussian_policy(cfg, tmp_path):
     path, _ = make(cfg, tmp_path, ROUTE.replace('Opt=Tight Freq', 'Counterpoise=2 SP'))
     with pytest.raises(ValueError, match='gaussian-cp fragment'):
-        policy.check_attempt(cfg, path, rule())
+        policy.check_attempt(cfg, path, rule(cfg))
 
 
 def test_removed_peer_keeps_plan_shared_account_ceiling():
@@ -596,3 +609,197 @@ def test_removed_peer_keeps_plan_shared_account_ceiling():
         checked_budget(value, plan_spec=plan_spec(planned), round_attempts=0,
             requested_attempts=2, occupancy=occupancy(clusters=['default', 'peer'],
                                                      requested_cores=16, requested_jobs=2))
+
+
+def test_same_named_study_in_another_root_cannot_reuse_policy(cfg, tmp_path):
+    import shutil
+    from ag.autonomy_submission import study_identity
+    path, _ = make(cfg, tmp_path)
+    original_policy = rule(cfg)
+    assert original_policy['study_key'] == study_identity(path.parent.parent)['study_key']
+    other_root = tmp_path / 'other-studies'
+    copied = other_root / 'smoke'
+    shutil.copytree(path.parent.parent, copied)
+    other_cfg = deepcopy(cfg)
+    other_cfg['local']['studies_root'] = str(other_root)
+    copied_attempt = copied / 'attempts' / path.name
+    with pytest.raises(ValueError, match='study directory identity'):
+        policy.check_attempt(other_cfg, copied_attempt, original_policy)
+    assert policy.check_attempt(other_cfg, copied_attempt, rule(other_cfg))['method_verified']
+
+
+@pytest.mark.parametrize('level', ['study', 'ancestor'])
+def test_study_key_is_never_computed_by_following_symlinks(cfg, tmp_path, level):
+    path, _ = make(cfg, tmp_path)
+    other_cfg = deepcopy(cfg)
+    alias = tmp_path / 'alias-studies'
+    if level == 'study':
+        alias.mkdir()
+        (alias / 'smoke').symlink_to(path.parent.parent, target_is_directory=True)
+    else:
+        alias.symlink_to(path.parent.parent.parent, target_is_directory=True)
+    other_cfg['local']['studies_root'] = str(alias)
+    aliased_attempt = alias / 'smoke' / 'attempts' / path.name
+    before = (path / 'manifest.json').read_bytes()
+    with pytest.raises((ValueError, OSError)):
+        policy.check_attempt(other_cfg, aliased_attempt, rule(other_cfg))
+    assert (path / 'manifest.json').read_bytes() == before
+
+
+@pytest.mark.parametrize('route_text', [
+    '# HF/Gen Opt=Loose Freq SCF=(Conver=8)',
+    '# HF/Gen Opt=Tight Freq SCF=(Conver=6)',
+])
+def test_relaxed_input_cannot_skip_convergence_floor(cfg, tmp_path, route_text):
+    if not hasattr(attempt, 'prepared_bundle'):
+        pytest.skip('Requires reviewed T188 combination')
+    study.init(cfg, 'smoke')
+    source = tmp_path / 'relaxed.gjf'
+    source.write_text(INPUT.replace('# B3LYP/6-31G(d) SP', route_text) + 'O H 0\nSTO-3G\n****\n')
+    manifest = attempt.prepare(cfg, study_name='smoke', template='gaussian', input_path=source,
+        tier='simple', walltime='00:30:00', label='relaxed', method_basis='Synthetic validation', relaxed_input=True)
+    value = rule(cfg)
+    value['allow_relaxed'] = True
+    with pytest.raises(ValueError, match='convergence'):
+        policy.check_attempt(cfg, attempt.find(cfg, manifest['attempt_id']), value)
+
+
+def test_relaxed_input_valid_convergence_stays_method_unverified(cfg, tmp_path):
+    if not hasattr(attempt, 'prepared_bundle'):
+        pytest.skip('Requires reviewed T188 combination')
+    study.init(cfg, 'smoke')
+    source = tmp_path / 'relaxed.gjf'
+    source.write_text(INPUT.replace('# B3LYP/6-31G(d) SP', '# HF/Gen Opt=Tight Freq SCF=(Conver=8)')
+                      + 'O H 0\nSTO-3G\n****\n')
+    manifest = attempt.prepare(cfg, study_name='smoke', template='gaussian', input_path=source,
+        tier='simple', walltime='00:30:00', label='relaxed', method_basis='Synthetic validation', relaxed_input=True)
+    value = rule(cfg)
+    value['allow_relaxed'] = True
+    checked = policy.check_attempt(cfg, attempt.find(cfg, manifest['attempt_id']), value)
+    assert checked['method_verified'] is False and checked['method'] is None
+
+
+def relaxed_convergence_case(cfg, tmp_path, text):
+    if not hasattr(attempt, 'prepared_bundle'):
+        pytest.skip('Requires reviewed T188 combination')
+    study.init(cfg, 'smoke')
+    source = tmp_path / 'relaxed.gjf'
+    source.write_text(text)
+    manifest = attempt.prepare(cfg, study_name='smoke', template='gaussian', input_path=source,
+        tier='simple', walltime='00:30:00', label='relaxed', method_basis='Synthetic validation', relaxed_input=True)
+    value = rule(cfg)
+    value['allow_relaxed'] = True
+    stricter = dict(value['methods']['gaussian'][0], method='rhf', basis='sto-3g',
+                    integration_grid='program_default', opt_convergence='verytight', scf_convergence=10)
+    value['methods']['gaussian'].append(stricter)
+    return attempt.find(cfg, manifest['attempt_id']), value
+
+
+@pytest.mark.parametrize('route_text', [
+    '# HF/STO-3G Opt=Tight Freq SCF=(Conver=10)',
+    '# HF/STO-3G Opt=VeryTight Freq SCF=(Conver=8)',
+])
+def test_relaxed_unverified_method_cannot_choose_weaker_candidate_floor(cfg, tmp_path, route_text):
+    path, value = relaxed_convergence_case(cfg, tmp_path,
+        INPUT.replace('# B3LYP/6-31G(d) SP', route_text))
+    with pytest.raises(ValueError, match='convergence'):
+        policy.check_attempt(cfg, path, value)
+
+
+@pytest.mark.parametrize('second_route', [
+    '# HF/STO-3G Opt=Loose Freq SCF=(Conver=10)',
+    '# HF/STO-3G Opt=VeryTight Freq SCF=(Conver=6)',
+])
+def test_relaxed_later_link1_section_cannot_lower_convergence(cfg, tmp_path, second_route):
+    first = INPUT.replace('# B3LYP/6-31G(d) SP', '# HF/STO-3G Opt=VeryTight Freq SCF=(Conver=10)')
+    second = INPUT.replace('# B3LYP/6-31G(d) SP', second_route)
+    path, value = relaxed_convergence_case(cfg, tmp_path, first + '--Link1--\n' + second)
+    with pytest.raises(ValueError, match='convergence'):
+        policy.check_attempt(cfg, path, value)
+
+
+def test_relaxed_strictest_candidate_floor_does_not_verify_method(cfg, tmp_path):
+    section = INPUT.replace('# B3LYP/6-31G(d) SP', '# HF/STO-3G Opt=VeryTight Freq SCF=(Conver=10)')
+    path, value = relaxed_convergence_case(cfg, tmp_path, section + '--Link1--\n' + section)
+    checked = policy.check_attempt(cfg, path, value)
+    assert checked['method_verified'] is False and checked['method'] is None
+
+
+def _frozen_reroute_identity(cfg, manifest):
+    path = attempt.find(cfg, manifest['attempt_id'])
+    actual = attempt.read_manifest(path)
+    files = attempt.verified_files(cfg, path, actual)
+    return files, attempt.reroute_input_identity(actual, files)
+
+
+def test_reroute_gaussian_preserves_science_across_resource_repreparation(cfg, tmp_path):
+    study.init(cfg, 'smoke')
+    # Let real preparation fill both Link0 resource lines for each selected tier.
+    base = INPUT.partition('%chk=')[2]
+    base = '%chk=' + base
+    def prepare(text=base, *, filename='water.gjf', tier='simple', method_basis='Synthetic water method'):
+        source = tmp_path / filename
+        source.write_text(text)
+        manifest = attempt.prepare(cfg, study_name='smoke', template='gaussian', input_path=source,
+            tier=tier, walltime='00:30:00', label='reroute', method_basis=method_basis)
+        return _frozen_reroute_identity(cfg, manifest)
+    files, original = prepare()
+    larger, moved = prepare(tier='general')
+    assert files['water.gjf'] != larger['water.gjf'] and files['job.pbs'] != larger['job.pbs']
+    assert moved == original
+    # Each is a separately validated calculation, not a forged manifest edit.
+    variants = [prepare(base.replace('B3LYP', 'PBE0')),
+                prepare(base.replace('H 0 0 1', 'H 0 0 1.1')),
+                prepare(base.replace('0 1\nO', '1 2\nO')),
+                prepare(filename='renamed-water.gjf'),
+                prepare(method_basis='Different stated scientific basis')]
+    assert all(identity != original for _, identity in variants)
+
+
+def test_reroute_counterpoise_keeps_fragment_attachment_exact(cfg, tmp_path):
+    from test_counterpoise import prepare_cp, CSV
+    _, original_manifest = prepare_cp(cfg, tmp_path, resource_lines='')
+    first, original = _frozen_reroute_identity(cfg, original_manifest)
+    _, moved_manifest = prepare_cp(cfg, tmp_path, resource_lines='', tier='general')
+    moved, identity = _frozen_reroute_identity(cfg, moved_manifest)
+    assert first['water.gjf'] != moved['water.gjf'] and first['job.pbs'] != moved['job.pbs']
+    assert identity == original
+    # Relabelling the same fragment atom sets still changes the exact supplied
+    # attachment and cannot acquire reroute identity through equal coordinates.
+    _, changed = prepare_cp(cfg, tmp_path, resource_lines='', csv=CSV.replace('water-a', 'first-water'))
+    changed_files, changed_identity = _frozen_reroute_identity(cfg, changed)
+    assert first['water.gjf.fragments.csv'] != changed_files['water.gjf.fragments.csv']
+    assert changed_identity != original
+
+
+@pytest.mark.parametrize('template,params', [('crest', {'--gfn2': '', '--alpb': 'water'}),
+                                          ('xtb', {'--gfn': '2', '--opt': 'tight'})])
+def test_reroute_xyz_program_keeps_constraints_and_parameters(cfg, tmp_path, template, params):
+    from test_crest_constraints import XYZ, CONSTRAINTS
+    study.init(cfg, 'smoke')
+    source, constraints = tmp_path / 'peroxide.xyz', tmp_path / 'constraints.inp'
+    source.write_text(XYZ)
+    def prepare(*, tier='simple', content=CONSTRAINTS, parameters=None):
+        constraints.write_bytes(content)
+        manifest = attempt.prepare(cfg, study_name='smoke', template=template, input_path=source,
+            constraints=constraints, tier=tier, walltime='00:30:00', label='reroute',
+            method_basis='Synthetic peroxide method', params=params if parameters is None else parameters)
+        return _frozen_reroute_identity(cfg, manifest)
+    first, original = prepare()
+    moved, identity = prepare(tier='general')
+    assert first['job.pbs'] != moved['job.pbs'] and first['peroxide.xyz'] == moved['peroxide.xyz']
+    assert identity == original
+    constrained, changed_constraint = prepare(content=CONSTRAINTS.replace(b'1, 2, auto', b'1, 2, 1.45'))
+    assert constrained['peroxide.xyz'] == first['peroxide.xyz']
+    assert changed_constraint != original
+    _, changed_parameters = prepare(parameters={**params, '--alpb': 'methanol'})
+    assert changed_parameters != original
+
+
+def test_reroute_identity_rejects_checkpoint_dependency_and_relaxed_input(cfg, prepared):
+    path, manifest = prepared
+    files = attempt.verified_files(cfg, path, manifest)
+    for unsupported in (dict(parent_chk={'source_attempt': 'prior-water'}),
+                        dict(input_validation={'mode': 'relaxed'})):
+        with pytest.raises(ValueError, match='strict input without checkpoint'):
+            attempt.reroute_input_identity({**manifest, **unsupported}, files)

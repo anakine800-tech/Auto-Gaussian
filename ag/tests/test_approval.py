@@ -12,9 +12,26 @@ from ag import approval, attempt, cancel, cli, config, confirm, state, status, s
 from ag.transport import Result
 from test_core import cfg, prepared, Fake, job_text, write_config
 from test_slurm import multi, prepare, SlurmFake
+from test_autonomy_submission import t186_driver_factory as autonomous_driver_factory
+from test_autonomy_submission import t186_observation_owner as supplemental_observation_owner
+from test_fetch import fetched as supplemental_fetched
 
 
 QUOTE = '  批准本批水分子验证 Attempt。\n保持上述输入与资源。  '
+
+
+@pytest.mark.parametrize('first,late', [('fixture-a', 'fixture-b'), (None, 'fixture-a'), ('fixture-a', None)])
+def test_late_scheduler_cluster_preserves_original_binding(multi, tmp_path, first, late):
+    from ag import submission
+    path, manifest = prepare(multi, tmp_path)
+    original = submission.record(path, manifest, '123', scheduler_cluster=first)
+    raw = (path / 'submission.json').read_bytes()
+    if first is not None and late is not None:
+        with pytest.raises(ValueError, match='scheduler cluster mismatch'):
+            submission.record(path, manifest, '123', scheduler_cluster=late)
+    else:
+        assert submission.record(path, manifest, '123', scheduler_cluster=late) == original
+    assert (path / 'submission.json').read_bytes() == raw
 
 
 @pytest.fixture(autouse=True)
@@ -235,11 +252,11 @@ def test_exclusive_record_and_marker(cfg, prepared, monkeypatch):
     assert target.read_bytes() == original
     real_open = os.open
 
-    def open_file(path, flags, *args):
+    def open_file(path, flags, *args, **kwargs):
         if str(path).endswith('.used'):
             assert flags & os.O_EXCL
             raise PermissionError('Synthetic marker failure')
-        return real_open(path, flags, *args)
+        return real_open(path, flags, *args, **kwargs)
 
     monkeypatch.setattr(approval.os, 'open', open_file)
     fake = Fake(cfg)
@@ -473,3 +490,424 @@ def test_unknown_recovery_rejects_mismatched_summary(cfg, prepared):
     with pytest.raises(ValueError, match='archived submission authorization'):
         status.check(cfg, p, fake)
     assert not (p / 'submission.json').exists()
+
+
+@pytest.fixture
+def late_reply_driver(autonomous_driver_factory, tmp_path, monkeypatch):
+    home = tmp_path / 'late-reply-home'
+    home.mkdir()
+    monkeypatch.setattr(Path, 'home', classmethod(lambda cls: home))
+    return autonomous_driver_factory('late-reply')
+
+
+@pytest.mark.parametrize('observed_state', ['running', 'finished'])
+def test_autonomous_late_reply_preserves_newer_observed_state(late_reply_driver, observed_state):
+    from ag import autonomy
+    cfg, path, manifest, context, at, _ = late_reply_driver
+    retained = {}
+
+    def publication():
+        return autonomy.observation_publication_guard(cfg, 'smoke', context['run_id'], context['token'],
+            action='observe', plan_sha256=context['plan_sha256'])
+
+    class Observer(Fake):
+        def run(self, command):
+            if (observed_state == 'finished' and command.operation == 'receipt'
+                    and 'ag-exit.json' in command.text):
+                self.calls.append(command)
+                return Result(stdout=json.dumps(dict(PBS_JOBID='123.fixture', returncode=0,
+                    finished_at=datetime.fromtimestamp(at[0], timezone.utc).isoformat())))
+            return super().run(command)
+
+    class LateReply(Fake):
+        def run(self, command):
+            if command.operation == 'submit':
+                # The scheduler accepted the job before the submitting client
+                # received its reply. Real status recovery binds the same job
+                # and publishes a later observation through its current guard.
+                observer = Observer(cfg)
+                observer.qstat = observer.job = Result(stdout=job_text(manifest))
+                assert status.check(cfg, path, observer, publication=publication)['state'] == 'submitted'
+                assert status.check(cfg, path, observer, publication=publication)['state'] == observed_state
+                retained.update({name: (path / name).read_bytes()
+                                 for name in ('status.json', 'submission.json')})
+                retained['journal'] = (path.parent.parent / 'journal.jsonl').read_bytes()
+            return super().run(command)
+
+    fake = LateReply(cfg)
+    result = submit.submit(cfg, [path.name], fake, autonomous=context)
+    assert result[0]['state'] == observed_state
+    assert fake.operations().count('submit') == 1
+    assert {name: (path / name).read_bytes() for name in ('status.json', 'submission.json')} == {
+        name: retained[name] for name in ('status.json', 'submission.json')}
+    assert (path.parent.parent / 'journal.jsonl').read_bytes() == retained['journal']
+
+
+@pytest.mark.parametrize('reply', [Result(1, '', 'qsub: invalid queue'),
+                                  Result(1, '123.fixture', 'qsub: transport lost')])
+def test_autonomous_nonzero_qsub_reply_retains_unknown_ownership(late_reply_driver, reply):
+    from ag import autonomy, autonomy_submission
+    cfg, path, _, context, _, _ = late_reply_driver
+    fake = Fake(cfg)
+    fake.qsub = reply
+    with pytest.raises(submit.UnknownSubmission):
+        submit.submit(cfg, [path.name], fake, autonomous=context)
+    assert state.read(path)['state'] == 'unknown'
+    assert (path / '.submit-claim').exists()
+    assert not (path / 'submission.json').exists()
+    consumed = autonomy.status(cfg, 'smoke')['state']['submissions'][path.name]
+    assert consumed['dispatch_started'] is not None
+    assert consumed['aborted_before_dispatch'] is None
+    with autonomy_submission.machine_lock(create=False):
+        evidence = autonomy_submission.read_reservations(cfg)
+    assert len(evidence['records']) == len(evidence['placements']) == 1
+    assert evidence['placements'][0]['state'] == 'unknown'
+    assert evidence['placements'][0]['record_sha256'] == consumed['ownership_sha256']
+    with pytest.raises(ValueError):
+        submit.submit(cfg, [path.name], fake, autonomous=context)
+    assert fake.operations().count('submit') == 1
+
+
+def test_supplement_large_file_io_finishes_before_publication(
+        cfg, supplemental_fetched, supplemental_observation_owner, monkeypatch):
+    from contextlib import contextmanager
+    from ag import fetch
+    path, fake = supplemental_fetched
+    payload = b'synthetic-checkpoint-block\n' * 100000
+    fake.files = {name: payload for name in fake.files}
+    (path / 'outputs/water.log').write_bytes(payload)
+    _, owner_path, _, _, locked, factory, _ = supplemental_observation_owner
+    assert owner_path == path
+    reads, synced, links = [], [], []
+    original_fdopen, original_open = os.fdopen, Path.open
+    original_fsync, original_link = os.fsync, os.link
+
+    class WatchedReader:
+        def __init__(self, handle):
+            self.handle = handle
+
+        def __getattr__(self, name):
+            return getattr(self.handle, name)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return self.handle.__exit__(*args)
+
+        def read(self, size=-1):
+            assert not locked[0], 'Large output hashing must finish outside publication'
+            reads.append(size)
+            return self.handle.read(size)
+
+    def fdopen(fd, *args, **kwargs):
+        handle = original_fdopen(fd, *args, **kwargs)
+        return WatchedReader(handle) if os.fstat(fd).st_size >= len(payload) else handle
+
+    def open_path(target, *args, **kwargs):
+        if target.is_relative_to(path / 'outputs'):
+            assert not locked[0], 'Output reads/copies must finish outside publication'
+        return original_open(target, *args, **kwargs)
+
+    def fsync(fd):
+        if os.fstat(fd).st_size >= len(payload):
+            assert not locked[0], 'Large staged file sync must finish outside publication'
+            synced.append(fd)
+        return original_fsync(fd)
+
+    def link(source, target, **kwargs):
+        assert locked[0]
+        links.append((source, target))
+        return original_link(source, target, **kwargs)
+
+    @contextmanager
+    def publication():
+        assert reads and synced
+        with factory()():
+            yield
+
+    monkeypatch.setattr(os, 'fdopen', fdopen)
+    monkeypatch.setattr(Path, 'open', open_path)
+    monkeypatch.setattr(os, 'fsync', fsync)
+    monkeypatch.setattr(os, 'link', link)
+    result = fetch.fetch(cfg, path, fake, add_missing=True, publication=publication)
+    assert result['files'] == ['job.pbs.out']
+    assert len(links) == 1 and all(0 < size <= 1024 * 1024 for size in reads)
+    source, target = links[0]
+    assert source.stat().st_ino == target.stat().st_ino
+    assert target.read_bytes() == payload
+    assert json.loads((path / result['record']).read_text())['files'] == ['job.pbs.out']
+
+
+@pytest.mark.parametrize('which', ['existing', 'staged'])
+@pytest.mark.parametrize('change', ['replace', 'same_size_write', 'metadata'])
+def test_supplement_rejects_file_changed_after_hash(cfg, supplemental_fetched, which, change):
+    from contextlib import contextmanager
+    from ag import fetch
+    path, fake = supplemental_fetched
+    before_status = (path / 'status.json').read_bytes()
+    evidence = {}
+
+    @contextmanager
+    def publication():
+        target = (path / 'outputs/water.log' if which == 'existing' else
+                  next((path / 'outputs/.partial').glob('fetch-add-missing-*/job.pbs.out')))
+        info, data = target.stat(), target.read_bytes()
+        if change == 'replace':
+            # Same bytes/size/mtime in a different inode are not the verified file.
+            replaced = target.with_name(target.name + '.replacement')
+            replaced.write_bytes(data)
+            os.utime(replaced, ns=(info.st_atime_ns, info.st_mtime_ns))
+            os.replace(replaced, target)
+        elif change == 'same_size_write':
+            target.write_bytes(b'X' * len(data))
+            os.utime(target, ns=(info.st_atime_ns, info.st_mtime_ns))
+            assert target.stat().st_mtime_ns == info.st_mtime_ns
+        else:
+            target.chmod(info.st_mode ^ 0o100)
+        evidence['target'] = target
+        evidence['data'] = target.read_bytes()
+        yield
+
+    with pytest.raises(ValueError, match='Local output changed before publication'):
+        fetch.fetch(cfg, path, fake, add_missing=True, publication=publication)
+    assert not (path / 'outputs/job.pbs.out').exists()
+    assert not list(path.glob('fetch-add-missing-*.json'))
+    assert (path / 'status.json').read_bytes() == before_status
+    assert evidence['target'].read_bytes() == evidence['data']
+    assert list((path / 'outputs/.partial').glob('fetch-add-missing-*/job.pbs.out'))
+
+
+def test_actual_remedy_driver_reads_and_parses_history_outside_short_locks(late_reply_driver, monkeypatch):
+    from contextlib import contextmanager
+    from ag import autonomy, autonomy_submission, _autonomy_store, _parse_outputs
+    from test_autonomy_submission import finish_owned
+    cfg, parent, manifest, context, clock, _ = late_reply_driver
+    submit.submit(cfg, [parent.name], Fake(cfg), autonomous=context)
+    finish_owned(parent, manifest, '-----\n# B3LYP/6-31G(d) Opt\n-----\n' +
+                 'Synthetic Gaussian iteration\n' * 100000 + 'Convergence failure\nError termination\n')
+    plan_id = autonomy.status(cfg, 'smoke')['state']['current_plan']
+    autonomy.change(cfg, 'smoke', 'finish', context['run_id'], context['token'], reason='Synthetic next wake')
+    clock[0] += 1
+    wake = autonomy.start(cfg, 'smoke', plan_id, 'remedy-session')
+    context = dict(context, run_id=wake['run_id'], token=wake['token'])
+    source = Path(cfg['local']['studies_root']).parent / 'water.gjf'
+    child = attempt.prepare(cfg, study_name='smoke', template='gaussian', input_path=source,
+        tier='simple', walltime='00:30:00', label='remedy', method_basis='Synthetic fixture', autonomous=context)
+    path = attempt.find(cfg, child['attempt_id'])
+    held, reads, parses = {'machine': 0, 'study': 0}, [], []
+    for module, attribute, kind in ((autonomy_submission, 'machine_lock', 'machine'),
+                                    (_autonomy_store, 'locked', 'study')):
+        original = getattr(module, attribute)
+        @contextmanager
+        def watched_lock(*args, _original=original, _kind=kind, **kwargs):
+            with _original(*args, **kwargs) as value:
+                held[_kind] += 1
+                try:
+                    yield value
+                finally:
+                    held[_kind] -= 1
+        monkeypatch.setattr(module, attribute, watched_lock)
+    identities = {(p.stat().st_dev, p.stat().st_ino): p.name for p in (parent / 'outputs').iterdir()}
+    original_fdopen, original_parse = os.fdopen, _parse_outputs.gaussian_job_sections
+    class WatchedOutput:
+        def __init__(self, stream, name):
+            self.stream, self.name = stream, name
+        def __getattr__(self, name):
+            return getattr(self.stream, name)
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            return self.stream.__exit__(*args)
+        def read(self, *args):
+            assert not any(held.values()), 'Remedy output read must stay outside machine/study locks'
+            reads.append(self.name)
+            return self.stream.read(*args)
+    def fdopen(fd, *args, **kwargs):
+        info, stream = os.fstat(fd), original_fdopen(fd, *args, **kwargs)
+        name = identities.get((info.st_dev, info.st_ino))
+        return WatchedOutput(stream, name) if name else stream
+    def parse(text):
+        assert not any(held.values()), 'Remedy Gaussian parsing must stay outside machine/study locks'
+        parses.append(len(text))
+        return original_parse(text)
+    monkeypatch.setattr(os, 'fdopen', fdopen)
+    monkeypatch.setattr(_parse_outputs, 'gaussian_job_sections', parse)
+    fake = Fake(cfg)
+    fake.qsub = Result(stdout='124.fixture\n')
+    assert submit.submit(cfg, [path.name], fake, autonomous=context)[0]['state'] == 'submitted'
+    assert reads == ['water.log', 'job.pbs.out'] and len(parses) == 1
+    assert fake.operations().count('create_attempt') == fake.operations().count('submit') == 1
+    owned = autonomy.status(cfg, 'smoke')['state']['submissions'][path.name]
+    assert owned['failure_class'] == 'gaussian-scf' and owned['dispatch_started'] is not None
+
+
+@pytest.fixture
+def bound_slurm_driver(cfg, autonomous_driver_factory, tmp_path, monkeypatch):
+    from ag import remote
+    if not hasattr(remote, 'slurm_submit_bound') or not hasattr(status, 'slurm_submission_probe'):
+        pytest.skip('Requires the reviewed T187 bound Slurm submission and original-instance APIs')
+    from test_slurm import SubmissionProbeFake
+    from test_autonomy_cancel import SchedulerEvidenceFake
+    home = tmp_path / 'slurm-driver-home'
+    home.mkdir()
+    monkeypatch.setattr(Path, 'home', classmethod(lambda cls: home))
+    cfg.update(scheduler='slurm', partition='fixture')
+    local, path, manifest, context, clock, policy = autonomous_driver_factory('slurm-driver')
+    monkeypatch.setattr(status.time, 'time', lambda: clock[0])
+    snapshot_path = Path(local['local']['studies_root']) / '.ag-monitor/latest.json'
+    snapshot = json.loads(snapshot_path.read_text())
+    snapshot['cluster']['scheduler'] = 'slurm'
+    snapshot['cluster']['nodes'][0].update(state='idle', partition='fixture', partition_state='up',
+        mem_total_gb=120, mem_assigned_gb=0)
+    snapshot_path.write_text(json.dumps(snapshot))
+
+    class ActualSlurm(SlurmFake):
+        def __init__(self):
+            super().__init__(local)
+            self.probe = SubmissionProbeFake(local)
+            self.origin = SchedulerEvidenceFake(manifest)
+
+        def run(self, command):
+            if command.operation.startswith('slurm_evidence_'):
+                self.calls.append(command)
+                receiver = self.origin if (path / 'slurm-origin-claim.json').exists() else self.probe
+                return receiver.run(command)
+            return super().run(command)
+
+    return local, path, manifest, context, clock, ActualSlurm
+
+
+@pytest.mark.parametrize('supported', [False, True])
+@pytest.mark.parametrize('reported', [False, True])
+def test_actual_slurm_driver_bound_target_and_optional_origin(bound_slurm_driver, supported, reported):
+    from hashlib import sha256
+    from ag import autonomy, autonomy_submission, remote
+    cfg, path, manifest, context, _, fake_type = bound_slurm_driver
+    fake = fake_type()
+    if not supported:
+        for response in fake.probe.responses[1:]:
+            response.stdout = 'slurm 24.05.0\n'
+    fake.qsub = Result(stdout='123;fixture\n' if reported else '123\n')
+    result = submit.submit(cfg, [path.name], fake, autonomous=context)[0]
+    commands = [command for command in fake.calls if command.operation == 'submit']
+    assert len(commands) == 1 and result['state'] == 'submitted'
+    assert commands[0] == (remote.slurm_submit_bound(cfg, manifest, scheduler_cluster='fixture')
+                           if supported else remote.slurm_submit(cfg, manifest))
+    binding = json.loads((path / 'submission.json').read_text())
+    assert binding['scheduler_cluster'] == ('fixture' if supported or reported else None)
+    assert binding['scheduler_probe_sha256'] == sha256((path / 'slurm-origin-probe.json').read_bytes()).hexdigest()
+    assert len(fake.probe.calls) == 5
+    inventory = [command for command in fake.calls if command.operation == 'slurm_jobs' and ' -u ' in command.text]
+    assert len(inventory) >= 2
+    expected_inventory = remote.slurm_jobs(user='fixture', **({'scheduler_cluster': 'fixture'} if supported else {}))
+    assert all(command == expected_inventory for command in inventory)
+    assert fake.calls.index(inventory[0]) < next(i for i, command in enumerate(fake.calls) if command.operation == 'create_attempt')
+    assert max(i for i, command in enumerate(fake.calls) if command in inventory) < fake.calls.index(commands[0])
+    if supported:
+        assert result['origin']['initial_instance_recorded'] is True
+        assert len(fake.origin.calls) == 5
+    else:
+        assert result['origin']['status'] == 'unavailable'
+        assert not fake.origin.calls
+    assert result['origin']['reroute_authorized'] is False
+    current = autonomy.status(cfg, 'smoke')['state']
+    with autonomy_submission.machine_lock(create=False):
+        saved = autonomy_submission.verified_reservation(path, verified_state=current)
+    assert saved['record']['slurm_probe']['record']['bound_submit_format_candidate'] is supported
+    with pytest.raises(ValueError):
+        submit.submit(cfg, [path.name], fake, autonomous=context)
+    assert fake.operations().count('submit') == 1
+
+
+@pytest.mark.parametrize('reply', [Result(255, '', 'Synthetic lost bound reply'),
+                                  Result(1, '123;fixture\n', 'Synthetic nonzero bound reply')])
+def test_actual_bound_slurm_unknown_retains_consumption_without_origin(bound_slurm_driver, reply):
+    from ag import autonomy, autonomy_submission
+    cfg, path, _, context, _, fake_type = bound_slurm_driver
+    fake = fake_type()
+    fake.qsub = reply
+    with pytest.raises(submit.UnknownSubmission):
+        submit.submit(cfg, [path.name], fake, autonomous=context)
+    assert state.read(path)['state'] == 'unknown'
+    assert not (path / 'submission.json').exists()
+    assert not (path / 'slurm-origin-claim.json').exists()
+    current = autonomy.status(cfg, 'smoke')['state']
+    assert current['submissions'][path.name]['dispatch_started'] is not None
+    with autonomy_submission.machine_lock(create=False):
+        saved = autonomy_submission.verified_reservation(path, verified_state=current)
+    assert saved['record']['slurm_probe']['record']['bound_submit_format_candidate'] is True
+    assert not fake.origin.calls
+    with pytest.raises(ValueError):
+        submit.submit(cfg, [path.name], fake, autonomous=context)
+    assert fake.operations().count('submit') == 1
+
+
+def test_actual_bound_slurm_origin_failure_preserves_known_submission(bound_slurm_driver):
+    from ag.transport import TransportError
+    cfg, path, _, context, _, fake_type = bound_slurm_driver
+    fake = fake_type()
+    fake.origin.responses[3] = TransportError('Synthetic original-instance query failed')
+    with pytest.raises(ValueError, match='Slurm evidence unavailable'):
+        submit.submit(cfg, [path.name], fake, autonomous=context)
+    assert state.read(path)['state'] == 'submitted'
+    binding = json.loads((path / 'submission.json').read_text())
+    assert binding['job_id'] == 'default:123' and binding['scheduler_cluster'] == 'fixture'
+    assert (path / 'slurm-origin-claim.json').exists()
+    assert json.loads((path / 'slurm-origin.json').read_text())['initial_instance_recorded'] is False
+    assert len(fake.origin.calls) == 4
+    with pytest.raises(ValueError):
+        submit.submit(cfg, [path.name], fake, autonomous=context)
+    assert fake.operations().count('submit') == 1
+
+
+@pytest.mark.parametrize('source', ['queue', 'accounting', 'absent'])
+def test_actual_bound_slurm_unknown_recovery_uses_original_controller(bound_slurm_driver, source):
+    from ag import autonomy, remote
+    cfg, path, manifest, context, _, fake_type = bound_slurm_driver
+    fake = fake_type()
+    fake.qsub = Result(255, '', 'Synthetic lost response after bound dispatch')
+    with pytest.raises(submit.UnknownSubmission):
+        submit.submit(cfg, [path.name], fake, autonomous=context)
+    dispatch = next(command for command in fake.calls if command.operation == 'submit')
+    assert dispatch == remote.slurm_submit_bound(cfg, manifest, scheduler_cluster='fixture')
+    fake.calls.clear()
+    original_run = fake.run
+    queried, wrong_controller = [], []
+    own = f'123|{path.name}|fixture|PENDING|8|00:00:00|fixture\n'
+    completed = f'123|{path.name}|fixture|COMPLETED|0:0|00:01:00|8\n'
+
+    def run(command):
+        if command.operation not in ('slurm_jobs', 'slurm_find', 'slurm_accounting'):
+            return original_run(command)
+        queried.append(command)
+        fake.calls.append(command)
+        if '--clusters=fixture' not in command.text:
+            # The default/inherited controller has a same-named unrelated job.
+            wrong_controller.append(command)
+            return Result(stdout=(own if command.operation == 'slurm_jobs' else completed).replace('123|', '999|'))
+        if command.operation == 'slurm_jobs':
+            return Result(stdout=own if source == 'queue' else '')
+        return Result(stdout=completed if source == 'accounting' else '')
+
+    fake.run = run
+    def publication():
+        return autonomy.observation_publication_guard(cfg, 'smoke', context['run_id'], context['token'],
+            action='observe', plan_sha256=context['plan_sha256'])
+    result = status.check(cfg, path, fake, publication=publication)
+    assert not wrong_controller
+    assert queried[0] == remote.slurm_jobs(user='fixture', scheduler_cluster='fixture')
+    assert queried[1] == remote.slurm_find('fixture', path.name, manifest['created_at'][:10], scheduler_cluster='fixture')
+    if source == 'absent':
+        assert result['state'] == 'unknown' and not (path / 'submission.json').exists()
+        assert len(queried) == 2
+    else:
+        assert result['job_id'] == 'default:123'
+        assert result['state'] == ('submitted' if source == 'queue' else 'finished')
+        binding = json.loads((path / 'submission.json').read_text())
+        assert binding['scheduler_cluster'] == 'fixture'
+        assert queried[2] == remote.slurm_jobs('123', scheduler_cluster='fixture')
+        if source == 'accounting':
+            assert queried[3] == remote.slurm_accounting('123', scheduler_cluster='fixture')
+    assert not (path / 'slurm-origin-claim.json').exists()
+    assert not any(command.operation in ('submit', 'cancel') for command in fake.calls)

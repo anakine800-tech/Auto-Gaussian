@@ -1,12 +1,14 @@
 """Read-only, byte-preserving log observations, never result collection."""
 import base64
 import binascii
+from contextlib import ExitStack, nullcontext
 from datetime import datetime, timezone
 from hashlib import sha256
 import json
 import os
 from pathlib import Path
 import re
+import tempfile
 
 from ag import attempt, remote, study
 from ag.config import for_manifest
@@ -71,7 +73,7 @@ def _decode(value, max_bytes):
     return size, mtime, data
 
 
-def capture(cfg, path, transport, *, max_bytes=DEFAULT_MAX_BYTES):
+def capture(cfg, path, transport, *, max_bytes=DEFAULT_MAX_BYTES, publication=None):
     root = Path(cfg['local']['studies_root'])
     path = study.local_path(root, Path(path))
     manifest, current, job = attempt.local_record(path)
@@ -101,12 +103,61 @@ def capture(cfg, path, transport, *, max_bytes=DEFAULT_MAX_BYTES):
                   max_bytes=max_bytes, truncated=size > max_bytes, sha256=sha256(data).hexdigest(),
                   notice=NOTICE, progress=progress(data, manifest['template'], truncated=size > max_bytes),
                   snapshot=destination.relative_to(path).as_posix())
-    directory.mkdir(mode=0o700, exist_ok=True)
-    destination.mkdir(mode=0o700)  # A timestamp collision fails, never overwrites.
-    for filename, content in ((name, data), ('snapshot.json', (json.dumps(result, ensure_ascii=False, indent=2) + '\n').encode())):
-        target = study.local_path(root, destination / filename)
-        with os.fdopen(os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600), 'wb') as stream:
-            stream.write(content)
+    payloads = ((name, data), ('snapshot.json', (json.dumps(result, ensure_ascii=False, indent=2) + '\n').encode()))
+    stage = Path(tempfile.mkdtemp(prefix='.snapshot-stage-', dir=path))
+    complete = False
+    identity = lambda info: (info.st_dev, info.st_ino, info.st_mode, info.st_nlink,
+                             info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+    try:
+        with ExitStack() as handles:
+            proofs = []
+            for filename, content in payloads:
+                target = stage / filename
+                fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+                stream = handles.enter_context(os.fdopen(fd, 'wb'))
+                stream.write(content)
+                stream.flush()
+                os.fsync(fd)
+                proofs.append((target, stream, identity(os.fstat(fd))))
+            stage_fd = os.open(stage, os.O_RDONLY | os.O_NOFOLLOW)
+            handles.callback(os.close, stage_fd)
+            os.fsync(stage_fd)
+            stage_identity = identity(os.fstat(stage_fd))
+            with publication() if publication is not None else nullcontext():
+                if (identity(os.fstat(stage_fd)) != stage_identity
+                        or identity(stage.stat(follow_symlinks=False)) != stage_identity):
+                    raise ValueError('Snapshot stage changed before publication')
+                for target, stream, expected in proofs:
+                    if (identity(os.fstat(stream.fileno())) != expected
+                            or identity(target.stat(follow_symlinks=False)) != expected):
+                        raise ValueError('Snapshot bytes changed before publication')
+                study.local_path(root, directory).mkdir(mode=0o700, exist_ok=True)
+                # Reserve the exact timestamp exclusively, then atomically swap
+                # in the complete group. Existing (even empty) snapshots refuse.
+                destination = study.local_path(root, destination)
+                destination.mkdir(mode=0o700)
+                reserved = destination.stat()
+                try:
+                    os.replace(stage, destination)
+                except BaseException:
+                    if (not destination.is_symlink() and destination.is_dir()
+                            and os.path.samestat(reserved, destination.stat())):
+                        destination.rmdir()  # Only our still-empty timestamp claim.
+                    raise
+                directory_fd = os.open(directory, os.O_RDONLY | os.O_NOFOLLOW)
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
+                complete = True
+    finally:
+        # A refused autonomous publication may retain only its hidden stage.
+        # Manual failures keep their historical no-new-snapshot behavior.
+        if complete or publication is None:
+            for filename, _ in payloads:
+                (stage / filename).unlink(missing_ok=True)
+            if stage.exists():
+                stage.rmdir()
     return result
 
 

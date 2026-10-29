@@ -1,5 +1,7 @@
 """Advisory routing from local monitor snapshots; no transport or file writes."""
 from datetime import datetime, timezone
+from contextvars import ContextVar
+from copy import deepcopy
 import json
 from pathlib import Path
 
@@ -15,6 +17,7 @@ TIERS = RESOURCE_TIERS
 UNKNOWN = '快照非最新或缺字段'
 READY, FULL, DENIED = '快照下容量足够', '需排队或容量未知', '不允许'
 DISCLAIMER = '建议仅基于本机配置与已有快照，不保证实际启动时间。'
+_CAPTURED_SNAPSHOTS = ContextVar('ag_route_captured_snapshots', default=None)
 
 
 def _count(value):
@@ -35,15 +38,21 @@ def _snapshot(cfg, name, now):
     path = named if 'clusters' in cfg or name != 'default' else legacy
     data, stamp = None, None
     try:
-        if name == 'default' and named.exists() and legacy.exists():
-            raise ValueError('Ambiguous default snapshots')
-        if any(p.is_symlink() for p in (root.parent, root, path.parent, path)):
-            raise ValueError('Redirected snapshot')
-        with path.open('rb') as handle:
-            raw = handle.read(2 * 1024 * 1024 + 1)
-        if len(raw) > 2 * 1024 * 1024:
-            raise ValueError('Oversize snapshot')
-        data = json.loads(raw)
+        captured = _CAPTURED_SNAPSHOTS.get()
+        if captured is None:
+            if name == 'default' and named.exists() and legacy.exists():
+                raise ValueError('Ambiguous default snapshots')
+            if any(p.is_symlink() for p in (root.parent, root, path.parent, path)):
+                raise ValueError('Redirected snapshot')
+            with path.open('rb') as handle:
+                raw = handle.read(2 * 1024 * 1024 + 1)
+            if len(raw) > 2 * 1024 * 1024:
+                raise ValueError('Oversize snapshot')
+            data = json.loads(raw)
+        else:
+            # Both suggest and capacity.assess use this reader. A replay must
+            # evaluate the saved original bytes, not a later latest.json file.
+            data = deepcopy(captured.get(name))
         stamp = _timestamp(data['sampled_at'])
         if not _ladder_snapshot(cfg, name, data, now):
             raise ValueError('Failed, stale or invalid snapshot')
@@ -51,6 +60,73 @@ def _snapshot(cfg, name, now):
     except (OSError, ValueError, KeyError, TypeError, AttributeError, RecursionError):
         # Never echo raw JSON, errors, node names, account names or paths.
         return dict(data=None, sampled_at=stamp.isoformat() if stamp else None, fresh=False)
+
+
+def autonomous_selection(cfg, state, context, *, template, walltime,
+                         parent_cluster=None, exclude_ownership=None, requested_tier=None,
+                         evaluate_from=None, prepared_stops=None):
+    """Capture local evidence and invoke the reviewed ladder, under caller locks.
+
+    There is no JSON-input escape hatch. The original monitor bytes, verified
+    immutable submissions and replayed waiting events are the only inputs.
+    The caller holds the machine submission lock through durable consumption.
+    """
+    import os
+    from ag import autonomy, autonomy_submission, _autonomy_store as disk
+    if 'select_ladder' not in globals():
+        raise ValueError('Reviewed routing ladder is not integrated in this checkout')
+    at = datetime.fromtimestamp(autonomy.now(), timezone.utc)
+    name = context['study_id']
+    scope = str(Path(cfg['local']['studies_root']) / name)
+    study_key = autonomy_submission.study_identity(scope)['study_key']
+    evidence = autonomy_submission.read_reservations(cfg, states={scope: state},
+                                                    prepared_stops=prepared_stops)
+    placements = [p for p in evidence['placements']
+                  if p['record_sha256'] != exclude_ownership]
+    placements = _placement_records(cfg, placements)
+    snapshots = {}
+    root = Path(cfg['local']['studies_root']) / '.ag-monitor'
+    for cluster in cfg.get('clusters', {'default': cfg}):
+        named, legacy = root / cluster / 'latest.json', root / 'latest.json'
+        target = named if 'clusters' in cfg or cluster != 'default' else legacy
+        try:
+            if cluster == 'default' and named.exists() and legacy.exists():
+                raise ValueError('Ambiguous monitor snapshot')
+            fd = disk.directory(target.parent)
+            try:
+                with os.fdopen(disk.Store(fd).open(target.name, os.O_RDONLY), 'rb') as handle:
+                    raw = handle.read(2 * 1024 * 1024 + 1)
+            finally:
+                os.close(fd)
+            if len(raw) > 2 * 1024 * 1024:
+                raise ValueError('Oversize monitor snapshot')
+            snapshots[cluster] = disk.decode(raw)
+        except FileNotFoundError:
+            snapshots[cluster] = None
+    # Waiting is established by a saved no-placement decision, never by a
+    # model-provided timestamp or the presence of an object in an intent list.
+    waiting_since, wakeups = autonomy_submission.waiting_history(cfg, state, name, context['object_id'])
+    request = dict(template=template, job_class=context['job_class'], walltime=walltime, study_key=study_key,
+                   study_id=name, round_id=state['current_round'], run_id=context['run_id'],
+                   object_id=context['object_id'], waiting_since=waiting_since,
+                   parent_cluster=parent_cluster)
+    if evaluate_from is not None:
+        if template in ('crest', 'xtb'):
+            raise ValueError('The legacy routing advisor has no reviewed exact-source reroute evaluation')
+        # The source remains in placements and therefore in all capacity and
+        # job-count checks. Only the selector's exact-source object exemption
+        # and strict position comparison may treat it specially.
+        request['evaluate_from'] = deepcopy(evaluate_from)
+    selector = select_ladder
+    if template in ('crest', 'xtb'):
+        selector = select_legacy
+        request['tier'] = requested_tier
+    result = selector(cfg, snapshots, **request, placements=placements,
+                      wakeups=wakeups, batch_inputs=evidence['batch_inputs'], now=at)
+    original = dict(config_sha256=ladder_config_identity(cfg), request=request,
+                    snapshots=snapshots, placements=placements, wakeups=wakeups,
+                    selected_at=at.isoformat())
+    return dict(input=original, result=result)
 
 
 def _own(snapshot):
@@ -122,7 +198,22 @@ def _enabled(selected, template):
     return xtb or (template == 'crest' and bool(programs.get('crest', {}).get('executable')))
 
 
-def suggest(cfg, template, tier, study=None, *, walltime=None, now=None):
+def suggest(cfg, template, tier, study=None, *, walltime=None, now=None, captured_snapshots=None):
+    """Use the existing advice algorithm, optionally replaying captured data.
+
+    The private context is per thread/task: it prevents a concurrent capture or
+    replay from replacing another caller's snapshot source. No CLI accepts it.
+    """
+    if captured_snapshots is None:
+        return _suggest(cfg, template, tier, study, walltime=walltime, now=now)
+    token = _CAPTURED_SNAPSHOTS.set(deepcopy(captured_snapshots))
+    try:
+        return _suggest(cfg, template, tier, study, walltime=walltime, now=now)
+    finally:
+        _CAPTURED_SNAPSHOTS.reset(token)
+
+
+def _suggest(cfg, template, tier, study=None, *, walltime=None, now=None):
     if template not in TEMPLATES or tier not in TIERS:
         raise ValueError('Unknown template or tier')
     if study is not None:
@@ -226,7 +317,6 @@ def suggest(cfg, template, tier, study=None, *, walltime=None, now=None):
                '无建议：顺序中没有规格适用且本人上限允许的入口')
     return dict(template=template, tier=tier, study=study, order=order, clusters=rows,
                 recommendation=recommendation, message=message, walltime=walltime, notes=[DISCLAIMER])
-
 
 
 def _digest(value):
@@ -776,6 +866,185 @@ def select_ladder(cfg, snapshots, *, template, job_class, walltime, study_key, s
     return result
 
 
+def autonomous_account_job_cap(cfg, name):
+    """The bound ladder's account job ceiling also covers other templates."""
+    peers = shared_clusters(select_cluster(cfg, name))
+    limits = [cell['max_jobs'] for cell in cfg.get('routing', {}).get('ladder', [])
+              if cell['condition'] == 'jobs' and cell['cluster'] in peers]
+    return min(limits) if limits else None
+
+
+def select_legacy(cfg, snapshots, *, template, job_class, walltime, study_key, study_id,
+                  round_id, run_id, object_id, tier, placements, wakeups,
+                  waiting_since=None, parent_cluster=None, batch_inputs=None, now=None):
+    """Recheck CREST/xTB's existing recommendation with trusted reservations.
+
+    Entry order and tier selection remain suggest's existing behavior. If that
+    recommendation cannot survive complete account/node evidence, stop; this
+    wrapper does not introduce another fallback or Gaussian ladder ordering.
+    """
+    from ag import approval
+    from ag.capacity import evaluate_node
+    if 'select_ladder' not in globals():
+        raise ValueError('Reviewed routing accounting is not integrated in this checkout')
+    if template not in ('crest', 'xtb') or job_class != 'small':
+        raise ValueError('Legacy autonomous routing requires a small CREST/xTB object')
+    if tier not in TIERS:
+        raise ValueError('Autonomous CREST/xTB routing requires an explicit --tier')
+    walltime_seconds(walltime)
+    names = {}
+    _study_identity(study_key, study_id, names)
+    for value in (round_id, run_id, object_id):
+        identifier(value)
+    if parent_cluster is not None:
+        select_cluster(cfg, parent_cluster)
+    if waiting_since is not None:
+        _timestamp(waiting_since)
+    if not isinstance(wakeups, list):
+        raise ValueError('Verified wakeup list is required')
+    seen = set()
+    for wake in wakeups:
+        _study_identity(wake['study_key'], wake['study_id'], names)
+        key = tuple(wake[k] for k in ('study_key', 'round_id', 'run_id', 'object_id'))
+        for value in key[1:]:
+            identifier(value)
+        _timestamp(wake['started_at'])
+        if key in seen:
+            raise ValueError('Duplicate wakeup identity')
+        seen.add(key)
+    now = now or datetime.now(timezone.utc)
+    config_hash = ladder_config_identity(cfg)
+    records = _placement_records(cfg, placements)
+    for record in records:
+        _study_identity(record['study_key'], record['study_id'], names)
+    request = dict(template=template, job_class=job_class, walltime=walltime, study_key=study_key,
+                   study_id=study_id, round_id=round_id, run_id=run_id, object_id=object_id,
+                   waiting_since=waiting_since, parent_cluster=parent_cluster, tier=tier)
+    original = dict(config_sha256=config_hash, request=request, snapshots=snapshots,
+                    placements=records, wakeups=wakeups, selected_at=now.isoformat())
+    evidence = dict(config_sha256=config_hash, input_sha256=approval.digest(original),
+                    snapshots={name: approval.digest(data) for name, data in snapshots.items() if data is not None},
+                    placements_sha256=approval.digest(records), wakeups_sha256=approval.digest(wakeups))
+    result = dict(schema='ag-routing-legacy/1', **request, evidence=evidence,
+                  recommendation=None, candidates=[], notes=[DISCLAIMER])
+    if any(p['study_key'] == study_key and p.get('round_id') == round_id
+           and p.get('run_id') == run_id and p.get('object_id') == object_id for p in records):
+        result['reason'] = 'object_already_placed_in_run'
+        return result
+    advice = suggest(cfg, template, tier, study_id, walltime=walltime, now=now,
+                     captured_snapshots=snapshots)
+    result['candidates'] = advice['clusters']
+    recommendation = advice['recommendation']
+    if recommendation is None:
+        result['reason'] = 'legacy_route_has_no_recommendation'
+        return result
+    name = recommendation['name']
+    selected = select_cluster(cfg, name)
+    suggested_row = next(row for row in advice['clusters'] if row['name'] == name)
+    if suggested_row.get('capacity', {}).get('availability') not in ('enough', 'queue'):
+        result['reason'] = 'legacy_recommendation_capacity_unknown'
+        return result
+    if parent_cluster is not None and name != parent_cluster:
+        result['reason'] = 'parent_cluster_binding'
+        return result
+    # Reject unknown earlier entries rather than changing their established
+    # priority using a second, reservation-specific routing algorithm.
+    relevant = [n for n in (advice['order'] or [])
+                if _enabled(select_cluster(cfg, n), template)
+                and tier in select_cluster(cfg, n)['resources']['tiers']]
+    if any(not _ladder_snapshot(cfg, n, snapshots.get(n), now) for n in relevant):
+        result['reason'] = 'snapshot_missing_failed_or_stale'
+        return result
+    try:
+        usages = {n: _ladder_usage(cfg, n, snapshots, records, now) for n in relevant}
+        usage = usages[name]
+        jobs = _observed_jobs(cfg, name, snapshots[name])
+    except (KeyError, TypeError, ValueError):
+        result['reason'] = 'account_or_reservation_evidence_unknown'
+        return result
+    resource = selected['resources']['tiers'][tier]
+    job_cap = autonomous_account_job_cap(cfg, name)
+    if job_cap is not None and sum(p.get('run_id') is not None for p in usage['active']) >= job_cap:
+        result['reason'] = 'autonomous_job_limit'
+        return result
+    cores, memory = resource['cores'], resource['mem_gb']
+    caps = optional_resource_caps(selected)
+    if (cores > selected['resources']['max_cores'] or usage['committed'] + cores > committed_cap(selected)
+            or ('max_queued_cores' in caps and usage['queued'] + cores > caps['max_queued_cores'])):
+        result['reason'] = 'account_or_queue_core_limit'
+        return result
+    if any(p['study_key'] == study_key and p.get('round_id') == round_id
+           and p.get('object_id') == object_id for p in usage['active']):
+        result['reason'] = 'object_already_active_in_round'
+        return result
+    data = snapshots[name]
+    nodes = data['cluster'].get('nodes')
+    if ('node_targeting' in selected or data['cluster'].get('nodes_error')
+            or not isinstance(nodes, list) or not nodes
+            or any(not isinstance(node, dict) or not isinstance(node.get('name'), str) for node in nodes)
+            or len({node['name'] for node in nodes}) != len(nodes)):
+        result['reason'] = 'node_identity_unknown_or_unsupported'
+        return result
+    others = data['cluster'].get('job_summary', {}).get('others_queued_jobs')
+    if not _count(others):
+        result['reason'] = 'other_queue_unknown'
+        return result
+    pending = [p for p in usage['active'] if not (_is_running(jobs.get(p['job_id'], {}))
+               or jobs.get(p['job_id'], {}).get('state') in ('S', 'SUSPENDED'))]
+    evaluated = []
+    for node in nodes:
+        current = deepcopy(node)
+        held = [p for p in pending if p.get('target_node') in (None, node['name'])]
+        try:
+            current['cores_used'] += sum(p['cores'] for p in held)
+            if scheduler_kind(selected) == 'pbs':
+                current['mem_assigned_bytes'] += sum(p['mem_gb'] * 1024**3 for p in held)
+            else:
+                current['mem_assigned_gb'] += sum(p['mem_gb'] for p in held)
+                current['cores_idle'] -= sum(p['cores'] for p in held)
+                if held and current['state'] == 'idle':
+                    current['state'] = 'mixed'
+        except (KeyError, TypeError):
+            result['reason'] = 'node_allocation_unknown'
+            return result
+        evaluated.append(evaluate_node(current, cores, memory, scheduler=scheduler_kind(selected),
+                                       partition=selected.get('partition')))
+    desired = 'queue' if recommendation['needs_queue'] else 'enough'
+    matching = [check for check in evaluated if check['availability'] == desired]
+    # Queue advice may be caused by other queued users even while one node
+    # currently fits. It still uses the same suggested entry and queue limits.
+    if desired == 'queue' and not matching:
+        matching = [check for check in evaluated if check['availability'] == 'enough']
+    if not matching:
+        result['reason'] = 'node_capacity_unknown_or_changed_by_reservation'
+        return result
+    if desired == 'queue':
+        queued = []
+        for p in records:
+            if p.get('run_id') is None:
+                continue
+            try:
+                view = _ladder_usage(cfg, p['cluster'], snapshots, records, now)
+                if p not in view['active']:
+                    continue
+                observed = view['observed'].get(p['job_id'])
+                if observed is not None and _is_running(observed):
+                    continue
+            except (KeyError, TypeError, ValueError):
+                pass  # Missing readback never frees a possible queue slot.
+            queued.append(p)
+        if len(queued) >= 2:
+            result['reason'] = 'global_queue_limit'
+            return result
+    chosen = matching[0]
+    result['recommendation'] = dict(cluster=name, tier=tier, **resource,
+        target_node=None, capacity_node=chosen['name'], node_fraction=None,
+        cell_id='legacy-' + name, config_sha256=config_hash, selected_at=now.isoformat(),
+        batch_input_sha256=evidence['input_sha256'], needs_queue=desired == 'queue')
+    result['reason'] = 'selected'
+    return result
+
+
 def format_result(result):
     lines = ['入口（显示名） | 结论 | 原因 | 快照时间']
     for row in result['clusters']:
@@ -810,24 +1079,54 @@ def prepare_hint(cfg, manifest):
 
 
 def run(args):
-    cfg = load_config()
+    context_options = (args.round_id, args.run_id, args.object_id,
+                       args.autonomous_policy, args.token, args.plan_sha256)
     if args.job_class:
-        if args.tier is not None or not all((args.study, args.round_id, args.run_id, args.object_id, args.walltime)):
-            raise ValueError('Ladder routing needs --study, --round-id, --run-id, --object-id, --walltime; no --tier')
-        identifier(args.study)
+        if not all((*context_options, args.study, args.walltime)):
+            raise ValueError('Trusted routing requires --study, --round-id, --run-id, --object-id, '
+                             '--walltime, --autonomous-policy, --token and --plan-sha256')
+        if (args.template in ('crest', 'xtb')) != (args.tier is not None):
+            raise ValueError('Trusted CREST/xTB routing requires --tier; Gaussian ladder routing does not use --tier')
+        from hashlib import sha256
+        from ag import autonomy, autonomy_submission, _autonomy_store as disk
+        from ag.submit import autonomy_context, bound_policy
+        context = autonomy_context(dict(run_id=args.run_id, token=args.token,
+            plan_sha256=args.plan_sha256, policy_name=args.autonomous_policy,
+            object_id=args.object_id, job_class=args.job_class), args.study)
         identifier(args.round_id)
-        identifier(args.run_id)
-        identifier(args.object_id)
-        walltime_seconds(args.walltime)
-        validate_routing(cfg)
-        # T184 presently exposes intent counts and editable objects, not
-        # verified submissions/waiting wakeups. Do not invent an adapter or
-        # accept user-written evidence JSON to turn those into admission.
-        raise ValueError('Ladder runtime evidence integration pending: verified submissions and waiting wakeups required')
-    if args.round_id or args.run_id or args.object_id:
-        raise ValueError('--round-id/--run-id/--object-id require --job-class')
+        # Advisory inspection must not initialize registries, emit waiting
+        # events, pause a round, or create a missing lock/configuration file.
+        prepared_stops = autonomy_submission.prepare_stopped_reservations(load_config())
+        with autonomy_submission.machine_lock(create=False):
+            cfg = load_config()
+            with disk.locked(cfg, args.study) as store:
+                snapshot, _ = autonomy.load(store)
+                state = snapshot['state']
+                current_versions = autonomy.versions()
+                at = autonomy.now()
+                if at < state['updated_at']:
+                    raise ValueError('Autonomy clock moved backwards')
+                autonomy.eligible(state, args.run_id, sha256(args.token.encode()).hexdigest(),
+                    current_versions, at, 'submit', args.plan_sha256)
+                if state['current_round'] != args.round_id:
+                    raise ValueError('Routing request belongs to another authorization round')
+                bound_policy(cfg, state, context)
+                selection = autonomous_selection(cfg, state, context, template=args.template,
+                    walltime=args.walltime, requested_tier=args.tier, prepared_stops=prepared_stops)
+                store.verify_lock()
+        result = selection['result']
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+        else:
+            chosen = result['recommendation']
+            print((f"建议：{chosen['cluster']} / {chosen['tier']} / {chosen['cores']} 核"
+                   if chosen else '无建议：' + result['reason']) + '\n' + DISCLAIMER)
+        return 0
+    if any(value is not None for value in context_options):
+        raise ValueError('Autonomous routing context requires --job-class')
     if args.tier is None:
-        raise ValueError('Legacy routing requires --tier')
+        args.route_parser.error('Legacy routing advice requires --tier')
+    cfg = load_config()
     result = suggest(cfg, args.template, args.tier, args.study, walltime=args.walltime)
     print(json.dumps(result, ensure_ascii=False, indent=2) if args.json else format_result(result))
     return 0
@@ -836,13 +1135,15 @@ def run(args):
 def register(subparsers):
     parser = subparsers.add_parser('route', help='Read local monitor snapshots for routing advice')
     parser.add_argument('--template', choices=TEMPLATES, required=True)
-    mode = parser.add_mutually_exclusive_group(required=True)
-    mode.add_argument('--tier', choices=TIERS)
-    mode.add_argument('--job-class', choices=('main', 'small'))
+    parser.add_argument('--tier', choices=TIERS)
+    parser.add_argument('--job-class', choices=('main', 'small'))
     parser.add_argument('--round-id')
     parser.add_argument('--run-id')
     parser.add_argument('--object-id')
+    parser.add_argument('--autonomous-policy')
+    parser.add_argument('--token')
+    parser.add_argument('--plan-sha256')
     parser.add_argument('--walltime', help='Requested positive HH:MM:SS; omitted means unchecked')
     parser.add_argument('--study')
     parser.add_argument('--json', action='store_true')
-    parser.set_defaults(func=run)
+    parser.set_defaults(func=run, route_parser=parser)

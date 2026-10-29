@@ -1,5 +1,6 @@
 """ag command line, with optional T2/T5 subcommand registration."""
 import argparse
+from contextlib import contextmanager
 from importlib import import_module
 import json
 import sys
@@ -10,9 +11,75 @@ from ag.config import load_config, select_cluster, for_manifest, RESOURCE_TIERS
 CONFIG_COMMANDS = ('init', 'prepare', 'approve', 'submit', 'status', 'fetch', 'snapshot', 'cancel', 'list', 'doctor', 'monitor', 'review', 'clusters', 'nodes')
 
 
+def autonomous_args(args):
+    fields = {'run_id': 'run', 'token': 'token', 'plan_sha256': 'plan_sha256',
+              'policy_name': 'autonomous_policy', 'object_id': 'object_id', 'job_class': 'job_class'}
+    values = {key: getattr(args, option, None) for key, option in fields.items()}
+    failure = getattr(args, 'failure_class', None)
+    reroute = getattr(args, 'reroute_source', None)
+    if not any(value is not None for value in values.values()) and failure is None and reroute is None:
+        return None
+    if any(value is None for value in values.values()):
+        raise ValueError('Autonomous actions require policy, run, token, plan SHA, object and class together')
+    return dict(values, failure_class=failure, reroute_source=reroute)
+
+
+@contextmanager
+def observation_context(args, path, *, action):
+    """Validate an observation lease without holding state locks over IO.
+
+    Plan expiry is allowed by T184's read-action checks. The current confirmed
+    plan, runtime versions and wake ownership still have to match. Ordinary
+    status/snapshot/fetch publish local files and use the backend manual writer.
+    """
+    from ag import autonomy
+    values = [getattr(args, key, None) for key in ('run', 'token', 'plan_sha256')]
+    if any(value is not None for value in values):
+        if not all(values):
+            raise ValueError('Observation requires run, token and plan SHA together')
+        def check():
+            with autonomy.action_guard(args.config, path.parent.parent.name, values[0], values[1],
+                                       action=action, plan_sha256=values[2]):
+                pass
+        check()
+        def publication():
+            return autonomy.observation_publication_guard(args.config, path.parent.parent.name,
+                values[0], values[1], action=action, plan_sha256=values[2])
+        yield {'check': check, 'publication': publication}
+    else:
+        manual_action = 'fetch' if action == 'fetch' else args.command
+        with autonomy.manual_write_guard(args.config, path.parent.parent.name,
+                                          action=manual_action, attempt_ids=[path.name]):
+            yield None
+
+
+class ObservationTransport:
+    """Recheck the read lease between fixed read operations and transfers."""
+    def __init__(self, transport, check):
+        self.transport, self.check = transport, check
+
+    def __getattr__(self, name):
+        return getattr(self.transport, name)
+
+    def run(self, command):
+        self.check()
+        result = self.transport.run(command)
+        self.check()
+        return result
+
+    def download(self, manifest, name, local):
+        self.check()
+        result = self.transport.download(manifest, name, local)
+        self.check()
+        return result
+
+    def upload(self, *args, **kwargs):
+        raise ValueError('Observation cannot upload remote files')
+
+
 def core_command(args):
     from ag import approval, attempt, cancel, doctor, fetch, snapshot, status, study, submit
-    from ag.transport import SSHTransport
+    from ag.transport import SSHTransport, _SSH_TRANSPORT_TYPE
     cfg = args.config
     command = args.command
     if command == 'monitor':
@@ -47,6 +114,7 @@ def core_command(args):
                 raise ValueError('Duplicate template parameter')
             params[key] = value
         result = attempt.prepare(cfg, study_name=args.study, template=args.template,
+                                 autonomous=autonomous_args(args),
                                  input_path=args.input, tier=args.tier, walltime=args.walltime,
                                  label=args.label, params=params, method_basis=args.method_basis,
                                  constraints=args.constraints, cluster=args.cluster, card=args.card,
@@ -74,7 +142,8 @@ def core_command(args):
             result = doctor.doctor(cfg, transport)
             result['approval_policies'] = cfg.get('approval', {}).get('policies', {})
         elif command == 'submit':
-            result = submit.submit(cfg, args.ids, transport, approval_id=args.approval, policy_name=args.policy)
+            result = submit.submit(cfg, args.ids, transport, approval_id=args.approval,
+                                   policy_name=args.policy, autonomous=autonomous_args(args))
         elif command == 'status':
             if args.id and args.study:
                 raise ValueError('Use an Attempt ID or --study, not both')
@@ -84,16 +153,35 @@ def core_command(args):
                 path = attempt.find(cfg, id_)
                 selected = for_manifest(cfg, attempt.read_manifest(path))
                 transport = SSHTransport(selected, read_only=True)
-                result.append(dict(attempt_id=id_, **status.check(selected, path, transport)))
+                with observation_context(args, path, action='observe') as observation:
+                    options = {}
+                    if observation is not None:
+                        transport = ObservationTransport(transport, observation['check'])
+                        options['publication'] = observation['publication']
+                    result.append(dict(attempt_id=id_, **status.check(selected, path, transport, **options)))
         elif command == 'snapshot':
-            result = snapshot.capture(cfg, path, transport, max_bytes=args.max_bytes)
+            with observation_context(args, path, action='observe') as observation:
+                options = {}
+                if observation is not None:
+                    transport = ObservationTransport(transport, observation['check'])
+                    options['publication'] = observation['publication']
+                result = snapshot.capture(cfg, path, transport, max_bytes=args.max_bytes, **options)
         elif command == 'fetch':
             path = attempt.find(cfg, args.id)
-            result = fetch.fetch(cfg, path, transport,
-                                 add_missing=args.add_missing, incomplete=getattr(args, 'incomplete', False))
-            skip = ('add-missing' if args.add_missing else
-                    'no-facts' if getattr(args, 'no_facts', False) else None)
-            result['facts'] = fetch.auto_facts(path, skip=skip)
+            with observation_context(args, path, action='fetch') as observation:
+                options = {}
+                if observation is not None:
+                    # Preserve incomplete-fetch's first-failure stop before
+                    # the observation proxy hides the concrete SSH type.
+                    if getattr(args, 'incomplete', False) and isinstance(transport, _SSH_TRANSPORT_TYPE):
+                        transport = fetch._IncompleteSSHTransport(cfg)
+                    transport = ObservationTransport(transport, observation['check'])
+                    options['publication'] = observation['publication']
+                result = fetch.fetch(cfg, path, transport,
+                                     add_missing=args.add_missing, incomplete=getattr(args, 'incomplete', False), **options)
+                skip = ('add-missing' if args.add_missing else
+                        'no-facts' if getattr(args, 'no_facts', False) else None)
+                result['facts'] = fetch.auto_facts(path, skip=skip, **options)
         else:
             result = cancel.cancel(cfg, attempt.find(cfg, args.id), transport)
     if command == 'status' and not args.json:
@@ -114,6 +202,19 @@ def register(subparsers):
         p = subparsers.add_parser(name)
         p.add_argument('--json', action='store_true')
         p.set_defaults(func=core_command)
+        if name in ('prepare', 'submit'):
+            p.add_argument('--autonomous-policy', help='Plan-bound rule; never falls back to manual approval')
+            p.add_argument('--run', help='Current autonomous wake identity')
+            p.add_argument('--token', help='Current wake lease token')
+            p.add_argument('--plan-sha256', help='Confirmed immutable plan hash')
+            p.add_argument('--object-id', help='Object within the confirmed plan scope')
+            p.add_argument('--job-class', choices=('main', 'small'))
+            p.add_argument('--failure-class', help='Confirmed failure class for a bounded remedy')
+            p.add_argument('--reroute-source', help='Exact stopped queued Attempt for its single reroute successor')
+        if name in ('status', 'snapshot', 'fetch'):
+            p.add_argument('--run', help='Current autonomous observation wake')
+            p.add_argument('--token', help='Current observation lease token')
+            p.add_argument('--plan-sha256', help='Confirmed plan hash; plan expiry alone does not block observation')
         if name in ('prepare', 'doctor', 'nodes'):
             p.add_argument('--cluster', default='default')
         if name == 'init':

@@ -21,7 +21,7 @@ PROTOCOL_KEYS = {'method', 'basis', 'basis_function_type', 'dispersion',
 CONVERGENCE = {'normal': 0, 'tight': 1, 'verytight': 2}
 PLAN_BOUND_KEYS = {'templates', 'clusters', 'max_cores_per_job', 'max_walltime',
                    'methods', 'routing_sha256', 'allow_relaxed'}
-POLICY_KEYS = {'schema', 'study_id', 'round_id', 'plan_sha256', 'templates',
+POLICY_KEYS = {'schema', 'study_id', 'study_key', 'round_id', 'plan_sha256', 'templates',
                'clusters', 'max_cores_per_job', 'max_walltime', 'max_attempts',
                'expires_at', 'quote', 'set_at', 'methods', 'routing_sha256',
                'allow_relaxed'}
@@ -155,6 +155,7 @@ def validate_policy(value):
     fields(value, POLICY_KEYS, 'autonomous policy')
     require(value['schema'] == SCHEMA, 'Unsupported autonomous policy schema')
     study.identifier(value['study_id'])
+    digest(value['study_key'], 'study_key')
     study.identifier(value['round_id'])
     digest(value['plan_sha256'], 'plan_sha256')
     integer(value['max_attempts'], 'max_attempts')
@@ -231,7 +232,7 @@ def read_policy(cfg, name):
     return validate_policy(policies[name])
 
 
-def check_binding(policy, *, study_id, round_id, plan_sha256, routing_sha256, now=None):
+def check_binding(policy, *, study_id, study_key, round_id, plan_sha256, routing_sha256, now=None):
     """Compare identifiers, not the truth of caller-provided plan/lease data."""
     validate_policy(policy)
     now = datetime.now(timezone.utc) if now is None else now
@@ -239,7 +240,7 @@ def check_binding(policy, *, study_id, round_id, plan_sha256, routing_sha256, no
             'Current time requires timezone')
     require(approval.timestamp(policy['set_at']) <= now < approval.timestamp(policy['expires_at']),
             'Autonomous policy expired or not yet valid')
-    expected = dict(study_id=study_id, round_id=round_id, plan_sha256=plan_sha256,
+    expected = dict(study_id=study_id, study_key=study_key, round_id=round_id, plan_sha256=plan_sha256,
                     routing_sha256=routing_sha256)
     require(all(policy[k] == v for k, v in expected.items()), 'Autonomous policy binding mismatch')
     return approval.digest(policy)
@@ -344,6 +345,11 @@ def _convergence(route, method, *, template='gaussian'):
 def check_attempt(cfg, path, policy):
     """Read and verify current frozen bytes; return facts, never authorization."""
     validate_policy(policy)
+    from ag.autonomy_submission import study_identity
+    root = study.locate(cfg, path.parent.parent)
+    require(root.name == policy['study_id'], 'Policy study mismatch')
+    identity = study_identity(root)  # Descriptor walk refuses symlinks before hashing the absolute path.
+    require(identity['study_key'] == policy['study_key'], 'Policy study directory identity mismatch')
     manifest = attempt.read_manifest(path)
     require(manifest['study_id'] == policy['study_id'], 'Policy study mismatch')
     template = manifest['template']
@@ -361,14 +367,50 @@ def check_attempt(cfg, path, policy):
         require(manifest['node_target']['name'] in nodes, 'Node is not explicitly allowed by autonomous policy')
     else:
         require(not nodes, 'Autonomous policy requires an explicit node target')
-    # T188 must define immutable markers and skipped-check evidence first.
-    # Neither this switch nor any model-authored marker bypasses normal parsing.
-    require(not any(key in manifest for key in ('input_validation', 'relaxed_input', 'allow_relaxed', 'skipped_checks')),
-            'Relaxed-input submission is not implemented')
+    require(not any(key in manifest for key in ('relaxed_input', 'allow_relaxed', 'skipped_checks')),
+            'Unsupported relaxed-input marker')
+    relaxed = manifest.get('input_validation')
+    if relaxed is not None:
+        require(policy['allow_relaxed'] and hasattr(attempt, 'prepared_bundle')
+                and hasattr(attempt, 'program_input_name'),
+                'Relaxed-input submission is not implemented or not allowed')
     files = attempt.verified_files(cfg, path, manifest)
+    if relaxed is not None:
+        require(set(relaxed) == {'mode', 'skipped_checks', 'method_verified'}
+                and relaxed['mode'] == 'relaxed' and relaxed['method_verified'] is False
+                and isinstance(relaxed['skipped_checks'], list) and relaxed['skipped_checks'],
+                'Invalid frozen relaxed-input evidence')
+        from ag.gaussian_relaxed import _route
+        sections = manifest['science'].get('sections')
+        require(isinstance(sections, list) and sections, 'Missing frozen Link1 section evidence')
+        methods = policy['methods'][template]
+        # An unverified method cannot select a more permissive candidate. Take
+        # only the strictest convergence floors across the complete allowed
+        # methods; this does not combine or verify their scientific protocols.
+        floor = dict(opt_convergence=max((m['opt_convergence'] for m in methods), key=CONVERGENCE.get),
+                     scf_convergence=max(m['scf_convergence'] for m in methods))
+        for section in sections:
+            _, options = _route(section['route'])
+            # General basis/ECP and additional-section semantics remain
+            # unverified. The explicit input exception cannot relax convergence
+            # in any Link1 section, including a model-labelled preliminary one.
+            convergence = '# HF/STO-3G ' + ' '.join(
+                key + ('=(' + options[key].replace('numerical', 'numer') + ')' if options[key] else '')
+                for key in ('opt', 'freq', 'scf') if key in options)
+            try:
+                _convergence(convergence, floor, template=template)
+            except ValueError as exc:
+                raise ValueError('Relaxed-input convergence is below the approved floor: ' + str(exc)) from exc
+        # T188's verified_files re-parses the actual primary input and compares
+        # the exact frozen input-validation.json and attachment list. Permission
+        # to use that exception never turns an unverified method into a match.
+        return dict(attempt_id=manifest['attempt_id'], bundle_sha256=manifest['bundle_sha256'],
+                    inputs=deepcopy(manifest['inputs']), method=None, method_verified=False,
+                    skipped_checks=deepcopy(relaxed['skipped_checks']))
     if template in ('gaussian', 'gaussian-cp'):
         from ag._profile_sources import protocol, integration_grid
-        inputs = [name for name in files if name.endswith('.gjf')]
+        inputs = ([attempt.program_input_name(manifest)] if hasattr(attempt, 'program_input_name')
+                  else [name for name in files if name.endswith('.gjf')])
         require(len(inputs) == 1, 'Expected exactly one frozen Gaussian input')
         if template == 'gaussian-cp':
             fragments = manifest['science']['counterpoise']['file']
