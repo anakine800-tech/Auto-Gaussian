@@ -260,9 +260,58 @@ journal、取回标记或 facts；不主动调用 `ag status`。后续 fetch/fac
 已有 facts 内容相同时保留原字节和修改时间；不同时绝不自动覆盖。请人工核对差异后才使用
 `ag facts <ATTEMPT_ID> --refresh`。journal 写入失败也只提示，请保留 JSON 输出以供核对。
 
+## 显式放宽 Gaussian 输入
+
+`ag prepare --template gaussian --relaxed-input` 选择受控放宽校验；默认仍使用原严格校验，
+旧 manifest 和 bundle 不补字段、不改字节。`gaussian-cp`、xTB、CREST 和 Multiwfn
+不接受此选项。`--method-basis` 仍必填；输入被接受不代表方法、输出解析或 profile 已支持。
+
+```sh
+ag prepare --study '<STUDY>' --template gaussian --input '<INPUT.gjf>' \
+  --relaxed-input --include-file '<BASIS.inc>' \
+  --tier '<TIER>' --walltime '00:30:00' --label relaxed \
+  --method-basis '兜底方法：非研究小分子语法验证；科学方法未核验'
+```
+
+`--include-file` 可重复，只收集明确提供的普通文件；Gaussian `@basename` 引用只能指向
+这些文件。主文件和附件均按最终字节核验、保存并绑定输入包哈希，源文件不改；不会按引用
+隐式读取任意路径。缺失附件、链接、越界文件名、引用环和危险指令会在分配 Attempt 前拒绝。
+所有 Link1 段均核对资源、文件引用和外部程序调用；放宽不允许覆盖脚本、清单或只读父 chk。
+每一段都必须显式写 `%nprocshared` 和 `%mem`；核数匹配档位，内存不超过档位的 85%。
+此路径不继承或自动补齐缺失资源。
+当前上限为 32 个附件、8 层 include、32 个 Link1 段；冻结输入总字节数和展开后的文本
+各不超过 1 MiB。附件仅接受数据片段，不接受 Link0、route 或 Link1；每个打包附件都必须被引用。
+
+支持的受控范围包括 Gen/GenECP、SCRF=Read、NBO 附加段、TS 与 ModRedundant、Link1、
+Geom=Check/AllCheck，以及原扫描白名单之外的坐标数、步数、通配符、笛卡尔冻结、Units 和
+多种附加段。Checkpoint 几何只能引用本 Attempt 前段已声明的来源，或通过现有
+`--parent` / `--relation` / `--parent-chk` 机制绑定父 chk；缺失几何、电荷或多重度保持未知，
+不会补造。无法确认安全的文件读取、写入或语法组合仍拒绝。
+SCRF 读入段限数值 `eps`/`epsinf`，NBO 限已列入白名单的分析标志，Gen/GenECP 和
+ModRedundant 附加段接受受限的数据语法；不接受任意文件读写、External、IOp 或外部 NBO 程序。
+放宽路径目前拒绝 RCFC/ReadFC/ReadCartesianFC，避免绕过既有父力常数取向核验；需要时使用已支持的严格流程。
+现有父 chk 机制只接受单程序输入的父 Attempt；放宽包带有校验 sidecar，当前不能作为父来源。
+
+不可变 manifest 中的唯一放宽标记为 `input_validation`。显式放宽普通 SP 输入的最小合成示例为：
+
+```json
+{"input_validation":{"mode":"relaxed","skipped_checks":["scientific_method"],"method_verified":false}}
+```
+
+使用 Gen、Link1 等语法时，校验器按实际输入增加对应跳过项。包内 `input-validation.json` 同时绑定该标记、
+主输入名称和附件记录，随输入包哈希冻结；篡改标记、清单、附件或主输入会使提交前复核失败。
+
+准备和提交摘要逐段列出完整 route、几何来源及资源，明确标注“方法未核验”和跳过的检查，
+并展示冻结主输入、附件全文及全部输入哈希。`scan-peak` 拒绝放宽来源，即使 route 恰好可由旧解析器识别。
+thermo/profile/facts 的科学接受条件没有扩大，解析成功也不会消除放宽标记。
+旧 `--policy` 长期规则拒绝放宽 Attempt；显式绑定输入包的一次性批准和 Mac 对话框仍按原流程核验，
+失败不回退其他授权方式，具体真实验证仍须负责人逐次亲手点击。
+自主提交尚未接入；后续须与 T186 协调、集成并完成真实验证，不能只凭 `allow_relaxed` 字段获得权限。
+合并前非研究验证矩阵见 [T188](../docs/redesign-tasks/T188-relaxed-gaussian-input.md)。
+
 ## 弛豫扫描与 TS 初猜
 
-Gaussian 的 Cartesian 输入后可使用 `Opt=ModRedundant` 扫描段，B/A/D 为键长、
+默认严格校验下，Gaussian 的 Cartesian 输入后可使用 `Opt=ModRedundant` 扫描段，B/A/D 为键长、
 键角、二面角，F 冻结行照旧；不得与 TS/QST 混用。一条 S 行保持原有 1–50 步、
 摘要、facts 和 `scan-peak` 行为；xTB `$scan` 继续只允许一行（1–100 点）。
 一维行为不变的唯一例外：Gaussian 一维、二维 S 行的步长都必须含小数点，

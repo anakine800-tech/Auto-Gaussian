@@ -290,3 +290,50 @@ def test_registration_can_accompany_xyz_only(tmp_path, capsys):
     assert cli.main(['scan-peak', str(path), '--out', str(root / 'guess.xyz'),
                      *candidate_options('--upgrade-catalog')]) == 0
     assert 'candidate' in capsys.readouterr().out and not (root / 'guess.gjf').exists()
+
+
+@pytest.mark.parametrize('draft', [False, True])
+@pytest.mark.parametrize('marker', [
+    {'mode': 'relaxed', 'method_verified': False, 'skipped_checks': []},
+    {'mode': 'relaxed'},
+    {},
+    None,
+])
+def test_relaxed_manifest_refused_before_facts_and_outputs(tmp_path, capsys, draft, marker):
+    root, path = make_scan(tmp_path, 'gaussian')
+    manifest = attempt.read_manifest(path)
+    # The input/scan remains compatible with the strict parser: the immutable
+    # opt-in marker, not a successful parse or mutable facts, must decide.
+    manifest['input_validation'] = marker
+    write_json(path / 'manifest.json', manifest)
+    (path / 'facts.json').write_text('not parseable facts')
+    args = (command(path) if draft else
+            ['scan-peak', str(path), '--out', str(root / 'guess.xyz'), '--json'])
+    before = files(path)
+    assert cli.main(args) == 1
+    assert 'scan-peak is unavailable for relaxed Gaussian input' in json.loads(capsys.readouterr().out)['error']
+    assert not (root / 'guess.xyz').exists() and not (root / 'guess.gjf').exists()
+    assert not (root / 'catalog').exists() and files(path) == before
+
+
+@pytest.mark.parametrize('kind', ['metadata', 'invalid', 'symlink', 'declared-only'])
+def test_relaxed_bundle_marker_cannot_be_downgraded_by_manifest(tmp_path, capsys, kind):
+    root, path = make_scan(tmp_path, 'gaussian')
+    inputs = path / 'inputs'
+    inputs.mkdir(exist_ok=True)
+    validation = inputs / 'input-validation.json'
+    if kind == 'declared-only':
+        manifest = attempt.read_manifest(path)
+        manifest.setdefault('inputs', []).append(dict(name='input-validation.json', size=1, sha256='0' * 64))
+        write_json(path / 'manifest.json', manifest)
+    elif kind == 'symlink':
+        validation.symlink_to(inputs / 'missing')
+    elif kind == 'invalid':
+        validation.write_text('invalid metadata')
+    else:
+        write_json(validation, {'mode': 'relaxed', 'method_verified': False,
+                                'skipped_checks': []})
+    assert 'input_validation' not in attempt.read_manifest(path)
+    assert cli.main(command(path)) == 1
+    assert 'scan-peak is unavailable for relaxed Gaussian input' in json.loads(capsys.readouterr().out)['error']
+    assert not (root / 'guess.xyz').exists() and not (root / 'guess.gjf').exists()

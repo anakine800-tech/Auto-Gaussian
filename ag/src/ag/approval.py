@@ -166,6 +166,10 @@ def authorize(cfg, prepared, *, approval_id=None, policy_name=None):
         authorization.update(method='approval', approval_id=approval_id, quote=value['quote'],
                              record_sha256=digest(value))
     elif policy_name is not None:
+        # Legacy policies do not bind an immutable plan or its method exception.
+        # A matching template/core allowance must never grant relaxed autonomy.
+        if any('input_validation' in m for _, m, _ in prepared):
+            raise ValueError('Relaxed inputs cannot use legacy standing policies; plan-bound integration is required')
         from ag.config import validate_approval
         validate_approval(cfg)
         policy = cfg.get('approval', {}).get('policies', {}).get(policy_name)

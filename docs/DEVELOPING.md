@@ -37,6 +37,7 @@
 - `slurm.py`：Slurm 提交、队列和记账输出的严格解析。
 - `render.py`：声明参数校验及 PBS/Slurm 程序脚本渲染。
 - `gaussian_input.py`：Cartesian Gaussian、QST2/QST3 输入与资源校验。
+- `gaussian_relaxed.py`：显式放宽 Gaussian 输入的分段资源、文件引用和附加段底线检查。
 - `crest_input.py`：CREST 约束输入的受支持子集校验。
 - `parent_chk.py`：父 chk 声明、父子关联与提交时来源检查。
 - `parent_chk_remote.py`：以固定描述符安全读取和独占复制 chk 的远端脚本文本。
@@ -62,7 +63,7 @@ prepare 先选择入口，再用 `config.resolve_tier` 解析显式档位或该�
 省略档位且入口无默认值时明确报错；配置默认值必须是该入口已配置且合法的档位，不跨入口继承。
 全部允许模板共用此入口；manifest 仍只保存实际 tier/cores/mem，verified_files 不调用默认解析，不为旧记录补字段。
 clusters 的资源白名单仅在已配置时发布 default_tier；route 的原建议模式仍要求显式档位。
-Gaussian prepare 在档位与 walltime 检查后依次补缺失的 `%nprocshared`、`%mem`，并在分配序号/目录前完成输入校验。
+默认严格模式的 Gaussian prepare 在档位与 walltime 检查后依次补缺失的 `%nprocshared`、`%mem`，并在分配序号/目录前完成输入校验。
 核数只取所选入口的最终档位，显式输入值不修正；内存仍按 R1 和 85% 上限处理。普通完整输入字节不变，CP 沿用原片段转换。
 仅实际补齐时新增可选 `auto_nprocshared` 整数或 `auto_mem_gb`，摘要注明来源；二者都不是提交授权。
 输入和 bundle 哈希绑定最终保存字节，源文件不变；verified_files 只核验，不补齐、不重写旧 manifest 或哈希，缺少可选说明的旧记录照常读取。
@@ -83,6 +84,44 @@ SCNet 类末级运行加排队最多 4 个、兜底排队最多 2 个，按全�
 `select_ladder` 的可选 `evaluate_from` 只含 study_key/attempt_id/record_sha256，调用方先核验原 reservation；等价读取/共享别名去重后须唯一匹配原绑定且哈希一致，冲突或多个物理绑定仍拒绝，原 cell/节点/资源/配置由 T186 不可变 recommendation 绑定。不得用 `exclude_ownership` 移除来源占用；仅精确来源豁免同对象快捷拒绝，其他占用及同对象阻断保留。
 评估候选须不同 cell 且按原 main/small 排序严格更优；默认调用及哈希不变。评估结果带 `evaluation_only=True` 和 `evaluate_from`；首个组合不启用取消、停止核验、后继或改投入口，不等待 T187。后续接入评估时，薄适配独立透传参数并在普通 reservation 消费时拒绝此类结果，T187 复用同一算法后另核验立即运行、从未运行且排队六小时、无 chk、归属租约及取消消费等条件。此扩展无新 CLI 参数或警告界面，不执行真实操作。
 条件、能力过滤与真实验证缺口见 [CLI 说明](../ag/README.md#提交阶梯与整节点t185)；本单没有提交授权接线或现场验证证据。
+
+### Gaussian 放宽输入的冻结与复核
+
+为防止 Link1 后段绕过资源或文件检查，以及未核验方法被误当作已核验方法，
+`prepare --template gaussian --relaxed-input` 使用独立校验器；默认路径与旧记录保持原样。
+每一段必须显式提供 `%nprocshared` 和 `%mem`，核数匹配所选档位，内存遵守原 85% 上限；
+放宽路径不继承、不猜测也不自动补齐资源。`--include-file` 可重复，附件只从显式参数收集，
+主文件及递归引用的附件都在编号/目录分配前检查，随后 `verified_files` 对最终保存字节重验。
+收集时逐级用目录描述符与 `O_NOFOLLOW` 打开路径，防止父目录在检查后被替换为链接；
+读到的文件必须是普通文件，同 inode 别名拒绝。
+解析有界：最多 32 个附件、8 层 include、32 个 Link1 段，冻结输入与展开文本各最多 1 MiB。
+附件只含数据片段，不能注入 Link0/route/Link1；未被引用的附件也拒绝。
+
+唯一的 manifest 放宽标记为 `input_validation`，准确字段是 `mode: "relaxed"`、
+`skipped_checks: [...]`、`method_verified: false`。输入包中的 `input-validation.json`
+另绑定该标记、主输入名称和附件记录，随 bundle SHA-256 冻结；标记、跳过项或包文件不一致即拒绝，
+不能因为严格解析恰好成功而消除标记。输入、附件、脚本与 sidecar 都保留各自的字节哈希。
+提交审计共用 `attempt.prepared_bundle(files)`，不要对新包直接比较 `bundle(files)` 的记录顺序：
+旧记录仍按名称排序，放宽包按已哈希 sidecar 将主输入排首，其余按名称排序，摘要计算仍用规范名称顺序。
+这是为兼容现有输出选择器而保留的主文件身份；经过 `verified_files` 核验后可用
+`attempt.program_input_name(manifest)` 读取 Gaussian 主输入，不能按后缀从附件中猜选。
+摘要展示完整各段 route、资源、几何/电子态来源或未知，并提醒 scan-peak 不可用、profile 可能不支持。
+缺失的几何、电荷或多重度不伪造；既有科学解析和验收边界不变。
+
+`skipped_checks` 总含 `scientific_method`；依据实际输入另列
+`general_basis_semantics`、`ecp_semantics`、`scrf_read_semantics`、`nbo_section_semantics`、
+`modredundant_semantics`、`coordinate_unit_semantics`、`checkpoint_geometry_science`、
+`link1_scientific_consistency`、`additional_section_semantics` 中的适用项。
+这些名称说明未核验的科学语义，不表示资源、模板、路径或授权检查被跳过。
+
+Geom=Check/AllCheck 只能使用同 Attempt 的已证明 chk 来源，或现有专用父 chk 机制。
+当前父 chk 机制要求父 Attempt 只有一个程序输入，放宽包含 sidecar，因此放宽 Attempt
+不能作为该机制的父来源；严格父 Attempt 可以被放宽子 Attempt 显式声明。
+旧 `approval.policies` / `--policy` 不绑定本轮计划和方法例外，因此拒绝带放宽标记的 Attempt；
+一次性批准与人工对话框继续使用现有字节核验、摘要和单次提交流程，不添加授权回退。
+自主入口与 T186 的放宽规则集成尚未完成，带标记的 Attempt 不能仅凭配置中的
+`allow_relaxed` 获得自主提交权限。非研究合并前验证及实际阻塞记录在
+[T188](redesign-tasks/T188-relaxed-gaussian-input.md)，离线通过不代替该验证。
 
 ## 自主运行的实现边界
 

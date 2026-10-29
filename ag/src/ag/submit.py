@@ -625,8 +625,10 @@ def _submit(cfg, ids, transport, *, approval_id=None, policy_name=None, autonomo
         shared_text = shared_cap_summary(cfg)
         if shared_text:
             text += '\n' + shared_text
-        for path, m, _ in prepared:
+        for path, m, files in prepared:
             text += '\n' + path.name + '\n' + attempt.resource_summary(cfg, m) + node_targeting.summary(m)
+            if 'input_validation' in m:
+                text += '\n' + attempt.summary(cfg, m, files=files)
             if path.name in attachments:
                 text += '\n' + path.name + ' | ' + parent_chk.summary(m['parent_chk'], attachments[path.name][1])
         text += (f'\n当前占用 {used} 核（运行 {running}、排队 {queued}；按集群上本人全部作业统计，含其他电脑和非 ag 提交的作业），'

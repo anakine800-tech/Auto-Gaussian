@@ -125,6 +125,7 @@ def core_command(args):
                                  label=args.label, params=params, method_basis=args.method_basis,
                                  constraints=args.constraints, cluster=args.cluster, card=args.card,
                                  target_node=args.target_node, node_fraction=args.node_fraction,
+                                 relaxed_input=args.relaxed_input, include_files=args.include_file,
                                  parent_chk=args.parent_chk, analysis=args.analysis, grid=args.grid, fragments=args.fragments,
                                  parents=[dict(attempt_id=p, relation=r) for p, r in zip(args.parent, args.relation)])
         if not args.json:
@@ -260,6 +261,10 @@ def register(subparsers):
             p.add_argument('--study', required=True)
             p.add_argument('--template', choices=('gaussian', 'gaussian-cp', 'xtb', 'crest', 'multiwfn'), required=True)
             p.add_argument('--input', help='Program input; omit for Multiwfn IGMH')
+            p.add_argument('--relaxed-input', action='store_true',
+                           help='Gaussian only: accept controlled advanced syntax; method remains unverified')
+            p.add_argument('--include-file', action='append', default=[], metavar='PATH',
+                           help='Explicit regular @include attachment for --relaxed-input; repeatable')
             p.add_argument('--analysis', choices=('igm', 'igmh'))
             p.add_argument('--grid', choices=('low', 'medium', 'high'))
             p.add_argument('--fragments', help='Multiwfn: fragment,atoms (2–4); gaussian-cp: fragment,atoms,charge,multiplicity (exactly 2)')
