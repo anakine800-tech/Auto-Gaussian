@@ -38,6 +38,7 @@ PR 首行 `Task: T187`。列实际接口、不可用条件、合成回归与真�
 
 - `snapshot.capture_for_run(...)` 复用既有正式快照捕获，并将 round/run、确切 Attempt/作业/集群、manifest/submission 与快照文件哈希登记到自主日志。普通 `ag snapshot` 保持原行为；捕获本身不授权取消。
 - `autonomy_cancel.review_no_progress(...)` 为纯本地核验接口：检查连续两个不同唤醒的正式快照来源、顺序、字节及模型对每份快照给出的审阅理由。代码不设科学停滞阈值，也不把模型布尔标签当成来源证据；审阅结果不授予执行资格。
+- `autonomy_cancel.checkpoint_free_input(...)` 从冻结 bundle 核验有限严格输入没有 chk 读取路径，返回输入哈希联系；Guess、IRC、读取/重启项、未知语法和放宽输入均拒绝证明。拒绝不等于认定存在依赖，也不改变 prepare 支持范围；结果始终不授予改投资格。
 - 本次没有实际自主取消、改投、替代 Attempt prepare/submit 入口，不复制未合并的 T185/T186 代码。原手动取消的 Mac 确认与不可重试声明保持原行为。
 
 当前实际阻塞属于**提交**与**环境验证**：
@@ -47,7 +48,7 @@ PR 首行 `Task: T187`。列实际接口、不可用条件、合成回归与真�
 | T186 实际自主提交归属 | 现有 submission/status/manifest 可核对确切作业，但不能证明由当前授权轮次的有效自主规则实际提交。必须接入定稿的一次性归属、有效规则及同轮身份，不能用手动 policy 或本地意图计数代替。 |
 | 消费、暂停与在途取消 | T184 记录本地意图；取消前的原子消费、每唤醒最多两个、谱系改投最多一次、失败或崩溃不返还、失锁及结果不确定时原子暂停均待执行入口接入。短本地互斥不得包住网络 IO，已发出的取消不能宣称可撤回。 |
 | 从未运行与排队六小时 | 当前固定 Slurm 查询没有完整开始/重启历史；PBS 状态记录也未保留足以证明从未运行的调度器历史。未见 running、当前排队、elapsed 为零或缺开始回执均不足。现阶段不得输出改投资格；扩展证据须先确定语义与允许范围。 |
-| 无 chk 依赖 | manifest 缺 `parent_chk` 不能证明输入没有 checkpoint 读取、restart 或其他依赖。必须核验原始哈希绑定字节与受支持输入语义；宽松或未知语法不能靠人工标签放行。 |
+| 无 chk 依赖 | `checkpoint_free_input` 已独立实现严格冻结字节核验；缺 `parent_chk` 或人工标签均不构成证明。它支持有限 Gaussian/CP 语法及受支持的 XYZ/约束，未知、放宽输入仍拒绝；不是改投资格或科学验收。 |
 | T185 当前路由与容量 | 必须调用与自主提交相同的定稿算法，核验本轮顺序、更高位候选、共享入口身份与当前容量，不另写取消专用排序。容量足够不保证调度器立即启动。 |
 | 取消之后的终止证据 | qdel/scancel 接受及本地 `cancelled` 都不是终止证明。须核验取消之后、同一确切作业的正式只读证据；缺失或矛盾、仍在队列、查询失联均不能放行替代 Attempt。 |
 
@@ -67,3 +68,127 @@ PR 首行 `Task: T187`。列实际接口、不可用条件、合成回归与真�
 | 原手动取消兼容 | 离线确认原入口始终要求 Mac 人工点击，不消费自主资格；若合并前需要现场兼容对象，另纳入确切命令清单 | 手动授权、确切 job/cluster、不可重试 claim 均保持原语义 | 现场未授权、未执行 |
 
 真实 SSH 报错、UNKNOWN、哈希或归属矛盾、异常结束立即停止并报告；不得以重试写操作补证据。公开 PR 仅记录脱敏结论与覆盖范围，原始输入、规则和现场证据保留在仓库外。
+
+## 调度器证据扩展建议（待协调方更新范围）
+
+本节只读核查现有源码、官方调度器文档与官方源码，没有连接集群，也没有实施下列新查询。
+事故依据是把重新排队的旧运行认作从未运行、把取消接受或强制 purge 认作执行节点已停止，导致重复计算。
+实现须保留三态判断：证明成立、明确不成立、证据不足；不把缺字段补成零。
+
+### Slurm 最小查询与绑定
+
+建议增加一个固定控制器探针和两种固定作业只读操作；作业参数只能来自已绑定的实际 Slurm 集群和确切数字作业号。
+本机入口别名不能直接用作实际 Slurm 集群名；原始响应含私有字段，只存私有 study。
+
+```text
+env -u SLURM_CLUSTERS LC_ALL=C TZ=UTC SLURM_TIME_FORMAT=standard scontrol --local show config
+LC_ALL=C TZ=UTC SLURM_TIME_FORMAT=standard scontrol --local --clusters=<CLUSTER> --oneliner --details show job <JOB_ID>
+LC_ALL=C TZ=UTC SLURM_TIME_FORMAT=standard sacct --local --clusters=<CLUSTER> -X --duplicates -n -P --jobs=<JOB_ID> --format=Cluster%256,JobIDRaw%64,JobName%200,UID%20,DBIndex%32,Submit%32,Start%32,End%32,State%64,Restarts%20,SLUID%64
+```
+
+以上是待审阅的固定命令形状，不是允许模型拼接命令的接口。需同时核对客户端与控制器兼容性，
+版本不明、字段不可见或历史不完整时拒绝正向资格；不自动退回当前七列 sacct 解析。
+控制器探针须严格提取唯一非空 `ClusterName`、`SLURM_VERSION`，失败、缺字段或格式异常即拒绝。
+`show config` 经 RPC 返回实际控制器的集群名与服务端版本；`scontrol --version` 只读客户端版本，
+不能代替它。客户端兼容性另用固定 `scontrol --version`、`sacct --version` 分别记录。
+首次探针清除 `SLURM_CLUSTERS`，因为 `--local` 不阻止该环境变量选择其他集群；
+后续查询及提交显式绑定已确认实际集群，并与 `sbatch --parsable` 返回值核对。
+当前探针不能反向补认旧 `scheduler_cluster=None` 的历史归属，也不能证明 DBD/执行节点版本或历史完整。
+源码依据：[客户端参数与 RPC 入口](https://github.com/SchedMD/slurm/blob/slurm-25-11-0-1/src/scontrol/scontrol.c)、
+[控制器构造版本及集群字段](https://github.com/SchedMD/slurm/blob/slurm-25-11-0-1/src/slurmctld/proc_req.c)、
+[配置响应和输出](https://github.com/SchedMD/slurm/blob/slurm-25-11-0-1/src/api/config_info.c)。
+
+| 字段/来源 | 必须保留的语义 |
+| --- | --- |
+| 提交时的一次性实例绑定 | 实际 cluster、UID、JobID、JobName、原始 Submit 与支持版本下的初始 SLUID/DBIndex。不能六小时后把当前记录补认成初始实例；与 T186 最终归属记录一起确定保存位置。 |
+| 控制器 Restarts | 必须显式且为零，并与全部相关重复历史一致；Requeue 只是可否重排的配置。当前 PENDING、零耗时或 StartTime 缺失都不足。 |
+| StartTime / Submit | Pending 的 StartTime 可为预计启动时间；requeue 可清零 start 并重置 Submit。取消 pending 作业也可把 start=end 设为取消时间，不能据此反推运行。 |
+| sacct --duplicates | 默认只返回同号最新记录；重复可来自 requeue、resize、federation 和 JobID 回绕。必须区分实例，不复用当前拒绝所有重复 JobID 的 parser。 |
+| 历史与时间 | 记账成功但无记录不能证明从未运行；消息可能延迟或丢失。六小时须有原始绑定时间及当前实例一致性，跨源冲突、未来时间、截断字段均拒绝。 |
+| 取消后的终止 | 先取得匹配实例的取消后 CANCELLED 记录及结束时间，再读控制器，拒绝 RUNNING、COMPLETING、SIGNALING、重排队等活动状态。控制器无记录仍须匹配终态；任意查询失败不等于作业不存在。 |
+
+依据：[sacct 的重复记录与字段说明](https://slurm.schedmd.com/sacct.html)、
+[scontrol 的单集群/本地查询](https://slurm.schedmd.com/scontrol.html)、
+[记账消息缓存与丢失边界](https://slurm.schedmd.com/accounting.html)、
+[作业状态语义](https://slurm.schedmd.com/job_state_codes.html)。
+初版应拒绝联邦、数组和 heterogeneous 作业；本地 REVOKED 或缺记录不排除其他 sibling 执行，
+见[联邦机制](https://slurm.schedmd.com/federation.html)。
+
+已核查的版本差异不等于目标服务器已通过：
+
+- [24.05 sacct 源码](https://github.com/SchedMD/slurm/blob/slurm-24-05-0-1/src/sacct/sacct.c)没有 Restarts/SLUID 字段；
+  [24.11](https://github.com/SchedMD/slurm/blob/slurm-24-11-0-1/src/sacct/sacct.c)已有。
+- [25.05 scontrol](https://github.com/SchedMD/slurm/blob/slurm-25-05-0-1/src/scontrol/info_job.c)没有输出 SLUID，
+  [25.11](https://github.com/SchedMD/slurm/blob/slurm-25-11-0-1/src/scontrol/info_job.c)的 details 路径已有。
+- [26.05.4](https://github.com/SchedMD/slurm/releases/tag/slurm-26-05-4-1)与
+  [26.05.5](https://github.com/SchedMD/slurm/releases/tag/slurm-26-05-5-1)修复过 requeue 历史字段/记录覆盖问题；
+  其他分支的回移须按实际补丁版本核实，字段存在不等于历史可靠。
+- 正常控制器状态恢复保存 restart count；丢弃状态、忽略恢复错误或已知历史损坏仍使证明失效。
+  见[作业状态序列化](https://github.com/SchedMD/slurm/blob/slurm-25-05-0-1/src/common/job_record.c)与
+  [slurmctld 恢复选项](https://slurm.schedmd.com/slurmctld.html)。
+
+首版建议仅把控制器、scontrol、sacct 均为 **26.05.5** 的明确组合作为候选，
+由合并前真实验证决定是否支持；不推断 `>=26.05.5` 或未知定制版本等价。
+验证还须确认实际 slurmdbd 组合（优先同版）；控制器 probe 不能代替它，
+因为[官方允许兼容窗口内的混合组件版本](https://slurm.schedmd.com/upgrades.html)。
+只考虑该已验证组合下新建并留有原始实例证据的普通非联邦作业；旧绑定缺失、
+跨升级存活或曾损坏的历史不能凭当前版本补正。不要求或执行集群升级。
+这仍是待决定的支持范围建议，版本白名单不能代替逐次证据核验或消除执行竞态。
+
+读完之后到取消之前仍可能启动。仅添加查询不能消除该竞态。后续若考虑
+`scancel --ctld --state=PENDING` 与精确实例标识，须单独核实版本的服务端匹配语义；
+仅 PENDING 过滤也不能排除间隙中运行后又重排。见[scancel 官方文档](https://slurm.schedmd.com/scancel.html)。
+本节不授权修改取消命令；取消后历史变化仍必须阻断替代提交。
+
+### PBS 方言与无法直接补足的证据
+
+| 方言 | 最小正式观察 | 正向证据边界 |
+| --- | --- | --- |
+| Torque | 复用 `qstat -f <JOB_ID>`，或验证版本后固定使用 `qstat -f -1 <JOB_ID>` 避免折行 | `start_count` 在发送给 MoM 前增加，非零足以否定 never-started；新作业可因属性 unset 而不输出计数。不能用合成显式零 fixture 冒充真实正向接口。 |
+| OpenPBS/PBS Pro | 已识别方言/版本下固定 `qstat -x -f <JOB_ID>` 获取保留历史 | `run_count` 默认零，但管理员/operator/hook 可修改；普通用户不能假定可读内部 run_version。缺字段不补零，迁移状态 M 不当作终止。 |
+
+Torque 的 `-x` 在相应版本用于 XML，不能直接复用 OpenPBS 的历史选项。
+见[Torque qstat](https://docs.adaptivecomputing.com/torque/6-0-3/adminGuide/Content/topics/torque/commands/qstat.htm)、
+[Torque 发布说明](https://docs.adaptivecomputing.com/torque/6-1-0/releaseNotes/Content/topics/releaseNotes/resolvedIssues.htm)、
+[PBS 历史查询说明](https://2019.help.altair.com/19.2/PBSProfessional/PBSUserGuide19.2.1.pdf)。
+
+计数器证据必须落实到版本的全部启动、恢复、重排路径及实际字段可见性：
+Torque 的[启动计数](https://github.com/adaptivecomputing/torque/blob/master/src/server/req_runjob.c)、
+[初始 unset](https://github.com/adaptivecomputing/torque/blob/master/src/server/job.cpp)和
+[省略 unset 属性](https://github.com/adaptivecomputing/torque/blob/master/src/lib/Libattr/attr_fn_l.c)
+说明“缺计数”不能泛化为零；PBS 的可修改计数见
+[管理员手册 §14.18](https://2021.help.altair.com/2021.1.2/PBS%20Professional/PBSAdminGuide2021.1.2.pdf)。
+`qtime` 表示进入当前队列的时间，不能直接当作不可变首次提交时间；六小时证据须与原始实例绑定一致。
+文本时间须有明确调度器时区，时间歧义、未来时间或迁移归属不明均拒绝；可复用现有 `pbs.timestamp()`。
+
+PBS 完成记录也不能普遍证明 MoM 所管理的该作业进程已停止：
+[Torque 删除路径](https://github.com/adaptivecomputing/torque/blob/master/src/server/req_delete.c)
+可在终止信号回应后先答复客户端；
+[OpenPBS force-delete](https://github.com/openpbs/openpbs/blob/master/src/server/req_delete.c)
+可由 server 自行填写 obittime、退出状态和 finished history，MoM 后续才可能收到 discard。
+Torque 的[job_force_cancel_time](https://docs.adaptivecomputing.com/torque/6-0-3/adminGuide/Content/topics/torque/13-appendices/serverParameters.htm)
+也可在无法联系 MoM 时 purge 记录。因此 C/F、qdel 接受、Unknown Job、单独 E accounting 均不足。
+需要确切作业/运行实例的可信 MoM 完成来源；或取消前后均可靠证明从未启动，
+且取消后另有同实例的正式不可再调度终态/已取消证明。仍在 Q 且计数为零不能作为终止证明。
+现有 `remote.session_processes` 通过当前 Transport 查询，不能假定它访问了实际执行节点。
+
+当前不建议读取全局 server_priv/accounting、tracejob 或执行节点任意 ps：权限、实例归属、
+历史完整性及路径范围未解决。证据不足时仍可实现正式保存和拒绝路径，但不得声称 PBS 自动改投已经可用。
+
+### 所需范围增量与回归
+
+| 文件 | 精确用途 | 原工单范围 |
+| --- | --- | --- |
+| `ag/src/ag/remote.py` | 固定控制器身份/版本探针、精确作业/重复历史查询；白名单参数，不接受 shell 文本；PBS 查询仅在推进该方言时增加 | 需新增 |
+| `ag/src/ag/slurm.py` | 严格解析实际 ClusterName/服务端版本及新作业格式、实例区分、字段存在性及截断/重复/状态冲突处理 | 需新增 |
+| `ag/src/ag/transport.py` | 若增加 operation，仅登记新的固定只读类别；复用已有 jobs 类别时无需修改，不放宽取消重试 | 新 operation 时需新增 |
+| `ag/src/ag/pbs.py` | 若推进 PBS 正向支持，复用时间解析并保留方言字段存在性 | 需新增 |
+| `ag/src/ag/config.py` | 若需显式记录 PBS 方言/经过核验的版本边界；不默认所有 pbs 同能力 | 需新增 |
+| `ag/src/ag/status.py` | 独立正式证据采集，保存查询起止、原始响应/哈希、确切 owner/job/cluster；保留手动状态语义 | 路径已允许；接入新增查询仍待范围扩展 |
+| `ag/src/ag/submission.py`、`autonomy_submission.py` | 与 T186 定稿归属一起保存不可变原始调度器实例和时间，不补认旧记录、不先建另一套归属模型 | 路径已允许；等待 T186 定稿接口 |
+| `ag/src/ag/autonomy_cancel.py` | 证据消费、六小时/从未运行/取消后终止判断及拒绝；实际消费调用 T186 | 已允许 |
+| `ag/tests/test_slurm.py`、`test_core.py`、`test_autonomy_cancel.py` | 固定命令与参数、requeue/同号复用、历史缺失、读写间启动、COMPLETING、版本不支持、错归属 | 已允许 |
+| `ag/tests/test_pbs.py`、`test_remote_observation.py`、`test_incomplete_fetch.py`、`test_pbs_arrays.py` | 若 PBS 查询改变，覆盖方言/时间、强制终态、旧观察/取回/数组拒绝兼容 | 需新增 |
+
+原始记录必须保留查询操作、版本/方言、完整身份、字段缺失状态、查询起止、退出码及 stdout/stderr 哈希。
+代码中的正向资格仍需合并前非研究对象真实验证；官方文档和离线合成响应不证明实际集群已具备这些能力。

@@ -508,3 +508,142 @@ def test_formal_capture_accepts_configured_cluster_case_and_underscore(context, 
     assert result['cluster'] == fake.selected == cluster
     registered = a.status(multi, path.parent.parent.name)['state']['snapshots']
     assert registered[path.name + '/' + result['snapshot']]['binding']['cluster'] == cluster
+
+
+def checkpoint_attempt(context, tmp_path, route, *, template='gaussian', params=None, constraints=None):
+    from test_core import INPUT
+    cfg, existing, _, _ = context
+    source = tmp_path / ('checkpoint.gjf' if template.startswith('gaussian') else 'checkpoint.xyz')
+    if template.startswith('gaussian'):
+        source.write_text(INPUT.replace('# B3LYP/6-31G(d) SP', route))
+    else:
+        source.write_text('3\nSynthetic water\nO 0 0 0\nH 0 0 1\nH 0 1 0\n')
+    m = attempt.prepare(cfg, study_name=existing.parent.parent.name, template=template,
+                        input_path=source, tier='simple', walltime='00:30:00', label='checkpoint',
+                        method_basis='Synthetic fallback', params=params, constraints=constraints)
+    path = attempt.find(cfg, m['attempt_id'])
+    state.write(path, 'submitting')
+    seed_submission(path)
+    return path, m
+
+
+@pytest.mark.parametrize('route', [
+    '# B3LYP/6-31G(d) SP',
+    '#p B3LYP/def2TZVP Opt=(TS,CalcFC,Tight,NoEigenTest,MaxCycles=100) Freq=NoRaman '
+    'SCF=(XQC,Tight) Integral=UltraFine SCRF=(SMD,Solvent=Dichloromethane) EmpiricalDispersion=GD3BJ',
+    '# HF/STO-3G Opt Freq',
+    '# PBE0/aug-cc-pVTZ SP 5D 7F NoSymm',
+])
+def test_checkpoint_free_strict_input_binds_original_bytes(context, tmp_path, route):
+    path, m = checkpoint_attempt(context, tmp_path, route)
+    before = {p: p.read_bytes() for p in path.rglob('*') if p.is_file()}
+    context[0]['resources']['tiers']['simple']['cores'] = 12  # Historical proof is not current resource authorization.
+    result = evidence.checkpoint_free_input(path)
+    assert result['checkpoint_dependency'] is False and result['reroute_authorized'] is False
+    assert result['bundle_sha256'] == m['bundle_sha256']
+    assert result['input_sha256'] == evidence.digest(before[path / 'inputs' / 'checkpoint.gjf'])
+    assert {p: p.read_bytes() for p in path.rglob('*') if p.is_file()} == before
+
+
+@pytest.mark.parametrize('option', [
+    'Guess=Read', 'Guess=(Read,Only)', 'Guess=Chk', 'Guess=Only', 'Opt=Restart',
+    'Opt=ReadFC', 'Opt=RCFC', 'Freq=ReadFC', 'Freq=Restart', 'IRC', 'IRC=RCFC',
+    'IOp(5/13=1)', 'Stable=Restart', 'SCRF=(SMD,Solvent=Water,Read)',
+    'UnknownKeyword', 'SCF=(Tight,UnknownOption)', 'SCF=(Tight,Restart)',
+    'Opt=(CalcFC,(Restart))', 'Int=UltraFine Int=FineGrid',
+    'SCRF=(SMD,Solvent=Water UnknownOption)', 'SCRF=(SMD,Solvent=Water Read)',
+    'SCRF=(SMD,Solvent=Water Check)', 'SCRF=(SMD,Solvent=Water Guess=Read)',
+    'SCRF=(SMD,Solvent=UnknownSolvent)',
+])
+def test_checkpoint_readers_abbreviations_and_unknown_syntax_are_not_proof(context, tmp_path, option):
+    path, _ = checkpoint_attempt(context, tmp_path, '# B3LYP/6-31G(d) ' + option)
+    with pytest.raises(ValueError):
+        evidence.checkpoint_free_input(path)
+
+
+@pytest.mark.parametrize('basis', ['ChkBasis', 'Gen', 'UnknownBasis'])
+def test_opaque_basis_cannot_prove_no_checkpoint_dependency(context, tmp_path, basis):
+    path, _ = checkpoint_attempt(context, tmp_path, '# HF/' + basis + ' SP')
+    with pytest.raises(ValueError):
+        evidence.checkpoint_free_input(path)
+
+
+def rebind_synthetic_manifest(path, change):
+    # Test construction only; production submission manifests are immutable.
+    m = json.loads((path / 'manifest.json').read_text())
+    change(m)
+    (path / 'manifest.json').write_text(json.dumps(m))
+    record = json.loads((path / 'submission.json').read_text())
+    record['manifest_sha256'] = evidence.digest((path / 'manifest.json').read_bytes())
+    (path / 'submission.json').write_text(json.dumps(record))
+
+
+@pytest.mark.parametrize('field,value', [('parent_chk', None), ('input_validation', {'mode': 'relaxed'}),
+                                       ('input_validation', {'mode': 'strict'}), ('input_validation', None)])
+def test_parent_relaxed_or_unknown_validation_marker_is_rejected(context, field, value):
+    path = context[1]
+    rebind_synthetic_manifest(path, lambda m: m.update({field: value}))
+    with pytest.raises(ValueError, match='Parent checkpoint or relaxed/unknown'):
+        evidence.checkpoint_free_input(path)
+
+
+@pytest.mark.parametrize('damage', ['changed', 'extra-chk', 'relaxed-sidecar', 'link'])
+def test_checkpoint_proof_rejects_changed_bundle_or_hidden_attachment(context, damage):
+    path = context[1]
+    source = path / 'inputs' / 'water.gjf'
+    if damage == 'changed':
+        source.write_bytes(source.read_bytes() + b' ')
+    elif damage == 'extra-chk':
+        (path / 'inputs' / 'hidden.chk').write_bytes(b'Synthetic fixture')
+    elif damage == 'relaxed-sidecar':
+        (path / 'inputs' / 'input-validation.json').write_text('{}')
+    else:
+        original = path / 'original.gjf'
+        source.rename(original)
+        source.symlink_to(original)
+    with pytest.raises((ValueError, OSError)):
+        evidence.checkpoint_free_input(path)
+
+
+@pytest.mark.parametrize('template', ['xtb', 'crest'])
+def test_xyz_and_declared_constraints_have_no_checkpoint_reader(context, tmp_path, template):
+    constraints = tmp_path / 'constraints.inp'
+    constraints.write_text('$constrain\ndistance: 1,2,auto\n$end\n')
+    path, _ = checkpoint_attempt(context, tmp_path, '', template=template, constraints=constraints)
+    assert evidence.checkpoint_free_input(path)['checkpoint_dependency'] is False
+
+
+def test_checkpoint_proof_does_not_accept_manual_no_dependency_label(context, tmp_path):
+    path, _ = checkpoint_attempt(context, tmp_path, '# HF/STO-3G Guess=Read')
+    rebind_synthetic_manifest(path, lambda m: m.update(no_chk_dependency=True))
+    with pytest.raises(ValueError, match='checkpoint-reading'):
+        evidence.checkpoint_free_input(path)
+
+
+def test_counterpoise_frozen_fragment_input_is_verified(context, tmp_path):
+    from test_counterpoise import WATER, CSV
+    cfg, existing, _, _ = context
+    source, fragments = tmp_path / 'pair.gjf', tmp_path / 'fragments.csv'
+    source.write_text('%nprocshared=8\n%mem=10GB\n%chk=pair.chk\n'
+                      '# B3LYP/6-31G(d) Counterpoise=2 SP\n\nSynthetic water dimer\n\n0 1\n' + WATER + '\n\n')
+    fragments.write_text(CSV)
+    m = attempt.prepare(cfg, study_name=existing.parent.parent.name, template='gaussian-cp',
+                        input_path=source, fragments=fragments, tier='simple', walltime='00:30:00',
+                        label='cp-checkpoint', method_basis='Synthetic fallback')
+    path = attempt.find(cfg, m['attempt_id'])
+    state.write(path, 'submitting')
+    seed_submission(path)
+    result = evidence.checkpoint_free_input(path)
+    assert result['checkpoint_dependency'] is False
+    assert result['inputs'] == m['inputs']
+
+
+def test_removed_parent_tag_does_not_hide_oldchk_bytes(context):
+    path = context[1]
+    source = path / 'inputs' / 'water.gjf'
+    source.write_bytes(b'%oldchk=parent.chk\n' + source.read_bytes())
+    files = {p.name: p.read_bytes() for p in (path / 'inputs').iterdir()}
+    records, sha = attempt.bundle(files)
+    rebind_synthetic_manifest(path, lambda m: m.update(inputs=records, bundle_sha256=sha))
+    with pytest.raises(ValueError, match='oldchk requires'):
+        evidence.checkpoint_free_input(path)

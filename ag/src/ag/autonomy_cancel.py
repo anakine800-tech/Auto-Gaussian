@@ -16,6 +16,158 @@ from ag import _autonomy_store as disk
 from ag.config import cluster_name
 
 
+def _checkpoint_free_route(route, multiplicity):
+    """Positive syntax proof, not a blacklist of known checkpoint readers.
+
+    Unknown options (including abbreviated readers and IOp) cannot establish
+    absence of a dependency. This only narrows automatic reroute eligibility;
+    prepare and scientific method selection keep their existing behavior.
+    """
+    from ag._profile_sources import protocol
+    compact = re.sub(r'\s*([=,/])\s*', r'\1', route.lower())
+    compact = re.sub(r'\(\s*', '(', compact)
+    compact = re.sub(r'\s*\)', ')', compact)
+    method = protocol(compact, multiplicity)
+    if not re.fullmatch(
+            r'(?:sto-[36]g|[346]-[23]11?\+{0,2}g(?:\*{1,2}|\([0-9dpf,]+\))?'
+            r'|def2(?:svp|svpd|tzvp|tzvpp|tzvpd|tzvppd|qzvp|qzvpp|qzvpd|qzvppd)'
+            r'|(?:aug-)?cc-pv[dtq]z)', method['basis']):
+        raise ValueError('Unknown basis syntax cannot prove absence of a checkpoint dependency')
+    body = re.sub(r'^#[pnt]?\s*', '', compact)
+    matches = list(re.finditer(r'(?:[^()\s]+|\([^()]*\))+', body))
+    end = 0
+    tokens = []
+    for match in matches:
+        if body[end:match.start()].strip():
+            raise ValueError('Unrecognized Gaussian route syntax')
+        tokens.append(match[0])
+        end = match.end()
+    if body[end:].strip() or sum('/' in token for token in tokens) != 1:
+        raise ValueError('Unrecognized Gaussian route syntax')
+    bare = {'sp', 'opt', 'freq', 'nosymm', 'nosymmetry', '5d', '6d', '7f', '10f'}
+    options = {
+        'opt': {'ts', 'qst2', 'qst3', 'tight', 'verytight', 'calcfc', 'calcall',
+                'noeigentest', 'cartesian', 'modredundant'},
+        'freq': {'noraman', 'raman', 'hpmodes'},
+        'scf': {'tight', 'verytight', 'xqc', 'qc', 'novaracc', 'fermi', 'diis', 'nodiis'},
+        'int': {'ultrafine', 'superfinegrid', 'finegrid', 'sg1grid'},
+        'empiricaldispersion': {'gd2', 'gd3', 'gd3bj'},
+    }
+    numeric = {'opt': r'(?:maxcycles|maxstep)=[1-9][0-9]*',
+               'scf': r'(?:maxcycle|maxcycles|conver)=[1-9][0-9]*'}
+    seen = set()
+    for token in tokens:
+        if '/' in token:
+            continue  # protocol() already requires one recognized method/basis.
+        if token in bare:
+            key = token
+        else:
+            match = re.fullmatch(r'([a-z]+)(?:=([^()]+)|=?\(([^()]+)\))', token)
+            if not match:
+                raise ValueError('Unknown Gaussian option cannot prove checkpoint independence')
+            key = {'integral': 'int', 'em': 'empiricaldispersion'}.get(match[1], match[1])
+            values = (match[2] or match[3]).split(',')
+            if key == 'scrf':
+                # protocol() extracts a comparison label; it is not a complete
+                # lexer and may retain whitespace inside a solvent value.
+                models = {'smd', 'pcm', 'iefpcm', 'cpcm', 'dipole', 'ipcm', 'scipcm'}
+                solvents = {'water', 'methanol', 'ethanol', 'acetone', 'acetonitrile',
+                            'benzene', 'toluene', 'dichloromethane', 'chloroform',
+                            'tetrahydrofuran', 'dimethylsulfoxide', 'diethylether',
+                            'n-hexane', 'cyclohexane'}
+                if (len(values) != 2 or sum(value in models for value in values) != 1
+                        or sum(value in {'solvent=' + s for s in solvents} for value in values) != 1):
+                    raise ValueError('Unrecognized SCRF options')
+            elif key == 'counterpoise' and values == ['2']:
+                pass
+            elif key not in options or any(
+                    value not in options[key] and not re.fullmatch(numeric.get(key, r'(?!)'), value)
+                    for value in values):
+                raise ValueError('Unknown or checkpoint-reading Gaussian option; reroute refused')
+        if key in seen:
+            raise ValueError('Duplicate Gaussian option cannot prove checkpoint independence')
+        seen.add(key)
+
+
+def checkpoint_free_input(path):
+    """Verify the frozen bundle and prove a supported input has no chk reader.
+
+    This is local evidence only. Ownership, routing, never-started, termination,
+    resource changes and submission authorization remain separate checks.
+    """
+    from ag import attempt, crest_input, gaussian_input, render
+    path = Path(path)
+    binding = bound_attempt(path)
+    manifest = disk.decode(read_bytes(path / 'manifest.json'))
+    if 'parent_chk' in manifest or 'input_validation' in manifest:
+        raise ValueError('Parent checkpoint or relaxed/unknown input validation prevents automatic reroute')
+    template = manifest['template']
+    if template not in ('gaussian', 'gaussian-cp', 'xtb', 'crest'):
+        raise ValueError('Template has no supported checkpoint-independence proof')
+    fd = disk.directory(path / 'inputs')
+    try:
+        files = {remote.filename(name): disk.Store(fd).read(name) for name in os.listdir(fd)}
+    finally:
+        os.close(fd)
+    if 'input-validation.json' in files:
+        raise ValueError('Relaxed input sidecar prevents automatic reroute')
+    records, bundle_sha = attempt.bundle(files)
+    if records != manifest['inputs'] or bundle_sha != manifest['bundle_sha256']:
+        raise ValueError('Frozen input bundle hash mismatch')
+    script = 'job.slurm' if binding['scheduler'] == 'slurm' else 'job.pbs'
+    if script not in files:
+        raise ValueError('Missing frozen program script')
+    names = set(files) - {script}
+    params = manifest['template_params']
+    render.parameters(template, params)
+    fragment = manifest['science'].get('counterpoise', {}).get('file') if template == 'gaussian-cp' else None
+    constraint = {'xtb': '--input', 'crest': '--cinp'}.get(template)
+    constrained = constraint and params.get(constraint) == 'constraints.inp'
+    if fragment:
+        names.discard(fragment)
+    if constrained:
+        names.discard('constraints.inp')
+    if len(names) != 1:
+        raise ValueError('Unknown input attachments prevent checkpoint-independence proof')
+    name = next(iter(names))
+    data = files[name]
+    text = data.decode('utf-8')
+    if re.search(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', text):
+        raise ValueError('Control characters prevent strict input interpretation')
+    resource = {key: manifest[key] for key in ('cores', 'mem_gb')}
+    if template in ('gaussian', 'gaussian-cp'):
+        if Path(name).suffix.lower() != '.gjf':
+            raise ValueError('Expected strict Gaussian input')
+        if template == 'gaussian-cp':
+            if fragment != name + '.fragments.csv' or fragment not in files:
+                raise ValueError('Missing or invalid counterpoise fragment binding')
+            _, science = gaussian_input.counterpoise_input(text, files[fragment], **resource, prepared=True)
+            science['counterpoise']['file'] = fragment
+        else:
+            science = gaussian_input.validate(text, **resource, parent_chk=False)
+        _checkpoint_free_route(science['route'], science['multiplicity'])
+        if any(manifest['science'].get(key) != value for key, value in science.items()):
+            raise ValueError('Frozen scientific summary differs from input bytes')
+    else:
+        if Path(name).suffix.lower() != '.xyz':
+            raise ValueError('Expected strict XYZ input')
+        frames = crest_input.xyz_ensemble(text)
+        if len(frames) != 1 and not (template == 'crest' and '--mdopt' in params):
+            raise ValueError('Unexpected XYZ ensemble')
+        for symbols, rows in frames:
+            gaussian_input.cartesian(rows, first_line=3)
+            gaussian_input.check_electrons(symbols, int(params.get('--chrg', 0)),
+                                           int(params.get('--uhf', 0)) + 1, location='XYZ')
+        if constrained:
+            crest_input.validate(files['constraints.inp'].decode('utf-8'), len(frames[0][0]),
+                                 allow_scan=template == 'xtb')
+    if bound_attempt(path) != binding:
+        raise ValueError('Attempt binding changed during input verification')
+    return dict(binding=binding, bundle_sha256=bundle_sha, input_name=name,
+                input_sha256=digest(data), inputs=records, checkpoint_dependency=False,
+                proof='strict_frozen_program_input', reroute_authorized=False)
+
+
 def read_bytes(path):
     fd = disk.directory(path.parent)
     try:

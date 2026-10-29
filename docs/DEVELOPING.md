@@ -24,7 +24,7 @@
 - `submission.py`：一次性提交绑定及确切作业身份交叉校验。
 - `budget.py`：按入口记录本地 ag 核时预估、预留与结算，保留共享入口未观测核数的核对。
 - `cancel.py`：确认后取消记录中的确切作业，取消声明也只能用一次。
-- `autonomy_cancel.py`：核验正式日志快照的确切绑定、来源及连续唤醒审阅；目前不授权或执行自主取消/改投。
+- `autonomy_cancel.py`：核验正式日志快照的绑定与连续唤醒审阅，以及严格冻结输入的无 chk 依赖证明；目前不授权或执行自主取消/改投。
 - `status.py`：PBS/Slurm 观察、程序完成证据及 unknown 只读核对；保留不完整取回所需的 PBS 首次/最近不活跃观察。
 - `fetch.py`：校验输出大小和哈希，以不覆盖方式发布到本地；显式不完整取回及绑定的独占记录。
 - `monitor.py`：只读采样集群，在本地缓存最新快照和历史。
@@ -213,7 +213,17 @@ T187 先接入独立证据部分：`ag snapshot <ID> --run <RUN> --token <TOKEN>
 停滞判断仍由模型/人审阅，结果标为待人确认。
 返回 `no_progress_review_verified: true` 只证明审阅所指的来源和字节，
 `cancellation_authorized` 始终为 false，不能缓存为动作授权。
-T186 一次性自主归属/规则与取消消费、T185 路由、从未运行/终止及 chk 依赖证据尚未接入，
+`autonomy_cancel.checkpoint_free_input(path)` 重新读取完整 inputs bundle，拒绝符号链接、硬链接、
+不明附件、`parent_chk`、放宽/未知 `input_validation` 标记及其 sidecar；核对 manifest/submission
+绑定与每个文件及 bundle 哈希。Gaussian/CP 复用严格输入解析并对照冻结 science、cores/mem；
+XYZ/约束复用现有格式与参数检查。它不按当前配置重渲染旧脚本，不改变原字节。
+Gaussian route 采用有限正向语法：显式受支持方法和内置基组、常用 Opt/Freq/SCF/网格/溶剂等选项；
+所有 Guess、IRC、读取/重启项、未知或不完整语法均拒绝证明。拒绝不表示必有 chk 依赖，
+也不改变 prepare 的支持范围；没有 `parent_chk` 或人工 `no_chk_dependency` 标签不能代替字节核验。
+返回确切输入/bundle 哈希与 `checkpoint_dependency: false` 仅证明这份严格程序输入无 chk 读取路径，
+`reroute_authorized` 始终为 false；新资源、路由、执行资格及新提交仍须独立核验。
+
+T186 一次性自主归属/规则与取消消费、T185 路由、从未运行/终止证据尚未接入，
 没有实际自主取消或改投入口。完整工单与未授权的合并前真实验证矩阵见
 [T187](redesign-tasks/T187-autonomous-cancel-reroute.md)；不得将此证据切片写成该工单全部完成。
 
