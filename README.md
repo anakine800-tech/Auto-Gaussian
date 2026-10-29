@@ -452,7 +452,7 @@ ag 4.7.0 配合已正式发布的前端 [Auto-Gaussian-Frontend v4.7.0](https://
 T157 允许具名 PBS 节点已有本人/他人作业或具名排队时申请合法档位；半数/四分之一仍按注册总 slots 映射。
 T185 的 `prepare --node-fraction 1` 增加整节点，核数等于总 slots、内存为每核 2 GB，必须匹配已配置档位及单作业上限；默认仍为 `1/2`，`1/4` 和旧 bundle 字节不变。
 `ag nodes --json` 的节点和比例选项新增 `selectable` / `selectable_reason`，选项附 T156 `capacity`；occupied 状态保持原意。
-`nodes` 已列出整节点选项；`clusters` 的比例发现字段仍硬编码旧列表，该文件不在 T185 范围内，待协调方决定后续改动，当前不能声称前端已暴露整节点选项。
+`nodes` 已列出整节点选项；`clusters` 按协调补充范围复用 `node_targeting.FRACTIONS`，依次返回 `1/2`、`1/4`、`1`，默认仍为 `1/2`。本单不扩展前端工作，不能据此声称前端已暴露整节点选项。
 总规格合法但当前资源不足可排队，分配内存未知仅作容量提示；精确身份、总规格、状态、一致性及两次提交复查仍必需。
 旧前端可继续保守禁选，T158 已提供可选性展示；不改旧 manifest、脚本或 bundle。现有现场证据覆盖空闲合法选项及节点/作业不能匹配时保持 unknown，不能据此证明占用、排队或 PBS 并行共享正例；可见性根因仍未确定。
 历史字段兼容性核对（前端提交 `e224d5a`）：结果表读取 `route`、`termination`、`energies.scf`、`energies.g`、`n_imag` 和 `frequencies_low`，这些字段未改名或删除；缺失值显示为空。
