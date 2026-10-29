@@ -157,7 +157,7 @@ def register(subparsers):
             p.add_argument('--card', help='Recipe name; capture its text, Skills Git commit and dirty state')
             p.add_argument('--constraints', help='xTB/CREST xcontrol file, bundled as constraints.inp')
             p.add_argument('--target-node', help='Explicit PBS node; no automatic selection')
-            p.add_argument('--node-fraction', choices=('1/2', '1/4'))
+            p.add_argument('--node-fraction', choices=('1/2', '1/4', '1'))
             p.add_argument('--tier', choices=RESOURCE_TIERS,
                            help='Resource tier; omit only when the selected cluster configures resources.default_tier')
             p.add_argument('--walltime', required=True)

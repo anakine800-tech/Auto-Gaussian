@@ -45,18 +45,8 @@ def _snapshot(cfg, name, now):
             raise ValueError('Oversize snapshot')
         data = json.loads(raw)
         stamp = _timestamp(data['sampled_at'])
-        interval = data['interval_seconds']
-        if type(interval) is not int or not 30 <= interval <= 600:
-            raise ValueError('Unknown sampling interval')
-        if (data['schema'] != 'ag-monitor/1' or data['ok'] is not True
-                or data.get('error') or data.get('config_removed')
-                or not 0 <= (now - stamp).total_seconds() <= 3 * interval):
-            raise ValueError('Failed or stale snapshot')
-        if (not isinstance(data['own'], dict) or not isinstance(data['cluster'], dict)
-                or data['cluster'].get('name', name) != name
-                or data['cluster'].get('scheduler', scheduler_kind(select_cluster(cfg, name)))
-                != scheduler_kind(select_cluster(cfg, name))):
-            raise ValueError('Invalid snapshot identity')
+        if not _ladder_snapshot(cfg, name, data, now):
+            raise ValueError('Failed, stale or invalid snapshot')
         return dict(data=data, sampled_at=stamp.isoformat(), fresh=True)
     except (OSError, ValueError, KeyError, TypeError, AttributeError, RecursionError):
         # Never echo raw JSON, errors, node names, account names or paths.
@@ -238,6 +228,432 @@ def suggest(cfg, template, tier, study=None, *, walltime=None, now=None):
                 recommendation=recommendation, message=message, walltime=walltime, notes=[DISCLAIMER])
 
 
+
+def _digest(value):
+    from hashlib import sha256
+    return sha256(json.dumps(value, sort_keys=True, separators=(',', ':'),
+                             ensure_ascii=False, allow_nan=False).encode()).hexdigest()
+
+
+def _ladder_snapshot(cfg, name, data, now):
+    """Validate in-memory evidence with the deployed monitor freshness rules."""
+    try:
+        interval = data['interval_seconds']
+        return (data['schema'] == 'ag-monitor/1' and data['ok'] is True
+                and not data.get('error') and not data.get('config_removed')
+                and type(interval) is int and 30 <= interval <= 600
+                and 0 <= (now - _timestamp(data['sampled_at'])).total_seconds() <= 3 * interval
+                and isinstance(data['own'], dict) and isinstance(data['cluster'], dict)
+                and data['cluster'].get('name', name) == name
+                and data['cluster'].get('scheduler', scheduler_kind(select_cluster(cfg, name)))
+                == scheduler_kind(select_cluster(cfg, name)))
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return False
+
+
+def ladder_config_identity(cfg):
+    """Digest routing inputs, including physical identity; never publish credentials."""
+    from ag.config import cluster_identity
+    entries = {}
+    for name in cfg.get('clusters', {'default': cfg}):
+        entry = select_cluster(cfg, name)
+        entries[name] = dict(resources=entry['resources'],
+                            identity=[str(v) for v in cluster_identity(entry)],
+                            partition=entry.get('partition'),
+                            node_targeting=entry.get('node_targeting'),
+                            capabilities={t: _enabled(entry, t) for t in TEMPLATES})
+    return _digest(dict(routing=cfg.get('routing'), entries=entries))
+
+
+def _placement_records(cfg, placements):
+    """Normalize adapter-verified local records; duplicate reads are not new jobs.
+
+    The adapter must supply ALL active local reservations (including other
+    studies/runs), plus this run's completed placements. No CLI accepts these
+    records from user JSON. Hash strings alone do not verify a submission.
+    """
+    from ag.config import cluster_identity
+    from ag.submission import raw_job, qualified
+    records, attempts = {}, {}
+    for item in placements:
+        entry = select_cluster(cfg, item['cluster'])
+        identity = cluster_identity(entry)
+        identifier(item['attempt_id'])
+        if item.get('run_id') is not None:
+            identifier(item['run_id'])
+            identifier(item['round_id'])
+            identifier(item['object_id'])
+        elif item.get('round_id') is not None:
+            raise ValueError('Round placement requires a wakeup identity')
+        if item.get('target_node') is not None:
+            from ag.node_targeting import allowed
+            allowed(entry, item['target_node'])
+        if (item['state'] not in ('reserved', 'queued', 'running', 'finished')
+                or type(item['cores']) is not int or item['cores'] < 1
+                or type(item['mem_gb']) is not int or item['mem_gb'] < 1):
+            raise ValueError('Invalid or unresolved local placement evidence')
+        job = item['job_id']
+        if job is not None:
+            manifest = dict(cluster=item['cluster'], scheduler=scheduler_kind(entry))
+            job = raw_job(manifest, job if ':' in job else qualified(manifest, job))
+        elif item['state'] != 'reserved':
+            raise ValueError('Submitted placement needs a bound scheduler job')
+        for field in ('manifest_sha256', 'record_sha256'):
+            value = item[field]
+            if not isinstance(value, str) or len(value) != 64 or any(c not in '0123456789abcdef' for c in value):
+                raise ValueError('Missing placement evidence identity')
+        record = dict(item, job_id=job)
+        key = (identity, job if job is not None else ('reservation', item['attempt_id']))
+        attempt_key = (identity, item['attempt_id'])
+        if ((key in records and records[key] != record)
+                or (attempt_key in attempts and attempts[attempt_key] != key)):
+            raise ValueError('Conflicting local placement identities')
+        records[key], attempts[attempt_key] = record, key
+    return list(records.values())
+
+
+def _observed_jobs(cfg, name, data):
+    from ag.submission import raw_job
+    selected = select_cluster(cfg, name)
+    peers = shared_clusters(selected)
+    result = {}
+    jobs = data['own']['jobs']
+    if not isinstance(jobs, list):
+        raise ValueError('Missing complete scheduler job list')
+    for row in jobs:
+        job = row['job_id']
+        prefix = job.split(':')[0] if ':' in job else name
+        if prefix not in peers:
+            raise ValueError('Snapshot job belongs to another physical cluster')
+        key = raw_job(dict(cluster=prefix, scheduler=scheduler_kind(selected)), job)
+        from ag.slurm import ACTIVE, TERMINAL
+        active = {'Q', 'H', 'W', 'T', 'R', 'E', 'S'} if scheduler_kind(selected) == 'pbs' else ACTIVE
+        terminal = {'C'} if scheduler_kind(selected) == 'pbs' else TERMINAL
+        if row.get('state') in terminal:
+            continue
+        if row.get('state') not in active:
+            raise ValueError('Unknown scheduler job state')
+        if key in result:
+            raise ValueError('Duplicate scheduler job identity')
+        if not isinstance(row.get('name'), str):
+            raise ValueError('Missing scheduler job name')
+        result[key] = row
+    return result
+
+
+def _is_running(job):
+    return job.get('state') in ('R', 'E', 'RUNNING', 'COMPLETING')
+
+
+def _ladder_usage(cfg, name, snapshots, placements, now):
+    peers = shared_clusters(select_cluster(cfg, name))
+    choices = []
+    for peer in peers:
+        data = snapshots.get(peer)
+        if _ladder_snapshot(cfg, peer, data, now):
+            own = _own(dict(fresh=True, data=data))
+            if own is not None:
+                choices.append((_timestamp(data['sampled_at']), peer, own))
+    if not choices:
+        raise ValueError('No fresh complete account usage')
+    stamp, source, own = max(choices)
+    observed = _observed_jobs(cfg, source, snapshots[source])
+    # Equal timestamps cannot order contradictory same-account observations.
+    # Reject rather than let an alias with an empty view release reservations.
+    def signature(peer, counts):
+        jobs = _observed_jobs(cfg, peer, snapshots[peer])
+        return counts, {k: {f: row.get(f) for f in ('name', 'state', 'cores', 'queue')}
+                        for k, row in jobs.items()}
+    if any(signature(peer, counts) != signature(source, own)
+           for at, peer, counts in choices if at == stamp):
+        raise ValueError('Conflicting same-time shared account snapshots')
+    active = [p for p in placements if p['cluster'] in peers
+              and (p['state'] != 'finished' or p['job_id'] in observed)]
+    for p in active:
+        row = observed.get(p['job_id'])
+        if row is not None and row['name'] != p['attempt_id']:
+            raise ValueError('Scheduler and local submission identity disagree')
+    unseen = [p for p in active if p['job_id'] not in observed]
+    return dict(source=source, committed=own['cores_in_use'] + sum(p['cores'] for p in unseen),
+                queued=own['cores_queued'] + sum(p['cores'] for p in unseen),
+                active=active, observed=observed)
+
+
+def select_ladder(cfg, snapshots, *, template, job_class, walltime, round_id, run_id, object_id,
+                  placements, wakeups, waiting_since=None, parent_cluster=None,
+                  batch_inputs=None, now=None):
+    """Pure T185/T186 selection kernel; no IO, SSH, preparation or approval.
+
+    Inputs are captured by a trusted local adapter, not model-authored flags:
+    placements bind verified manifests/submission records (or outstanding
+    claims/ledgers); wakeups bind replayed run-start events and object waiting
+    history. batch_inputs maps input digests to complete original selections.
+    T184 does not yet expose those verified inputs, so the CLI fails closed.
+    A selected resource is advice to prepare; T186 must recapture and recompute
+    before submission. This function never certifies its caller's evidence.
+    """
+    from copy import deepcopy
+    from ag.capacity import evaluate_node
+    from ag.config import cluster_identity
+    from ag.node_targeting import admission, resource
+    validate_routing(cfg)
+    if template not in TEMPLATES or job_class not in ('main', 'small'):
+        raise ValueError('Invalid ladder template or job class')
+    if job_class == 'main' and template != 'gaussian':
+        raise ValueError('Only Gaussian main-system jobs use the main ladder')
+    if template in ('crest', 'xtb'):
+        raise ValueError('CREST/xTB retain the existing routing order')
+    identifier(round_id)
+    identifier(run_id)
+    identifier(object_id)
+    walltime_seconds(walltime)
+    if parent_cluster is not None:
+        select_cluster(cfg, parent_cluster)
+    now = now or datetime.now(timezone.utc)
+    config_hash = ladder_config_identity(cfg)
+    records = _placement_records(cfg, placements)
+    batch_inputs = batch_inputs or {}
+    cells = cfg.get('routing', {}).get('ladder')
+    if not cells:
+        raise ValueError('No routing.ladder configured')
+    evidence = dict(config_sha256=config_hash,
+                    snapshots={n: _digest(d) for n, d in snapshots.items() if d is not None},
+                    placements_sha256=_digest(records), wakeups_sha256=_digest(wakeups))
+    request = dict(template=template, job_class=job_class, walltime=walltime, round_id=round_id, run_id=run_id,
+                   object_id=object_id, waiting_since=waiting_since, parent_cluster=parent_cluster)
+    evidence['input_sha256'] = _digest(dict(config_sha256=config_hash, request=request,
+        snapshots=snapshots, placements=records, wakeups=wakeups, selected_at=now.isoformat()))
+    result = dict(schema='ag-routing-ladder/1', round_id=round_id, run_id=run_id, object_id=object_id,
+                  template=template, job_class=job_class, walltime=walltime,
+                  parent_cluster=parent_cluster, evidence=evidence, candidates=[],
+                  recommendation=None, notes=[DISCLAIMER])
+    if any(p.get('round_id') == round_id and p.get('run_id') == run_id
+           and p.get('object_id') == object_id for p in records):
+        result['reason'] = 'object_already_placed_in_run'
+        return result
+    waited = False
+    if waiting_since is not None:
+        since = _timestamp(waiting_since)
+        seen_runs = set()
+        for wake in wakeups:
+            identifier(wake['run_id'])
+            start = _timestamp(wake['started_at'])
+            if wake['run_id'] in seen_runs:
+                raise ValueError('Duplicate wakeup identity')
+            seen_runs.add(wake['run_id'])
+            if wake['round_id'] == round_id and wake['object_id'] == object_id and since < start <= now:
+                waited = True
+    # The scheduler may still show a locally finished job. Retain its exact
+    # active/queue membership until readback disappears; do not release a slot.
+    effective = []
+    for p in records:
+        item = dict(p)
+        try:
+            usage = _ladder_usage(cfg, p['cluster'], snapshots, records, now)
+            observed = usage['observed'].get(p['job_id'])
+            if observed is not None:
+                item['state'] = 'running' if _is_running(observed) else 'queued'
+        except (KeyError, TypeError, ValueError):
+            # Account evidence is rejected at the relevant candidate below.
+            if p['state'] == 'finished':
+                item['state'] = 'reserved'
+        effective.append(item)
+    queued = [p for p in effective if p.get('round_id') == round_id
+              and p['state'] in ('reserved', 'queued')]
+    # Unknown evidence cannot establish that an earlier cell should be skipped.
+    relevant = [c for c in cells if job_class in c['classes']
+                and (parent_cluster is None or c['cluster'] == parent_cluster)
+                and _enabled(select_cluster(cfg, c['cluster']), template)
+                and (template == 'gaussian' or 'node_targeting' not in select_cluster(cfg, c['cluster']))]
+    if any(not _ladder_snapshot(cfg, c['cluster'], snapshots.get(c['cluster']), now)
+           or snapshots[c['cluster']]['cluster'].get('nodes_error') for c in relevant):
+        result['reason'] = 'snapshot_missing_failed_or_stale'
+        return result
+    if any(p.get('round_id') == round_id and p.get('object_id') == object_id
+           and p['state'] != 'finished' for p in effective):
+        result['reason'] = 'object_already_active_in_round'
+        return result
+    rows = result['candidates']
+    for cell_index, cell in enumerate(cells):
+        if job_class not in cell['classes']:
+            continue
+        name = cell['cluster']
+        selected = select_cluster(cfg, name)
+        requested = selected['resources']['tiers'][cell['tier']]
+        cores, memory = requested['cores'], requested['mem_gb']
+        data = snapshots.get(name)
+        time_check, time_note = _walltime(selected['resources'], walltime)
+        base = dict(cell_id=cell['id'], cluster=name, tier=cell['tier'], **requested,
+                    condition=cell['condition'], node_fraction=cell.get('node_fraction'),
+                    target_node=None, capacity_node=None, eligible=False, reasons=[],
+                    cell_index=cell_index, occupied=False, walltime=time_check, notes=[time_note])
+        reasons = base['reasons']
+        if parent_cluster is not None and name != parent_cluster:
+            reasons.append('parent_cluster_binding')
+        if not _enabled(selected, template) or ('node_targeting' in selected and template != 'gaussian'):
+            reasons.append('unsupported_template')
+        if time_check['status'] == 'exceeded':
+            reasons.append('walltime_exceeded')
+        if not _ladder_snapshot(cfg, name, data, now):
+            reasons.append('snapshot_missing_failed_or_stale')
+        if reasons:
+            rows.append(base)
+            continue
+        try:
+            usage = _ladder_usage(cfg, name, snapshots, effective, now)
+            local_jobs = _observed_jobs(cfg, name, data)
+        except (KeyError, TypeError, ValueError):
+            reasons.append('account_or_reservation_evidence_unknown')
+            rows.append(base)
+            continue
+        base['usage_source'] = usage['source']
+        if cores > selected['resources']['max_cores'] or usage['committed'] + cores > committed_cap(selected):
+            reasons.append('account_core_limit')
+        queue_cap = optional_resource_caps(selected).get('max_queued_cores')
+        if queue_cap is not None and usage['queued'] + cores > queue_cap:
+            reasons.append('account_queue_limit')
+        nodes = data['cluster'].get('nodes')
+        if (data['cluster'].get('nodes_error') or not isinstance(nodes, list) or not nodes
+                or any(not isinstance(n, dict) for n in nodes)
+                or any(not isinstance(n.get('name'), str) for n in nodes)
+                or len({n['name'] for n in nodes}) != len(nodes)):
+            reasons.append('node_identity_unknown')
+            rows.append(base)
+            continue
+        ordered = cell.get('nodes', [n['name'] for n in nodes])
+        for node_name in ordered:
+            row = deepcopy(base)
+            row['capacity_node'] = node_name
+            row['target_node'] = node_name if 'node_targeting' in selected else None
+            row['batch_snapshot_sha256'] = _digest(data)
+            row['batch_input_sha256'] = evidence['input_sha256']
+            nodes_here = [n for n in nodes if n['name'] == node_name]
+            if len(nodes_here) != 1:
+                row['reasons'].append('node_missing')
+                rows.append(row)
+                continue
+            original = nodes_here[0]
+            current = deepcopy(original)
+            if 'node_targeting' in selected:
+                try:
+                    if resource(original.get('cores_total'), cell['node_fraction']) != requested:
+                        raise ValueError('Tier does not match fraction')
+                    if not admission(original, cores, memory)['selectable']:
+                        raise ValueError('Node not admissible')
+                except (KeyError, ValueError):
+                    row['reasons'].append('node_fraction_or_total_specs')
+            # A queued/unobserved unbound job may land on any node. Reserve on
+            # each candidate until readback locates/runs it; never sum free nodes.
+            pending = [p for p in usage['active']
+                       if not (_is_running(local_jobs.get(p['job_id'], {}))
+                               or local_jobs.get(p['job_id'], {}).get('state') in ('S', 'SUSPENDED'))
+                       and p.get('target_node') in (None, node_name)]
+            try:
+                current['cores_used'] += sum(p['cores'] for p in pending)
+                if scheduler_kind(selected) == 'pbs':
+                    current['mem_assigned_bytes'] += sum(p['mem_gb'] * 1024**3 for p in pending)
+                else:
+                    current['mem_assigned_gb'] += sum(p['mem_gb'] for p in pending)
+                    current['cores_idle'] -= sum(p['cores'] for p in pending)
+                    if pending and current['state'] == 'idle':
+                        current['state'] = 'mixed'
+            except (KeyError, TypeError):
+                row['reasons'].append('node_allocation_unknown')
+            check = evaluate_node(original if cell['condition'] in ('jobs', 'queue') else current,
+                                  cores, memory, scheduler=scheduler_kind(selected),
+                                  partition=selected.get('partition'))
+            row['capacity'] = check
+            row['occupied'] = bool(original.get('cores_used') or pending)
+            if check['availability'] in ('unknown', 'not_applicable'):
+                row['reasons'].append('node_capacity_unknown_or_inapplicable')
+            members = [p for p in records if p.get('round_id') == round_id and p.get('run_id') == run_id
+                       and p.get('cell_id') == cell['id'] and p.get('capacity_node') == node_name]
+            if cell['condition'] in ('empty', 'free') and len(members) >= cell['max_placements']:
+                row['reasons'].append('batch_placement_limit')
+            condition = cell['condition']
+            if condition in ('empty', 'free'):
+                if check['availability'] != 'enough':
+                    row['reasons'].append('insufficient_current_capacity')
+                others = data['cluster'].get('job_summary', {}).get('others_queued_jobs')
+                if not _count(others) or others:
+                    row['reasons'].append('other_queue_unknown_or_waiting')
+                if condition == 'free' and check.get('cores_available', -1) < cell['min_free_cores']:
+                    row['reasons'].append('free_core_condition')
+                if condition == 'empty':
+                    origin = original
+                    if members:
+                        first = members[0]
+                        digest = first.get('batch_input_sha256')
+                        batch = batch_inputs.get(digest)
+                        try:
+                            # Replaying the same selector also verifies original
+                            # quota, capability, order and local reservations.
+                            # Strictly fewer records makes recursive proofs finite.
+                            if (first['config_sha256'] != config_hash
+                                    or len(batch['placements']) >= len(records)
+                                    or batch['request']['round_id'] != round_id
+                                    or batch['request']['run_id'] != run_id
+                                    or batch['request']['object_id'] != first['object_id']
+                                    or batch['selected_at'] != first['selected_at']
+                                    or _timestamp(first['selected_at']) > now):
+                                raise ValueError('Invalid batch identity')
+                            initial = select_ladder(cfg, batch['snapshots'], **batch['request'],
+                                placements=batch['placements'], wakeups=batch['wakeups'],
+                                batch_inputs=batch_inputs, now=_timestamp(batch['selected_at']))
+                            choice = initial['recommendation']
+                            if (initial['evidence']['input_sha256'] != digest or choice is None
+                                    or choice['cell_id'] != cell['id'] or choice['capacity_node'] != node_name
+                                    or any(p.get('batch_input_sha256') != digest
+                                           or p['cluster'] != name or p['cores'] != cores or p['mem_gb'] != memory
+                                           or p.get('target_node') != row['target_node']
+                                           for p in members)):
+                                raise ValueError('Initial batch did not qualify')
+                            origins = [n for n in batch['snapshots'][name]['cluster']['nodes']
+                                       if n['name'] == node_name]
+                            origin = origins[0]
+                            row['batch_input_sha256'] = digest
+                            row['batch_snapshot_sha256'] = choice['batch_snapshot_sha256']
+                        except (KeyError, TypeError, ValueError, IndexError):
+                            row['reasons'].append('batch_origin_unverified')
+                    if (origin.get('cores_used') != 0 or origin.get('jobs') != 0
+                            or origin.get('targeting_reserved') is True
+                            or (origin.get('mem_assigned_bytes') if scheduler_kind(selected) == 'pbs'
+                                else origin.get('mem_assigned_gb')) != 0):
+                        row['reasons'].append('not_initially_empty')
+                    if not members and pending:
+                        row['reasons'].append('existing_local_reservation')
+            elif condition == 'jobs':
+                if not waited:
+                    row['reasons'].append('no_verified_waiting_wakeup')
+                autonomous = [p for p in usage['active'] if p.get('round_id') == round_id]
+                if len(autonomous) >= cell['max_jobs']:
+                    row['reasons'].append('autonomous_job_limit')
+            elif condition == 'queue':
+                identity = cluster_identity(selected)
+                same = [p for p in queued if cluster_identity(select_cluster(cfg, p['cluster'])) == identity
+                        and (row['target_node'] is None or p.get('target_node') in (None, row['target_node']))]
+                if same:
+                    row['reasons'].append('resource_queue_limit')
+                if len(queued) >= 2:
+                    row['reasons'].append('global_queue_limit')
+            row['eligible'] = not row['reasons']
+            rows.append(row)
+    choices = [row for row in rows if row['eligible']]
+    if job_class == 'small':
+        # Preserve configured entry order while using occupied nodes before
+        # empty nodes, even when their quarter-node tiers differ across cells.
+        entry_order = list(dict.fromkeys(c['cluster'] for c in cells if job_class in c['classes']))
+        choices.sort(key=lambda r: (r['condition'] == 'queue', entry_order.index(r['cluster']),
+                                    not r['occupied'], r['cell_index']))
+    if choices:
+        chosen = deepcopy(choices[0])
+        chosen.update(config_sha256=config_hash, selected_at=now.isoformat(),
+                      needs_queue=chosen['condition'] in ('jobs', 'queue'))
+        result['recommendation'] = chosen
+    result['reason'] = 'selected' if choices else 'no_eligible_cell'
+    return result
+
+
 def format_result(result):
     lines = ['入口（显示名） | 结论 | 原因 | 快照时间']
     for row in result['clusters']:
@@ -272,7 +688,25 @@ def prepare_hint(cfg, manifest):
 
 
 def run(args):
-    result = suggest(load_config(), args.template, args.tier, args.study, walltime=args.walltime)
+    cfg = load_config()
+    if args.job_class:
+        if args.tier is not None or not all((args.study, args.round_id, args.run_id, args.object_id, args.walltime)):
+            raise ValueError('Ladder routing needs --study, --round-id, --run-id, --object-id, --walltime; no --tier')
+        identifier(args.study)
+        identifier(args.round_id)
+        identifier(args.run_id)
+        identifier(args.object_id)
+        walltime_seconds(args.walltime)
+        validate_routing(cfg)
+        # T184 presently exposes intent counts and editable objects, not
+        # verified submissions/waiting wakeups. Do not invent an adapter or
+        # accept user-written evidence JSON to turn those into admission.
+        raise ValueError('Ladder runtime evidence integration pending: verified submissions and waiting wakeups required')
+    if args.round_id or args.run_id or args.object_id:
+        raise ValueError('--round-id/--run-id/--object-id require --job-class')
+    if args.tier is None:
+        raise ValueError('Legacy routing requires --tier')
+    result = suggest(cfg, args.template, args.tier, args.study, walltime=args.walltime)
     print(json.dumps(result, ensure_ascii=False, indent=2) if args.json else format_result(result))
     return 0
 
@@ -280,7 +714,12 @@ def run(args):
 def register(subparsers):
     parser = subparsers.add_parser('route', help='Read local monitor snapshots for routing advice')
     parser.add_argument('--template', choices=TEMPLATES, required=True)
-    parser.add_argument('--tier', choices=TIERS, required=True)
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument('--tier', choices=TIERS)
+    mode.add_argument('--job-class', choices=('main', 'small'))
+    parser.add_argument('--round-id')
+    parser.add_argument('--run-id')
+    parser.add_argument('--object-id')
     parser.add_argument('--walltime', help='Requested positive HH:MM:SS; omitted means unchecked')
     parser.add_argument('--study')
     parser.add_argument('--json', action='store_true')

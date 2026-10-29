@@ -697,3 +697,161 @@ def test_mapped_named_candidate_capacity_and_priority_preserved(targeted_routed)
     assert not result['recommendation']['needs_queue']
     assert [n['name'] for n in entry['node_candidates']['nodes']] == ['node-a', 'node-b']
     assert 'target_node' not in result['recommendation']  # Advice does not select a node.
+
+
+@pytest.fixture
+def ladder_config(cfg):
+    cfg['routing'] = {'gaussian': ['default'], 'ladder': [dict(
+        id='available-default', cluster='default', classes=['main'], tier='general',
+        condition='free', min_free_cores=22, max_placements=1)]}
+    return cfg
+
+
+@pytest.mark.parametrize('condition,extra', [
+    ('empty', {'max_placements': 2}), ('free', {'min_free_cores': 22}),
+    ('jobs', {'max_jobs': 4}), ('queue', {}),
+])
+def test_ladder_config_valid_conditions_are_readonly(ladder_config, condition, extra, monkeypatch):
+    cell = ladder_config['routing']['ladder'][0]
+    del cell['min_free_cores']
+    cell.update(condition=condition, **extra)
+    before = deepcopy(ladder_config)
+    monkeypatch.setattr(subprocess, 'run', lambda *a, **k: pytest.fail('configuration contacted a process'))
+    config.validate_routing(ladder_config)
+    assert ladder_config == before
+
+
+@pytest.mark.parametrize('value', [None, {}, [], 'empty', [None], [[]], [{}]])
+def test_ladder_config_requires_nonempty_cell_list(ladder_config, value):
+    ladder_config['routing']['ladder'] = value
+    with pytest.raises(config.ConfigError):
+        config.validate_routing(ladder_config)
+
+
+@pytest.mark.parametrize('key', ['id', 'cluster', 'classes', 'tier', 'condition', 'max_placements'])
+def test_ladder_config_requires_declared_fields(ladder_config, key):
+    del ladder_config['routing']['ladder'][0][key]
+    with pytest.raises(config.ConfigError):
+        config.validate_routing(ladder_config)
+
+
+@pytest.mark.parametrize('patch', [
+    {'typo': True}, {'id': '../unsafe'}, {'id': []}, {'cluster': 'missing'},
+    {'classes': []}, {'classes': 'main'}, {'classes': ['main', 'main']},
+    {'classes': ['unknown']}, {'classes': [True]}, {'classes': [[]]},
+    {'tier': 'unconfigured'}, {'tier': 'ultra'}, {'tier': []},
+    {'condition': 'typo'}, {'max_placements': 0}, {'max_placements': 3},
+    {'max_placements': True}, {'max_placements': 1.0},
+    {'min_free_cores': 21}, {'min_free_cores': True}, {'min_free_cores': None},
+    {'max_jobs': 4}, {'nodes': ['compute-a']}, {'node_fraction': '1/2'},
+])
+def test_ladder_config_rejects_unsafe_cell_values(ladder_config, patch):
+    ladder_config['routing']['ladder'][0].update(patch)
+    with pytest.raises(config.ConfigError):
+        config.validate_routing(ladder_config)
+
+
+def test_ladder_config_rejects_duplicate_cell_identity(ladder_config):
+    cells = ladder_config['routing']['ladder']
+    cells.append(deepcopy(cells[0]))
+    with pytest.raises(config.ConfigError):
+        config.validate_routing(ladder_config)
+
+
+@pytest.mark.parametrize('condition,extra', [
+    ('empty', {'min_free_cores': 22}), ('queue', {'min_free_cores': 22}),
+    ('jobs', {}), ('jobs', {'max_jobs': 0}), ('jobs', {'max_jobs': True}),
+    ('jobs', {'max_jobs': 4, 'max_placements': 2}),
+    ('jobs', {'max_jobs': 4, 'nodes': ['compute-a']}),
+    ('jobs', {'max_jobs': 4, 'node_fraction': '1/2'}),
+    ('queue', {'max_placements': 2}), ('queue', {'max_jobs': 4}),
+])
+def test_ladder_config_condition_fields_cannot_weaken_caps(ladder_config, condition, extra):
+    cell = ladder_config['routing']['ladder'][0]
+    del cell['min_free_cores']
+    cell.update(condition=condition, **extra)
+    with pytest.raises(config.ConfigError):
+        config.validate_routing(ladder_config)
+
+
+@pytest.mark.parametrize('field,value', [
+    ('cores', 45), ('cores', 0), ('cores', True), ('cores', 22.0),
+    ('mem_gb', 0), ('mem_gb', True), ('mem_gb', None),
+])
+def test_ladder_config_rejects_invalid_tier_resources(ladder_config, field, value):
+    ladder_config['resources']['tiers']['general'][field] = value
+    with pytest.raises(config.ConfigError):
+        config.validate_routing(ladder_config)
+
+
+@pytest.fixture
+def targeting_ladder_config(ladder_config):
+    ladder_config['node_targeting'] = dict(
+        allowed_nodes=['compute-a', 'compute-b'], denied_nodes=[], restricted_nodes=[],
+        priority=[['compute-a', 'compute-b']])
+    cell = ladder_config['routing']['ladder'][0]
+    cell.update(nodes=['compute-b', 'compute-a'], node_fraction='1/2')
+    return ladder_config
+
+
+@pytest.mark.parametrize('fraction', ['1/2', '1/4', '1'])
+def test_ladder_config_accepts_target_fraction_and_preserves_order(targeting_ladder_config, fraction):
+    cell = targeting_ladder_config['routing']['ladder'][0]
+    cell['node_fraction'] = fraction
+    before = deepcopy(targeting_ladder_config)
+    config.validate_routing(targeting_ladder_config)
+    assert targeting_ladder_config == before
+
+
+@pytest.mark.parametrize('kind', ['missing-nodes', 'empty-nodes', 'duplicate-nodes',
+    'unknown-node', 'invalid-node', 'missing-fraction', 'invalid-fraction', 'denied', 'restricted'])
+def test_ladder_config_does_not_bypass_target_policy(targeting_ladder_config, kind):
+    cell = targeting_ladder_config['routing']['ladder'][0]
+    policy = targeting_ladder_config['node_targeting']
+    if kind == 'missing-nodes':
+        del cell['nodes']
+    elif kind == 'empty-nodes':
+        cell['nodes'] = []
+    elif kind == 'duplicate-nodes':
+        cell['nodes'] = ['compute-a', 'compute-a']
+    elif kind == 'unknown-node':
+        cell['nodes'] = ['compute-c']
+    elif kind == 'invalid-node':
+        cell['nodes'] = [True]
+    elif kind == 'missing-fraction':
+        del cell['node_fraction']
+    elif kind == 'invalid-fraction':
+        cell['node_fraction'] = '1/3'
+    else:
+        policy['denied_nodes' if kind == 'denied' else 'restricted_nodes'] = ['compute-a']
+    with pytest.raises(config.ConfigError):
+        config.validate_routing(targeting_ladder_config)
+
+
+@pytest.mark.parametrize('layout', ['legacy', 'named', 'mixed'])
+def test_ladder_load_config_before_cluster_normalization(cfg, layout):
+    if layout == 'named':
+        selected = {k: deepcopy(v) for k, v in cfg.items() if k not in ('local', '_config_dir')}
+        cfg = dict(local=cfg['local'], _config_dir=cfg['_config_dir'], clusters={'default': selected})
+    elif layout == 'mixed':
+        selected = {k: deepcopy(v) for k, v in cfg.items() if k not in ('local', '_config_dir')}
+        cfg['clusters'] = {'secondary': selected}
+    # The existing writer has no TOML array-of-tables support. Append the actual
+    # syntax a user would configure, so this exercises the loader as well.
+    path = write_config(cfg)
+    with path.open('a') as handle:
+        handle.write('\n[[routing.ladder]]\nid="single-node-fit"\ncluster="default"\n'
+                     'classes=["main", "small"]\ntier="general"\ncondition="free"\n'
+                     'min_free_cores=22\nmax_placements=1\n')
+    loaded = config.load_config(path)
+    assert loaded['routing']['ladder'][0]['cluster'] == 'default'
+    assert config.select_cluster(loaded, 'default')['resources']['tiers']['general']['cores'] == 22
+
+
+def test_optional_ladder_does_not_change_legacy_route_or_study_orders(routed):
+    routed['routing']['studies'] = {'water': {'gaussian': ['newhpc', 'default']}}
+    before = suggest(routed, study='water')
+    routed['routing']['ladder'] = [dict(id='synthetic-cell', cluster='default',
+        classes=['main'], tier='simple', condition='empty', max_placements=2)]
+    config.validate_routing(routed)
+    assert suggest(routed, study='water') == before

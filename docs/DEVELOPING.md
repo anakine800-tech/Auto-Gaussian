@@ -27,6 +27,8 @@
 - `status.py`：PBS/Slurm 观察、程序完成证据及 unknown 只读核对；保留不完整取回所需的 PBS 首次/最近不活跃观察。
 - `fetch.py`：校验输出大小和哈希，以不覆盖方式发布到本地；显式不完整取回及绑定的独占记录。
 - `monitor.py`：只读采样集群，在本地缓存最新快照和历史。
+- `route.py`：原有档位建议与 T185 纯函数 `select_ladder`；可信运行记录适配及 T186 提交核验待集成。
+- `capacity.py` / `node_targeting.py`：同节点精确容量判断与 PBS 具名资源切分、绑定及准入。
 - `doctor.py`：只读检查连接、调度器、目录和程序环境。
 - `remote.py`：全部固定远程命令、参数白名单及路径检查；独立的 incomplete_output_observation 在可进入的父目录内区分缺失与无法核实，复用 output_observation 只读操作类别。
 - `transport.py`：SSH/scp、只读传输重试、脱敏及可注入的 Transport 接口。
@@ -58,11 +60,22 @@
 prepare 先选择入口，再用 `config.resolve_tier` 解析显式档位或该入口的可选 `resources.default_tier`，之后才做节点映射、资源检查和编号/目录分配。
 省略档位且入口无默认值时明确报错；配置默认值必须是该入口已配置且合法的档位，不跨入口继承。
 全部允许模板共用此入口；manifest 仍只保存实际 tier/cores/mem，verified_files 不调用默认解析，不为旧记录补字段。
-clusters 的资源白名单仅在已配置时发布 default_tier；route 仍要求显式档位。
+clusters 的资源白名单仅在已配置时发布 default_tier；route 的原建议模式仍要求显式档位。
 Gaussian prepare 在档位与 walltime 检查后依次补缺失的 `%nprocshared`、`%mem`，并在分配序号/目录前完成输入校验。
 核数只取所选入口的最终档位，显式输入值不修正；内存仍按 R1 和 85% 上限处理。普通完整输入字节不变，CP 沿用原片段转换。
 仅实际补齐时新增可选 `auto_nprocshared` 整数或 `auto_mem_gb`，摘要注明来源；二者都不是提交授权。
 输入和 bundle 哈希绑定最终保存字节，源文件不变；verified_files 只核验，不补齐、不重写旧 manifest 或哈希，缺少可选说明的旧记录照常读取。
+
+T185 的 `node_targeting.FRACTIONS` 末尾追加 `'1'`，整节点仍走既有档位、max_cores、精确总内存与两次准入核验，
+不改变半/四分之一脚本字节或共享节点排队行为。`clusters.py` 的比例元数据尚未扩展，该文件不在本工单范围内。
+`route.select_ladder` 与 `ladder_config_identity` 供后续 prepare/提交适配共用；不得为 T186 另写一套阶梯顺序。
+函数只处理传入数据，要求独立的 `round_id`（整个自主轮次）和 `run_id`（一次唤醒运行），输出 `ag-routing-ladder/1` 的两项身份、候选、原因、推荐及配置/快照/占用/唤醒证据哈希。
+可信适配须核对全部活跃本地预留及真实提交绑定、运行事件和首次选格完整输入；T184 的意向计数不能当实际占用。
+适配尚未完成时，`route --job-class main|small` 带 study/round/run/object/walltime 返回阻塞，不退回旧建议冒充已通过。
+末级作业数及兜底排队限额按 `round_id` 收集跨运行的活跃记录；新的唤醒租约或 `run_id` 不重置本轮额度。批次放置数则限定同一 round/run。
+`batch_inputs` 保存首次选格的完整输入，用同一算法重放全部条件，不能仅凭原始空闲快照证明批次合格。
+两份半节点位置在重放验证后，再以当前单节点剩余容量核对，避免首份读回导致第二份被误跳过，或外来占用后仍误放行。
+条件、能力过滤与真实验证缺口见 [CLI 说明](../ag/README.md#提交阶梯与整节点t185)；本单没有提交授权接线或现场验证证据。
 
 ## 自主运行的实现边界
 

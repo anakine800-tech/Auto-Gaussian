@@ -7,7 +7,8 @@ from ag import capacity, pbs, remote
 from ag.config import RESOURCE_TIERS, scheduler_kind, select_cluster
 from ag.transport import require_ok
 
-FRACTIONS = ('1/2', '1/4')
+# Append the whole node without changing existing option order or the default.
+FRACTIONS = ('1/2', '1/4', '1')
 
 
 def node_name(value):
