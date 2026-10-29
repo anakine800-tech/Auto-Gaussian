@@ -411,21 +411,41 @@ def _diagnose(source, files):
     if converted['status'] == 'available':
         # Companion g98 frequencies are independent printed evidence; its
         # mass-weighted/two-decimal vectors are deliberately never consumed.
-        printed = []
+        printed, frequency_blocks, empty_blocks = [], 0, 0
         for line in content('geometry').splitlines():
             if 'Frequencies --' in line:
+                frequency_blocks += 1
                 fields = line.split('Frequencies --', 1)[1].split()
-                if not fields or any(not re.fullmatch(r'-?\d+\.\d{4}', f) for f in fields):
+                empty_blocks += not fields
+                if any(not re.fullmatch(r'-?\d+\.\d{4}', f) for f in fields):
                     raise ValueError('Invalid xTB g98 printed frequencies')
                 printed.extend(float(f) for f in fields)
         delta = converted['external']['eigenvalue_error_bound']
         values = [converted['full_eigenvalues'][i-1] for i in converted['internal_indices']]
         def signed_frequency(value):
             return math.copysign(FREQUENCY_FACTOR * math.sqrt(abs(value)), value)
-        intervals = [(signed_frequency(v-delta)-.00005, signed_frequency(v+delta)+.00005)
+        intervals = [(signed_frequency(v-delta), signed_frequency(v+delta))
                      for v in values]
-        if len(printed) != len(values) or any(not low <= f <= high
-                                              for f, (low, high) in zip(sorted(printed), intervals)):
+        # g98fake2 prints only abs(f)>0.1, before F11.4 rounding. A
+        # serialization interval crossing that boundary may either be absent
+        # or contribute one printed frequency. Match an ordered visible subset
+        # without greedily consuming a value needed by a mandatory later mode.
+        # This filters companion evidence only: every internal mode is retained.
+        printed.sort()
+        positions = {0}
+        for low, high in intervals:
+            can_hide = low <= .1 and high >= -.1
+            following = set()
+            for j in positions:
+                if can_hide:
+                    following.add(j)
+                if j < len(printed):
+                    left, right = max(low, printed[j]-.00005), min(high, printed[j]+.00005)
+                    if left <= right and (left < -.1 or right > .1):
+                        following.add(j+1)
+            positions = following
+        if (not frequency_blocks or (empty_blocks and (printed or frequency_blocks != 1)) or
+                len(printed) not in positions):
             raise ValueError('Companion g98 spectrum contradicts Hessian/masses/scale')
     return dict(schema=ANALYSIS, program=dict(program, package=BUILD, patches=PATCHES),
                 elements=elements, coordinates=coordinates.tolist(),

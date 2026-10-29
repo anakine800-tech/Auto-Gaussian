@@ -46,14 +46,21 @@ def geometry_bytes(xyz=XYZ, elements=ELEMENTS):
     return ('\n'.join(rows) + '\n').encode()
 
 
+def g98_frequency_bytes(frequencies):
+    """Emulate g98fake2's strict pre-print filter and blocks of three."""
+    visible = [f for f in frequencies if abs(f) > .1]
+    return ''.join(' Frequencies --' + ''.join(f'{f:15.4f}' for f in visible[i:i+3]) + '\n'
+                   for i in range(0, max(1, len(visible)), 3)).encode()
+
+
 def source_package(parent, *, eigenvalues=(-.04, .09, .16), xyz=XYZ, elements=ELEMENTS):
     parent.mkdir()
     masses = np.array([x.MASSES[x.ATOMIC_NUMBERS[s]-1] for s in elements])
     matrix, _ = synthetic_matrix(xyz, masses, eigenvalues)
     command = 'xtb input.xyz --gfn 2 --hess'
-    data = {'hessian': hessian_bytes(matrix), 'geometry': geometry_bytes(xyz, elements) + (
-                ' Frequencies --' + ''.join(f'{np.sign(v)*x.FREQUENCY_FACTOR*np.sqrt(abs(v)):15.4f}'
-                                            for v in eigenvalues) + '\n').encode(),
+    frequencies = [np.sign(v)*x.FREQUENCY_FACTOR*np.sqrt(abs(v)) for v in eigenvalues]
+    data = {'hessian': hessian_bytes(matrix), 'geometry': geometry_bytes(xyz, elements) +
+            g98_frequency_bytes(frequencies),
             'input': (f'{len(elements)}\nSynthetic input, not a frequency frame\n' +
                       ''.join(s + ' ' + ' '.join(map(str, row)) + '\n' for s, row in zip(elements, xyz))).encode(),
             'stdout': ('* xtb version 6.7.1 (edcfbbe) synthetic text, no run\n'
@@ -489,3 +496,95 @@ def test_input_geometry_order_contradiction_is_not_hidden_by_valid_hessian(tmp_p
     revise(path, source, {'input': b'3\nSynthetic wrong input order\nH 1 0 0\nO 0 0 0\nH 0 1 0\n'})
     with pytest.raises(ValueError, match='order contradiction'):
         x.import_hessian(root, path, 'analyses/example')
+
+
+def eigenvalues_for_frequencies(frequencies):
+    return [np.sign(f)*(f/x.FREQUENCY_FACTOR)**2 for f in frequencies]
+
+
+@pytest.mark.parametrize('soft', [-.08, -.09, .08, .09])
+def test_real_writer_filter_keeps_omitted_soft_internal_mode(tmp_path, soft):
+    root = study_tree(tmp_path)
+    path, _, data = source_package(tmp_path / 'source', elements=['C']*3,
+                                   eigenvalues=eigenvalues_for_frequencies([soft, 1542.1461, 2056.1949]))
+    printed = data['geometry'].split(b' Frequencies --')[1].split()
+    assert len(printed) == 2  # Actual upstream writer omits this soft mode.
+    result = x.import_hessian(root, path, 'analyses/soft-mode')
+    frequency = x.read_analysis(root, 'analyses/soft-mode/analysis.json')
+    assert result['status'] == 'available' and len(result['external_indices']) == 6
+    assert len(result['internal_indices']) == len(frequency['frequencies']) == 3
+    assert len(result['full_frequencies_cm1']) == 9
+    assert frequency['frequencies'][0] == pytest.approx(soft, abs=.002)
+    assert np.sign(frequency['frequencies'][0]) == np.sign(soft)
+
+
+@pytest.mark.parametrize('sign', [-1, 1])
+@pytest.mark.parametrize('magnitude', [.09995, .1, .10005])
+def test_real_writer_filter_before_rounding_at_threshold(tmp_path, sign, magnitude):
+    root = study_tree(tmp_path)
+    soft = sign*magnitude
+    path, _, data = source_package(tmp_path / 'source', elements=['C']*3,
+                                   eigenvalues=eigenvalues_for_frequencies([soft, 1542.1461, 2056.1949]))
+    printed = data['geometry'].split(b' Frequencies --')[1].split()
+    assert len(printed) == (3 if magnitude > .1 else 2)
+    result = x.import_hessian(root, path, 'analyses/boundary')
+    assert result['status'] == 'available' and len(result['internal_indices']) == 3
+    frequency = x.read_analysis(root, 'analyses/boundary/analysis.json')
+    assert np.sign(frequency['frequencies'][0]) == sign
+    assert abs(frequency['frequencies'][0]) == pytest.approx(magnitude, abs=.002)
+
+
+@pytest.mark.parametrize('sign', [-1, 1])
+@pytest.mark.parametrize('shown', [False, True])
+def test_threshold_uncertainty_allows_either_evidence_without_deleting_mode(tmp_path, sign, shown):
+    root = study_tree(tmp_path)
+    path, source, _ = source_package(tmp_path / 'source', elements=['C']*3,
+                                    eigenvalues=eigenvalues_for_frequencies([sign*.1, 1542.1461, 2056.1949]))
+    # The same rounded Hessian admits pre-serialization frequencies on either
+    # side of the strict cutoff. A visible value can round to exactly +/-0.1000.
+    values = ([sign*.10001] if shown else []) + [1542.1461, 2056.1949]
+    revise(path, source, {'geometry': geometry_bytes(elements=['C']*3) + g98_frequency_bytes(values)})
+    result = x.import_hessian(root, path, 'analyses/uncertain')
+    soft_lambda = result['full_eigenvalues'][result['internal_indices'][0]-1]
+    delta = result['external']['eigenvalue_error_bound']
+    threshold_lambda = sign*(.1/x.FREQUENCY_FACTOR)**2
+    assert soft_lambda-delta < threshold_lambda < soft_lambda+delta
+    assert len(result['internal_indices']) == 3
+    frequency = x.read_analysis(root, 'analyses/uncertain/analysis.json')
+    assert len(frequency['frequencies']) == 3
+    assert np.sign(frequency['frequencies'][0]) == sign
+
+
+@pytest.mark.parametrize('sign', [-1, 1])
+def test_all_hidden_modes_allow_writer_empty_frequency_block(tmp_path, sign):
+    root = study_tree(tmp_path)
+    path, _, data = source_package(tmp_path / 'source', elements=['C']*3,
+                                   eigenvalues=eigenvalues_for_frequencies([sign*.08, sign*.085, sign*.09]))
+    assert data['geometry'].endswith(b' Frequencies --\n')
+    result = x.import_hessian(root, path, 'analyses/all-hidden')
+    frequency = x.read_analysis(root, 'analyses/all-hidden/analysis.json')
+    assert result['status'] == 'available' and len(frequency['frequencies']) == 3
+    assert all(np.sign(f) == sign for f in frequency['frequencies'])
+
+
+@pytest.mark.parametrize('kind', ['missing-visible', 'missing-block', 'contradictory',
+                                   'duplicate', 'printed-below-cutoff', 'negative-printed-below-cutoff', 'empty-extra-block'])
+def test_filtered_companion_still_rejects_missing_or_impossible_visible_values(tmp_path, kind):
+    root = study_tree(tmp_path)
+    soft = .2 if kind == 'missing-visible' else .1
+    path, source, _ = source_package(tmp_path / 'source', elements=['C']*3,
+                                    eigenvalues=eigenvalues_for_frequencies([soft, 1542.1461, 2056.1949]))
+    suffix = {
+        'missing-visible': g98_frequency_bytes([1542.1461, 2056.1949]),
+        'missing-block': b'',
+        'empty-extra-block': g98_frequency_bytes([1542.1461, 2056.1949]) + b' Frequencies --\n',
+        'contradictory': g98_frequency_bytes([1542.1461, 3056.1949]),
+        'duplicate': g98_frequency_bytes([1542.1461, 1542.1461, 2056.1949]),
+        # These cannot result from a true |f|>0.1 value at F11.4 precision.
+        'printed-below-cutoff': b' Frequencies --         0.0999      1542.1461      2056.1949\n',
+        'negative-printed-below-cutoff': b' Frequencies --        -0.0999      1542.1461      2056.1949\n',
+    }[kind]
+    revise(path, source, {'geometry': geometry_bytes(elements=['C']*3) + suffix})
+    with pytest.raises(ValueError, match='spectrum contradicts'):
+        x.import_hessian(root, path, 'analyses/invalid-visible')
+    assert not (root / 'analyses/invalid-visible/analysis.json').exists()
