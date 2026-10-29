@@ -1,0 +1,78 @@
+{
+  "kind": "sanitized real nonresearch water execution; not synthetic",
+  "date": "2026-10-29",
+  "format_review": "Independent OPS02 source/format/numerical review, 2026-10-29; private originals retained",
+  "scope": "conda-forge osx-64 xtb 6.7.1 gfortran_h7141999_5; ordinary GFN2 gas-phase nonlinear water; no new execution",
+  "files": {
+    "hessian": {
+      "original_sha256": "b114fb5b84edd3dbd5dc90d672690230faa08ee95e79e7fed07eb08bac0052ff",
+      "fixture_sha256": "b114fb5b84edd3dbd5dc90d672690230faa08ee95e79e7fed07eb08bac0052ff",
+      "original_bytes": 1404,
+      "fixture_bytes": 1404,
+      "transformation": "none; original bytes retained"
+    },
+    "g98.out": {
+      "original_sha256": "4c5a6f52a28133387009dd54221bd057e6eea6cd319bf70984d7fdd0d252b915",
+      "fixture_sha256": "4c5a6f52a28133387009dd54221bd057e6eea6cd319bf70984d7fdd0d252b915",
+      "original_bytes": 1981,
+      "fixture_bytes": 1981,
+      "transformation": "none; original bytes retained"
+    },
+    "water.xyz": {
+      "original_sha256": "477201ca40d01bb7de452564d59d4818ac5e8308bd50b6572c8d6a2467513cfc",
+      "fixture_sha256": "477201ca40d01bb7de452564d59d4818ac5e8308bd50b6572c8d6a2467513cfc",
+      "original_bytes": 240,
+      "fixture_bytes": 240,
+      "transformation": "none; original bytes retained"
+    },
+    "xtbopt.xyz": {
+      "original_sha256": "6c0cd70addca93aa963ee69bfcc8cb033a34b6f41e4133506e9a837a360b17ee",
+      "fixture_sha256": "6c0cd70addca93aa963ee69bfcc8cb033a34b6f41e4133506e9a837a360b17ee",
+      "original_bytes": 304,
+      "fixture_bytes": 304,
+      "transformation": "none; original bytes retained"
+    },
+    "vibspectrum": {
+      "original_sha256": "2e188cec3adfb4b50e203fdaebfc347abcdcf2393420bc079a1a699e075d5ca0",
+      "fixture_sha256": "2e188cec3adfb4b50e203fdaebfc347abcdcf2393420bc079a1a699e075d5ca0",
+      "original_bytes": 725,
+      "fixture_bytes": 725,
+      "transformation": "none; original bytes retained"
+    },
+    "stderr.txt": {
+      "original_sha256": "db41edc1c74dad5a3527d5c6e4a48bfce3c2cabc0f0ad20acb5e420ad2a68ea9",
+      "fixture_sha256": "db41edc1c74dad5a3527d5c6e4a48bfce3c2cabc0f0ad20acb5e420ad2a68ea9",
+      "original_bytes": 26,
+      "fixture_bytes": 26,
+      "transformation": "none; original bytes retained"
+    },
+    "stdout.txt": {
+      "original_sha256": "83620092459cdecbba817f5d14bae5cc0e4346a13a5ce8947ae7d773e6461bd9",
+      "fixture_sha256": "afc2fa34024a7577335cbfcdd381023405c13a8d775c85cfeb7635a9e7c8d11b",
+      "original_bytes": 28636,
+      "fixture_bytes": 28487,
+      "transformation": "Only compiled-by identity and program-call executable path replaced; version/build and all numeric/termination text retained"
+    },
+    "execution.json": {
+      "original_sha256": "517950e14f5ff103171bd6eebcd17a01079e0f83bac3baaed0e1bb5ffdd5f307",
+      "fixture_sha256": "f229e210f9bf2bbc9a29eeae8206c01b7a5698e5f258749a27ed7ca53430eb03",
+      "original_bytes": 1030,
+      "fixture_bytes": 661,
+      "transformation": "Absolute local paths replaced; JSON reserialized; execution argv executable normalized to xtb where applicable"
+    },
+    "package-record.json": {
+      "original_sha256": "61b8aaf772c997fc41bdd79c439d59fcc6cdf8e8d6dbde6b8a6a2143f371d8b3",
+      "fixture_sha256": "bb5e7cdb702d9391fc2acbc596261d2fb147740650843d4dfb491b5d658ae16d",
+      "original_bytes": 7357,
+      "fixture_bytes": 6767,
+      "transformation": "Absolute local paths replaced; JSON reserialized; execution argv executable normalized to xtb where applicable"
+    },
+    "result.json": {
+      "original_sha256": "bbff12d4cada3bd3c90ed78dcb7dd92cbac935b1f715158721a28170bfc01ebb",
+      "fixture_sha256": "9808b69d1a61029b2d641fe1047cea027925029876904db4fde8e6fbbb0e6568",
+      "original_bytes": 4443,
+      "fixture_bytes": 3955,
+      "transformation": "Absolute paths/argv executable redacted, copied-file hashes and sizes rebound to fixture bytes, JSON reserialized"
+    }
+  }
+}

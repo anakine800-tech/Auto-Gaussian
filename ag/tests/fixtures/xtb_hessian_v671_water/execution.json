@@ -1,0 +1,33 @@
+{
+  "argv": [
+    "xtb",
+    "water.xyz",
+    "--gfn",
+    "2",
+    "--ohess",
+    "tight",
+    "--chrg",
+    "0",
+    "--uhf",
+    "0",
+    "--parallel",
+    "1",
+    "--norestart"
+  ],
+  "environment": {
+    "PATH": "<redacted-local-path>",
+    "HOME": "<redacted-local-path>",
+    "LC_ALL": "C",
+    "LANG": "C",
+    "TZ": "UTC",
+    "TMPDIR": "<redacted-local-path>",
+    "XTBPATH": "<redacted-local-path>",
+    "XTBHOME": "<redacted-local-path>",
+    "OMP_NUM_THREADS": "1",
+    "OMP_THREAD_LIMIT": "1",
+    "OMP_DYNAMIC": "FALSE",
+    "OMP_MAX_ACTIVE_LEVELS": "1",
+    "OPENBLAS_NUM_THREADS": "1"
+  },
+  "started_at": "2026-10-29T02:43:57.766457+00:00"
+}

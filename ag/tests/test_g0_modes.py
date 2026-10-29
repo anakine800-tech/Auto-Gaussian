@@ -450,3 +450,33 @@ def test_frequency_reader_resolves_configured_study_name(fetched, monkeypatch):
     root, path = fetched
     monkeypatch.setattr(gm.catalog, 'load_config', lambda **kw: {'local': {'studies_root': str(root.parent)}})
     assert gm.read_frequency_attempt(root.name, path.name)['attempt'] == path.name
+
+
+def test_xtb_cartesian_modes_keep_source_frame_and_nonself_inverse_mapping():
+    from ag import xtb_hessian as x
+    from test_xtb_hessian import XYZ as source_xyz, MASS, synthetic_matrix
+    h, _ = synthetic_matrix()
+    converted = x.convert(h, source_xyz, MASS, 1)
+    indices = np.array(converted['internal_indices']) - 1
+    q = np.asarray(converted['full_displacements'])[indices]
+    frequencies = np.asarray(converted['full_frequencies_cm1'])[indices]
+    permutation = [2, 3, 1]
+    mapping = dict(status='declared_verified', candidate_to_target=permutation)
+    def diagnose(xyz, vectors):
+        source = dict(elements=['O', 'H', 'H'], coordinates=xyz, frequencies=frequencies,
+                      displacements=vectors, analysis='analyses/example/analysis.json',
+                      stationarity='unknown', orientation='source frame', geometry_sha256='a'*64,
+                      source=dict(sha256='b'*64), warnings=['synthetic'], convention=x.CONVENTION,
+                      spectrum_indices=converted['internal_indices'])
+        return gm.analyze_candidate(['H', 'H', 'O'], xyz[[1, 2, 0]], source,
+                                    [dict(kind='distance', atoms=[1, 3], role='breaking')],
+                                    correspondence=mapping)
+    original = diagnose(source_xyz, q)
+    rot, _ = np.linalg.qr(np.random.default_rng(176).normal(size=(3, 3)))
+    rotated = diagnose(source_xyz @ rot + [5, -3, 7], q @ rot)
+    assert original['frequency_coordinates_spec'][0]['atoms'] == [2, 1]
+    for left, right in zip(original['modes'], rotated['modes']):
+        assert left['delta'][0]['value'] == pytest.approx(right['delta'][0]['value'], abs=1e-12)
+        assert left['overlap'] == pytest.approx(right['overlap'], abs=1e-12)
+    assert original['atom_correspondence']['candidate_to_target'] == [2, 3, 1]
+    assert 'attempt' not in original

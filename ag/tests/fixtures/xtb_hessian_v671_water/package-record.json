@@ -1,0 +1,177 @@
+{
+  "name": "xtb",
+  "version": "6.7.1",
+  "build": "gfortran_h7141999_5",
+  "build_number": 5,
+  "channel": "https://conda.anaconda.org/conda-forge/osx-64",
+  "subdir": "osx-64",
+  "fn": "xtb-6.7.1-gfortran_h7141999_5.conda",
+  "md5": "07b37af9562f17d87264d51653cee548",
+  "url": "https://conda.anaconda.org/conda-forge/osx-64/xtb-6.7.1-gfortran_h7141999_5.conda",
+  "sha256": "2945f0ffa63ad5369ac7e32449c9e195b4204c9a2f57557a174f187d1f4ad2fa",
+  "depends": [
+    "__osx >=11.0",
+    "cpcm-x >=1.1.0,<1.2.0a0 gfortran_*",
+    "dftd4 >=4.2.0,<4.3.0a0 gfortran_*",
+    "libblas >=3.9.0,<4.0a0",
+    "libgfortran",
+    "libgfortran5 >=14.3.0",
+    "liblapack >=3.9.0,<4.0a0",
+    "llvm-openmp >=19.1.7",
+    "mctc-lib >=0.5.1,<0.6.0a0 gfortran_*",
+    "multicharge >=0.5.0,<0.6.0a0 gfortran_*",
+    "tblite >=0.6.0,<0.7.0a0 gfortran_*"
+  ],
+  "constrains": [],
+  "license": "LGPL-3.0-or-later",
+  "timestamp": 1781083260445,
+  "size": 2357297,
+  "requested_spec": "xtb=6.7.1",
+  "package_tarball_full_path": "<redacted-local-path>",
+  "extracted_package_dir": "<redacted-local-path>",
+  "files": [
+    "bin/xtb",
+    "include/xtb.h",
+    "lib/libxtb.6.dylib",
+    "lib/libxtb.dylib",
+    "lib/pkgconfig/xtb.pc",
+    "share/man/man1/xtb.1",
+    "share/man/man7/xcontrol.7",
+    "share/modules/modulefiles/xtb/6.7.1",
+    "share/xtb/.param_gfnff.xtb",
+    "share/xtb/config_env.bash",
+    "share/xtb/config_env.csh",
+    "share/xtb/param_gfn0-xtb.txt",
+    "share/xtb/param_gfn1-si-xtb.txt",
+    "share/xtb/param_gfn1-xtb.txt",
+    "share/xtb/param_gfn2-xtb.txt",
+    "share/xtb/param_ipea-xtb.txt"
+  ],
+  "paths_data": {
+    "paths_version": 1,
+    "paths": [
+      {
+        "_path": "bin/xtb",
+        "path_type": "hardlink",
+        "sha256": "3b3e68610e853876c04acf4ec964fac966c7e35099cfe60c60364bda22d43848",
+        "size_in_bytes": 216440,
+        "sha256_in_prefix": "3b3e68610e853876c04acf4ec964fac966c7e35099cfe60c60364bda22d43848"
+      },
+      {
+        "_path": "include/xtb.h",
+        "path_type": "hardlink",
+        "sha256": "f6faa3cf2f447a3b1021e271afd964fa7c5dac8475c66f00f09d28c65096ba11",
+        "size_in_bytes": 11940,
+        "sha256_in_prefix": "f6faa3cf2f447a3b1021e271afd964fa7c5dac8475c66f00f09d28c65096ba11"
+      },
+      {
+        "_path": "lib/libxtb.6.dylib",
+        "path_type": "hardlink",
+        "sha256": "993c1111fa8b2b4046b5317e19b5e3cc7820193d92160f3f4540b2d8c3d66d6d",
+        "size_in_bytes": 7126432,
+        "sha256_in_prefix": "993c1111fa8b2b4046b5317e19b5e3cc7820193d92160f3f4540b2d8c3d66d6d"
+      },
+      {
+        "_path": "lib/libxtb.dylib",
+        "path_type": "softlink",
+        "sha256": "993c1111fa8b2b4046b5317e19b5e3cc7820193d92160f3f4540b2d8c3d66d6d",
+        "size_in_bytes": 7126432
+      },
+      {
+        "_path": "lib/pkgconfig/xtb.pc",
+        "prefix_placeholder": "<redacted-local-path>",
+        "file_mode": "text",
+        "path_type": "hardlink",
+        "sha256": "d0eb6df6c4659bca81cb39616bf51beaa126dff4f179c50199099d706410fa3e",
+        "size_in_bytes": 453,
+        "sha256_in_prefix": "7082bf6c8f6d4ad99f00ce6f4cf93bee0dac15b115e0cfce9eb4af7f339a6a8d"
+      },
+      {
+        "_path": "share/man/man1/xtb.1",
+        "path_type": "hardlink",
+        "sha256": "084da019330e4fd261ff47ba8bdf9cdebfe007975245614e8b3aec32cfa87f11",
+        "size_in_bytes": 19993,
+        "sha256_in_prefix": "084da019330e4fd261ff47ba8bdf9cdebfe007975245614e8b3aec32cfa87f11"
+      },
+      {
+        "_path": "share/man/man7/xcontrol.7",
+        "path_type": "hardlink",
+        "sha256": "f7452afe8d4ed5caa5ef6800fc467bd55d32c650e50dcad52751efe3e2bb087b",
+        "size_in_bytes": 27869,
+        "sha256_in_prefix": "f7452afe8d4ed5caa5ef6800fc467bd55d32c650e50dcad52751efe3e2bb087b"
+      },
+      {
+        "_path": "share/modules/modulefiles/xtb/6.7.1",
+        "prefix_placeholder": "<redacted-local-path>",
+        "file_mode": "text",
+        "path_type": "hardlink",
+        "sha256": "c037d5f91a3f10ad5dcecd2cdaffdec0e17be3e1d4a5be80f75c7d087c3cf6b6",
+        "size_in_bytes": 561,
+        "sha256_in_prefix": "5a1282a478160a91ae52198928bdefb748518ea92726d6765d04145b8daae155"
+      },
+      {
+        "_path": "share/xtb/.param_gfnff.xtb",
+        "path_type": "hardlink",
+        "sha256": "5cf2d1259dd3c65aa9594ea32a0c9a21bb819b6e16b81521888c5a3a1ec513e8",
+        "size_in_bytes": 10664,
+        "sha256_in_prefix": "5cf2d1259dd3c65aa9594ea32a0c9a21bb819b6e16b81521888c5a3a1ec513e8"
+      },
+      {
+        "_path": "share/xtb/config_env.bash",
+        "path_type": "hardlink",
+        "sha256": "da377f5a22c434e79d7afcb4c2dce99fbe1164214125f15b029ba54ef5c07745",
+        "size_in_bytes": 638,
+        "sha256_in_prefix": "da377f5a22c434e79d7afcb4c2dce99fbe1164214125f15b029ba54ef5c07745"
+      },
+      {
+        "_path": "share/xtb/config_env.csh",
+        "path_type": "hardlink",
+        "sha256": "201a23ba62a9f2618d4f9e0ed08cf9c9ee49aa356577ca445364d53cedaf921a",
+        "size_in_bytes": 614,
+        "sha256_in_prefix": "201a23ba62a9f2618d4f9e0ed08cf9c9ee49aa356577ca445364d53cedaf921a"
+      },
+      {
+        "_path": "share/xtb/param_gfn0-xtb.txt",
+        "path_type": "hardlink",
+        "sha256": "278461cabbf89b14379aedc78ef3e141c8cef1f911f3a3c72530aec7a52b6d34",
+        "size_in_bytes": 39220,
+        "sha256_in_prefix": "278461cabbf89b14379aedc78ef3e141c8cef1f911f3a3c72530aec7a52b6d34"
+      },
+      {
+        "_path": "share/xtb/param_gfn1-si-xtb.txt",
+        "path_type": "hardlink",
+        "sha256": "f878fd7f8eea16f326aff283fbc7ca23800045992c0f86536e18ad91816cf7ca",
+        "size_in_bytes": 28007,
+        "sha256_in_prefix": "f878fd7f8eea16f326aff283fbc7ca23800045992c0f86536e18ad91816cf7ca"
+      },
+      {
+        "_path": "share/xtb/param_gfn1-xtb.txt",
+        "path_type": "hardlink",
+        "sha256": "81a9d7afdee31f5d8fd67a4d8ec966179317c7b100261c9c82d724bafb460399",
+        "size_in_bytes": 27800,
+        "sha256_in_prefix": "81a9d7afdee31f5d8fd67a4d8ec966179317c7b100261c9c82d724bafb460399"
+      },
+      {
+        "_path": "share/xtb/param_gfn2-xtb.txt",
+        "path_type": "hardlink",
+        "sha256": "f6f05c6c5264cb2f75c54f8ac6838044541c1e493b16f1a4d4ee4fa64de5f545",
+        "size_in_bytes": 35849,
+        "sha256_in_prefix": "f6f05c6c5264cb2f75c54f8ac6838044541c1e493b16f1a4d4ee4fa64de5f545"
+      },
+      {
+        "_path": "share/xtb/param_ipea-xtb.txt",
+        "path_type": "hardlink",
+        "sha256": "08a39b7854b915501d8ba87b7d3330f28932f293479a0dc52b502f039c19f122",
+        "size_in_bytes": 27805,
+        "sha256_in_prefix": "08a39b7854b915501d8ba87b7d3330f28932f293479a0dc52b502f039c19f122"
+      }
+    ]
+  },
+  "link": {
+    "source": "<redacted-local-path>",
+    "type": 1
+  },
+  "requested_specs": [
+    "xtb=6.7.1"
+  ]
+}

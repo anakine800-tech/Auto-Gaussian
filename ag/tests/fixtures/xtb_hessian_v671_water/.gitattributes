@@ -1,0 +1,5 @@
+# Preserve the actual Fortran writer's padding and stdout end-of-file blank line.
+hessian whitespace=-blank-at-eol
+g98.out whitespace=-blank-at-eol
+stdout.txt whitespace=-blank-at-eol,-blank-at-eof
+vibspectrum whitespace=-blank-at-eol

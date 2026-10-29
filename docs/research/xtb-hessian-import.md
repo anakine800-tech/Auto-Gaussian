@@ -2,8 +2,9 @@
 
 来源核查日期：2026-10-28；原子对应核对日期：2026-10-29。
 **来源与本地导入规格：部分来源待补；原子对应已与 T162 合并后的最终接口对齐。**
-本页是后续实施的设计输入，未实现导入器或 Hessian 生成器。
-当前 `g0_modes.read_frequency_attempt` 仍只读 Gaussian；`xtb.toml` 没有 Hessian 参数或输出声明。
+第 1–7 节保留 T163 的来源审计与历史规格；其中“尚未实现/待补”描述 T163 交付时状态。
+T176 的当前本地接口、支持范围和验收状态见第 8 节；Hessian 生成器仍未接入。
+`g0_modes.read_frequency_attempt` 专读 Gaussian；`xtb.toml` 没有 Hessian 参数或输出声明。
 本单未运行 xTB、Gaussian、调度器或远程命令，未改任何 study、Attempt、候选或历史 evidence。
 
 核查结论：普通 xTB `hessian` 是**未质量加权的 Cartesian 二阶导数矩阵**，不是位移向量；
@@ -351,3 +352,95 @@ T162 依赖、rebase 和文档入口已整合；本单 PR 在监督方审阅实�
 [t162-mapping]: https://github.com/anakine800-tech/Auto-Gaussian/blob/8fea723c861d2073028f20effc8e27f3c79159c1/ag/src/ag/g0_mapping.py#L25-L134
 [t162-modes]: https://github.com/anakine800-tech/Auto-Gaussian/blob/8fea723c861d2073028f20effc8e27f3c79159c1/ag/src/ag/g0_modes.py#L281-L312
 [t162-batch]: https://github.com/anakine800-tech/Auto-Gaussian/blob/8fea723c861d2073028f20effc8e27f3c79159c1/ag/src/ag/g0.py#L387-L449
+
+
+## 8. T176 本地导入接口
+
+当前实现为纯本地有限适配器；真实格式包的独立格式/数值审阅和公开副本的独立敏感/数据审阅均已通过。
+已只读导入同次真实非研究水包及脱敏 fixture，数值谱与独立重建一致；科学验收不在本单范围内。
+PR 继续保持 draft，待最终 head 的独立代码审阅及 CI。
+
+```sh
+ag import-xtb-hessian --study '<STUDY>' --source ./local-source.json --out analyses/xtb-example
+```
+
+只接受 conda-forge osx-64 `xtb 6.7.1 gfortran_h7141999_5` 的普通 GFN2 CLI 路径，
+stdout banner 必须为 `6.7.1 (edcfbbe)`；包归档声明 SHA-256 必须为
+`2945f0ffa63ad5369ac7e32449c9e195b4204c9a2f57557a174f187d1f4ad2fa`。
+原包记录作为 `build` 文件保留；包记录/声明的一致性不验证计算文件的真实性。
+该构建有 1072、1133、1278、1374、version 五个补丁，不称为未修改的上游二进制。
+已只读核对这些补丁涉及 tblite/PTB/DIPRO、链接、优化器显示和 Meson 版本；
+不修改 `wrhess/g98fake2`、`trproj`、默认质量重新赋值或普通 GFN2 Hessian 转换路径。
+补丁字节 SHA-256 随输出 `program.patches` 保留；上游源码版本继续固定为第 1 节的 commit。
+未承诺其他平台、构建、周期、冻结、约束、偏置、SPH、外部计算器或非默认有效质量。
+
+源声明中所有 `files` 都相对于声明文件目录，禁止 `..`、符号链接、非普通文件和越界路径。
+每个文件必须给出原始字节 SHA-256；不执行命令、不加载运行程序、不联网。
+下列哈希为占位，实际使用须填写原始文件字节哈希：
+
+```json
+{
+  "schema": "ag-xtb-hessian-source/1",
+  "files": {
+    "hessian": {"file": "hessian", "sha256": "<SHA-256>"},
+    "geometry": {"file": "g98.out", "sha256": "<SHA-256>"},
+    "stdout": {"file": "stdout.txt", "sha256": "<SHA-256>"},
+    "stderr": {"file": "stderr.txt", "sha256": "<SHA-256>"},
+    "input": {"file": "water.xyz", "sha256": "<SHA-256>"},
+    "command": {"file": "execution.json", "sha256": "<SHA-256>"},
+    "build": {"file": "package-record.json", "sha256": "<SHA-256>"}
+  },
+  "program": {"version": "6.7.1", "source_commit": "26b28010e805f7d1aeeef39813feb473e69cc4be", "build": "build"},
+  "generation": {"command": "command", "controls": [], "path": "cli-numhess"},
+  "hessian": {"format": "xtb-v671-wrhess", "unit": "hartree/bohr^2", "mass_weighted": false, "projected": true},
+  "geometry": {"format": "xtb-g98", "unit": "angstrom"},
+  "masses": {"effective_u": [15.99940492, 1.00794075, 1.00794075], "basis": "v671-cli-default-reset"},
+  "scale": 1,
+  "method": "GFN2-xTB", "solvent": "gas",
+  "termination": "normal", "stationarity": "unknown"
+}
+```
+
+`command` 是原始捕获的单行调用文本，或含 `argv` 字符串数组的原执行 JSON。
+调用参数必须与 stdout 的 `program call` 一致；JSON 中的命令从不用于执行。
+有限参数：`--hess` 或 `--ohess [级别]` 恰好一种，另接受 GFN2、chrg、uhf、alpb、gbsa、input、acc、parallel、norestart。
+原始输入 XYZ 也绑定，不能代替 Hessian 后的 `g98.out` 几何。显式控制输入须列在 `controls` 中；
+仅识别 `$hess` 的质量请求和 `$end`，其解析回显单列，实际有效质量必须与固定源码默认表一致。
+默认初始化在这些请求之后覆盖质量，故请求/回显与有效数组不同可解释为 reset，不能直接用请求质量。
+Hessian scale 当前只接受已绑定 stdout 中的默认值 1；非默认缩放需另补最终生效证据，不能只凭五位回显猜真实系数。
+数值内核对任意正缩放因子的代数正确性由合成测试检验，不等于该来源范围均已支持。
+
+可选 `files.result` 保存原有执行回执：若提供，必须含匹配 argv、`executed=true`、整数 `returncode=0` 和 `timed_out=false`。
+任何已知非零退出、超时、错误终止文字或相互矛盾的来源均拒绝。正常结束缺失时，
+`termination=unknown` 仍可生成警示数学诊断；缺 marker 不能填写 normal。
+方法仅可为 GFN2-xTB 或 null；溶剂可为 gas、`ALPB:<名称>`、`GBSA:<名称>` 或 null，须不与参数矛盾。
+这些描述仍标为未独立核实，未知项保留 null；不把未知溶剂当气相。
+驻点只允许 unknown 或 non_stationary，Hessian 阶段的未优化警告会标为后者。
+
+输出目录必须是 study `analyses/` 的新直接子目录；已有目录拒绝覆盖。
+保留 `source.json` 原字节、逐文件原字节副本 `input-NNN`、结果 `analysis.json` 和结果字节绑定 `binding.json`。
+所有输入写入并落盘后，独占链接发布 analysis.json；写入失败保留私有残片，不发布半份可用记录。
+读取时核对分析、声明和全部原始副本哈希，重新解析来源、谱与刚体空间，并验证保存的模式满足
+质量加权正交性、本征方程残差、Cartesian 单位归一及带符号频率关系。
+等价整体符号与打印精度内简并子空间变化不视作错误；直接编辑结果而未匹配字节绑定必拒绝。
+这些本地哈希防止不一致，不能证明恶意重写整套文件后的真实性；G0 映射另绑定实际 analysis.json 原字节。
+
+### 打印精度与刚体分离
+
+保留全部 `3N` 个特征值、带符号波数及去质量权重后的 Cartesian 位移。以质量加权平移/旋转基
+的 SVD 核对六维刚体空间；每列归一后计算秩，原点取质心，几何不旋转、不对齐。
+Hessian 每项舍入界为 `εH=0.5×10⁻¹⁰`，g98 坐标为 `εx=0.5×10⁻⁶ Å`。
+Hessian 的谱范数误差上界为 `δK=3N·s·εH/min(m)`，另加随维数/谱范数变化的浮点舍入项。
+旋转列误差界为 `2√(3Σm)·εx`；归一列与最小奇异值给出刚体子空间扰动界。
+只接受恰好六维的零谱簇，并核对它与几何刚体基的子空间残差和 `K·R` 残差；
+内部谱间隙必须足以使对应扰动界小于 1。不是按频率大小删除六项，也不复投影 H。
+低频内部模式落入舍入界、近线性秩不足、取向不符或谱间隙不足均返回 `external_modes_unresolved`，
+保留完整谱但不提供可排序的内部模式。小负内部值若可分离则照实保留。
+可用模式另与同次 g98 四位小数的波数比较，允许由 `λ±δK` 推导的频率区间和半个打印末位；
+不读取其两位小数的质量加权显示向量。没有用水分子的单次误差反推固定阈值。
+
+真实水包的初步只读导入：内部波数约为 1538.898353、3642.665507、3651.164333 cm⁻¹；
+外部舍入频率约 −0.031 至 +0.045 cm⁻¹，均保留。g98 的内部四位输出与重建区间一致。
+合成测试单独覆盖不同质量、缩放、负/软/简并谱、五原子几何、打印边界扰动、映射和路径/发布失败。
+真实格式 fixture 位于 `ag/tests/fixtures/xtb_hessian_v671_water/`；数值原件与脱敏副本的哈希对应明确保留。
+当前未决：最终 head 的独立代码审阅及 CI。

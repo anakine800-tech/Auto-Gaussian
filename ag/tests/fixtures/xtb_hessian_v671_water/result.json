@@ -1,0 +1,146 @@
+{
+  "started_at": "2026-10-29T02:43:57.766457+00:00",
+  "argv": [
+    "xtb",
+    "water.xyz",
+    "--gfn",
+    "2",
+    "--ohess",
+    "tight",
+    "--chrg",
+    "0",
+    "--uhf",
+    "0",
+    "--parallel",
+    "1",
+    "--norestart"
+  ],
+  "cwd": "<redacted-local-path>",
+  "timeout_seconds": 600,
+  "executed": true,
+  "invocations": 1,
+  "returncode": 0,
+  "timed_out": false,
+  "candidate_ready": true,
+  "scientific_validation": false,
+  "environment": {
+    "PATH": "<redacted-local-path>",
+    "HOME": "<redacted-local-path>",
+    "LC_ALL": "C",
+    "LANG": "C",
+    "TZ": "UTC",
+    "TMPDIR": "<redacted-local-path>",
+    "XTBPATH": "<redacted-local-path>",
+    "XTBHOME": "<redacted-local-path>",
+    "OMP_NUM_THREADS": "1",
+    "OMP_THREAD_LIMIT": "1",
+    "OMP_DYNAMIC": "FALSE",
+    "OMP_MAX_ACTIVE_LEVELS": "1",
+    "OPENBLAS_NUM_THREADS": "1"
+  },
+  "child_pid": 59239,
+  "process_group": 59239,
+  "normal_termination_marker": true,
+  "status": "generated_pending_independent_format_review",
+  "ended_at": "2026-10-29T02:44:02.644878+00:00",
+  "elapsed_seconds": 4.878410191973671,
+  "files": {
+    ".xtboptok": {
+      "bytes": 0,
+      "mtime_ns": 1793241842143478973,
+      "mode": 384,
+      "kind": "file",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "charges": {
+      "bytes": 45,
+      "mtime_ns": 1793241842150172922,
+      "mode": 384,
+      "kind": "file",
+      "sha256": "5e3ca1194864045bb14e2fc07c844e05d2b46ad7d292341a9c4ea7e6d6189093"
+    },
+    "execution.json": {
+      "bytes": 661,
+      "mtime_ns": 1793241837767467195,
+      "mode": 384,
+      "kind": "file",
+      "sha256": "f229e210f9bf2bbc9a29eeae8206c01b7a5698e5f258749a27ed7ca53430eb03"
+    },
+    "g98.out": {
+      "bytes": 1981,
+      "mtime_ns": 1793241842152800462,
+      "mode": 384,
+      "kind": "file",
+      "sha256": "4c5a6f52a28133387009dd54221bd057e6eea6cd319bf70984d7fdd0d252b915"
+    },
+    "hessian": {
+      "bytes": 1404,
+      "mtime_ns": 1793241842149763300,
+      "mode": 384,
+      "kind": "file",
+      "sha256": "b114fb5b84edd3dbd5dc90d672690230faa08ee95e79e7fed07eb08bac0052ff"
+    },
+    "stderr.txt": {
+      "bytes": 26,
+      "mtime_ns": 1793241842152763292,
+      "mode": 384,
+      "kind": "file",
+      "sha256": "db41edc1c74dad5a3527d5c6e4a48bfce3c2cabc0f0ad20acb5e420ad2a68ea9"
+    },
+    "stdout.txt": {
+      "bytes": 28487,
+      "mtime_ns": 1793241842152770580,
+      "mode": 384,
+      "kind": "file",
+      "sha256": "afc2fa34024a7577335cbfcdd381023405c13a8d775c85cfeb7635a9e7c8d11b"
+    },
+    "tmp": {
+      "bytes": 64,
+      "mtime_ns": 1793241837766642006,
+      "mode": 448,
+      "kind": "directory"
+    },
+    "vibspectrum": {
+      "bytes": 725,
+      "mtime_ns": 1793241842151505413,
+      "mode": 384,
+      "kind": "file",
+      "sha256": "2e188cec3adfb4b50e203fdaebfc347abcdcf2393420bc079a1a699e075d5ca0"
+    },
+    "water.xyz": {
+      "bytes": 240,
+      "mtime_ns": 1793241837766866152,
+      "mode": 384,
+      "kind": "file",
+      "sha256": "477201ca40d01bb7de452564d59d4818ac5e8308bd50b6572c8d6a2467513cfc"
+    },
+    "wbo": {
+      "bytes": 102,
+      "mtime_ns": 1793241842150399972,
+      "mode": 384,
+      "kind": "file",
+      "sha256": "f39fd09293a792d91c3f56ef041363b2c4030bd2b335cb04a48b4aa5e0bd5c5a"
+    },
+    "xtbopt.log": {
+      "bytes": 304,
+      "mtime_ns": 1793241842143265179,
+      "mode": 384,
+      "kind": "file",
+      "sha256": "52620f344a66552606b21c405177b1d47da417b71f773f60c7e509dcdf5f5511"
+    },
+    "xtbopt.xyz": {
+      "bytes": 304,
+      "mtime_ns": 1793241842152219225,
+      "mode": 384,
+      "kind": "file",
+      "sha256": "6c0cd70addca93aa963ee69bfcc8cb033a34b6f41e4133506e9a837a360b17ee"
+    },
+    "xtbtopo.mol": {
+      "bytes": 347,
+      "mtime_ns": 1793241842150786365,
+      "mode": 384,
+      "kind": "file",
+      "sha256": "66f5c74fda12ad388beb0a51459fed25cfd783ddf24b40bf524687d373ec3bea"
+    }
+  }
+}

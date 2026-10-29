@@ -1441,3 +1441,48 @@ def test_zero_mode_cannot_be_hidden_by_mapping(mode_case, capsys, declaration):
     report = json.loads(capsys.readouterr().out)
     assert 'no nonzero displacement' in report['error']
     assert 'errors' not in report and files(root) == before
+
+
+def test_explicit_hessian_analysis_g0_mapping_print_record_and_batch_compatibility(normal, tmp_path, capsys):
+    from ag import xtb_hessian as xtb
+    from test_xtb_hessian import source_package
+
+    root, _ = normal
+    source, _, _ = source_package(tmp_path / 'synthetic-hessian')
+    xtb.import_hessian(root, source, 'analyses/local-hessian')
+    filename = 'analyses/local-hessian/analysis.json'
+    freq = xtb.read_analysis(root, filename)
+    before = tree(root)
+    options = dict(modes_analysis=filename, reaction_coordinate=['distance:1-2:breaking'])
+    row = diagnose(root, **options)['candidates'][0]
+    assert row['modes']['available'] is False
+    assert row['atom_correspondence']['frequency']['status'] == 'unverified'
+    assert row['atom_correspondence']['frequency']['target'] == freq['target']
+    assert 'attempt' not in row['modes']
+    # Non-self-inverse candidate->source permutation, with duplicate H warning retained.
+    candidate_raw = b'3\nSynthetic permutation\nH 1 0 0\nH 0 1 0\nO 0 0 0\n'
+    candidate_(root, 'permuted', candidate_raw)
+    mapping = tmp_path / 'analysis-mapping.json'
+    mapping.write_text(json.dumps(dict(mappings=[dict(
+        object='water-a', candidate='permuted', candidate_sha256=sha256(candidate_raw).hexdigest(),
+        target=freq['target'], candidate_to_target=[2, 3, 1]) ])))
+    row = diagnose(root, candidate='permuted', atom_mapping=mapping, **options)['candidates'][0]
+    assert row['modes']['available'] and row['modes']['stationarity'] == 'unknown'
+    assert row['modes']['frequency_coordinates_spec'][0]['atoms'] == [2, 3]
+    assert row['modes']['modes'][0]['delta'][0]['candidate_atoms'] == [1, 2]
+    assert '不证明化学身份' in row['modes']['atom_correspondence']['limitation']
+    assert 'non_stationary_frequencies' in row['modes']['flags']
+    assert row['modes']['convention'] == xtb.CONVENTION
+    cli_args = ['g0', str(root), '--object', 'water-a', '--candidate', 'permuted',
+                '--modes-analysis', filename, '--atom-mapping', str(mapping),
+                '--reaction-coordinate', 'distance:1-2:breaking']
+    assert cli.main(cli_args) == 0
+    assert 'analysis=analyses/local-hessian/analysis.json' in capsys.readouterr().out
+    assert cli.main(cli_args + ['--record', '--json']) == 0
+    saved = json.loads(capsys.readouterr().out)
+    assert saved['record']
+    assert before['analyses/local-hessian/analysis.json'] == tree(root)['analyses/local-hessian/analysis.json']
+    batch = g0.diagnose(root, object='water-a', all_candidates=True)
+    assert all('analysis' not in r['modes'] for r in batch['candidates'])
+    for extra in (dict(modes_attempt='001-input'), dict(candidate=None, all_candidates=True)):
+        with pytest.raises(ValueError): diagnose(root, **dict(options, **extra))

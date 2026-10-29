@@ -1,0 +1,70 @@
+{
+  "schema": "ag-xtb-hessian-source/1",
+  "files": {
+    "hessian": {
+      "file": "hessian",
+      "sha256": "b114fb5b84edd3dbd5dc90d672690230faa08ee95e79e7fed07eb08bac0052ff"
+    },
+    "geometry": {
+      "file": "g98.out",
+      "sha256": "4c5a6f52a28133387009dd54221bd057e6eea6cd319bf70984d7fdd0d252b915"
+    },
+    "input": {
+      "file": "water.xyz",
+      "sha256": "477201ca40d01bb7de452564d59d4818ac5e8308bd50b6572c8d6a2467513cfc"
+    },
+    "stdout": {
+      "file": "stdout.txt",
+      "sha256": "afc2fa34024a7577335cbfcdd381023405c13a8d775c85cfeb7635a9e7c8d11b"
+    },
+    "stderr": {
+      "file": "stderr.txt",
+      "sha256": "db41edc1c74dad5a3527d5c6e4a48bfce3c2cabc0f0ad20acb5e420ad2a68ea9"
+    },
+    "command": {
+      "file": "execution.json",
+      "sha256": "f229e210f9bf2bbc9a29eeae8206c01b7a5698e5f258749a27ed7ca53430eb03"
+    },
+    "build": {
+      "file": "package-record.json",
+      "sha256": "bb5e7cdb702d9391fc2acbc596261d2fb147740650843d4dfb491b5d658ae16d"
+    },
+    "result": {
+      "file": "result.json",
+      "sha256": "9808b69d1a61029b2d641fe1047cea027925029876904db4fde8e6fbbb0e6568"
+    }
+  },
+  "program": {
+    "version": "6.7.1",
+    "source_commit": "26b28010e805f7d1aeeef39813feb473e69cc4be",
+    "build": "build"
+  },
+  "generation": {
+    "command": "command",
+    "controls": [],
+    "path": "cli-numhess"
+  },
+  "hessian": {
+    "format": "xtb-v671-wrhess",
+    "unit": "hartree/bohr^2",
+    "mass_weighted": false,
+    "projected": true
+  },
+  "geometry": {
+    "format": "xtb-g98",
+    "unit": "angstrom"
+  },
+  "masses": {
+    "effective_u": [
+      15.99940492,
+      1.00794075,
+      1.00794075
+    ],
+    "basis": "v671-cli-default-reset"
+  },
+  "scale": 1,
+  "method": "GFN2-xTB",
+  "solvent": "gas",
+  "termination": "normal",
+  "stationarity": "unknown"
+}

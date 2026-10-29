@@ -283,9 +283,13 @@ def analyze_candidate(elements, coordinates, frequency, coordinates_spec, *, cor
     if correspondence is None:
         correspondence = g0_mapping.unverified('frequency')
     metadata = {key: frequency[key] for key in
-                ('attempt', 'orientation', 'stationarity', 'geometry_sha256', 'source')}
+                ('attempt', 'analysis', 'orientation', 'stationarity', 'geometry_sha256', 'source', 'warnings')
+                if key in frequency}
     metadata.update(atom_correspondence=correspondence,
                     element_sequence_equal=list(elements) == list(frequency['elements']))
+    if frequency.get('status') == 'external_modes_unresolved':
+        return dict(available=False, reason='external_modes_unresolved', flags=[],
+                    coordinates_spec=coordinates_spec, **metadata)
     if not coordinates_spec or correspondence['status'] != 'declared_verified':
         return dict(available=False, reason='未声明反应坐标' if not coordinates_spec else correspondence['reason'],
                     flags=[], coordinates_spec=coordinates_spec, **metadata)
@@ -304,6 +308,11 @@ def analyze_candidate(elements, coordinates, frequency, coordinates_spec, *, cor
     report.update(metadata)
     report.update(available=True, aligned_rmsd_angstrom=float(rmsd), coordinates_spec=specs,
                   frequency_coordinates_spec=mapped)
+    if 'analysis' in frequency:
+        report['convention'] = frequency['convention']
+        for mode in report['modes']:
+            mode['spectrum_index'] = frequency['spectrum_indices'][mode['index'] - 1]
+        report['notes'].extend(frequency['warnings'])
     report['notes'].append(g0_mapping.LIMITATION)
     if frequency['stationarity'] != 'stationary':
         report['flags'].append('non_stationary_frequencies')

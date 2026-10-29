@@ -279,7 +279,7 @@ def _stereo(root, frame, filename, identity, expected):
 
 def diagnose_candidate(root, obj, candidate, *, registration_order, windows,
                        reference_attempt=None, stereo_json=None, stereo_attempt=None, expected_label=None,
-                       modes_attempt=None, auto_modes=False, reaction_coordinate=(), atom_mapping=None):
+                       modes_attempt=None, modes_analysis=None, auto_modes=False, reaction_coordinate=(), atom_mapping=None):
     path = study.local_path(root, root / candidate['file'])
     raw = v2.read_bytes(path, 1024 * 1024)
     if sha256(raw).hexdigest() != candidate['sha256']:
@@ -298,7 +298,7 @@ def diagnose_candidate(root, obj, candidate, *, registration_order, windows,
     # Read source evidence before recoverable mapping validation. A malformed
     # declaration must not hide a damaged log or unsafe source path.
     modes, frequency = _read_modes(root, obj['id'], candidate, specs, sources, modes_attempt, auto_modes,
-                                   atom_mapping)
+                                   atom_mapping, modes_analysis)
     correspondence = g0_mapping.resolve(atom_mapping, obj['id'], candidate, frame.symbols, dict(
         reference=(g0_mapping.reference_target(provenance),
                    reference_frame.symbols if reference_frame else None),
@@ -354,7 +354,11 @@ MODE_MESSAGES = dict(no_imaginary_mode='没有虚频模式', multiple_imaginary_
                      non_stationary_frequencies='非驻点或驻点未知的频率，仅作诊断参考')
 
 
-def _read_modes(root, object_id, candidate, specs, sources, explicit, auto, mapping):
+def _read_modes(root, object_id, candidate, specs, sources, explicit, auto, mapping, analysis=None):
+    if analysis is not None:
+        from ag.xtb_hessian import read_analysis
+        frequency = read_analysis(root, analysis)
+        return {}, frequency
     identity = explicit
     if auto:
         identity = next((r['attempt'] for r in reversed(candidate['results'])
@@ -384,14 +388,17 @@ def _mode_order(report):
 def diagnose(root, *, object, candidate=None, all_candidates=False, channel=None,
              reference_attempt=None, windows=None, window=(),
              stereo_json=None, stereo_attempt=None, expected_label=None,
-             modes_attempt=None, reaction_coordinate=(), atom_mapping=None):
+             modes_attempt=None, modes_analysis=None, reaction_coordinate=(), atom_mapping=None):
     if sum((candidate is not None, bool(all_candidates), channel is not None)) != 1:
         raise ValueError('Select exactly one of --candidate, --all, --channel')
     stereo_options = [stereo_json, stereo_attempt, expected_label]
     if any(v is not None for v in stereo_options) and not all(v is not None for v in stereo_options):
         raise ValueError('--stereo-json, --stereo-attempt and --expected-label must be supplied together')
-    if candidate is None and (reference_attempt is not None or stereo_json is not None or modes_attempt is not None):
-        raise ValueError('Reference, stereo and --modes-attempt options require a single --candidate')
+    if modes_attempt is not None and modes_analysis is not None:
+        raise ValueError('--modes-attempt and --modes-analysis are mutually exclusive')
+    if candidate is None and any(v is not None for v in
+                                 (reference_attempt, stereo_json, modes_attempt, modes_analysis)):
+        raise ValueError('Reference, stereo and explicit modes options require a single --candidate')
     if modes_attempt is not None:
         study.identifier(modes_attempt)
     if expected_label is not None and not expected_label.strip():
@@ -420,7 +427,7 @@ def diagnose(root, *, object, candidate=None, all_candidates=False, channel=None
                     root, obj, c, registration_order=order[c['id']], windows=window_config,
                     reference_attempt=reference_attempt, stereo_json=stereo_json,
                     stereo_attempt=stereo_attempt, expected_label=expected_label,
-                    modes_attempt=modes_attempt, auto_modes=candidate is None,
+                    modes_attempt=modes_attempt, modes_analysis=modes_analysis, auto_modes=candidate is None,
                     reaction_coordinate=reaction_coordinate, atom_mapping=mapping_config))
             except g0_modes.FrequencySourceAmbiguity as exc:
                 if candidate is not None:
@@ -494,8 +501,9 @@ def bounded_diagnosis(report):
             if modes.get('available'):
                 result['modes'] = modes
             else:
-                result['modes'] = {k: modes[k] for k in ('available', 'reason', 'attempt', 'flags')}
-                for key in ('source', 'geometry_sha256', 'atom_correspondence'):
+                result['modes'] = {k: modes[k] for k in ('available', 'reason', 'attempt', 'analysis', 'flags')
+                                   if k in modes}
+                for key in ('source', 'geometry_sha256', 'atom_correspondence', 'warnings'):
                     if key in modes:
                         result['modes'][key] = modes[key]
     if len(catalog.encode(result)) > MAX_DIAGNOSIS_BYTES:
@@ -508,9 +516,12 @@ def _print_modes(report):
     if 'atom_correspondence' in report:
         print('    atom_correspondence: ' + json.dumps(report['atom_correspondence'], ensure_ascii=False))
     if not report['available']:
+        for warning in report.get('warnings', []):
+            print('    ' + warning)
         return
     print('    ' + report['convention'])
-    print(f"    Attempt={report['attempt']}; orientation={report['orientation']}; "
+    identity = ('analysis=' + report['analysis'] if 'analysis' in report else 'Attempt=' + report['attempt'])
+    print(f"    {identity}; orientation={report['orientation']}; "
           f"stationarity={report['stationarity']}; RMSD={report['aligned_rmsd_angstrom']:.6f} Å")
     print('    模式 | 频率 (cm^-1) | σ | 吻合 | 重叠度 | 类型')
     for mode in report['modes']:
@@ -537,7 +548,8 @@ def run(args):
                       all_candidates=args.all, channel=args.channel, reference_attempt=args.reference_attempt,
                       windows=args.windows, window=args.window, stereo_json=args.stereo_json,
                       stereo_attempt=args.stereo_attempt, expected_label=args.expected_label,
-                      modes_attempt=args.modes_attempt, reaction_coordinate=args.reaction_coordinate,
+                      modes_attempt=args.modes_attempt, modes_analysis=args.modes_analysis,
+                      reaction_coordinate=args.reaction_coordinate,
                       atom_mapping=args.atom_mapping)
     code = 2 if report.get('errors') else int(bool(report['counts']['rejected']))
     if args.record and report.get('errors'):
@@ -589,7 +601,10 @@ def register(subparsers):
     selection.add_argument('--candidate')
     selection.add_argument('--all', action='store_true')
     selection.add_argument('--channel')
-    for option in ('reference-attempt', 'windows', 'stereo-json', 'stereo-attempt', 'expected-label', 'modes-attempt',
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument('--modes-attempt')
+    modes.add_argument('--modes-analysis')
+    for option in ('reference-attempt', 'windows', 'stereo-json', 'stereo-attempt', 'expected-label',
                    'atom-mapping'):
         parser.add_argument('--' + option)
     parser.add_argument('--window', action='append', default=[])
