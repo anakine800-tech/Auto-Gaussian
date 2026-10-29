@@ -110,6 +110,47 @@ def capture(cfg, path, transport, *, max_bytes=DEFAULT_MAX_BYTES):
     return result
 
 
+def capture_for_run(cfg, path, transport, *, run_id, token, plan_sha256,
+                    max_bytes=DEFAULT_MAX_BYTES):
+    """Bind a new formal capture to a wake; no lock spans network IO.
+
+    A capture whose owner expires in flight remains an ordinary snapshot and
+    cannot be adopted later as autonomous evidence. Paused owners may still
+    observe, but the cancellation review separately requires an active run.
+    """
+    from ag import autonomy
+    from ag import _autonomy_store as disk
+    from ag.autonomy_cancel import bound_attempt, snapshot_evidence
+    root = Path(cfg['local']['studies_root'])
+    path = study.local_path(root, Path(path))
+    name = path.parent.parent.name
+    with autonomy.action_guard(cfg, name, run_id, token,
+                               action='observe', plan_sha256=plan_sha256) as before:
+        binding = bound_attempt(path)
+        started = autonomy.now()
+    result = capture(cfg, path, transport, max_bytes=max_bytes)
+    with disk.locked(cfg, name, write=True) as store:
+        current, _ = autonomy.load(store)
+        token_hash = sha256(token.encode()).hexdigest()
+        evidence = snapshot_evidence(path, result['snapshot'], binding)
+        if evidence['snapshot_sha256'] != sha256(
+                (json.dumps(result, ensure_ascii=False, indent=2) + '\n').encode()).hexdigest():
+            raise ValueError('Captured snapshot changed before registration')
+        versions = autonomy.versions()
+        at = autonomy.now()
+        autonomy.eligible(current['state'], run_id, token_hash, versions,
+                          at, 'observe', plan_sha256)
+        data = dict(binding=binding, run_id=run_id, token_sha256=token_hash,
+                    round_id=before['state']['current_round'], plan_sha256=plan_sha256,
+                    capture_started_seq=before['seq'],
+                    versions=versions, capture_started_at=started, capture_finished_at=at,
+                    **{k: evidence[k] for k in ('snapshot', 'snapshot_sha256', 'log_sha256', 'captured_at')})
+        saved = store.commit(current, 'snapshot', at, data, autonomy.apply)
+    return dict(result, autonomy=dict(run_id=run_id, round_id=data['round_id'],
+                plan_sha256=plan_sha256, journal_seq=saved['seq'],
+                snapshot_sha256=evidence['snapshot_sha256']))
+
+
 def format_snapshot(result):
     p = result['progress']
     lines = [result['notice'], f"{result['snapshot']}/{result['file']}",

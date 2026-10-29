@@ -237,6 +237,23 @@ def apply(previous, event):
             state['paused'] = True
             if state['phase'] != 'ended':
                 state['phase'] = 'paused'
+        elif op == 'snapshot':
+            # Only capture_for_run registers freshly captured formal snapshots.
+            # This is observation provenance, never submission ownership.
+            eligible(state, data['run_id'], data['token_sha256'], data['versions'],
+                     at, 'observe', data['plan_sha256'])
+            if data['round_id'] != state['current_round']:
+                raise ValueError('Snapshot authorization round mismatch')
+            from ag.autonomy_cancel import validate_observation
+            validate_observation(data, state['runs'][data['run_id']], at)
+            if not 0 < data['capture_started_seq'] < event['seq']:
+                raise ValueError('Invalid snapshot capture-start journal position')
+            observations = state.setdefault('snapshots', {})
+            key = data['binding']['attempt_id'] + '/' + data['snapshot']
+            if key in observations:
+                raise ValueError('Snapshot already registered; cannot reuse it in another wake')
+            observations[key] = {k: v for k, v in data.items() if k not in ('token_sha256', 'versions')}
+            observations[key]['seq'] = event['seq']
         elif op in ('resume', 'finish', 'end', 'update', 'count', 'recover'):
             if op == 'end' and state['lease'] is None:
                 if data['run_id'] is not None or data['token_sha256'] is not None:

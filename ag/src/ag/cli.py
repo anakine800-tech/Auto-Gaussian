@@ -63,6 +63,9 @@ def core_command(args):
         if command == 'doctor':
             cfg = select_cluster(cfg, getattr(args, 'cluster', 'default'))
         elif command == 'snapshot':
+            context = (args.run, args.token, args.plan_sha256)
+            if any(context) and not all(context):
+                raise ValueError('Wake-bound snapshot requires --run, --token and --plan-sha256 together')
             path = snapshot.find(cfg, args.id, args.study)
             cfg = for_manifest(cfg, attempt.read_manifest(path))
         elif command in ('fetch', 'cancel'):
@@ -86,7 +89,11 @@ def core_command(args):
                 transport = SSHTransport(selected, read_only=True)
                 result.append(dict(attempt_id=id_, **status.check(selected, path, transport)))
         elif command == 'snapshot':
-            result = snapshot.capture(cfg, path, transport, max_bytes=args.max_bytes)
+            if args.run:
+                result = snapshot.capture_for_run(cfg, path, transport, run_id=args.run,
+                    token=args.token, plan_sha256=args.plan_sha256, max_bytes=args.max_bytes)
+            else:
+                result = snapshot.capture(cfg, path, transport, max_bytes=args.max_bytes)
         elif command == 'fetch':
             path = attempt.find(cfg, args.id)
             result = fetch.fetch(cfg, path, transport,
@@ -183,6 +190,9 @@ def register(subparsers):
             from ag.snapshot import DEFAULT_MAX_BYTES
             p.add_argument('id')
             p.add_argument('--study')
+            p.add_argument('--run', help='Bind a newly captured snapshot to this autonomy wake')
+            p.add_argument('--token', help='Current wake owner token (requires --run and --plan-sha256)')
+            p.add_argument('--plan-sha256', help='Expected confirmed plan hash for this wake')
             p.add_argument('--max-bytes', type=int, default=DEFAULT_MAX_BYTES,
                            help='Copy at most this many trailing log bytes (default: 20000000)')
         elif name in ('fetch', 'cancel'):

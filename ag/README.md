@@ -185,6 +185,18 @@ Gaussian 摘要列出片段中的 SCF 次数/末次能量、Step number 记录�
 journal、取回标记或 facts；不主动调用 `ag status`。后续 fetch/facts/证据清单不消费
 这些快照。SSH 经现有 transport 记录到脱敏 ssh-log，操作类别为 `output_observation`。
 
+T187 的 Python 接口 `snapshot.capture_for_run(...)` 复用同一固定只读捕获，另将正式快照的
+轮次、唤醒、manifest/submission 与文件哈希绑定到自主日志；普通 `ag snapshot` 行为不变。
+CLI 显式同时传 `--run <RUN> --token <TOKEN> --plan-sha256 <SHA>` 使用此捕获；
+失锁或登记失败的普通快照保留，不补认进其他唤醒。网络期间不持本地互斥。
+`autonomy_cancel.review_no_progress(...)` 只在本地核验连续两次不同唤醒的快照来源、顺序、
+字节与逐份模型审阅理由；只接受两次连续唤醒各自最新且在其有效运行期捕获的证据。
+跨唤醒无固定 TTL，允许计划中的 3/5 小时间隔；当前租约必须有效，暂停/恢复后须重新取得一对证据。
+它不代替科学判断，返回的 `cancellation_authorized` 始终为 false，也不授予改投资格。
+当前没有自主取消或改投执行入口；T186 的实际自主归属、计数和原子暂停、T185 的共同路由算法
+仍须接入。现有固定调度器查询不能证明作业从未运行，缺少 chk 依赖字段也不能证明没有依赖；
+这些缺口及合并前真实验证未完成时，不得据审阅结果执行取消或新提交。
+
 ## 取回输出：fetch
 
 `ag fetch <ATTEMPT_ID> --json` 成功后自动在本地调用 `build_facts(refresh=False)`，
