@@ -320,16 +320,32 @@ def test_pure_selection_does_not_mutate_inputs_or_touch_transport(ladder, monkey
     assert selected(a)['batch_snapshot_sha256'] == a['evidence']['snapshots']['compute']
 
 
-def test_cli_ladder_is_fail_closed_without_trusted_t184_adapter(ladder, monkeypatch, capsys):
+def test_cli_ladder_rejects_incomplete_autonomous_context_without_side_effects(ladder, monkeypatch, capsys, tmp_path):
     from ag.transport import SSHTransport
-    monkeypatch.setattr(SSHTransport, 'run', lambda *a: pytest.fail('network'))
+    monkeypatch.setattr(SSHTransport, '__init__', lambda *a, **kw: pytest.fail('SSH construction'))
+    monkeypatch.setattr(SSHTransport, 'run', lambda *a, **kw: pytest.fail('network'))
     monkeypatch.setattr(route, 'load_config', lambda: ladder[0])
+    synthetic_home = tmp_path / 'synthetic-home'
+    synthetic_home.mkdir()
+    monkeypatch.setattr(Path, 'home', classmethod(lambda cls: synthetic_home))
     root = Path(ladder[0]['local']['studies_root'])
     assert not root.exists()
+    assert not (synthetic_home / '.config').exists()
     code = cli.main(['route', '--template', 'gaussian', '--job-class', 'main', '--study', 'smoke',
                      '--round-id', 'round-a', '--run-id', 'run-a', '--object-id', 'water-b', '--walltime', '01:00:00', '--json'])
-    assert code == 1 and 'integration pending' in json.loads(capsys.readouterr().out)['error']
+    assert code == 1
+    # T185 alone blocks on the missing adapter; T186 blocks earlier on the
+    # absent policy/token/plan context. Neither arbitrary errors nor success
+    # demonstrate this refusal boundary.
+    assert json.loads(capsys.readouterr().out)['error'] in {
+        'Ladder runtime evidence integration pending: verified submissions and waiting wakeups required',
+        'Trusted routing requires --study, --round-id, --run-id, --object-id, '
+        '--walltime, --autonomous-policy, --token and --plan-sha256',
+    }
     assert not root.exists()
+    # The fixed machine registries and mutex live below ~/.config/ag.
+    assert not (synthetic_home / '.config').exists()
+    assert list(synthetic_home.iterdir()) == []
 
 
 def test_order_skips_each_unqualified_cell(ladder):

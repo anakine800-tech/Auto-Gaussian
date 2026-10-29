@@ -41,6 +41,7 @@
 以合成入口、节点和快照覆盖每格命中/跳过、全空与足够容量、CPU/内存分属不同节点、未知字段、精确内存、同轮占用/重复计数、chk绑定、排队限额、SCNet次数/唤醒等待、过期、资源/时限总规格拒绝及旧route行为。
 自主名额另覆盖跨study/旧round活跃记录、共享账号多入口去重、非自主作业仅参与账号核数、未观测/UNKNOWN预留不释放；同批半节点仍按同一round/run验证。
 study_key覆盖不同根目录下同名study/Attempt独立计数、对象/唤醒/批次隔离、各来源缺失或非法key拒绝，以及共享作业和同key显示名矛盾拒绝。
+缺完整自主上下文的CLI调用须明确拒绝：组合回归兼容本单未接线提示和T186缺policy/token/plan的确切错误，同时验证零SSH、不创建studies_root或合成home下的全机登记目录；完整接线由T186另测。
 覆盖整节点合法/超max_cores/档位不符/旧bundle字节兼容。独立环境推送前一次 `PYTHONPATH=ag/src python -m pytest ag/tests skills-next -q -rs`，随后当前head CI；精确暂存、私有词表敏感扫描、差异与noreply身份检查。
 
 ## 真实环境验证（敏感，合并前必需）
