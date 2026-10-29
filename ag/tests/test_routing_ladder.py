@@ -837,3 +837,246 @@ def test_wakeup_key_is_required_even_without_waiting_request(ladder):
     del wake['study_key']
     with pytest.raises(KeyError):
         choose(ladder, wakeups=[wake])
+
+
+def evaluation_reference(source):
+    return {key: source[key] for key in ('study_key', 'attempt_id', 'record_sha256')}
+
+
+def evaluation_source(ladder):
+    return placement(ladder, cluster='pool', node_name=None, capacity_node='pool-a',
+                     cid='source', object_id='water-b', run='previous-wakeup')
+
+
+@pytest.fixture
+def reevaluation(ladder):
+    raw, _ = ladder
+    raw['routing']['ladder'] = [
+        cell('higher', tier='ultra', nodes=['alpha'], condition='free', min_free_cores=48),
+        cell('source', 'pool', 'ultra', condition='free', min_free_cores=48),
+        cell('lower', 'default', 'max', condition='free', min_free_cores=44)]
+    return ladder, evaluation_source(ladder)
+
+
+@pytest.mark.parametrize('run,reason', [('run-a', 'object_already_placed_in_run'),
+                                      ('previous-wakeup', 'object_already_active_in_round')])
+def test_evaluation_selects_higher_cell_without_exempting_other_evidence(reevaluation, run, reason):
+    ladder, source = reevaluation
+    source['run_id'] = run
+    ordinary = choose(ladder, placements=[source])
+    assert ordinary['reason'] == reason
+    assert ordinary == choose(ladder, placements=[source], evaluate_from=None)
+    assert 'evaluation_only' not in ordinary and 'evaluate_from' not in ordinary
+    ref = evaluation_reference(source)
+    result = choose(ladder, placements=[source], evaluate_from=ref)
+    assert selected(result)['cell_id'] == 'higher'
+    assert result['evaluation_only'] is True and result['evaluate_from'] == ref
+    assert result['evidence']['input_sha256'] != ordinary['evidence']['input_sha256']
+    # The original job is still part of the exact same occupation evidence.
+    for key in ('placements_sha256', 'config_sha256', 'snapshots', 'wakeups_sha256'):
+        assert result['evidence'][key] == ordinary['evidence'][key]
+
+
+@pytest.mark.parametrize('kind', ['empty', 'missing-study', 'missing-attempt', 'missing-sha',
+    'extra', 'non-dict', 'wrong-study', 'invalid-study', 'wrong-attempt', 'wrong-sha',
+    'invalid-sha', 'absent-source'])
+def test_evaluation_requires_exact_source_reference(reevaluation, kind):
+    ladder, source = reevaluation
+    ref, records = evaluation_reference(source), [source]
+    if kind == 'empty': ref = {}
+    elif kind.startswith('missing-'):
+        del ref[{'missing-study': 'study_key', 'missing-attempt': 'attempt_id',
+                 'missing-sha': 'record_sha256'}[kind]]
+    elif kind == 'extra': ref['approved'] = True
+    elif kind == 'non-dict': ref = []
+    elif kind == 'wrong-study': ref['study_key'] = synthetic_study_key('another-root')
+    elif kind == 'invalid-study': ref['study_key'] = None
+    elif kind == 'wrong-attempt': ref['attempt_id'] = 'missing-attempt'
+    elif kind == 'wrong-sha': ref['record_sha256'] = 'c'*64
+    elif kind == 'invalid-sha': ref['record_sha256'] = 'not-a-hash'
+    else: records = []
+    with pytest.raises(ValueError):
+        choose(ladder, placements=records, evaluate_from=ref)
+
+
+@pytest.mark.parametrize('kind', ['exact-duplicate', 'alias-duplicate', 'conflict'])
+def test_evaluation_source_is_unique_before_alias_normalization(reevaluation, kind):
+    ladder, source = reevaluation
+    raw, snaps = ladder
+    if kind == 'alias-duplicate':
+        raw['clusters']['pool-peer'] = deepcopy(raw['clusters']['pool'])
+        snaps['pool-peer'] = deepcopy(snaps['pool'])
+        snaps['pool-peer']['cluster']['name'] = 'pool-peer'
+        source = evaluation_source(ladder)
+        other = dict(source, cluster='pool-peer', job_id='pool-peer:1')
+    else:
+        other = dict(source, **({'mem_gb': 1} if kind == 'conflict' else {}))
+    with pytest.raises(ValueError):
+        choose(ladder, placements=[source, other], evaluate_from=evaluation_reference(source))
+
+
+@pytest.mark.parametrize('run,reason', [('run-a', 'object_already_placed_in_run'),
+                                      ('another-wakeup', 'object_already_active_in_round')])
+def test_evaluation_exemption_does_not_hide_another_same_object_record(reevaluation, run, reason):
+    ladder, source = reevaluation
+    other = placement(ladder, cluster='default', node_name=None, capacity_node='default-a',
+                      cores=44, aid='second-attempt', job='2', cid='lower', object_id='water-b', run=run)
+    result = choose(ladder, placements=[source, other], evaluate_from=evaluation_reference(source))
+    assert selected(result) is None and result['reason'] == reason
+
+
+@pytest.mark.parametrize('kind', ['config', 'cell', 'class', 'cluster', 'node', 'target',
+                                 'cores', 'memory', 'round', 'object', 'manual'])
+def test_evaluation_source_cell_and_ownership_must_still_match(reevaluation, kind):
+    ladder, source = reevaluation
+    raw, _ = ladder
+    if kind == 'config': source['config_sha256'] = 'c'*64
+    elif kind == 'cell': source['cell_id'] = 'removed-cell'
+    elif kind == 'class':
+        raw['routing']['ladder'][1]['classes'] = ['small']
+        source['config_sha256'] = route.ladder_config_identity(raw)
+    elif kind == 'cluster': source.update(cluster='default', job_id='default:1')
+    elif kind == 'node': source['capacity_node'] = 'missing-node'
+    elif kind == 'target': source['target_node'] = 'pool-a'
+    elif kind == 'cores': source['cores'] = 44
+    elif kind == 'memory': source['mem_gb'] = 95
+    elif kind == 'round': source['round_id'] = 'older-round'
+    elif kind == 'object': source['object_id'] = 'different-object'
+    else: source.update(run_id=None, round_id=None)
+    with pytest.raises(ValueError):
+        choose(ladder, placements=[source], evaluate_from=evaluation_reference(source))
+
+
+def test_evaluation_source_named_fraction_must_match_actual_node(ladder):
+    raw, _ = ladder
+    raw['routing']['ladder'] = [
+        cell('higher', 'pool', 'ultra', condition='free', min_free_cores=48),
+        cell('source', tier='ultra', nodes=['alpha'], condition='free',
+             min_free_cores=48, node_fraction='1/4')]
+    source = placement(ladder, cid='source', object_id='water-b', run='previous-wakeup')
+    # A 96-slot node's quarter is 24 cores, not this cell's 48-core tier.
+    with pytest.raises(ValueError):
+        choose(ladder, placements=[source], evaluate_from=evaluation_reference(source))
+
+
+@pytest.mark.parametrize('cap,allowed', [(96, True), (88, False)])
+def test_evaluation_retains_original_cores_and_node_reservation(ladder, cap, allowed):
+    raw, _ = ladder
+    raw['routing']['ladder'] = [
+        cell('higher', 'pool', 'max', condition='free', min_free_cores=44),
+        cell('source', 'pool', 'ultra', condition='free', min_free_cores=48)]
+    raw['clusters']['pool']['resources']['max_committed_cores'] = cap
+    source = evaluation_source(ladder)
+    result = choose(ladder, placements=[source], evaluate_from=evaluation_reference(source))
+    if allowed:
+        assert selected(result)['cell_id'] == 'higher'
+        assert selected(result)['capacity']['cores_available'] == 48
+    else:
+        assert selected(result) is None
+        assert 'account_core_limit' in result['candidates'][0]['reasons']
+
+
+@pytest.mark.parametrize('others,allowed', [(2, True), (3, False)])
+def test_evaluation_retains_original_shared_account_autonomous_job(ladder, others, allowed):
+    raw, _ = ladder
+    raw['clusters']['batch-test']['allowed_templates'] = ['gaussian']
+    raw['routing']['ladder'] = [
+        cell('higher', 'batch', 'max', condition='jobs', max_jobs=4),
+        cell('source', 'batch-test', 'max', condition='queue')]
+    source = placement(ladder, cluster='batch-test', node_name=None, capacity_node='batch-a',
+                       cores=44, cid='source', object_id='water-b', run='previous-wakeup')
+    records = [source] + [placement(ladder, cluster='batch', node_name=None, cores=44,
+        aid='older-'+str(i), job=str(i+2), study_id='other-study', round_id='older-round') for i in range(others)]
+    result = choose(ladder, placements=records, evaluate_from=evaluation_reference(source), **waiting_request())
+    if allowed:
+        assert selected(result)['cell_id'] == 'higher'
+    else:
+        assert selected(result) is None
+        assert 'autonomous_job_limit' in result['candidates'][0]['reasons']
+
+
+@pytest.mark.parametrize('with_other,allowed', [(False, True), (True, False)])
+def test_evaluation_retains_original_and_older_round_global_queue_slots(ladder, with_other, allowed):
+    raw, _ = ladder
+    raw['routing']['ladder'] = [
+        cell('higher', tier='ultra', nodes=['alpha'], condition='queue'),
+        cell('source', 'pool', 'ultra', condition='queue')]
+    source = evaluation_source(ladder)
+    records = [source]
+    if with_other:
+        records.append(placement(ladder, cluster='batch-test', node_name=None, cores=44,
+            aid='older', job=None, state='unknown', study_id='other-study', round_id='older-round'))
+    result = choose(ladder, placements=records, evaluate_from=evaluation_reference(source))
+    if allowed:
+        assert selected(result)['cell_id'] == 'higher' and selected(result)['needs_queue']
+    else:
+        assert selected(result) is None
+        assert 'global_queue_limit' in result['candidates'][0]['reasons']
+
+
+def test_evaluation_never_selects_same_or_lower_cell(reevaluation):
+    ladder, source = reevaluation
+    _, snaps = ladder
+    snaps['compute']['cluster']['nodes'][0] = node('alpha', used=96)
+    result = choose(ladder, placements=[source], evaluate_from=evaluation_reference(source))
+    assert selected(result) is None
+    for row in result['candidates']:
+        if row['cell_id'] in ('source', 'lower'):
+            assert 'not_strictly_higher_than_source' in row['reasons']
+
+
+def test_evaluation_different_node_in_same_cell_is_not_higher(ladder):
+    raw, _ = ladder
+    raw['routing']['ladder'] = [cell('source', tier='ultra', nodes=['alpha', 'echo'],
+                                    condition='free', min_free_cores=48)]
+    source = placement(ladder, cid='source', object_id='water-b', run='previous-wakeup')
+    result = choose(ladder, placements=[source], evaluate_from=evaluation_reference(source))
+    assert selected(result) is None
+    assert {r['capacity_node'] for r in result['candidates']} == {'alpha', 'echo'}
+    assert all('not_strictly_higher_than_source' in r['reasons'] for r in result['candidates'])
+
+
+def test_small_evaluation_uses_queue_priority_before_cell_index(ladder):
+    raw, _ = ladder
+    raw['routing']['ladder'] = [
+        cell('source', tier='general', nodes=['alpha'], classes=['small'],
+             condition='queue', node_fraction='1/4'),
+        cell('higher', tier='simple', nodes=['charlie'], classes=['small'],
+             condition='free', min_free_cores=16, node_fraction='1/4')]
+    source = placement(ladder, cores=24, cid='source', object_id='water-b', run='previous-wakeup')
+    ordinary = choose(ladder, job_class='small', object_id='different-object', placements=[source])
+    assert selected(ordinary)['cell_id'] == 'higher'
+    result = choose(ladder, job_class='small', placements=[source], evaluate_from=evaluation_reference(source))
+    assert selected(result)['cell_id'] == 'higher'
+    assert selected(result)['cell_index'] == 1  # Better under the ordinary small-system ordering.
+
+
+def test_small_evaluation_does_not_replace_occupied_priority_with_cell_index(ladder):
+    raw, _ = ladder
+    raw['routing']['ladder'] = [
+        cell('earlier-empty', tier='general', nodes=['alpha'], classes=['small'],
+             condition='free', min_free_cores=24, node_fraction='1/4'),
+        cell('source', tier='simple', nodes=['charlie'], classes=['small'],
+             condition='free', min_free_cores=16, node_fraction='1/4')]
+    source = placement(ladder, node_name='charlie', cores=16, cid='source',
+                       object_id='water-b', run='previous-wakeup')
+    ordinary = choose(ladder, job_class='small', object_id='different-object', placements=[source])
+    assert selected(ordinary)['cell_id'] == 'source'
+    result = choose(ladder, job_class='small', placements=[source], evaluate_from=evaluation_reference(source))
+    assert selected(result) is None
+    assert 'not_strictly_higher_than_source' in result['candidates'][0]['reasons']
+
+
+def test_evaluation_is_readonly_and_does_not_add_cli_bypass(reevaluation, monkeypatch, capsys):
+    from ag.transport import SSHTransport
+    ladder, source = reevaluation
+    ref = evaluation_reference(source)
+    before = deepcopy((ladder, source, ref))
+    monkeypatch.setattr(SSHTransport, 'run', lambda *a: pytest.fail('network'))
+    result = choose(ladder, placements=[source], evaluate_from=ref)
+    assert selected(result) and (ladder, source, ref) == before
+    monkeypatch.setattr(route, 'load_config', lambda: pytest.fail('CLI must reject unsupported bypass'))
+    with pytest.raises(SystemExit) as error:
+        cli.main(['route', '--template', 'gaussian', '--tier', 'general',
+                  '--evaluate-from', json.dumps(ref)])
+    assert error.value.code == 2 and '--evaluate-from' in capsys.readouterr().err

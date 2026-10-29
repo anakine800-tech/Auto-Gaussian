@@ -31,6 +31,7 @@
 8. 增加整节点切分。资源核/内存仍严格对应档位、max_cores与节点总规格，不能借整节点绕过上限；保留半/四分之一节点的渲染字节兼容和既有共享排队准入。旧manifest/bundle不改。
 9. 路由选择必须在prepare前完成；prepare后入口/节点/核数不可变。提供给T186的最终核验接口使用同一选格算法、同一张配置表及可核实的新鲜快照，不另造第二套规则。T186适配须核验全本机真实自主归属，按共享账号的确切作业身份去重；未观测到的本地预留和UNKNOWN占用不得释放，证据不能核实则拒绝。跨配置目录的共同注册、共同锁及本机定位身份由T186接线；现有配置目录内的submit.lock不覆盖这一范围。须在共同锁内重新收集、核验和复算，不能缓存路由结果为许可。study_key定为必填64位小写SHA-256，由T186按安全校验后的本机绝对study目录生成并持久绑定目录身份；请求、placements、wakeups、batch.request与本地去重一致使用key，study_id仅显示，缺key不得回退。物理作业仍按确切调度身份去重，矛盾归属拒绝；纯算法不访问路径，实际适配及共同注册/锁仍待T186。
 10. Gaussian版本只读本地现有facts的核查已完成：可识别值均为G16 A.03，部分历史记录未知；不据此声称服务器当前版本实测，不新增版本路由限制或放宽profile版本核验。
+11. 按已批准的V4.8改投资格范围，增加纯函数可选参数 `evaluate_from=None`，非空时字典恰含study_key/attempt_id/record_sha256。调用方先核验原reservation；规范化前同key+Attempt须恰好一条且哈希一致，原cell、节点、资源、配置须与T186不可变recommendation填入的placement一致。不能用exclude_ownership删原占用；仅精确来源豁免同对象快捷拒绝，其他占用和同对象阻断不变。候选须不同cell且复用main/small原排序严格更优；默认行为与哈希不变。结果标evaluation_only=True并附evaluate_from，仅评估；T186薄适配独立透传，普通reservation消费拒绝评估结果，T187另验立即运行、从未运行且排队至少六小时、无chk、归属租约与取消消费等条件，不复制选格算法。不增加CLI参数或警告界面，不执行真实操作。
 
 ## 不允许
 
@@ -41,6 +42,7 @@
 以合成入口、节点和快照覆盖每格命中/跳过、全空与足够容量、CPU/内存分属不同节点、未知字段、精确内存、同轮占用/重复计数、chk绑定、排队限额、SCNet次数/唤醒等待、过期、资源/时限总规格拒绝及旧route行为。
 自主名额另覆盖跨study/旧round活跃记录、共享账号多入口去重、非自主作业仅参与账号核数、未观测/UNKNOWN预留不释放；同批半节点仍按同一round/run验证。
 study_key覆盖不同根目录下同名study/Attempt独立计数、对象/唤醒/批次隔离、各来源缺失或非法key拒绝，以及共享作业和同key显示名矛盾拒绝。
+evaluate_from覆盖精确来源唯一性/哈希和原格子绑定、不同cell严格更优、main/small共用排序、保留来源占用及其他同对象阻断、评估标识与默认调用哈希兼容；T186普通reservation拒绝评估消费及T187改投资格由对应工单验证。
 缺完整自主上下文的CLI调用须明确拒绝：组合回归兼容本单未接线提示和T186缺policy/token/plan的确切错误，同时验证零SSH、不创建studies_root或合成home下的全机登记目录；完整接线由T186另测。
 覆盖整节点合法/超max_cores/档位不符/旧bundle字节兼容。独立环境推送前一次 `PYTHONPATH=ag/src python -m pytest ag/tests skills-next -q -rs`，随后当前head CI；精确暂存、私有词表敏感扫描、差异与noreply身份检查。
 

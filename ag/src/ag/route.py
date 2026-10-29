@@ -402,7 +402,7 @@ def _ladder_usage(cfg, name, snapshots, placements, now):
 
 def select_ladder(cfg, snapshots, *, template, job_class, walltime, study_key, study_id, round_id, run_id, object_id,
                   placements, wakeups, waiting_since=None, parent_cluster=None,
-                  batch_inputs=None, now=None):
+                  batch_inputs=None, now=None, evaluate_from=None):
     """Pure T185/T186 selection kernel; no IO, SSH, preparation or approval.
 
     Inputs are captured by a trusted local adapter, not model-authored flags:
@@ -418,7 +418,10 @@ def select_ladder(cfg, snapshots, *, template, job_class, walltime, study_key, s
     and recompute while holding the shared submission lock, then reserve
     before releasing it. This function never certifies its caller's evidence
     or provides a concurrency lock. UNKNOWN retention is not permission to
-    resume its owner or resubmit that Attempt.
+    resume its owner or resubmit that Attempt. evaluate_from identifies one
+    caller-verified original reservation for candidate evaluation only. It
+    exempts only that record's object shortcut, never its resource usage;
+    cancellation eligibility and any subsequent submission remain external.
     """
     from copy import deepcopy
     from ag.capacity import evaluate_node
@@ -460,12 +463,56 @@ def select_ladder(cfg, snapshots, *, template, job_class, walltime, study_key, s
     cells = cfg.get('routing', {}).get('ladder')
     if not cells:
         raise ValueError('No routing.ladder configured')
+    evaluation_source = None
+    if evaluate_from is not None:
+        if (not isinstance(evaluate_from, dict)
+                or set(evaluate_from) != {'study_key', 'attempt_id', 'record_sha256'}):
+            raise ValueError('Evaluation requires an exact original reservation identity')
+        identifier(evaluate_from['attempt_id'])
+        digest = evaluate_from['record_sha256']
+        if (evaluate_from['study_key'] != study_key or not isinstance(digest, str)
+                or len(digest) != 64 or any(c not in '0123456789abcdef' for c in digest)):
+            raise ValueError('Invalid evaluation source identity')
+        # Check before normalization: even duplicate reads of this exact
+        # source are ambiguous for the requested one-record exemption.
+        matches = [p for p in placements if p['study_key'] == study_key
+                   and p['attempt_id'] == evaluate_from['attempt_id']]
+        if len(matches) != 1:
+            raise ValueError('Evaluation source must match exactly one original placement')
+        evaluation_source = next(p for p in records if p['study_key'] == study_key
+                                 and p['attempt_id'] == evaluate_from['attempt_id'])
+        if (evaluation_source['record_sha256'] != digest or evaluation_source.get('round_id') != round_id
+                or evaluation_source.get('object_id') != object_id or evaluation_source.get('run_id') is None
+                or evaluation_source.get('config_sha256') != config_hash):
+            raise ValueError('Evaluation source ownership or routing configuration differs')
+        source_cells = [c for c in cells if c['id'] == evaluation_source.get('cell_id')
+                        and job_class in c['classes']]
+        if len(source_cells) != 1:
+            raise ValueError('Evaluation source cell is missing or inapplicable')
+        source_cell = source_cells[0]
+        source_entry = select_cluster(cfg, source_cell['cluster'])
+        expected = source_entry['resources']['tiers'][source_cell['tier']]
+        if (cluster_identity(select_cluster(cfg, evaluation_source['cluster'])) != cluster_identity(source_entry)
+                or evaluation_source['cores'] != expected['cores'] or evaluation_source['mem_gb'] != expected['mem_gb']
+                or evaluation_source.get('target_node') != (evaluation_source.get('capacity_node')
+                    if 'node_targeting' in source_entry else None)
+                or not isinstance(evaluation_source.get('capacity_node'), str)
+                or ('nodes' in source_cell and evaluation_source['capacity_node'] not in source_cell['nodes'])):
+            raise ValueError('Evaluation source position or resources differ from its cell')
+
+    def is_original(p):
+        return evaluation_source is not None and all(p[k] == evaluation_source[k]
+            for k in ('study_key', 'attempt_id', 'record_sha256'))
+
     evidence = dict(config_sha256=config_hash,
                     snapshots={n: _digest(d) for n, d in snapshots.items() if d is not None},
                     placements_sha256=_digest(records), wakeups_sha256=_digest(wakeups))
     request = dict(template=template, job_class=job_class, walltime=walltime, study_key=study_key,
                    study_id=study_id, round_id=round_id, run_id=run_id,
                    object_id=object_id, waiting_since=waiting_since, parent_cluster=parent_cluster)
+    if evaluate_from is not None:
+        # Preserve ordinary selection/batch hashes when evaluation is absent.
+        request['evaluate_from'] = deepcopy(evaluate_from)
     evidence['input_sha256'] = _digest(dict(config_sha256=config_hash, request=request,
         snapshots=snapshots, placements=records, wakeups=wakeups, selected_at=now.isoformat()))
     result = dict(schema='ag-routing-ladder/1', study_key=study_key, study_id=study_id,
@@ -473,8 +520,10 @@ def select_ladder(cfg, snapshots, *, template, job_class, walltime, study_key, s
                   template=template, job_class=job_class, walltime=walltime,
                   parent_cluster=parent_cluster, evidence=evidence, candidates=[],
                   recommendation=None, notes=[DISCLAIMER])
+    if evaluate_from is not None:
+        result.update(evaluation_only=True, evaluate_from=deepcopy(evaluate_from))
     if any(p['study_key'] == study_key and p.get('round_id') == round_id and p.get('run_id') == run_id
-           and p.get('object_id') == object_id for p in records):
+           and p.get('object_id') == object_id and not is_original(p) for p in records):
         result['reason'] = 'object_already_placed_in_run'
         return result
     waited = False
@@ -515,7 +564,7 @@ def select_ladder(cfg, snapshots, *, template, job_class, walltime, study_key, s
         result['reason'] = 'snapshot_missing_failed_or_stale'
         return result
     if any(p['study_key'] == study_key and p.get('round_id') == round_id and p.get('object_id') == object_id
-           and p['state'] != 'finished' for p in effective):
+           and p['state'] != 'finished' and not is_original(p) for p in effective):
         result['reason'] = 'object_already_active_in_round'
         return result
     rows = result['candidates']
@@ -687,13 +736,33 @@ def select_ladder(cfg, snapshots, *, template, job_class, walltime, study_key, s
                     row['reasons'].append('global_queue_limit')
             row['eligible'] = not row['reasons']
             rows.append(row)
-    choices = [row for row in rows if row['eligible']]
-    if job_class == 'small':
+    entry_order = list(dict.fromkeys(c['cluster'] for c in cells if job_class in c['classes']))
+
+    def priority(row):
         # Preserve configured entry order while using occupied nodes before
-        # empty nodes, even when their quarter-node tiers differ across cells.
-        entry_order = list(dict.fromkeys(c['cluster'] for c in cells if job_class in c['classes']))
-        choices.sort(key=lambda r: (r['condition'] == 'queue', entry_order.index(r['cluster']),
-                                    not r['occupied'], r['cell_index']))
+        # empty nodes for small systems. One ordering serves both ordinary
+        # selection and comparison against an original reservation's cell.
+        if job_class == 'small':
+            return (row['condition'] == 'queue', entry_order.index(row['cluster']),
+                    not row['occupied'], row['cell_index'])
+        return (row['cell_index'],)
+
+    if evaluation_source is not None:
+        source_rows = [r for r in rows if r['cell_id'] == evaluation_source['cell_id']
+                       and r['capacity_node'] == evaluation_source['capacity_node']]
+        if len(source_rows) != 1:
+            raise ValueError('Evaluation source position is not present in current candidates')
+        source_nodes = [n for n in snapshots[source_cell['cluster']]['cluster']['nodes']
+                        if n.get('name') == evaluation_source['capacity_node']]
+        if (len(source_nodes) != 1 or ('node_targeting' in source_entry
+                and resource(source_nodes[0].get('cores_total'), source_cell['node_fraction']) != expected)):
+            raise ValueError('Evaluation source node or fraction differs from its cell')
+        source_rank = priority(source_rows[0])
+        for row in rows:
+            if row['cell_id'] == evaluation_source['cell_id'] or priority(row) >= source_rank:
+                row['eligible'] = False
+                row['reasons'].append('not_strictly_higher_than_source')
+    choices = sorted((row for row in rows if row['eligible']), key=priority)
     if choices:
         chosen = deepcopy(choices[0])
         chosen.update(config_sha256=config_hash, selected_at=now.isoformat(),
