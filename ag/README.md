@@ -420,8 +420,9 @@ ag autonomy status --study '<STUDY>'
 | `mechanism_scope` | 非空机理范围文本 |
 | `system_rules` | 只含 `main`、`small` 的对象，两项均为非空判定规则文本 |
 | `estimated_hours` | 正的有限数，耗时预估（小时） |
-| `attempt_limit` | 正整数，当前授权轮次的本地 Attempt 意图上限 |
+| `attempt_limit` | 正整数，本轮实际提交次数上限；旧本地意图预检也复用此值，实际 prepare 不消费次数 |
 | `valid_until` | 晚于创建时间的 Unix 时间戳（UTC 秒） |
+| `submission_policy` | 可选的结构化提交边界；实际自主提交必需，具体字段见下述开发手册 |
 
 保存的 `versions` 包含 `ag_version`、完整 `git_commit`、`dirty` 和实际安装的
 `rdkit`、`goodvibes` 版本。创建计划要求 ag 源码检出干净、提交可核验且两项依赖版本可读，
@@ -482,16 +483,17 @@ ag autonomy count --study '<STUDY>' --run '<RUN_ID>' --token '<TOKEN>' --kind re
 
 `kind` 为 `attempt`、`remedy`、`cancel` 或 `reroute`。同一请求 ID 在同次唤醒以相同内容重试仅返回确认，不重复计数；
 改内容或改运行复用请求 ID 会拒绝。`totals` 保留全部历史，`rounds` 保留逐轮计数，`runs` 保留逐次唤醒计数。
-`attempt_limit` 限制新增 `attempt` 意图及旧本地 `check --action prepare` 预检；
+`attempt_limit` 限制新增 `attempt` 意图及旧本地 `check --for-action prepare` 预检；
 实际 prepare/submit 不用这些意图数作提交预算，而核验真实消费及不可变归属。
 `finish`、再次唤醒、接管或修订计划均不重置本轮消耗。
 只有显式 `end` 后重新 `begin` 才开始新的轮次预算，旧轮次和全历史累计仍保留。
-`submit` 检查不据计数拒绝已计数的最后一个 Attempt。
+`autonomy check --for-action submit` 的旧意图预检不据意图计数拒绝已计数的最后一个 Attempt；
+实际自主提交仍执行真实消费预算及 90% 暂停核验。
 实际自主消费保存在 `state.submissions`，由提交入口与不可变归属、声明及绑定交叉核对。
 本命令不运行全机审计，JSON 仍明示 `submission_counts_verified: false`；
 不能把人工增加意图计数或本地状态显示当作实际提交或取消许可。
 
-与 T187 组合后的补救必须有正式停止及完整/不完整取回证据；无进展取消固定为
+与 T187 组合后，无进展取消的补救必须有正式停止及完整/不完整取回证据，固定为
 `no-progress` 失败类别。独立改投使用 prepare/submit 的 `--reroute-source`，
 核验原排队作业的停止记录、同对象和一次谱系，并重新核对资源、科学输入与真实预算。
 当前改投只接已审阅的 T185 阶梯评估；CREST/xTB 保留原建议顺序，尚无对应改投评估入口。
