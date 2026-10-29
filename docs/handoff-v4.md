@@ -1,7 +1,7 @@
 # 当前开发与运维交接
 
-核查日期：2026-10-29；当前已合并功能基线 `7dba69194e0093dca955b98d9220653f8dd7e038`。
-T176 已验收合并，T178 已完成 v4.7.0 发布候选的本地全量验证，最终 HEAD 审阅、CI 与前端配套单独核对；本批尚未建 tag/Release 或部署。
+核查日期：2026-10-29；当前后端正式发布 tag v4.7.0 为 `d2e6308e5f15964c363549d98e16239806650eb1`。
+两仓同号正式 Release 已发布，T178/T177 发布 PR 均已合并，最终 HEAD 独立审阅、CI 与两项实际后端配套验证通过，配套 0 跳过；本机开发环境已部署两 tag，研究机未部署。
 已合并的 21 个后端 PR 完整清单、行为和覆盖边界见 [CHANGELOG v4.7.0](../CHANGELOG.md#v470)。
 
 | 当前能力 | 依据与边界 |
@@ -25,10 +25,12 @@ T176 已验收合并，T178 已完成 v4.7.0 发布候选的本地全量验证�
 | 项目 | 当前状态 |
 | --- | --- |
 | 后端 T176 | [#371](https://github.com/anakine800-tech/Auto-Gaussian/pull/371) 合并为 `7dba69194e0093dca955b98d9220653f8dd7e038`；最终 head `e722d9887e288015ebd4630afa4ee9c1a1e485b7` 两路独立终审及五项 CI 通过，Linux 后端 6385 passed / 2 skipped、Skills 527 passed；真实非研究水包的格式/数值和公开副本审阅通过 |
-| 后端 T178 | 版本/发布清单候选；本工作树全量、扫描和最终 HEAD CI 记录见 [T178](redesign-tasks/T178-release-v4.7.0-backend.md)，合并仍由协调方按授权处理 |
-| 前端 T177 | 可并行准备；T178 合并后用其实际源码完成配套验证，再独立审阅及合并 |
-| 两仓发布合并 SHA | 尚不存在；由协调方在上述顺序完成后填入最终交接，不能使用当前功能基线占位 |
-| tag/Release 与部署 | 本批尚未执行；用户后续明确决定，升级/回退按 OPERATIONS，保留现有顺序与停止条件 |
+| 后端 T178 | [#372](https://github.com/anakine800-tech/Auto-Gaussian/pull/372) 已合并；最终 HEAD 独立审阅与 CI 通过，[T178](redesign-tasks/T178-release-v4.7.0-backend.md)保留发布前验证记录 |
+| 前端 T177 | [#51](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/51) 已合并；使用实际 T178 合并源码完成两项配套验证，均通过、0 跳过，最终 HEAD 独立审阅与 CI 通过 |
+| 两仓发布合并 SHA | 后端 `d2e6308e5f15964c363549d98e16239806650eb1`；前端 `f9c8143d4b30ff912140bcc4e2e931373754a84c`；分别为各仓 v4.7.0 固定 tag |
+| tag/Release 与部署 | [后端 Release](https://github.com/anakine800-tech/Auto-Gaussian/releases/tag/v4.7.0) 与 [前端 Release](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/releases/tag/v4.7.0) 已于 2026-10-29 正式发布。本机开发环境已部署两 tag、版本全为 4.7.0；五入口 doctor 各一次通过、首轮 21.407 秒内成功，心跳/PID、三个 HTTP 200、浏览器五卡/构建及最终独立审阅通过。研究机未部署，不自动触发部署 |
+
+本次 T180 仅收尾此既有交接页的发布状态；发布 tag 及其内的准备阶段文字、T178 等历史任务均保留，不以本次文档提交替换发布目标。上方旧部署记录仅作历史，未扩大现有验证或科学适用边界。
 
 当前入口：[T178 工单](redesign-tasks/T178-release-v4.7.0-backend.md)、[开发与验证](DEVELOPING.md)、
 [部署目标与授权适用表](OPERATIONS.md#部署目标与授权适用表)、[文档索引](README.md)。

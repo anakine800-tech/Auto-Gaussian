@@ -2,13 +2,22 @@
 
 ## v4.7.0
 
-### 发布准备状态与范围
+### 发布状态与范围
 
-**发布候选，尚未创建 tag/Release 或部署。** 功能基线为 `7dba69194e0093dca955b98d9220653f8dd7e038`；
-相对 v4.6.3 的 first-parent 清单恰为下列 21 个后端 PR，Git 合并对象与 GitHub 合并状态已逐项核对。
+**2026-10-29 两仓同号正式发布。** 发布 PR 均已合并，最终 CI 与独立审阅通过；前端已使用实际后端发布源码完成资源与请求追踪两项配套验证，均通过、0 跳过。
+
+| 发布对象 | Release / 发布 PR | 固定 tag `v4.7.0` 指向 |
+| --- | --- | --- |
+| 后端 | [Release](https://github.com/anakine800-tech/Auto-Gaussian/releases/tag/v4.7.0) · [T178 #372](https://github.com/anakine800-tech/Auto-Gaussian/pull/372) | `d2e6308e5f15964c363549d98e16239806650eb1` |
+| 配套前端 | [Release](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/releases/tag/v4.7.0) · [T177 #51](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/51) | `f9c8143d4b30ff912140bcc4e2e931373754a84c` |
+
+本机开发环境已部署上述两个 tag，后端/前端包元数据、运行时与网页版本均为 4.7.0。既有部署记录确认五入口 doctor 各一次通过、首轮 21.407 秒内成功，心跳/PID、三个 HTTP 200、浏览器五卡与构建核对及最终独立审阅通过。此摘要只覆盖该开发环境；研究机未部署，不触发其他机器更新。原始证据留在仓库外。
+
+本次 [T180 文档收尾](docs/redesign-tasks/T180-v470-published-status.md)是发布后的提交；两个 tag 及其内的准备阶段文字保持原样，历史任务不改写。
+功能基线为 `7dba69194e0093dca955b98d9220653f8dd7e038`；相对 v4.6.3 的功能 first-parent 清单恰为下列 21 个后端 PR，Git 合并对象与 GitHub 合并状态已逐项核对。
 T176 已完成独立格式/数值验收、代码审阅与最终 HEAD CI 并合并；T163 保留为历史设计，
 实际导入能力及限制以 T176 为准。T178 仅整理版本与文档，不新增产品功能。
-本次发布验证见 [T178 记录](docs/redesign-tasks/T178-release-v4.7.0-backend.md)；T177 最终配套在 T178 合并后完成。
+发布前验证过程见 [T178 记录](docs/redesign-tasks/T178-release-v4.7.0-backend.md)；最终发布与配套结果见上表 Release 及发布 PR。
 
 | 后端任务 | PR | 确切合并提交 |
 | --- | --- | --- |
@@ -34,14 +43,14 @@ T176 已完成独立格式/数值验收、代码审阅与最终 HEAD CI 并合�
 | T175 缺失分类与回执读取修复 | [#370](https://github.com/anakine800-tech/Auto-Gaussian/pull/370) | `c1a0d084fd5f53d1fb4ab15dd3c57c12ad447a8f` |
 | T176 本地 xTB Hessian 导入与 G0 来源 | [#371](https://github.com/anakine800-tech/Auto-Gaussian/pull/371) | `7dba69194e0093dca955b98d9220653f8dd7e038` |
 
-配套前端 v4.7.0 由 T177 准备，汇总已合并的 [T158 #49](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/49)
+配套前端 v4.7.0 已由 T177 完成发布准备、配套验证并合并，汇总已合并的 [T158 #49](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/49)
 默认资源、容量与具名节点反馈，以及 [T160 #50](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/50)
 CREST 诊断来源展示；两项历史功能基线为 `fa48ab1a0c0d669233a189bb5457b143d07dd798`，不代表当前前端 main。
 本批另纳入已合并的 [T179 #52](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/52)，合并提交
 `8ceda045b1aa007c9dba882f287b11b4df12b840`：前端构建工具 setuptools 精确固定为 84.1.0，
 对应 [GHSA-xmj3-9gf7-h52w](https://github.com/pypa/setuptools/security/advisories/GHSA-xmj3-9gf7-h52w) 的修复版本。
-T179 未改前端运行代码或产品版本，T178 不修改后端依赖；T177 已整合该修复，最终配套仍使用 T178 实际合并源码。
-上述提交均不是未来的 T177 发布合并 SHA。T179 的既有验证为 Python 203 passed / 2 个可选配套 skip、
+T179 未改前端运行代码或产品版本，T178 不修改后端依赖；T177 已整合该修复，并使用 T178 实际合并源码完成最终配套。
+上述功能提交与 T177 发布合并 SHA 分开记录，后者见上方发布表。T179 的既有验证为 Python 203 passed / 2 个可选配套 skip、
 浏览器 362 passed、四项 CI 通过；这些跳过不计为 T177 最终后端配套通过，也未声称做过 Windows 现场复现。
 
 ### 行为与兼容边界
@@ -57,7 +66,7 @@ T179 未改前端运行代码或产品版本，T178 不修改后端依赖；T177
 
 ### 已有验证与未覆盖范围
 
-下表引用既有执行证据；T178 本身未连接集群、部署或运行计算。功能 PR 的测试不能替代本次最终发布 HEAD 的回归和 CI。
+下表引用既有执行证据；T178 本身未连接集群、部署或运行计算。最终发布 HEAD 的回归与 CI 已通过，记录见上方发布 PR；下列覆盖边界仍保留。
 
 | 项目 | 已有证据 | 不外推的范围 |
 | --- | --- | --- |
@@ -75,8 +84,8 @@ T175 原始停止记录和受审续行保留，最终执行/测试详情见 [实
 
 1. 本版不自动迁移配置、study、catalog 或旧 Attempt，不修改既有输入、事实、哈希与签字。旧配置无 default_tier 时继续显式选档；实际资源值由负责人在本机设置。科学工作仍限已验证的主族闭壳层流程，局部数值或格式验收不扩大体系适用性。
 2. 获准升级前按 [OPERATIONS](docs/OPERATIONS.md) 保存两仓确切提交、依赖、构建、配置和服务恢复信息；核对实际导入与所有版本元数据。后续回退恢复相容配置和环境，保留新增诊断输出、报告和原始证据；旧版不能安全理解的记录不交给旧版写入，不删字段或重写哈希。既有 catalog v2 不可降级、节点/资源配置兼容要求继续适用。T176 的 analyses 与源文件原样保留；缺少该适配器的旧版不能导入或重新核验此来源，不把分析改写成 Attempt 或让旧版重写其派生记录；原 Gaussian 来源接口保持兼容。此为恢复边界，未执行现场回退。
-3. 顺序为 **T176 合并 → T178 独立审阅、最终验证并合并 → T177 使用实际 T178 合并源码完成配套验证并合并**。协调方随后记录两仓真实发布合并 SHA、版本、CI 与配套结果；本 PR 不预填未来 SHA，不用 CI 中跳过的配套用例冒充完成。
-4. 本阶段不创建 tag/Release、不部署。准备完成后仍由用户明确决定发布；两个同号 tag 只能指向各自发布 PR 的确切合并提交。运维顺序、核数阈值、首轮/心跳、停止条件和计算批准均不变。
+3. 已按 **T176 合并 → T178 独立审阅、最终验证并合并 → T177 使用实际 T178 合并源码完成配套验证并合并** 完成发布准备；两仓真实发布合并 SHA、版本、CI 与配套结果见本节开头。两项配套已实际通过、0 跳过，不以默认 CI 跳过代替。
+4. 两仓 tag/Release 已在明确授权后创建，固定指向各自发布 PR 的确切合并提交；本机开发环境已完成部署，研究机未部署。后续部署仍须具体授权；运维顺序、核数阈值、首轮/心跳、停止条件和计算批准均不变。本次文档收尾不移动 tag、不执行部署。
 
 ## v4.6.3
 
