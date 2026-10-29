@@ -10,6 +10,7 @@
 - `ag/src/ag/autonomy.py`、`_autonomy_store.py`、`autonomy_submission.py`：仅复用/扩展已定稿的归属、计数与原子暂停接口。
 - 可新增 `ag/src/ag/autonomy_cancel.py`：条件和证据核验，不创建通用编排系统。
 - `ag/src/ag/snapshot.py`、`status.py`、`route.py`：仅现有固定只读证据的绑定/读取与公共核验复用；不得新增任意远程命令。
+- 2026-10-29 负责人补充允许 `ag/src/ag/remote.py`、`slurm.py`、`transport.py`：仅固定、精确作业绑定的只读 Slurm 身份/版本/历史查询及白名单解析；`status.py` 可接入这些已获准查询。详见下方范围决定，不扩展 PBS 或取消命令。
 - `ag/tests/test_core.py`、`test_slurm.py`、`test_autonomy.py`、`test_snapshot.py`；可新增 `test_autonomy_cancel.py`，现有取消/状态专用回归若在其它文件可先报告准确路径。
 - `ag/README.md`、`docs/DEVELOPING.md`、`docs/redesign-tasks/T187-autonomous-cancel-reroute.md`。
 
@@ -69,7 +70,15 @@ PR 首行 `Task: T187`。列实际接口、不可用条件、合成回归与真�
 
 真实 SSH 报错、UNKNOWN、哈希或归属矛盾、异常结束立即停止并报告；不得以重试写操作补证据。公开 PR 仅记录脱敏结论与覆盖范围，原始输入、规则和现场证据保留在仓库外。
 
-## 调度器证据扩展建议（待协调方更新范围）
+## 调度器证据研究与范围决定
+
+2026-10-29 协调会话转达负责人明确决定：“允许补证据接口，缺证据拒绝。”
+据此新增允许路径仅为 `ag/src/ag/remote.py`、`ag/src/ag/slurm.py`、`ag/src/ag/transport.py`，
+用途仅限本节固定、精确作业绑定的只读 Slurm 身份/版本/历史查询和严格解析；回归复用原已允许测试路径。
+仅完整证据且已核实支持版本才可能获得自动改投资格；PBS、未知版本或证据不足一律不授予资格。
+必须与 T186 一次性归属保存的不可变原始实例绑定交叉核验，不事后补认旧作业。
+本决定不授权连接真实集群、现场查询、修改真实配置或取消命令，也不允许新增其他路径。
+PBS 正向支持及新配置方言不在本轮范围；下方 PBS 研究仅记录证据限制。
 
 本节只读核查现有源码、官方调度器文档与官方源码，没有连接集群，也没有实施下列新查询。
 事故依据是把重新排队的旧运行认作从未运行、把取消接受或强制 purge 认作执行节点已停止，导致重复计算。
@@ -179,16 +188,16 @@ Torque 的[job_force_cancel_time](https://docs.adaptivecomputing.com/torque/6-0-
 
 | 文件 | 精确用途 | 原工单范围 |
 | --- | --- | --- |
-| `ag/src/ag/remote.py` | 固定控制器身份/版本探针、精确作业/重复历史查询；白名单参数，不接受 shell 文本；PBS 查询仅在推进该方言时增加 | 需新增 |
-| `ag/src/ag/slurm.py` | 严格解析实际 ClusterName/服务端版本及新作业格式、实例区分、字段存在性及截断/重复/状态冲突处理 | 需新增 |
-| `ag/src/ag/transport.py` | 若增加 operation，仅登记新的固定只读类别；复用已有 jobs 类别时无需修改，不放宽取消重试 | 新 operation 时需新增 |
-| `ag/src/ag/pbs.py` | 若推进 PBS 正向支持，复用时间解析并保留方言字段存在性 | 需新增 |
-| `ag/src/ag/config.py` | 若需显式记录 PBS 方言/经过核验的版本边界；不默认所有 pbs 同能力 | 需新增 |
-| `ag/src/ag/status.py` | 独立正式证据采集，保存查询起止、原始响应/哈希、确切 owner/job/cluster；保留手动状态语义 | 路径已允许；接入新增查询仍待范围扩展 |
+| `ag/src/ag/remote.py` | 固定控制器身份/版本探针、精确 Slurm 作业/重复历史查询；白名单参数，不接受 shell 文本 | 新增已允许，仅 Slurm |
+| `ag/src/ag/slurm.py` | 严格解析实际 ClusterName/服务端版本及新作业格式、实例区分、字段存在性及截断/重复/状态冲突处理 | 新增已允许 |
+| `ag/src/ag/transport.py` | 若增加 operation，仅登记新的固定只读类别；复用已有 jobs 类别时无需修改，不放宽取消重试 | 新增已允许，仅上述只读范围 |
+| `ag/src/ag/pbs.py` | PBS 方言正向支持所需字段存在性；时间解析可先复用现有函数 | 未允许，本轮不推进 |
+| `ag/src/ag/config.py` | 显式 PBS 方言/经过核验的版本边界 | 未允许，本轮不推进 |
+| `ag/src/ag/status.py` | 独立正式证据采集，保存查询起止、原始响应/哈希、确切 owner/job/cluster；保留手动状态语义 | 已允许，含上述新增只读查询接入 |
 | `ag/src/ag/submission.py`、`autonomy_submission.py` | 与 T186 定稿归属一起保存不可变原始调度器实例和时间，不补认旧记录、不先建另一套归属模型 | 路径已允许；等待 T186 定稿接口 |
 | `ag/src/ag/autonomy_cancel.py` | 证据消费、六小时/从未运行/取消后终止判断及拒绝；实际消费调用 T186 | 已允许 |
 | `ag/tests/test_slurm.py`、`test_core.py`、`test_autonomy_cancel.py` | 固定命令与参数、requeue/同号复用、历史缺失、读写间启动、COMPLETING、版本不支持、错归属 | 已允许 |
-| `ag/tests/test_pbs.py`、`test_remote_observation.py`、`test_incomplete_fetch.py`、`test_pbs_arrays.py` | 若 PBS 查询改变，覆盖方言/时间、强制终态、旧观察/取回/数组拒绝兼容 | 需新增 |
+| `ag/tests/test_pbs.py`、`test_remote_observation.py`、`test_incomplete_fetch.py`、`test_pbs_arrays.py` | PBS 查询改变时的兼容回归 | 未允许，本轮不改 |
 
 原始记录必须保留查询操作、版本/方言、完整身份、字段缺失状态、查询起止、退出码及 stdout/stderr 哈希。
 代码中的正向资格仍需合并前非研究对象真实验证；官方文档和离线合成响应不证明实际集群已具备这些能力。
