@@ -223,7 +223,17 @@ Gaussian route 采用有限正向语法：显式受支持方法和内置基组�
 返回确切输入/bundle 哈希与 `checkpoint_dependency: false` 仅证明这份严格程序输入无 chk 读取路径，
 `reroute_authorized` 始终为 false；新资源、路由、执行资格及新提交仍须独立核验。
 
-T186 一次性自主归属/规则与取消消费、T185 路由、从未运行/终止证据尚未接入，
+`status.capture_slurm_evidence(...)` 是独立正式采集入口：要求现代 Slurm 提交绑定及原有实际集群名，
+不补写旧 submission。固定读取 controller config、scontrol/sacct 客户端版本、带 duplicates 的同号记账，
+最后读取控制器作业；查询固定 UTC/英文及单集群，清除会改变视图的环境变量。parser 对实例、字段存在性、
+固定格式和截断严格核验，拒绝数组、heterogeneous 和联邦记录，不把缺开始/重启字段当作零。
+采集只接受 26.05.5 的候选版本组合，尚未证明实际控制器/DBD/执行节点组合可靠；版本符合也不产生自动资格。
+`scheduler-observations/<UTC时间>/` 独占保存每项查询的操作/文本/起止、退出码和 stdout/stderr 原文及哈希；
+捕获结果重新核验绑定，任何失败保存不完整记录并停止。首次 SSH 错误不重试，不更新 status、journal、outputs
+或归属。普通只读重试与手动取消行为不变。返回 `complete` 只表示采集解析完成，`reroute_authorized` 始终 false。
+原始文本含私有配置内容，不放入公开 PR；此记录不能代替 T186 提交时保存的初始 SLUID/身份或本轮授权。
+
+T186 一次性自主归属/规则与取消消费、T185 路由、从未运行/终止的最终资格判断尚未接入，
 没有实际自主取消或改投入口。完整工单与未授权的合并前真实验证矩阵见
 [T187](redesign-tasks/T187-autonomous-cancel-reroute.md)；不得将此证据切片写成该工单全部完成。
 

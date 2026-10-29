@@ -6,9 +6,9 @@ import os
 
 import pytest
 
-from ag import attempt, autonomy as a, autonomy_cancel as evidence, cli, snapshot, state, submission
+from ag import attempt, autonomy as a, autonomy_cancel as evidence, cli, config, remote, snapshot, state, status, submission
 from ag import _autonomy_store as disk
-from ag.transport import TransportError
+from ag.transport import Result, SSHConnectionError, SSHTransport, TransportError
 from test_core import cfg, prepared, seed_submission  # noqa: F401
 from test_autonomy import spec, VERSIONS
 from test_snapshot import Fake
@@ -647,3 +647,324 @@ def test_removed_parent_tag_does_not_hide_oldchk_bytes(context):
     rebind_synthetic_manifest(path, lambda m: m.update(inputs=records, bundle_sha256=sha))
     with pytest.raises(ValueError, match='oldchk requires'):
         evidence.checkpoint_free_input(path)
+
+
+@pytest.fixture
+def scheduler_attempt(multi, tmp_path):
+    from test_slurm import prepare
+    path, manifest = prepare(multi, tmp_path)
+    state.write(path, 'submitting')
+    submission.record(path, manifest, '123', scheduler_cluster='fixture')
+    state.write(path, 'submitted', job_id='batch:123')
+    return multi, path, manifest
+
+
+class NoSchedulerCalls:
+    def run(self, command):
+        pytest.fail('Invalid local evidence must be rejected before a scheduler query')
+
+
+@pytest.mark.parametrize('cluster', [None, '', 'all', 'ALL', 'fixture,other'])
+def test_scheduler_capture_cannot_retrofit_missing_or_broad_original_cluster(scheduler_attempt, cluster):
+    cfg, path, _ = scheduler_attempt
+    target = path / 'submission.json'
+    record = json.loads(target.read_text())
+    record['scheduler_cluster'] = cluster
+    target.write_text(json.dumps(record))
+    before = target.read_bytes()
+    with pytest.raises(ValueError):
+        status.capture_slurm_evidence(cfg, path, NoSchedulerCalls())
+    assert target.read_bytes() == before
+    assert not (path / 'scheduler-observations').exists()
+
+
+@pytest.mark.parametrize('damage', ['unknown', 'wrong-job', 'wrong-cluster', 'missing-submission'])
+def test_scheduler_capture_rejects_uncertain_or_mismatched_binding_before_query(scheduler_attempt, damage):
+    cfg, path, _ = scheduler_attempt
+    target = path / ('submission.json' if damage in ('wrong-cluster', 'missing-submission') else 'status.json')
+    if damage == 'missing-submission':
+        target.unlink()
+    else:
+        value = json.loads(target.read_text())
+        value.update({'state': 'unknown'} if damage == 'unknown' else
+                     {'job_id': 'batch:456'} if damage == 'wrong-job' else {'cluster': 'default'})
+        target.write_text(json.dumps(value))
+    with pytest.raises((ValueError, FileNotFoundError)):
+        status.capture_slurm_evidence(cfg, path, NoSchedulerCalls())
+    assert not (path / 'scheduler-observations').exists()
+
+
+def test_scheduler_capture_refuses_pbs_without_changing_lifecycle(context):
+    cfg, path, _, _ = context
+    before = {p: p.read_bytes() for p in path.parent.parent.rglob('*') if p.is_file()}
+    with pytest.raises(ValueError, match='Slurm observations only'):
+        status.capture_slurm_evidence(cfg, path, NoSchedulerCalls())
+    assert {p: p.read_bytes() for p in path.parent.parent.rglob('*') if p.is_file()} == before
+
+
+@pytest.mark.parametrize('redirect', ['parent-symlink', 'timestamp-collision'])
+def test_scheduler_capture_does_not_follow_or_overwrite_observation_directories(
+        scheduler_attempt, tmp_path, monkeypatch, redirect):
+    cfg, path, _ = scheduler_attempt
+    directory = path / 'scheduler-observations'
+    if redirect == 'parent-symlink':
+        destination = tmp_path / 'unrelated'
+        destination.mkdir()
+        directory.symlink_to(destination, target_is_directory=True)
+    else:
+        instant = 1790000000.0
+        monkeypatch.setattr(status.time, 'time', lambda: instant)
+        name = datetime.fromtimestamp(instant, status.timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
+        destination = directory / name
+        destination.mkdir(parents=True)
+    marker = destination / 'preserved.txt'
+    marker.write_bytes(b'Original local evidence')
+    with pytest.raises((ValueError, OSError)):
+        status.capture_slurm_evidence(cfg, path, NoSchedulerCalls())
+    assert list(destination.iterdir()) == [marker]
+    assert marker.read_bytes() == b'Original local evidence'
+
+
+class SchedulerEvidenceFake:
+    def __init__(self, manifest):
+        from test_slurm import EVIDENCE_CONFIG, EVIDENCE_HISTORY, EVIDENCE_JOB
+        self.commands = [remote.slurm_evidence_config(), remote.slurm_evidence_version('scontrol'),
+                         remote.slurm_evidence_version('sacct'),
+                         remote.slurm_evidence_history('123', 'fixture'),
+                         remote.slurm_evidence_job('123', 'fixture')]
+        self.responses = [Result(stdout=text) for text in (
+            EVIDENCE_CONFIG, 'slurm 26.05.5\n', 'slurm 26.05.5\n',
+            EVIDENCE_HISTORY.replace('water-001-sp', manifest['attempt_id']),
+            EVIDENCE_JOB.replace('water-001-sp', manifest['attempt_id']))]
+        self.calls = []
+
+    def run(self, command):
+        assert command == self.commands[len(self.calls)]
+        self.calls.append(command)
+        response = self.responses[len(self.calls) - 1]
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+
+def scheduler_observation(path):
+    records = list((path / 'scheduler-observations').glob('*/observation.json'))
+    assert len(records) == 1
+    return records[0].parent, disk.decode(records[0].read_bytes())
+
+
+def lifecycle_bytes(path):
+    return {p: p.read_bytes() for p in path.parent.parent.rglob('*')
+            if p.is_file() and 'scheduler-observations' not in p.parts}
+
+
+@pytest.mark.parametrize('restarts', [0, 1])
+def test_scheduler_capture_saves_fixed_queries_and_bytes_without_granting_eligibility(
+        scheduler_attempt, restarts):
+    cfg, path, manifest = scheduler_attempt
+    fake = SchedulerEvidenceFake(manifest)
+    fake.responses[3].stdout = fake.responses[3].stdout.replace('|PENDING|0|', f'|PENDING|{restarts}|')
+    fake.responses[4].stdout = fake.responses[4].stdout.replace('Restarts=0 ', f'Restarts={restarts} ')
+    before = lifecycle_bytes(path)
+    result = status.capture_slurm_evidence(cfg, path, fake)
+    directory, saved = scheduler_observation(path)
+    assert result == dict(saved, observation_sha256=evidence.digest((directory / 'observation.json').read_bytes()))
+    assert saved['complete'] is True and saved['reroute_authorized'] is False
+    assert saved['binding'] == evidence.bound_attempt(path)
+    assert saved['scheduler_cluster'] == 'fixture' and saved['binding']['cluster'] == 'batch'
+    assert saved['controller']['state'] == 'PENDING'
+    assert saved['controller']['restarts'] == saved['history'][0]['restarts'] == restarts
+    assert saved['matched_db_index'] == saved['history'][0]['db_index'] == int(fake.responses[3].stdout.split('|')[4])
+    assert fake.calls == fake.commands
+    assert [entry['label'] for entry in saved['queries']] == [
+        'config', 'scontrol-version', 'sacct-version', 'history', 'job']
+    previous = saved['capture_started_at']
+    for entry, command, response in zip(saved['queries'], fake.commands, fake.responses):
+        assert entry['operation'] == command.operation and entry['command'] == command.text
+        assert previous <= entry['started_at'] <= entry['finished_at'] <= saved['capture_finished_at']
+        previous = entry['finished_at']
+        assert entry['returncode'] == 0
+        for stream in ('stdout', 'stderr'):
+            expected = getattr(response, stream).encode('utf-8')
+            output = directory / entry[stream]['file']
+            assert output.read_bytes() == expected
+            assert entry[stream]['sha256'] == evidence.digest(expected)
+            assert entry[stream]['size'] == len(expected)
+            assert output.stat().st_mode & 0o777 == 0o600
+    assert directory.stat().st_mode & 0o777 == 0o700
+    assert lifecycle_bytes(path) == before
+    assert not (path / '.cancel-claim').exists()
+
+
+@pytest.mark.parametrize('stage', range(5))
+@pytest.mark.parametrize('failure', ['nonzero', 'diagnostics'])
+def test_scheduler_capture_preserves_failed_response_and_stops_queries(scheduler_attempt, stage, failure):
+    cfg, path, manifest = scheduler_attempt
+    fake = SchedulerEvidenceFake(manifest)
+    fake.responses[stage] = Result(17 if failure == 'nonzero' else 0,
+                                   stdout='Synthetic partial response\n', stderr='Synthetic diagnostic\n')
+    before = lifecycle_bytes(path)
+    with pytest.raises(ValueError, match='inspect preserved'):
+        status.capture_slurm_evidence(cfg, path, fake)
+    directory, saved = scheduler_observation(path)
+    assert len(fake.calls) == len(saved['queries']) == stage + 1
+    assert saved['complete'] is False and saved['reroute_authorized'] is False
+    failed = saved['queries'][-1]
+    assert failed['returncode'] == fake.responses[stage].returncode
+    for stream in ('stdout', 'stderr'):
+        data = getattr(fake.responses[stage], stream).encode('utf-8')
+        assert (directory / failed[stream]['file']).read_bytes() == data
+        assert failed[stream]['sha256'] == evidence.digest(data)
+    assert lifecycle_bytes(path) == before
+
+
+@pytest.mark.parametrize('stage', [0, 1, 2])
+def test_scheduler_capture_requires_exact_controller_and_client_version_combination(scheduler_attempt, stage):
+    cfg, path, manifest = scheduler_attempt
+    fake = SchedulerEvidenceFake(manifest)
+    fake.responses[stage].stdout = fake.responses[stage].stdout.replace('26.05.5', '26.05.4')
+    with pytest.raises(ValueError, match='inspect preserved'):
+        status.capture_slurm_evidence(cfg, path, fake)
+    _, saved = scheduler_observation(path)
+    assert len(fake.calls) == 3
+    assert saved['complete'] is False and saved['reroute_authorized'] is False
+    assert '26.05.4' in saved['versions'].values()
+
+
+@pytest.mark.parametrize('damage,expected_queries', [
+    ('different-controller', 1), ('missing-history', 4), ('wrong-history-job', 4),
+    ('wrong-controller-job', 5), ('conflicting-owner', 5),
+])
+def test_scheduler_capture_stops_on_missing_or_conflicting_identity(scheduler_attempt, damage, expected_queries):
+    cfg, path, manifest = scheduler_attempt
+    fake = SchedulerEvidenceFake(manifest)
+    if damage == 'different-controller':
+        fake.responses[0].stdout = fake.responses[0].stdout.replace('fixture', 'other')
+    elif damage == 'missing-history':
+        fake.responses[3].stdout = ''
+    elif damage == 'wrong-history-job':
+        fake.responses[3].stdout = fake.responses[3].stdout.replace('|123|', '|456|')
+    elif damage == 'wrong-controller-job':
+        fake.responses[4].stdout = fake.responses[4].stdout.replace('JobId=123 ', 'JobId=456 ')
+    else:
+        fake.responses[4].stdout = fake.responses[4].stdout.replace('UserId=fixture(1001)', 'UserId=fixture(1002)')
+    before = lifecycle_bytes(path)
+    with pytest.raises(ValueError, match='inspect preserved'):
+        status.capture_slurm_evidence(cfg, path, fake)
+    _, saved = scheduler_observation(path)
+    assert len(fake.calls) == expected_queries
+    assert saved['complete'] is False and saved['reroute_authorized'] is False
+    assert lifecycle_bytes(path) == before
+
+
+@pytest.mark.parametrize('conflict', ['missing-current-sluid', 'restarts', 'submit', 'completing-after-cancel'])
+def test_scheduler_capture_rejects_cross_source_instance_and_state_conflicts(scheduler_attempt, conflict):
+    cfg, path, manifest = scheduler_attempt
+    fake = SchedulerEvidenceFake(manifest)
+    if conflict == 'missing-current-sluid':
+        fake.responses[4].stdout = fake.responses[4].stdout.replace('SLUID=s0123456789ABC ', 'SLUID=s0123456789ABD ')
+    elif conflict == 'restarts':
+        fake.responses[3].stdout = fake.responses[3].stdout.replace('|PENDING|0|', '|PENDING|1|')
+    elif conflict == 'submit':
+        fake.responses[3].stdout = fake.responses[3].stdout.replace('2026-01-01T00:00:00', '2026-01-02T00:00:00')
+    else:
+        fake.responses[3].stdout = fake.responses[3].stdout.replace('|PENDING|', '|CANCELLED|')
+        fake.responses[4].stdout = fake.responses[4].stdout.replace('JobState=PENDING ', 'JobState=COMPLETING ')
+    before = lifecycle_bytes(path)
+    with pytest.raises(ValueError, match='inspect preserved') as failure:
+        status.capture_slurm_evidence(cfg, path, fake)
+    directory, saved = scheduler_observation(path)
+    assert len(fake.calls) == len(saved['queries']) == 5
+    assert 'instance or state conflict' in str(failure.value.__cause__)
+    assert saved['complete'] is False and saved['reroute_authorized'] is False
+    for index in (3, 4):
+        assert (directory / saved['queries'][index]['stdout']['file']).read_text() == fake.responses[index].stdout
+    assert lifecycle_bytes(path) == before
+
+
+def test_scheduler_capture_rechecks_binding_after_last_query(scheduler_attempt):
+    cfg, path, manifest = scheduler_attempt
+
+    class ChangedBinding(SchedulerEvidenceFake):
+        def run(self, command):
+            response = super().run(command)
+            if command.operation == 'slurm_evidence_job':
+                target = path / 'submission.json'
+                record = json.loads(target.read_text())
+                record['scheduler_cluster'] = 'other'
+                target.write_text(json.dumps(record))
+            return response
+
+    fake = ChangedBinding(manifest)
+    with pytest.raises(ValueError, match='inspect preserved'):
+        status.capture_slurm_evidence(cfg, path, fake)
+    _, saved = scheduler_observation(path)
+    assert len(fake.calls) == 5
+    assert saved['complete'] is False and saved['reroute_authorized'] is False
+    assert not (path / '.cancel-claim').exists()
+
+
+@pytest.mark.parametrize('failure', ['ssh-255', 'connection-error'])
+def test_scheduler_capture_real_transport_stops_first_error_without_lifecycle_annotation(
+        scheduler_attempt, monkeypatch, failure):
+    cfg, path, _ = scheduler_attempt
+    transport = SSHTransport(config.select_cluster(cfg, 'batch'), read_only=True)
+    transport.record_to([path])  # Simulate a transport reused after status().
+    calls = []
+
+    def execute(argv, timeout):
+        calls.append(argv)
+        if failure == 'connection-error':
+            raise SSHConnectionError('Synthetic connection error')
+        return Result(255, stdout='Synthetic partial response\n', stderr='Synthetic connection error')
+
+    monkeypatch.setattr(transport, '_execute', execute)
+    monkeypatch.setattr(status.time, 'sleep', lambda seconds: pytest.fail('Formal evidence must not retry'))
+    before = lifecycle_bytes(path)
+    with pytest.raises(ValueError, match='inspect preserved'):
+        status.capture_slurm_evidence(cfg, path, transport)
+    directory, saved = scheduler_observation(path)
+    assert len(calls) == len(saved['queries']) == 1
+    assert saved['complete'] is False and saved['reroute_authorized'] is False
+    if failure == 'ssh-255':
+        assert saved['queries'][0]['returncode'] == 255
+        assert (directory / saved['queries'][0]['stdout']['file']).read_bytes() == b'Synthetic partial response\n'
+    else:
+        assert saved['queries'][0]['error_type'] == 'SSHConnectionError'
+    assert lifecycle_bytes(path) == before
+
+
+def test_scheduler_capture_rejects_future_submit_time_but_preserves_reason(scheduler_attempt):
+    cfg, path, manifest = scheduler_attempt
+    fake = SchedulerEvidenceFake(manifest)
+    for index in (3, 4):
+        fake.responses[index].stdout = fake.responses[index].stdout.replace('2026-01-01', '2099-01-01')
+    before = lifecycle_bytes(path)
+    with pytest.raises(ValueError, match='inspect preserved'):
+        status.capture_slurm_evidence(cfg, path, fake)
+    _, saved = scheduler_observation(path)
+    assert saved['complete'] is False and saved['reroute_authorized'] is False
+    assert 'submit time is in the future' in saved['error']
+    assert len(saved['queries']) == 5 and lifecycle_bytes(path) == before
+
+
+def test_pending_future_start_is_not_interpreted_as_execution(scheduler_attempt):
+    cfg, path, manifest = scheduler_attempt
+    fake = SchedulerEvidenceFake(manifest)
+    fake.responses[4].stdout = fake.responses[4].stdout.replace(
+        'StartTime=Unknown', 'StartTime=2099-01-01T00:00:00')
+    result = status.capture_slurm_evidence(cfg, path, fake)
+    assert result['complete'] is True and result['reroute_authorized'] is False
+    assert result['controller']['start'] == '2099-01-01T00:00:00+00:00'
+    assert result['history'][0]['start'] is None
+
+
+def test_final_clock_regression_keeps_failure_reason(scheduler_attempt, monkeypatch):
+    cfg, path, manifest = scheduler_attempt
+    ticks = iter([1800000000] * 11 + [1799999999, 1800000000])
+    monkeypatch.setattr(status.time, 'time', lambda: next(ticks))
+    with pytest.raises(ValueError, match='inspect preserved'):
+        status.capture_slurm_evidence(cfg, path, SchedulerEvidenceFake(manifest))
+    _, saved = scheduler_observation(path)
+    assert saved['complete'] is False and saved['error_type'] == 'ValueError'
+    assert saved['error'] == 'Clock moved backwards after scheduler observation'

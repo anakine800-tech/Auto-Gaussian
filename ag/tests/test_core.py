@@ -1,7 +1,9 @@
 """Offline lifecycle tests. All remote effects use the recording fake below."""
 from hashlib import sha256
 import json
+import os
 from pathlib import Path
+import shlex
 import subprocess
 import sys
 import threading
@@ -583,6 +585,41 @@ def test_read_connection_retry_once_after_15_seconds(cfg, monkeypatch, operation
     assert events == ['execute', 15, 'execute']
 
 
+@pytest.mark.parametrize('operation', [
+    remote.slurm_evidence_config, lambda: remote.slurm_evidence_version('scontrol'),
+    lambda: remote.slurm_evidence_version('sacct'),
+    lambda: remote.slurm_evidence_job('123', 'Synthetic_Cluster'),
+    lambda: remote.slurm_evidence_history('123', 'Synthetic_Cluster'),
+])
+@pytest.mark.parametrize('failure', ['exit_255', 'connection_exception'])
+def test_slurm_evidence_records_first_connection_failure_without_retry(cfg, monkeypatch, operation, failure):
+    from ag.transport import SSHConnectionError
+    calls, failures = [], []
+    transport = SSHTransport(cfg, read_only=True)
+    command = operation()
+
+    def execute(*args):
+        calls.append('execute')
+        if failure == 'connection_exception':
+            raise SSHConnectionError('Synthetic connection timeout')
+        return Result(255, '', 'connection closed')
+
+    monkeypatch.setattr(transport, '_execute', execute)
+    monkeypatch.setattr(transport, '_record_failure', failures.append)
+    monkeypatch.setattr('ag.transport.time.sleep', lambda s: pytest.fail('formal evidence must not retry'))
+    if failure == 'connection_exception':
+        with pytest.raises(SSHConnectionError, match='Synthetic connection timeout'):
+            transport.run(command)
+    else:
+        assert transport.run(command).returncode == 255
+    assert calls == ['execute'] and len(failures) == 1
+    rows = [json.loads(line) for path in (Path(cfg['_config_dir']) / 'ssh-log').glob('*.jsonl')
+            for line in path.read_text().splitlines()]
+    assert len(rows) == 1
+    assert rows[0]['operation'] == command.operation and rows[0]['attempt'] == 1
+    assert rows[0]['outcome'] == ('timeout' if failure == 'connection_exception' else 'exit')
+
+
 def test_second_connection_failure_stops(cfg, monkeypatch):
     calls = []
     transport = SSHTransport(cfg, read_only=True)
@@ -627,11 +664,12 @@ def test_read_command_errors_are_not_retried(cfg, monkeypatch, code):
     assert calls == ['execute']
 
 
-@pytest.mark.parametrize('operation', ['identity', 'mkdir', 'qsub', 'qdel'])
+@pytest.mark.parametrize('operation', ['identity', 'mkdir', 'qsub', 'qdel', 'scancel'])
 def test_submit_cancel_transport_never_retries_even_reads(cfg, prepared, monkeypatch, operation):
     _, m = prepared
     command = {'identity': remote.identity(), 'mkdir': remote.create_attempt(cfg, m),
-               'qsub': remote.submit(cfg, m), 'qdel': remote.cancel('123.fixture')}[operation]
+               'qsub': remote.submit(cfg, m), 'qdel': remote.cancel('123.fixture'),
+               'scancel': remote.slurm_cancel('123')}[operation]
     calls = []
     t = SSHTransport(cfg)
     monkeypatch.setattr(t, '_execute', lambda *a: calls.append('execute') or Result(255))
@@ -655,7 +693,8 @@ def test_read_only_transport_refuses_writes(cfg, prepared, monkeypatch):
     p, m = prepared
     t = SSHTransport(cfg, read_only=True)
     monkeypatch.setattr(t, '_execute', lambda *a: pytest.fail('must not launch'))
-    for command in (remote.submit(cfg, m), remote.cancel('123.fixture'), remote.create_attempt(cfg, m)):
+    for command in (remote.submit(cfg, m), remote.cancel('123.fixture'),
+                    remote.slurm_cancel('123'), remote.create_attempt(cfg, m)):
         with pytest.raises(ValueError): t.run(command)
     with pytest.raises(ValueError): t.upload(p / 'inputs/water.gjf', m, 'water.gjf')
 
@@ -730,3 +769,80 @@ def seed_submission(path):
     m = attempt.read_manifest(path)
     submission.record(path, m, '123.fixture')
     return state.write(path, 'submitted', job_id=submission.qualified(m, '123.fixture'))
+
+
+def test_slurm_evidence_fixed_commands():
+    from ag.transport import READ_OPERATIONS
+    environment = ['env', '-u', 'SLURM_CLUSTERS']
+    locale = ['LC_ALL=C', 'TZ=UTC', 'SLURM_TIME_FORMAT=standard']
+    scontrol = environment + ['-u', 'SCONTROL_SIB', '-u', 'SCONTROL_SIBLING'] + locale
+    sacct = environment + locale
+    commands = [
+        (remote.slurm_evidence_config(), 'slurm_evidence_config',
+         scontrol + ['scontrol', '--local', 'show', 'config']),
+        (remote.slurm_evidence_version('scontrol'), 'slurm_evidence_version',
+         scontrol + ['scontrol', '--version']),
+        (remote.slurm_evidence_version('sacct'), 'slurm_evidence_version',
+         sacct + ['sacct', '--version']),
+        (remote.slurm_evidence_job('123', 'Synthetic_Cluster'), 'slurm_evidence_job',
+         scontrol + ['scontrol', '--local', '--clusters=Synthetic_Cluster',
+                     '--oneliner', '--details', 'show', 'job', '123']),
+        (remote.slurm_evidence_history('123', 'Synthetic_Cluster'), 'slurm_evidence_history',
+         sacct + ['sacct', '--local', '--clusters=Synthetic_Cluster', '-X', '--duplicates', '-n', '-P',
+                  '--jobs=123', '--format=Cluster%256,JobIDRaw%64,JobName%200,UID%20,DBIndex%32,'
+                  'Submit%32,Start%32,End%32,State%64,Restarts%20,SLUID%64,OriginalSLUID%64']),
+    ]
+    for command, operation, expected in commands:
+        assert command.operation == operation and operation in READ_OPERATIONS
+        assert shlex.split(command.text) == expected
+    assert 'cancel' not in READ_OPERATIONS
+
+
+@pytest.mark.parametrize('job', ['', '0', '01', '1,2', '123.batch', '123_1', '123+1',
+                                 '1;true', '1\n', '$(true)', '１２３', None, 123, True])
+def test_slurm_evidence_refuses_nonexact_job_ids(job):
+    for command in (remote.slurm_evidence_job, remote.slurm_evidence_history):
+        with pytest.raises(ValueError):
+            command(job, 'synthetic')
+
+
+@pytest.mark.parametrize('cluster', ['', 'all', 'ALL', 'All', '-1', 'a,b', 'a b', 'a\n',
+                                     'a;true', '$(true)', 'a/b', '*', None, 123, True])
+def test_slurm_evidence_refuses_multiple_or_unsafe_clusters(cluster):
+    for command in (remote.slurm_evidence_job, remote.slurm_evidence_history):
+        with pytest.raises(ValueError):
+            command('123', cluster)
+
+
+@pytest.mark.parametrize('program', ['scancel', 'squeue', 'scontrol --local', 'sacct;true',
+                                     '/usr/bin/sacct', 'sacct\n', None, 123])
+def test_slurm_evidence_version_refuses_other_programs(program):
+    with pytest.raises(ValueError):
+        remote.slurm_evidence_version(program)
+
+
+@pytest.mark.parametrize('command,program', [
+    (remote.slurm_evidence_config(), 'scontrol'),
+    (remote.slurm_evidence_version('scontrol'), 'scontrol'),
+    (remote.slurm_evidence_version('sacct'), 'sacct'),
+    (remote.slurm_evidence_job('123', 'synthetic'), 'scontrol'),
+    (remote.slurm_evidence_history('123', 'synthetic'), 'sacct'),
+])
+def test_slurm_evidence_environment_is_fixed(tmp_path, command, program):
+    # Only this inert local executable runs; there is no Slurm or SSH process.
+    executable = tmp_path / program
+    executable.write_text('#!/bin/sh\n'
+                          'printf "%s\\n" "${SLURM_CLUSTERS-unset}" '
+                          '"${SCONTROL_SIB-unset}" "${SCONTROL_SIBLING-unset}" '
+                          '"$LC_ALL" "$TZ" "$SLURM_TIME_FORMAT" "$@"\n')
+    executable.chmod(0o700)
+    environment = dict(os.environ, PATH=str(tmp_path) + os.pathsep + os.environ['PATH'],
+                       SLURM_CLUSTERS='other,all', SCONTROL_SIB='1', SCONTROL_SIBLING='1',
+                       LC_ALL='C', TZ='Etc/GMT+8', SLURM_TIME_FORMAT='relative', SACCT_FORMAT='JobID')
+    result = subprocess.run(shlex.split(command.text), env=environment, capture_output=True,
+                            text=True, check=True)
+    sibling = 'unset' if program == 'scontrol' else '1'
+    lines = result.stdout.splitlines()
+    assert lines[:6] == ['unset', sibling, sibling, 'C', 'UTC', 'standard']
+    argv = shlex.split(command.text)
+    assert lines[6:] == argv[argv.index(program) + 1:]

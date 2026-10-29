@@ -296,6 +296,48 @@ def slurm_token(value):
     return value
 
 
+_SLURM_EVIDENCE_ENV = 'env -u SLURM_CLUSTERS LC_ALL=C TZ=UTC SLURM_TIME_FORMAT=standard '
+# SCONTROL_SIB is an older alias. Both set SHOW_SIBLING even with --local;
+# inherited interactive preferences must not change the exact evidence query.
+_SCONTROL_EVIDENCE_ENV = ('env -u SLURM_CLUSTERS -u SCONTROL_SIB -u SCONTROL_SIBLING '
+                         'LC_ALL=C TZ=UTC SLURM_TIME_FORMAT=standard ')
+
+
+def _slurm_evidence_cluster(cluster):
+    cluster = slurm_token(cluster)
+    if cluster.lower() == 'all':
+        raise ValueError('Expected one actual Slurm cluster')
+    return cluster
+
+
+def slurm_evidence_config():
+    return Command('slurm_evidence_config',
+                   _SCONTROL_EVIDENCE_ENV + 'scontrol --local show config')
+
+
+def slurm_evidence_version(program):
+    if program not in ('scontrol', 'sacct'):
+        raise ValueError('Expected scontrol or sacct')
+    environment = _SCONTROL_EVIDENCE_ENV if program == 'scontrol' else _SLURM_EVIDENCE_ENV
+    return Command('slurm_evidence_version', environment + program + ' --version')
+
+
+def slurm_evidence_job(job, cluster):
+    job, cluster = slurm_job_id(job), _slurm_evidence_cluster(cluster)
+    return Command('slurm_evidence_job', _SCONTROL_EVIDENCE_ENV +
+                   f'scontrol --local --clusters={quote(cluster)} --oneliner --details show job {job}')
+
+
+def slurm_evidence_history(job, cluster):
+    job, cluster = slurm_job_id(job), _slurm_evidence_cluster(cluster)
+    # --jobs without --state uses the retained history from epoch through now.
+    # Never hide requeues or job-number reuse behind sacct's newest-row default.
+    return Command('slurm_evidence_history', _SLURM_EVIDENCE_ENV +
+                   f'sacct --local --clusters={quote(cluster)} -X --duplicates -n -P --jobs={job} '
+                   '--format=Cluster%256,JobIDRaw%64,JobName%200,UID%20,DBIndex%32,'
+                   'Submit%32,Start%32,End%32,State%64,Restarts%20,SLUID%64,OriginalSLUID%64')
+
+
 def slurm_jobs(job=None, *, user=None):
     if (job is None) == (user is None):
         raise ValueError('Expected one exact job or user selector')

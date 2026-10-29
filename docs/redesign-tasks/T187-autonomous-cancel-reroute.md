@@ -40,6 +40,7 @@ PR 首行 `Task: T187`。列实际接口、不可用条件、合成回归与真�
 - `snapshot.capture_for_run(...)` 复用既有正式快照捕获，并将 round/run、确切 Attempt/作业/集群、manifest/submission 与快照文件哈希登记到自主日志。普通 `ag snapshot` 保持原行为；捕获本身不授权取消。
 - `autonomy_cancel.review_no_progress(...)` 为纯本地核验接口：检查连续两个不同唤醒的正式快照来源、顺序、字节及模型对每份快照给出的审阅理由。代码不设科学停滞阈值，也不把模型布尔标签当成来源证据；审阅结果不授予执行资格。
 - `autonomy_cancel.checkpoint_free_input(...)` 从冻结 bundle 核验有限严格输入没有 chk 读取路径，返回输入哈希联系；Guess、IRC、读取/重启项、未知语法和放宽输入均拒绝证明。拒绝不等于认定存在依赖，也不改变 prepare 支持范围；结果始终不授予改投资格。
+- `status.capture_slurm_evidence(...)` 通过获准固定只读命令保存正式调度器观察。必须使用 submission 原有实际集群名，版本限定仅是格式候选；保存原始响应、哈希和查询时间并严格解析，首次错误停止，不补建原始实例或授予资格。
 - 本次没有实际自主取消、改投、替代 Attempt prepare/submit 入口，不复制未合并的 T185/T186 代码。原手动取消的 Mac 确认与不可重试声明保持原行为。
 
 当前实际阻塞属于**提交**与**环境验证**：
@@ -48,12 +49,28 @@ PR 首行 `Task: T187`。列实际接口、不可用条件、合成回归与真�
 | --- | --- |
 | T186 实际自主提交归属 | 现有 submission/status/manifest 可核对确切作业，但不能证明由当前授权轮次的有效自主规则实际提交。必须接入定稿的一次性归属、有效规则及同轮身份，不能用手动 policy 或本地意图计数代替。 |
 | 消费、暂停与在途取消 | T184 记录本地意图；取消前的原子消费、每唤醒最多两个、谱系改投最多一次、失败或崩溃不返还、失锁及结果不确定时原子暂停均待执行入口接入。短本地互斥不得包住网络 IO，已发出的取消不能宣称可撤回。 |
-| 从未运行与排队六小时 | 当前固定 Slurm 查询没有完整开始/重启历史；PBS 状态记录也未保留足以证明从未运行的调度器历史。未见 running、当前排队、elapsed 为零或缺开始回执均不足。现阶段不得输出改投资格；扩展证据须先确定语义与允许范围。 |
+| 从未运行与排队六小时 | 新固定 Slurm 查询保存控制器与重复记账原始响应，原始实例绑定和最终资格判断仍待 T186 接入及真实验证。未见 running、当前排队、elapsed 为零或缺开始回执均不足；PBS 证据不足拒绝。 |
 | 无 chk 依赖 | `checkpoint_free_input` 已独立实现严格冻结字节核验；缺 `parent_chk` 或人工标签均不构成证明。它支持有限 Gaussian/CP 语法及受支持的 XYZ/约束，未知、放宽输入仍拒绝；不是改投资格或科学验收。 |
 | T185 当前路由与容量 | 必须调用与自主提交相同的定稿算法，核验本轮顺序、更高位候选、共享入口身份与当前容量，不另写取消专用排序。容量足够不保证调度器立即启动。 |
 | 取消之后的终止证据 | qdel/scancel 接受及本地 `cancelled` 都不是终止证明。须核验取消之后、同一确切作业的正式只读证据；缺失或矛盾、仍在队列、查询失联均不能放行替代 Attempt。 |
 
 离线回归仅证明本次证据接口与拒绝行为；完整取消/改投计数、在途故障及上游集成验收仍待实现。具体测试结果以本 PR 当前 head 的执行记录为准，不以设计矩阵代替测试通过。
+
+### T186 组合适配（已核对开发接口，待最终 head）
+
+- `autonomy_submission.verified_authorization(path, authorization)` 只恢复已在调度前绑定的原始归属；
+  再与当前轮次、有效规则和 `state.submissions` 实际消费交叉核对。它不授权取消，也不建立缺失的调度器初始实例。
+- `submission_guard` 的 consume/dispatch/abort 与 `boundary_failure` 服务于提交；取消须独立保存每次唤醒最多两次的原子消费、
+  确切目标和不可重试 claim，不能复用提交次数或把 boundary_failure 当取消许可。未知结果立即保存后果并暂停。
+- 组合保持配置提交锁 → 全机登记锁 → study 状态锁的顺序，短事务中重读归属、条件与当前租约，释放全机/study 锁后才做网络 IO。
+  已发出的操作不能撤回；后续响应仅补结果，不能恢复动作资格。
+- 手动 `cancel` 待接入 `manual_write_guard(..., action='cancel', attempt_ids=[...])`，仍保留逐次 Mac 人工确认。
+  running 或有效 lease 时拒绝，paused 且无有效 lease 才可接管；不能仅依赖前端保护。fetch 写入归属由 T186 组合处理，
+  本工单不新增 `fetch.py` 范围。上述接口仍在上游开发中，本分支未复制实现或提前声称接通。
+- 负责人补充要求 IO/解析后在最终本地发布前锁内重验 owner 权限。T186 负责 status/fetch/snapshot/facts 的最小发布钩子；
+  T187 的 `capture_for_run` 与新 Slurm 采集须接该钩子。当前 capture_for_run 的“失效后留普通快照但不登记”
+  仍是待修复组合缺口：最终行为必须拒绝过期或被接管 owner 的本地发布，不能只阻止自主日志采纳。
+  网络/解析保持锁外，最终发布才持短锁；此组合未完成前不启用自主计算。
 
 ## 合并前真实验证矩阵（未授权、未执行）
 
@@ -90,18 +107,20 @@ PBS 正向支持及新配置方言不在本轮范围；下方 PBS 研究仅记�
 本机入口别名不能直接用作实际 Slurm 集群名；原始响应含私有字段，只存私有 study。
 
 ```text
-env -u SLURM_CLUSTERS LC_ALL=C TZ=UTC SLURM_TIME_FORMAT=standard scontrol --local show config
-LC_ALL=C TZ=UTC SLURM_TIME_FORMAT=standard scontrol --local --clusters=<CLUSTER> --oneliner --details show job <JOB_ID>
-LC_ALL=C TZ=UTC SLURM_TIME_FORMAT=standard sacct --local --clusters=<CLUSTER> -X --duplicates -n -P --jobs=<JOB_ID> --format=Cluster%256,JobIDRaw%64,JobName%200,UID%20,DBIndex%32,Submit%32,Start%32,End%32,State%64,Restarts%20,SLUID%64
+env -u SLURM_CLUSTERS -u SCONTROL_SIB -u SCONTROL_SIBLING LC_ALL=C TZ=UTC SLURM_TIME_FORMAT=standard scontrol --local show config
+env -u SLURM_CLUSTERS -u SCONTROL_SIB -u SCONTROL_SIBLING LC_ALL=C TZ=UTC SLURM_TIME_FORMAT=standard scontrol --local --clusters=<CLUSTER> --oneliner --details show job <JOB_ID>
+env -u SLURM_CLUSTERS LC_ALL=C TZ=UTC SLURM_TIME_FORMAT=standard sacct --local --clusters=<CLUSTER> -X --duplicates -n -P --jobs=<JOB_ID> --format=Cluster%256,JobIDRaw%64,JobName%200,UID%20,DBIndex%32,Submit%32,Start%32,End%32,State%64,Restarts%20,SLUID%64,OriginalSLUID%64
 ```
 
-以上是待审阅的固定命令形状，不是允许模型拼接命令的接口。需同时核对客户端与控制器兼容性，
+以上是已获准实现的固定命令形状，不是允许模型拼接命令的接口。需同时核对客户端与控制器兼容性，
 版本不明、字段不可见或历史不完整时拒绝正向资格；不自动退回当前七列 sacct 解析。
 控制器探针须严格提取唯一非空 `ClusterName`、`SLURM_VERSION`，失败、缺字段或格式异常即拒绝。
 `show config` 经 RPC 返回实际控制器的集群名与服务端版本；`scontrol --version` 只读客户端版本，
 不能代替它。客户端兼容性另用固定 `scontrol --version`、`sacct --version` 分别记录。
 首次探针清除 `SLURM_CLUSTERS`，因为 `--local` 不阻止该环境变量选择其他集群；
 后续查询及提交显式绑定已确认实际集群，并与 `sbatch --parsable` 返回值核对。
+固定 scontrol 查询还清除 `SCONTROL_SIB`、`SCONTROL_SIBLING`，防止继承环境加入 sibling 视图；
+实际集群选择拒绝 `all`（不区分大小写）。新的四类证据操作首次 SSH 错误即保存并停止，普通只读重试行为不变。
 当前探针不能反向补认旧 `scheduler_cluster=None` 的历史归属，也不能证明 DBD/执行节点版本或历史完整。
 源码依据：[客户端参数与 RPC 入口](https://github.com/SchedMD/slurm/blob/slurm-25-11-0-1/src/scontrol/scontrol.c)、
 [控制器构造版本及集群字段](https://github.com/SchedMD/slurm/blob/slurm-25-11-0-1/src/slurmctld/proc_req.c)、
@@ -112,7 +131,7 @@ LC_ALL=C TZ=UTC SLURM_TIME_FORMAT=standard sacct --local --clusters=<CLUSTER> -X
 | 提交时的一次性实例绑定 | 实际 cluster、UID、JobID、JobName、原始 Submit 与支持版本下的初始 SLUID/DBIndex。不能六小时后把当前记录补认成初始实例；与 T186 最终归属记录一起确定保存位置。 |
 | 控制器 Restarts | 必须显式且为零，并与全部相关重复历史一致；Requeue 只是可否重排的配置。当前 PENDING、零耗时或 StartTime 缺失都不足。 |
 | StartTime / Submit | Pending 的 StartTime 可为预计启动时间；requeue 可清零 start 并重置 Submit。取消 pending 作业也可把 start=end 设为取消时间，不能据此反推运行。 |
-| sacct --duplicates | 默认只返回同号最新记录；重复可来自 requeue、resize、federation 和 JobID 回绕。必须区分实例，不复用当前拒绝所有重复 JobID 的 parser。 |
+| sacct --duplicates | 默认只返回同号最新记录；重复可来自 requeue、resize、federation 和 JobID 回绕。必须区分实例，不复用当前拒绝所有重复 JobID 的 parser。26.05.5 的 DBIndex 与 SLUID 是同一值的十进制/Crockford 编码，须核对一致；OriginalSLUID 全零保留为缺失，不补当前实例。 |
 | 历史与时间 | 记账成功但无记录不能证明从未运行；消息可能延迟或丢失。六小时须有原始绑定时间及当前实例一致性，跨源冲突、未来时间、截断字段均拒绝。 |
 | 取消后的终止 | 先取得匹配实例的取消后 CANCELLED 记录及结束时间，再读控制器，拒绝 RUNNING、COMPLETING、SIGNALING、重排队等活动状态。控制器无记录仍须匹配终态；任意查询失败不等于作业不存在。 |
 
@@ -120,6 +139,10 @@ LC_ALL=C TZ=UTC SLURM_TIME_FORMAT=standard sacct --local --clusters=<CLUSTER> -X
 [scontrol 的单集群/本地查询](https://slurm.schedmd.com/scontrol.html)、
 [记账消息缓存与丢失边界](https://slurm.schedmd.com/accounting.html)、
 [作业状态语义](https://slurm.schedmd.com/job_state_codes.html)。
+DBIndex/SLUID/OriginalSLUID 的精确输出来自
+[26.05.5 sacct 字段输出](https://github.com/SchedMD/slurm/blob/slurm-26-05-5-1/src/sacct/print.c)
+与[SLUID 编码实现](https://github.com/SchedMD/slurm/blob/slurm-26-05-5-1/src/common/sluid.c)；
+新建和 resize 时的区别见[作业实例更新](https://github.com/SchedMD/slurm/blob/slurm-26-05-5-1/src/common/job_record.c)。
 初版应拒绝联邦、数组和 heterogeneous 作业；本地 REVOKED 或缺记录不排除其他 sibling 执行，
 见[联邦机制](https://slurm.schedmd.com/federation.html)。
 

@@ -9,6 +9,127 @@ from ag.transport import bound_transport
 from ag.transport import require_ok, TransportError
 
 
+def capture_slurm_evidence(cfg, path, transport):
+    """Save fixed read-only scheduler responses; never grant reroute permission.
+
+    This is an observation of an already bound job, not its original instance
+    registration. T186 must supply that immutable submission-time evidence.
+    Unknown/mixed versions and failed reads stop collection, retaining evidence.
+    """
+    import os
+    from pathlib import Path
+    from hashlib import sha256
+    from ag import study
+    from ag import _autonomy_store as disk
+    from ag.autonomy_cancel import bound_attempt, read_bytes
+
+    path = study.local_path(Path(cfg['local']['studies_root']), Path(path))
+    binding = bound_attempt(path)
+    if binding['scheduler'] != 'slurm':
+        raise ValueError('Scheduler execution evidence currently supports Slurm observations only')
+    manifest = disk.decode(read_bytes(path / 'manifest.json'))
+    record = disk.decode(read_bytes(path / 'submission.json'))
+    cluster = record.get('scheduler_cluster')
+    # A present-day probe must not retrofit a missing original cluster identity.
+    remote.slurm_token(cluster)
+    if cluster.lower() == 'all':
+        raise ValueError('An exact original scheduler cluster is required')
+    cfg = for_manifest(cfg, manifest)
+    transport = bound_transport(transport, cfg)
+    if hasattr(transport, 'record_to'):
+        transport.record_to([])  # Do not annotate status/journal on an observation failure.
+
+    at = time.time()
+    name = datetime.fromtimestamp(at, timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
+    parent = disk.directory(path)
+    directory = destination = None
+    try:
+        try:
+            os.mkdir('scheduler-observations', mode=0o700, dir_fd=parent)
+        except FileExistsError:
+            pass
+        directory = os.open('scheduler-observations', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                            dir_fd=parent)
+        os.mkdir(name, mode=0o700, dir_fd=directory)  # A collision fails; no overwrite.
+        destination = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
+        store = disk.Store(destination)
+        result = dict(schema='ag-slurm-observation/1', binding=binding, scheduler_cluster=cluster,
+                      observation='scheduler-observations/' + name, capture_started_at=at,
+                      queries=[], complete=False, reroute_authorized=False,
+                      limitation='Observation only; immutable original T186 instance and live validation required')
+
+        def query(label, command, parser):
+            started = time.time()
+            if started < result['capture_started_at'] or (result['queries'] and
+                    started < result['queries'][-1]['finished_at']):
+                raise ValueError('Clock moved backwards during scheduler observation')
+            entry = dict(label=label, operation=command.operation, command=command.text,
+                         started_at=started)
+            result['queries'].append(entry)
+            try:
+                response = transport.run(command)
+            except Exception as exc:
+                entry.update(finished_at=time.time(), error_type=type(exc).__name__)
+                raise
+            entry.update(finished_at=time.time(), returncode=response.returncode)
+            for stream in ('stdout', 'stderr'):
+                data = getattr(response, stream).encode('utf-8')
+                filename = label + '.' + stream + '.txt'
+                store.exclusive(filename, data)
+                entry[stream] = dict(file=filename, sha256=sha256(data).hexdigest(), size=len(data))
+            if entry['finished_at'] < started:
+                raise ValueError('Clock moved backwards during scheduler observation')
+            if response.returncode != 0 or response.stderr.strip():
+                raise ValueError('Scheduler evidence query failed or returned diagnostics')
+            return parser(response.stdout)
+
+        try:
+            controller = query('config', remote.slurm_evidence_config(), slurm.parse_evidence_config)
+            if controller['cluster'] != cluster:
+                raise ValueError('Controller differs from immutable submission cluster')
+            clients = {program: query(program + '-version', remote.slurm_evidence_version(program),
+                                      slurm.parse_evidence_version)
+                       for program in ('scontrol', 'sacct')}
+            result['versions'] = dict(controller=controller['server_version'], **clients)
+            # Candidate parser combination only. Matching these versions is not
+            # a claim of live validation, DBD compatibility or complete history.
+            if set(result['versions'].values()) != {'26.05.5'}:
+                raise ValueError('Unverified scheduler version combination; evidence collection refused')
+            identity = dict(job_id=binding['job_id'], cluster=cluster, name=manifest['attempt_id'])
+            history = query('history', remote.slurm_evidence_history(binding['job_id'], cluster),
+                            lambda text: slurm.parse_evidence_history(text, **identity))
+            # Read controller after accounting: CANCELLED alone may precede cleanup.
+            job = query('job', remote.slurm_evidence_job(binding['job_id'], cluster),
+                        lambda text: slurm.parse_evidence_job(text, **identity))
+            if not history or any(row['uid'] != job['uid'] for row in history):
+                raise ValueError('Missing accounting or conflicting scheduler owner')
+            matched = [row for row in history if row['sluid'] == job['sluid']]
+            if len(matched) != 1 or any(matched[0][key] != job[key]
+                                        for key in ('submit', 'restarts', 'state')):
+                raise ValueError('Controller/accounting instance or state conflict')
+            for row in [job, *history]:
+                # Pending StartTime can be a future prediction; Submit cannot.
+                if datetime.fromisoformat(row['submit']).timestamp() > result['queries'][-1]['finished_at']:
+                    raise ValueError('Scheduler submit time is in the future')
+            if bound_attempt(path) != binding:
+                raise ValueError('Attempt binding changed during scheduler observation')
+            finished = time.time()
+            if finished < result['queries'][-1]['finished_at']:
+                raise ValueError('Clock moved backwards after scheduler observation')
+            result.update(complete=True, controller=job, history=history,
+                          matched_db_index=matched[0]['db_index'], capture_finished_at=finished)
+        except Exception as exc:
+            result.update(capture_finished_at=time.time(), error_type=type(exc).__name__, error=str(exc))
+            store.exclusive('observation.json', disk.encode(result))
+            raise ValueError('Slurm evidence unavailable; inspect preserved ' + result['observation']) from exc
+        store.exclusive('observation.json', disk.encode(result))
+        return dict(result, observation_sha256=sha256(disk.encode(result)).hexdigest())
+    finally:
+        for descriptor in (destination, directory, parent):
+            if descriptor is not None:
+                os.close(descriptor)
+
+
 def parse_jobs(text):
     jobs = []
     current = None

@@ -14,6 +14,37 @@ from ag.transport import Result, SSHConnectionError, SSHTransport
 from test_core import cfg, Fake, INPUT, allow, write_config
 
 
+# Synthetic 26.05.5 --details --oneliner output, following SchedMD's
+# src/scontrol/info_job.c field order. No live cluster or research data.
+EVIDENCE_CONFIG = 'ClusterName = fixture\nSLURM_VERSION = 26.05.5\n'
+EVIDENCE_SLUID = 's0123456789ABC'
+EVIDENCE_DB_INDEX = 38390726480144748
+EVIDENCE_JOB = (
+    'JobId=123 JobName=water-001-sp SLUID=s0123456789ABC '
+    'UserId=fixture(1001) GroupId=fixture(1001) MCS_label=N/A '
+    'Priority=100 Nice=0 Account=fixture QOS=normal '
+    'JobState=PENDING Reason=Resources Dependency=(null) '
+    'Requeue=0 Restarts=0 BatchFlag=1 Reboot=0 ExitCode=0:0 DerivedExitCode=0:0 '
+    'RunTime=00:00:00 TimeLimit=01:30:00 TimeMin=N/A '
+    'SubmitTime=2026-01-01T00:00:00 EligibleTime=2026-01-01T00:00:00 '
+    'AccrueTime=2026-01-01T00:00:00 StartTime=Unknown EndTime=Unknown Deadline=N/A '
+    'SuspendTime=None SecsPreSuspend=0 LastSchedEval=2026-01-01T06:00:00 Scheduler=Main '
+    'Partition=fixture AllocNode:Sid=fixture:100 ReqNodeList=(null) ExcNodeList=(null) '
+    'NodeList= NumNodes=1 NumCPUs=8 NumTasks=1 CPUs/Task=8 ReqB:S:C:T=0:0:*:* '
+    'ReqTRES=cpu=8,mem=12G,node=1,billing=8 AllocTRES=(null) '
+    'Socks/Node=* NtasksPerN:B:S:C=0:0:*:* CoreSpec=* '
+    'MinCPUsNode=8 MinMemoryNode=12G MinTmpDiskNode=0 Features=(null) DelayBoot=00:00:00 '
+    'OverSubscribe=OK Exclusive=NONE Contiguous=0 Licenses=(null) LicensesAlloc=(null) Network=(null) '
+    'Command=job.slurm SubmitLine=sbatch --parsable job.slurm WorkDir=synthetic '
+    'StdErr=synthetic/job.slurm.err StdIn=synthetic/input StdOut=synthetic/job.slurm.out\n'
+)
+EVIDENCE_HISTORY = (
+    'fixture|123|water-001-sp|1001|38390726480144748|2026-01-01T00:00:00|Unknown|Unknown|PENDING|0|'
+    's0123456789ABC|s0123456789ABC\n'
+)
+EVIDENCE_IDENTITY = dict(job_id='123', cluster='fixture', name='water-001-sp')
+
+
 @pytest.fixture
 def multi(cfg):
     pbs = {k: deepcopy(v) for k, v in cfg.items() if k not in ('local', '_config_dir')}
@@ -89,6 +120,171 @@ def test_sbatch_parsable(text, expected):
 @pytest.mark.parametrize('text', ['Submitted batch job 123', '123;', '123;a;b', '0', '123_1', '123;bad name', '123\n456', '123;$(evil)'])
 def test_bad_sbatch_response(text):
     with pytest.raises(ValueError): slurm.parse_submission(text)
+
+
+def test_evidence_config_and_client_versions_are_separate_observations():
+    text = 'Configuration data as of 2026-01-01T00:00:00\n' + EVIDENCE_CONFIG + 'Other = synthetic\n'
+    assert slurm.parse_evidence_config(text) == dict(cluster='fixture', server_version='26.05.5')
+    assert slurm.parse_evidence_version('slurm 26.05.5\n') == '26.05.5'
+    # Parsing an older version does not certify its support or authorize actions.
+    assert slurm.parse_evidence_version('slurm 24.05.0') == '24.05.0'
+    assert slurm.parse_evidence_config(EVIDENCE_CONFIG.replace('26.05.5', '24.05.0'))['server_version'] == '24.05.0'
+
+
+@pytest.mark.parametrize('text', [
+    '', 'Other = ClusterName=fixture SLURM_VERSION=26.05.5\n',
+    'ClusterName = fixture\n', EVIDENCE_CONFIG + 'ClusterName = fixture\n',
+    EVIDENCE_CONFIG + 'SLURM_VERSION = 26.05.5\n',
+    EVIDENCE_CONFIG.replace('fixture', 'all'), EVIDENCE_CONFIG.replace('fixture', 'ALL'),
+    EVIDENCE_CONFIG.replace('fixture', 'fixture,other'),
+    EVIDENCE_CONFIG.replace('26.05.5', '26.05.5rc1'),
+    EVIDENCE_CONFIG.replace('fixture', 'fixture\x00'), None,
+])
+def test_evidence_config_rejects_missing_ambiguous_or_nonlocal_identity(text):
+    with pytest.raises(ValueError):
+        slurm.parse_evidence_config(text)
+
+
+@pytest.mark.parametrize('text', ['26.05.5', 'slurm 26.05', 'slurm 26.05.5-extra',
+                                  'slurm 26.05.5\nslurm 26.05.5\n',
+                                  ' slurm 26.05.5', 'slurm 26.05.5\r\n', None])
+def test_evidence_client_version_rejects_nonexact_response(text):
+    with pytest.raises(ValueError):
+        slurm.parse_evidence_version(text)
+
+
+def test_evidence_job_preserves_restarts_and_unknown_or_estimated_times():
+    row = slurm.parse_evidence_job(EVIDENCE_JOB, **EVIDENCE_IDENTITY)
+    assert row == dict(**EVIDENCE_IDENTITY, owner='fixture', uid=1001, state='PENDING',
+                       submit='2026-01-01T00:00:00+00:00', start=None, end=None,
+                       restarts=0, sluid=EVIDENCE_SLUID)
+    changed = EVIDENCE_JOB.replace('Restarts=0', 'Restarts=2').replace(
+        'StartTime=Unknown', 'StartTime=2026-01-02T00:00:00')
+    row = slurm.parse_evidence_job(changed, **EVIDENCE_IDENTITY)
+    assert row['restarts'] == 2 and row['start'] == '2026-01-02T00:00:00+00:00'
+    assert not {'eligible', 'never_started', 'terminated', 'authorized'} & row.keys()
+
+
+def test_evidence_job_horizontal_padding_keeps_fixed_field_order():
+    padded = EVIDENCE_JOB.replace(' ', '  \t')
+    assert slurm.parse_evidence_job(padded, **EVIDENCE_IDENTITY) == slurm.parse_evidence_job(
+        EVIDENCE_JOB, **EVIDENCE_IDENTITY)
+
+
+@pytest.mark.parametrize('replacement', [
+    ('JobId=123', 'JobId=124'), ('JobName=water-001-sp', 'JobName=other'),
+    ('JobId=123', 'JobId=123 ArrayJobId=123 ArrayTaskId=1'),
+    ('JobId=123', 'JobId=123 HetJobId=123 HetJobOffset=0'),
+    ('Command=', 'FedOrigin=fixture FedViableSiblings=fixture FedActiveSiblings=fixture Command='),
+    ('SLUID=' + EVIDENCE_SLUID + ' ', ''),
+    ('SLUID=' + EVIDENCE_SLUID, 'SLUID=s0123456789AB+'),
+    ('SLUID=' + EVIDENCE_SLUID, 'SLUID=sG123456789ABC'),
+    ('SLUID=' + EVIDENCE_SLUID, 'SLUID=s0000000000000'),
+    ('Restarts=0', 'Restarts=65536'), ('Restarts=0', 'Restarts='),
+    ('UserId=fixture(1001)', 'UserId=fixture(4294967296)'),
+    ('JobState=PENDING', 'JobState=PENDING+'), ('JobState=PENDING', 'JobState=REQUEUE_FED'),
+    ('SubmitTime=2026-01-01T00:00:00', 'SubmitTime=Unknown'),
+    ('StartTime=Unknown', 'StartTime=2026-02-30T00:00:00'),
+    ('EndTime=Unknown', 'EndTime=2026-01-01T00:00:00+01:00'),
+    ('DerivedExitCode=0:0 ', ''), ('StdOut=synthetic/job.slurm.out', ''),
+])
+def test_evidence_job_rejects_bad_identity_missing_fields_and_unsupported_shapes(replacement):
+    with pytest.raises(ValueError):
+        slurm.parse_evidence_job(EVIDENCE_JOB.replace(*replacement), **EVIDENCE_IDENTITY)
+
+
+@pytest.mark.parametrize('field', ['JobId=123', 'JobName=water-001-sp', 'SLUID=' + EVIDENCE_SLUID,
+                                  'UserId=fixture(1001)', 'JobState=PENDING', 'Restarts=0',
+                                  'SubmitTime=2026-01-01T00:00:00', 'StartTime=Unknown', 'EndTime=Unknown'])
+def test_evidence_job_never_recovers_fields_from_paths_or_names(field):
+    # A real key plus a path-embedded imitation is ambiguous, not last-wins.
+    forged = EVIDENCE_JOB.replace('WorkDir=synthetic', 'WorkDir=synthetic ' + field)
+    with pytest.raises(ValueError):
+        slurm.parse_evidence_job(forged, **EVIDENCE_IDENTITY)
+    # A missing prefix key cannot be supplied by free text in the suffix.
+    moved = EVIDENCE_JOB.replace(field + ' ', '', 1).replace('WorkDir=synthetic', 'WorkDir=synthetic ' + field)
+    with pytest.raises(ValueError):
+        slurm.parse_evidence_job(moved, **EVIDENCE_IDENTITY)
+
+
+@pytest.mark.parametrize('text', ['', 'slurm_load_jobs error: Invalid job id specified\n',
+                                  EVIDENCE_JOB * 2, EVIDENCE_JOB.rstrip('\n'),
+                                  EVIDENCE_JOB.replace(' Command=', '\nCommand='),
+                                  EVIDENCE_JOB.replace('UserId=', '\x00UserId=')])
+def test_evidence_job_rejects_missing_multiple_or_incomplete_records(text):
+    with pytest.raises(ValueError):
+        slurm.parse_evidence_job(text, **EVIDENCE_IDENTITY)
+
+
+def test_evidence_history_keeps_distinct_runs_without_positive_tags():
+    # Real execution followed by requeue must survive in the parsed history.
+    previous = EVIDENCE_HISTORY.replace('|Unknown|Unknown|PENDING|0|',
+        '|2026-01-01T00:01:00|2026-01-01T00:02:00|REQUEUED|0|')
+    current = EVIDENCE_HISTORY.replace(str(EVIDENCE_DB_INDEX), str(EVIDENCE_DB_INDEX + 1)).replace('T00:00:00', 'T00:03:00').replace(
+        '|PENDING|0|', '|PENDING|1|').replace(EVIDENCE_SLUID, 's0123456789ABD')
+    rows = slurm.parse_evidence_history(previous + current + current, **EVIDENCE_IDENTITY)
+    assert len(rows) == 2
+    assert rows[0]['start'] == '2026-01-01T00:01:00+00:00'
+    assert rows[1]['restarts'] == 1 and rows[1]['start'] is None
+    assert [row['db_index'] for row in rows] == [EVIDENCE_DB_INDEX, EVIDENCE_DB_INDEX + 1]
+    assert all(row['uid'] == 1001 and not {'eligible', 'never_started', 'terminated'} & row.keys() for row in rows)
+    cancelled = EVIDENCE_HISTORY.replace('|PENDING|', '|CANCELLED by 1001|')
+    row = slurm.parse_evidence_history(cancelled, **EVIDENCE_IDENTITY)[0]
+    assert row['state'] == 'CANCELLED' and row['state_raw'] == 'CANCELLED by 1001'
+
+
+def test_evidence_history_does_not_invent_missing_original_sluid():
+    fields = EVIDENCE_HISTORY.rstrip('\n').split('|')
+    fields[-1] = 's0000000000000'
+    row = slurm.parse_evidence_history('|'.join(fields) + '\n', **EVIDENCE_IDENTITY)[0]
+    assert row['original_sluid'] is None
+    assert row['original_sluid_raw'] == 's0000000000000'
+    assert row['sluid'] == EVIDENCE_SLUID
+
+
+@pytest.mark.parametrize('index,value', [
+    (0, 'other'), (1, '124'), (1, '123_1'), (1, '123+0'), (2, 'other'),
+    (3, ''), (3, '-1'), (3, '1.0'), (3, '4294967296'),
+    (4, '0'), (4, str(2 ** 64)), (5, 'Unknown'), (5, '2026-13-01T00:00:00'),
+    (6, ''), (6, 'None'), (7, '2026-01-01T00:00:00Z'),
+    (8, 'CANCELLED+'), (8, 'REVOKED'), (8, 'never_started=true'),
+    (9, ''), (9, '-1'), (9, '65536'), (9, '00'),
+    (10, ''), (10, 's0123456789ABI'), (11, 'Unknown'),
+    (0, 'f' * 256), (2, 'n' * 200),
+])
+def test_evidence_history_rejects_ambiguous_fields(index, value):
+    fields = EVIDENCE_HISTORY.rstrip('\n').split('|')
+    fields[index] = value
+    with pytest.raises(ValueError):
+        slurm.parse_evidence_history('|'.join(fields) + '\n', **EVIDENCE_IDENTITY)
+
+
+@pytest.mark.parametrize('text', ['', '\n', EVIDENCE_HISTORY + '\n', EVIDENCE_HISTORY.replace('|1001|', '|1001||'),
+                                  EVIDENCE_HISTORY.rstrip('\n') + '|\n', 'never_started=true\n'])
+def test_evidence_history_rejects_missing_or_wrong_column_count(text):
+    with pytest.raises(ValueError):
+        slurm.parse_evidence_history(text, **EVIDENCE_IDENTITY)
+
+
+@pytest.mark.parametrize('changed', [
+    EVIDENCE_HISTORY.replace('|PENDING|', '|RUNNING|'),
+    EVIDENCE_HISTORY.replace(str(EVIDENCE_DB_INDEX), str(EVIDENCE_DB_INDEX + 1)),
+    EVIDENCE_HISTORY.replace(EVIDENCE_SLUID, 's0123456789ABD'),
+    EVIDENCE_HISTORY.replace('|1001|', '|1002|'),
+])
+def test_evidence_history_rejects_conflicting_db_index_or_sluid(changed):
+    with pytest.raises(ValueError):
+        slurm.parse_evidence_history(EVIDENCE_HISTORY + changed, **EVIDENCE_IDENTITY)
+
+
+@pytest.mark.parametrize('key,value', [('cluster', 'all'), ('cluster', 'ALL'), ('cluster', 'a,b'),
+                                      ('job_id', '123_1'), ('name', 'name JobState=PENDING')])
+def test_evidence_parsers_reject_unsafe_expected_identity(key, value):
+    identity = dict(EVIDENCE_IDENTITY, **{key: value})
+    for parser, text in ((slurm.parse_evidence_job, EVIDENCE_JOB),
+                         (slurm.parse_evidence_history, EVIDENCE_HISTORY)):
+        with pytest.raises(ValueError):
+            parser(text, **identity)
 
 
 def test_config_legacy_named_and_strict(multi, cfg):
