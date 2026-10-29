@@ -145,7 +145,10 @@ JSON 保留已有字段；新增可选顶层 `walltime`（省略请求时为 nul
 T185 增加独立的配置阶梯与纯选格函数，接口和条件见 [CLI 路由说明](ag/README.md#提交阶梯与整节点t185)。
 `ag route --template gaussian --job-class main --study <study> --round-id <round> --run-id <run> --object-id <object> --walltime 04:00:00 --json`
 是待集成入口：当前缺少可信提交占用、真实唤醒和首次选格完整输入适配，返回阻塞且不给候选；`--job-class small` 同样处理。
-`round_id` 标识整个自主轮次，`run_id` 标识其中一次唤醒运行；末级作业数和兜底排队限额跨唤醒累计本轮活跃记录，不因新 `run_id` 重置。
+`round_id` 标识整个自主轮次，`run_id` 标识其中一次唤醒运行；半节点批次保留同一 round/run 边界。
+SCNet 类末级自主运行加排队最多 4 个、兜底自主排队最多 2 个，跨本机全部自主 study/round 合计，包含不同配置目录、studies_root 及旧轮活跃作业；非自主作业仍计入原有全部账号核数限制，不占这两项自主名额。
+T186 适配须核验全本机真实归属和共享账号去重，保留未观测及 UNKNOWN 预留；不同来源的同名 study_id/attempt_id 不能合并，本机定位身份仍待接线。
+跨配置共同注册与共同锁也由 T186 实现，现有配置目录内的 submit.lock 不覆盖全本机；须在共同锁内重新核验，不能用换配置、study、轮次或唤醒取得额外名额。
 不能用运行状态里的提交意向数或人工 JSON 代替真实提交证据。原 `--tier` 建议模式仍可使用，但不能充当阶梯通过凭据。
 T186 的提交前重算尚未接入；T185 也未完成非研究小分子的整节点、半节点和非指定入口真实验证。
 prepare 的文本摘要使用 manifest 保存的实际 tier 和 walltime，在所选入口不同于建议时追加提示；不重新采用入口默认档位。

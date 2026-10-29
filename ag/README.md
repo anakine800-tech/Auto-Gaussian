@@ -22,24 +22,30 @@ RDKit 与 CI 固定为同一精确版本；平台包边界见上述安装步骤�
 `routing.ladder` 是按顺序排列的本机配置表，格子写明 `id`、`cluster`、`classes`（main/small）、
 `tier`、`condition`、`max_placements`；具名入口另设有序 `nodes` 和 `node_fraction`。
 `empty` 要求批次起点全空；`free` 要求 `min_free_cores` 且同一节点内存足够；
-`jobs` 要求对象已等待一次真实唤醒且该实际集群中本自主轮次的活跃作业少于 `max_jobs`；
-`queue` 每节点或入口最多排一个，本轮活跃排队/预留记录合计最多两个，同一实际资源的多个入口不能多占名额。
-`round_id` 标识整个自主轮次，`run_id` 只标识一次唤醒运行；上述作业数和排队限额跨运行计数，不随下一次唤醒重置。
-SCNet 类作业数与兜底排队是否改为跨本机全部自主 study/旧轮合计仍待负责人决定，当前逐轮统计不是最终验收口径。
+`jobs` 要求对象已等待一次真实唤醒，且该实际集群中全本机自主作业的运行加排队少于 `max_jobs`（SCNet 类上限为 4）；
+`queue` 每节点或入口最多排一个，全本机自主排队/预留记录合计最多两个，同一实际资源的多个入口不能多占名额。
+两项上限跨本机全部自主 study/round，包含不同配置目录和 studies_root，旧轮仍活跃的作业继续计入；非自主作业不占这两项自主名额，仍计入原有全部账号核数限制。
+`round_id` 标识整个自主轮次，`run_id` 只标识一次唤醒运行；改变 study、round 或 run 均不重置上述活跃作业名额。
 每个格子在同一 round/run 批次内最多放一至两个作业，`jobs` 和 `queue` 每次最多一个。合成配置见 [配置示例](config.clusters.example.toml)。
 
-`ag.route.select_ladder` 是无 I/O 的共用选格函数。它接收配置、快照、作业类别、时限、独立的 `round_id`、`run_id` 和对象身份、
+`ag.route.select_ladder` 是无 I/O 的共用选格函数。它接收配置、快照、作业类别、时限、必需的 `study_id`、`round_id`、`run_id` 和对象身份、
 经本地适配核验的提交/预留记录及唤醒历史，可选父集群和 `batch_inputs` 保存的首次选格完整输入，返回候选、拒绝原因及配置/证据哈希。
 输出同时保留 round/run 身份。哈希只标识输入，不能证明调用者提供的记录真实；适配必须核对 manifest、submission、声明/台账及运行事件，
 不能使用 T184 状态中仅代表意向的提交计数。当前只有纯函数与合成回归，尚无实际记录到函数的完整接线。
+T186 须从全本机记录核验真实自主归属，按共享账号及确切作业身份去重，保留尚未观测到的预留与 UNKNOWN 占用；
+证据不明不能按零处理。T186 须接通跨配置目录的共同注册与共同锁，并在共同锁内重新收集、核验记录、快照及选格结果；
+现有各配置目录的 submit.lock 不覆盖全本机，不能把先前建议缓存为提交许可。
 
 供后续接线复用的参数以现有测试为例：`snapshots` 按入口传入完整 `ag-monitor/1` 数据；
-`placements` 每项有 cluster、attempt_id、job_id（原始或限定号）、state（reserved/queued/running/finished）、cores、mem_gb，
+`placements` 每项必须有 study_id、scheduler_job_name，以及 cluster、attempt_id、job_id（原始或限定号；reserved/unknown 可为空）、state（reserved/unknown/queued/running/finished）、cores、mem_gb，
 以及 round_id/run_id/object_id、cell_id、target_node/capacity_node、manifest_sha256、record_sha256。
+适配核验 manifest 后，PBS 的 scheduler_job_name 取 pbs_job_name，Slurm 取 attempt_id，再与快照比对。
+不同 studies_root 的同名 study_id/attempt_id 不能合并，单独的 study_id 不足以标识全本机来源；
+拟增加由可信适配生成的本机定位 SHA-256 `study_key`，字段及接线尚待统一，不属于当前已实现接口。
 同批成员另带首次选择的 config_sha256、selected_at、batch_input_sha256；无自主归属的本地预留仍需计入账号额度。
-`wakeups` 每项有 round_id、run_id、object_id、started_at；waiting_since 来自对象等待事件，不能由模型自行填写。
+`wakeups` 每项有 study_id、round_id、run_id、object_id、started_at；waiting_since 来自该 study 对象等待事件，不能由模型自行填写。
 `batch_inputs` 以 evidence.input_sha256 为键，保存首次完整 snapshots、placements、wakeups、request 和 selected_at；
-request 包含 template、job_class、walltime、round_id、run_id、object_id、waiting_since、parent_cluster。
+request 包含 study_id、template、job_class、walltime、round_id、run_id、object_id、waiting_since、parent_cluster。
 这些是选择器输入，不是新增授权记录；后续适配必须从不可变文件与重放事件构造，并核对选择与 manifest 资源一致。
 
 

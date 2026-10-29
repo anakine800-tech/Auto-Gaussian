@@ -269,8 +269,11 @@ def _placement_records(cfg, placements):
     """Normalize adapter-verified local records; duplicate reads are not new jobs.
 
     The adapter must supply ALL active local reservations (including other
-    studies/runs), plus this run's completed placements. No CLI accepts these
-    records from user JSON. Hash strings alone do not verify a submission.
+    studies/rounds/runs), including UNKNOWN and unobserved claims, plus this
+    run's completed placements. study_id and scheduler_job_name come from the
+    verified manifest; autonomous round/run ownership comes from replayed
+    submission intent records. No CLI accepts these records from user JSON.
+    Hash strings alone do not verify a submission.
     """
     from ag.config import cluster_identity
     from ag.submission import raw_job, qualified
@@ -278,17 +281,19 @@ def _placement_records(cfg, placements):
     for item in placements:
         entry = select_cluster(cfg, item['cluster'])
         identity = cluster_identity(entry)
+        identifier(item['study_id'])
         identifier(item['attempt_id'])
-        if item.get('run_id') is not None:
+        identifier(item['scheduler_job_name'])
+        if item['run_id'] is not None:
             identifier(item['run_id'])
             identifier(item['round_id'])
             identifier(item['object_id'])
-        elif item.get('round_id') is not None:
+        elif item['round_id'] is not None:
             raise ValueError('Round placement requires a wakeup identity')
         if item.get('target_node') is not None:
             from ag.node_targeting import allowed
             allowed(entry, item['target_node'])
-        if (item['state'] not in ('reserved', 'queued', 'running', 'finished')
+        if (item['state'] not in ('reserved', 'unknown', 'queued', 'running', 'finished')
                 or type(item['cores']) is not int or item['cores'] < 1
                 or type(item['mem_gb']) is not int or item['mem_gb'] < 1):
             raise ValueError('Invalid or unresolved local placement evidence')
@@ -296,20 +301,25 @@ def _placement_records(cfg, placements):
         if job is not None:
             manifest = dict(cluster=item['cluster'], scheduler=scheduler_kind(entry))
             job = raw_job(manifest, job if ':' in job else qualified(manifest, job))
-        elif item['state'] != 'reserved':
+        elif item['state'] not in ('reserved', 'unknown'):
             raise ValueError('Submitted placement needs a bound scheduler job')
         for field in ('manifest_sha256', 'record_sha256'):
             value = item[field]
             if not isinstance(value, str) or len(value) != 64 or any(c not in '0123456789abcdef' for c in value):
                 raise ValueError('Missing placement evidence identity')
         record = dict(item, job_id=job)
-        key = (identity, job if job is not None else ('reservation', item['attempt_id']))
-        attempt_key = (identity, item['attempt_id'])
-        if ((key in records and records[key] != record)
+        key = (identity, job if job is not None else ('reservation', item['study_id'], item['attempt_id']))
+        attempt_key = (identity, item['study_id'], item['attempt_id'])
+        # Aliases of one account may expose the same verified binding. Only
+        # the entry name may differ; conflicting ownership is never merged.
+        binding = {k: v for k, v in record.items() if k != 'cluster'}
+        if ((key in records and {k: v for k, v in records[key].items() if k != 'cluster'} != binding)
                 or (attempt_key in attempts and attempts[attempt_key] != key)):
             raise ValueError('Conflicting local placement identities')
-        records[key], attempts[attempt_key] = record, key
-    return list(records.values())
+        if key not in records or record['cluster'] < records[key]['cluster']:
+            records[key] = record
+        attempts[attempt_key] = key
+    return sorted(records.values(), key=lambda p: (p['cluster'], p['study_id'], p['attempt_id']))
 
 
 def _observed_jobs(cfg, name, data):
@@ -371,7 +381,7 @@ def _ladder_usage(cfg, name, snapshots, placements, now):
               and (p['state'] != 'finished' or p['job_id'] in observed)]
     for p in active:
         row = observed.get(p['job_id'])
-        if row is not None and row['name'] != p['attempt_id']:
+        if row is not None and row['name'] != p['scheduler_job_name']:
             raise ValueError('Scheduler and local submission identity disagree')
     unseen = [p for p in active if p['job_id'] not in observed]
     return dict(source=source, committed=own['cores_in_use'] + sum(p['cores'] for p in unseen),
@@ -379,7 +389,7 @@ def _ladder_usage(cfg, name, snapshots, placements, now):
                 active=active, observed=observed)
 
 
-def select_ladder(cfg, snapshots, *, template, job_class, walltime, round_id, run_id, object_id,
+def select_ladder(cfg, snapshots, *, template, job_class, walltime, study_id, round_id, run_id, object_id,
                   placements, wakeups, waiting_since=None, parent_cluster=None,
                   batch_inputs=None, now=None):
     """Pure T185/T186 selection kernel; no IO, SSH, preparation or approval.
@@ -389,8 +399,12 @@ def select_ladder(cfg, snapshots, *, template, job_class, walltime, round_id, ru
     claims/ledgers); wakeups bind replayed run-start events and object waiting
     history. batch_inputs maps input digests to complete original selections.
     T184 does not yet expose those verified inputs, so the CLI fails closed.
-    A selected resource is advice to prepare; T186 must recapture and recompute
-    before submission. This function never certifies its caller's evidence.
+    Counts include every autonomous study and round on this machine. A
+    selected resource is advice to prepare; T186 must recapture ALL records
+    and recompute while holding the shared submission lock, then reserve
+    before releasing it. This function never certifies its caller's evidence
+    or provides a concurrency lock. UNKNOWN retention is not permission to
+    resume its owner or resubmit that Attempt.
     """
     from copy import deepcopy
     from ag.capacity import evaluate_node
@@ -403,6 +417,7 @@ def select_ladder(cfg, snapshots, *, template, job_class, walltime, round_id, ru
         raise ValueError('Only Gaussian main-system jobs use the main ladder')
     if template in ('crest', 'xtb'):
         raise ValueError('CREST/xTB retain the existing routing order')
+    identifier(study_id)
     identifier(round_id)
     identifier(run_id)
     identifier(object_id)
@@ -419,15 +434,15 @@ def select_ladder(cfg, snapshots, *, template, job_class, walltime, round_id, ru
     evidence = dict(config_sha256=config_hash,
                     snapshots={n: _digest(d) for n, d in snapshots.items() if d is not None},
                     placements_sha256=_digest(records), wakeups_sha256=_digest(wakeups))
-    request = dict(template=template, job_class=job_class, walltime=walltime, round_id=round_id, run_id=run_id,
+    request = dict(template=template, job_class=job_class, walltime=walltime, study_id=study_id, round_id=round_id, run_id=run_id,
                    object_id=object_id, waiting_since=waiting_since, parent_cluster=parent_cluster)
     evidence['input_sha256'] = _digest(dict(config_sha256=config_hash, request=request,
         snapshots=snapshots, placements=records, wakeups=wakeups, selected_at=now.isoformat()))
-    result = dict(schema='ag-routing-ladder/1', round_id=round_id, run_id=run_id, object_id=object_id,
+    result = dict(schema='ag-routing-ladder/1', study_id=study_id, round_id=round_id, run_id=run_id, object_id=object_id,
                   template=template, job_class=job_class, walltime=walltime,
                   parent_cluster=parent_cluster, evidence=evidence, candidates=[],
                   recommendation=None, notes=[DISCLAIMER])
-    if any(p.get('round_id') == round_id and p.get('run_id') == run_id
+    if any(p['study_id'] == study_id and p.get('round_id') == round_id and p.get('run_id') == run_id
            and p.get('object_id') == object_id for p in records):
         result['reason'] = 'object_already_placed_in_run'
         return result
@@ -436,12 +451,17 @@ def select_ladder(cfg, snapshots, *, template, job_class, walltime, round_id, ru
         since = _timestamp(waiting_since)
         seen_runs = set()
         for wake in wakeups:
+            identifier(wake['study_id'])
+            identifier(wake['round_id'])
             identifier(wake['run_id'])
+            identifier(wake['object_id'])
             start = _timestamp(wake['started_at'])
-            if wake['run_id'] in seen_runs:
+            identity = tuple(wake[k] for k in ('study_id', 'round_id', 'run_id', 'object_id'))
+            if identity in seen_runs:
                 raise ValueError('Duplicate wakeup identity')
-            seen_runs.add(wake['run_id'])
-            if wake['round_id'] == round_id and wake['object_id'] == object_id and since < start <= now:
+            seen_runs.add(identity)
+            if (wake['study_id'] == study_id and wake['round_id'] == round_id
+                    and wake['object_id'] == object_id and since < start <= now):
                 waited = True
     # The scheduler may still show a locally finished job. Retain its exact
     # active/queue membership until readback disappears; do not release a slot.
@@ -453,12 +473,15 @@ def select_ladder(cfg, snapshots, *, template, job_class, walltime, round_id, ru
             observed = usage['observed'].get(p['job_id'])
             if observed is not None:
                 item['state'] = 'running' if _is_running(observed) else 'queued'
+            elif p['state'] != 'finished':
+                # Missing readback cannot prove that a bound or UNKNOWN
+                # submission has finished, nor release its possible queue slot.
+                item['state'] = 'reserved'
         except (KeyError, TypeError, ValueError):
             # Account evidence is rejected at the relevant candidate below.
-            if p['state'] == 'finished':
-                item['state'] = 'reserved'
+            item['state'] = 'reserved'
         effective.append(item)
-    queued = [p for p in effective if p.get('round_id') == round_id
+    queued = [p for p in effective if p.get('run_id') is not None
               and p['state'] in ('reserved', 'queued')]
     # Unknown evidence cannot establish that an earlier cell should be skipped.
     relevant = [c for c in cells if job_class in c['classes']
@@ -469,7 +492,7 @@ def select_ladder(cfg, snapshots, *, template, job_class, walltime, round_id, ru
            or snapshots[c['cluster']]['cluster'].get('nodes_error') for c in relevant):
         result['reason'] = 'snapshot_missing_failed_or_stale'
         return result
-    if any(p.get('round_id') == round_id and p.get('object_id') == object_id
+    if any(p['study_id'] == study_id and p.get('round_id') == round_id and p.get('object_id') == object_id
            and p['state'] != 'finished' for p in effective):
         result['reason'] = 'object_already_active_in_round'
         return result
@@ -566,7 +589,8 @@ def select_ladder(cfg, snapshots, *, template, job_class, walltime, round_id, ru
             row['occupied'] = bool(original.get('cores_used') or pending)
             if check['availability'] in ('unknown', 'not_applicable'):
                 row['reasons'].append('node_capacity_unknown_or_inapplicable')
-            members = [p for p in records if p.get('round_id') == round_id and p.get('run_id') == run_id
+            members = [p for p in records if p['study_id'] == study_id
+                       and p.get('round_id') == round_id and p.get('run_id') == run_id
                        and p.get('cell_id') == cell['id'] and p.get('capacity_node') == node_name]
             if cell['condition'] in ('empty', 'free') and len(members) >= cell['max_placements']:
                 row['reasons'].append('batch_placement_limit')
@@ -591,6 +615,7 @@ def select_ladder(cfg, snapshots, *, template, job_class, walltime, round_id, ru
                             # Strictly fewer records makes recursive proofs finite.
                             if (first['config_sha256'] != config_hash
                                     or len(batch['placements']) >= len(records)
+                                    or batch['request']['study_id'] != study_id
                                     or batch['request']['round_id'] != round_id
                                     or batch['request']['run_id'] != run_id
                                     or batch['request']['object_id'] != first['object_id']
@@ -604,7 +629,8 @@ def select_ladder(cfg, snapshots, *, template, job_class, walltime, round_id, ru
                             if (initial['evidence']['input_sha256'] != digest or choice is None
                                     or choice['cell_id'] != cell['id'] or choice['capacity_node'] != node_name
                                     or any(p.get('batch_input_sha256') != digest
-                                           or p['cluster'] != name or p['cores'] != cores or p['mem_gb'] != memory
+                                           or cluster_identity(select_cluster(cfg, p['cluster'])) != cluster_identity(selected)
+                                           or p['cores'] != cores or p['mem_gb'] != memory
                                            or p.get('target_node') != row['target_node']
                                            for p in members)):
                                 raise ValueError('Initial batch did not qualify')
@@ -625,7 +651,7 @@ def select_ladder(cfg, snapshots, *, template, job_class, walltime, round_id, ru
             elif condition == 'jobs':
                 if not waited:
                     row['reasons'].append('no_verified_waiting_wakeup')
-                autonomous = [p for p in usage['active'] if p.get('round_id') == round_id]
+                autonomous = [p for p in usage['active'] if p.get('run_id') is not None]
                 if len(autonomous) >= cell['max_jobs']:
                     row['reasons'].append('autonomous_job_limit')
             elif condition == 'queue':

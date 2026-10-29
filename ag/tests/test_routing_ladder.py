@@ -1,6 +1,9 @@
 """Synthetic ladder evidence only; no runtime adapter, scheduler or real config."""
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
+from hashlib import sha256
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 import json
 from pathlib import Path
 
@@ -78,7 +81,7 @@ def ladder(cfg):
 
 def choose(ladder, **kw):
     raw, snaps = ladder
-    args = dict(template='gaussian', job_class='main', walltime='01:00:00', round_id='round-a', run_id='run-a',
+    args = dict(study_id='smoke', template='gaussian', job_class='main', walltime='01:00:00', round_id='round-a', run_id='run-a',
                 object_id='water-b', placements=[], wakeups=[], now=NOW)
     args.update(kw)
     return route.select_ladder(raw, snaps, **args)
@@ -89,22 +92,26 @@ def selected(result):
 
 
 def placement(ladder, *, cluster='compute', node_name='alpha', state='queued', job='1',
-              aid='water-a', cores=48, run='run-a', cid='empty-alpha', **kw):
+              aid='water-a', cores=48, run='run-a', cid='empty-alpha', study_id='smoke', **kw):
     raw, snaps = ladder
-    result = dict(cluster=cluster, attempt_id=aid, job_id=cluster+':'+job, state=state,
+    job_name = ('ag' + sha256(aid.encode()).hexdigest()[:12]
+                if config.scheduler_kind(raw['clusters'][cluster]) == 'pbs' else aid)
+    result = dict(study_id=study_id, cluster=cluster, attempt_id=aid,
+                  job_id=cluster+':'+job if job is not None else None,
+                  scheduler_job_name=job_name, state=state,
                   cores=cores, mem_gb=cores*2, round_id='round-a' if run else None, run_id=run, object_id=aid,
                   cell_id=cid, target_node=node_name, capacity_node=node_name,
                   manifest_sha256='a'*64, record_sha256='b'*64,
                   config_sha256=route.ladder_config_identity(raw), selected_at=NOW.isoformat(),
                   batch_snapshot_sha256=route._digest(snaps[cluster]),
-                  batch_input_sha256=choose(ladder, object_id='water-a')['evidence']['input_sha256'])
+                  batch_input_sha256=choose(ladder, study_id=study_id, object_id='water-a')['evidence']['input_sha256'])
     return dict(result, **kw)
 
 
 
 def batch_proof(ladder):
     raw, snaps = ladder
-    request = dict(template='gaussian', job_class='main', walltime='01:00:00', round_id='round-a', run_id='run-a',
+    request = dict(study_id='smoke', template='gaussian', job_class='main', walltime='01:00:00', round_id='round-a', run_id='run-a',
                    object_id='water-a', waiting_since=None, parent_cluster=None)
     proof = dict(snapshots=deepcopy(snaps), request=request, placements=[], wakeups=[],
                  selected_at=NOW.isoformat())
@@ -116,7 +123,7 @@ def observe(snaps, p, *, running=True, entry=None):
     name = entry or p['cluster']
     data = snaps[name]
     raw = p['job_id'].split(':')[-1]
-    data['own']['jobs'].append(dict(job_id=name+':'+raw, name=p['attempt_id'], state=('R' if running else 'Q') if data['cluster']['scheduler'] == 'pbs'
+    data['own']['jobs'].append(dict(job_id=name+':'+raw, name=p['scheduler_job_name'], state=('R' if running else 'Q') if data['cluster']['scheduler'] == 'pbs'
         else ('RUNNING' if running else 'PENDING')))
     key = 'cores_running' if running else 'cores_queued'
     data['own'][key] += p['cores']
@@ -138,7 +145,7 @@ def test_each_main_cell_can_be_selected(ladder):
     for c in all_cells:
         raw['routing']['ladder'] = [c]
         r = selected(choose(ladder, waiting_since=(NOW-timedelta(hours=2)).isoformat(),
-                            wakeups=[dict(round_id='round-a', run_id='run-a', object_id='water-b', started_at=NOW.isoformat())]))
+                            wakeups=[dict(study_id='smoke', round_id='round-a', run_id='run-a', object_id='water-b', started_at=NOW.isoformat())]))
         assert r is not None and r['cell_id'] == c['id']
 
 
@@ -270,7 +277,7 @@ def test_jobs_need_actual_waiting_event_and_count_all_active_autonomous_records(
     raw, snaps = ladder
     raw['routing']['ladder'] = [raw['routing']['ladder'][9]]
     wait = (NOW-timedelta(hours=3)).isoformat()
-    wakes = [dict(round_id='round-a', run_id='run-a', object_id='water-b', started_at=NOW.isoformat())]
+    wakes = [dict(study_id='smoke', round_id='round-a', run_id='run-a', object_id='water-b', started_at=NOW.isoformat())]
     assert selected(choose(ladder, waiting_since=wait)) is None
     assert selected(choose(ladder, wakeups=wakes)) is None
     assert selected(choose(ladder, waiting_since=NOW.isoformat(), wakeups=wakes)) is None
@@ -319,7 +326,7 @@ def test_cli_ladder_is_fail_closed_without_trusted_t184_adapter(ladder, monkeypa
 def test_order_skips_each_unqualified_cell(ladder):
     _, snaps = ladder
     kw = dict(waiting_since=(NOW-timedelta(hours=1)).isoformat(),
-              wakeups=[dict(round_id='round-a', run_id='run-a', object_id='water-b', started_at=NOW.isoformat())])
+              wakeups=[dict(study_id='smoke', round_id='round-a', run_id='run-a', object_id='water-b', started_at=NOW.isoformat())])
     def pick():
         return selected(choose(ladder, **kw))['cell_id']
     def occupy(entry, name, used):
@@ -371,7 +378,7 @@ def test_locally_finished_scheduler_residue_keeps_job_and_queue_slots(ladder, mo
     p = placement(ladder, cluster='batch', node_name=None, state='finished', cores=44)
     observe(snaps, p, running=False)
     kw = dict(placements=[p], waiting_since=(NOW-timedelta(hours=1)).isoformat(),
-              wakeups=[dict(round_id='round-a', run_id='run-a', object_id='water-b', started_at=NOW.isoformat())])
+              wakeups=[dict(study_id='smoke', round_id='round-a', run_id='run-a', object_id='water-b', started_at=NOW.isoformat())])
     assert selected(choose(ladder, **kw)) is None
     snaps['batch']['own'].update(cores_in_use=0, cores_queued=0, jobs=[])
     assert selected(choose(ladder, **kw))
@@ -405,11 +412,11 @@ def test_single_account_running_metadata_does_not_block_ladder(ladder):
     assert selected(choose(ladder))
 
 
-@pytest.mark.parametrize('change', ['unknown-state', 'conflicting-job', 'conflicting-attempt'])
+@pytest.mark.parametrize('change', ['invalid-state', 'conflicting-job', 'conflicting-attempt'])
 def test_ambiguous_local_evidence_rejected(ladder, change):
     p = placement(ladder)
     ps = [p]
-    if change == 'unknown-state': p['state'] = 'unknown'
+    if change == 'invalid-state': p['state'] = 'invalid-state'
     elif change == 'conflicting-job': ps.append(dict(p, attempt_id='different'))
     else: ps.append(dict(p, job_id='compute:99'))
     with pytest.raises(ValueError):
@@ -421,7 +428,7 @@ def test_new_wakeup_preserves_round_job_and_queue_limits(ladder):
     raw['routing']['ladder'] = [cell('jobs', 'batch', 'max', condition='jobs', max_jobs=1)]
     p = placement(ladder, cluster='batch', node_name=None, cores=44, run='previous-wakeup')
     kw = dict(placements=[p], run_id='next-wakeup', waiting_since=(NOW-timedelta(hours=1)).isoformat(),
-              wakeups=[dict(round_id='round-a', run_id='next-wakeup', object_id='water-b', started_at=NOW.isoformat())])
+              wakeups=[dict(study_id='smoke', round_id='round-a', run_id='next-wakeup', object_id='water-b', started_at=NOW.isoformat())])
     assert selected(choose(ladder, **kw)) is None
     raw['routing']['ladder'] = [cell('queue', 'batch', 'max', condition='queue')]
     assert selected(choose(ladder, **kw)) is None
@@ -457,3 +464,226 @@ def test_shared_snapshot_entry_local_links_are_not_scheduler_conflicts(ladder):
     snaps['batch-test']['own']['cores_running'] += 1
     snaps['batch-test']['own']['cores_in_use'] += 1
     assert selected(choose(ladder, placements=[p])) is None
+
+
+def waiting_request(*, study_id='smoke', round_id='round-a', run_id='run-a', object_id='water-b'):
+    return dict(waiting_since=(NOW-timedelta(hours=1)).isoformat(), wakeups=[dict(
+        study_id=study_id, round_id=round_id, run_id=run_id, object_id=object_id,
+        started_at=NOW.isoformat())])
+
+
+def test_actual_pbs_job_name_is_required_for_observed_binding(ladder):
+    raw, snaps = ladder
+    raw['routing']['ladder'] = [cell('free-alpha', tier='ultra', nodes=['alpha'],
+                                    condition='free', min_free_cores=48)]
+    p = placement(ladder)
+    assert p['scheduler_job_name'] == 'ag' + sha256(p['attempt_id'].encode()).hexdigest()[:12]
+    observe(snaps, p)
+    assert selected(choose(ladder, placements=[p]))
+    # PBS displays the manifest's short scheduler name, not the Attempt ID.
+    snaps['compute']['own']['jobs'][0]['name'] = p['attempt_id']
+    result = choose(ladder, placements=[p])
+    assert selected(result) is None
+    assert 'account_or_reservation_evidence_unknown' in result['candidates'][0]['reasons']
+
+
+@pytest.mark.parametrize('field', ['study_id', 'scheduler_job_name', 'run_id', 'round_id'])
+def test_placement_requires_verifiable_study_and_scheduler_identity(ladder, field):
+    p = placement(ladder, run=None)
+    del p[field]
+    with pytest.raises((KeyError, ValueError)):
+        choose(ladder, placements=[p])
+
+
+def test_same_object_and_batch_names_in_other_study_are_independent(ladder):
+    raw, _ = ladder
+    raw['routing']['ladder'] = [cell('free-alpha', tier='ultra', nodes=['alpha'],
+                                    condition='free', min_free_cores=48)]
+    p = placement(ladder, study_id='other-study', cid='free-alpha')
+    result = choose(ladder, object_id='water-a', placements=[p])
+    assert selected(result) and selected(result)['capacity']['cores_available'] == 48
+    # The foreign submission counts toward physical resources but neither
+    # consumes this study's one-place batch nor duplicates its object.
+    p['study_id'] = 'smoke'
+    assert choose(ladder, object_id='water-a', placements=[p])['reason'] == 'object_already_placed_in_run'
+
+
+@pytest.mark.parametrize('field,value', [('study_id', 'other-study'),
+    ('round_id', 'older-round'), ('run_id', 'previous-wakeup')])
+def test_qualified_batch_origin_is_bound_to_study_round_and_run(ladder, field, value):
+    raw, snaps = ladder
+    raw['routing']['ladder'] = [raw['routing']['ladder'][0]]
+    p = placement(ladder)
+    proof = next(iter(batch_proof(ladder).values()))
+    proof['request'][field] = value
+    origin = route.select_ladder(raw, proof['snapshots'], **proof['request'],
+                                placements=[], wakeups=[], now=NOW)
+    digest = origin['evidence']['input_sha256']
+    p['batch_input_sha256'] = digest
+    observe(snaps, p)
+    result = choose(ladder, placements=[p], batch_inputs={digest: proof})
+    assert selected(result) is None
+    assert 'batch_origin_unverified' in result['candidates'][0]['reasons']
+
+
+def test_wakeup_identity_includes_study_round_and_object(ladder):
+    raw, _ = ladder
+    raw['routing']['ladder'] = [cell('jobs', 'batch', 'max', condition='jobs', max_jobs=4)]
+    kw = waiting_request(study_id='other-study')
+    assert selected(choose(ladder, **kw)) is None
+    # Identical run names from different studies are distinct records. Only
+    # the matching study/object waiting history can satisfy this request.
+    kw['wakeups'] += waiting_request()['wakeups']
+    assert selected(choose(ladder, **kw))
+    kw = waiting_request(object_id='another-object')
+    assert selected(choose(ladder, **kw)) is None
+    kw = waiting_request(round_id='older-round')
+    assert selected(choose(ladder, **kw)) is None
+
+
+@pytest.mark.parametrize('state,job', [('reserved', None), ('unknown', None),
+    ('unknown', '1'), ('running', '1'), ('queued', '1')])
+def test_global_job_cap_includes_other_studies_rounds_and_unobserved_states(ladder, state, job):
+    raw, _ = ladder
+    raw['routing']['ladder'] = [cell('jobs', 'batch', 'max', condition='jobs', max_jobs=4)]
+    ps = [placement(ladder, cluster='batch-test', node_name=None, cores=44,
+                    aid='other-'+str(i), job=None if job is None else str(i+1), state=state,
+                    study_id='other-study-'+str(i), round_id='older-round', run='previous-wakeup')
+          for i in range(4)]
+    assert selected(choose(ladder, placements=ps[:3], **waiting_request()))
+    result = choose(ladder, placements=ps, **waiting_request())
+    assert selected(result) is None
+    assert 'autonomous_job_limit' in result['candidates'][0]['reasons']
+
+
+def test_shared_alias_reads_do_not_create_additional_autonomous_jobs(ladder):
+    raw, _ = ladder
+    raw['routing']['ladder'] = [cell('jobs', 'batch', 'max', condition='jobs', max_jobs=4)]
+    ps = [placement(ladder, cluster='batch', node_name=None, cores=44,
+                    aid='other-'+str(i), job=str(i+1), study_id='other-study', round_id='older-round')
+          for i in range(3)]
+    alias = dict(ps[0], cluster='batch-test', job_id='batch-test:1')
+    assert selected(choose(ladder, placements=ps+[alias], **waiting_request()))
+    fourth = placement(ladder, cluster='batch', node_name=None, cores=44, aid='fourth', job='4')
+    assert selected(choose(ladder, placements=ps+[alias, fourth], **waiting_request())) is None
+
+
+def test_shared_pbs_alias_second_half_is_order_independent(ladder):
+    raw, snaps = ladder
+    raw['routing']['ladder'] = [raw['routing']['ladder'][0]]
+    raw['clusters']['compute-peer'] = deepcopy(raw['clusters']['compute'])
+    snaps['compute-peer'] = deepcopy(snaps['compute'])
+    snaps['compute-peer']['cluster']['name'] = 'compute-peer'
+    proof = batch_proof(ladder)
+    p = placement(ladder)
+    alias = dict(p, cluster='compute-peer', job_id='compute-peer:1')
+    a = choose(ladder, placements=[p, alias], batch_inputs=proof)
+    b = choose(ladder, placements=[alias, p], batch_inputs=proof)
+    assert a == b
+    assert selected(a) and selected(a)['capacity_node'] == 'alpha'
+    assert selected(a)['capacity']['cores_available'] == 48
+
+
+@pytest.mark.parametrize('field,value', [('study_id', 'another-study'),
+    ('attempt_id', 'another-attempt'), ('object_id', 'another-object'), ('cores', 12)])
+def test_same_physical_job_cannot_claim_conflicting_ownership(ladder, field, value):
+    p = placement(ladder, cluster='batch', node_name=None, cores=44)
+    other = dict(p, cluster='batch-test', job_id='batch-test:1')
+    other[field] = value
+    with pytest.raises(ValueError):
+        choose(ladder, placements=[p, other])
+
+
+def test_unsubmitted_reservations_use_study_and_attempt_identity(ladder):
+    raw, _ = ladder
+    raw['routing']['ladder'] = [cell('jobs', 'batch', 'max', condition='jobs', max_jobs=2)]
+    p = placement(ladder, cluster='batch', node_name=None, cores=44, state='reserved', job=None)
+    assert selected(choose(ladder, placements=[p, deepcopy(p)], **waiting_request()))
+    other_study = dict(p, study_id='another-study')
+    result = choose(ladder, placements=[p, other_study], **waiting_request())
+    assert selected(result) is None
+    assert 'autonomous_job_limit' in result['candidates'][0]['reasons']
+
+
+@pytest.mark.parametrize('state', ['running', 'unknown'])
+def test_unobserved_active_state_holds_global_queue_slot_until_running_readback(ladder, state):
+    raw, snaps = ladder
+    raw['routing']['ladder'] = [cell('queue', 'pool', 'ultra', condition='queue')]
+    p = placement(ladder, cluster='batch', node_name=None, cores=44, state=state,
+                  study_id='other-study', round_id='older-round')
+    other = placement(ladder, aid='other', job=None, state='reserved', study_id='third-study')
+    result = choose(ladder, placements=[p, other])
+    assert selected(result) is None
+    assert 'global_queue_limit' in result['candidates'][0]['reasons']
+    for name in ('batch', 'batch-test'):
+        observe(snaps, p, entry=name)
+    assert selected(choose(ladder, placements=[p, other]))
+
+
+def test_unknown_without_job_and_shared_alias_hold_one_queue_slot(ladder):
+    raw, _ = ladder
+    raw['routing']['ladder'] = [cell('queue-batch', 'batch', 'max', condition='queue'),
+                                cell('queue-pool', 'pool', 'ultra', condition='queue')]
+    p = placement(ladder, cluster='batch', node_name=None, cores=44, state='unknown', job=None,
+                  study_id='other-study', round_id='older-round')
+    alias = dict(p, cluster='batch-test')
+    result = choose(ladder, placements=[p, alias])
+    assert selected(result)['cluster'] == 'pool'
+    other = placement(ladder, aid='other', job=None, state='unknown', study_id='third-study')
+    assert selected(choose(ladder, placements=[p, alias, other])) is None
+
+
+@pytest.mark.parametrize('mode', ['jobs', 'queue'])
+def test_manual_and_unlinked_snapshot_jobs_only_consume_account_cores(ladder, mode):
+    raw, snaps = ladder
+    raw['routing']['ladder'] = [cell('only', 'batch', 'max', condition=mode,
+                                    **({'max_jobs': 4} if mode == 'jobs' else {}))]
+    manual = [placement(ladder, cluster='batch', node_name=None, aid='manual-'+str(i),
+                        job=str(i+1), cores=8, run=None, study_id='manual-study') for i in range(4)]
+    for p in manual:
+        for name in ('batch', 'batch-test'):
+            observe(snaps, p, running=False, entry=name)
+    for records in ([], manual):
+        assert selected(choose(ladder, placements=records, **waiting_request()))
+    raw['clusters']['batch-test']['resources']['max_committed_cores'] = 64
+    assert selected(choose(ladder, placements=manual, **waiting_request())) is None
+
+
+@pytest.mark.parametrize('mode', ['jobs', 'queue'])
+def test_local_submission_lock_requires_recompute_before_claiming_last_slot(ladder, mode):
+    from ag.locks import submission_lock
+    raw, _ = ladder
+    if mode == 'jobs':
+        raw['routing']['ladder'] = [cell('only', 'batch', 'max', condition='jobs', max_jobs=4)]
+        records = [placement(ladder, cluster='batch', node_name=None, cores=44,
+                             aid='existing-'+str(i), job=str(i+1), study_id='other-study',
+                             round_id='older-round') for i in range(3)]
+        cluster, cores = 'batch', 44
+    else:
+        raw['routing']['ladder'] = [cell('only', 'pool', 'ultra', condition='queue')]
+        records = [placement(ladder, cluster='batch', node_name=None, cores=44,
+                             aid='existing', study_id='other-study', round_id='older-round')]
+        cluster, cores = 'pool', 48
+    barrier = Barrier(2)
+
+    def contender(index):
+        object_id = 'candidate-'+str(index)
+        kw = waiting_request(object_id=object_id)
+        stale_choice = selected(choose(ladder, object_id=object_id, placements=deepcopy(records), **kw))
+        barrier.wait(timeout=10)
+        with submission_lock(raw):
+            current = choose(ladder, object_id=object_id, placements=deepcopy(records), **kw)
+            if selected(current):
+                records.append(placement(ladder, cluster=cluster, node_name=None, cores=cores,
+                    aid=object_id, job=None, state='reserved', cid='only'))
+        return stale_choice is not None, selected(current) is not None
+
+    # This exercises the existing local flock plus kernel recomputation. It is
+    # not evidence that the production submit/T186 path has been connected.
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        futures = [workers.submit(contender, i) for i in range(2)]
+        outcomes = [future.result(timeout=15) for future in futures]
+    assert all(stale for stale, _ in outcomes)
+    assert sum(accepted for _, accepted in outcomes) == 1
+    assert len(records) == (4 if mode == 'jobs' else 2)
+    assert selected(choose(ladder, placements=records, **waiting_request())) is None
