@@ -1,8 +1,10 @@
 # Auto-Gaussian CLI
 
 `ag/` 是独立 Python 项目，负责安全的作业生命周期和确定性本地工具。
-从仓库根目录在 Python 3.11+ 环境运行 `python -m pip install -e 'ag[test,chem]'`，
+按[根目录安装步骤](../README.md#安装)为当前 worktree 创建独立 `.venv`，
+从仓库根目录在 Python 3.11+ 环境运行 `python -m pip install -e 'ag[test,chem]' 'rdkit==2026.3.3'`，
 然后用 `ag --version` 和 `ag --help` 检查安装。
+RDKit 与 CI 固定为同一精确版本；平台包边界见上述安装步骤，固定版本不保证跨硬件数值逐位一致。
 整体架构、常用命令和 Skill 部署见[根目录 README](../README.md)；
 规则见 [AGENTS.md](../AGENTS.md)，设计见[改造方案](../docs/REDESIGN-PLAN.md)。
 

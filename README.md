@@ -66,15 +66,18 @@ ag：作业生命周期 + 日志解析、热化学、构象去重、关系图与
 conda activate chem
 python -m venv --system-site-packages .venv
 source .venv/bin/activate
-python -m pip install -e 'ag[test,chem]'
-# 仅当 chem 环境尚无 RDKit 时：
-python -m pip install rdkit
+python -m pip install -e 'ag[test,chem]' 'rdkit==2026.3.3'
 python -m pip check
 ag --version
 ag --help
 ```
 
-`--system-site-packages` 允许复用 chem 中的 RDKit；ag 的安装和命令入口仍属于本 worktree。
+`--system-site-packages` 允许复用 chem 中已满足精确版本的 RDKit；ag 的安装和命令入口仍属于本 worktree。
+开发安装与 CI 统一固定 RDKit `2026.3.3`，不能因环境中已有其他版本而跳过版本要求。
+该版 [PyPI 文件列表](https://pypi.org/project/rdkit/2026.3.3/#files)提供 Python 3.11 的
+Linux（glibc 2.28+，x86-64/ARM64）和 macOS（11+，ARM64）wheel；没有 macOS Intel wheel。
+macOS Intel 可复用已具备同版本 RDKit 的 chem 环境，不能据此认为全新 pip 安装也可用。
+固定版本减少发行版漂移，不保证不同硬件、构建或其他依赖下的数值逐位一致；复现时仍须记录实际环境与输入。
 `chem` extra 包含 cclib、NumPy、GoodVibes 4.3.0；`test` extra 包含 pytest。
 Gaussian、xTB、CREST、调度器及本机 OpenSSH 需另行准备，外部软件遵守各自许可。
 
