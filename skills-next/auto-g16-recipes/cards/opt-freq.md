@@ -11,6 +11,8 @@
 ## 1. 适用范围
 
 主族、闭壳层、单分子、中性或带电的极小点优化与频率。不能用于 TS、金属、开壳层或碎片间结合构象搜索。
+已审阅复合物释放采样约束后的 Opt+Freq 可复用本卡模板与驻点判据，但须先按
+[复合物与双分子步骤](complex.md)明确片段、接近方式、低频运动及分离物种参考态。
 
 ## 2. 前置条件
 
@@ -129,7 +131,7 @@ xTB 6 kcal/mol → DFT 单点重排 → 3 kcal/mol 内进入优化（研究最�
 
 真实计算异常按 [失败诊断](failure-diagnosis.md)及 AGENTS 的模式规则处理，先审阅已有输出。未收敛、SCF 失败、超时或虚频分别提出针对性的修改，保留原输入和结果；新 Attempt 按 [失败诊断](failure-diagnosis.md)及模式规则处理。
 
-频率阶段收敛未通过时，按 failure-diagnosis 第 7 节提出从最终几何用 `Opt=CalcFC Freq` 重新优化的新 Attempt，relation 为 `reoptimized_from`；按上述模式规则取得授权。
+频率阶段收敛未通过时，按[失败诊断的症状表](failure-diagnosis.md#症状与最小补救)核对末次几何与曲率/位移证据，提出一个最小改动；重优化的新 Attempt 用 `reoptimized_from` 关联，按上述模式规则取得授权。
 
 ## 8. 常见坑
 

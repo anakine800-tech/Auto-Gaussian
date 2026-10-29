@@ -15,7 +15,7 @@
 
 本页是脱敏、去重并标注更正的整理版，不是原文逐字副本，也不新增科学默认、提交授权或签字层级。实际使用从 [TS 总入口](../cards/ts.md) 和 [Study 流程](../../auto-g16-study/SKILL.md)进入；方法与基组仍只在 [acceptance-methods.md](../../auto-g16-study/references/acceptance-methods.md) 中定义。
 
-当前行为核对基线为 `a3cc131b`（已包含 T154/T156/T161–T165，其中 T163 仅为规格）；后续功能需按实际合并实现再更新。原稿的两机部署前提只记录当时的发布背景，本页不据此推断部署已完成，也不把它新增为通用操作前置条件。研究写入、升级、计算提交仍依现行流程和该 study 已有授权执行。
+原整理基线为 `a3cc131b`；2026-10-29 对照已合并 T176 的 `xtb_hessian.py`、`g0.py` 和 [G0 文档](../../../docs/g0.md#模式投影)更新本地 Hessian 导入与模式入口。T163 第 1–7 节保留历史规格，当前能力以第 8 节及实现为准。原稿的两机部署前提只记录当时的发布背景，本页不据此推断部署已完成，也不把它新增为通用操作前置条件。研究写入、升级、计算提交仍依现行流程和该 study 已有授权执行。
 
 ## 原章节去向与更正
 
@@ -26,7 +26,7 @@
 | 2 scan-path | 一维扫描相邻点的成键、二面角、接触和缺失诊断，见[仓库用法](../../../README.md) | 保留诊断含义，阈值与字段只引用实际文档，不再复制一套数值表 |
 | 3 scan-peak | 严格局部峰与 TS 草稿，见 [TS 扫描说明](../cards/ts.md#初猜来源一维弛豫扫描) | 缺 `%nprocshared` 不再一律拒绝；T150 已补核数，T154 已支持所选入口配置的默认档位 |
 | 4 qst-endpoints | 人给完整映射、正规对齐、歧义审阅、QST2 草稿 | 不保证能查出所有同元素身份错配；未知虚频数仍需人工核对极小点证据 |
-| 5 G0 | 几何/完整性诊断与模式投影，见 [G0 文档](../../../docs/g0.md) | 加入 T161 批次局部错误和 T162 显式映射/来源绑定；不把错误当 clean，不以声明校验证明化学身份 |
+| 5 G0 | 几何/完整性诊断与模式投影，见 [G0 文档](../../../docs/g0.md) | T161 批次局部错误、T162 显式映射/来源绑定、T176 单候选本地分析；不把错误当 clean，不以声明校验证明化学身份 |
 | 6 profile 三数 | 最低 TS、系综、差值，见 [profile](../cards/profile.md) | 保留量的区别与共同参考态；不复制非 TS 卡片的完整用法 |
 | 7 卡片口径 | 有限覆盖、失败记录、分支 IRC、归属边界，见 [TS](../cards/ts.md) / [IRC](../cards/irc.md) | 不带回旧候选阈值、阶段审批或部署规则 |
 | 8 典型流程 | 本页按已审阅输入说明步骤 | 原稿中的具体原子编号、距离窗及能量演示不复用，统一以占位符或现行说明替代 |
@@ -68,7 +68,22 @@ ag g0 <study> --object <对象> --all --windows analyses/<窗口JSON> --json
 
 窗口、反应坐标及原子对应由人审阅，不能直接把原稿示例编号用于研究。T162 用 `--atom-mapping` 声明显式对应：顶层 `mappings`，完整且从 1 开始的 `candidate_to_target` 表示候选 → 目标；reference/frequency 分别绑定候选与实际来源的 SHA-256，频率还绑定确切日志段。详见 [显式原子对应](../../../docs/g0.md#显式原子对应t162)。`declared_verified` 只证明声明校验通过，不证明同元素化学身份。
 
-缺映射时身份保持 `unverified`，不增加科学拒绝或提交门槛；没有有效 frequency 映射就不提供模式投影。模式使用已取回 Gaussian 频率的原几何与原位移，只转换候选反应坐标的索引，不旋转/重排模式；逐内坐标报告变化并考虑整体正负号。重叠度只供排序，不设科学通过阈值。xTB Hessian 尚未接入；[T163 调查规格](../../../docs/research/xtb-hessian-import.md)保留真实配套文件与数值边界缺口，不能将 `g98.out` 交给现有 Gaussian 适配器。
+缺映射时身份保持 `unverified`，不增加科学拒绝或提交门槛；没有有效 frequency 映射就不提供模式投影。模式使用已取回 Gaussian 频率的原几何与原位移，只转换候选反应坐标的索引，不旋转/重排模式；逐内坐标报告变化并考虑整体正负号。重叠度只供排序，不设科学通过阈值。
+
+T176 已提供以下纯本地入口，读取已有文件，不生成 Hessian、不运行 xTB，也不自动准备计算：
+
+```sh
+ag import-xtb-hessian --study <study> --source <来源声明JSON> --out analyses/<新目录>
+ag g0 <study> --object <对象> --candidate <候选> --modes-analysis analyses/<新目录>/analysis.json --atom-mapping <映射JSON> --reaction-coordinate distance:<I-J>:forming --json
+```
+
+范围限于 [T176 接口](../../../docs/research/xtb-hessian-import.md#8-t176-本地导入接口)列明的 conda-forge osx-64 `xtb 6.7.1 gfortran_h7141999_5` 普通 GFN2 CLI 路径；非默认有效质量/缩放、约束、偏置等不能外推。声明绑定同次原始 Hessian、g98 几何、stdout/stderr、输入、调用与构建，输出保存原字节副本和哈希绑定；不把输入 XYZ 或虚频扰动后几何当 Hessian 几何。
+
+`--modes-analysis` 只供单候选，与 `--modes-attempt` 互斥；批量仍沿 Gaussian Attempt 来源规则，不自动发现 analyses。frequency 映射目标含 analysis 路径及分析/声明/几何/Hessian 哈希，没有 `attempt`，按 [G0 文档](../../../docs/g0.md#模式投影)从实际目标原样填写。完整双射与绑定通过不证明化学身份。
+
+导入器从 Hessian 重建带符号谱、去质量权重并归一的 Cartesian 位移，不消费 `g98.out` 两位小数的模式向量。xTB 官方 [v6.7.1 的 g98fake2](https://github.com/grimme-lab/xtb/blob/26b28010e805f7d1aeeef39813feb473e69cc4be/src/freq/io.f90#L196-L301)只显示部分频率并打印传入向量，Gaussian 外观不意味着可交给 Gaussian 适配器（2026-10-29 核对）。
+
+内部振动与刚体模式不能可靠分离时，`external_modes_unresolved` 保留完整谱但不发布可排序模式，不按“小负值”删频率。导入器目前只报告 `stationarity=unknown/non_stationary`；数学来源完整仍可能有方法/溶剂/正常结束未独立核实的警示。**这些是有限本地诊断，不能证明合格 TS，也不能用作 Gaussian RCFC/ReadFC 的力常数。** Gaussian 振动分析的驻点与同层级要求见官方 [Vibrational Analysis §2，p.2](https://gaussian.com/wp-content/uploads/dl/vib.pdf)（2020 修订，2026-10-29 核对）；该来源不验证任一 xTB 候选的科学适用性。
 
 候选诊断只把输入完整性与极端几何损坏归为 rejected；普通冲突、超窗、立体和模式问题为标记。数据、来源或解析错误是操作错误，不能归入 clean/flagged/rejected 来掩盖。完整限制与阈值以 [G0 文档](../../../docs/g0.md)为准。
 
@@ -78,7 +93,8 @@ T161/T162 批量诊断对明确分类的频率分段歧义、可定位到候选�
 
 ## 科学审阅与后续分析
 
-- TS 优化和完整 Freq 通过后，必须按原始负频计数恰好一个虚频，并由人审核目标成断键的协调方向；G0 排名、程序正常结束或一个负频都不能代替该审阅。
+- TS 优化和完整 Freq 通过后，必须按原始负频计数恰好一个虚频，并由人审核目标成断键的协调方向；G0 排名、程序正常结束或一个负频都不能代替该审阅。经验虚频大小随反应和模式而变，不新增统一大小阈值，不删除小负频凑数。
+- 固定扫描/IRC 步长只是特定问题的试探设置；`NoEigenTest` 关闭优化中的曲率检查（[Gaussian Opt / Convergence-Related Options](https://gaussian.com/opt/)，2026-10-29 核对）；仅沿用 [TS 搜索卡](../cards/ts-search.md#3-输入模板)已有适用条件，不能当作默认或跳过最终曲率审阅。优化、SCF、IRC 补救统一查 [失败诊断症状表](../cards/failure-diagnosis.md#症状与最小补救)。
 - 双向 IRC 必须分别满足 [IRC 卡片第 6 节](../cards/irc.md#6-结果判据清单)，两侧末点分别独立 Opt+Freq 为极小点，并识别端点后才能声称验证。按各产物分支内部的重要性安排，暂缓仍是未验证。
 - 一个模板组失败、低层路线塌缩或没有合格局部峰，只说明此次搜索的结果，不能排除整个通道。保留失败类型、来源与预算，覆盖结论限于“在声明的通道范围与采样预算内稳定”。
 - profile 使用共同参考态；重复搜索次数不当作简并度，构象简并度、反应路径数与旋转对称数分别审阅。约束/偏置采样中的通道转换不能代替 Curtin–Hammett 的独立动力学依据。

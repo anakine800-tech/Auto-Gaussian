@@ -182,9 +182,17 @@ A 3 1 2 S 2 5.0
    只有输入完整性和几何损坏两类硬拒绝；普通冲突、距离超窗和立体差异仅标记，不自动改归属。报告 rejected/flagged/clean 不等于科学验收，clean 只表示未发现问题。**G0 是本地诊断，不是门禁；提交与否由负责人决定。**
    窗口文件须在 study 的 `analyses/` 下，相对路径以 study 为基准；顶层只允许 `channels`、`all`、`reaction_coordinates`。距离窗口应用 all + 候选原登记目标通道 + 命令行 `--window`；反应坐标取 `reaction_coordinates[目标通道]`，再追加可重复的 `--reaction-coordinate kind:atoms:role`，编号从 1 开始。distance 角色为 breaking/forming，angle 为 increasing/decreasing/report；通道 ID 须合法。
    适用距离窗口及 distance 反应坐标声明的原子对列在 `geometry.reaction_center_pairs`（原子、元素、距离、成键状态），不标普通冲突，但仍适用两条几何硬拒绝：距离 < 0.5 Å 或 < 0.5 × 共价半径之和。有窗口仍检查超窗；没有模式数据也适用反应中心规则，angle 坐标不声明原子对。
-   有已取回 Gaussian 频率结果及经审阅映射时用第二条命令，反应坐标始终用候选编号：断键伸长、成键缩短。工具只转换坐标索引，使用频率原几何与原位移，不旋转、反射或重排；逐坐标投影并考虑模式整体正负号。审阅全部虚频及来源，重叠度只供排序，不设科学阈值。非驻点频率只供诊断；本期不读取 xTB Hessian。
+   有已取回 Gaussian 频率结果及经审阅映射时用第二条命令，反应坐标始终用候选编号：断键伸长、成键缩短。工具只转换坐标索引，使用频率原几何与原位移，不旋转、反射或重排；逐坐标投影并考虑模式整体正负号。审阅全部虚频及来源，重叠度只供排序，不设科学阈值。非驻点频率只供诊断。
    批量从第一条命令把 `--candidate <候选>` 换成 `--all` 或 `--channel <通道>`，需要模式时另加 `--atom-mapping <映射JSON>`，不加 `--modes-attempt`；模式来源取候选最新一条 Attempt 非空的结果，跳过 diagnosed 等空 Attempt 记录，不按 outcome 筛选。全为空时记“无模式数据”；选中的 Attempt 未取回或没有 Gaussian Freq 段也记无模式数据，不再回退；未声明反应坐标时不做投影，但已提供的映射及所选来源仍须核对绑定。顺序只是建议。显式 `--record` 才写 diagnosed，归属 none、Attempt 为空，不能借此保留旧的最新归属；历史结果仍可查。
-   来源：[G0 文档](../../../docs/g0.md)（T137/T138/T161/T162）、[T139](../../../docs/redesign-tasks/T139-card-wording.md) B4/X4。[T163 调查规格](../../../docs/research/xtb-hessian-import.md)只规定后续本地导入方案，导入器未实现、真实配套文件和数值边界仍待补；不能把 xTB `g98.out` 当 Gaussian 频率输入。
+   已有配套 xTB 文件时，可用 T176 的本地导入器，再对单候选显式选择分析：
+
+   ```sh
+   ag import-xtb-hessian --study <study> --source <来源声明JSON> --out analyses/<新目录>
+   ag g0 <study> --object <对象> --candidate <候选> --modes-analysis analyses/<新目录>/analysis.json --atom-mapping <映射JSON> --reaction-coordinate distance:<I-J>:forming --json
+   ```
+   当前仅支持 [T176 有限构建/来源范围](../../../docs/research/xtb-hessian-import.md#8-t176-本地导入接口)；来源声明须绑定同次 Hessian、g98 几何、调用、构建、有效质量、缩放和结束证据。导入不生成 Hessian，不运行 xTB。`--modes-analysis` 与 `--modes-attempt` 互斥，批量不自动读取本地分析；frequency 映射目标按 [G0 模式投影](../../../docs/g0.md#模式投影)绑定 analysis 和原始来源哈希，不填 Gaussian Attempt。
+   导入器重建谱与 Cartesian 位移，不读取 `g98.out` 的显示向量。`external_modes_unresolved` 保留完整谱但不给模式排序；`stationarity=unknown/non_stationary`、方法/溶剂或结束证据的警示仍须明示。这些只是有限本地诊断，不能作为合格 TS、Gaussian Freq 或 Gaussian RCFC/ReadFC 力常数复用证据。
+   来源：[G0 文档](../../../docs/g0.md)（T137/T138/T161/T162/T176）、[T139](../../../docs/redesign-tasks/T139-card-wording.md) B4/X4；T163 历史规格中的“未实现”已由 T176 当前接口取代，不能将 `g98.out` 交给 Gaussian 频率读取器。
 
    T161/T162：批量对明确分类的频率分段歧义、可定位到单候选的映射声明或绑定错误保留其他成功项，单列 errors 并返回 2；有局部错误时 `--record` 不写任何候选结果。单候选仍直接报错。映射文件读取或顶层身份错误、存档/来源本身损坏、非法路径及其他解析错误仍停止整批；错误不记 clean。
 
@@ -213,10 +221,10 @@ G0、草稿导出和登记是本地操作，不自动启动计算。扫描及约
 
 **低层优化塌缩到端点，只说明这条低层路线失败；通道应改用其他方法继续，不能据此排除。**已登记候选使用 `ag catalog candidate-result <study> --object <对象> --candidate <候选> --outcome minimum --note '低层路线失败（<方法>）'`，有关联 Attempt 时补 `--attempt <结果Attempt>`，不声明 excluded。
 
-xTB 无虚频或方向不对只降优先级或转为直接做 DFT，不排除候选；G0 的 Gaussian 模式标记 `mode:no_imaginary_mode`、`mode:sign_inconsistent` 同样不导致 rejected。还须审阅 `mode:multiple_imaginary_modes`、`mode:most_negative_not_best`、`mode:non_stationary_frequencies`；这些类别不表示本期支持 xTB Hessian。
+xTB 无虚频或方向不对只降优先级或转为直接做 DFT，不排除候选；Gaussian 或受支持 xTB 分析的 G0 模式标记 `mode:no_imaginary_mode`、`mode:sign_inconsistent` 同样不导致 rejected。还须审阅 `mode:multiple_imaginary_modes`、`mode:most_negative_not_best`、`mode:non_stationary_frequencies`；标记不代替最终 DFT TS 验收。
 来源：[T139](../../../docs/redesign-tasks/T139-card-wording.md) A7/A8/X4、[catalog v2](../../../docs/ag-catalog-2.md)、[G0 模式标记](../../../docs/g0.md#模式投影)。
 
-需要三维及以上扫描或 xTB 多维扫描、白名单外输入段或尚未支持的自动初猜时，写明具体缺口并暂停该步骤。真实作业异常按上述 AGENTS 模式规则处理；不在原 Attempt 重跑，不用旧 Skill 执行。
+需要三维及以上扫描或 xTB 多维扫描、白名单外输入段或尚未支持的自动初猜时，写明具体缺口并暂停该步骤。优化、SCF 与 IRC 的补救只查 [失败诊断的症状表](failure-diagnosis.md#症状与最小补救)，不把试探参数固化为默认。真实作业异常按上述 AGENTS 模式规则处理；不在原 Attempt 重跑，不用旧 Skill 执行。
 
 ## 8. 常见坑
 

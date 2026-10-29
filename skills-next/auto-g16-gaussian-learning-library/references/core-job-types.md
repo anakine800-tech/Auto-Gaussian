@@ -38,6 +38,25 @@
 - 常见用途：结构检查、性质和轨道分析，或在较低层级优化结构上进行较高层级能量计算。
 - 必须记录：单点方法/基组/溶剂、几何来源和几何层级，通常写成 `single-point//geometry`。
 
+为防止将后 HF 的参考 SCF 能量误当最终总能量，读数时先定位实际完成的作业段，再核对字段：
+
+| Gaussian 原生结果 | 电子能量字段的含义 | ag 当前边界 |
+|---|---|---|
+| HF 或受支持的普通 DFT | `SCF Done` 对应所求 SCF 能量；仍须核对色散、溶剂项及输出说明 | `facts.energies.scf` 取该段 cclib `scfenergies` 的末项；字段存在不等于科学验收 |
+| MP2 / MP3 / MP4 | `EUMP2` / `EUMP3` / 相应 `UMP4(...)` 为各目标方法总能量；前面的 SCF 能量只是参考层级 | facts 不把这些相关总能量映射为 `energies.scf`；thermo/profile 拒绝 |
+| CCSD / CCSD(T) | 收敛后的 `E(CORR)` / `CCSD(T)` 分别对应目标总能量，不能只取前面的 MP2 或 SCF 值 | 同上，尚无可供 thermo/profile 使用的后 HF 能量接口 |
+| 双杂化（以 B2PLYP 为例） | `E(B2PLYP)` 含微扰相关贡献，区别于 SCF 部分及单独的 `E2(B2PLYP)` | thermo/profile 拒绝双杂化，不因名称含 DFT 就接受 |
+
+Gaussian 原文核对（2026-10-29）：G16 Rev. C.01 在线手册
+[MP Methods，Examples / Double-Hybrid Methods](https://gaussian.com/mp/) 与
+[CCD and CCSD，Examples](https://gaussian.com/cc/)。这些示例验证字段含义，不证明某方法适合具体研究。
+ag 实现定位为 [`_parse_outputs.py` 的 `_parse_gaussian_section` / `parse_gaussian`](../../../ag/src/ag/_parse_outputs.py)
+及 [`_profile_sources.py` 的 `SCF_ENERGY_METHODS`、`protocol`、`section_source`](../../../ag/src/ag/_profile_sources.py)；
+[`thermo.py`](../../../ag/src/ag/thermo.py) 与 profile 共用该协议检查。
+白名单只接受明确支持的 HF/DFT SCF 能量方法，未知方法及自定义基组等协议仍拒绝；它不是研究方法推荐表。
+更换 route 不会扩展解析支持，也不能通过改写 facts 将后 HF 结果伪装成受支持的 SCF 结果。
+能量层级与性质所用密度分别核对，见 [GKB-0111](theory-and-methods.md#gkb-0111-后-hf-方法)。
+
 ### GKB-0411 SCF 不收敛排查候选
 
 - 类型：排障
@@ -85,14 +104,14 @@
 ### GKB-0431 TS 验证证据链
 
 - 类型：验证 SOP
-- 完整证据链包括一个目标虚频、一个负 Hessian 本征值、正确的振动模式，以及用 IRC 或等价证据检查连接的反应物和产物。
+- 本项目的完整证据链包括恰好一个虚频、相应负曲率方向、正确的振动模式，以及双向 IRC 和端点身份；有限初猜模式诊断不能代替正式 TS/Freq 验收。
 - 安全解释：
   1. 优化收敛；
-  2. 恰好一个显著虚频；
+  2. 恰好一个虚频，不以经验大小区间代替模式审阅；
   3. 振动矢量沿目标成键/断键或重排方向；
-  4. 正反 IRC 或其它可靠端点证据；
+  4. 正反 IRC 两向均完成；
   5. 端点再优化并确认身份；
-  6. 与同一参考态下的其它通道比较。
+  6. 与同一参考态下的其它通道比较；完成判定仍须按 Study 流程人工签字。
 
 ### GKB-0432 TS 初猜策略与边界
 
@@ -141,11 +160,16 @@
 - 类型：方法
 - 谐振近似常高估频率，经验缩放因子依赖方法和基组；IR 强度与偶极矩变化相关，Raman 活性与极化率变化相关。
 - 缩放因子必须与方法/基组匹配，不能用笼统范围代替经过核验的具体数值。
+- 光谱频率校正与热化学设置分开记录；研究默认和 thermo/profile/GoodVibes 入口差异见[方法表](../../auto-g16-study/references/acceptance-methods.md#数值设置与热化学依据)，本节不指定新因子。
+- Gaussian `Scale` 用于热化学处理；`freqchk` 的官方例子明确缩放不改写所报频率本身。不能把 `Frequencies` 行当成已乘该因子的光谱峰位。核对于 2026-10-29：[Scale，Description](https://gaussian.com/scale/)；[freqchk，Examples](https://gaussian.com/freqchk/)。
+- 区分 `IR Inten`（km/mol）与 `Raman Activ`（Å⁴/amu），后者是散射活性，不能直接标为实验 Raman 强度。G16 手册的 Raman 选项对 HF 默认启用，对 DFT/MP2 可显式请求；输出和可用导数仍按具体方法、版本核对。原文为 [Freq，Requesting Specific Spectra / Pre-resonance Raman 示例](https://gaussian.com/freq/)（G16 Rev. C.01，2026-10-29 核对）。
 
 ### GKB-0453 温度、同位素和热化学数据
 
 - 类型：操作/输出
 - 在 Born–Oppenheimer 近似下，同位素不改变电子势能面，但会影响涉及质量的频率与热化学；`temperature=x`改变热化学温度，不改变电子能量。
+- Gaussian 原生可用 `Iso` 或 `Freq=ReadIsotopes` 指定质量，后者的质量顺序须与原子顺序一致；有适用的已保存频率力常数时，`Freq=ReadFC` 可重新做模式及热化学分析。更换质量会改变质权 Hessian 的本征问题，不能只给原频率换一个同位素标签。
+- 原文为 [Freq，ReadFC / ReadIsotopes](https://gaussian.com/freq/)（G16 Rev. C.01，2026-10-29 核对）；这些是 Gaussian 原生学习说明，不新增 ag 的同位素、IR/Raman 执行或解析支持。实际研究仍需核对质量、方法、温压和证据来源，不能沿用未经核对的热修正。
 - 输出关注：ZPE、thermal correction to Energy/Enthalpy/Gibbs Free Energy 及对应电子能量加校正项。
 - 常见组合思路：用较低或中等层级优化和频率获得热校正，再在同一结构做较高层级单点。
 - 未覆盖：标准态转换、低频准谐处理、构象系综和浓度效应；用于研究时必须另行处理。

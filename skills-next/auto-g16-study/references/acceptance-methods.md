@@ -110,11 +110,37 @@ DFT 网格写“程序默认，G16 为 UltraFine”，核对输出及环境默�
 298.15 K 下，TST 相同前因子和传输系数的两通道能垒差 1 kcal/mol，
 速率比为 exp[1/(0.00198720426×298.15)] = 5.408 ≈ 5.4；仅作量级参考。
 
-频率缩放因子与 ZPE 缩放因子均取 **1.0**：这是当前 ag 明确固定的
-未缩放基线（thermo 输出 frequency_scale、zpe_scale），不是声称该方法
-谐振频率精确，也不是 GoodVibes 自动检索出的经验因子。正式研究若采用
-其他因子，应提供方法/基组匹配的文献和用途；当前接口不支持时报告能力缺口，
-不能仅改报告数值或把缩放系数与低频修正混为一谈。
+频率缩放因子与 ZPE 缩放因子的**研究默认值均为 1.0**，保持未缩放基线；
+这不声称谐振频率精确，也不是 GoodVibes 自动检索出的经验因子。默认值与
+工具可接受的设置分开记录（2026-10-29 对照当前实现）：
+
+| 入口 | 缩放设置的实际支持 |
+|---|---|
+| `ag thermo` | `calculate_thermo` 显式传入 `freq_scale_factor=1.0`、`zpe_scale_factor=1.0`，CLI 无覆盖选项；输出 `settings.frequency_scale/zpe_scale` 均为 1.0。 |
+| `ag profile` 直接读取 Attempt | 顶层 `thermo_settings.frequency_scale/zpe_scale` 默认 1.0，允许显式正的有限数，分别传入 GoodVibes；接口接受不等于该因子已有科学依据。 |
+| `ag profile` 读取已有 thermo | 使用文件中记录的设置与 `qh_H/qh_S/qh_G`，不按覆盖值重算缓存；混合来源必须同口径，覆盖值与来源不同即拒绝。不能手改文件数字来绕过。 |
+
+实现定位：[thermo.py](../../../ag/src/ag/thermo.py) 的 `calculate_thermo`、
+[profile.py](../../../ag/src/ag/profile.py) 的设置合并与来源一致性检查，以及
+[_profile_sources.py](../../../ag/src/ag/_profile_sources.py) 的 `settings_checked/load_species`。
+[GoodVibes 4.3.0 源码](https://github.com/patonlab/GoodVibes/blob/v4.3.0/goodvibes/thermo.py)
+的 `ThermoOptions` 与 `calc_bbe` 将两因子分开：频率因子用于振动能量/熵，
+ZPE 因子用于独立 `zpe` 值。该版本 H、qh_H、G、qh_G 的振动项仍使用频率
+因子；只改 `zpe_scale` 不会把独立 ZPE 修正传入 profile 能垒，profile 也不导出
+单列 ZPE。需要这种自由能处理时应报告能力缺口，不能声称已实现。
+
+非默认因子须提供与方法/基组和用途匹配的原始来源、页码/表格与适用边界：
+拟合谐频、实验基频和 ZPE 的因子不是同一个量，不把光谱因子直接套到 ZPE。
+来源分类见[明尼苏达频率因子数据库 Introduction](https://comp.chem.umn.edu/freqscale/)
+及其中原始论文定位（Alecu 等，2010，[DOI:10.1021/ct100326h](https://doi.org/10.1021/ct100326h)，2872–2887 页）；
+此处核实分类与书目信息，未选用或验证任何非默认数值。采用前仍须回到相应
+论文/表格核实具体值，不以接口支持替代方法审阅，不能与低频修正混为一谈。
+
+Gaussian 官方 [Scale / Description](https://gaussian.com/scale/) 将 `Scale` 定义为
+热化学缩放；[FreqChk / Examples](https://gaussian.com/freqchk/) 明确缩放影响
+热化学而不改变打印的频率本身（2026-10-29 核实）。因此不能仅凭 route 中的
+`Scale` 把日志 `Frequencies` 当成已缩放频率，或假定 ag 重算热化学会继承它；
+Gaussian 原生热修正与 GoodVibes 重算设置应分别注明，避免遗漏或重复缩放。
 
 熵的 Grimme qRRHO 与焓的 Head-Gordon 修正均选 **100 cm⁻¹**，依据项目
 D21/负责人确认的统一比较约定与 GoodVibes 的常用默认，不是普适物理分界。
