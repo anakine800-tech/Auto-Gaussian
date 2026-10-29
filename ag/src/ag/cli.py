@@ -212,6 +212,8 @@ def main(argv=None):
     register_parent_chk_report(subparsers)
     from ag.capacity import register as register_capacity
     register_capacity(subparsers)
+    from ag.xtb_hessian import register as register_xtb_hessian
+    register_xtb_hessian(subparsers)
     for name in ('facts', 'thermo', 'dedup', 'cluster', 'graph', 'irc_compare', 'profile', 'coverage', 'scan_peak', 'qst_endpoints', 'topology', 'mode_review', 'fragments', 'ensemble', 'channel_coverage', 'asm', 'irc_review', 'nci_report', 'cp_report', 'catalog', 'g0'):
         module_name = f'ag.{name}'
         try:

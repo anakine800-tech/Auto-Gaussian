@@ -125,3 +125,25 @@ def test_mapping_symlink_is_global(tmp_path):
     with pytest.raises(ValueError, match='Symbolic') as error:
         mapping.read(link)
     assert not isinstance(error.value, mapping.AtomMappingError)
+
+
+def test_frequency_analysis_target_uses_explicit_identity_not_attempt():
+    target = dict(kind='frequency', analysis='analyses/local-hessian/analysis.json',
+                  source=dict(sha256='d'*64, source_sha256='e'*64, geometry_sha256='f'*64,
+                              hessian_sha256='1'*64))
+    frequency = dict(analysis=target['analysis'], target=target)
+    assert mapping.frequency_target(frequency) == target
+    value = dict(entry(), target=deepcopy(target), candidate_to_target=[2, 3, 1])
+    result = mapping.resolve(dict(entries=[value], sha256='c'*64), 'water', dict(id='guess', sha256='a'*64),
+                             ['H', 'H', 'O'], dict(frequency=(target, ELEMENTS)))
+    assert result['frequency']['candidate_to_target'] == [2, 3, 1]
+    assert 'attempt' not in result['frequency']['target']
+    # Declarations cannot select an analysis and must bind the actually selected source.
+    for key in ('analysis', 'source'):
+        changed = deepcopy(value)
+        if key == 'analysis': changed['target'][key] = '../anything'
+        else: changed['target'][key]['sha256'] = '0'*64
+        with pytest.raises(mapping.AtomMappingError) as error:
+            mapping.resolve(dict(entries=[changed], sha256='c'*64), 'water', dict(id='guess', sha256='a'*64),
+                            ['H', 'H', 'O'], dict(frequency=(target, ELEMENTS)))
+        assert error.value.category == 'atom_mapping_binding_mismatch' and error.value.attempt is None

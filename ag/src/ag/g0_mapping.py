@@ -57,6 +57,8 @@ def reference_target(source):
 def frequency_target(frequency):
     if frequency is None:
         return None
+    if 'analysis' in frequency:
+        return deepcopy(frequency['target'])
     source = frequency['source']
     return dict(kind='frequency', attempt=frequency['attempt'], source=dict(
         file=source['log'], sha256=source['log_sha256'],
@@ -94,18 +96,21 @@ def resolve(config, object_id, candidate, elements, targets):
         def fail(reason, *, binding=False):
             raise AtomMappingError(reason, category=('atom_mapping_binding_mismatch' if binding else
                                                      'invalid_atom_mapping'),
-                                   attempt=actual['attempt'] if actual else None, source=provenance)
+                                   attempt=actual.get('attempt') if actual else None, source=provenance)
 
         if set(entry) != {'object', 'candidate', 'candidate_sha256', 'target', 'candidate_to_target'}:
             fail('Atom mapping entry has missing or unknown fields')
-        if (not isinstance(target, dict) or set(target) != {'kind', 'attempt', 'source'} or
+        identity = 'analysis' if isinstance(target, dict) and 'analysis' in target else 'attempt'
+        if (not isinstance(target, dict) or set(target) != {'kind', identity, 'source'} or
                 not isinstance(kind, str) or kind not in targets):
-            fail('Atom mapping target requires kind reference/frequency, attempt and source')
+            fail('Atom mapping target requires kind reference/frequency, attempt or analysis, and source')
+        if identity == 'analysis' and kind != 'frequency':
+            fail('Atom mapping analysis target is only valid for frequency')
         if kind in seen:
             fail('Atom mapping target is not unique for this candidate and target kind')
         seen.add(kind)
-        if not isinstance(target['source'], dict) or not isinstance(target['attempt'], str):
-            fail('Atom mapping target source must be an object and attempt must be an ID')
+        if not isinstance(target['source'], dict) or not isinstance(target[identity], str):
+            fail('Atom mapping target source must be an object and identity must be text')
         digest = entry['candidate_sha256']
         if not isinstance(digest, str) or not re.fullmatch('[0-9a-f]{64}', digest):
             fail('Atom mapping candidate_sha256 must be a SHA-256 digest')
@@ -114,7 +119,7 @@ def resolve(config, object_id, candidate, elements, targets):
         if actual is None or target_elements is None:
             fail('Atom mapping target is unavailable or not selected for this diagnosis', binding=True)
         if json.dumps(target, sort_keys=True) != json.dumps(actual, sort_keys=True):
-            different = [key for key in ('kind', 'attempt') if target[key] != actual[key]]
+            different = [key for key in ('kind', 'attempt', 'analysis') if target.get(key) != actual.get(key)]
             if set(target['source']) != set(actual['source']):
                 different.append('source fields')
             different.extend('source.' + key for key, value in actual['source'].items()
