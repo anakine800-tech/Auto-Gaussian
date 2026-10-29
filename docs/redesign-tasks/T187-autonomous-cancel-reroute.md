@@ -12,6 +12,7 @@
 - `ag/src/ag/snapshot.py`、`status.py`、`route.py`：仅现有固定只读证据的绑定/读取与公共核验复用；不得新增任意远程命令。
 - 2026-10-29 负责人补充允许 `ag/src/ag/remote.py`、`slurm.py`、`transport.py`：仅固定、精确作业绑定的只读 Slurm 身份/版本/历史查询及白名单解析；`status.py` 可接入这些已获准查询。详见下方范围决定，不扩展 PBS 或取消命令。
 - `ag/tests/test_core.py`、`test_slurm.py`、`test_autonomy.py`、`test_snapshot.py`；可新增 `test_autonomy_cancel.py`，现有取消/状态专用回归若在其它文件可先报告准确路径。
+- 协调补充 `ag/tests/test_parent_chk.py`：仅同步 READ_OPERATIONS 完整枚举断言，增加四个获准 `slurm_evidence_*` 名称；保留集合全等，父 chk 逻辑与其他测试不改。
 - `ag/README.md`、`docs/DEVELOPING.md`、`docs/redesign-tasks/T187-autonomous-cancel-reroute.md`。
 
 ## 要做的
@@ -41,6 +42,9 @@ PR 首行 `Task: T187`。列实际接口、不可用条件、合成回归与真�
 - `autonomy_cancel.review_no_progress(...)` 为纯本地核验接口：检查连续两个不同唤醒的正式快照来源、顺序、字节及模型对每份快照给出的审阅理由。代码不设科学停滞阈值，也不把模型布尔标签当成来源证据；审阅结果不授予执行资格。
 - `autonomy_cancel.checkpoint_free_input(...)` 从冻结 bundle 核验有限严格输入没有 chk 读取路径，返回输入哈希联系；Guess、IRC、读取/重启项、未知语法和放宽输入均拒绝证明。拒绝不等于认定存在依赖，也不改变 prepare 支持范围；结果始终不授予改投资格。
 - `status.capture_slurm_evidence(...)` 通过获准固定只读命令保存正式调度器观察。必须使用 submission 原有实际集群名，版本限定仅是格式候选；保存原始响应、哈希和查询时间并严格解析，首次错误停止，不补建原始实例或授予资格。
+- `status.slurm_submission_probe(...)` 已实现未提交冻结字节的可选版本/身份探针；只返回 canonical 记录及哈希，不发布文件。明确缺工具、固定选项不支持或版本不识别只使实例证据不可用，真实 SSH/身份/混合错误仍抛出并附 `.evidence`。
+- `status.capture_slurm_origin(...)` 已实现提交之后的一次性实例捕获：独占 claim 在查询之前，观察与最终 origin 分别在新的有效 owner 短事务中发布。失败不重查、不抹掉已知 job，返回的 `initial_instance_recorded` 也不构成现场验证或改投资格。
+- `autonomy._consume_cancellation` / `_record_cancellation_result` 已独立实现取消记账：每唤醒最多两次、同 Attempt 与改投谱系不可重用；结果不确定在同一事件中暂停。它们不验证 T186 原始归属，也不是执行许可，尚无 CLI 或远端取消入口接入。
 - 本次没有实际自主取消、改投、替代 Attempt prepare/submit 入口，不复制未合并的 T185/T186 代码。原手动取消的 Mac 确认与不可重试声明保持原行为。
 
 当前实际阻塞属于**提交**与**环境验证**：
@@ -48,13 +52,24 @@ PR 首行 `Task: T187`。列实际接口、不可用条件、合成回归与真�
 | 缺口 | 核查结果与接入要求 |
 | --- | --- |
 | T186 实际自主提交归属 | 现有 submission/status/manifest 可核对确切作业，但不能证明由当前授权轮次的有效自主规则实际提交。必须接入定稿的一次性归属、有效规则及同轮身份，不能用手动 policy 或本地意图计数代替。 |
-| 消费、暂停与在途取消 | T184 记录本地意图；取消前的原子消费、每唤醒最多两个、谱系改投最多一次、失败或崩溃不返还、失锁及结果不确定时原子暂停均待执行入口接入。短本地互斥不得包住网络 IO，已发出的取消不能宣称可撤回。 |
+| 消费、暂停与在途取消 | 独立取消消费与结果事件已实现，并覆盖并发上限、不可退款、旧 owner 迟到结果及 UNKNOWN 原子暂停；实际入口仍须在消费前核验 T186 归属、有效规则与完整条件。短本地互斥不得包住网络 IO，已发出的取消不能宣称可撤回。 |
 | 从未运行与排队六小时 | 新固定 Slurm 查询保存控制器与重复记账原始响应，原始实例绑定和最终资格判断仍待 T186 接入及真实验证。未见 running、当前排队、elapsed 为零或缺开始回执均不足；PBS 证据不足拒绝。 |
 | 无 chk 依赖 | `checkpoint_free_input` 已独立实现严格冻结字节核验；缺 `parent_chk` 或人工标签均不构成证明。它支持有限 Gaussian/CP 语法及受支持的 XYZ/约束，未知、放宽输入仍拒绝；不是改投资格或科学验收。 |
 | T185 当前路由与容量 | 必须调用与自主提交相同的定稿算法，核验本轮顺序、更高位候选、共享入口身份与当前容量，不另写取消专用排序。容量足够不保证调度器立即启动。 |
 | 取消之后的终止证据 | qdel/scancel 接受及本地 `cancelled` 都不是终止证明。须核验取消之后、同一确切作业的正式只读证据；缺失或矛盾、仍在队列、查询失联均不能放行替代 Attempt。 |
 
-离线回归仅证明本次证据接口与拒绝行为；完整取消/改投计数、在途故障及上游集成验收仍待实现。具体测试结果以本 PR 当前 head 的执行记录为准，不以设计矩阵代替测试通过。
+离线回归仅证明本次证据接口、独立取消记账与拒绝行为；真实取消入口、完整在途链路及上游集成验收仍待实现。具体测试结果以本 PR 当前 head 的执行记录为准，不以设计矩阵代替测试通过。
+
+2026-10-29 本次源码冻结验证：`ag/tests skills-next` 共 **7347 passed, 26 skipped**（486.10 秒）；
+跳过项为私有日志显式启用或 Linux/GNU stat/procfs 专用用例，后者仍须当前 head Linux CI。
+T186 真实 API 临时组合另 **3 passed**：write_reservation → submission_guard.consume/dispatch_started →
+submission.record → observation_publication_guard/verified_reservation → 本单 capture_slurm_origin。
+成功登记、首个查询 255 保留已知 job/submitted、第二次调用 claim 拒绝且零新增查询均通过。
+路由与调度响应为合成，未覆盖完整 submit、真实 T185 选择器或取消/改投，不作为现场验证。
+组合以 T186 `25c51c9d88f8a680c7bc1cbda68a09e3dabff4c3` 加其当时工作树及本单冻结源码构成；
+T186 输入树摘要 `b73cfb28f71999a8e039de03bbf5060c2aa56ae5ecc3d3f5ea6b9ca5d122bdae`，
+组合源码/模板摘要 `2b6e8be19b07aa489649426cb5e7727cd7188bcbcfb5736d86c4564894a22f17`。
+源工作树后续变化须重新组合，不能只以 T186 的旧 HEAD 复现这一结果。
 
 ### T186 组合适配（已核对开发接口，待最终 head）
 
@@ -68,9 +83,67 @@ PR 首行 `Task: T187`。列实际接口、不可用条件、合成回归与真�
   running 或有效 lease 时拒绝，paused 且无有效 lease 才可接管；不能仅依赖前端保护。fetch 写入归属由 T186 组合处理，
   本工单不新增 `fetch.py` 范围。上述接口仍在上游开发中，本分支未复制实现或提前声称接通。
 - 负责人补充要求 IO/解析后在最终本地发布前锁内重验 owner 权限。T186 负责 status/fetch/snapshot/facts 的最小发布钩子；
-  T187 的 `capture_for_run` 与新 Slurm 采集须接该钩子。当前 capture_for_run 的“失效后留普通快照但不登记”
-  仍是待修复组合缺口：最终行为必须拒绝过期或被接管 owner 的本地发布，不能只阻止自主日志采纳。
+  T187 的 `capture_for_run` 与新 Slurm 采集须接该钩子。当前分支已给 snapshot.capture 增加最小 publication 工厂，
+  capture_for_run 用已有 T184 owner guard 在最终写入前核验；失效 owner 不创建普通快照。
+  最终组合仍须换接 T186 的 observation_publication_guard，以覆盖全机登记和过期计划允许观察的正式语义。
   网络/解析保持锁外，最终发布才持短锁；此组合未完成前不启用自主计算。
+
+提交时原始实例需与 T186 按以下具体边界对齐（证据接口已实现，提交入口尚未接通；不以现有观察接口补认）：
+
+1. 对可能取得自动改投资格的新 Attempt，dispatch 前由 T187 固定查询读取实际 ClusterName、控制器及两个客户端版本。
+   T186 在有效 owner 的短发布事务中把原始 probe 及哈希与 reservation、输入/bundle、轮次、规则及本次 dispatch 绑定。
+   **这是改投资格条件，不是所有普通自主 Slurm 提交的新版本门槛。** 可预期的不支持版本只记录 origin/reroute 不可用，
+   保持既有已审阅提交能力，不发送该版本不支持的后续实例查询。真正 SSH 失败或身份矛盾仍按停止/暂停规则处理。
+   旧 Attempt 没有这份 dispatch 前证据时，不能事后创建。
+   即使 `sbatch --parsable` 没有返回 cluster，也只能使用这份已绑定的实际集群名；若返回不同名称即拒绝归属并暂停。
+2. 确定取得作业号后，T186 先独占保存确切 submission/status 绑定，再调用 T187 的一次性初始实例捕获。
+   捕获只读 exact job 的历史与控制器，核对原始名称/UID/Submit/SLUID、当前版本与预先绑定集群；
+   首次查询前须先原子声明，成功/失败/崩溃均不重用，不允许稍后重试把当前实例补成初始实例。
+   原始响应和成功/不可用结果独占落盘，由 submission 预先引用的原始证据身份交叉核验。
+3. 初始查询失败但 sbatch 回执确定时，仍保留已知作业号及已提交状态，记录初始证据不可用并禁止自动改投，
+   不把已提交伪装成未提交失败，也不重提。只有提交响应自身不确定才进入 UNKNOWN；后续只读核对可恢复确切绑定，
+   但不能生成迟到的初始实例资格。失效 owner 不得发布到 study，网络返回仅交有效 owner 按原一次性记录处理。
+4. 查询侧最小签名与适配约定如下。它们不授予执行权限；当前 `capture_slurm_evidence` 只能观察已绑定作业，
+   不承担任一原始注册步骤。第一份 probe 不写 ownership 哈希，避免 reservation 包含 probe 哈希而产生循环引用。
+
+   - `status.slurm_submission_probe(cfg, path, transport)`（已实现）：仅接受尚无提交声明/绑定的 prepared Attempt，
+     只读 config 与两个客户端版本，返回 canonical probe 记录及 SHA-256。记录包含 manifest/bundle 哈希、
+     配置入口、实际集群、版本、查询起止、原始响应与哈希；无本地发布和远程写入。
+     返回 `{'record': canonical_dict, 'sha256': SHA256(canonical_bytes)}`。T186 用有效 owner 的发布事务将原字节独占保存为
+     `slurm-origin-probe.json`，并把 probe 哈希纳入原 reservation，随后才 dispatch。probe 本身不包含 ownership 哈希，避免循环引用。
+   - `status.capture_slurm_origin(cfg, path, transport, *, probe_sha256, ownership_sha256, publication)`：
+     job 从已独占保存的 submission 读取，不能由调用者另填；读取并复核原 probe、manifest/bundle、确切提交及 T186 已验证归属。
+     `publication` 是 T186 的零参数 contextmanager 工厂，提供锁内复验的原始 state，不能是模型字典。
+     查询前在该短事务内创建一次性 origin claim；查询在锁外；最终原始响应/身份或不可用结果再次经 publication 独占发布。
+     claim 已存在则永不重查，含首次失败或崩溃。
+     该接口读取真实 `state.submissions[Attempt].dispatch_started == {'at': timestamp}`，严格拒绝替代类型或额外字段；
+     probe 完成不得晚于原 dispatch，当前 round/run/plan 与消费一致。初始 claim、观察发布、最终 origin 共三个短事务，
+     版本不支持或缺实际集群时只用首尾两个事务且不发送作业实例查询。
+     正常返回含 `origin_sha256`、`initial_instance_recorded`、`status`，`reroute_authorized` 和 `live_validated` 恒 false。
+     真正查询/解析故障在可发布时保存不可用 origin，再抛原异常并附 `origin_evidence`（文件名、哈希、完整记录）；
+     发布权限拒绝直接抛错，保留已存在 claim；不因本地记录缺失重试。
+   - 申请原始实例资格的新 submission 额外绑定 `scheduler_probe_sha256`，并使用 probe 中已验证的实际名称填 `scheduler_cluster`。
+     `ownership_sha256` 必须与原 reservation、`state.submissions` dispatch 消费及 submission.authorization 一致。
+     初始记录同时引用这三个不可变哈希；旧 submission 缺 probe 引用时拒绝，不追加字段补认。
+     普遍提交硬要求仍为既有确切 job/配置入口、manifest/输入字节与授权绑定；缺 origin/probe 引用只禁止自动改投，
+     不追溯否定已有提交，也不把可预期版本不支持当成所有普通自主提交都失败。
+   - probe 不支持的版本/不完整结果不能进入原始实例资格；这不自行改动其他提交规则或假称 DBD 历史已验证。
+     T186 适配须区分“提交本身已知/未知”和“原始实例证据不可用”，后者永远不成为重提理由。
+
+   T187 负责固定查询及一次性证据写入，T186 负责 reservation/dispatch/精确提交绑定和发布权限适配；
+   上述签名已经离线实现，仍须提交入口实际组合。最终参数只能从这些已验证源取得，不能用手写摘要或布尔标签替代。
+   T186 最新开发源码已按 collect probe → reservation/consume 的顺序接入，避免循环引用；
+   旧开发说明中“消费后采集”须同步。不能通过事后改写一次性 reservation 解决，组合结果以冻结源码及实际 API 测试为准。
+
+取消后的后续动作需分别接通：
+
+- **无进展补救：** T187 输出不可变的本轮确切取消归属/结果、理由、两份原快照哈希及已确认停止证据；
+  T186 仅在取回（允许 `fetch --incomplete`）的文件/哈希与该记录、确切作业一致时接受相应 canonical 补救类。
+  取消回执不确定、仍在运行或取回证据缺失均暂停拒绝；不能只要求普通成功 fetch 而把此合法分支堵死。
+- **自动改投：** 只消费已验证 never-started、六小时、当前更优候选和确认停止的改投资格，保持原对象/谱系，
+  每个原作业最多一次；新 Attempt 仍计本轮预算。它不等同于同对象的常规失败补救，不能清空次数或因旧作业已取消而一概拒绝。
+- 这两条当前尚未实际组合；T187 负责上述取消/资格证据，T186 负责 canonical 补救适配、原始消费及全局资源计数。
+  最终回归必须用真实实现组合“连续快照 → 取消 → 确认停止 → 不完整取回 → 新 Attempt”，模拟 Transport 不代表现场通过。
 
 ## 合并前真实验证矩阵（未授权、未执行）
 
@@ -224,3 +297,106 @@ Torque 的[job_force_cancel_time](https://docs.adaptivecomputing.com/torque/6-0-
 
 原始记录必须保留查询操作、版本/方言、完整身份、字段缺失状态、查询起止、退出码及 stdout/stderr 哈希。
 代码中的正向资格仍需合并前非研究对象真实验证；官方文档和离线合成响应不证明实际集群已具备这些能力。
+
+## 待批准的 Slurm 写命令最小增量（仅研究方案，未实现）
+
+当前 `slurm_submit` 是 `sbatch --parsable job.slurm`，`slurm_cancel` 是 `scancel <数字作业号>`。
+新只读 probe 清除了查询目标的环境覆盖，但没有改变这两个写命令；不能据此声称查询目标与实际动作已闭合。
+本节统一供协调方审阅并申请一次范围决定，不授权执行，也不改变已经批准的只读范围。
+事故依据：环境将提交/取消转向其他实际集群、覆盖已批准脚本的资源/名称/输出，或数字 JobID 复用后取消另一个实例。
+
+### 提交：固定环境与单一实际集群
+
+建议新增独立的绑定提交构造器，保留现有远程路径检查和 `cd`，随后使用下面固定形状。
+尖括号只允许由已绑定 probe 的单一实际 ClusterName 填入；拒绝 `all`、逗号列表和其他非白名单值。
+`job.slurm` 仍为已获授权、上传后核对过的原 bundle 文件，不重渲染、不追加脚本参数。
+
+```text
+env -u SLURM_CLUSTERS -u SLURM_HINT \
+  -u SBATCH_IGNORE_PBS -u SBATCH_DEBUG \
+  -u SBATCH_ACCOUNT -u SBATCH_ARRAY_INX -u SBATCH_ACCTG_FREQ -u SBATCH_BATCH \
+  -u SBATCH_BURST_BUFFER -u SBATCH_CLUSTER_CONSTRAINT -u SBATCH_CLUSTERS \
+  -u SBATCH_CONSOLIDATE_SEGMENTS -u SBATCH_CONTAINER -u SBATCH_CONTAINER_ID -u SBATCH_CONTAINER_TYPE \
+  -u SBATCH_CONSTRAINT -u SBATCH_CORE_SPEC -u SBATCH_CPU_FREQ_REQ -u SBATCH_CPUS_PER_GPU \
+  -u SBATCH_DELAY_BOOT -u SBATCH_DISTRIBUTION -u SBATCH_EXCLUSIVE -u SBATCH_EXPORT -u SBATCH_GET_USER_ENV \
+  -u SBATCH_GRES -u SBATCH_GRES_FLAGS -u SBATCH_GPUS -u SBATCH_GPU_BIND -u SBATCH_GPU_FREQ \
+  -u SBATCH_GPUS_PER_NODE -u SBATCH_GPUS_PER_SOCKET -u SBATCH_GPUS_PER_TASK -u SBATCH_HINT \
+  -u SBATCH_JOB_NAME -u SBATCH_MEM_BIND -u SBATCH_MEM_PER_CPU -u SBATCH_MEM_PER_GPU -u SBATCH_MEM_PER_NODE \
+  -u SBATCH_NETWORK -u SBATCH_NO_KILL -u SBATCH_NO_REQUEUE -u SBATCH_OPEN_MODE -u SBATCH_OVERCOMMIT \
+  -u SBATCH_PARTITION -u SBATCH_POWER -u SBATCH_PROFILE -u SBATCH_QOS -u SBATCH_REQ_SWITCH \
+  -u SBATCH_REQUEUE -u SBATCH_RESERVATION -u SBATCH_SEGMENT_SIZE -u SBATCH_SIGNAL \
+  -u SBATCH_SPREAD_JOB -u SBATCH_SPREAD_SEGMENTS -u SBATCH_THREAD_SPEC -u SBATCH_THREADS_PER_CORE \
+  -u SBATCH_TIMELIMIT -u SBATCH_TRES_BIND -u SBATCH_TRES_PER_TASK -u SBATCH_USE_MIN_NODES \
+  -u SBATCH_WAIT -u SBATCH_WAIT_ALL_NODES -u SBATCH_WAIT4SWITCH -u SBATCH_WCKEY \
+  -u SBATCH_ERROR -u SBATCH_INPUT -u SBATCH_OUTPUT \
+  LC_ALL=C TZ=UTC sbatch --parsable --clusters=<ACTUAL_CLUSTER> --no-requeue job.slurm
+```
+
+清理名单来自 26.05.5 `early_env_vars` 与 `env_vars` 的完整固定名称集合，避免仅清 `SLURM_CLUSTERS` 而遗漏
+`SBATCH_CLUSTERS`、资源、数组、作业名及输出位置覆盖；这里选择固定清理而不复制脚本全部参数到命令行。
+该版本按脚本 → 环境 → 命令行处理，之后仍有站点 cli_filter/SPANK 处理，不能声称消除了管理员插件影响。
+依据：[环境集合及处理顺序](https://github.com/SchedMD/slurm/blob/slurm-26-05-5-1/src/sbatch/opt.c#L154)。
+
+单一 `--clusters` 仍依赖该站点数据库/配置可解析该实际集群；失败不回退无集群限定的写命令。
+脚本里现有 partition/account/qos、核数、内存、walltime、名称和输出路径保留原冻结字节；回执 cluster 必须与 probe 一致。
+`sbatch` 本身不会提前给出 SLUID，不能编造提交前实例；确定 job 回执先保存，再用本单一次性捕获登记 UID/SLUID。
+不添加切换身份的 `--uid`/`--gid`；提交依赖已配置 SSH 身份及调度器认证，UID 在首次正式控制器/记账中交叉核验。
+依据：[单集群选取、提交和 parsable 回执](https://github.com/SchedMD/slurm/blob/slurm-26-05-5-1/src/sbatch/sbatch.c#L246)。
+
+不得把 26.05.5 证据候选变成所有普通提交的新版本门槛。此固定新路径需另存实际 sbatch 客户端版本证据，
+与审阅版本相符且真实验证通过才可声称支持该绑定能力；旧/定制客户端或缺 probe 保留原提交能力说明，自动改投资格继续不可用。
+`SLURM_CONF`、认证环境和站点插件不能随意清除：保留站点配置，实际 config/版本/回执冲突即停止；不以清环境代替真实集群核验。
+
+### 取消：SLUID 可定位实例，但当前不能原子满足改投条件
+
+建议只为未来**无进展取消**新增独立精确实例构造器，现有手动 `scancel` 与 Mac 确认先保持原行为。
+候选命令如下；只传一个 SLUID，数字 JobID 留在本地绑定中，不作为第二个位置参数（第二个会增加取消目标）。
+
+```text
+env -u SLURM_CLUSTERS \
+  -u SCANCEL_ACCOUNT -u SCANCEL_BATCH -u SCANCEL_CTLD -u SCANCEL_CRON \
+  -u SCANCEL_FULL -u SCANCEL_HURRY -u SCANCEL_INTERACTIVE -u SCANCEL_NAME \
+  -u SCANCEL_PARTITION -u SCANCEL_QOS -u SCANCEL_STATE -u SCANCEL_USER \
+  -u SCANCEL_VERBOSE -u SCANCEL_WCKEY \
+  LC_ALL=C TZ=UTC scancel --ctld --clusters=<ACTUAL_CLUSTER> --user=<UID> --name=<ATTEMPT_ID> <SLUID>
+```
+
+实际集群取原 probe，并与 submission/origin/当前正式 config 一致；UID、名称和 SLUID 取经 T186 归属绑定的
+一次性 origin，再对照取消前正式 controller/history。所有参数是已验证记录的字段，不能直接采信模型自由输入。
+拒绝缺原实例、数组、heterogeneous、联邦、版本未知或任何身份冲突。清理名单逐项来自
+[scancel 的环境处理](https://github.com/SchedMD/slurm/blob/slurm-26-05-5-1/src/scancel/opt.c#L232)。
+
+26.05.5 将 SLUID 原串送入 `slurm_kill_job2`，控制器在作业写锁内按 SLUID 定位并核验调用身份；
+这可以避免只靠数字 JobID 取消已复用的新实例。
+依据：[请求字段](https://github.com/SchedMD/slurm/blob/slurm-26-05-5-1/src/api/cancel.c#L47)、
+[控制器锁与调用](https://github.com/SchedMD/slurm/blob/slurm-26-05-5-1/src/slurmctld/proc_req.c#L5725)、
+[SLUID 查找与认证](https://github.com/SchedMD/slurm/blob/slurm-26-05-5-1/src/slurmctld/job_mgr.c#L5319)。
+
+**该版本不能用上述命令加 `--state=PENDING` 来开放自动改投取消。** 源码推论是：SLUID 的数字占位为 NO_VAL，
+`has_fed_jobs` 把它识别为需回退的路径，跳过批量服务端过滤；PENDING/UID/name 过滤在客户端，
+随后请求只携带实例和信号，过滤之后仍可能启动。
+依据：[SLUID 解析](https://github.com/SchedMD/slurm/blob/slurm-26-05-5-1/src/scancel/opt.c#L532)、
+[回退判断](https://github.com/SchedMD/slurm/blob/slurm-26-05-5-1/src/scancel/opt.c#L153)、
+[数值常量](https://github.com/SchedMD/slurm/blob/slurm-26-05-5-1/slurm/slurm.h#L106)、
+[命令分派](https://github.com/SchedMD/slurm/blob/slurm-26-05-5-1/src/scancel/scancel.c#L329)。
+即使后续版本修复这条分派，基础 PENDING 仍可能包含 COMPLETING，重排的 SLUID 更新也在收尾之后；
+不能只凭 PENDING 过滤断言从未运行。取消后发现曾运行再阻止新 Attempt，不能补救已经误取消了运行中的作业。
+因此本轮当前没有满足该原子条件的已验证命令，实际改投取消继续拒绝；不建议未经证明扩大远程脚本能力。
+依据：[基础状态过滤](https://github.com/SchedMD/slurm/blob/slurm-26-05-5-1/src/slurmctld/job_mgr.c#L4421)、
+[重排计数/状态](https://github.com/SchedMD/slurm/blob/slurm-26-05-5-1/src/slurmctld/job_mgr.c#L17035)、
+[收尾后实例更新](https://github.com/SchedMD/slurm/blob/slurm-26-05-5-1/src/slurmctld/job_mgr.c#L16024)。
+
+现 probe 没有读取 scancel 客户端版本，不能以 scontrol 版本替代。最小还需允许固定 `scancel --version` 和
+`sbatch --version`，保存原文/哈希，并核对命令版本；这不改变普通提交的兼容边界。
+一个 scancel CLI 内部对明确的 TRANSITION_STATE_NO_UPDATE 可能重试 RPC，需如实记录；ag 仍只消费一次并发出一次 CLI，
+SSH/回执不确定不再次发出 CLI。依据：[内部有限重试](https://github.com/SchedMD/slurm/blob/slurm-26-05-5-1/src/scancel/scancel.c#L886)。
+
+### 待决定的精确范围与验收
+
+- 请求范围仅为 `remote.py` 的上述两个独立固定写命令构造器、已有版本查询白名单加入 sbatch/scancel；
+  其余接线复用工单已允许的 submission/cancel/status/transport 及测试路径。不给任意 shell、批量目标或新的远程解释器入口。
+- 保留逐 Attempt 的输入/bundle 哈希、上传后校验、一次性提交声明、T186 owner/规则/原始归属及本轮计数；
+  取消另需两个正式无进展快照、独立消费和同一个不可重用 `.cancel-claim`。不回退成手动确认来冒充自主成功。
+- 离线先验证环境覆盖清除、严格参数、单目标与旧手动行为；真实验证按专用非研究对象逐项批准，
+  包括实际 client/controller/DBD 组合及命令目标。未知响应保留全部记录、暂停，不能以再次执行验证第一次是否成功。
+- 自动改投的命令竞态尚无合格方案，必须在协调结论中保留，不以“允许补只读证据”冒充对此风险的授权。

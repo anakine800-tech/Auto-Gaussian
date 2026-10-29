@@ -9,16 +9,223 @@ from ag.transport import bound_transport
 from ag.transport import require_ok, TransportError
 
 
-def capture_slurm_evidence(cfg, path, transport):
+def slurm_submission_probe(cfg, path, transport):
+    """Return unpublished controller/client observations bound to prepared bytes.
+
+    Format candidacy only permits trying the origin parser; it proves neither
+    original-instance availability nor live validation or submission permission.
+    T186 must publish these exact bytes under its current-owner transaction.
+    """
+    import os
+    from copy import copy, deepcopy
+    from pathlib import Path
+    from hashlib import sha256
+    from ag import study
+    from ag import _autonomy_store as disk
+
+    result = dict(schema='ag-slurm-submission-probe/1', queries=[], versions={}, scheduler_cluster=None,
+                  capture_started_at=time.time(), format_candidate=False,
+                  origin_available=False, reroute_authorized=False,
+                  reason='No original scheduler instance has been captured; live validation is incomplete')
+
+    def evidence():
+        data = disk.encode(result)
+        return dict(record=disk.decode(data), sha256=sha256(data).hexdigest())
+
+    def fingerprint(info):
+        return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+    def frozen():
+        root = Path(cfg['local']['studies_root']).absolute()
+        checked = study.local_path(root, Path(path))
+        if checked.parent.name != 'attempts' or checked.parent.parent.parent != root:
+            raise ValueError('Submission probe requires an existing study Attempt')
+        identities = []
+        for directory in (root, checked.parent.parent, checked.parent, checked):
+            fd = disk.directory(directory)
+            try:
+                info = os.fstat(fd)
+                identities.append((info.st_dev, info.st_ino))
+            finally:
+                os.close(fd)
+        parent = disk.directory(checked)
+        inputs = None
+        try:
+            store = disk.Store(parent)
+
+            def read(store, name):
+                with os.fdopen(store.open(name, os.O_RDONLY), 'rb') as handle:
+                    before = fingerprint(os.fstat(handle.fileno()))
+                    data = handle.read()
+                    if fingerprint(os.fstat(handle.fileno())) != before:
+                        raise ValueError('Prepared file changed while reading submission probe')
+                return data, before
+
+            for name in ('.submit-claim', 'submission.json'):
+                try:
+                    os.stat(name, dir_fd=parent, follow_symlinks=False)
+                except FileNotFoundError:
+                    pass
+                else:
+                    raise ValueError('Submission probe requires an unclaimed, unsubmitted Attempt')
+            manifest_bytes, manifest_info = read(store, 'manifest.json')
+            manifest = disk.decode(manifest_bytes)
+            current_bytes, current_info = read(store, 'status.json')
+            current = disk.decode(current_bytes)
+            if (not isinstance(manifest, dict) or manifest.get('attempt_id') != checked.name
+                    or manifest.get('study_id') != checked.parent.parent.name
+                    or manifest.get('scheduler') != 'slurm'):
+                raise ValueError('Submission probe requires an intact Slurm Attempt identity')
+            if (not isinstance(current, dict) or current.get('state') != 'prepared'
+                    or current.get('job_id') is not None):
+                raise ValueError('Submission probe requires a prepared Attempt without a job')
+            selected = deepcopy(for_manifest(cfg, manifest))
+            remote.attempt_dir(selected, manifest)
+            inputs = os.open('inputs', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+            input_info = fingerprint(os.fstat(inputs))
+            contents = {remote.filename(name): read(disk.Store(inputs), name)
+                        for name in sorted(os.listdir(inputs))}
+            if fingerprint(os.fstat(inputs)) != input_info:
+                raise ValueError('Input directory changed while reading submission probe')
+            records, digest = attempt.bundle({name: data for name, (data, _) in contents.items()})
+            expected = {}
+            if not isinstance(manifest.get('inputs'), list):
+                raise ValueError('Submission probe requires a complete input manifest')
+            for item in manifest['inputs']:
+                if (not isinstance(item, dict) or set(item) != {'name', 'sha256', 'size'}
+                        or not isinstance(item['name'], str) or item['name'] in expected
+                        or not isinstance(item['sha256'], str) or not re.fullmatch('[0-9a-f]{64}', item['sha256'])
+                        or type(item['size']) is not int or item['size'] < 0):
+                    raise ValueError('Invalid or duplicate submission probe input manifest entry')
+                expected[remote.filename(item['name'])] = item
+            if (not records or {item['name']: item for item in records} != expected
+                    or digest != manifest.get('bundle_sha256')):
+                raise ValueError('Submission probe input bundle differs from the manifest')
+            binding = dict(attempt_id=manifest['attempt_id'], study_id=manifest['study_id'],
+                           cluster=selected['_cluster'], scheduler='slurm',
+                           manifest_sha256=sha256(manifest_bytes).hexdigest(), bundle_sha256=digest)
+            return (binding, selected, identities, manifest_bytes, manifest_info,
+                    current_bytes, current_info, input_info, contents)
+        finally:
+            if inputs is not None:
+                os.close(inputs)
+            os.close(parent)
+
+    def query(label, command):
+        started = time.time()
+        if started < result['capture_started_at'] or (result['queries'] and
+                started < result['queries'][-1]['finished_at']):
+            raise ValueError('Clock moved backwards during submission probe')
+        entry = dict(label=label, command=command.text, operation=command.operation,
+                     started_at=started, returncode=None, stdout=None, stderr=None,
+                     stdout_sha256=None, stderr_sha256=None)
+        result['queries'].append(entry)
+        try:
+            response = transport.run(command)
+        except Exception as exc:
+            entry.update(finished_at=time.time(), error_type=type(exc).__name__)
+            raise
+        entry.update(finished_at=time.time(), returncode=response.returncode)
+        for stream in ('stdout', 'stderr'):
+            entry[stream] = getattr(response, stream)
+            entry[stream + '_sha256'] = sha256(entry[stream].encode('utf-8')).hexdigest()
+        if entry['finished_at'] < started:
+            raise ValueError('Clock moved backwards during submission probe')
+        if response.returncode == 255:
+            raise TransportError('Submission probe SSH query failed (exit 255)')
+        return response
+
+    def unavailable(response, program, option):
+        # LC_ALL=C GNU env/getopt diagnostics only. Whole-response matching
+        # prevents a known fragment from hiding a second, unexpected failure.
+        if response.stdout.strip():
+            return None
+        diagnostic = response.stderr.strip()
+        missing = (f'env: {program}: No such file or directory',
+                   f"env: '{program}': No such file or directory",
+                   f'env: "{program}": No such file or directory',
+                   f'{program}: command not found', f'{program}: not found')
+        if response.returncode == 127 and diagnostic in missing:
+            return 'tool_missing'
+        option_error = f"{program}: unrecognized option '{option}'"
+        help_line = f'Try "{program} --help" for more information'
+        if response.returncode == 1 and diagnostic in (option_error, option_error + '\n' + help_line):
+            return 'option_unsupported'
+        return None
+
+    def finish():
+        if frozen() != before:
+            raise ValueError('Prepared Attempt path, configuration or bytes changed during submission probe')
+        finished = time.time()
+        if finished < result['queries'][-1]['finished_at']:
+            raise ValueError('Clock moved backwards after submission probe')
+        result['capture_finished_at'] = finished
+        return evidence()
+
+    try:
+        before = frozen()
+        result['binding'] = before[0]
+        transport = bound_transport(transport, before[1])
+        if hasattr(transport, 'record_to'):
+            transport = copy(transport)  # Do not clear the caller's later submission diagnostics.
+            transport.record_to([])  # Keep existing transport logs, never publish to the Attempt.
+        response = query('config', remote.slurm_evidence_config())
+        missing = unavailable(response, 'scontrol', '--local')
+        if missing:
+            result.update(unavailable='config_' + missing,
+                          reason='Controller evidence probe ' + missing.replace('_', ' ') +
+                          '; actual cluster is unknown and ordinary submission policy is unchanged')
+            return finish()
+        text = require_ok(response, 'submission controller probe')
+        if response.stderr.strip():
+            raise ValueError('Submission controller probe returned unexpected diagnostics')
+        controller = slurm.parse_evidence_config(text, strict_version=False)
+        result['scheduler_cluster'] = controller['cluster']
+        version = controller['server_version']
+        result['versions']['controller'] = dict(raw=version, parsed=None)
+        try:
+            result['versions']['controller']['parsed'] = slurm.parse_evidence_version('slurm ' + (version or ''))
+        except ValueError:
+            pass  # Missing/custom versions cannot qualify the evidence format.
+        for program in ('scontrol', 'sacct'):
+            response = query(program + '-version', remote.slurm_evidence_version(program))
+            result['versions'][program] = dict(raw=response.stdout, parsed=None)
+            # Vendor clients may lack this option/tool. Other execution errors,
+            # especially SSH failures, must remain errors with retained evidence.
+            if response.returncode or response.stderr.strip():
+                if not unavailable(response, program, '--version'):
+                    require_ok(response, 'submission client version probe')
+                    raise ValueError('Submission client version probe returned unexpected diagnostics')
+                continue
+            try:
+                result['versions'][program]['parsed'] = slurm.parse_evidence_version(response.stdout)
+            except ValueError:
+                pass  # Version recognition is not an admission rule for ordinary submission.
+        candidate = all(value['parsed'] == '26.05.5' for value in result['versions'].values())
+        result['format_candidate'] = candidate
+        if not candidate:
+            result['unavailable'] = 'evidence_version_unsupported'
+            result['reason'] = 'Unsupported or unrecognized evidence-format versions; ordinary submission policy is unchanged'
+        return finish()
+    except Exception as exc:
+        result.update(capture_finished_at=time.time(), format_candidate=False,
+                      error_type=type(exc).__name__, reason=str(exc))
+        exc.evidence = evidence()
+        raise
+
+
+def capture_slurm_evidence(cfg, path, transport, *, publication=None):
     """Save fixed read-only scheduler responses; never grant reroute permission.
 
     This is an observation of an already bound job, not its original instance
     registration. T186 must supply that immutable submission-time evidence.
-    Unknown/mixed versions and failed reads stop collection, retaining evidence.
+    Unknown/mixed versions and failed reads stop collection. Responses remain
+    in memory until the final publication context accepts the current owner.
     """
     import os
     from pathlib import Path
     from hashlib import sha256
+    from contextlib import nullcontext
     from ag import study
     from ag import _autonomy_store as disk
     from ag.autonomy_cancel import bound_attempt, read_bytes
@@ -45,14 +252,20 @@ def capture_slurm_evidence(cfg, path, transport):
     directory = destination = None
     try:
         try:
-            os.mkdir('scheduler-observations', mode=0o700, dir_fd=parent)
-        except FileExistsError:
+            directory = os.open('scheduler-observations', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                                dir_fd=parent)
+        except FileNotFoundError:
             pass
-        directory = os.open('scheduler-observations', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
-                            dir_fd=parent)
-        os.mkdir(name, mode=0o700, dir_fd=directory)  # A collision fails; no overwrite.
-        destination = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
-        store = disk.Store(destination)
+        if directory is not None:
+            try:
+                os.stat(name, dir_fd=directory, follow_symlinks=False)
+            except FileNotFoundError:
+                pass
+            else:
+                raise FileExistsError('Scheduler observation destination already exists')
+            os.close(directory)
+            directory = None
+        files, failure = {}, None
         result = dict(schema='ag-slurm-observation/1', binding=binding, scheduler_cluster=cluster,
                       observation='scheduler-observations/' + name, capture_started_at=at,
                       queries=[], complete=False, reroute_authorized=False,
@@ -75,7 +288,7 @@ def capture_slurm_evidence(cfg, path, transport):
             for stream in ('stdout', 'stderr'):
                 data = getattr(response, stream).encode('utf-8')
                 filename = label + '.' + stream + '.txt'
-                store.exclusive(filename, data)
+                files[filename] = data
                 entry[stream] = dict(file=filename, sha256=sha256(data).hexdigest(), size=len(data))
             if entry['finished_at'] < started:
                 raise ValueError('Clock moved backwards during scheduler observation')
@@ -120,14 +333,48 @@ def capture_slurm_evidence(cfg, path, transport):
                           matched_db_index=matched[0]['db_index'], capture_finished_at=finished)
         except Exception as exc:
             result.update(capture_finished_at=time.time(), error_type=type(exc).__name__, error=str(exc))
+            failure = exc
+        # T186 supplies a short, fresh owner check here. No network/parsing or
+        # Attempt writes happen inside/before this final publication boundary.
+        with publication() if publication is not None else nullcontext():
+            current_path = disk.directory(path)
+            try:
+                current_inode, opened_inode = os.fstat(current_path), os.fstat(parent)
+                if (current_inode.st_dev, current_inode.st_ino) != (opened_inode.st_dev, opened_inode.st_ino):
+                    raise ValueError('Attempt directory changed before scheduler evidence publication')
+            finally:
+                os.close(current_path)
+            if failure is None and bound_attempt(path) != binding:
+                failure = ValueError('Attempt binding changed before scheduler evidence publication')
+                result.update(complete=False, error_type=type(failure).__name__, error=str(failure))
+            try:
+                os.mkdir('scheduler-observations', mode=0o700, dir_fd=parent)
+            except FileExistsError:
+                pass
+            directory = os.open('scheduler-observations', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                                dir_fd=parent)
+            os.mkdir(name, mode=0o700, dir_fd=directory)
+            destination = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
+            store = disk.Store(destination)
+            for filename, data in files.items():
+                store.exclusive(filename, data)
             store.exclusive('observation.json', disk.encode(result))
-            raise ValueError('Slurm evidence unavailable; inspect preserved ' + result['observation']) from exc
-        store.exclusive('observation.json', disk.encode(result))
+        if failure is not None:
+            error = ValueError('Slurm evidence unavailable; inspect preserved ' + result['observation'])
+            error.evidence = dict(result, observation_sha256=sha256(disk.encode(result)).hexdigest())
+            raise error from failure
         return dict(result, observation_sha256=sha256(disk.encode(result)).hexdigest())
     finally:
         for descriptor in (destination, directory, parent):
             if descriptor is not None:
                 os.close(descriptor)
+
+
+def capture_slurm_origin(cfg, path, transport, *, probe_sha256, ownership_sha256, publication):
+    """Collect an origin once; ordinary late observations cannot replace it."""
+    from ag.autonomy_cancel import capture_slurm_origin as capture_origin
+    return capture_origin(cfg, path, transport, probe_sha256=probe_sha256,
+                          ownership_sha256=ownership_sha256, publication=publication)
 
 
 def parse_jobs(text):

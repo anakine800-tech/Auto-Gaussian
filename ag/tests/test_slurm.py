@@ -122,6 +122,317 @@ def test_bad_sbatch_response(text):
     with pytest.raises(ValueError): slurm.parse_submission(text)
 
 
+class SubmissionProbeFake:
+    def __init__(self, cfg):
+        self.cfg, self.calls = cfg, []
+        self.responses = [Result(stdout=EVIDENCE_CONFIG), Result(stdout='slurm 26.05.5\n'),
+                          Result(stdout='slurm 26.05.5\n')]
+        self.after_query = lambda: None
+
+    def run(self, command):
+        expected = [remote.slurm_evidence_config(), remote.slurm_evidence_version('scontrol'),
+                    remote.slurm_evidence_version('sacct')]
+        assert command == expected[len(self.calls)]
+        response = self.responses[len(self.calls)]
+        self.calls.append(command)
+        self.after_query()
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+
+def test_submission_probe_returns_bound_canonical_unpublished_candidate(multi, tmp_path):
+    from ag import _autonomy_store as disk
+    path, manifest = prepare(multi, tmp_path)
+    fake = SubmissionProbeFake(config.select_cluster(multi, 'batch'))
+    before = {p.relative_to(path.parent.parent): p.read_bytes()
+              for p in path.parent.parent.rglob('*') if p.is_file()}
+    value = status.slurm_submission_probe(multi, path, fake)
+    record = value['record']
+    assert value['sha256'] == sha256(disk.encode(record)).hexdigest()
+    assert record['schema'] == 'ag-slurm-submission-probe/1'
+    assert record['binding'] == dict(attempt_id=path.name, study_id='water', cluster='batch',
+                                     scheduler='slurm', bundle_sha256=manifest['bundle_sha256'],
+                                     manifest_sha256=sha256((path / 'manifest.json').read_bytes()).hexdigest())
+    assert record['scheduler_cluster'] == 'fixture'  # Actual name differs from the local alias.
+    assert record['format_candidate'] is True
+    assert record['origin_available'] is record['reroute_authorized'] is False
+    assert 'ownership' not in json.dumps(record)
+    assert {v['parsed'] for v in record['versions'].values()} == {'26.05.5'}
+    assert record['versions']['controller']['raw'] == '26.05.5'
+    assert record['versions']['sacct']['raw'] == 'slurm 26.05.5\n'
+    assert record['capture_started_at'] <= record['queries'][0]['started_at']
+    previous = record['capture_started_at']
+    for entry, command, response in zip(record['queries'], fake.calls, fake.responses):
+        assert previous <= entry['started_at'] <= entry['finished_at']
+        previous = entry['finished_at']
+        assert entry['command'] == command.text and entry['operation'] == command.operation
+        assert entry['returncode'] == 0
+        for stream in ('stdout', 'stderr'):
+            assert entry[stream] == getattr(response, stream)
+            assert entry[stream + '_sha256'] == sha256(entry[stream].encode()).hexdigest()
+    assert previous <= record['capture_finished_at']
+    assert before == {p.relative_to(path.parent.parent): p.read_bytes()
+                      for p in path.parent.parent.rglob('*') if p.is_file()}
+
+
+def test_submission_probe_isolates_attempt_error_publication_from_caller_transport(multi, tmp_path):
+    class RecordingFake(SubmissionProbeFake):
+        def record_to(self, paths):
+            self.error_paths = list(paths)
+
+        def run(self, command):
+            assert self.error_paths == []
+            return super().run(command)
+
+    path, _ = prepare(multi, tmp_path)
+    fake = RecordingFake(config.select_cluster(multi, 'batch'))
+    fake.record_to([path])
+    fake.responses[0] = SSHConnectionError('synthetic timeout')
+    with pytest.raises(SSHConnectionError):
+        status.slurm_submission_probe(multi, path, fake)
+    assert fake.error_paths == [path] and len(fake.calls) == 1
+
+
+def test_submission_probe_clock_reversal_retains_the_completed_response(multi, tmp_path, monkeypatch):
+    path, _ = prepare(multi, tmp_path)
+    fake = SubmissionProbeFake(config.select_cluster(multi, 'batch'))
+    clock = iter((100, 101, 99, 102))
+    monkeypatch.setattr(status.time, 'time', lambda: next(clock))
+    with pytest.raises(ValueError, match='Clock moved backwards') as caught:
+        status.slurm_submission_probe(multi, path, fake)
+    assert len(fake.calls) == 1
+    assert caught.value.evidence['record']['queries'][0]['stdout'] == EVIDENCE_CONFIG
+
+
+@pytest.mark.parametrize('response,classification', [
+    (Result(127, stderr='env: scontrol: No such file or directory\n'), 'config_tool_missing'),
+    (Result(127, stderr="env: 'scontrol': No such file or directory\n"), 'config_tool_missing'),
+    (Result(127, stderr='scontrol: command not found\n'), 'config_tool_missing'),
+    (Result(1, stderr="scontrol: unrecognized option '--local'\n"), 'config_option_unsupported'),
+    (Result(1, stderr="scontrol: unrecognized option '--local'\n"
+                      'Try "scontrol --help" for more information\n'), 'config_option_unsupported'),
+])
+def test_submission_probe_missing_controller_tool_is_classified_without_inventing_cluster(multi, tmp_path, response, classification):
+    path, _ = prepare(multi, tmp_path)
+    fake = SubmissionProbeFake(config.select_cluster(multi, 'batch'))
+    fake.responses[0] = response
+    before = {p.relative_to(path): p.read_bytes() for p in path.rglob('*') if p.is_file()}
+    record = status.slurm_submission_probe(multi, path, fake)['record']
+    assert len(fake.calls) == 1
+    assert record['unavailable'] == classification and record['scheduler_cluster'] is None
+    assert record['format_candidate'] is record['origin_available'] is record['reroute_authorized'] is False
+    assert 'ordinary submission policy is unchanged' in record['reason']
+    assert record['queries'][0]['stderr'] == response.stderr
+    assert record['capture_finished_at'] >= record['queries'][0]['finished_at']
+    assert before == {p.relative_to(path): p.read_bytes() for p in path.rglob('*') if p.is_file()}
+
+
+@pytest.mark.parametrize('index,response', [
+    (0, Result(127, stderr='env: scontrol: No such file or directory\nPermission denied\n')),
+    (0, Result(127, stderr='Connection reset\nenv: scontrol: No such file or directory\n')),
+    (0, Result(127, stdout=EVIDENCE_CONFIG, stderr='scontrol: command not found\n')),
+    (0, Result(126, stderr='env: scontrol: No such file or directory\n')),
+    (0, Result(127, stderr='env: scontrol: Permission denied\n')),
+    (0, Result(1, stderr="scontrol: unrecognized option '--local'\nUnexpected identity\n")),
+    (0, Result(1, stderr="scontrol: unrecognized option '--other'\n")),
+    (0, Result(2, stderr="scontrol: unrecognized option '--local'\n")),
+    (2, Result(127, stderr='env: sacct: No such file or directory\nPermission denied\n')),
+    (2, Result(1, stderr="sacct: unrecognized option '--version'\nConnection reset\n")),
+])
+def test_submission_probe_unavailable_requires_exact_response_without_unknown_diagnostics(multi, tmp_path, index, response):
+    path, _ = prepare(multi, tmp_path)
+    fake = SubmissionProbeFake(config.select_cluster(multi, 'batch'))
+    fake.responses[index] = response
+    with pytest.raises((ValueError, OSError)) as caught:
+        status.slurm_submission_probe(multi, path, fake)
+    record = caught.value.evidence['record']
+    assert len(fake.calls) == index + 1 and record['queries'][-1]['stderr'] == response.stderr
+    assert record['format_candidate'] is False
+
+
+def test_submission_probe_unavailable_still_rechecks_concurrent_claim(multi, tmp_path):
+    path, _ = prepare(multi, tmp_path)
+    fake = SubmissionProbeFake(config.select_cluster(multi, 'batch'))
+    fake.responses[0] = Result(127, stderr='scontrol: command not found\n')
+    fake.after_query = lambda: (path / '.submit-claim').write_text('synthetic competing submit')
+    with pytest.raises(ValueError) as caught:
+        status.slurm_submission_probe(multi, path, fake)
+    assert len(fake.calls) == 1 and caught.value.evidence['record']['format_candidate'] is False
+
+
+@pytest.mark.parametrize('index,response', [
+    (0, Result(stdout=EVIDENCE_CONFIG.replace('26.05.5', '24.05.0'))),
+    (0, Result(stdout=EVIDENCE_CONFIG.replace('26.05.5', '26.05.5-vendor'))),
+    (0, Result(stdout='ClusterName = fixture\n')),
+    (1, Result(stdout='slurm 24.05.0\n')),
+    (1, Result(stdout='slurm 26.05.5-vendor\n')),
+    (2, Result(stdout='vendor client version unknown\n')),
+    (2, Result(stdout='')),
+    (2, Result(1, stderr="sacct: unrecognized option '--version'\n")),
+    (2, Result(127, stderr='env: sacct: No such file or directory\n')),
+])
+def test_submission_probe_unsupported_versions_preserve_ordinary_submission_boundary(multi, tmp_path, index, response):
+    path, _ = prepare(multi, tmp_path)
+    fake = SubmissionProbeFake(config.select_cluster(multi, 'batch'))
+    fake.responses[index] = response
+    record = status.slurm_submission_probe(multi, path, fake)['record']
+    assert len(record['queries']) == 3
+    assert record['format_candidate'] is record['origin_available'] is record['reroute_authorized'] is False
+    assert record['unavailable'] == 'evidence_version_unsupported'
+    assert 'ordinary submission policy is unchanged' in record['reason']
+    assert record['scheduler_cluster'] == 'fixture'
+    assert state.read(path)['state'] == 'prepared'
+    assert not (path / '.submit-claim').exists() and not (path / 'submission.json').exists()
+
+
+@pytest.mark.parametrize('index,response,error', [
+    (0, SSHConnectionError('synthetic timeout'), SSHConnectionError),
+    (1, Result(255, stderr='synthetic SSH failure'), OSError),
+    (2, Result(1, stderr='synthetic database error'), OSError),
+    (0, Result(stdout='SLURM_VERSION = 26.05.5\n'), ValueError),
+    (0, Result(stdout=EVIDENCE_CONFIG + 'ClusterName = other\n'), ValueError),
+    (0, Result(stdout=EVIDENCE_CONFIG.replace('fixture', 'ALL')), ValueError),
+    (0, Result(stdout=EVIDENCE_CONFIG, stderr='unexpected config diagnostic'), ValueError),
+])
+def test_submission_probe_real_errors_stop_and_carry_unpublished_evidence(multi, tmp_path, index, response, error):
+    from ag import _autonomy_store as disk
+    path, _ = prepare(multi, tmp_path)
+    fake = SubmissionProbeFake(config.select_cluster(multi, 'batch'))
+    fake.responses[index] = response
+    before = {p.relative_to(path): p.read_bytes() for p in path.rglob('*') if p.is_file()}
+    with pytest.raises(error) as caught:
+        status.slurm_submission_probe(multi, path, fake)
+    value = caught.value.evidence
+    assert value['sha256'] == sha256(disk.encode(value['record'])).hexdigest()
+    assert len(fake.calls) == len(value['record']['queries']) == index + 1
+    assert value['record']['format_candidate'] is False
+    last = value['record']['queries'][-1]
+    if isinstance(response, Exception):
+        assert last['returncode'] is last['stdout'] is last['stderr'] is None
+        assert last['error_type'] == type(response).__name__
+    else:
+        assert last['returncode'] == response.returncode and last['stderr'] == response.stderr
+    assert before == {p.relative_to(path): p.read_bytes() for p in path.rglob('*') if p.is_file()}
+
+
+@pytest.mark.parametrize('change', ['claim', 'submission', 'state', 'manifest', 'input',
+                                    'replace_manifest', 'replace_input', 'replace_attempt',
+                                    'symlink_input', 'hardlink_input', 'configuration'])
+def test_submission_probe_rechecks_paths_frozen_bytes_and_claim_after_queries(multi, tmp_path, change):
+    path, _ = prepare(multi, tmp_path)
+    fake = SubmissionProbeFake(config.select_cluster(multi, 'batch'))
+
+    def mutate():
+        if len(fake.calls) != 3:
+            return
+        source = path / 'inputs' / 'water.gjf'
+        if change in ('claim', 'submission'):
+            (path / ('.submit-claim' if change == 'claim' else 'submission.json')).write_text('{}')
+        elif change == 'state':
+            data = json.loads((path / 'status.json').read_text())
+            data['state'] = 'submitting'
+            (path / 'status.json').write_text(json.dumps(data))
+        elif change == 'manifest':
+            with (path / 'manifest.json').open('a') as handle:
+                handle.write(' ')
+        elif change == 'input':
+            with source.open('a') as handle:
+                handle.write(' ')
+        elif change.startswith('replace_'):
+            import shutil
+            target = {'replace_manifest': path / 'manifest.json', 'replace_input': source,
+                      'replace_attempt': path}[change]
+            saved = target.with_name(target.name + '-original')
+            target.rename(saved)
+            if saved.is_dir():
+                shutil.copytree(saved, target)
+            else:
+                target.write_bytes(saved.read_bytes())
+        elif change in ('symlink_input', 'hardlink_input'):
+            saved = tmp_path / 'saved-input'
+            source.rename(saved)
+            if change == 'symlink_input':
+                source.symlink_to(saved)
+            else:
+                os.link(saved, source)
+        else:
+            multi['clusters']['batch']['partition'] = 'changed'
+
+    fake.after_query = mutate
+    with pytest.raises((ValueError, OSError)) as caught:
+        status.slurm_submission_probe(multi, path, fake)
+    assert len(fake.calls) == 3 and caught.value.evidence['record']['format_candidate'] is False
+
+
+@pytest.mark.parametrize('change', ['claim', 'submission', 'state', 'bound_job', 'identity', 'bundle'])
+def test_submission_probe_rejects_unprepared_or_corrupt_attempt_before_network(multi, tmp_path, change):
+    path, _ = prepare(multi, tmp_path)
+    fake = SubmissionProbeFake(config.select_cluster(multi, 'batch'))
+    if change in ('claim', 'submission'):
+        (path / ('.submit-claim' if change == 'claim' else 'submission.json')).write_text('{}')
+    elif change in ('state', 'bound_job'):
+        data = json.loads((path / 'status.json').read_text())
+        data.update({'state': 'submitted'} if change == 'state' else {'job_id': 'batch:123'})
+        (path / 'status.json').write_text(json.dumps(data))
+    else:
+        data = json.loads((path / 'manifest.json').read_text())
+        data['attempt_id' if change == 'identity' else 'bundle_sha256'] = 'wrong'
+        (path / 'manifest.json').write_text(json.dumps(data))
+    with pytest.raises(ValueError):
+        status.slurm_submission_probe(multi, path, fake)
+    assert fake.calls == []
+
+
+@pytest.mark.parametrize('target,link', [('manifest.json', 'hard'), ('manifest.json', 'symbolic'),
+                                        ('inputs/water.gjf', 'hard'), ('inputs/water.gjf', 'symbolic')])
+def test_submission_probe_rejects_linked_prepared_files_before_network(multi, tmp_path, target, link):
+    path, _ = prepare(multi, tmp_path)
+    fake = SubmissionProbeFake(config.select_cluster(multi, 'batch'))
+    source = path / target
+    saved = tmp_path / 'saved-file'
+    source.rename(saved)
+    if link == 'hard':
+        os.link(saved, source)
+    else:
+        source.symlink_to(saved)
+    with pytest.raises((ValueError, OSError)):
+        status.slurm_submission_probe(multi, path, fake)
+    assert fake.calls == []
+
+
+def test_submission_probe_hashes_complete_inputs_independent_of_manifest_listing_order(multi, tmp_path):
+    path, manifest = prepare(multi, tmp_path)
+    manifest['inputs'].reverse()  # T188 records the main input before its script.
+    (path / 'manifest.json').write_text(json.dumps(manifest))
+    fake = SubmissionProbeFake(config.select_cluster(multi, 'batch'))
+    record = status.slurm_submission_probe(multi, path, fake)['record']
+    assert record['format_candidate'] is True
+    assert record['binding']['bundle_sha256'] == manifest['bundle_sha256']
+
+
+@pytest.mark.parametrize('change', ['duplicate', 'wrong_size', 'bool_size', 'wrong_hash', 'missing', 'extra_field'])
+def test_submission_probe_rejects_ambiguous_or_corrupt_input_manifest(multi, tmp_path, change):
+    path, manifest = prepare(multi, tmp_path)
+    fake = SubmissionProbeFake(config.select_cluster(multi, 'batch'))
+    if change == 'duplicate':
+        manifest['inputs'].append(dict(manifest['inputs'][0]))
+    elif change == 'wrong_size':
+        manifest['inputs'][0]['size'] += 1
+    elif change == 'bool_size':
+        manifest['inputs'][0]['size'] = True
+    elif change == 'wrong_hash':
+        manifest['inputs'][0]['sha256'] = '0' * 64
+    elif change == 'missing':
+        manifest['inputs'].pop()
+    else:
+        manifest['inputs'][0]['approved'] = True
+    (path / 'manifest.json').write_text(json.dumps(manifest))
+    with pytest.raises(ValueError):
+        status.slurm_submission_probe(multi, path, fake)
+    assert fake.calls == []
+
+
 def test_evidence_config_and_client_versions_are_separate_observations():
     text = 'Configuration data as of 2026-01-01T00:00:00\n' + EVIDENCE_CONFIG + 'Other = synthetic\n'
     assert slurm.parse_evidence_config(text) == dict(cluster='fixture', server_version='26.05.5')

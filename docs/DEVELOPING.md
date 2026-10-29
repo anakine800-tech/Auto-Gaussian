@@ -200,7 +200,8 @@ T184 尚未把该接口接入 prepare/submit/cancel。后续敏感工单须在�
 T187 先接入独立证据部分：`ag snapshot <ID> --run <RUN> --token <TOKEN> --plan-sha256 <SHA>`
 在原固定只读捕获前检查租约，捕获后在短本地互斥内重新核对身份、版本、计划及当前时间，
 将正式快照的元数据/日志哈希、manifest/submission 哈希和轮次/唤醒绑定追加到自主日志。
-捕获期间不持本地锁；失锁、超时或登记失败的文件保留为普通快照，不允许补认成另一次唤醒的证据。
+捕获期间不持本地锁；最终发布前通过 `publication` 工厂重新取得短锁并核验 owner，IO 期间失锁/超时则不发布。
+已在有效 owner 下发布但随后登记失败的文件保留，不允许补认成另一次唤醒的证据。
 未传这组三参数时原 snapshot 行为不变；这不会更新 Attempt status、study journal、outputs 或 facts。
 
 `autonomy_cancel.review_no_progress(...)` 接收恰好两项 `reviews`，每项包含
@@ -229,11 +230,31 @@ Gaussian route 采用有限正向语法：显式受支持方法和内置基组�
 固定格式和截断严格核验，拒绝数组、heterogeneous 和联邦记录，不把缺开始/重启字段当作零。
 采集只接受 26.05.5 的候选版本组合，尚未证明实际控制器/DBD/执行节点组合可靠；版本符合也不产生自动资格。
 `scheduler-observations/<UTC时间>/` 独占保存每项查询的操作/文本/起止、退出码和 stdout/stderr 原文及哈希；
-捕获结果重新核验绑定，任何失败保存不完整记录并停止。首次 SSH 错误不重试，不更新 status、journal、outputs
+捕获结果重新核验绑定，失败保存不完整记录并停止；若 `publication` 拒绝则不发布任何观察文件。
+原始响应先在内存中保留，最终发布才进入短保护；网络/解析不占锁。首次 SSH 错误不重试，不更新 status、journal、outputs
 或归属。普通只读重试与手动取消行为不变。返回 `complete` 只表示采集解析完成，`reroute_authorized` 始终 false。
 原始文本含私有配置内容，不放入公开 PR；此记录不能代替 T186 提交时保存的初始 SLUID/身份或本轮授权。
 
-T186 一次性自主归属/规则与取消消费、T185 路由、从未运行/终止的最终资格判断尚未接入，
+`status.slurm_submission_probe(cfg, path, transport)` 在提交声明之前读取同一固定 controller/client 探针，
+核验 prepared 状态、路径身份及完整冻结 bundle，并在查询结束后再核验一次。返回 canonical `record` 和 `sha256`，
+不发布本地文件。明确缺工具或固定选项不支持、版本不识别只记录格式不可用，不增加普通提交版本门槛；
+SSH、身份矛盾和混合错误保留 `.evidence` 后抛出。T186 须在有效 owner 下独占发布原字节并将哈希绑定原 reservation，
+probe 不包含 ownership 哈希，避免循环引用。初始实例只允许在已保存确切 submission/status 之后采集，不能由 UNKNOWN 恢复补认。
+
+`status.capture_slurm_origin(..., probe_sha256=..., ownership_sha256=..., publication=...)` 使用 T186 提供的
+零参数发布工厂及其锁内 raw state，核对原提交消费的 round/run/plan 与 `dispatch_started={'at':...}`。
+先独占 `slurm-origin-claim.json`，再在锁外采集，最后独占 `slurm-origin.json`；claim 成功/失败/崩溃均不重用。
+当前实例重启或缺原始 SLUID 时只保存不可用；真正查询/解析错误保存后仍抛出，并附 `origin_evidence` 供上游暂停处理。
+发布工厂拒绝时不补写原始实例。返回 `initial_instance_recorded` 仅表示已登记初始实例，`live_validated`/`reroute_authorized`
+始终 false；实际 submit 与真实环境尚未组合验证，不将已知提交变成可重提。
+
+内部 `_consume_cancellation` / `_record_cancellation_result` 使用独立 cancel_consume/cancel_result 日志事件，
+短锁内重验租约/计划，每唤醒至多两次，同 Attempt 与改投谱系永久防重复，不改 T184 意图 totals。
+UNKNOWN 在同一事件原子暂停，不确定/崩溃不退回消费；重复结果只确认旧记录。迟到结果只绑定原消费保存既有后果，
+不覆盖新租约、不重新授权。取消结果导致的暂停也会使旧快照对失效；连续性检查重放实际 paused 状态。
+它们无 CLI、始终返回 `cancellation_authorized: false`，不能以手写 ownership 哈希替代 T186 归属核验。
+
+T186 一次性自主归属/规则与执行适配、T185 路由、从未运行/终止的最终资格判断尚未接入，
 没有实际自主取消或改投入口。完整工单与未授权的合并前真实验证矩阵见
 [T187](redesign-tasks/T187-autonomous-cancel-reroute.md)；不得将此证据切片写成该工单全部完成。
 

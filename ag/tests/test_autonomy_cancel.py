@@ -1,4 +1,5 @@
 """Formal cancellation evidence, using synthetic studies and fake transport."""
+from contextlib import contextmanager
 from copy import deepcopy
 from datetime import datetime
 import json
@@ -301,8 +302,25 @@ def test_owner_expires_during_network_io_without_holding_local_lock(context):
 
     with pytest.raises(ValueError, match='60 minute'):
         capture(context, run, Slow())
-    assert len(list((path / 'snapshots').iterdir())) == 1
+    assert not (path / 'snapshots').exists()
     assert not a.status(cfg, path.parent.parent.name)['state'].get('snapshots')
+
+
+def test_unknown_cancel_pause_breaks_snapshot_pair_after_resume(context):
+    run, reviews = pair(context)
+    cfg, path, _, plan = context
+    name = path.parent.parent.name
+    receipt = a._consume_cancellation(cfg, name, run['run_id'], run['token'],
+        plan_sha256=plan['sha256'], binding=evidence.bound_attempt(path),
+        ownership_sha256='a' * 64, kind='no_progress', reason='Synthetic consumed review',
+        evidence_sha256='b' * 64)
+    a._record_cancellation_result(cfg, name, run['run_id'], run['token'], attempt_id=path.name,
+        consumption_sha256=receipt['record']['consumption_sha256'], outcome='unknown',
+        reason='Synthetic lost response', evidence_sha256='c' * 64)
+    a.change(cfg, name, 'resume', run['run_id'], run['token'], reason='Explicit synthetic resume')
+    with pytest.raises(ValueError, match='Pause interrupted'):
+        check(context, run, reviews)
+    assert not (path / '.cancel-claim').exists()
 
 
 @pytest.mark.parametrize('link', ['symbolic', 'hard'])
@@ -968,3 +986,384 @@ def test_final_clock_regression_keeps_failure_reason(scheduler_attempt, monkeypa
     _, saved = scheduler_observation(path)
     assert saved['complete'] is False and saved['error_type'] == 'ValueError'
     assert saved['error'] == 'Clock moved backwards after scheduler observation'
+
+
+def test_scheduler_publication_guard_covers_only_final_local_writes(scheduler_attempt, monkeypatch):
+    cfg, path, manifest = scheduler_attempt
+    inside, events = [False], []
+
+    class GuardAwareTransport(SchedulerEvidenceFake):
+        def run(self, command):
+            assert not inside[0], 'Network query ran inside publication guard'
+            return super().run(command)
+
+    fake = GuardAwareTransport(manifest)
+    parser = status.slurm.parse_evidence_job
+
+    def parse_job(*args, **kwargs):
+        assert not inside[0], 'Scheduler parsing ran inside publication guard'
+        return parser(*args, **kwargs)
+
+    monkeypatch.setattr(status.slurm, 'parse_evidence_job', parse_job)
+
+    @contextmanager
+    def publication():
+        assert fake.calls == fake.commands
+        assert not (path / 'scheduler-observations').exists()
+        events.append('enter')
+        inside[0] = True
+        try:
+            yield
+            scheduler_observation(path)
+            events.append('published')
+        finally:
+            inside[0] = False
+            events.append('exit')
+
+    before = lifecycle_bytes(path)
+    result = status.capture_slurm_evidence(cfg, path, fake, publication=publication)
+    assert events == ['enter', 'published', 'exit']
+    assert result['complete'] is True and result['reroute_authorized'] is False
+    assert lifecycle_bytes(path) == before
+
+
+def test_scheduler_publication_refusal_leaves_no_observation_or_lifecycle_change(scheduler_attempt):
+    cfg, path, manifest = scheduler_attempt
+    fake, entered = SchedulerEvidenceFake(manifest), []
+
+    @contextmanager
+    def publication():
+        entered.append(len(fake.calls))
+        raise ValueError('Synthetic owner expired before publication')
+        yield
+
+    before = lifecycle_bytes(path)
+    with pytest.raises(ValueError, match='Synthetic owner expired'):
+        status.capture_slurm_evidence(cfg, path, fake, publication=publication)
+    assert entered == [5]
+    assert not (path / 'scheduler-observations').exists()
+    assert lifecycle_bytes(path) == before
+
+
+def test_scheduler_failed_query_is_published_only_with_guard(scheduler_attempt):
+    cfg, path, manifest = scheduler_attempt
+    fake, entered = SchedulerEvidenceFake(manifest), []
+    fake.responses[3] = Result(17, stdout='Synthetic incomplete history\n', stderr='Synthetic failure\n')
+
+    @contextmanager
+    def publication():
+        entered.append(len(fake.calls))
+        assert not (path / 'scheduler-observations').exists()
+        yield
+        assert len(fake.calls) == 4  # No query may follow the failed history call.
+
+    before = lifecycle_bytes(path)
+    with pytest.raises(ValueError, match='inspect preserved'):
+        status.capture_slurm_evidence(cfg, path, fake, publication=publication)
+    directory, saved = scheduler_observation(path)
+    assert entered == [4]
+    assert saved['complete'] is False and saved['reroute_authorized'] is False
+    assert (directory / saved['queries'][-1]['stdout']['file']).read_bytes() == b'Synthetic incomplete history\n'
+    assert saved['queries'][-1]['returncode'] == 17
+    assert lifecycle_bytes(path) == before
+
+
+def test_scheduler_failed_query_cannot_publish_after_guard_refusal(scheduler_attempt):
+    cfg, path, manifest = scheduler_attempt
+    fake, entered = SchedulerEvidenceFake(manifest), []
+    fake.responses[3] = SSHConnectionError('Synthetic connection error')
+
+    @contextmanager
+    def publication():
+        entered.append(len(fake.calls))
+        raise ValueError('Synthetic owner expired before failure publication')
+        yield
+
+    before = lifecycle_bytes(path)
+    with pytest.raises(ValueError, match='Synthetic owner expired'):
+        status.capture_slurm_evidence(cfg, path, fake, publication=publication)
+    assert entered == [4] and len(fake.calls) == 4
+    assert not (path / 'scheduler-observations').exists()
+    assert lifecycle_bytes(path) == before
+
+
+class OriginPublication:
+    def __init__(self, runtime):
+        self.runtime, self.entries, self.active = runtime, 0, False
+        self.reject = set()
+        self.before = lambda count: None
+
+    @contextmanager
+    def __call__(self):
+        self.entries += 1
+        self.before(self.entries)
+        if self.entries in self.reject:
+            raise ValueError('Synthetic origin owner expired')
+        assert not self.active
+        self.active = True
+        try:
+            yield self.runtime
+        finally:
+            self.active = False
+
+
+@pytest.fixture
+def origin_context(multi, tmp_path, monkeypatch):
+    from test_slurm import prepare, SubmissionProbeFake
+    clock = [1800000000.0]
+    monkeypatch.setattr(status.time, 'time', lambda: clock[0])
+    monkeypatch.setattr(a, 'now', lambda: clock[0])
+    path, manifest = prepare(multi, tmp_path)
+    # Construct a valid main-input-first manifest before probe/dispatch; the
+    # bundle itself is name-bound, not dependent on this list's display order.
+    manifest['inputs'].reverse()
+    (path / 'manifest.json').write_text(json.dumps(manifest))
+    probe = status.slurm_submission_probe(multi, path, SubmissionProbeFake(config.select_cluster(multi, 'batch')))
+    (path / 'slurm-origin-probe.json').write_bytes(disk.encode(probe['record']))
+    ownership = 'b' * 64
+    state.write(path, 'submitting')
+    submission.record(path, manifest, '123', scheduler_cluster='fixture',
+                      authorization=dict(method='autonomy', ownership_sha256=ownership))
+    record = json.loads((path / 'submission.json').read_text())
+    record['scheduler_probe_sha256'] = probe['sha256']  # Synthetic T186 dispatch construction only.
+    (path / 'submission.json').write_bytes(disk.encode(record))
+    state.write(path, 'submitted', job_id='batch:123')
+    runtime = dict(submissions={path.name: dict(ownership_sha256=ownership, round_id='round-fixture',
+                   run_id='run-fixture', plan_sha256='c' * 64, dispatch_started={'at': clock[0] + 1})},
+                   current_round='round-fixture', lease=dict(run_id='run-fixture'),
+                   current_plan='plan-fixture', plans={'plan-fixture': dict(sha256='c' * 64)})
+    publication = OriginPublication(runtime)
+    clock[0] += 2
+
+    class OriginTransport(SchedulerEvidenceFake):
+        after_query = lambda self, command: None
+
+        def run(self, command):
+            assert not publication.active, 'Origin network IO must remain outside the owner lock'
+            assert (path / 'slurm-origin-claim.json').exists()
+            response = super().run(command)
+            self.after_query(command)
+            return response
+
+    return dict(cfg=multi, path=path, manifest=manifest, probe_sha256=probe['sha256'],
+                ownership_sha256=ownership, runtime=runtime, publication=publication,
+                fake=OriginTransport(manifest), clock=clock)
+
+
+def capture_origin(context):
+    return evidence.capture_slurm_origin(context['cfg'], context['path'], context['fake'],
+                                        probe_sha256=context['probe_sha256'],
+                                        ownership_sha256=context['ownership_sha256'],
+                                        publication=context['publication'])
+
+
+def replace_origin_probe(context, change):
+    # Fixture-only rewrite models what T186 froze before dispatch, never a
+    # production path that upgrades a previously submitted Attempt.
+    path = context['path']
+    probe = disk.decode((path / 'slurm-origin-probe.json').read_bytes())
+    change(probe)
+    raw = disk.encode(probe)
+    (path / 'slurm-origin-probe.json').write_bytes(raw)
+    context['probe_sha256'] = evidence.digest(raw)
+    record = disk.decode((path / 'submission.json').read_bytes())
+    record['scheduler_probe_sha256'] = context['probe_sha256']
+    (path / 'submission.json').write_bytes(disk.encode(record))
+
+
+def test_origin_records_first_instance_with_three_short_publications(origin_context):
+    c, path = origin_context, origin_context['path']
+    before = lifecycle_bytes(path)
+    result = capture_origin(c)
+    saved = disk.decode((path / 'slurm-origin.json').read_bytes())
+    claim = disk.decode((path / 'slurm-origin-claim.json').read_bytes())
+    assert result == dict(saved, origin_sha256=evidence.digest(disk.encode(saved)))
+    assert saved['status'] == 'recorded' and saved['initial_instance_recorded'] is True
+    assert saved['live_validated'] is saved['reroute_authorized'] is False
+    assert saved['binding'] == evidence.bound_attempt(path)
+    assert saved['claim_sha256'] == evidence.digest(disk.encode(claim))
+    assert saved['probe_sha256'] == claim['probe_sha256'] == c['probe_sha256']
+    assert saved['ownership_sha256'] == claim['ownership_sha256'] == c['ownership_sha256']
+    assert saved['dispatch_started'] == claim['dispatch_started'] == {'at': c['clock'][0] - 1}
+    assert saved['instance']['sluid'] == saved['instance']['original_sluid']
+    assert saved['observation_sha256'] == evidence.digest((path / saved['observation'] / 'observation.json').read_bytes())
+    assert c['publication'].entries == 3 and len(c['fake'].calls) == 5
+    assert all(p.read_bytes() == raw for p, raw in before.items())
+    with pytest.raises(ValueError, match='already claimed'):
+        capture_origin(c)
+    assert len(c['fake'].calls) == 5
+
+
+@pytest.mark.parametrize('unsupported', ['version', 'unknown-cluster'])
+def test_origin_unsupported_probe_records_unavailable_without_remote_queries(origin_context, unsupported):
+    c, path = origin_context, origin_context['path']
+    def change(probe):
+        probe['format_candidate'] = False
+        if unsupported == 'version':
+            probe['versions']['controller']['parsed'] = '25.11.0'
+        else:
+            probe['scheduler_cluster'] = None
+    replace_origin_probe(c, change)
+    before = (path / 'submission.json').read_bytes(), (path / 'status.json').read_bytes()
+    result = capture_origin(c)
+    assert result['status'] == 'unavailable' and result['initial_instance_recorded'] is False
+    assert result['live_validated'] is result['reroute_authorized'] is False
+    assert not c['fake'].calls and c['publication'].entries == 2
+    assert not (path / 'scheduler-observations').exists()
+    assert ((path / 'submission.json').read_bytes(), (path / 'status.json').read_bytes()) == before
+    if unsupported == 'unknown-cluster':
+        assert result['scheduler_cluster'] is None  # Do not adopt the sbatch name as a probe.
+        assert disk.decode(before[0])['scheduler_cluster'] == 'fixture'
+
+
+@pytest.mark.parametrize('damage', ['missing-probe-ref', 'wrong-owner', 'noncanonical-probe',
+                                  'wrong-probe-bundle', 'changed-input', 'wrong-cluster'])
+def test_origin_rejects_missing_or_changed_predispatch_sources_without_claim(origin_context, damage):
+    c, path = origin_context, origin_context['path']
+    record = disk.decode((path / 'submission.json').read_bytes())
+    if damage == 'missing-probe-ref':
+        del record['scheduler_probe_sha256']
+    elif damage == 'wrong-owner':
+        record['authorization']['ownership_sha256'] = 'd' * 64
+    elif damage == 'wrong-cluster':
+        record['scheduler_cluster'] = 'other'
+    elif damage == 'noncanonical-probe':
+        probe_path = path / 'slurm-origin-probe.json'
+        raw = json.dumps(disk.decode(probe_path.read_bytes()), indent=2).encode()
+        probe_path.write_bytes(raw)
+        c['probe_sha256'] = record['scheduler_probe_sha256'] = evidence.digest(raw)
+    elif damage == 'wrong-probe-bundle':
+        replace_origin_probe(c, lambda probe: probe['binding'].update(bundle_sha256='d' * 64))
+        record = disk.decode((path / 'submission.json').read_bytes())
+    else:
+        source = path / 'inputs' / 'water.gjf'
+        source.write_bytes(source.read_bytes() + b' ')
+    (path / 'submission.json').write_bytes(disk.encode(record))
+    with pytest.raises(ValueError):
+        capture_origin(c)
+    assert not c['fake'].calls and not (path / 'slurm-origin-claim.json').exists()
+    assert not (path / 'slurm-origin.json').exists()
+
+
+@pytest.mark.parametrize('damage', ['owner', 'round', 'lease', 'plan', 'before-probe', 'future-dispatch',
+                                  'missing-dispatch', 'numeric-dispatch', 'extra-dispatch-field'])
+def test_origin_requires_same_consumed_dispatch_and_current_run(origin_context, damage):
+    c = origin_context
+    runtime = c['runtime']
+    consumed = runtime['submissions'][c['path'].name]
+    if damage == 'owner':
+        consumed['ownership_sha256'] = 'e' * 64
+    elif damage == 'round':
+        runtime['current_round'] = 'another-round'
+    elif damage == 'lease':
+        runtime['lease']['run_id'] = 'another-run'
+    elif damage == 'plan':
+        runtime['plans'][runtime['current_plan']]['sha256'] = 'e' * 64
+    elif damage == 'before-probe':
+        consumed['dispatch_started']['at'] = c['clock'][0] - 3
+    elif damage == 'future-dispatch':
+        consumed['dispatch_started']['at'] = c['clock'][0] + 1
+    elif damage == 'numeric-dispatch':
+        consumed['dispatch_started'] = c['clock'][0] - 1
+    elif damage == 'extra-dispatch-field':
+        consumed['dispatch_started']['extra'] = True
+    else:
+        del consumed['dispatch_started']
+    with pytest.raises(ValueError):
+        capture_origin(c)
+    assert not c['fake'].calls and not (c['path'] / 'slurm-origin-claim.json').exists()
+
+
+@pytest.mark.parametrize('stage', [1, 2, 3])
+def test_origin_publication_refusal_never_publishes_final_origin(origin_context, stage):
+    c, path = origin_context, origin_context['path']
+    c['publication'].reject.add(stage)
+    before = (path / 'submission.json').read_bytes(), (path / 'status.json').read_bytes()
+    with pytest.raises(ValueError, match='owner expired'):
+        capture_origin(c)
+    assert not (path / 'slurm-origin.json').exists()
+    assert (path / 'slurm-origin-claim.json').exists() is (stage > 1)
+    assert (path / 'scheduler-observations').exists() is (stage == 3)
+    assert len(c['fake'].calls) == (0 if stage == 1 else 5)
+    assert ((path / 'submission.json').read_bytes(), (path / 'status.json').read_bytes()) == before
+
+
+@pytest.mark.parametrize('damage', ['claim', 'lease', 'probe', 'dispatch-at'])
+def test_origin_rechecks_sources_after_network_before_any_observation_publication(origin_context, damage):
+    c, path = origin_context, origin_context['path']
+    def changed(command):
+        if command.operation != 'slurm_evidence_job':
+            return
+        if damage == 'claim':
+            (path / 'slurm-origin-claim.json').write_bytes(b'Changed claim')
+        elif damage == 'lease':
+            c['runtime']['lease']['run_id'] = 'another-run'
+        elif damage == 'dispatch-at':
+            c['runtime']['submissions'][path.name]['dispatch_started']['at'] += 0.5
+        else:
+            target = path / 'slurm-origin-probe.json'
+            target.write_bytes(target.read_bytes() + b' ')
+    c['fake'].after_query = changed
+    with pytest.raises(ValueError):
+        capture_origin(c)
+    assert len(c['fake'].calls) == 5 and (path / 'slurm-origin-claim.json').exists()
+    assert not (path / 'scheduler-observations').exists()
+    assert not (path / 'slurm-origin.json').exists()
+
+
+@pytest.mark.parametrize('failure', ['query', 'version-changed'])
+def test_origin_real_observation_failure_is_persisted_then_raised_without_retry(origin_context, failure):
+    c, path = origin_context, origin_context['path']
+    if failure == 'query':
+        c['fake'].responses[3] = Result(17, stdout='Synthetic partial history', stderr='Synthetic failure')
+    else:
+        c['fake'].responses[1].stdout = 'slurm 26.05.4\n'
+    before = (path / 'submission.json').read_bytes(), (path / 'status.json').read_bytes()
+    with pytest.raises(ValueError, match='inspect preserved') as caught:
+        capture_origin(c)
+    saved = disk.decode((path / 'slurm-origin.json').read_bytes())
+    assert saved['status'] == 'unavailable' and saved['initial_instance_recorded'] is False
+    assert caught.value.origin_evidence['record'] == saved
+    assert caught.value.origin_evidence['origin_sha256'] == evidence.digest(disk.encode(saved))
+    assert saved['observation_sha256'] == caught.value.evidence['observation_sha256']
+    assert ((path / 'submission.json').read_bytes(), (path / 'status.json').read_bytes()) == before
+    count = len(c['fake'].calls)
+    with pytest.raises(ValueError, match='already claimed'):
+        capture_origin(c)
+    assert len(c['fake'].calls) == count
+
+
+@pytest.mark.parametrize('unavailable', ['restarted', 'missing-original', 'different-original'])
+def test_origin_valid_observation_without_original_instance_is_not_positive(origin_context, unavailable):
+    c = origin_context
+    if unavailable == 'restarted':
+        c['fake'].responses[3].stdout = c['fake'].responses[3].stdout.replace('|PENDING|0|', '|PENDING|1|')
+        c['fake'].responses[4].stdout = c['fake'].responses[4].stdout.replace('Restarts=0 ', 'Restarts=1 ')
+    else:
+        fields = c['fake'].responses[3].stdout.rstrip('\n').split('|')
+        fields[-1] = 's0000000000000' if unavailable == 'missing-original' else 's0123456789ABD'
+        c['fake'].responses[3].stdout = '|'.join(fields) + '\n'
+    result = capture_origin(c)
+    assert result['status'] == 'unavailable' and result['initial_instance_recorded'] is False
+    assert result['live_validated'] is result['reroute_authorized'] is False
+    assert len(c['fake'].calls) == 5
+
+
+def test_origin_rejects_clock_regression_between_claim_and_capture(origin_context):
+    c, path = origin_context, origin_context['path']
+    clock = c['clock']
+    # Move backwards after the first publication while remaining after dispatch.
+    original = c['publication']
+
+    @contextmanager
+    def publication():
+        with original() as runtime:
+            yield runtime
+        if original.entries == 1:
+            clock[0] -= 0.5
+
+    c['publication'] = publication
+    with pytest.raises(ValueError, match='between origin claim and observation'):
+        capture_origin(c)
+    assert (path / 'slurm-origin-claim.json').exists() and not (path / 'slurm-origin.json').exists()
+    assert len(c['fake'].calls) == 5

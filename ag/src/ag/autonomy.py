@@ -158,6 +158,50 @@ def eligible(state, run_id, token_hash, current_versions, at, action, expected_s
     return plan
 
 
+def _cancellation_hash(value):
+    if not isinstance(value, str) or not re.fullmatch('[0-9a-f]{64}', value):
+        raise ValueError('Cancellation evidence requires SHA-256')
+    return value
+
+
+def _cancellation_binding(value):
+    from ag import remote
+    from ag.config import cluster_name
+    if not isinstance(value, dict) or set(value) != {
+            'study_id', 'attempt_id', 'cluster', 'scheduler', 'job_id',
+            'manifest_sha256', 'submission_sha256'}:
+        raise ValueError('Invalid cancellation Attempt binding')
+    for key in ('study_id', 'attempt_id'):
+        study.identifier(value[key])
+    cluster_name(value['cluster'])
+    if value['scheduler'] not in ('pbs', 'slurm'):
+        raise ValueError('Invalid cancellation scheduler')
+    (remote.slurm_job_id if value['scheduler'] == 'slurm' else remote.job_id)(value['job_id'])
+    for key in ('manifest_sha256', 'submission_sha256'):
+        _cancellation_hash(value[key])
+
+
+def _cancellation_result_origin(state, data):
+    if set(data) != {'attempt_id', 'run_id', 'token_sha256', 'consumption_sha256',
+                     'outcome', 'reason', 'evidence_sha256'}:
+        raise ValueError('Invalid cancellation result fields')
+    record = state.get('cancellations', {}).get(study.identifier(data['attempt_id']))
+    if (record is None or data['run_id'] != record['run_id']
+            or data['token_sha256'] != record['token_sha256']
+            or data['consumption_sha256'] != record['consumption_sha256']):
+        raise ValueError('Cancellation result does not match the original consumption')
+    if data['outcome'] not in ('accepted', 'unknown'):
+        raise ValueError('Cancellation result must be accepted or unknown; neither proves termination')
+    text(data['reason'], 'Cancellation result reason')
+    _cancellation_hash(data['evidence_sha256'])
+
+
+def _cancellation_receipt(record, *, duplicate=False):
+    record = deepcopy(record)
+    record.pop('token_sha256', None)
+    return dict(record=record, duplicate=duplicate, cancellation_authorized=False)
+
+
 def apply(previous, event):
     """Validate and replay every transition, including ownership and counters."""
     op, at, data = event['op'], number(event['at']), event['data']
@@ -237,6 +281,50 @@ def apply(previous, event):
             state['paused'] = True
             if state['phase'] != 'ended':
                 state['phase'] = 'paused'
+        elif op == 'cancel_consume':
+            if set(data) != {'run_id', 'token_sha256', 'versions', 'plan_sha256', 'round_id',
+                             'binding', 'ownership_sha256', 'kind', 'reason', 'evidence_sha256',
+                             'lineage_sha256'}:
+                raise ValueError('Invalid cancellation consumption fields')
+            _cancellation_binding(data['binding'])
+            for key in ('plan_sha256', 'ownership_sha256', 'evidence_sha256'):
+                _cancellation_hash(data[key])
+            text(data['reason'], 'Cancellation reason')
+            if data['kind'] not in ('no_progress', 'reroute'):
+                raise ValueError('Invalid cancellation kind')
+            if data['kind'] == 'reroute':
+                _cancellation_hash(data['lineage_sha256'])
+            elif data['lineage_sha256'] is not None:
+                raise ValueError('Only reroute consumption has a lineage')
+            eligible(state, data['run_id'], data['token_sha256'], data['versions'],
+                     at, 'cancel', data['plan_sha256'])
+            if data['round_id'] != state['current_round']:
+                raise ValueError('Cancellation authorization round mismatch')
+            records = state.setdefault('cancellations', {})
+            attempt_id = data['binding']['attempt_id']
+            if attempt_id in records:
+                raise ValueError('Cancellation already consumed for this Attempt; never retry')
+            if sum(row['run_id'] == data['run_id'] for row in records.values()) >= 2:
+                raise ValueError('Cancellation limit of two per run reached')
+            if data['kind'] == 'reroute':
+                lineages = state.setdefault('reroute_lineages', {})
+                if data['lineage_sha256'] in lineages:
+                    raise ValueError('Reroute already consumed for this original lineage')
+                lineages[data['lineage_sha256']] = attempt_id
+            record = dict(deepcopy(data), at=at, seq=event['seq'])
+            record['consumption_sha256'] = sha256(disk.encode(record)).hexdigest()
+            records[attempt_id] = record
+        elif op == 'cancel_result':
+            _cancellation_result_origin(state, data)
+            results = state.setdefault('cancellation_results', {})
+            if data['attempt_id'] in results:
+                raise ValueError('Cancellation result already recorded')
+            results[data['attempt_id']] = dict(
+                {k: v for k, v in data.items() if k != 'token_sha256'}, at=at, seq=event['seq'])
+            if data['outcome'] == 'unknown':
+                state['paused'] = True
+                if state['phase'] != 'ended':
+                    state['phase'] = 'paused'
         elif op == 'snapshot':
             # Only capture_for_run registers freshly captured formal snapshots.
             # This is observation provenance, never submission ownership.
@@ -341,6 +429,8 @@ def public(snapshot):
         state['lease'].pop('token_sha256')
     for count in state['counts'].values():
         count.pop('token_sha256')
+    for record in state.get('cancellations', {}).values():
+        record.pop('token_sha256')
     plan = state['plans'].get(state['current_plan'])
     state['plan_sha256'] = plan['sha256'] if plan else None
     state['versions'] = plan['body']['versions'] if plan else None
@@ -433,6 +523,61 @@ def status(cfg, name):
     with disk.locked(cfg, name) as store:
         snapshot, _ = load(store)
         return public(snapshot)
+
+
+def _consume_cancellation(cfg, name, run_id, token, *, plan_sha256, binding,
+                          ownership_sha256, kind, reason, evidence_sha256, lineage_sha256=None):
+    """Internal durable consumption only, NEVER a cancellation permission.
+
+    The future executor must first verify T186 ownership, immutable Attempt
+    bytes and cancellation/reroute evidence itself. A caller/model dictionary
+    or ownership digest is not that verification. No CLI exposes this helper.
+    The short mutex covers local bookkeeping, never a scheduler operation.
+    """
+    binding = deepcopy(binding)
+    _cancellation_binding(binding)
+    if binding['study_id'] != study.locate(cfg, name).name:
+        raise ValueError('Cancellation binding belongs to a different study')
+    with disk.locked(cfg, name, write=True) as store:
+        snapshot, _ = load(store)
+        current_versions = versions()
+        at = now()
+        data = dict(run_id=run_id, token_sha256=sha256(text(token, 'Run token').encode()).hexdigest(),
+                    versions=current_versions, plan_sha256=plan_sha256,
+                    round_id=snapshot['state']['current_round'], binding=binding,
+                    ownership_sha256=ownership_sha256, kind=kind, reason=reason,
+                    evidence_sha256=evidence_sha256, lineage_sha256=lineage_sha256)
+        result = store.commit(snapshot, 'cancel_consume', at, data, apply)
+        return _cancellation_receipt(result['state']['cancellations'][binding['attempt_id']])
+
+
+def _record_cancellation_result(cfg, name, run_id, token, *, attempt_id, consumption_sha256,
+                                outcome, reason, evidence_sha256):
+    """Record only the original consumer's late outcome, without new actions.
+
+    Like a future T186 boundary-failure record, an in-flight outcome must remain
+    recordable after pause, expiry or takeover. Original run/token and exact
+    consumption bind it; it cannot replace a new lease, reopen a round, unpause
+    or authorize execution. 'accepted' is not proof of termination.
+    """
+    with disk.locked(cfg, name, write=True) as store:
+        snapshot, _ = load(store)
+        at = now()
+        if at < snapshot['state']['updated_at']:
+            raise ValueError('Autonomy clock moved backwards')
+        data = dict(attempt_id=attempt_id, run_id=run_id,
+                    token_sha256=sha256(text(token, 'Original run token').encode()).hexdigest(),
+                    consumption_sha256=consumption_sha256, outcome=outcome,
+                    reason=reason, evidence_sha256=evidence_sha256)
+        _cancellation_result_origin(snapshot['state'], data)
+        saved = snapshot['state'].get('cancellation_results', {}).get(attempt_id)
+        if saved is not None:
+            if {k: v for k, v in saved.items() if k not in ('at', 'seq')} != {
+                    k: v for k, v in data.items() if k != 'token_sha256'}:
+                raise ValueError('Cancellation result reused with different content')
+            return _cancellation_receipt(saved, duplicate=True)
+        result = store.commit(snapshot, 'cancel_result', at, data, apply)
+        return _cancellation_receipt(result['state']['cancellation_results'][attempt_id])
 
 
 @contextmanager

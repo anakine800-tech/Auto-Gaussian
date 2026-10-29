@@ -205,6 +205,204 @@ def bound_attempt(path):
                 manifest_sha256=digest(manifest_bytes), submission_sha256=digest(record_bytes))
 
 
+def capture_slurm_origin(cfg, path, transport, *, probe_sha256, ownership_sha256, publication):
+    """Capture one submission-time instance, never retrofit or retry it.
+
+    T186 owns the publication context and supplies its freshly verified raw
+    state. The claim precedes all scheduler IO; a failed or interrupted capture
+    cannot be replaced by a later observation of a different job instance.
+    """
+    from contextlib import contextmanager
+    from copy import deepcopy
+    from ag import attempt, status
+
+    if not callable(publication):
+        raise ValueError('Slurm origin requires the T186 publication context')
+    _hash(probe_sha256)
+    _hash(ownership_sha256)
+    path = study.local_path(Path(cfg['local']['studies_root']), Path(path))
+    parent = disk.directory(path)
+    store = disk.Store(parent)
+
+    def absent(name):
+        try:
+            os.stat(name, dir_fd=parent, follow_symlinks=False)
+        except FileNotFoundError:
+            return
+        raise ValueError('Slurm origin was already claimed or recorded; never retry')
+
+    def sources():
+        current = disk.directory(path)
+        try:
+            opened, actual = os.fstat(parent), os.fstat(current)
+            if (opened.st_dev, opened.st_ino) != (actual.st_dev, actual.st_ino):
+                raise ValueError('Attempt directory changed during Slurm origin capture')
+        finally:
+            os.close(current)
+        binding = bound_attempt(path)
+        manifest = disk.decode(store.read('manifest.json'))
+        record = disk.decode(store.read('submission.json'))
+        raw = store.read('slurm-origin-probe.json')
+        probe = disk.decode(raw)
+        if (binding['scheduler'] != 'slurm' or not isinstance(probe, dict)
+                or probe.get('schema') != 'ag-slurm-submission-probe/1'
+                or disk.encode(probe) != raw or digest(raw) != probe_sha256
+                or type(probe.get('format_candidate')) is not bool):
+            raise ValueError('Invalid original Slurm probe bytes or schema')
+        expected = {key: binding[key] for key in
+                    ('study_id', 'attempt_id', 'cluster', 'scheduler', 'manifest_sha256')}
+        expected['bundle_sha256'] = manifest['bundle_sha256']
+        if (probe.get('binding') != expected
+                or record.get('scheduler_probe_sha256') != probe_sha256
+                or not isinstance(record.get('authorization'), dict)
+                or record['authorization'].get('ownership_sha256') != ownership_sha256):
+            raise ValueError('Original probe, submission and ownership binding differ')
+        cluster = probe.get('scheduler_cluster')
+        if cluster is not None:
+            remote.slurm_token(cluster)
+            if cluster.lower() == 'all' or record.get('scheduler_cluster') != cluster:
+                raise ValueError('Original probe and submission scheduler clusters differ')
+        inputs = disk.directory(path / 'inputs')
+        try:
+            files = {remote.filename(name): disk.Store(inputs).read(name) for name in os.listdir(inputs)}
+        finally:
+            os.close(inputs)
+        records, bundle = attempt.bundle(files)
+        expected_inputs = {}
+        for item in manifest['inputs']:
+            if (not isinstance(item, dict) or set(item) != {'name', 'sha256', 'size'}
+                    or item['name'] in expected_inputs or type(item['size']) is not int or item['size'] < 0):
+                raise ValueError('Invalid original probe input manifest')
+            _hash(item['sha256'])
+            expected_inputs[remote.filename(item['name'])] = item
+        if {item['name']: item for item in records} != expected_inputs or bundle != expected['bundle_sha256']:
+            raise ValueError('Original Slurm probe input bundle changed')
+        started, finished = (autonomy.number(probe[key]) for key in ('capture_started_at', 'capture_finished_at'))
+        if started > finished or bound_attempt(path) != binding:
+            raise ValueError('Original Slurm probe timing or submission binding changed')
+        return dict(binding=binding, probe=probe, bundle_sha256=bundle, scheduler_cluster=cluster)
+
+    def dispatch_state(runtime, original, at):
+        try:
+            consumed = runtime['submissions'][path.name]
+            dispatch = deepcopy({key: consumed[key] for key in
+                                 ('ownership_sha256', 'round_id', 'run_id', 'plan_sha256', 'dispatch_started')})
+            if (dispatch['ownership_sha256'] != ownership_sha256
+                    or runtime['current_round'] != dispatch['round_id']
+                    or runtime['lease']['run_id'] != dispatch['run_id']
+                    or runtime['plans'][runtime['current_plan']]['sha256'] != dispatch['plan_sha256']):
+                raise ValueError('Slurm origin requires the original dispatch owner, round and plan')
+            _hash(dispatch['plan_sha256'])
+            for key in ('round_id', 'run_id'):
+                autonomy.text(dispatch[key], key)
+            started = dispatch['dispatch_started']
+            if not isinstance(started, dict) or set(started) != {'at'}:
+                raise ValueError('Invalid original T186 dispatch-start record')
+            dispatched = autonomy.number(started['at'])
+            if not original['probe']['capture_finished_at'] <= dispatched <= at:
+                raise ValueError('Slurm origin probe must precede the original dispatch')
+            return dispatch
+        except (KeyError, TypeError) as exc:
+            raise ValueError('Missing original T186 dispatch consumption') from exc
+
+    def verify(runtime):
+        if sources() != original or dispatch_state(runtime, original, autonomy.now()) != dispatch:
+            raise ValueError('Slurm origin sources or original dispatch changed')
+        if store.read('slurm-origin-claim.json') != claim_bytes:
+            raise ValueError('Slurm origin claim changed')
+        absent('slurm-origin.json')
+
+    @contextmanager
+    def observation_publication():
+        with publication() as runtime:
+            verify(runtime)
+            yield runtime
+
+    try:
+        with publication() as runtime:
+            absent('slurm-origin-claim.json')
+            absent('slurm-origin.json')
+            original = sources()
+            at = autonomy.number(autonomy.now())
+            dispatch = dispatch_state(runtime, original, at)
+            claim = dict(schema='ag-slurm-origin-claim/1', **original['binding'],
+                         probe_sha256=probe_sha256, **dispatch, claimed_at=at)
+            claim_bytes = disk.encode(claim)
+            store.exclusive('slurm-origin-claim.json', claim_bytes)
+        result = dict(schema='ag-slurm-origin/1', binding=original['binding'],
+                      probe_sha256=probe_sha256, claim_sha256=digest(claim_bytes), **dispatch,
+                      bundle_sha256=original['bundle_sha256'], scheduler_cluster=original['scheduler_cluster'],
+                      status='unavailable', initial_instance_recorded=False,
+                      reroute_authorized=False, live_validated=False)
+        observed, capture_failure = None, None
+        probe = original['probe']
+        versions = probe.get('versions', {})
+        candidate = (probe['format_candidate'] and original['scheduler_cluster'] is not None
+                     and set(versions) == {'controller', 'scontrol', 'sacct'}
+                     and all(isinstance(value, dict) and value.get('parsed') == '26.05.5'
+                             for value in versions.values()))
+        if not candidate:
+            result['reason'] = 'Original probe has no supported evidence format or actual scheduler cluster'
+        else:
+            try:
+                observed = status.capture_slurm_evidence(cfg, path, transport, publication=observation_publication)
+            except Exception as exc:
+                observed = getattr(exc, 'evidence', None)
+                if observed is None:
+                    raise
+                capture_failure = exc
+                result.update(error_type=observed.get('error_type', type(exc).__name__),
+                              reason=observed.get('error', str(exc)))
+        with publication() as runtime:
+            verify(runtime)
+            if observed is not None:
+                reference = observed['observation']
+                if not re.fullmatch(r'scheduler-observations/\d{8}T\d{12}Z', reference):
+                    raise ValueError('Invalid freshly captured Slurm observation reference')
+                raw = read_bytes(path / reference / 'observation.json')
+                saved = disk.decode(raw)
+                if (disk.encode(saved) != raw or digest(raw) != observed['observation_sha256']
+                        or saved != {k: v for k, v in observed.items() if k != 'observation_sha256'}
+                        or saved.get('schema') != 'ag-slurm-observation/1'
+                        or saved['binding'] != original['binding']
+                        or saved.get('scheduler_cluster') != original['scheduler_cluster']):
+                    raise ValueError('Fresh Slurm observation binding or bytes changed')
+                if autonomy.number(saved['capture_started_at']) < claim['claimed_at']:
+                    raise ValueError('Clock moved backwards between origin claim and observation')
+                for query in saved['queries']:
+                    for stream in ('stdout', 'stderr'):
+                        if stream in query:
+                            item = query[stream]
+                            data = read_bytes(path / reference / remote.filename(item['file']))
+                            if digest(data) != item['sha256'] or len(data) != item['size']:
+                                raise ValueError('Fresh Slurm observation response changed')
+                result.update(observation=reference, observation_sha256=observed['observation_sha256'])
+                if saved['complete'] is True:
+                    job = saved['controller']
+                    matching = [row for row in saved['history'] if row['db_index'] == saved['matched_db_index']]
+                    if (len(matching) == 1 and job['restarts'] == matching[0]['restarts'] == 0
+                            and matching[0]['original_sluid'] is not None
+                            and matching[0]['original_sluid'] == job['sluid'] == matching[0]['sluid']):
+                        result.update(status='recorded', initial_instance_recorded=True,
+                                      instance=dict(job, db_index=matching[0]['db_index'],
+                                                    original_sluid=matching[0]['original_sluid']),
+                                      reason='Initial instance recorded; live validation and reroute authorization are absent')
+                    else:
+                        result['reason'] = 'Current instance has restarted or lacks a matching original SLUID'
+                else:
+                    result.setdefault('reason', saved.get('error', 'Initial scheduler observation is incomplete'))
+            result['recorded_at'] = autonomy.number(autonomy.now())
+            data = disk.encode(result)
+            store.exclusive('slurm-origin.json', data)
+        if capture_failure is not None:
+            capture_failure.origin_evidence = dict(origin='slurm-origin.json', origin_sha256=digest(data),
+                                                  record=result)
+            raise capture_failure
+        return dict(result, origin_sha256=digest(data))
+    finally:
+        os.close(parent)
+
+
 def _reference(value):
     if not isinstance(value, str) or not re.fullmatch(r'snapshots/\d{8}T\d{12}Z', value):
         raise ValueError('Expected a formal snapshot directory reference')
@@ -280,7 +478,7 @@ def _uninterrupted(path, current, started_seq):
     Compare journal positions, not timestamps: pause/resume and capture can
     share a clock tick. The chain is pinned to the snapshot held by the guard.
     """
-    previous, paused, count = None, False, 0
+    previous, paused, count, replayed = None, False, 0, None
     for count, line in enumerate(read_bytes(path.parent.parent / 'autonomy' / 'journal.jsonl')
                                  .splitlines(keepends=True), 1):
         event = disk.decode(line)
@@ -288,12 +486,10 @@ def _uninterrupted(path, current, started_seq):
                 or event['prev_sha256'] != previous):
             raise ValueError('Autonomy journal changed during evidence review')
         previous = digest(line)
+        replayed = autonomy.apply(replayed, event)
         if count <= started_seq:
-            if event['op'] == 'pause':
-                paused = True
-            elif event['op'] == 'resume':
-                paused = False
-        elif paused or event['op'] == 'pause':
+            paused = replayed['paused']
+        elif paused or replayed['paused']:
             raise ValueError('Pause interrupted the pair; need two new consecutive wake captures after resume')
     if count != current['seq'] or previous != current['journal_sha256']:
         raise ValueError('Autonomy journal changed during evidence review')

@@ -244,8 +244,12 @@ def _evidence_time(value, *, required=False):
         raise ValueError('Invalid Slurm evidence calendar timestamp') from exc
 
 
-def parse_evidence_config(text):
-    """Extract the responding controller's identity, not the client version."""
+def parse_evidence_config(text, *, strict_version=True):
+    """Extract controller identity; a submission probe may retain unknown versions.
+
+    Relaxing version recognition never relaxes the actual cluster identity or
+    accepts duplicate fields. Existing observation callers keep strict parsing.
+    """
     fields = {}
     for line in _evidence_text(text).splitlines():
         match = re.match(r'^\s*(ClusterName|SLURM_VERSION)\s*=(.*)$', line)
@@ -255,12 +259,13 @@ def parse_evidence_config(text):
         if key in fields:
             raise ValueError('Duplicate Slurm controller evidence field')
         fields[key] = value.strip()
-    if set(fields) != {'ClusterName', 'SLURM_VERSION'}:
+    if 'ClusterName' not in fields or strict_version and 'SLURM_VERSION' not in fields:
         raise ValueError('Missing Slurm controller identity/version')
     _evidence_cluster(fields['ClusterName'])
-    if not re.fullmatch(_EVIDENCE_VERSION, fields['SLURM_VERSION']):
+    version = fields.get('SLURM_VERSION')
+    if strict_version and (not version or not re.fullmatch(_EVIDENCE_VERSION, version)):
         raise ValueError('Invalid Slurm controller version')
-    return dict(cluster=fields['ClusterName'], server_version=fields['SLURM_VERSION'])
+    return dict(cluster=fields['ClusterName'], server_version=version)
 
 
 def parse_evidence_version(text):
