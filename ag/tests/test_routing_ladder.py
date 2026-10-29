@@ -16,6 +16,12 @@ NOW = datetime(2026, 10, 29, 8, tzinfo=timezone.utc)
 GIB = 1024**3
 
 
+def synthetic_study_key(label='smoke'):
+    # Fixture convenience only. Production must bind the canonical study path;
+    # deriving identity from a display name would recreate cross-root collisions.
+    return sha256(('synthetic-study-location/' + label).encode()).hexdigest()
+
+
 def node(name, total=96, used=0, memory=None):
     memory = total * 2 if memory is None else memory
     return dict(name=name, cores_total=total, cores_used=used, cores_idle=total-used,
@@ -84,6 +90,7 @@ def choose(ladder, **kw):
     args = dict(study_id='smoke', template='gaussian', job_class='main', walltime='01:00:00', round_id='round-a', run_id='run-a',
                 object_id='water-b', placements=[], wakeups=[], now=NOW)
     args.update(kw)
+    args.setdefault('study_key', synthetic_study_key(args['study_id']))
     return route.select_ladder(raw, snaps, **args)
 
 
@@ -92,11 +99,12 @@ def selected(result):
 
 
 def placement(ladder, *, cluster='compute', node_name='alpha', state='queued', job='1',
-              aid='water-a', cores=48, run='run-a', cid='empty-alpha', study_id='smoke', **kw):
+              aid='water-a', cores=48, run='run-a', cid='empty-alpha', study_id='smoke', study_key=None, **kw):
     raw, snaps = ladder
+    study_key = synthetic_study_key(study_id) if study_key is None else study_key
     job_name = ('ag' + sha256(aid.encode()).hexdigest()[:12]
                 if config.scheduler_kind(raw['clusters'][cluster]) == 'pbs' else aid)
-    result = dict(study_id=study_id, cluster=cluster, attempt_id=aid,
+    result = dict(study_key=study_key, study_id=study_id, cluster=cluster, attempt_id=aid,
                   job_id=cluster+':'+job if job is not None else None,
                   scheduler_job_name=job_name, state=state,
                   cores=cores, mem_gb=cores*2, round_id='round-a' if run else None, run_id=run, object_id=aid,
@@ -104,18 +112,19 @@ def placement(ladder, *, cluster='compute', node_name='alpha', state='queued', j
                   manifest_sha256='a'*64, record_sha256='b'*64,
                   config_sha256=route.ladder_config_identity(raw), selected_at=NOW.isoformat(),
                   batch_snapshot_sha256=route._digest(snaps[cluster]),
-                  batch_input_sha256=choose(ladder, study_id=study_id, object_id='water-a')['evidence']['input_sha256'])
+                  batch_input_sha256=choose(ladder, study_key=study_key, study_id=study_id, object_id='water-a')['evidence']['input_sha256'])
     return dict(result, **kw)
 
 
 
-def batch_proof(ladder):
+def batch_proof(ladder, *, study_id='smoke', study_key=None):
     raw, snaps = ladder
-    request = dict(study_id='smoke', template='gaussian', job_class='main', walltime='01:00:00', round_id='round-a', run_id='run-a',
+    study_key = synthetic_study_key(study_id) if study_key is None else study_key
+    request = dict(study_key=study_key, study_id=study_id, template='gaussian', job_class='main', walltime='01:00:00', round_id='round-a', run_id='run-a',
                    object_id='water-a', waiting_since=None, parent_cluster=None)
     proof = dict(snapshots=deepcopy(snaps), request=request, placements=[], wakeups=[],
                  selected_at=NOW.isoformat())
-    digest = choose(ladder, object_id='water-a')['evidence']['input_sha256']
+    digest = choose(ladder, study_key=study_key, study_id=study_id, object_id='water-a')['evidence']['input_sha256']
     return {digest: proof}
 
 
@@ -145,7 +154,7 @@ def test_each_main_cell_can_be_selected(ladder):
     for c in all_cells:
         raw['routing']['ladder'] = [c]
         r = selected(choose(ladder, waiting_since=(NOW-timedelta(hours=2)).isoformat(),
-                            wakeups=[dict(study_id='smoke', round_id='round-a', run_id='run-a', object_id='water-b', started_at=NOW.isoformat())]))
+                            wakeups=[dict(study_key=synthetic_study_key(), study_id='smoke', round_id='round-a', run_id='run-a', object_id='water-b', started_at=NOW.isoformat())]))
         assert r is not None and r['cell_id'] == c['id']
 
 
@@ -277,7 +286,7 @@ def test_jobs_need_actual_waiting_event_and_count_all_active_autonomous_records(
     raw, snaps = ladder
     raw['routing']['ladder'] = [raw['routing']['ladder'][9]]
     wait = (NOW-timedelta(hours=3)).isoformat()
-    wakes = [dict(study_id='smoke', round_id='round-a', run_id='run-a', object_id='water-b', started_at=NOW.isoformat())]
+    wakes = [dict(study_key=synthetic_study_key(), study_id='smoke', round_id='round-a', run_id='run-a', object_id='water-b', started_at=NOW.isoformat())]
     assert selected(choose(ladder, waiting_since=wait)) is None
     assert selected(choose(ladder, wakeups=wakes)) is None
     assert selected(choose(ladder, waiting_since=NOW.isoformat(), wakeups=wakes)) is None
@@ -326,7 +335,7 @@ def test_cli_ladder_is_fail_closed_without_trusted_t184_adapter(ladder, monkeypa
 def test_order_skips_each_unqualified_cell(ladder):
     _, snaps = ladder
     kw = dict(waiting_since=(NOW-timedelta(hours=1)).isoformat(),
-              wakeups=[dict(study_id='smoke', round_id='round-a', run_id='run-a', object_id='water-b', started_at=NOW.isoformat())])
+              wakeups=[dict(study_key=synthetic_study_key(), study_id='smoke', round_id='round-a', run_id='run-a', object_id='water-b', started_at=NOW.isoformat())])
     def pick():
         return selected(choose(ladder, **kw))['cell_id']
     def occupy(entry, name, used):
@@ -378,7 +387,7 @@ def test_locally_finished_scheduler_residue_keeps_job_and_queue_slots(ladder, mo
     p = placement(ladder, cluster='batch', node_name=None, state='finished', cores=44)
     observe(snaps, p, running=False)
     kw = dict(placements=[p], waiting_since=(NOW-timedelta(hours=1)).isoformat(),
-              wakeups=[dict(study_id='smoke', round_id='round-a', run_id='run-a', object_id='water-b', started_at=NOW.isoformat())])
+              wakeups=[dict(study_key=synthetic_study_key(), study_id='smoke', round_id='round-a', run_id='run-a', object_id='water-b', started_at=NOW.isoformat())])
     assert selected(choose(ladder, **kw)) is None
     snaps['batch']['own'].update(cores_in_use=0, cores_queued=0, jobs=[])
     assert selected(choose(ladder, **kw))
@@ -428,7 +437,7 @@ def test_new_wakeup_preserves_round_job_and_queue_limits(ladder):
     raw['routing']['ladder'] = [cell('jobs', 'batch', 'max', condition='jobs', max_jobs=1)]
     p = placement(ladder, cluster='batch', node_name=None, cores=44, run='previous-wakeup')
     kw = dict(placements=[p], run_id='next-wakeup', waiting_since=(NOW-timedelta(hours=1)).isoformat(),
-              wakeups=[dict(study_id='smoke', round_id='round-a', run_id='next-wakeup', object_id='water-b', started_at=NOW.isoformat())])
+              wakeups=[dict(study_key=synthetic_study_key(), study_id='smoke', round_id='round-a', run_id='next-wakeup', object_id='water-b', started_at=NOW.isoformat())])
     assert selected(choose(ladder, **kw)) is None
     raw['routing']['ladder'] = [cell('queue', 'batch', 'max', condition='queue')]
     assert selected(choose(ladder, **kw)) is None
@@ -466,8 +475,9 @@ def test_shared_snapshot_entry_local_links_are_not_scheduler_conflicts(ladder):
     assert selected(choose(ladder, placements=[p])) is None
 
 
-def waiting_request(*, study_id='smoke', round_id='round-a', run_id='run-a', object_id='water-b'):
+def waiting_request(*, study_id='smoke', study_key=None, round_id='round-a', run_id='run-a', object_id='water-b'):
     return dict(waiting_since=(NOW-timedelta(hours=1)).isoformat(), wakeups=[dict(
+        study_key=synthetic_study_key(study_id) if study_key is None else study_key,
         study_id=study_id, round_id=round_id, run_id=run_id, object_id=object_id,
         started_at=NOW.isoformat())])
 
@@ -487,7 +497,7 @@ def test_actual_pbs_job_name_is_required_for_observed_binding(ladder):
     assert 'account_or_reservation_evidence_unknown' in result['candidates'][0]['reasons']
 
 
-@pytest.mark.parametrize('field', ['study_id', 'scheduler_job_name', 'run_id', 'round_id'])
+@pytest.mark.parametrize('field', ['study_key', 'study_id', 'scheduler_job_name', 'run_id', 'round_id'])
 def test_placement_requires_verifiable_study_and_scheduler_identity(ladder, field):
     p = placement(ladder, run=None)
     del p[field]
@@ -504,7 +514,7 @@ def test_same_object_and_batch_names_in_other_study_are_independent(ladder):
     assert selected(result) and selected(result)['capacity']['cores_available'] == 48
     # The foreign submission counts toward physical resources but neither
     # consumes this study's one-place batch nor duplicates its object.
-    p['study_id'] = 'smoke'
+    p.update(study_id='smoke', study_key=synthetic_study_key())
     assert choose(ladder, object_id='water-a', placements=[p])['reason'] == 'object_already_placed_in_run'
 
 
@@ -516,6 +526,8 @@ def test_qualified_batch_origin_is_bound_to_study_round_and_run(ladder, field, v
     p = placement(ladder)
     proof = next(iter(batch_proof(ladder).values()))
     proof['request'][field] = value
+    if field == 'study_id':
+        proof['request']['study_key'] = synthetic_study_key(value)
     origin = route.select_ladder(raw, proof['snapshots'], **proof['request'],
                                 placements=[], wakeups=[], now=NOW)
     digest = origin['evidence']['input_sha256']
@@ -585,7 +597,7 @@ def test_shared_pbs_alias_second_half_is_order_independent(ladder):
 
 
 @pytest.mark.parametrize('field,value', [('study_id', 'another-study'),
-    ('attempt_id', 'another-attempt'), ('object_id', 'another-object'), ('cores', 12)])
+    ('study_key', 'c'*64), ('attempt_id', 'another-attempt'), ('object_id', 'another-object'), ('cores', 12)])
 def test_same_physical_job_cannot_claim_conflicting_ownership(ladder, field, value):
     p = placement(ladder, cluster='batch', node_name=None, cores=44)
     other = dict(p, cluster='batch-test', job_id='batch-test:1')
@@ -599,7 +611,7 @@ def test_unsubmitted_reservations_use_study_and_attempt_identity(ladder):
     raw['routing']['ladder'] = [cell('jobs', 'batch', 'max', condition='jobs', max_jobs=2)]
     p = placement(ladder, cluster='batch', node_name=None, cores=44, state='reserved', job=None)
     assert selected(choose(ladder, placements=[p, deepcopy(p)], **waiting_request()))
-    other_study = dict(p, study_id='another-study')
+    other_study = dict(p, study_id='another-study', study_key=synthetic_study_key('another-study'))
     result = choose(ladder, placements=[p, other_study], **waiting_request())
     assert selected(result) is None
     assert 'autonomous_job_limit' in result['candidates'][0]['reasons']
@@ -687,3 +699,125 @@ def test_local_submission_lock_requires_recompute_before_claiming_last_slot(ladd
     assert sum(accepted for _, accepted in outcomes) == 1
     assert len(records) == (4 if mode == 'jobs' else 2)
     assert selected(choose(ladder, placements=records, **waiting_request())) is None
+
+
+def separate_study_keys(tmp_path):
+    paths = [tmp_path / root / 'smoke' for root in ('first-root', 'second-root')]
+    for path in paths:
+        path.mkdir(parents=True)
+    # These are synthetic directories. This simulates the adapter's bound
+    # location identity, without claiming the production adapter is connected.
+    return [sha256(str(path.resolve(strict=True)).encode()).hexdigest() for path in paths]
+
+
+@pytest.mark.parametrize('state,bound', [('queued', True), ('reserved', False), ('unknown', False)])
+def test_same_named_studies_and_attempts_in_different_roots_count_separately(ladder, tmp_path, state, bound):
+    raw, _ = ladder
+    raw['routing']['ladder'] = [cell('jobs', 'batch', 'max', condition='jobs', max_jobs=2)]
+    keys = separate_study_keys(tmp_path)
+    records = [placement(ladder, cluster='batch', node_name=None, cores=44,
+                         study_id='smoke', study_key=key, aid='same-attempt',
+                         state=state, job=str(i+1) if bound else None)
+               for i, key in enumerate(keys)]
+    assert records[0]['study_id'] == records[1]['study_id']
+    assert records[0]['attempt_id'] == records[1]['attempt_id']
+    assert records[0]['study_key'] != records[1]['study_key']
+    assert selected(choose(ladder, placements=records[:1], **waiting_request()))
+    result = choose(ladder, placements=records, **waiting_request())
+    assert selected(result) is None
+    assert 'autonomous_job_limit' in result['candidates'][0]['reasons']
+
+
+def test_same_named_object_and_batch_limit_are_isolated_by_study_key(ladder, tmp_path):
+    raw, _ = ladder
+    raw['routing']['ladder'] = [cell('free-alpha', tier='ultra', nodes=['alpha'],
+                                    condition='free', min_free_cores=48)]
+    first, second = separate_study_keys(tmp_path)
+    p = placement(ladder, study_key=first, cid='free-alpha')
+    result = choose(ladder, study_key=second, object_id='water-a', placements=[p])
+    assert selected(result) and selected(result)['capacity']['cores_available'] == 48
+    assert choose(ladder, study_key=first, object_id='water-a', placements=[p])['reason'] == 'object_already_placed_in_run'
+
+
+def test_same_named_wakeup_is_isolated_by_study_key(ladder, tmp_path):
+    raw, _ = ladder
+    raw['routing']['ladder'] = [cell('jobs', 'batch', 'max', condition='jobs', max_jobs=4)]
+    first, second = separate_study_keys(tmp_path)
+    kw = waiting_request(study_key=first)
+    assert selected(choose(ladder, study_key=second, **kw)) is None
+    kw['wakeups'] += waiting_request(study_key=second)['wakeups']
+    assert selected(choose(ladder, study_key=second, **kw))
+
+
+def test_same_named_study_cannot_borrow_other_root_batch_origin(ladder, tmp_path):
+    raw, snaps = ladder
+    raw['routing']['ladder'] = [raw['routing']['ladder'][0]]
+    first, second = separate_study_keys(tmp_path)
+    proof = batch_proof(ladder, study_key=first)
+    p = placement(ladder, study_key=second, batch_input_sha256=next(iter(proof)))
+    observe(snaps, p)
+    result = choose(ladder, study_key=second, placements=[p], batch_inputs=proof)
+    assert selected(result) is None
+    assert 'batch_origin_unverified' in result['candidates'][0]['reasons']
+
+
+@pytest.mark.parametrize('source', ['request', 'placement', 'wakeup', 'batch'])
+@pytest.mark.parametrize('value', ['missing', None, '', 'g'*64, 'A'*64, 'a'*63, True, ['a'*64]])
+def test_missing_or_invalid_study_key_never_allows_selection(ladder, source, value):
+    raw, snaps = ladder
+    raw['routing']['ladder'] = [raw['routing']['ladder'][0]]
+    p = placement(ladder)
+    batches = batch_proof(ladder)
+    proof = next(iter(batches.values()))
+    wait = waiting_request()
+    data = {'request': proof['request'], 'batch': proof['request'],
+            'placement': p, 'wakeup': wait['wakeups'][0]}[source]
+    if value == 'missing':
+        del data['study_key']
+    else:
+        data['study_key'] = value
+    if source == 'batch':
+        observe(snaps, p)
+        result = choose(ladder, placements=[p], batch_inputs=batches)
+        assert selected(result) is None
+        assert 'batch_origin_unverified' in result['candidates'][0]['reasons']
+    else:
+        with pytest.raises((KeyError, TypeError, ValueError)):
+            if source == 'request':
+                route.select_ladder(raw, snaps, **proof['request'], placements=[], wakeups=[], now=NOW)
+            elif source == 'placement':
+                choose(ladder, placements=[p])
+            else:
+                choose(ladder, **wait)
+
+
+@pytest.mark.parametrize('source', ['request-placement', 'placements', 'wakeup', 'batch'])
+def test_one_study_key_cannot_carry_conflicting_display_ids(ladder, source):
+    p = placement(ladder)
+    if source == 'batch':
+        raw, snaps = ladder
+        raw['routing']['ladder'] = [raw['routing']['ladder'][0]]
+        p = placement(ladder)
+        proof = batch_proof(ladder, study_id='contradictory-name', study_key=p['study_key'])
+        p['batch_input_sha256'] = next(iter(proof))
+        observe(snaps, p)
+        result = choose(ladder, placements=[p], batch_inputs=proof)
+        assert selected(result) is None
+        assert 'batch_origin_unverified' in result['candidates'][0]['reasons']
+        return
+    with pytest.raises(ValueError):
+        if source == 'request-placement':
+            choose(ladder, study_id='contradictory-name', study_key=p['study_key'], placements=[p])
+        elif source == 'placements':
+            other = placement(ladder, aid='second', job='2', study_id='contradictory-name',
+                              study_key=p['study_key'])
+            choose(ladder, placements=[p, other])
+        else:
+            choose(ladder, **waiting_request(study_id='contradictory-name', study_key=p['study_key']))
+
+
+def test_wakeup_key_is_required_even_without_waiting_request(ladder):
+    wake = waiting_request()['wakeups'][0]
+    del wake['study_key']
+    with pytest.raises(KeyError):
+        choose(ladder, wakeups=[wake])

@@ -69,9 +69,10 @@ Gaussian prepare 在档位与 walltime 检查后依次补缺失的 `%nprocshared
 T185 的 `node_targeting.FRACTIONS` 末尾追加 `'1'`，整节点仍走既有档位、max_cores、精确总内存与两次准入核验，
 不改变半/四分之一脚本字节或共享节点排队行为。按协调补充范围，`clusters.py` 的发现元数据复用同一 `FRACTIONS`，保留原顺序和默认 `1/2`。
 `route.select_ladder` 与 `ladder_config_identity` 供后续 prepare/提交适配共用；不得为 T186 另写一套阶梯顺序。
-函数只处理传入数据，要求 `study_id`、独立的 `round_id`（整个自主轮次）和 `run_id`（一次唤醒运行），输出 `ag-routing-ladder/1` 的身份、候选、原因、推荐及配置/快照/占用/唤醒证据哈希。
+函数只处理传入数据，要求 `study_key`、显示用 `study_id`、独立的 `round_id`（整个自主轮次）和 `run_id`（一次唤醒运行），输出 `ag-routing-ladder/1` 的身份、候选、原因、推荐及配置/快照/占用/唤醒证据哈希。
 T186 可信适配须从全本机记录核对真实自主归属、全部活跃本地预留及提交绑定、运行事件和首次选格完整输入；T184 的意向计数不能当实际占用。
-每条 placements 必须带 study_id 和 scheduler_job_name：核验 manifest 后 PBS 取 pbs_job_name，Slurm 取 attempt_id，用于真实调度快照身份比对。不同 studies_root 中的同名 study_id/attempt_id 不能合并；本机定位身份拟用可信适配生成的 study_key（定位 SHA-256），字段与接线尚待统一，不能宣称当前接口已解决跨根目录重名。
+每条 placements 必须带 study_key、study_id 和 scheduler_job_name：核验 manifest 后 PBS 取 pbs_job_name，Slurm 取 attempt_id，用于真实调度快照身份比对。
+study_key 是必填的 64 位小写 SHA-256，T186 须按安全校验后的本机绝对 study 目录生成并持久绑定目录身份；请求、placements、wakeups、batch.request 和本地去重一致使用 key，不允许缺失时回退到显示名 study_id。同名 study/Attempt 不跨来源合并，物理作业按确切调度身份去重，矛盾归属拒绝。纯算法不访问路径；实际目录绑定及全本机适配仍待 T186。
 适配尚未完成时，`route --job-class main|small` 带 study/round/run/object/walltime 返回阻塞，不退回旧建议冒充已通过。
 SCNet 类末级运行加排队最多 4 个、兜底排队最多 2 个，按全本机全部自主 study/round 的活跃记录合计，包含不同配置目录和 studies_root、旧轮活跃作业；非自主作业仍仅参与原有全部账号核数限制。批次放置数限定同一 round/run，逐轮 Attempt 预算和每次唤醒取消上限不变。
 适配按共享账号及确切作业身份去重，未观测到的本地预留及 UNKNOWN 占用不得释放；不能核实则拒绝。T186 负责跨配置目录的共同注册与共同锁，并在共同锁内重新收集、核验和复算；现有配置目录内的 submit.lock 不够，换配置、study、round 或唤醒租约不能取得额外名额。

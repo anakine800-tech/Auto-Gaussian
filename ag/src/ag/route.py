@@ -265,23 +265,34 @@ def ladder_config_identity(cfg):
     return _digest(dict(routing=cfg.get('routing'), entries=entries))
 
 
+def _study_identity(key, name, names):
+    """Validate an adapter-bound locator identity without accessing its path."""
+    if (not isinstance(key, str) or len(key) != 64
+            or any(c not in '0123456789abcdef' for c in key)):
+        raise ValueError('Missing or invalid study_key')
+    identifier(name)
+    if names.setdefault(key, name) != name:
+        raise ValueError('Conflicting study_key display names')
+
+
 def _placement_records(cfg, placements):
     """Normalize adapter-verified local records; duplicate reads are not new jobs.
 
     The adapter must supply ALL active local reservations (including other
     studies/rounds/runs), including UNKNOWN and unobserved claims, plus this
-    run's completed placements. study_id and scheduler_job_name come from the
-    verified manifest; autonomous round/run ownership comes from replayed
-    submission intent records. No CLI accepts these records from user JSON.
+    run's completed placements. study_key comes from the adapter's safely
+    located absolute study directory; study_id and scheduler_job_name come
+    from the verified manifest. Autonomous round/run ownership comes from
+    replayed submission intent records. No CLI accepts these from user JSON.
     Hash strings alone do not verify a submission.
     """
     from ag.config import cluster_identity
     from ag.submission import raw_job, qualified
-    records, attempts = {}, {}
+    records, attempts, study_names = {}, {}, {}
     for item in placements:
         entry = select_cluster(cfg, item['cluster'])
         identity = cluster_identity(entry)
-        identifier(item['study_id'])
+        _study_identity(item['study_key'], item['study_id'], study_names)
         identifier(item['attempt_id'])
         identifier(item['scheduler_job_name'])
         if item['run_id'] is not None:
@@ -308,8 +319,8 @@ def _placement_records(cfg, placements):
             if not isinstance(value, str) or len(value) != 64 or any(c not in '0123456789abcdef' for c in value):
                 raise ValueError('Missing placement evidence identity')
         record = dict(item, job_id=job)
-        key = (identity, job if job is not None else ('reservation', item['study_id'], item['attempt_id']))
-        attempt_key = (identity, item['study_id'], item['attempt_id'])
+        key = (identity, job if job is not None else ('reservation', item['study_key'], item['attempt_id']))
+        attempt_key = (identity, item['study_key'], item['attempt_id'])
         # Aliases of one account may expose the same verified binding. Only
         # the entry name may differ; conflicting ownership is never merged.
         binding = {k: v for k, v in record.items() if k != 'cluster'}
@@ -319,7 +330,7 @@ def _placement_records(cfg, placements):
         if key not in records or record['cluster'] < records[key]['cluster']:
             records[key] = record
         attempts[attempt_key] = key
-    return sorted(records.values(), key=lambda p: (p['cluster'], p['study_id'], p['attempt_id']))
+    return sorted(records.values(), key=lambda p: (p['cluster'], p['study_key'], p['attempt_id']))
 
 
 def _observed_jobs(cfg, name, data):
@@ -389,7 +400,7 @@ def _ladder_usage(cfg, name, snapshots, placements, now):
                 active=active, observed=observed)
 
 
-def select_ladder(cfg, snapshots, *, template, job_class, walltime, study_id, round_id, run_id, object_id,
+def select_ladder(cfg, snapshots, *, template, job_class, walltime, study_key, study_id, round_id, run_id, object_id,
                   placements, wakeups, waiting_since=None, parent_cluster=None,
                   batch_inputs=None, now=None):
     """Pure T185/T186 selection kernel; no IO, SSH, preparation or approval.
@@ -397,7 +408,10 @@ def select_ladder(cfg, snapshots, *, template, job_class, walltime, study_id, ro
     Inputs are captured by a trusted local adapter, not model-authored flags:
     placements bind verified manifests/submission records (or outstanding
     claims/ledgers); wakeups bind replayed run-start events and object waiting
-    history. batch_inputs maps input digests to complete original selections.
+    history. study_key is the adapter-bound SHA-256 of the safely located
+    absolute study directory; study_id is its display name, never a fallback
+    identity. This kernel does not locate or hash paths. batch_inputs maps
+    input digests to complete original selections.
     T184 does not yet expose those verified inputs, so the CLI fails closed.
     Counts include every autonomous study and round on this machine. A
     selected resource is advice to prepare; T186 must recapture ALL records
@@ -417,7 +431,8 @@ def select_ladder(cfg, snapshots, *, template, job_class, walltime, study_id, ro
         raise ValueError('Only Gaussian main-system jobs use the main ladder')
     if template in ('crest', 'xtb'):
         raise ValueError('CREST/xTB retain the existing routing order')
-    identifier(study_id)
+    study_names = {}
+    _study_identity(study_key, study_id, study_names)
     identifier(round_id)
     identifier(run_id)
     identifier(object_id)
@@ -427,6 +442,20 @@ def select_ladder(cfg, snapshots, *, template, job_class, walltime, study_id, ro
     now = now or datetime.now(timezone.utc)
     config_hash = ladder_config_identity(cfg)
     records = _placement_records(cfg, placements)
+    for record in records:
+        _study_identity(record['study_key'], record['study_id'], study_names)
+    # Validate every supplied wakeup even when no waiting qualification is
+    # requested, so a missing locator never silently becomes a name match.
+    seen_runs = set()
+    for wake in wakeups:
+        _study_identity(wake['study_key'], wake['study_id'], study_names)
+        for field in ('round_id', 'run_id', 'object_id'):
+            identifier(wake[field])
+        _timestamp(wake['started_at'])
+        identity = tuple(wake[k] for k in ('study_key', 'round_id', 'run_id', 'object_id'))
+        if identity in seen_runs:
+            raise ValueError('Duplicate wakeup identity')
+        seen_runs.add(identity)
     batch_inputs = batch_inputs or {}
     cells = cfg.get('routing', {}).get('ladder')
     if not cells:
@@ -434,33 +463,26 @@ def select_ladder(cfg, snapshots, *, template, job_class, walltime, study_id, ro
     evidence = dict(config_sha256=config_hash,
                     snapshots={n: _digest(d) for n, d in snapshots.items() if d is not None},
                     placements_sha256=_digest(records), wakeups_sha256=_digest(wakeups))
-    request = dict(template=template, job_class=job_class, walltime=walltime, study_id=study_id, round_id=round_id, run_id=run_id,
+    request = dict(template=template, job_class=job_class, walltime=walltime, study_key=study_key,
+                   study_id=study_id, round_id=round_id, run_id=run_id,
                    object_id=object_id, waiting_since=waiting_since, parent_cluster=parent_cluster)
     evidence['input_sha256'] = _digest(dict(config_sha256=config_hash, request=request,
         snapshots=snapshots, placements=records, wakeups=wakeups, selected_at=now.isoformat()))
-    result = dict(schema='ag-routing-ladder/1', study_id=study_id, round_id=round_id, run_id=run_id, object_id=object_id,
+    result = dict(schema='ag-routing-ladder/1', study_key=study_key, study_id=study_id,
+                  round_id=round_id, run_id=run_id, object_id=object_id,
                   template=template, job_class=job_class, walltime=walltime,
                   parent_cluster=parent_cluster, evidence=evidence, candidates=[],
                   recommendation=None, notes=[DISCLAIMER])
-    if any(p['study_id'] == study_id and p.get('round_id') == round_id and p.get('run_id') == run_id
+    if any(p['study_key'] == study_key and p.get('round_id') == round_id and p.get('run_id') == run_id
            and p.get('object_id') == object_id for p in records):
         result['reason'] = 'object_already_placed_in_run'
         return result
     waited = False
     if waiting_since is not None:
         since = _timestamp(waiting_since)
-        seen_runs = set()
         for wake in wakeups:
-            identifier(wake['study_id'])
-            identifier(wake['round_id'])
-            identifier(wake['run_id'])
-            identifier(wake['object_id'])
             start = _timestamp(wake['started_at'])
-            identity = tuple(wake[k] for k in ('study_id', 'round_id', 'run_id', 'object_id'))
-            if identity in seen_runs:
-                raise ValueError('Duplicate wakeup identity')
-            seen_runs.add(identity)
-            if (wake['study_id'] == study_id and wake['round_id'] == round_id
+            if (wake['study_key'] == study_key and wake['round_id'] == round_id
                     and wake['object_id'] == object_id and since < start <= now):
                 waited = True
     # The scheduler may still show a locally finished job. Retain its exact
@@ -492,7 +514,7 @@ def select_ladder(cfg, snapshots, *, template, job_class, walltime, study_id, ro
            or snapshots[c['cluster']]['cluster'].get('nodes_error') for c in relevant):
         result['reason'] = 'snapshot_missing_failed_or_stale'
         return result
-    if any(p['study_id'] == study_id and p.get('round_id') == round_id and p.get('object_id') == object_id
+    if any(p['study_key'] == study_key and p.get('round_id') == round_id and p.get('object_id') == object_id
            and p['state'] != 'finished' for p in effective):
         result['reason'] = 'object_already_active_in_round'
         return result
@@ -589,7 +611,7 @@ def select_ladder(cfg, snapshots, *, template, job_class, walltime, study_id, ro
             row['occupied'] = bool(original.get('cores_used') or pending)
             if check['availability'] in ('unknown', 'not_applicable'):
                 row['reasons'].append('node_capacity_unknown_or_inapplicable')
-            members = [p for p in records if p['study_id'] == study_id
+            members = [p for p in records if p['study_key'] == study_key
                        and p.get('round_id') == round_id and p.get('run_id') == run_id
                        and p.get('cell_id') == cell['id'] and p.get('capacity_node') == node_name]
             if cell['condition'] in ('empty', 'free') and len(members) >= cell['max_placements']:
@@ -615,6 +637,7 @@ def select_ladder(cfg, snapshots, *, template, job_class, walltime, study_id, ro
                             # Strictly fewer records makes recursive proofs finite.
                             if (first['config_sha256'] != config_hash
                                     or len(batch['placements']) >= len(records)
+                                    or batch['request']['study_key'] != study_key
                                     or batch['request']['study_id'] != study_id
                                     or batch['request']['round_id'] != round_id
                                     or batch['request']['run_id'] != run_id

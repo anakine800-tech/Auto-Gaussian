@@ -28,7 +28,7 @@ RDKit 与 CI 固定为同一精确版本；平台包边界见上述安装步骤�
 `round_id` 标识整个自主轮次，`run_id` 只标识一次唤醒运行；改变 study、round 或 run 均不重置上述活跃作业名额。
 每个格子在同一 round/run 批次内最多放一至两个作业，`jobs` 和 `queue` 每次最多一个。合成配置见 [配置示例](config.clusters.example.toml)。
 
-`ag.route.select_ladder` 是无 I/O 的共用选格函数。它接收配置、快照、作业类别、时限、必需的 `study_id`、`round_id`、`run_id` 和对象身份、
+`ag.route.select_ladder` 是无 I/O 的共用选格函数。它接收配置、快照、作业类别、时限、必需的 `study_key`、显示用 `study_id`、`round_id`、`run_id` 和对象身份、
 经本地适配核验的提交/预留记录及唤醒历史，可选父集群和 `batch_inputs` 保存的首次选格完整输入，返回候选、拒绝原因及配置/证据哈希。
 输出同时保留 round/run 身份。哈希只标识输入，不能证明调用者提供的记录真实；适配必须核对 manifest、submission、声明/台账及运行事件，
 不能使用 T184 状态中仅代表意向的提交计数。当前只有纯函数与合成回归，尚无实际记录到函数的完整接线。
@@ -37,15 +37,17 @@ T186 须从全本机记录核验真实自主归属，按共享账号及确切作
 现有各配置目录的 submit.lock 不覆盖全本机，不能把先前建议缓存为提交许可。
 
 供后续接线复用的参数以现有测试为例：`snapshots` 按入口传入完整 `ag-monitor/1` 数据；
-`placements` 每项必须有 study_id、scheduler_job_name，以及 cluster、attempt_id、job_id（原始或限定号；reserved/unknown 可为空）、state（reserved/unknown/queued/running/finished）、cores、mem_gb，
+`placements` 每项必须有 study_key、study_id、scheduler_job_name，以及 cluster、attempt_id、job_id（原始或限定号；reserved/unknown 可为空）、state（reserved/unknown/queued/running/finished）、cores、mem_gb，
 以及 round_id/run_id/object_id、cell_id、target_node/capacity_node、manifest_sha256、record_sha256。
 适配核验 manifest 后，PBS 的 scheduler_job_name 取 pbs_job_name，Slurm 取 attempt_id，再与快照比对。
-不同 studies_root 的同名 study_id/attempt_id 不能合并，单独的 study_id 不足以标识全本机来源；
-拟增加由可信适配生成的本机定位 SHA-256 `study_key`，字段及接线尚待统一，不属于当前已实现接口。
+`study_key` 为必填的 64 位小写 SHA-256；T186 可信适配须按安全校验后的本机绝对 study 目录生成，并持久绑定目录身份。
+选择器请求、placements、wakeups、批次 request 与本地去重均使用此 key；study_id 仅作显示，缺 key 不回退到同名标识。
+不同 studies_root 的同名 study_id/attempt_id 不合并；物理作业仍按共享账号和确切作业身份去重，矛盾归属拒绝。
+纯算法只校验传入 key，不访问路径；真实目录绑定、共同注册和跨配置锁仍待 T186 接线。
 同批成员另带首次选择的 config_sha256、selected_at、batch_input_sha256；无自主归属的本地预留仍需计入账号额度。
-`wakeups` 每项有 study_id、round_id、run_id、object_id、started_at；waiting_since 来自该 study 对象等待事件，不能由模型自行填写。
+`wakeups` 每项有 study_key、study_id、round_id、run_id、object_id、started_at；waiting_since 来自该 study 对象等待事件，不能由模型自行填写。
 `batch_inputs` 以 evidence.input_sha256 为键，保存首次完整 snapshots、placements、wakeups、request 和 selected_at；
-request 包含 study_id、template、job_class、walltime、round_id、run_id、object_id、waiting_since、parent_cluster。
+request 包含 study_key、study_id、template、job_class、walltime、round_id、run_id、object_id、waiting_since、parent_cluster。
 这些是选择器输入，不是新增授权记录；后续适配必须从不可变文件与重放事件构造，并核对选择与 manifest 资源一致。
 
 
