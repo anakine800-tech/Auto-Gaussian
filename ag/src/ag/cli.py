@@ -69,10 +69,29 @@ def core_command(args):
             path = snapshot.find(cfg, args.id, args.study)
             cfg = for_manifest(cfg, attempt.read_manifest(path))
         elif command in ('fetch', 'cancel'):
+            if command == 'cancel':
+                names = ('run', 'token', 'plan_sha256', 'autonomous_policy', 'kind', 'reason')
+                context = [getattr(args, key, None) for key in names]
+                reviews_path = getattr(args, 'reviews', None)
+                verify_cancel_stop = getattr(args, 'verify_stopped', False)
+                autonomous_cancel = any(context) or reviews_path is not None
+                if verify_cancel_stop:
+                    if not all(context[:3]) or any(context[3:]) or reviews_path is not None:
+                        raise ValueError('--verify-stopped requires only --run, --token and --plan-sha256; '
+                                         'it does not request another cancellation')
+                elif autonomous_cancel:
+                    if not all(context):
+                        raise ValueError('Autonomous cancellation requires --run, --token, --plan-sha256, '
+                                         '--autonomous-policy, --kind and --reason together')
+                    if (args.kind == 'no_progress') != (reviews_path is not None):
+                        raise ValueError('Exactly no_progress cancellation requires --reviews with two formal snapshot reviews')
+                    from ag.autonomy import input_json
+                    cancel_reviews = input_json(reviews_path) if reviews_path is not None else None
             cfg = for_manifest(cfg, attempt.read_manifest(attempt.find(cfg, args.id)))
         elif command == 'submit':
             cfg = submit.preflight(cfg, args.ids)
-        transport = None if command == 'status' else SSHTransport(cfg, read_only=command in ('doctor', 'fetch', 'snapshot'))
+        transport = None if command == 'status' else SSHTransport(cfg, read_only=(
+            command in ('doctor', 'fetch', 'snapshot') or command == 'cancel' and verify_cancel_stop))
         if command == 'doctor':
             result = doctor.doctor(cfg, transport)
             result['approval_policies'] = cfg.get('approval', {}).get('policies', {})
@@ -102,7 +121,16 @@ def core_command(args):
                     'no-facts' if getattr(args, 'no_facts', False) else None)
             result['facts'] = fetch.auto_facts(path, skip=skip)
         else:
-            result = cancel.cancel(cfg, attempt.find(cfg, args.id), transport)
+            path = attempt.find(cfg, args.id)
+            if verify_cancel_stop:
+                result = cancel.verify_stopped(cfg, path, transport, run_id=args.run, token=args.token,
+                                               plan_sha256=args.plan_sha256)
+            elif autonomous_cancel:
+                result = cancel.autonomous_cancel(cfg, path, transport, run_id=args.run, token=args.token,
+                    plan_sha256=args.plan_sha256, policy_name=args.autonomous_policy,
+                    kind=args.kind, reason=args.reason, reviews=cancel_reviews)
+            else:
+                result = cancel.cancel(cfg, path, transport)
     if command == 'status' and not args.json:
         print(status.format_status(result))
     elif command == 'snapshot' and not args.json:
@@ -205,6 +233,16 @@ def register(subparsers):
                                help='Verify existing outputs and collect only missing files for a fetched Attempt')
                 mode.add_argument('--incomplete', action='store_true',
                                   help='Read-only fetch of available outputs after verified job termination')
+            else:
+                p.add_argument('--run', help='Current autonomy wake for the separate autonomous cancellation path')
+                p.add_argument('--token', help='Current wake owner token')
+                p.add_argument('--plan-sha256', help='Expected confirmed plan hash')
+                p.add_argument('--autonomous-policy', help='Current plan-bound autonomous policy')
+                p.add_argument('--kind', choices=('no_progress', 'reroute'))
+                p.add_argument('--reason', help='Reason recorded with the exact cancellation evidence')
+                p.add_argument('--reviews', help='Local JSON containing the two formal no-progress snapshot reviews')
+                p.add_argument('--verify-stopped', action='store_true',
+                               help='Read-only verification of a previously accepted autonomous cancellation')
         elif name in ('status', 'list'):
             p.add_argument('--study')
             if name == 'status':

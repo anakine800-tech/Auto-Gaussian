@@ -24,8 +24,10 @@ def slurm_submission_probe(cfg, path, transport):
     from ag import _autonomy_store as disk
 
     result = dict(schema='ag-slurm-submission-probe/1', queries=[], versions={}, scheduler_cluster=None,
+                  execution_versions={program: dict(raw=None, parsed=None) for program in ('sbatch', 'scancel')},
                   capture_started_at=time.time(), format_candidate=False,
-                  origin_available=False, reroute_authorized=False,
+                  bound_submit_format_candidate=False, instance_cancel_format_candidate=False,
+                  origin_available=False, reroute_authorized=False, live_validated=False,
                   reason='No original scheduler instance has been captured; live validation is incomplete')
 
     def evidence():
@@ -187,9 +189,10 @@ def slurm_submission_probe(cfg, path, transport):
             result['versions']['controller']['parsed'] = slurm.parse_evidence_version('slurm ' + (version or ''))
         except ValueError:
             pass  # Missing/custom versions cannot qualify the evidence format.
-        for program in ('scontrol', 'sacct'):
+        for program in ('scontrol', 'sacct', 'sbatch', 'scancel'):
             response = query(program + '-version', remote.slurm_evidence_version(program))
-            result['versions'][program] = dict(raw=response.stdout, parsed=None)
+            versions = result['versions'] if program in ('scontrol', 'sacct') else result['execution_versions']
+            versions[program] = dict(raw=response.stdout, parsed=None)
             # Vendor clients may lack this option/tool. Other execution errors,
             # especially SSH failures, must remain errors with retained evidence.
             if response.returncode or response.stderr.strip():
@@ -198,23 +201,31 @@ def slurm_submission_probe(cfg, path, transport):
                     raise ValueError('Submission client version probe returned unexpected diagnostics')
                 continue
             try:
-                result['versions'][program]['parsed'] = slurm.parse_evidence_version(response.stdout)
+                versions[program]['parsed'] = slurm.parse_evidence_version(response.stdout)
             except ValueError:
                 pass  # Version recognition is not an admission rule for ordinary submission.
         candidate = all(value['parsed'] == '26.05.5' for value in result['versions'].values())
         result['format_candidate'] = candidate
+        result['bound_submit_format_candidate'] = (result['scheduler_cluster'] is not None
+            and all(result['versions'][program]['parsed'] == '26.05.5' for program in ('controller', 'scontrol'))
+            and result['execution_versions']['sbatch']['parsed'] == '26.05.5')
+        result['instance_cancel_format_candidate'] = (candidate
+            and result['execution_versions']['scancel']['parsed'] == '26.05.5')
         if not candidate:
             result['unavailable'] = 'evidence_version_unsupported'
             result['reason'] = 'Unsupported or unrecognized evidence-format versions; ordinary submission policy is unchanged'
+        elif not result['bound_submit_format_candidate'] or not result['instance_cancel_format_candidate']:
+            result['reason'] = 'Unsupported or unrecognized execution-format versions; ordinary submission policy is unchanged'
         return finish()
     except Exception as exc:
         result.update(capture_finished_at=time.time(), format_candidate=False,
+                      bound_submit_format_candidate=False, instance_cancel_format_candidate=False,
                       error_type=type(exc).__name__, reason=str(exc))
         exc.evidence = evidence()
         raise
 
 
-def capture_slurm_evidence(cfg, path, transport, *, publication=None):
+def capture_slurm_evidence(cfg, path, transport, *, publication=None, include_cancel_version=False):
     """Save fixed read-only scheduler responses; never grant reroute permission.
 
     This is an observation of an already bound job, not its original instance
@@ -230,6 +241,8 @@ def capture_slurm_evidence(cfg, path, transport, *, publication=None):
     from ag import _autonomy_store as disk
     from ag.autonomy_cancel import bound_attempt, read_bytes
 
+    if type(include_cancel_version) is not bool:
+        raise ValueError('include_cancel_version must be an exact boolean')
     path = study.local_path(Path(cfg['local']['studies_root']), Path(path))
     binding = bound_attempt(path)
     if binding['scheduler'] != 'slurm':
@@ -268,7 +281,7 @@ def capture_slurm_evidence(cfg, path, transport, *, publication=None):
         files, failure = {}, None
         result = dict(schema='ag-slurm-observation/1', binding=binding, scheduler_cluster=cluster,
                       observation='scheduler-observations/' + name, capture_started_at=at,
-                      queries=[], complete=False, reroute_authorized=False,
+                      queries=[], execution_versions={}, complete=False, reroute_authorized=False,
                       limitation='Observation only; immutable original T186 instance and live validation required')
 
         def query(label, command, parser):
@@ -308,6 +321,12 @@ def capture_slurm_evidence(cfg, path, transport, *, publication=None):
             # a claim of live validation, DBD compatibility or complete history.
             if set(result['versions'].values()) != {'26.05.5'}:
                 raise ValueError('Unverified scheduler version combination; evidence collection refused')
+            if include_cancel_version:
+                version = query('scancel-version', remote.slurm_evidence_version('scancel'),
+                                slurm.parse_evidence_version)
+                result['execution_versions']['scancel'] = version
+                if version != '26.05.5':
+                    raise ValueError('Unverified scancel version; cancellation evidence refused')
             identity = dict(job_id=binding['job_id'], cluster=cluster, name=manifest['attempt_id'])
             history = query('history', remote.slurm_evidence_history(binding['job_id'], cluster),
                             lambda text: slurm.parse_evidence_history(text, **identity))

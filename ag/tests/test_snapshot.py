@@ -97,6 +97,57 @@ def test_snapshot_preserves_lifecycle_and_reports_progress(cfg, running):
     assert (directory / 'water.log').read_bytes() == PROGRESS
 
 
+def test_run_snapshot_uses_integrated_publication_and_registry_locks(cfg, running, monkeypatch):
+    from contextlib import contextmanager
+    import sys
+    from types import ModuleType
+    from ag import autonomy
+    from test_autonomy import VERSIONS, spec
+
+    path = running[0]
+    name = path.parent.parent.name
+    monkeypatch.setattr(autonomy, 'versions', lambda: dict(VERSIONS))
+    autonomy.initialize(cfg, name)
+    plan = autonomy.create_plan(cfg, name, spec(valid_until=autonomy.now() + 10000))
+    autonomy.confirm(cfg, name, plan['plan_id'], plan['sha256'], 'Synthetic plan confirmation')
+    autonomy.begin(cfg, name, plan['plan_id'], 'Synthetic round confirmation')
+    run = autonomy.start(cfg, name, plan['plan_id'], 'synthetic-owner')
+    active, entries = [False], []
+    dependency = ModuleType('ag.autonomy_submission')
+
+    @contextmanager
+    def machine_lock(*, create):
+        assert create is False and not active[0]
+        active[0] = True
+        entries.append('registry')
+        try:
+            yield
+        finally:
+            active[0] = False
+
+    @contextmanager
+    def publication(*args, **kwargs):
+        with machine_lock(create=False), autonomy.action_guard(*args, **kwargs) as current:
+            entries.append('publication')
+            yield current['state']
+
+    dependency.machine_lock = machine_lock
+    monkeypatch.setitem(sys.modules, 'ag.autonomy_submission', dependency)
+    monkeypatch.setattr(autonomy, 'observation_publication_guard', publication, raising=False)
+
+    class OutsideLocks(Fake):
+        def run(self, command):
+            assert not active[0]
+            return super().run(command)
+
+    result = snapshot.capture_for_run(cfg, path, OutsideLocks(), run_id=run['run_id'],
+                                      token=run['token'], plan_sha256=plan['sha256'])
+    assert entries == ['registry', 'registry', 'publication', 'registry']
+    saved = autonomy.status(cfg, name)['state']['snapshots']
+    assert saved[path.name + '/' + result['snapshot']]['run_id'] == run['run_id']
+    assert not active[0]
+
+
 @pytest.mark.parametrize('data,limit', [(b'', 8), (b'abcdef', 6), (b'abcdef', 3),
                                       (b'\xff\r\n\x00\xe4\xb8\xad\npartial', 11)])
 def test_byte_preserving_bounded_tail(cfg, running, data, limit):

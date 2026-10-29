@@ -1,7 +1,7 @@
 """Read-only, byte-preserving log observations, never result collection."""
 import base64
 import binascii
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from datetime import datetime, timezone
 from hashlib import sha256
 import json
@@ -125,15 +125,29 @@ def capture_for_run(cfg, path, transport, *, run_id, token, plan_sha256,
     root = Path(cfg['local']['studies_root'])
     path = study.local_path(root, Path(path))
     name = path.parent.parent.name
-    with autonomy.action_guard(cfg, name, run_id, token,
-                               action='observe', plan_sha256=plan_sha256) as before:
-        binding = bound_attempt(path)
-        started = autonomy.now()
+    publication_guard = getattr(autonomy, 'observation_publication_guard', None)
+    if publication_guard is not None:
+        from ag.autonomy_submission import machine_lock
+        def registry_lock():
+            return machine_lock(create=False)
+    else:
+        # T184 supports local observation provenance independently. When T186
+        # is integrated, its global registry lock and publication fence apply.
+        registry_lock = nullcontext
+    with registry_lock():
+        with autonomy.action_guard(cfg, name, run_id, token,
+                                   action='observe', plan_sha256=plan_sha256) as before:
+            binding = bound_attempt(path)
+            started = autonomy.now()
+    @contextmanager
     def publication():
-        return autonomy.action_guard(cfg, name, run_id, token,
-                                     action='observe', plan_sha256=plan_sha256)
+        guard = publication_guard or autonomy.action_guard
+        with guard(cfg, name, run_id, token, action='observe', plan_sha256=plan_sha256):
+            if bound_attempt(path) != binding:
+                raise ValueError('Attempt binding changed before snapshot publication')
+            yield
     result = capture(cfg, path, transport, max_bytes=max_bytes, publication=publication)
-    with disk.locked(cfg, name, write=True) as store:
+    with registry_lock(), disk.locked(cfg, name, write=True) as store:
         current, _ = autonomy.load(store)
         token_hash = sha256(token.encode()).hexdigest()
         evidence = snapshot_evidence(path, result['snapshot'], binding)

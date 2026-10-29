@@ -152,10 +152,18 @@ def eligible(state, run_id, token_hash, current_versions, at, action, expected_s
         raise ValueError('Plan hash mismatch')
     if state['phase'] == 'ended' or (state['paused'] and action not in READ_ACTIONS):
         raise ValueError('Autonomy is paused or ended; new actions are blocked')
+    if action not in READ_ACTIONS and _pending_cancellations(state):
+        raise ValueError('Unresolved cancellation consumption blocks new actions; observe or record its result')
     if (action == 'prepare'
             and state['rounds'][state['current_round']]['totals']['attempt'] >= plan['body']['spec']['attempt_limit']):
         raise ValueError('Local Attempt intent limit reached; actual submissions still require reconciliation')
     return plan
+
+
+def _pending_cancellations(state):
+    """An in-flight or crashed cancellation never becomes available capacity."""
+    results = state.get('cancellation_results', {})
+    return [key for key in state.get('cancellations', {}) if key not in results]
 
 
 def _cancellation_hash(value):
@@ -247,6 +255,8 @@ def apply(previous, event):
                 totals=dict.fromkeys(COUNTERS, 0))
             state['current_round'] = round_id
             state['current_plan'] = data['plan_id']
+            if _pending_cancellations(state):
+                state['paused'] = True
             state['phase'] = 'paused' if state['paused'] else 'running'
         elif op == 'start':
             bound_plan(state, data['plan_id'], data['versions'], at)
@@ -275,6 +285,11 @@ def apply(previous, event):
             if data['plan_id'] not in plans:
                 plans.append(data['plan_id'])
             state['current_plan'] = data['plan_id']
+            # A new wake cannot assume a previous process stopped before its
+            # scheduler call. Keep the original consumption unresolved and
+            # admit observations only; a late result never resumes the round.
+            if _pending_cancellations(state):
+                state['paused'] = True
             state['phase'] = 'paused' if state['paused'] else 'running'
         elif op == 'pause':
             text(data['reason'], 'Pause reason')
@@ -359,6 +374,10 @@ def apply(previous, event):
                 owner(state, data['run_id'], data['token_sha256'], at)
             if op == 'recover':
                 text(data['reason'], 'Recovery reason')
+                if _pending_cancellations(state):
+                    state['paused'] = True
+                    if state['phase'] != 'ended':
+                        state['phase'] = 'paused'
             elif op == 'finish':
                 text(data['reason'], 'Finish reason')
                 run = state['runs'][data['run_id']]
@@ -378,6 +397,8 @@ def apply(previous, event):
             elif op == 'resume':
                 bound_plan(state, state['current_plan'], data['versions'], at)
                 text(data['reason'], 'Explicit resume reason')
+                if _pending_cancellations(state):
+                    raise ValueError('Unresolved cancellation consumption prevents resume')
                 if not state['paused']:
                     raise ValueError('Autonomy is not paused')
                 state['paused'] = False
@@ -525,30 +546,83 @@ def status(cfg, name):
         return public(snapshot)
 
 
-def _consume_cancellation(cfg, name, run_id, token, *, plan_sha256, binding,
-                          ownership_sha256, kind, reason, evidence_sha256, lineage_sha256=None):
-    """Internal durable consumption only, NEVER a cancellation permission.
+class _CancellationGuard:
+    """One local cancellation transaction, not an ownership verifier or permit."""
+    def __init__(self, store, name, run_id, token, plan_sha256):
+        self._store, self._name = store, name
+        self._run_id = study.identifier(run_id)
+        self._token_hash = sha256(text(token, 'Run token').encode()).hexdigest()
+        self._plan_sha256 = _cancellation_hash(plan_sha256)
+        self._snapshot, self._active = None, True
 
-    The future executor must first verify T186 ownership, immutable Attempt
-    bytes and cancellation/reroute evidence itself. A caller/model dictionary
-    or ownership digest is not that verification. No CLI exposes this helper.
-    The short mutex covers local bookkeeping, never a scheduler operation.
-    """
-    binding = deepcopy(binding)
-    _cancellation_binding(binding)
-    if binding['study_id'] != study.locate(cfg, name).name:
-        raise ValueError('Cancellation binding belongs to a different study')
-    with disk.locked(cfg, name, write=True) as store:
-        snapshot, _ = load(store)
+    def _require_active(self):
+        if not self._active:
+            raise ValueError('Cancellation guard is closed; re-enter at the action boundary')
+
+    @property
+    def current(self):
+        self._require_active()
+        return public(self._snapshot)
+
+    @property
+    def snapshot(self):
+        self._require_active()
+        return deepcopy(self._snapshot['state'])
+
+    def recheck(self):
+        self._require_active()
+        self._snapshot, _ = load(self._store)
         current_versions = versions()
-        at = now()
-        data = dict(run_id=run_id, token_sha256=sha256(text(token, 'Run token').encode()).hexdigest(),
-                    versions=current_versions, plan_sha256=plan_sha256,
-                    round_id=snapshot['state']['current_round'], binding=binding,
+        at = number(now())
+        if at < self._snapshot['state']['updated_at']:
+            raise ValueError('Autonomy clock moved backwards')
+        self._store.verify_lock()
+        eligible(self._snapshot['state'], self._run_id, self._token_hash,
+                 current_versions, at, 'cancel', self._plan_sha256)
+        return at, current_versions
+
+    def consume(self, *, binding, ownership_sha256, kind, reason, evidence_sha256,
+                lineage_sha256=None):
+        self._require_active()
+        binding = deepcopy(binding)
+        _cancellation_binding(binding)
+        if binding['study_id'] != self._name:
+            raise ValueError('Cancellation binding belongs to a different study')
+        at, current_versions = self.recheck()
+        data = dict(run_id=self._run_id, token_sha256=self._token_hash,
+                    versions=current_versions, plan_sha256=self._plan_sha256,
+                    round_id=self._snapshot['state']['current_round'], binding=binding,
                     ownership_sha256=ownership_sha256, kind=kind, reason=reason,
                     evidence_sha256=evidence_sha256, lineage_sha256=lineage_sha256)
-        result = store.commit(snapshot, 'cancel_consume', at, data, apply)
-        return _cancellation_receipt(result['state']['cancellations'][binding['attempt_id']])
+        self._snapshot = self._store.commit(self._snapshot, 'cancel_consume', at, data, apply)
+        return _cancellation_receipt(self._snapshot['state']['cancellations'][binding['attempt_id']])
+
+
+@contextmanager
+def _cancellation_guard(cfg, name, run_id, token, *, plan_sha256):
+    """Hold one short study lock across verification, consumption and claim.
+
+    The executor holds config/machine locks before entering and verifies real
+    T186 ownership and evidence itself. Never nest another locking autonomy
+    API or perform remote IO here. This guard grants no cancellation permit.
+    """
+    name = study.locate(cfg, name).name
+    with disk.locked(cfg, name, write=True) as store:
+        guard = _CancellationGuard(store, name, run_id, token, plan_sha256)
+        try:
+            guard.recheck()
+            yield guard
+        finally:
+            guard._active = False
+
+
+def _consume_cancellation(cfg, name, run_id, token, *, plan_sha256, binding,
+                          ownership_sha256, kind, reason, evidence_sha256, lineage_sha256=None):
+    """Internal bookkeeping only; caller assertions never verify ownership."""
+    with _cancellation_guard(cfg, name, run_id, token, plan_sha256=plan_sha256) as guard:
+        return guard.consume(binding=binding, ownership_sha256=ownership_sha256,
+                             kind=kind, reason=reason, evidence_sha256=evidence_sha256,
+                             lineage_sha256=lineage_sha256)
 
 
 def _record_cancellation_result(cfg, name, run_id, token, *, attempt_id, consumption_sha256,

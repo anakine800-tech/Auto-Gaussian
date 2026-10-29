@@ -23,8 +23,8 @@
 - `submit.py`：批次核验、确认、上传、提交及不确定结果处理。
 - `submission.py`：一次性提交绑定及确切作业身份交叉校验。
 - `budget.py`：按入口记录本地 ag 核时预估、预留与结算，保留共享入口未观测核数的核对。
-- `cancel.py`：确认后取消记录中的确切作业，取消声明也只能用一次。
-- `autonomy_cancel.py`：核验正式日志快照的绑定与连续唤醒审阅，以及严格冻结输入的无 chk 依赖证明；目前不授权或执行自主取消/改投。
+- `cancel.py`：人工确认或独立自主入口取消确切作业；自主入口核验归属、条件和一次消费，并提供只读停止核验。
+- `autonomy_cancel.py`：核验正式快照及连续唤醒审阅、冻结输入的无 chk 依赖、Slurm 原始实例与排队/停止证据；纯证据结果不授予执行权限。
 - `status.py`：PBS/Slurm 观察、程序完成证据及 unknown 只读核对；保留不完整取回所需的 PBS 首次/最近不活跃观察。
 - `fetch.py`：校验输出大小和哈希，以不覆盖方式发布到本地；显式不完整取回及绑定的独占记录。
 - `monitor.py`：只读采样集群，在本地缓存最新快照和历史。
@@ -69,11 +69,14 @@ Gaussian prepare 在档位与 walltime 检查后依次补缺失的 `%nprocshared
 
 [AGENTS 自主运行规则](../AGENTS.md#自主运行)是唯一规则正文；T182 统一文档，T184 实现 `ag autonomy` 的本地计划、租约、暂停、日志和意图计数。计算入口仍是下文的手动流程：`approval.authorize` 的旧长期规则只核对 study、模板、集群、核数和 walltime；`submit.submit` 拒绝具名 PBS 的长期规则；`cancel.cancel` 仍调用 Mac 人工确认。旧 `--policy` 不能据新文档获得自主权限，autonomy 的本地记录也不能授权这些入口。
 
+T187 新增独立的自主取消参数及停止核验入口，要求 T186 实际归属/当前规则和发布保护已集成；缺依赖直接拒绝。
+这是开发实现，不代表已完成合并前现场验证、非研究试点或本轮启用。普通手动取消的 Mac 确认保持原行为。
+
 后续实现须让计划哈希及版本、有效期与计数、方法口径、节点与路由选择、唯一运行锁和状态检查在动作前实际生效，并保留逐 Attempt 摘要、授权来源、输入字节和上传后哈希核对。具名 PBS 的目标行为是仅放行有效规则中列出的节点；取消须有独立的归属与条件核验路径，不能把提交批准参数用于现有 cancel。前端运行中拒绝写操作、暂停后唯一持锁会话仍能取回整理结果，也须实际实现并验证。
 
 放宽输入的受控例外同样以 [AGENTS](../AGENTS.md#自主运行)为准；后续实现须保存跳过检查及方法口径未核验的事实并逐次提醒，不能把可提交当作科学支持，也不能把本单文档当作启用开关。
 
-启动前逐项核对相关工具实现、敏感路径的合并前验证、非研究试点及本轮显式启用；缺任何一项都不能运行自主计算。本地状态工具的合成验证不代替这些证据；90% Attempt 阈值、失败分组暂停和六小时改投等完整规则仍待后续动作入口接入。开发会话的真实意外仍按 AGENTS 第 5 节立即停止；自主运行的暂停、补救和科学待确认事项按其专节，不把开发授权当运行授权。
+启动前逐项核对相关工具实现、敏感路径的合并前验证、非研究试点及本轮显式启用；缺任何一项都不能运行自主计算。本地合成验证不代替这些证据；各入口的实际接线和验证范围见对应任务单。开发会话的真实意外仍按 AGENTS 第 5 节立即停止；自主运行的暂停、补救和科学待确认事项按其专节，不把开发授权当运行授权。
 
 ## 提交流程：规范顺序
 
@@ -110,7 +113,8 @@ Slurm 台账在远程写入前预留核数 × walltime，按结束证据结算�
 长期规则仅在负责人明确指示后写入本机配置的 `approval.policies.<name>`；study、模板、集群均为明确名单，无通配符。
 使用 `ag submit <ID> ... --policy <name>` 显式选择，核对核数和 walltime 上限；规则不匹配直接拒绝。
 `ag doctor` 的 CLI 输出包含 `approval_policies` 及适用范围。未给 `--approval` 或 `--policy` 时仍走 Mac 对话框，即使配置了匹配的规则也不自动选用。
-两参数互斥，取消不接受它们；`ag cancel` 始终由人点击 Mac 确认。具体配置见 `ag/config.clusters.example.toml`。
+两参数互斥，取消不接受它们；普通 `ag cancel <ID>` 由人点击 Mac 确认。独立自主取消参数见下文 T187 接线说明。
+具体配置见 `ag/config.clusters.example.toml`。
 三种提交方式受具体入口与验证对象的更窄要求约束：具名 PBS 不接受长期规则，只接受绑定节点的显式批准或 Mac 对话框；特定验证要求亲手点击时仍须点击。不能用一般提交概述扩大验证授权。
 
 每个实际获授权的提交在 Attempt 中独占保存 `submission-summary.json`（原始摘要、授权来源和 manifest 哈希），journal 追加 `submit_authorization`。
@@ -235,7 +239,8 @@ Gaussian route 采用有限正向语法：显式受支持方法和内置基组�
 或归属。普通只读重试与手动取消行为不变。返回 `complete` 只表示采集解析完成，`reroute_authorized` 始终 false。
 原始文本含私有配置内容，不放入公开 PR；此记录不能代替 T186 提交时保存的初始 SLUID/身份或本轮授权。
 
-`status.slurm_submission_probe(cfg, path, transport)` 在提交声明之前读取同一固定 controller/client 探针，
+`status.slurm_submission_probe(cfg, path, transport)` 在提交声明之前按 config → scontrol → sacct → sbatch → scancel 读取五次固定探针，
+config 工具明确不可用时仅查询一次。
 核验 prepared 状态、路径身份及完整冻结 bundle，并在查询结束后再核验一次。返回 canonical `record` 和 `sha256`，
 不发布本地文件。明确缺工具或固定选项不支持、版本不识别只记录格式不可用，不增加普通提交版本门槛；
 SSH、身份矛盾和混合错误保留 `.evidence` 后抛出。T186 须在有效 owner 下独占发布原字节并将哈希绑定原 reservation，
@@ -246,17 +251,22 @@ probe 不包含 ownership 哈希，避免循环引用。初始实例只允许在
 先独占 `slurm-origin-claim.json`，再在锁外采集，最后独占 `slurm-origin.json`；claim 成功/失败/崩溃均不重用。
 当前实例重启或缺原始 SLUID 时只保存不可用；真正查询/解析错误保存后仍抛出，并附 `origin_evidence` 供上游暂停处理。
 发布工厂拒绝时不补写原始实例。返回 `initial_instance_recorded` 仅表示已登记初始实例，`live_validated`/`reroute_authorized`
-始终 false；实际 submit 与真实环境尚未组合验证，不将已知提交变成可重提。
+始终 false；真实 submit API 的合成组合已验证，现场环境仍未验证，不将已知提交变成可重提。
 
 内部 `_consume_cancellation` / `_record_cancellation_result` 使用独立 cancel_consume/cancel_result 日志事件，
 短锁内重验租约/计划，每唤醒至多两次，同 Attempt 与改投谱系永久防重复，不改 T184 意图 totals。
 UNKNOWN 在同一事件原子暂停，不确定/崩溃不退回消费；重复结果只确认旧记录。迟到结果只绑定原消费保存既有后果，
 不覆盖新租约、不重新授权。取消结果导致的暂停也会使旧快照对失效；连续性检查重放实际 paused 状态。
-它们无 CLI、始终返回 `cancellation_authorized: false`，不能以手写 ownership 哈希替代 T186 归属核验。
-
-T186 一次性自主归属/规则与执行适配、T185 路由、从未运行/终止的最终资格判断尚未接入，
-没有实际自主取消或改投入口。完整工单与未授权的合并前真实验证矩阵见
-[T187](redesign-tasks/T187-autonomous-cancel-reroute.md)；不得将此证据切片写成该工单全部完成。
+这些内部事件始终返回 `cancellation_authorized: false`，不能以手写 ownership 哈希替代 T186 归属核验。
+独立 `cancel.autonomous_cancel(...)` 已接入 T186 真实归属、当前规则、两次正式审阅和原始/当前 Slurm 实例；
+`kind='reroute'` 则核验六小时排队、从未运行、无 chk，以及 T185 同算法的更高位候选，不要求无进展审阅。
+命令行参数见 [取消入口](../ag/README.md#运行中日志快照snapshot)。网络期间释放配置、全机和 study 锁，最终消费前重新核验。
+request/response 均独占保存；普通状态只在当前 owner 发布保护内更新，迟到回执仅保存原消费后果。
+`cancel.verify_stopped(...)` 使用只读 transport，在接受账本及确切终止证据均通过后独占保存停止证明；不会再次取消。
+手动取消接入 T186 manual_write_guard，同时保留 Mac 人工确认；无 T186 且 study 已初始化自主状态时明确拒绝。
+T185 同算法更高位候选与 T186 改投后继已通过冻结源码的隔离组合；规则、账号作业数及下一次消费的 90% 暂停条件均在取消前检查。
+上游依赖尚须集成，完整工单与尚未授权的合并前真实验证矩阵见
+[T187](redesign-tasks/T187-autonomous-cancel-reroute.md)；不得将合成验证写成现场通过或自主启用。
 
 ### 远程命令
 
