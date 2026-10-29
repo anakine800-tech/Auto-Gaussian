@@ -1079,6 +1079,25 @@ def prepare_hint(cfg, manifest):
 
 
 def run(args):
+    if args.config_identity:
+        routing_options = (args.template, args.tier, args.job_class, args.study, args.walltime,
+                           args.round_id, args.run_id, args.object_id,
+                           args.autonomous_policy, args.token, args.plan_sha256)
+        if any(value is not None for value in routing_options):
+            raise ValueError('--config-identity cannot be combined with routing arguments')
+        identity = globals().get('ladder_config_identity')
+        if not callable(identity):
+            raise ValueError('Reviewed T185 routing configuration identity is not integrated in this checkout')
+        try:
+            result = dict(routing_sha256=identity(load_config()))
+        except Exception as exc:
+            # Discovery must not expose private configuration values in errors.
+            raise ValueError('Cannot read routing configuration identity; check local configuration') from exc
+        print(json.dumps(result, ensure_ascii=False, indent=2) if args.json
+              else 'routing_sha256: ' + result['routing_sha256'])
+        return 0
+    if args.template is None:
+        args.route_parser.error('the following arguments are required: --template')
     context_options = (args.round_id, args.run_id, args.object_id,
                        args.autonomous_policy, args.token, args.plan_sha256)
     if args.job_class:
@@ -1134,7 +1153,9 @@ def run(args):
 
 def register(subparsers):
     parser = subparsers.add_parser('route', help='Read local monitor snapshots for routing advice')
-    parser.add_argument('--template', choices=TEMPLATES, required=True)
+    parser.add_argument('--config-identity', action='store_true',
+                        help='Read local routing configuration identity without a plan or routing request')
+    parser.add_argument('--template', choices=TEMPLATES)
     parser.add_argument('--tier', choices=TIERS)
     parser.add_argument('--job-class', choices=('main', 'small'))
     parser.add_argument('--round-id')

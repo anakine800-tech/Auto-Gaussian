@@ -1061,3 +1061,137 @@ def test_trusted_route_cli_does_not_write_state_waiting_or_registry(routed, tmp_
     assert cli.main(args) == 1
     assert 'expired' in json.loads(capsys.readouterr().out)['error']
     assert tree(tmp_path) == before
+
+
+@pytest.mark.parametrize('option,value', [
+    ('--template', 'gaussian'), ('--tier', 'simple'), ('--job-class', 'main'),
+    ('--study', 'water'), ('--walltime', '00:30:00'), ('--round-id', 'round-one'),
+    ('--run-id', 'run-one'), ('--object-id', 'water'), ('--autonomous-policy', 'bounded'),
+    ('--token', 'private-token'), ('--plan-sha256', 'a' * 64),
+])
+def test_config_identity_rejects_routing_arguments_before_loading(option, value, monkeypatch, capsys):
+    def forbidden(*args, **kwargs):
+        pytest.fail('Mixed identity requests must fail before reading configuration')
+    monkeypatch.setattr(route, 'load_config', forbidden)
+    assert cli.main(['route', '--config-identity', option, value, '--json']) == 1
+    result = json.loads(capsys.readouterr().out)
+    assert result['error'] == '--config-identity cannot be combined with routing arguments'
+
+
+@pytest.mark.parametrize('options', [[], ['--tier', 'mini']])
+def test_route_still_requires_template_outside_identity_mode(options, monkeypatch, capsys):
+    monkeypatch.setattr(route, 'load_config', lambda: pytest.fail('Invalid route must not load configuration'))
+    with pytest.raises(SystemExit) as error:
+        cli.main(['route', *options])
+    assert error.value.code == 2
+    assert 'required: --template' in capsys.readouterr().err
+
+
+def test_config_identity_requires_the_reviewed_t185_function(monkeypatch, capsys):
+    monkeypatch.delattr(route, 'ladder_config_identity', raising=False)
+    monkeypatch.setattr(route, 'load_config', lambda: pytest.fail('Missing dependency must fail before loading'))
+    assert cli.main(['route', '--config-identity', '--json']) == 1
+    result = json.loads(capsys.readouterr().out)
+    assert result == {'error': 'Reviewed T185 routing configuration identity is not integrated in this checkout',
+                      'exit_code': 1}
+
+
+@pytest.mark.parametrize('stage', ['configuration', 'identity'])
+@pytest.mark.parametrize('json_output', [False, True])
+def test_config_identity_errors_do_not_expose_private_values(monkeypatch, capsys, stage, json_output):
+    private = 'private-account private-host /private/synthetic-config-path'
+    def unavailable(*args, **kwargs):
+        raise ValueError(private)
+    monkeypatch.setattr(route, 'load_config', unavailable if stage == 'configuration' else lambda: {})
+    monkeypatch.setattr(route, 'ladder_config_identity',
+                        unavailable if stage == 'identity' else lambda cfg: pytest.fail('Must not calculate'),
+                        raising=False)
+    assert cli.main(['route', '--config-identity', *(['--json'] if json_output else [])]) == 1
+    captured = capsys.readouterr()
+    assert private not in captured.out + captured.err
+    expected = 'Cannot read routing configuration identity; check local configuration'
+    if json_output:
+        assert json.loads(captured.out) == {'error': expected, 'exit_code': 1}
+        assert not captured.err
+    else:
+        assert not captured.out and captured.err.strip() == expected
+
+
+@pytest.fixture
+def identity_configuration(cfg):
+    identity = getattr(route, 'ladder_config_identity', None)
+    if not callable(identity):
+        pytest.skip('Requires the actual reviewed T185 routing identity implementation')
+    entry = {key: deepcopy(value) for key, value in cfg.items()
+             if key not in ('local', '_config_dir')}
+    entry.update(scheduler='slurm', partition='private-partition', account='private-account')
+    entry['ssh']['host'] = 'private-host'
+    raw = dict(local=cfg['local'], _config_dir=cfg['_config_dir'],
+        clusters={'default': deepcopy(entry), 'private-cluster': deepcopy(entry)},
+        routing={'gaussian': ['default', 'private-cluster'], 'crest': ['private-cluster', 'default']})
+    path = write_config(raw)
+    return raw, path, identity
+
+
+def test_config_identity_bootstraps_without_plan_snapshots_or_side_effects(
+        identity_configuration, tmp_path, monkeypatch, capsys):
+    from ag import autonomy_submission, _autonomy_store as disk
+    raw, path, identity = identity_configuration
+    home = tmp_path / 'identity-home'
+    home.mkdir()
+    monkeypatch.setattr(Path, 'home', classmethod(lambda cls: home))
+    monkeypatch.setattr(route, 'load_config', lambda: config.load_config(path))
+    expected = identity(config.load_config(path))
+    assert 'approval' not in raw and not Path(raw['local']['studies_root']).exists()
+    def forbidden(*args, **kwargs):
+        pytest.fail('Identity discovery must not access routing, locks, monitors, transports or processes')
+    for module, name in ((SSHTransport, '__init__'), (subprocess, 'run'), (subprocess, 'Popen'),
+                         (route, '_snapshot'), (route, 'suggest'), (route, 'autonomous_selection'),
+                         (autonomy_submission, 'machine_lock'), (disk, 'locked')):
+        monkeypatch.setattr(module, name, forbidden)
+    original_open = io.open
+    def read_only(file, mode='r', *args, **kwargs):
+        if any(flag in mode for flag in ('w', 'a', 'x', '+')):
+            forbidden()
+        return original_open(file, mode, *args, **kwargs)
+    monkeypatch.setattr(io, 'open', read_only)
+    for operation in ('mkdir', 'rename', 'replace', 'unlink', 'open'):
+        monkeypatch.setattr(os, operation, forbidden)
+    before = tree(tmp_path)
+    directories = {str(item) for item in tmp_path.rglob('*') if item.is_dir()}
+    assert cli.main(['route', '--config-identity', '--json']) == 0
+    captured = capsys.readouterr()
+    assert json.loads(captured.out) == {'routing_sha256': expected} and not captured.err
+    assert cli.main(['route', '--config-identity']) == 0
+    captured = capsys.readouterr()
+    assert captured.out == 'routing_sha256: ' + expected + '\n' and not captured.err
+    assert tree(tmp_path) == before
+    assert {str(item) for item in tmp_path.rglob('*') if item.is_dir()} == directories
+    assert not (home / '.config').exists()
+
+
+@pytest.mark.parametrize('change', ['routing', 'resources', 'partition', 'capabilities', 'identity'])
+def test_config_identity_uses_actual_t185_digest_and_tracks_configuration_changes(
+        identity_configuration, monkeypatch, capsys, change):
+    raw, path, identity = identity_configuration
+    monkeypatch.setattr(route, 'load_config', lambda: config.load_config(path))
+    def query():
+        assert cli.main(['route', '--config-identity', '--json']) == 0
+        result = json.loads(capsys.readouterr().out)
+        assert result == {'routing_sha256': identity(config.load_config(path))}
+        return result['routing_sha256']
+    original = query()
+    assert query() == original
+    entry = raw['clusters']['default']
+    if change == 'routing':
+        raw['routing']['gaussian'].reverse()
+    elif change == 'resources':
+        entry['resources']['tiers']['simple']['mem_gb'] += 1
+    elif change == 'partition':
+        entry['partition'] = 'another-private-partition'
+    elif change == 'capabilities':
+        entry['allowed_templates'] = ['gaussian']
+    else:
+        entry['ssh']['host'] = 'another-private-host'
+    write_config(raw)
+    assert query() != original
