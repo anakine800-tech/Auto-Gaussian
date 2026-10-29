@@ -28,6 +28,17 @@
 整组明确同一单点方法和溶剂。流程验收仅作筛选单点，不做高精度单点；
 验收和研究的阴离子弥散方案均见方法表。
 
+Gaussian 能算出某方法的能量，不等于 ag 已支持该方法的解析和热化学。
+当前 `facts.energies.scf` 来自所选作业段的 SCF 能量；MP2 的 `EUMP2`、
+CCSD(T) 的最终总能量及双杂化的相关能项不会自动替换这个字段。
+`thermo/profile` 的方法检查只接受明确支持的 HF/DFT SCF 能量方法，拒绝
+后 HF、双杂化、复合方法及无法识别的协议；改 route 或得到正常终止不能
+绕过这一边界。Gaussian 原生能量字段与 ag 支持对照见
+[学习库单点说明](../../auto-g16-gaussian-learning-library/references/core-job-types.md#gkb-0410-单点能)。
+性质还须单独核对采用的密度，不能从电子能量层级推定；
+[密度分析说明](../../auto-g16-gaussian-learning-library/references/theory-and-methods.md#gkb-0111-后-hf-方法)
+仅作学习，不扩展本卡的研究方法范围。
+
 TS 族、关键中间体、复合物必须双路线，可旋转键较多也建议；按
 [构象工作流](../../auto-g16-structures/references/conformer-workflow.md)保留路线来源，
 读覆盖报告的未匹配项、最低构象和单路线独有低能项。警告时讨论延长 CREST、
@@ -102,7 +113,12 @@ ag prepare --study <study_id> --template gaussian --input <sp.gjf> --tier simple
 
 ## 7. 常见失败与处理
 
-SCF 失败、内存或时长不足时按 failure-diagnosis 审阅已有事实。最终精化若发现父驻点不合格，先回到 opt-freq 或 ts 卡片；筛选失败保留缺项，不能直接按高能筛除；新 Attempt 按 [失败诊断](failure-diagnosis.md)及 [AGENTS 自主运行规则](../../../AGENTS.md#自主运行)区分模式处理。
+SCF 失败、内存或时长不足时按 [failure-diagnosis](failure-diagnosis.md) 审阅已有事实。最终精化若发现父驻点不合格，先回到 opt-freq 或 ts 卡片；筛选失败保留缺项，不能直接按高能筛除；新 Attempt 按 [失败诊断](failure-diagnosis.md)及 [AGENTS 自主运行规则](../../../AGENTS.md#自主运行)区分模式处理。
+
+SP 即使正常完成，若有异常长键、强电荷转移或不同初猜得到多个 SCF 解等
+电子态疑点，仍按[电子态与 Stable 诊断](failure-diagnosis.md#电子态与-stable-诊断)
+核对结构、电荷、多重度、能量及电子解证据；这些是诊断线索，不是自动判错，
+也不要求所有 SP 统一添加 `Stable=Opt`。
 
 ## 8. 常见坑
 

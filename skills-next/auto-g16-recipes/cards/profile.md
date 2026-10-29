@@ -19,7 +19,7 @@
 
 每个物种独立生成 `ag thermo` 输出，并保留其各行引用的 study/attempts 下的 `facts.json`、`final.xyz`。读入的事实必须对应生成该 thermo 时的最终结果；改变输出、事实或热化学设置后，重新生成 thermo。不要手工改能量列。程序重算构象分配函数以核对 `ensemble_G`，不用 `weighted_mean_G`。
 
-也可直接引用一组已取回完整 Gaussian 日志的 Attempt（需 manifest）；profile 用同版本 GoodVibes 4.3.0 在内存中计算 qRRHO，不写 facts/thermo。TS 用此通路，因为现有 `ag thermo` 只接受极小值。虚频不反转、不取绝对值；GoodVibes 不把反应坐标计入稳定振动配分函数。
+也可直接引用一组已取回完整 Gaussian 日志的 Attempt（需 manifest）；profile 用同版本 GoodVibes 4.3.0 在内存中计算 qRRHO，不写 facts/thermo。TS 用此通路，因为现有 `ag thermo` 只接受极小值。虚频不反转、不取绝对值；GoodVibes 不把反应坐标计入稳定振动配分函数。缩放默认均为 1.0；直接 Attempt 可用 `thermo_settings.frequency_scale/zpe_scale` 覆盖，缓存 thermo 必须与请求设置一致、不在此重算。两因子用途及该版本独立 ZPE 因子不传入 G 的限制见[方法表](../../auto-g16-study/references/acceptance-methods.md#数值设置与热化学依据)，不能把接口支持当作非默认因子的科学依据。
 
 TS 每个构象必须有 `n_imag=1`，其 `review.md` 中保留具体方向审阅依据，并由审阅者加入两行明确结论：
 
@@ -245,6 +245,8 @@ TS 后分岔或产物分支不能唯一确定时，候选结果的归属用 `und
 ## 7. 常见失败与处理
 
 不守恒先修正状态组成；方法混用或温度不一致需统一并重算上游热化学；缺 review 或虚频方向不对需科学审阅。失败时不输出“部分有效”的完整曲线。缺计算只能提出后续计划，本工具不会新建或提交 Attempt。
+
+负能垒先依次核对：① TS 是否连到所用的相邻极小点及相同构象盆地；② 是否遗漏预复合物或中间体；③ 取的是电子能、含 ZPE 能、G 还是 qh_G，单位和计量是否一致；④ Opt/Freq 势能面与 SP 精化层级是否改变排序；⑤ 参考态是分离物种还是复合物及其标准态/浓度。相对分离物种的 TS 可以低于零点；热修正或 SP 替换也可改变垒高，不能将所有负值一律判错，也不据此宣称无垒或直接解释 TST 速率。同一势能面上已连接的 TS 若低于相邻极小点电子能，仍须查证定位、连接及字段。补救只引用[失败诊断卡](failure-diagnosis.md#7-常见失败与处理)的统一表，不另复制菜单。
 
 工具也拒绝频率阶段未明确收敛、振动模式不完整、非 SCF 最终能量方法及显式 5D/6D、7F/10F 不同；旧 facts 缺频率字段时提示 `ag facts <attempt> --refresh`。单原子只豁免模式完整性并注明，独立 Freq 同样检查；积分网格差异仅展示和警告。直接 Attempt 的 SPC（含 TS）按 thermo 相同的固定行号 Kabsch 检查，RMSD > 1e-3 Å 或输入哈希不符会拒绝；输出保留配对证据，缓存 thermo 沿用已有证据。
 

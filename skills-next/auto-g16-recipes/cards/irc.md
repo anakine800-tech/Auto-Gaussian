@@ -37,8 +37,7 @@
 
 Gaussian 路线形式为 `irc=(calcfc,maxpoints=<点数>,stepsize=<步长>,forward)`，反方向将 `forward` 改为 `reverse`。例如以下单结构骨架在起点重新算力常数，不读取父 chk；50 和 10 仅是待审阅示例值，不保证走到极小点。
 
-步长单位以本机 G16 手册为准，各版本手册和转载的写法不一致（G03 手册：
-0.01 amu½·Bohr），不能将某一版本或转载的单位约定直接套用于本次计算。
+Gaussian 官方 [IRC 手册的 StepSize 与坐标选项](https://gaussian.com/irc/)规定：正值的步长单位为 0.01 Bohr，负值表示以 0.01 amu½·Bohr 为单位；默认路径坐标为质量加权 Cartesian（2026-10-29 核对）。这是关键词语义，不是固定步长的适用性保证；使用时仍核对本机 G16 修订版手册，不能照搬旧版转载。
 从 IRC 输出开头读取 Gaussian 实际打印的步长和坐标类型，连同修订版、
 原文及日志位置记入 `review.md`；不能把输入中的 StepSize 数字直接当作
 某根键的 Å 增量。未打印或无法确认时明确写缺失，核对本机手册与完整输出，
@@ -80,7 +79,7 @@ ag prepare --study <study_id> --template gaussian --input <irc-forward.gjf> --ti
 
 ```
 
-反方向另建 Attempt，改为 `reverse` 和 `%chk=irc-reverse.chk`，引用同一父 chk。**坐标仍须显式写在输入中**；`Geom=Check`/`Geom=AllCheck` 不允许。RCFC 读取先前完整频率计算得到并保存在父 chk 中的笛卡尔 Hessian，不能用优化更新的近似 Hessian 冒充；取向要求沿用下面 T25 检查。Guess=Read 也须核对方法、电荷、多重度、原子顺序和几何。
+反方向另建 Attempt，改为 `reverse` 和 `%chk=irc-reverse.chk`，引用同一父 chk。**坐标仍须显式写在输入中**；`Geom=Check`/`Geom=AllCheck` 不允许。RCFC 读取先前完整频率计算得到并保存在父 chk 中的笛卡尔 Hessian，不能用优化更新的近似 Hessian 或 xTB 本地导入分析冒充；官方语义见 [IRC：Options For Generating Initial Force Constants](https://gaussian.com/irc/)（2026-10-29 核对），取向要求沿用下面 T25 检查。Guess=Read 也须核对方法、电荷、多重度、原子顺序和几何。
 
 使用 RCFC/ReadFC 前，对父 TS 运行 `ag facts`，坐标取其 `final_input.xyz`
 （最终几何的 Input orientation，去掉 XYZ 前两行），保持原子顺序；
@@ -145,18 +144,9 @@ ag irc-review --study <study_dir> --ts <ts_id> --forward <forward_irc_id> --reve
 
 ## 7. 常见失败与处理
 
-`Maximum number of corrector steps exceded`、达到 MaxPoints 但未满足第 6 节四条判据，或一侧失败时，
-保留结果、写明“IRC 未完成”并停止报告。先核对起点、原子映射、RCFC 取向和方法；首点失败不能
-直接归咎于平坦区。确认取向正确、部分轨迹已走出后，平坦区校正失败可依次提出：
+`Maximum number of corrector steps exceded`、很快停止、两个方向折回同一侧、达到 MaxPoints 但未满足第 6 节四条判据，或一侧失败时，保留结果并写明“IRC 未完成”。先核对 TS 的定位精度（残余梯度、曲率及目标模式）、原子映射、RCFC 取向与同一势能面设置；不能先把首点失败归咎于平坦区。
 
-1. 缩小 StepSize，例如由 10 到 5，比较已接受点、失败位置与轨迹，而非只看退出码。
-2. 校正仍在改善但达到次数上限时增大 MaxCycle，例如由 20 到 40；
-   不能用增加 MaxPoints 代替校正器收敛，也不用 `ReCorrect=Never` 掩盖失败。
-3. 若 Hessian 更新不足，核对方法/算法支持后改用 CalcAll（每点重算），
-   或 `irc=(calcfc,recalc=N,...)` 定期重算；N>0 为每 N 个预测步，
-   N<0 为每 |N| 个校正步，ReCalc 仍需指定初始 CalcFC/RCFC，且要求解析二阶导数。
-   语义见 [Gaussian IRC 手册（镜像）](https://theochem.mercer.edu/chm295/g09ur/k_irc.htm)；
-   使用前核对实际版本，说明增加 Hessian 计算的成本。
+补救的证据、一个最小改动和复验统一见 [失败诊断症状表](failure-diagnosis.md#症状与最小补救)。起点问题排除后才按轨迹证据选择步长、校正次数、点数或算法；固定 StepSize 示例不适用于所有体系，MaxPoints 不能替代校正器收敛，也不用 `ReCorrect=Never` 掩盖失败。参数修改须核对实际 Gaussian 版本与成本。
 
 每次修改均提出新 Attempt，保存完整参数、依据和代价，手动模式经人确认后提交；
 这些建议不授权重提旧 Attempt；新 Attempt 的有界补救按 [失败诊断](failure-diagnosis.md)和上述 AGENTS 模式规则处理。
