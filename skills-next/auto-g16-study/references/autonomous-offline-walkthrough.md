@@ -12,6 +12,7 @@
 | T187 | `80e959938c8888bf1aefe853be43ca276fd81439` |
 | T188 | `9bbebcc527d6864c79b7fd02a37599a332c3bdac` |
 | 四源组合 | 按 `frozen-combination-manifest.json` 与 `source-snapshot.before.json` 的文件映射逐项核验；437 文件聚合 SHA-256 为 `8c90dbe3bc98e985bacb479e85644141c3253510fd62535e16c6678715282c17` |
+| 首次路由身份增量 | T186 `dcf71f026ed9f35603803608185c1c22707d914e`；其余三源不变。437 文件聚合为 `a00c4d59f0ca9ab1cc6e3cd85f3763ff3598f41946de415d31dd2b301ae79099`；只适用后述增量验证，不重标旧全量结果 |
 
 组合来源由协调方固定，T190 在独立临时副本演练，未改动协调方全量测试检出。副本本地快照提交 `8ce2230ab7f30d19b047d64cd19d12387f8eb74d` 只使计划能记录干净源码，不单独代表四个源提交；来源以完整文件映射为准。全部离线结果均不代替敏感路径的现场验证。
 
@@ -109,6 +110,24 @@ ag autonomy start --study '<S>' --plan '<P>' --owner '<NEXT>' --takeover-reason 
 | 17 项预算/放宽规则回归日志 | `54d80847ae8ea43bc4ad57b947abe2be10e22c1aadc4db77669f324db06c4807` |
 | 协调方全量结果摘要 | `71791e42c483ca8442b7af08e3aab086597bc9ad0bc4e1c41d0f52247cf11b25` |
 
+## 首次路由身份补充验证
+
+对上述增量组合另建独立副本，前后核对全部 437 文件无漂移；本地干净快照 `a99532965d897a52f0f5f5df11a99f36f206c7fd` 仅用于版本记录。与旧映射相比，受测源码只变 route.py 与 test_route.py；保留旧组合及其 247 项/全量证据，不重复执行或扩大它们的适用提交。
+
+实际执行 **2 次帮助、7 次本地 CLI（1 次预期拒绝）**：route 与 autonomy plan 帮助；route 的 config-identity JSON、文本、重复 JSON 查询；混入 template 参数拒绝；随后在隔离合成 study 中 init → plan → status。取哈希前不存在 study、计划、规则或监控快照；只把正式配置加载器指向临时合成配置，不替换身份算法。三个成功查询均与实际 T185 身份函数一致，返回值原样写进本模板的 submission_policy，由正式 plan 完整解析并保存。
+
+取哈希阶段拦截文件写入、创建/改名/删除、锁、监控/路由选择、进程及网络，调用尝试均为 0，文件字节和目录集合前后相同。后续 init/plan/status 按设计写本地状态、计划及 `autonomy-submit.lock`；不把这一阶段说成无写入。完整演练网络/Transport 尝试 0、Attempt 0、study.md 未变、规则文件 0，未 confirm/begin/start。夹具初次误把 status 正常创建的锁文件当成规则文件；修正这一断言后完整通过，不修改产品代码。
+
+另核对协调方增量报告：237 passed，退出 0，前后映射均为 `a00c4d59…ae79099`，来源无漂移。其中现有 `test_config_identity_bootstraps_without_plan_snapshots_or_side_effects` 及五项 `test_config_identity_uses_actual_t185_digest_and_tracks_configuration_changes` 使用实际 T185，覆盖原始配对与 routing/resources/partition/capabilities/identity 改变；不是 mock 出来的固定哈希。这六项属于协调方结果，T190 未重复运行。所有结果仅为离线证据。
+
+| 增量证据 | SHA-256 |
+| --- | --- |
+| 2 项帮助 `help.json` | `81f17156d7128e6998df66c087aa80b4b996f73793444166b7bcb07b9a5f37fe` |
+| 7 次 `commands.json` | `6d13494d64bd242cdecb355e4348f47ed2122a38bf61dc31159266bee37103ed` |
+| T190 `report.json` | `f85c536f61da9e38b669f2b58dbfd21692c62eb072718fd7ffaa06a10397f9c0` |
+| 协调方增量结果 | `ac7db03a09a97493049fd13ec06c9f084a371797294e3eb87d709074b22cd9e9` |
+| 协调方 237 项日志 | `c5e30b0529af553c4c7102eb16752d3327b5c6543116b70b8f4d12beaa47866c` |
+
 ## 合成分支逐项走读
 
 下表输入是人为构造的返回片段/证据条件，**不是真实集群输出，也不是可写回 state 的 schema**。逐项按短卡实际作出下一步选择；“拟执行”列正式入口及用途，参数见下节实际帮助核验。本表走读不 dispatch 远程动作；独立的本地 CLI 和 FakeTransport 回归证据见前两节。表中“保存”均指有有效 owner 时的正式 update；“暂停”指正式 pause；“收尾”指 finish。
@@ -150,6 +169,7 @@ ag autonomy start --study '<S>' --plan '<P>' --owner '<NEXT>' --takeover-reason 
 | status / snapshot / fetch | 本次 `--run`、`--token`、`--plan-sha256`；fetch 接 Attempt ID，不带 `--study`；snapshot 可带 study/max-bytes |
 | prepare / submit | `--autonomous-policy`、`--run`、`--token`、`--plan-sha256`、`--object-id`、`--job-class`；补救加 `--failure-class`，改投后继加 `--reroute-source`；prepare 仍须模板、输入、walltime、label、method-basis 等基础参数 |
 | prepare 的放宽输入 | `--relaxed-input`，有附件才逐项 `--include-file`；不能据此绕过规则和方法边界 |
+| route 的首次配置身份（上述 T186 增量） | `--config-identity`，可加 `--json`；不需要计划/规则/快照，不能混入其他路由参数；只返回 routing_sha256，不选节点或创建授权 |
 | route 的自主分支 | `--study`、`--template`、`--job-class`、`--round-id`、`--run-id`、`--object-id`、`--walltime`、`--autonomous-policy`、`--token`、`--plan-sha256`；CREST/xTB 另带 tier，Gaussian 阶梯不带 tier |
 | autonomy 的 scientific-review | `--study`、`--attempt`、`--run`、`--token`、`--plan-sha256`、`--object-id`、`--reason` 均须提供；`--outcome` 为 `ts_zero_imaginary` / `ts_wrong_mode`，方向错误另需 `--mode-review` 来源报告 |
 | cancel 的自主路径 | Attempt ID 与 `--run`、`--token`、`--plan-sha256`、`--autonomous-policy`、`--reason`；`--kind no_progress` 加 `--reviews`，`--kind reroute` 不加 reviews |
@@ -159,8 +179,8 @@ ag autonomy start --study '<S>' --plan '<P>' --owner '<NEXT>' --takeover-reason 
 
 1. **study.md 写入**：组合 `study.py` 仅 init 新建 study.md，CLI 无受 owner 保护的更新入口。manual-writers/release-writer 管登记和释放，不是文档写入命令。自主期用 update 保存待写摘要；一次 check 后直接编辑仍有失权窗口，不采用。
 2. **本地科学写工具**：fetch 自动 facts 有发布保护；独立 facts CLI 没有 run/token 接口，走手动 writer 保护。review 和模式报告命令也不能从帮助推导出 owner 支持。需新写模式报告等依赖步骤时交人处理，已有来源绑定报告可按 scientific-review 核验；不把 Python API 有 guard 误写成每个 CLI 都支持。
-3. **首次路由身份**：本次组合 `route.ladder_config_identity` 有内部实现；自主 route 要求已存在绑定该哈希的规则/计划，不能用于首次建立它们。普通只读 route/clusters 帮助与返回路径未提供独立配置身份导出；缺少首次取得规范哈希的正式入口。T186 将补只读 CLI，尚待新固定 SHA 与帮助核验；不能手算或用自由 Python 补操作旁路。
+3. **首次路由身份已补齐**：T186 增量的正式 config-identity 入口已按上节实际验证；不再列为本组合缺口。未集成该入口/实际 T185 的检出仍不能首次绑定；不把配置身份导出等同资源核验或授权。
 4. **熔断职责**：update/status 能保存恢复来源，模型计数后 pause；不要求新聚合命令。保存当前/前次不同 wake 的成功或失败结果及来源，本 wake 按对象 ID 去重。仅来源缺失、损坏或失权无法保存时列具体阻塞；不是内核自动聚合，也不替代实际提交消费。
 5. **计划文本**：逐类耗时/试点标志仍在现有文本，没有结构化字段；计划的科学边界及所有中间判断仍待人审阅。
 
-验证结果在 [T190 任务单](../../../docs/redesign-tasks/T190-autonomous-run-card.md)中同步。上述缺口只阻断依赖它们的操作；不把缺一个特定命名命令扩大为其他已实现路径不可用。核心合并前现场验证、自主启用与 T198 非研究试点仍须独立完成。
+验证结果在 [T190 任务单](../../../docs/redesign-tasks/T190-autonomous-run-card.md)中同步。第 1/2 项的写保护后续任务 T206/T207 尚待范围批准，不假定已经实现。缺口只阻断依赖它们的操作；不把缺一个特定命名命令扩大为其他已实现路径不可用。核心合并前现场验证、自主启用与 T198 非研究试点仍须独立完成。

@@ -2,6 +2,8 @@
 
 只用于已按 [AGENTS](../../../AGENTS.md#自主运行)显式启用的轮次；该处是规则正文。本卡的离线证据不能启用真实计算。先查[组合命令与缺口](autonomous-offline-walkthrough.md#接口核验与缺口)，再读[已确认计划](autonomous-plan-template.md)；接口缺失就停止依赖动作，不用自由 Python、SSH 或新脚本代替。
 
+首次建计划按[模板](autonomous-plan-template.md#首次取得路由身份)使用 route 的只读 `--config-identity --json` 入口，将返回的 `routing_sha256` 纳入提交边界；它不需要已有计划/规则，也不证明资源可用或赋予提交权。配置变化不能把新哈希直接换入已确认计划。
+
 ## 1. 恢复与取得本次租约
 
 读正式状态的 `phase`、计划哈希、当前 round、租约、本轮实际提交计数、`summary`、`pending` 及相关对象；需要时再读对应证据，避免全量重读日志。状态损坏/无法核验不能按空状态继续。
