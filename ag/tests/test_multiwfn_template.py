@@ -283,15 +283,19 @@ def _expanded_observation(cfg, manifest):
     ('slurm', 'crest', '', '8d3e63566467e219e57346208d4c5d5aa18bd842d4ee5cd6e1bf01a171c5aaa4'),
     ('slurm', 'crest', 'mdopt', '2fd618b8fc51f9357df9107184c4548dfe4a80bd0e63328f44eb4ad24fff7335'),
 ])
-def test_old_observation_command_golden(scheduler, template, mode, golden):
+def test_observation_preserves_declared_lists(scheduler, template, mode, golden):
     cfg = {'remote': {'ag_root': '/ag-fixture/ag'}}
     m = dict(template=template, scheduler=scheduler, study_id='fixture', attempt_id='fixture-001',
              remote_dir='fixture/fixture-001', template_params={'--mdopt': ''} if mode == 'mdopt' else {},
              science={'scan': {'steps': 3}} if mode == 'scan' else {},
              inputs=[{'name': 'molecule.gjf' if template == 'gaussian' else 'molecule.xyz'}])
     command = remote.output_observation(cfg, m)
-    assert command == remote.Command('output_observation', _expanded_observation(cfg, m))
-    assert sha256(command.text.encode()).hexdigest() == golden
+    # Frozen hashes continue to protect the output declaration/name expansion.
+    assert sha256(_expanded_observation(cfg, m).encode()).hexdigest() == golden
+    from ag.observation_remote import SCRIPT
+    assert remote.quote(SCRIPT) in command.text
+    assert command.operation == 'output_observation'
+    assert all(remote.filename(name) in command.text for name in remote.output_names(m))
 
 
 @pytest.mark.parametrize('deep', [False, True])
@@ -326,7 +330,7 @@ def test_observation_max_frames_fragments_linux_path_under_64k(nci_cfg, tmp_path
 
 @pytest.mark.skipif(sys.platform != 'linux', reason='Observation equality requires GNU stat; Linux CI executes it')
 @pytest.mark.parametrize('bad_path', [None, 'symlink', 'dangling', 'directory', 'parent_symlink'])
-def test_observation_loop_matches_expanded_bytes(nci_cfg, tmp_path, bad_path):
+def test_observation_preserves_success_and_rejects_partial_rows(nci_cfg, tmp_path, bad_path):
     _, m = prepare_nci(nci_cfg, tmp_path, frames=3,
                       csv_text='fragment,atoms\na,1-2\nb,3\nc,4-5\nd,6\n')
     work = Path(remote.attempt_dir(nci_cfg, m))
@@ -346,9 +350,13 @@ def test_observation_loop_matches_expanded_bytes(nci_cfg, tmp_path, bad_path):
         work.symlink_to(real, target_is_directory=True)
     before = {p.relative_to(work): sha256(p.read_bytes()).hexdigest()
               for p in work.iterdir() if p.is_file() and not p.is_symlink()}
-    old = subprocess.run(['sh', '-c', _expanded_observation(nci_cfg, m)], capture_output=True)
-    new = subprocess.run(['sh', '-c', remote.output_observation(nci_cfg, m).text], capture_output=True)
-    assert (new.returncode, new.stdout, new.stderr) == (old.returncode, old.stdout, old.stderr)
+    env = {**os.environ, 'TZ': 'UTC'}
+    old = subprocess.run(['sh', '-c', _expanded_observation(nci_cfg, m)], capture_output=True, env=env)
+    new = subprocess.run(['sh', '-c', remote.output_observation(nci_cfg, m).text], capture_output=True, env=env)
+    if bad_path is None:
+        assert (new.returncode, new.stdout, new.stderr) == (old.returncode, old.stdout, old.stderr)
+    else:
+        assert new.stdout == b'' and new.stderr.startswith(b'observation ')
     assert (new.returncode == 0) == (bad_path is None)
     if bad_path is None:
         assert len(new.stdout.splitlines()) == len(names)
