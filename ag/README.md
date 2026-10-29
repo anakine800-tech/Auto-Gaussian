@@ -317,6 +317,110 @@ study 内符号链接、歧义、非法显式路径、空分析目录、收集�
 已签 `ag-review-manifest/1` 只哈希、不展开；schema 名保持不变。
 没有上述新分类条目时清单格式不变。
 
+## 本地自主运行记录：autonomy
+
+`ag autonomy` 在已有 study 的 `autonomy/` 内保存计划、运行租约和日志，
+只加载本地配置，不连接集群、不运行量化程序，也不修改 Attempt、facts、签字或 `study.md`。
+本模块尚未接入 `ag prepare`、`ag submit`、`ag cancel`；计划确认和资格检查都不是提交批准，
+这些记录本身不能启用自主计算。所有子命令默认输出 JSON，接受 `--json`。
+
+先准备计划正文 JSON，再依次执行；尖括号内容须替换为实际值：
+
+```sh
+ag autonomy init --study '<STUDY>'
+ag autonomy plan --study '<STUDY>' --input '<PLAN_JSON>'
+ag autonomy confirm --study '<STUDY>' --plan '<PLAN_ID>' --sha256 '<PLAN_SHA256>' --quote '<负责人确认计划的逐字原话>'
+ag autonomy start --study '<STUDY>' --plan '<PLAN_ID>' --owner '<SESSION_ID>'
+ag autonomy status --study '<STUDY>'
+```
+
+`plan` 返回新 `plan_id`、完整计划和 SHA-256，创建不会自动确认。
+`confirm` 核对原计划字节、哈希、版本和有效期后追加原话；CLI 不能验证说话者身份，
+会话须核对负责人确已确认。已有计划文件从创建起即不覆盖；修改计划须先结束当前运行，
+再创建、审阅和确认新计划，旧确认不转移。
+
+`<PLAN_JSON>` 只含下列字段；版本和创建时间由命令从实际运行环境取得，不能由输入替换：
+
+| 字段 | 值与含义 |
+| --- | --- |
+| `goal` | 非空目标文本 |
+| `comparison_groups` | 非空字符串列表，列出比较组 |
+| `method_policy` | 非空方法口径文本 |
+| `mechanism_scope` | 非空机理范围文本 |
+| `system_rules` | 只含 `main`、`small` 的对象，两项均为非空判定规则文本 |
+| `estimated_hours` | 正的有限数，耗时预估（小时） |
+| `attempt_limit` | 正整数，本地 Attempt 意图的累计上限 |
+| `valid_until` | 晚于创建时间的 Unix 时间戳（UTC 秒） |
+
+保存的 `versions` 包含 `ag_version`、完整 `git_commit`、`dirty` 和实际安装的
+`rdkit`、`goodvibes` 版本。创建计划要求 ag 源码检出干净、提交可核验且两项依赖版本可读，
+避免同一提交号下不同未提交源码沿用旧计划。确认、开始及动作检查核对当前版本与计划一致；
+版本改变须创建并重新确认计划，不硬编码历史依赖版本。
+
+`start` 返回本轮 `run_id` 和 `token`，持有者后续命令须同时提供。令牌只在开始结果中返回，
+状态查询不公开令牌哈希。单次运行从开始起严格少于 60 分钟；到 60 分钟时旧持有者不能再写入或通过动作检查，
+租约仍保留至 90 分钟，不能借恢复或续期延长本轮。正常结束应在 60 分钟内执行 `finish`。
+
+```sh
+ag autonomy check --study '<STUDY>' --run '<RUN_ID>' --token '<TOKEN>' --sha256 '<PLAN_SHA256>' --for-action prepare
+ag autonomy update --study '<STUDY>' --run '<RUN_ID>' --token '<TOKEN>' --input '<UPDATE_JSON>'
+ag autonomy pause --study '<STUDY>' --reason '<暂停原因>'
+ag autonomy resume --study '<STUDY>' --run '<RUN_ID>' --token '<TOKEN>' --reason '<明确恢复原因>'
+ag autonomy finish --study '<STUDY>' --run '<RUN_ID>' --token '<TOKEN>' --reason '<本轮结束原因>'
+```
+
+`<UPDATE_JSON>` 只含 `summary`（字符串）、`pending`（非空决定事项的字符串列表，可为空列表）、
+`objects`（对象 ID 到动态内容的映射）。它不接受计划、租约、计数等生命周期字段。
+`pause` 无需持有者令牌，只等待短文件事务；发布后检查拒绝新的准备、提交、补救、取消和改投动作。
+暂停时当前持有者仅可检查 `observe`、`fetch`、`organize` 并整理记录或结束本轮，仍受原期限、计划及版本核验约束。
+暂停标志在结束和接管后保留，必须由当前持有者显式 `resume` 才能恢复；无回复或超时不视为恢复。
+
+90 分钟到期后，可显式接管仍有效的计划；日志记录被接管租约与原因，新运行生成新令牌，旧持有者不能写入、恢复或结束新运行：
+
+```sh
+ag autonomy start --study '<STUDY>' --plan '<PLAN_ID>' --owner '<NEW_SESSION_ID>' --takeover-reason '<接管原因>'
+ag autonomy recover --study '<STUDY>' --reason '<关闭过期租约并保留记录的原因>'
+```
+
+上面两条是不同处理方式。无令牌的 `recover` 可在 90 分钟到期后记录并关闭旧租约，
+即使旧计划已经过期，也可随后创建新计划；它不会开始运行或清除暂停。未到期的租约不能这样关闭。
+
+计数只追加本地意图，按请求、对象、失败类别和本轮追溯：
+
+```sh
+ag autonomy count --study '<STUDY>' --run '<RUN_ID>' --token '<TOKEN>' --kind remedy --request-id '<REQUEST_ID>' --object-id '<OBJECT_ID>' --failure-class '<FAILURE_CLASS>' --evidence '<本地意图依据>'
+```
+
+`kind` 为 `attempt`、`remedy`、`cancel` 或 `reroute`。同一请求 ID 在同轮以相同内容重试仅返回确认，不重复计数；
+改内容或改轮次复用请求 ID 会拒绝。累计计数不因新轮、接管或修订计划归零。
+`attempt_limit` 限制新增 `attempt` 意图和 `prepare` 资格；`submit` 检查不据累计值拒绝已计数的最后一个 Attempt。
+真实提交数仍须由后续集成核对不可变声明和绑定；JSON 明示 `submission_counts_verified: false`，
+不能把人工增加计数当作实际提交或取消的证据。
+
+文件均位于 study 的 `autonomy/`：`plan-<PLAN_ID>.json` 为不可变计划；`journal.jsonl` 为追加事件；
+`state.json` 是含 `seq`、`journal_sha256`、`state` 的原子快照；`store.lock` 是不删除、不更换的短操作 OS 互斥文件。
+状态保存 `phase`（`running` / `paused` / `ended`）、暂停标志、当前计划、租约、本轮与历轮记录、
+摘要、待决定、动态对象及计数；只读输出另给当前 `plan_sha256`、`versions`。
+日志含序号、前项 SHA-256、时间、动作及数据；每次先追加并落盘日志，再原子发布状态并同步目录。
+普通命令要求状态与完整日志一致，`status` 和 `check` 不创建文件或修复记录。
+
+若进程在日志落盘后、状态发布前退出，普通操作拒绝继续；仅可显式恢复已核验的旧快照：
+
+```sh
+ag autonomy recover --study '<STUDY>' --run '<RUN_ID>' --token '<TOKEN>' --reason '<核验后的崩溃恢复原因>'
+ag autonomy start --study '<STUDY>' --plan '<PLAN_ID>' --owner '<NEW_SESSION_ID>' --takeover-reason '<过期接管原因>' --recover
+```
+
+第一种仍要求当前持有者和 60 分钟内期限；第二种要求 90 分钟过期接管。
+无租约的有效旧快照也可用无令牌 `recover` 发布。完整初始化事件是唯一允许恢复缺失初始快照的情形；
+其他缺失状态、截断或修改的状态、部分日志、哈希不符均拒绝，计数不会退回零。
+恢复追加新记录，保留旧日志与失败遗留文件；不要手工删除锁、截断日志或重跑初始化来清除错误。
+
+供后续集成的 `action_guard(...)` 在同一短互斥内核对计划哈希、版本、持有者、期限与暂停，
+只能包住短本地声明或决定，不能包住网络操作或完整运行，也不能嵌套调用其他 autonomy API（会再次获取锁）。
+`check(...)` / CLI `check` 只表示检查当时的结果，
+不能缓存为以后提交的许可证；后续入口须在各动作边界重新检查，并独立满足现有提交、取消及证据要求。
+
 ## 本地开发与验证
 
 从仓库根目录运行 `python -m pytest ag/tests`，测试通过替身模拟远程操作。

@@ -206,6 +206,8 @@ def main(argv=None):
     parser.add_argument('--version', action='version', version=__version__)
     subparsers = parser.add_subparsers(dest='command')
     register(subparsers)
+    from ag.autonomy import register as register_autonomy
+    register_autonomy(subparsers)
     from ag.route import register as register_route
     register_route(subparsers)
     from ag.parent_chk_report import register as register_parent_chk_report
@@ -231,8 +233,8 @@ def main(argv=None):
     try:
         if args.command == 'monitor' and args.track and (args.retry is None or not args.json):
             raise ValueError('--track requires --retry and --json')
-        if args.command in CONFIG_COMMANDS and not (args.command == 'review' and args.action == 'manifest'):
-            args.config = load_config(local_only=True) if args.command in ('review', 'approve') else load_config()
+        if args.command == 'autonomy' or (args.command in CONFIG_COMMANDS and not (args.command == 'review' and args.action == 'manifest')):
+            args.config = load_config(local_only=True) if args.command in ('review', 'approve', 'autonomy') else load_config()
         return args.func(args)
     except UnknownSubmission as exc:
         code = 3
