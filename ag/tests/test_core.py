@@ -1475,7 +1475,9 @@ def test_autonomous_cancel_local_failures_never_reissue(autonomous_cancel_case, 
     assert len(case.calls) == int(stage in ('response', 'ledger'))
 
 
-def test_autonomous_cancel_reroute_missing_t185_never_queries_or_consumes(autonomous_cancel_case):
+def test_autonomous_cancel_reroute_missing_t185_never_queries_or_consumes(autonomous_cancel_case, monkeypatch):
+    from ag import route
+    monkeypatch.delattr(route, 'autonomous_selection', raising=False)
     case = autonomous_cancel_case
     with pytest.raises(ValueError, match='T185'):
         run_autonomous_cancel(case, kind='reroute', reviews=None)
