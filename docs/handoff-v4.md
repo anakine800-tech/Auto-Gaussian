@@ -1,17 +1,38 @@
 # 当前开发与运维交接
 
-核查日期：2026-10-29；后端基线 `20840ee7a51dae4e4da1c75dd6eef63052d47802`。包版本仍为 4.6.3，版本号不能区分其后合并的功能提交。下表说明代码/文档进度；运行检出、前端配套和现场验证以对应证据为准，本页不表示已部署或科学验收。
+核查日期：2026-10-29；当前已合并功能基线 `7dba69194e0093dca955b98d9220653f8dd7e038`。
+T176 已验收合并，T178 已完成 v4.7.0 发布候选的本地全量验证，最终 HEAD 审阅、CI 与前端配套单独核对；本批尚未建 tag/Release 或部署。
+已合并的 21 个后端 PR 完整清单、行为和覆盖边界见 [CHANGELOG v4.7.0](../CHANGELOG.md#v470)。
 
 | 当前能力 | 依据与边界 |
 | --- | --- |
-| 默认档位、路由 walltime、单节点容量与具名 PBS 排队 | T154–T157 已合入；路由核对已提供 walltime 与配置上限，容量不足/未知分开。快照建议不保证实际启动，调度器运行限额不由 ag 实施。 |
-| CREST 诊断 | T159 已合入，诊断保留错误/警告/未知信息的文件、行号、哈希；新声明集合与旧取回记录分开。现场覆盖缺口见 LESSONS，不能写成所有分支已实测。 |
-| σ 与 IRC 说明 | study 模板已有 σ 约定字段；profile 已说明 IRC 只证明连接、不能证明产物比例。填写与科学审阅仍由人完成。 |
-| TS 分阶段卡片 | T166 已完成总入口、ts-guess、ts-search、irc 拆分；各卡统一 285 行上限，旧 Attempt 快照不变。 |
-| 本地诊断与分析 | T161/T162 批量错误和原子对应、T164 父 chk 报告、T165 既有 SMD 单点组合已合入；T163 仅为 Hessian 导入规格，导入器未实现。 |
-| 远程观察缺陷 | T167 调查已合入；EACCES/ENOTDIR 缺失误判和 receipt 替换窗口在本基线仍未修复。本轮 T175 尚须最终实现、独立审阅及必要合并前真实验证；历史 unreadable 根因仍未知。 |
+| 默认档位、walltime、单节点容量与具名 PBS 排队 | T154–T157 已合并。快照建议不保证启动；节点/作业不能匹配保持 unknown，可见性根因未确定，共享/排队正例未全部实测。 |
+| CREST 诊断 | T159 已合并。旧普通 PBS/Slurm 正式取回兼容要求已满足；新输出集合、mdopt、不完整取回和真实错误的额外现场范围仍披露未覆盖，不伪造自然故障。 |
+| 本地诊断与分析 | T161/T162 批量错误与原子对应、T164 父 chk 报告、T165 既有 SMD 单点组合已合并；T176 在 T163 历史规格基础上实现有限 xTB Hessian 本地导入与显式单候选 G0 analyses 来源。 |
+| TS/构象与方法说明 | T166、T169、T170 阶段卡与构象分支已合并；T173 方法先例定位、T174 历史来源整理不改变方法值或科学范围。 |
+| 远程观察缺陷 | T175 已在 #370 合并并通过独立审阅/CI；原 10 次观察外，新增 8 次调用各一次且通过预定判据。helper 覆盖两个 PBS 与两个 Slurm 入口，含 Multiwfn 隔离副本 status 保持 fetched；自然输出缺失、另一个未测 PBS 入口和完整新作业生命周期仍未覆盖。 |
+| 历史 unreadable 调查 | T167 关键底层诊断未保存，历史根因无法判定；两个独立复现代码缺陷由 T175 修复，不以此声称原根因已查明。 |
 
-当前入口：[开发与验证](DEVELOPING.md)、[部署目标与授权适用表](OPERATIONS.md#部署目标与授权适用表)、[经验记录](LESSONS.md)、[文档索引](README.md)。本轮配置维护不授权恢复已停止的监控；代码合并不自动更新运行环境。开发机采用已审阅合并提交的长期部署策略仍待负责人确认。
+协调方提供的既有私有部署记录确认：当时后端运行检出为 `c1a0d084fd5f53d1fb4ab15dd3c57c12ad447a8f`，前端为
+`fa48ab1a0c0d669233a189bb5457b143d07dd798`，包版本仍为 4.6.3；Docs/Skills 同步与本机资源配置维护已完成。
+这些是此前获准部署的事实，不是 v4.7.0 已部署的证据；真实配置值和原始记录只留私有目录。
+前端另已合并 [T179 #52](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/52)，
+合并提交 `8ceda045b1aa007c9dba882f287b11b4df12b840`；setuptools 固定为 84.1.0，前端运行代码与产品版本未改。
+上述 `fa48ab1a` 只表示此前部署/功能基线，不是当前前端 main。T177 已整合 T179；后端依赖不随本单更改。
+
+## v4.7.0 发布交接
+
+| 项目 | 当前状态 |
+| --- | --- |
+| 后端 T176 | [#371](https://github.com/anakine800-tech/Auto-Gaussian/pull/371) 合并为 `7dba69194e0093dca955b98d9220653f8dd7e038`；最终 head `e722d9887e288015ebd4630afa4ee9c1a1e485b7` 两路独立终审及五项 CI 通过，Linux 后端 6385 passed / 2 skipped、Skills 527 passed；真实非研究水包的格式/数值和公开副本审阅通过 |
+| 后端 T178 | 版本/发布清单候选；本工作树全量、扫描和最终 HEAD CI 记录见 [T178](redesign-tasks/T178-release-v4.7.0-backend.md)，合并仍由协调方按授权处理 |
+| 前端 T177 | 可并行准备；T178 合并后用其实际源码完成配套验证，再独立审阅及合并 |
+| 两仓发布合并 SHA | 尚不存在；由协调方在上述顺序完成后填入最终交接，不能使用当前功能基线占位 |
+| tag/Release 与部署 | 本批尚未执行；用户后续明确决定，升级/回退按 OPERATIONS，保留现有顺序与停止条件 |
+
+当前入口：[T178 工单](redesign-tasks/T178-release-v4.7.0-backend.md)、[开发与验证](DEVELOPING.md)、
+[部署目标与授权适用表](OPERATIONS.md#部署目标与授权适用表)、[文档索引](README.md)。
+开发机采用已审阅合并提交的长期部署策略仍待负责人确认；单次已执行更新不等于长期策略获批。
 
 ## 架构速览
 
@@ -50,18 +71,18 @@
 
 - catalog v2 升级不可降级；T162 已提供 [G0 显式原子对应](g0.md#显式原子对应t162)，reference/frequency 分别绑定来源。缺映射保持身份未核实、缺有效 frequency 映射不投影；`declared_verified` 只证明声明通过，不证明化学身份，也不新增提交门槛。立体标签仍须来自完全相同的几何。[T162 #359](https://github.com/anakine800-tech/Auto-Gaussian/pull/359)
 - T161/T162 批量在频率分段歧义或可定位到候选的映射声明/绑定错误时保留成功项，单列错误并返回 2，且不写任何候选事件；来源本身损坏等完整性错误仍停止。`ag scan-path` 仅支持一维扫描。[T161 #352](https://github.com/anakine800-tech/Auto-Gaussian/pull/352)
-- T163 已归档 [xTB Hessian 来源与本地导入规格](research/xtb-hessian-import.md)，并对齐 T162 映射接口；导入器仍未实现，真实配套文件、同框架几何和数值边界仍须补齐。G0 的 frequency 目标继续只接受 Gaussian，不能把 xTB `g98.out` 或 analyses 标识伪装成 Gaussian Attempt。[T163 #355](https://github.com/anakine800-tech/Auto-Gaussian/pull/355)
+- T163 保留为历史设计；[T176 #371](https://github.com/anakine800-tech/Auto-Gaussian/pull/371) 已实现 [有限的 xTB Hessian 本地导入](research/xtb-hessian-import.md#8-t176-本地导入接口)。该说明和 T176 任务内的 draft/待终审文字是合并前记录，最终状态以上方实际合并及 CI 定位为准。指定构建、同框架几何、有效质量及来源字节均须核验；不连接远程或生成 Hessian。单候选 `--modes-analysis` 使用独立来源描述符和显式原子映射，批量 Gaussian 来源不变，不把 xTB `g98.out` 或 analyses 标识伪装成 Gaussian Attempt。保留完整带符号谱；外部空间不能可靠分离时无可用模式，水包格式验收不等于科学驻点验收。
 - [TS 总入口](../skills-next/auto-g16-recipes/cards/ts.md)保留兼容锚点和核心判据，按[初猜](../skills-next/auto-g16-recipes/cards/ts-guess.md)、[搜索/Freq](../skills-next/auto-g16-recipes/cards/ts-search.md)、[IRC/端点](../skills-next/auto-g16-recipes/cards/irc.md)拆分；各卡恢复统一 285 行上限。[原指南整理稿](../skills-next/auto-g16-recipes/references/ts-initial-guess-guide.md)标注来源与过时说明，未改旧 Attempt 快照。
 - T127 仍串行采样；经转发时单条 SSH 约 10–20 秒、一轮可能 100–150 秒。重试启动需等待当前入口完成，新快照还需目标入口自身采样时间；电脑睡眠时停采，醒来自动恢复，首轮网络未就绪可能失败或退避。部署按 OPERATIONS 的睡眠判断与观察标准记录。
 - **T127 Transport 重复逻辑已由 T130 解决：** 当前 `MonitorTransport._execute` 通过 `super()._execute(..., observe_stderr=classify)` 复用基类执行与错误处理，仅在脱敏前分类错误；`ag/tests/test_connect_timeout.py` 已覆盖与基类的返回结果、超时及本地启动失败一致性。监控仍不立即重试，串行采样及睡眠恢复限制见上一条。[T130 #332](https://github.com/anakine800-tech/Auto-Gaussian/pull/332)
 - 前端证据库冷启动已有测量约 2.5 秒，source-map-js 临时 override 待上游修复后删除。
-- Gaussian-only 白名单入口已支持；Slurm 省略 Gaussian 配置、只运行 xTB/CREST 仍未支持，config 校验仍读取 Gaussian 路径。T159 已补 CREST 异常诊断与新输出集合；现场缺日志仍记未知，旧 manifest/取回记录不变，不自动补取或刷新，覆盖边界见 [T159 经验](LESSONS.md#crest-错误来源与旧取回集合t159风险预防)。
+- Gaussian-only 白名单入口已支持；Slurm 省略 Gaussian 配置、只运行 xTB/CREST 仍未支持，config 校验仍读取 Gaussian 路径。T159 已补 CREST 异常诊断与新输出集合；现场缺日志仍记未知，旧 manifest/取回记录不变，不自动补取或刷新，旧普通 PBS/Slurm 取回均已通过；新集合、mdopt、不完整取回与真实错误仍按上方发布摘要保留现场边界。
 - T108 facts 语义、T109 等价原子映射与 `--mirror report`、T112 doctor 独立 PBS 集群误报均已修复；既有 facts 是否重算及 catalog 是否补登记，由负责人逐 study 决定，不自动改写证据。
 - **C 批：TS 初猜工具链（T130–T139）已完成。** `ag catalog` v2（[#334](https://github.com/anakine800-tech/Auto-Gaussian/pull/334)）、`ag scan-peak --gaussian-ts --route`（[#335](https://github.com/anakine800-tech/Auto-Gaussian/pull/335)）、`ag qst-endpoints`（[#336](https://github.com/anakine800-tech/Auto-Gaussian/pull/336)）、`ag scan-path`（[#337](https://github.com/anakine800-tech/Auto-Gaussian/pull/337)）、`ag g0` 与模式投影（[#338](https://github.com/anakine800-tech/Auto-Gaussian/pull/338)、[#339](https://github.com/anakine800-tech/Auto-Gaussian/pull/339)）、`ag profile` 的最低 TS / 系综 / 差值三数报告（[#333](https://github.com/anakine800-tech/Auto-Gaussian/pull/333)）、卡片口径（[#340](https://github.com/anakine800-tech/Auto-Gaussian/pull/340)）和连接超时（[#332](https://github.com/anakine800-tech/Auto-Gaussian/pull/332)）均已合并；前端通道与候选只读面板见 [#40](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/40)。诊断和登记不是门禁或科学验收。
 - T155 路由已核对提供的 walltime 与入口配置上限，并排除单节点总规格装不下的排队回退；未提供 walltime、未配置时限或快照过期时明确未知，不把建议当作启动保证。
 - T164 已提供[父 chk 本地报告](parent-chk-report.md)，分别汇总实际频率日志、历史 checkpoint 关联和坐标来源；不读取 chk/fchk，内部力常数仍为 unverified，科学适用性仍由人审。它不改变 prepare/submit，不把坐标匹配或复制哈希当作 RCFC 可用证明。[T164 #358](https://github.com/anakine800-tech/Auto-Gaussian/pull/358)
 - T165 已支持 `cp-report --solvent-sp` 配合两项 `--solvent-fragment-sp <index>:<attempt>`，读取复合物几何下、片段自身基组的既有 SMD 单点。缺任一片段时相互作用能仍为 null；齐全时报告差值及加气相 BSSE 的近似值，不是结合自由能，不进入 thermo/profile。只完成合成组合验证，未新增配套真实 SMD 验证；详见 [CP 报告](ag-cp-1.md#已有片段-smd-单点t165)。[T165 #356](https://github.com/anakine800-tech/Auto-Gaussian/pull/356)
-- T62 远程观察改动在真实运行中出现 unreadable，已由 T65 回退，指定观察路径恢复，现场根因尚未确定。[T167 调查](research/unreadable-investigation.md)另复现 receipt/普通输出的 EACCES、ENOTDIR 缺失误判及 receipt 检查/读取替换窗口；本基线未修复，T175 最终证据到齐后再更新状态，不把本地复现当原事故根因。[#281](https://github.com/anakine800-tech/Auto-Gaussian/pull/281)
+- T62 的 unreadable 已由 T65 回退恢复指定观察路径；关键底层诊断未保存，[T167 历史调查](research/unreadable-investigation.md#历史调查结案边界2026-10-29)结案为根因无法判定。两项独立复现代码缺陷已由 [T175 #370](https://github.com/anakine800-tech/Auto-Gaussian/pull/370) 修复；未覆盖场景见上方摘要，不再将 T175 列为待开发，也不将修复归因为原事故。
 - T68 的 R1 已由 T89 修复：topology / irc-compare 识别固定编号下的共振等价；失败或超限保留 `unknown`，仍检查立体化学，共振等价不是电子密度证据。R2 已由 T73 修复，不确定接触不再单独把状态提升为 changed；确定变化仍列出。不要只凭总电荷、顶层状态或空差异列表签字，需结合原子映射、警告与结构审阅。[T89 #303](https://github.com/anakine800-tech/Auto-Gaussian/pull/303)、[T73 #288](https://github.com/anakine800-tech/Auto-Gaussian/pull/288)
 - T77：其他用户的 PBS 数组作业不再阻断本人核数统计、提交和监控；本人数组（含已完成但仍保留在 qstat 中的 C 记录）仍拒绝提交，`ag monitor` 也会报错，须等记录消失后再提交。ag 不提交或取消数组作业。[#291](https://github.com/anakine800-tech/Auto-Gaussian/pull/291)
 - 组里集群上作业结束后，PBS 有时仍短暂显示 R，曾观察到约 6 分钟后自行消失；ag 会将这类残留计入已占用核数，只会多算。该观察不等于任意残留都会自行消失。

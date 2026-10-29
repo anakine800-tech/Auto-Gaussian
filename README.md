@@ -1,8 +1,8 @@
-# Auto-Gaussian v4.6.3
+# Auto-Gaussian v4.7.0
 
 Auto-Gaussian 是人在回路中的计算化学助手：LLM 按 Skills 规划研究，人签字和确认，`ag` 负责安全把关与确定性计算。
 
-本次 v4.6.3 发布准备汇总已合并的 T148 PBS 监控准确性、T149 重试追踪与配置重读、T150 新 Gaussian 输入资源补齐；配套前端 v4.6.3 汇总 T147 显示修补与 T151 请求反馈，由 T153 独立准备。发布准备与已合入功能不代表已发布或已部署，详情见 [v4.6.3 发布说明](CHANGELOG.md#v463)。
+本次 v4.7.0 发布候选汇总 v4.6.3 之后已合并的 21 个后端 PR：入口默认档位、路由与节点容量、具名 PBS 排队、CREST 诊断、G0 来源对应、本地报告、有限 xTB Hessian 导入和文档修订。功能基线为 `7dba69194e0093dca955b98d9220653f8dd7e038`；配套前端 v4.7.0 由 T177 在 T178 合并后完成验证。功能合入、发布准备、发布与部署分别记录，详情见 [v4.7.0 发布说明](CHANGELOG.md#v470)。
 
 ## 架构
 
@@ -371,6 +371,21 @@ attempt 非空的 candidate-result 关联的 Attempt，跳过诊断等空来源�
 批量中明确的频率分段歧义单列于 `errors`，保留其他候选的完整诊断与排序，退出码为 2；
 批次未完整完成时 `--record` 不登记任何候选。哈希、台账、路径及其他证据错误仍停止整批。
 
+T176 还支持已有本地 xTB Hessian 的有限导入及单候选模式来源：
+
+```sh
+ag import-xtb-hessian --study '<STUDY>' --source ./local-source.json --out analyses/xtb-example
+ag g0 '<STUDY>' --object '<OBJECT>' --candidate '<CANDIDATE>' \
+  --modes-analysis analyses/xtb-example/analysis.json \
+  --atom-mapping ./atom-mapping.json --reaction-coordinate distance:1-2:breaking --json
+```
+
+导入只读本地来源，独占创建新 analyses；不生成 Hessian、不连接远程、不改 Attempt。
+当前仅接受已审计的 conda-forge osx-64 xTB 6.7.1 指定构建及普通 GFN2 路径，完整限制见
+[导入说明](docs/research/xtb-hessian-import.md#8-t176-本地导入接口)。`--modes-analysis` 与
+`--modes-attempt` 互斥，批量仍自动读取 Gaussian 来源。每次读取重新校验来源和分析字节；
+缺有效频率原子映射不投影，外部空间不能可靠分离时不提供可用模式，正常结束不证明驻点。
+
 默认只报告、不写文件、不跑计算。可选 `--record [--upgrade-catalog] [--dry-run]` 追加 diagnosed
 候选结果；**T140 部署之前，真实研究 study 不使用 `--record`。**
 G0 是本地诊断，不是门禁；不替代 DFT 验收；clean 只表示未发现问题。
@@ -416,12 +431,12 @@ TS 必须恰好一个虚频且振动方向与反应坐标一致；只有双向 I
 
 ## 前端
 
-ag 4.6.3 配合前端 [Auto-Gaussian-Frontend](https://github.com/anakine800-tech/Auto-Gaussian-Frontend) v4.6.3 使用；前端 T147 修正 Slurm Other/Idle 和四项页面反馈，T151 按入口、来源及请求标识展示采样终态。T153 独立同步前端包元数据、运行时与网页包版本，配套验收待其完成；启动方式见其 README。T145 具名 PBS 节点能力仅对显式配置入口启用，必须明确选择节点；分组、实时复查与现场限制见 [节点说明](docs/T145-node-targeting.md)。发布候选须经审阅后按明确授权发布，部署与真实计算分别验收。
+ag 4.7.0 计划配合前端 [Auto-Gaussian-Frontend](https://github.com/anakine800-tech/Auto-Gaussian-Frontend) v4.7.0 使用；前端已合并 T158 默认档位/容量/具名节点反馈、T160 CREST 诊断展示及 T179 setuptools 84.1.0 构建工具修复，T177 负责版本准备及最终配套验证。顺序为 T176 合并、T178 后端发布准备合并、T177 使用实际 T178 合并源码完成配套验证；当前尚未取得两个发布合并 SHA，不用功能基线代替。启动方式见其 README。T145 具名 PBS 节点能力仅对显式配置入口启用，必须明确选择节点；分组、实时复查与现场限制见 [节点说明](docs/T145-node-targeting.md)。发布候选须经审阅后按明确授权发布，部署与真实计算分别验收。
 
 T157 允许具名 PBS 节点已有本人/他人作业或具名排队时申请合法档位；半数/四分之一仍按注册总 slots 映射。
 `ag nodes --json` 的节点和比例选项新增 `selectable` / `selectable_reason`，选项附 T156 `capacity`；occupied 状态保持原意。
 总规格合法但当前资源不足可排队，分配内存未知仅作容量提示；精确身份、总规格、状态、一致性及两次提交复查仍必需。
-旧前端可继续保守禁选，T158 接续可选性展示；不改旧 manifest、脚本或 bundle。历史快照仅核对过期/未知与状态解释，未实测 PBS 并行共享。
+旧前端可继续保守禁选，T158 已提供可选性展示；不改旧 manifest、脚本或 bundle。现有现场证据覆盖空闲合法选项及节点/作业不能匹配时保持 unknown，不能据此证明占用、排队或 PBS 并行共享正例；可见性根因仍未确定。
 历史字段兼容性核对（前端提交 `e224d5a`）：结果表读取 `route`、`termination`、`energies.scf`、`energies.g`、`n_imag` 和 `frequencies_low`，这些字段未改名或删除；缺失值显示为空。
 分析页将 profile 作为完整 JSON 展示，没有专用剖面字段依赖。`ag-facts/1` 和 `ag-profile/1` 保持不变，新增字段不影响读取；分段解析修正可能改变旧值，不能把字段兼容理解成重新解析后数值必然不变。
 默认只读，读取本地 study、结果与保存的监控快照。`--enable-actions` 显式开启经本机 ag 执行的准备、提交、状态刷新、取回和取消；不绕过 ag 的提交授权核对或取消确认，也不直接执行远程命令。
@@ -611,6 +626,7 @@ python scripts/scan_public.py --staged
 
 - **v4.4.0**：T101 共享队列核数与核时提示、T102 按进展取回与取消后取回、T105 气相 Counterpoise 诊断、T106 可配置 PBS/排队上限与独立 CREST 路径；配合前端 v4.4.0，详见 [CHANGELOG.md](CHANGELOG.md#v440)。
 
+- **v4.7.0（准备中）**：T154–T176 的 21 个后端 PR 已合并，包含有限的本地 xTB Hessian 导入与单候选 G0 来源。前后端同号配套、最终验证与发布状态见 [发布说明](CHANGELOG.md#v470)。
 - **v4.6.3**：T148 PBS 重复节点容量、时间可信度和只读内存归属修正；T149 兼容默认四键的显式请求追踪、丢弃原因和配置重读缓存；T150 仅为新输入补缺失资源，不重写旧 Attempt。配套前端 T147/T151，发布准备与部署分开。[发布说明](CHANGELOG.md#v463)
 - **v4.6.2**：T145 显式 PBS 具名节点、半数/四分之一档位匹配、优先级分组、实时提交检查与运行位置核对；配套前端明确选择节点。原入口兼容，特殊 CPU 与现场竞争限制保留。[发布说明](CHANGELOG.md#v462)
 - **v4.6.1**：T141 Gaussian-only 显式模板白名单、T142 可选六档资源、入口级 PBS 高内存与单作业时限硬上限；配合前端 T143 节点分配与资源展示。升级和回退须同时核对配置兼容性，发布不等于服务器接入验收。[发布说明](CHANGELOG.md#v461)
