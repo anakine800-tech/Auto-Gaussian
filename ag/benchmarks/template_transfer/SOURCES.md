@@ -1,5 +1,12 @@
 # Inputs, provenance and limits
 
+Status (2026-10-29): the owner deferred T191 until after V4.8. The prototype
+and all source, mapping and failure evidence are retained in this branch and
+Draft PR #379. Algorithm research for this release has ended; this work is
+excluded from V4.8 capabilities and acceptance. No further algorithm trials or
+real TS calculations are authorized. Offline tests passing do not establish
+successful TS transfer. No merge, deployment or deletion is part of this closeout.
+
 This directory contains original T191 code and independently transcribed mapped
 SMILES for four pairs plus one attributed public small-molecule TS coordinate
 transcription. It contains no Gaussian logs, checkpoints, copied upstream code,
@@ -99,8 +106,8 @@ The prototype may refuse valid late TS geometries whose core bounds conflict
 with the reactant graph, or whose reactive stereocentres are nearly planar.
 The public B seed currently triggers this refusal for all four targets. Two
 offline diagnostic alternatives did not satisfy all constraints, so neither
-was adopted; work on this issue stops for coordinator review under repository
-rules. This is not permission to relax checks or change the reaction. It cannot certify outward rotation, diene geometry or
+was adopted. The owner has now deferred this work until after V4.8; algorithm
+research for the current release is ended and the failure evidence is retained. This is not permission to relax checks or change the reaction. It cannot certify outward rotation, diene geometry or
 frequency direction. Those require the full scientific protocol.
 
 A successful call exclusively creates a new directory with `guess.xyz`,
