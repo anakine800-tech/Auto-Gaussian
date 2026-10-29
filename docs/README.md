@@ -35,6 +35,7 @@ v4.0.0 起，从这一页进入仓库文档。先按身份找到自己的入口�
 2. 本次任务单；[任务单模板](redesign-tasks/TEMPLATE.md)用于开单，未完成任务清单见 [open-tasks.txt](redesign-tasks/open-tasks.txt)。
 3. [DEVELOPING.md](DEVELOPING.md)：模块地图、提交顺序、怎么加功能、离线/合并前真实验证/部署验收、PR 与发布、角色与审批。
 4. [LESSONS.md](LESSONS.md)：开发与现场经验，新增功能前查一遍有没有踩过的坑。
+5. [同骨架 TS 迁移基准](benchmarks/template-transfer.md)：T191 的四对公开小体系、完整预算和纯离线原型；尚未执行或科学通过。
 
 ## 审阅者
 
