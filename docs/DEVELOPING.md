@@ -94,7 +94,7 @@ SCNet 类末级运行加排队最多 4 个、兜底排队最多 2 个，按全�
 启动前逐项核对相关工具实现、敏感路径的合并前验证、非研究试点及本轮显式启用；缺任何一项都不能运行自主计算。本地状态工具的合成验证不代替这些证据；90% Attempt 阈值、失败分组暂停和六小时改投等完整规则仍待后续动作入口接入。开发会话的真实意外仍按 AGENTS 第 5 节立即停止；自主运行的暂停、补救和科学待确认事项按其专节，不把开发授权当运行授权。
 
 
-### T186 独立核验切片（未接入提交）
+### T186 本地核验与生命周期扩展（未接入提交）
 
 `approval.autonomous_policies.<name>` 与旧 `approval.policies.<name>` 分开；
 旧 `--policy` 只选择后者。前者当前仅通过配置和本地 Python 核验，不提供 CLI 提交入口，
@@ -107,16 +107,34 @@ methods、allow_relaxed；每个 cluster 明列 nodes、max_committed_cores、ma
 `nodes=[]` 只接受未具名目标，非空列表只接受精确具名目标；不接受通配符。
 所有字段参与规则内容哈希，原话空白保留；未知字段、矛盾上限、布尔核数或非有限数拒绝。
 
+计划可选 `spec.submission_policy` 保存 templates、clusters、max_cores_per_job、
+max_walltime、methods、routing_sha256、allow_relaxed 七项机器约束；
+Attempt 上限和有效期复用 `spec.attempt_limit` / `valid_until`，不重复设值。
+`check_plan_bounds` 要求规则与计划一致或更窄；方法及网格必须来自同一完整计划记录，
+不能跨记录组合较宽门槛。规则到期时间不得超过计划，计划不能被规则扩大。
+旧文本计划仍可回放，但不能通过此提交检查；新约束没有加到历史 count 事件的回放路径。
+各入口队列上限只要求不超过该入口总上限，不把异构入口的小额度当全局单作业上限；
+实际 Attempt 还需同时满足目标入口和全局限额。
+
 `autonomy_policy.check_attempt` 重新核验冻结 bundle 和模板脚本。Gaussian 复用
 `protocol` / `integration_grid`，核对泛函、基组及基函数类型、色散、溶剂和网格，
 额外独立核对受支持的 SCF/Opt/Freq 选项。所有 Opt 均执行规则的收敛下限，
 不读取模型填写的最终/预优化标签；规则允许的 SCF 算法、循环数等可变。
-无法证明的 route 拼写拒绝，不改变 profile 的分析行为。
-当前只核验闭壳层 Gaussian 以及有显式方法参数的 CREST/xTB；后两者核对冻结模板参数，
-不生成 Gaussian 口径。`allow_relaxed=true` 仍不跳过普通输入检查，T188 尚未接入。
+输出选项如 Pop=Full/Minimal、GFPrint/GFInput、Density=Current/SCF 保持普通方法核验，
+不要求放宽输入。未知关键字仍不能默认为不影响方法：第二个裸泛函、隐式色散、
+检查点继承或未识别的收敛拼写会绕过字段比较。只拒绝无法核验的语义或拼写，
+不把完整 route 的字节相等当作约束；profile 的分析行为不改。
+例如 [Gaussian Density 文档镜像](https://wanglab.hosted.uark.edu/g03guide/G03Guide/www.gaussian.com/g_ur/k_density.htm)
+说明 Density=Checkpoint 会隐含 ChkBasis/Guess=Only，因此不能把它当作单纯打印选项。
+当前五个已有模板均有核验路径：闭壳层 Gaussian、保留专用气相/片段限制的 gaussian-cp、
+显式方法参数的 CREST/xTB，以及显式 analysis/grid 的 Multiwfn。后三者核对冻结模板，
+不生成 Gaussian 口径；未知或未来模板拒绝。`allow_relaxed=true` 仍不跳过普通检查。
+T188 的单一 `manifest.input_validation` 字段尚未接线；本模块当前仍拒绝该标记。
 
 `check_budget` 是纯拒绝检查：调用者必须提供已核验的本轮累计 Attempt 数和共享账号
-实际/未观测占用，多个入口用最小限额；规则改名、计划修订和新唤醒均不是重置理由。
+实际/未观测占用，以及已确认计划的 spec，多个入口用规则与计划的最小限额；
+规则删去某个允许目标也不能丢掉计划中同账号较严入口的上限。
+规则改名、计划修订和新唤醒均不是重置理由。
 到 90% 返回需要暂停的结果，禁止批次越过首个暂停点；当前函数不消费、不写暂停、
 不证明调用者提供的分组或计数可信。T185 的特定格子数量及跨轮范围不在此函数中另写一套。
 
@@ -125,13 +143,22 @@ journal、submission/status 精确作业绑定。未消费 prepared、既有手�
 分别报告；损坏/截断/缺失证据拒绝，不能当零。现有 failed_presubmit 标签缺少不可变
 调度结果证明时仍保留额度；本地完成也不能证明已从调度器消失。它不推断自主本轮/唤醒
 归属，不产生 T185 placements，不能与调度器占用直接相加而重复计数。
+审计按文件映射及同一 `attempt.bundle(files)` 核对，保留 manifest 的原始哈希；
+不要求清单顺序等于字母排序，也不按 `.gjf` 数量或顺序识别主输入。
+放宽输入的方法核验接线仍须等待 T188 正式主文件/verified_files 接口，不复制未合并实现。
 
 待上游最终提交后接入：T184 短锁内消费与暂停、每个动作边界重读租约和规则、
-实际发生的 Attempt/补救计数、T185 原始证据适配及同算法重算、只读 route CLI、
+实际发生的 Attempt/补救计数、手动写动作保护、T185 原始证据适配及同算法重算、只读 route CLI、
 持久自主归属及 UNKNOWN 恢复。长远程 IO 不得占短锁；暂停/失锁后在途动作的
 线性化分界还未实现或验证，不能拿当前检查返回值作长期通行证。
-到期暂停后应仍允许在计划及运行版本可核验时取得已有作业的观察/取回推进权，
-同时拒绝新 prepare/submit；此路径仍待与 T184 最终接口联合验证。
+T184 的 `start --observe-only` 现在可为当前轮、当前已确认计划取得观察租约；
+到期仍可检查 observe/fetch/organize，版本、哈希及状态完整性仍必须可核验。
+观察租约禁止新计算、resume 和 count；普通 start 仍拒绝过期计划。
+租约的 60 分钟运行/90 分钟接管期限不变，接管换 token，旧 token 全部失效。
+普通 lease 内到期也可继续读取，不能恢复新动作。此扩展仍只是本地许可检查，
+尚未把 CLI status/fetch 接入该租约；旧 journal/state 的字段形状保持兼容。
+90 分钟只用于租约接管，不是跨唤醒监控证据的保鲜窗口；各次证据须绑定
+实际轮次、计划、运行记录与各自采样时间，动作时仍核验当前 owner。
 SSH/快照跨唤醒统计、取消 T187 和放宽输入 T188 尚未接入；没有启用自主能力。
 
 ## 提交流程：规范顺序

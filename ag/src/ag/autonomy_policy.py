@@ -7,6 +7,7 @@ here, and a successful return must never be used as a reusable authorization.
 """
 from copy import deepcopy
 from datetime import datetime, timezone
+import math
 import re
 
 from ag import approval, attempt, gaussian_input, render, study
@@ -14,10 +15,12 @@ from ag.config import cluster_name
 from ag.node_targeting import node_name
 
 SCHEMA = 'ag-autonomy-policy/1'
-SUPPORTED = {'gaussian', 'crest', 'xtb'}
+SUPPORTED = {'gaussian', 'gaussian-cp', 'crest', 'xtb', 'multiwfn'}
 PROTOCOL_KEYS = {'method', 'basis', 'basis_function_type', 'dispersion',
                  'solvent_model', 'solvent', 'integration_grid'}
 CONVERGENCE = {'normal': 0, 'tight': 1, 'verytight': 2}
+PLAN_BOUND_KEYS = {'templates', 'clusters', 'max_cores_per_job', 'max_walltime',
+                   'methods', 'routing_sha256', 'allow_relaxed'}
 POLICY_KEYS = {'schema', 'study_id', 'round_id', 'plan_sha256', 'templates',
                'clusters', 'max_cores_per_job', 'max_walltime', 'max_attempts',
                'expires_at', 'quote', 'set_at', 'methods', 'routing_sha256',
@@ -94,7 +97,7 @@ def _restricted(method):
 
 
 def template_method(template, value):
-    if template == 'gaussian':
+    if template in ('gaussian', 'gaussian-cp'):
         gaussian_method(value)
         return
     fields(value, {'parameters'}, 'template method')
@@ -105,26 +108,26 @@ def template_method(template, value):
     render.parameters(template, params)
     if template == 'xtb':
         require(params.get('--gfn') == '2', 'Autonomous xTB requires explicit --gfn 2')
-    else:
+    elif template == 'crest':
         require(bool({'--gfn2', '--gfnff'} & params.keys()), 'Autonomous CREST requires explicit method')
+    else:
+        require(set(params) == {'--analysis', '--grid'}, 'Multiwfn requires explicit analysis and grid')
 
 
-def validate_policy(value):
-    """Validate config only. Expiry is checked separately for every action."""
-    fields(value, POLICY_KEYS, 'autonomous policy')
-    require(value['schema'] == SCHEMA, 'Unsupported autonomous policy schema')
-    study.identifier(value['study_id'])
-    study.identifier(value['round_id'])
-    digest(value['plan_sha256'], 'plan_sha256')
+def validate_plan_bounds(value):
+    """Validate only the machine-readable submission limits in a plan.
+
+    Keeping these limits inside the confirmed plan prevents a later local rule
+    from adding an unapproved method, node or route. Identity and confirmation
+    are checked by the store/adapter; attempt_limit and valid_until remain in
+    the existing plan spec rather than creating contradictory duplicate limits.
+    """
+    fields(value, PLAN_BOUND_KEYS, 'plan submission policy')
     digest(value['routing_sha256'], 'routing_sha256')
     names(value['templates'], render.declaration, 'templates')
     require(set(value['templates']) <= SUPPORTED, 'Template has no autonomous method verifier')
     integer(value['max_cores_per_job'], 'max_cores_per_job')
-    integer(value['max_attempts'], 'max_attempts')
     approval.walltime_seconds(value['max_walltime'])
-    text(value['quote'], 'quote')
-    require(approval.timestamp(value['set_at']) < approval.timestamp(value['expires_at']),
-            'Policy expiry must follow set_at')
     require(type(value['allow_relaxed']) is bool, 'allow_relaxed must be boolean')
     clusters = value['clusters']
     require(isinstance(clusters, dict) and bool(clusters), 'Explicit cluster limits required')
@@ -135,8 +138,8 @@ def validate_policy(value):
         names(limit['nodes'], node_name, 'nodes', empty=True)
         for key in ('max_committed_cores', 'max_queued_cores', 'max_jobs'):
             integer(limit[key], key)
-        require(value['max_cores_per_job'] <= limit['max_queued_cores'] <= limit['max_committed_cores'],
-                'Contradictory per-job/queued/committed core limits')
+        require(limit['max_queued_cores'] <= limit['max_committed_cores'],
+                'Contradictory queued/committed core limits')
     fields(value['methods'], set(value['templates']), 'template methods')
     for template, methods in value['methods'].items():
         require(isinstance(methods, list) and bool(methods), 'Explicit method list required')
@@ -145,6 +148,72 @@ def validate_policy(value):
         hashes = [approval.digest(method) for method in methods]
         require(len(set(hashes)) == len(hashes), 'Duplicate method')
     return deepcopy(value)
+
+
+def validate_policy(value):
+    """Validate config only. Expiry is checked separately for every action."""
+    fields(value, POLICY_KEYS, 'autonomous policy')
+    require(value['schema'] == SCHEMA, 'Unsupported autonomous policy schema')
+    study.identifier(value['study_id'])
+    study.identifier(value['round_id'])
+    digest(value['plan_sha256'], 'plan_sha256')
+    integer(value['max_attempts'], 'max_attempts')
+    text(value['quote'], 'quote')
+    require(approval.timestamp(value['set_at']) < approval.timestamp(value['expires_at']),
+            'Policy expiry must follow set_at')
+    validate_plan_bounds({key: value[key] for key in PLAN_BOUND_KEYS})
+    return deepcopy(value)
+
+
+def check_plan_bounds(policy, spec):
+    """Reject rules wider than the trusted, confirmed plan's submission limits.
+
+    The caller must obtain spec from T184's verified store at the current action
+    boundary, then separately check plan/round identity, expiry, lease and usage.
+    This comparison neither authenticates a dict nor grants a submission permit.
+    Old text-only plans remain readable but cannot pass this submission check.
+    """
+    validate_policy(policy)
+    require(isinstance(spec, dict) and 'submission_policy' in spec,
+            'Plan has no machine-readable submission policy')
+    planned = validate_plan_bounds(spec['submission_policy'])
+    integer(spec.get('attempt_limit'), 'plan attempt_limit')
+    valid_until = spec.get('valid_until')
+    require(type(valid_until) in (int, float) and math.isfinite(valid_until) and valid_until > 0,
+            'Plan valid_until must be a positive finite timestamp')
+    require(policy['max_attempts'] <= spec['attempt_limit'], 'Rule exceeds plan Attempt limit')
+    require(approval.timestamp(policy['expires_at']).timestamp() <= valid_until,
+            'Rule expiry exceeds plan validity')
+    require(policy['routing_sha256'] == planned['routing_sha256'], 'Rule changes plan routing identity')
+    require(not policy['allow_relaxed'] or planned['allow_relaxed'],
+            'Rule enables relaxed input outside plan')
+    require(set(policy['templates']) <= set(planned['templates']), 'Rule adds a template outside plan')
+    require(set(policy['clusters']) <= set(planned['clusters']), 'Rule adds a cluster outside plan')
+    require(policy['max_cores_per_job'] <= planned['max_cores_per_job'],
+            'Rule exceeds plan per-job cores')
+    require(approval.walltime_seconds(policy['max_walltime']) <= approval.walltime_seconds(planned['max_walltime']),
+            'Rule exceeds plan walltime')
+    for name, limit in policy['clusters'].items():
+        ceiling = planned['clusters'][name]
+        # An untargeted request can land on any scheduler-selected node; it is
+        # not a narrower version of an explicit node allowlist (or vice versa).
+        require(bool(limit['nodes']) == bool(ceiling['nodes'])
+                and set(limit['nodes']) <= set(ceiling['nodes']),
+                'Rule changes plan node scope')
+        for key in ('max_committed_cores', 'max_queued_cores', 'max_jobs'):
+            require(limit[key] <= ceiling[key], 'Rule exceeds plan ' + key)
+    for template, methods in policy['methods'].items():
+        for method in methods:
+            if template in ('gaussian', 'gaussian-cp'):
+                # One complete planned method must cover both floors. Taking
+                # the weakest value from separate entries invents a new method.
+                matches = [approved for approved in planned['methods'][template]
+                           if all(method[key] == approved[key] for key in PROTOCOL_KEYS)
+                           and CONVERGENCE[method['opt_convergence']] >= CONVERGENCE[approved['opt_convergence']]
+                           and method['scf_convergence'] >= approved['scf_convergence']]
+                require(bool(matches), 'Rule method/grid/convergence is outside plan')
+            else:
+                require(method in planned['methods'][template], 'Rule template parameters are outside plan')
 
 
 def validate_policies(policies):
@@ -165,7 +234,7 @@ def read_policy(cfg, name):
 def check_binding(policy, *, study_id, round_id, plan_sha256, routing_sha256, now=None):
     """Compare identifiers, not the truth of caller-provided plan/lease data."""
     validate_policy(policy)
-    now = now or datetime.now(timezone.utc)
+    now = datetime.now(timezone.utc) if now is None else now
     require(isinstance(now, datetime) and now.tzinfo is not None and now.utcoffset() is not None,
             'Current time requires timezone')
     require(approval.timestamp(policy['set_at']) <= now < approval.timestamp(policy['expires_at']),
@@ -207,10 +276,11 @@ def _route_options(route):
                              r'(?:=(?:[^()\s]+|\([^()]+\))|\([^()]+\))?', token)
         require(match is not None, 'Unsupported autonomous route spelling')
         key = match[1]
-        key = {'integral': 'int', 'em': 'empiricaldispersion'}.get(key, key)
+        key = {'integral': 'int', 'em': 'empiricaldispersion', 'population': 'pop'}.get(key, key)
         require(key in {'opt', 'freq', 'sp', 'scf', 'int', 'scrf', 'empiricaldispersion',
-                        '5d', '6d', '7f', '10f', 'nosymm', 'guess', 'geom', 'irc'},
-                'Unsupported autonomous route keyword: ' + key)
+                        '5d', '6d', '7f', '10f', 'nosymm', 'guess', 'geom', 'irc',
+                        'counterpoise', 'pop', 'gfinput', 'gfprint', 'density'},
+                'Cannot verify effect of route keyword on method/grid/convergence: ' + key)
         require(key not in parsed, 'Duplicate autonomous route keyword: ' + key)
         if key in {'5d', '6d', '7f', '10f', 'sp', 'nosymm'}:
             require(token == key, 'Unsupported autonomous flag spelling')
@@ -219,11 +289,23 @@ def _route_options(route):
             require(re.fullmatch(r'(?:em|empiricaldispersion)=(?:\([^()]+\)|[a-z0-9]+)', token),
                     'Explicit equals spelling required for dispersion')
         parsed[key] = _options(token)
+        # Output/analysis options do not require a different approved method or
+        # the relaxed-input path. Checkpoint density is deliberately excluded:
+        # it implies ChkBasis/Guess=Only and would bypass the explicit method.
+        printing = {'pop': {'none', 'minimal', 'min', 'regular', 'reg', 'full'},
+                    'gfinput': {'jnormalization', 'aonormalization', 'rawnormalization'},
+                    'gfprint': set(), 'density': {'current', 'scf', 'hf', 'all'}}
+        if key in printing:
+            require(set(parsed[key]) <= printing[key], 'Unsupported analysis/output option')
+        if key == 'counterpoise':
+            require(parsed[key] == ['2'], 'Unsupported Counterpoise mode')
     return parsed
 
 
-def _convergence(route, method):
+def _convergence(route, method, *, template='gaussian'):
     opts = _route_options(route)
+    require('counterpoise' not in opts or template == 'gaussian-cp',
+            'Counterpoise requires the gaussian-cp fragment verifier')
     # A model-supplied final/preoptimization label is intentionally not read.
     if 'opt' in opts:
         options = opts['opt']
@@ -270,6 +352,8 @@ def check_attempt(cfg, path, policy):
     require(cluster in policy['clusters'], 'Policy cluster mismatch')
     require(type(manifest['cores']) is int and 0 < manifest['cores'] <= policy['max_cores_per_job'],
             'Policy per-job cores exceeded')
+    require(manifest['cores'] <= policy['clusters'][cluster]['max_queued_cores'],
+            'Requested cores exceed target policy capacity')
     require(approval.walltime_seconds(manifest['walltime']) <= approval.walltime_seconds(policy['max_walltime']),
             'Policy walltime exceeded')
     nodes = policy['clusters'][cluster]['nodes']
@@ -279,15 +363,20 @@ def check_attempt(cfg, path, policy):
         require(not nodes, 'Autonomous policy requires an explicit node target')
     # T188 must define immutable markers and skipped-check evidence first.
     # Neither this switch nor any model-authored marker bypasses normal parsing.
-    require(not any(key in manifest for key in ('relaxed_input', 'allow_relaxed', 'skipped_checks')),
+    require(not any(key in manifest for key in ('input_validation', 'relaxed_input', 'allow_relaxed', 'skipped_checks')),
             'Relaxed-input submission is not implemented')
     files = attempt.verified_files(cfg, path, manifest)
-    if template == 'gaussian':
+    if template in ('gaussian', 'gaussian-cp'):
         from ag._profile_sources import protocol, integration_grid
         inputs = [name for name in files if name.endswith('.gjf')]
         require(len(inputs) == 1, 'Expected exactly one frozen Gaussian input')
-        science = gaussian_input.validate(files[inputs[0]].decode(), manifest['cores'], manifest['mem_gb'],
-                                          parent_chk='parent_chk' in manifest)
+        if template == 'gaussian-cp':
+            fragments = manifest['science']['counterpoise']['file']
+            _, science = gaussian_input.counterpoise_input(files[inputs[0]].decode(), files[fragments],
+                manifest['cores'], manifest['mem_gb'], prepared=True)
+        else:
+            science = gaussian_input.validate(files[inputs[0]].decode(), manifest['cores'], manifest['mem_gb'],
+                                              parent_chk='parent_chk' in manifest)
         require(science['multiplicity'] == 1, 'Autonomous method verifier requires closed-shell input')
         actual = protocol(science['route'], science['multiplicity'])
         require(_restricted(actual['method']), 'Autonomous method verifier requires closed-shell method')
@@ -298,7 +387,7 @@ def check_attempt(cfg, path, policy):
         errors = []
         for method in matches:
             try:
-                _convergence(science['route'], method)
+                _convergence(science['route'], method, template=template)
                 break
             except ValueError as exc:
                 errors.append(str(exc))
@@ -314,7 +403,7 @@ def check_attempt(cfg, path, policy):
                 inputs=deepcopy(manifest['inputs']), method=actual, method_verified=True)
 
 
-def check_budget(policy, *, round_attempts, requested_attempts, occupancy):
+def check_budget(policy, *, plan_spec, round_attempts, requested_attempts, occupancy):
     """Pure rejection check. Caller MUST supply replayed counts and live totals.
 
     occupancy is grouped by real scheduler/account and already deduplicated:
@@ -322,7 +411,8 @@ def check_budget(policy, *, round_attempts, requested_attempts, occupancy):
     cores/jobs, and the requested additions. No rule name/run ID keys the count.
     This function cannot certify those data, reserve capacity or write a pause.
     """
-    validate_policy(policy)
+    check_plan_bounds(policy, plan_spec)
+    planned = plan_spec['submission_policy']
     integer(round_attempts, 'round_attempts', 0)
     integer(requested_attempts, 'requested_attempts')
     maximum = policy['max_attempts']
@@ -341,6 +431,10 @@ def check_budget(policy, *, round_attempts, requested_attempts, occupancy):
         seen.update(group['clusters'])
         limits = [policy['clusters'][name] for name in group['clusters'] if name in policy['clusters']]
         require(bool(limits), 'Account has no allowed policy entry')
+        # Removing an allowed target must not remove the stricter ceiling of a
+        # peer on the same actual account from the confirmed plan.
+        limits.extend(planned['clusters'][name] for name in group['clusters']
+                      if name in planned['clusters'])
         for key in ('committed_cores', 'queued_cores', 'jobs'):
             integer(group[key], key, 0)
         for key in ('requested_cores', 'requested_jobs'):

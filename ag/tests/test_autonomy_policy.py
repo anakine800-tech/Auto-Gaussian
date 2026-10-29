@@ -81,7 +81,7 @@ def test_each_required_field(cfg, field):
     ('plan_sha256', 'a' * 63), ('routing_sha256', 'x' * 64),
     ('templates', []), ('templates', ['gaussian', 'gaussian']),
     ('templates', ['gaussian*']), ('templates', ['multiwfn']),
-    ('max_cores_per_job', True), ('max_cores_per_job', 17),
+    ('max_cores_per_job', True), ('max_cores_per_job', 0),
     ('max_walltime', '00:00:00'), ('max_walltime', float('inf')),
     ('max_attempts', True), ('max_attempts', 0), ('max_attempts', float('nan')),
     ('expires_at', '2026-10-27T00:00:00+00:00'), ('expires_at', '2026-10-30'),
@@ -194,7 +194,7 @@ def test_input_bytes_not_model_route(cfg, tmp_path):
         policy.check_attempt(cfg, path, rule())
 
 
-@pytest.mark.parametrize('marker', [None, 'relaxed_input', 'allow_relaxed', 'skipped_checks'])
+@pytest.mark.parametrize('marker', [None, 'input_validation', 'relaxed_input', 'allow_relaxed', 'skipped_checks'])
 def test_allow_relaxed_is_not_a_bypass(cfg, tmp_path, marker):
     path, _ = make(cfg, tmp_path, ROUTE.replace('B3LYP', 'PBE0'))
     value = rule()
@@ -254,23 +254,23 @@ def test_non_gaussian_uses_frozen_template(cfg, tmp_path, template, params):
 
 def test_round_budget_does_not_key_on_rule_name_run_or_revision():
     value = rule()
-    assert not policy.check_budget(value, round_attempts=7, requested_attempts=1,
+    assert not checked_budget(value, round_attempts=7, requested_attempts=1,
                                    occupancy=occupancy())['pause_after_consumption']
-    assert policy.check_budget(value, round_attempts=8, requested_attempts=1,
+    assert checked_budget(value, round_attempts=8, requested_attempts=1,
                                occupancy=occupancy())['pause_after_consumption']
     value['plan_sha256'] = 'c' * 64
     value['quote'] = '修订计划仍保留本轮消费'
     with pytest.raises(ValueError, match='90%'):
-        policy.check_budget(value, round_attempts=9, requested_attempts=1, occupancy=occupancy())
+        checked_budget(value, round_attempts=9, requested_attempts=1, occupancy=occupancy())
     with pytest.raises(ValueError, match='90%'):
-        policy.check_budget(value, round_attempts=8, requested_attempts=2,
+        checked_budget(value, round_attempts=8, requested_attempts=2,
                             occupancy=occupancy(requested_jobs=2))
 
 
 @pytest.mark.parametrize('used,requested', [(10, 1), (9, 2), (0, 11), (True, 1), (1, False)])
 def test_invalid_attempt_consumption(used, requested):
     with pytest.raises(ValueError):
-        policy.check_budget(rule(), round_attempts=used, requested_attempts=requested,
+        checked_budget(rule(), round_attempts=used, requested_attempts=requested,
                             occupancy=occupancy(requested_jobs=requested))
 
 
@@ -279,7 +279,7 @@ def test_invalid_attempt_consumption(used, requested):
     dict(queued_cores=1), dict(requested_jobs=2), dict(clusters=['default', 'default'])])
 def test_account_refusals(changes):
     with pytest.raises(ValueError):
-        policy.check_budget(rule(), round_attempts=0, requested_attempts=1, occupancy=occupancy(**changes))
+        checked_budget(rule(), round_attempts=0, requested_attempts=1, occupancy=occupancy(**changes))
 
 
 def test_shared_entry_minimum_and_no_duplicate_groups():
@@ -287,9 +287,9 @@ def test_shared_entry_minimum_and_no_duplicate_groups():
     value['clusters']['peer'] = {**value['clusters']['default'], 'max_jobs': 2}
     group = occupancy(clusters=['default', 'peer'], jobs=2)
     with pytest.raises(ValueError, match='max_jobs'):
-        policy.check_budget(value, round_attempts=0, requested_attempts=1, occupancy=group)
+        checked_budget(value, round_attempts=0, requested_attempts=1, occupancy=group)
     with pytest.raises(ValueError, match='more than once'):
-        policy.check_budget(value, round_attempts=0, requested_attempts=2, occupancy=occupancy() * 2)
+        checked_budget(value, round_attempts=0, requested_attempts=2, occupancy=occupancy() * 2)
 
 
 @pytest.mark.parametrize('functional', ['OPBE', 'OLYP', 'O3LYP'])
@@ -336,5 +336,263 @@ def test_malformed_route_options_fail_closed(cfg, tmp_path, keyword):
 @pytest.mark.parametrize('cores,jobs', [(1, 2), (9, 1)])
 def test_requested_cores_cannot_contradict_jobs(cores, jobs):
     with pytest.raises(ValueError, match='per-job'):
-        policy.check_budget(rule(), round_attempts=0, requested_attempts=jobs,
+        checked_budget(rule(), round_attempts=0, requested_attempts=jobs,
                             occupancy=occupancy(requested_cores=cores, requested_jobs=jobs))
+
+
+def plan_spec(value=None):
+    value = value or rule()
+    return dict(method_policy='Human explanation is not machine authorization',
+                submission_policy={key: deepcopy(value[key]) for key in policy.PLAN_BOUND_KEYS},
+                attempt_limit=value['max_attempts'],
+                valid_until=approval.timestamp(value['expires_at']).timestamp())
+
+
+def test_plan_bounds_exact_match_and_no_mutation():
+    value = rule()
+    spec = plan_spec(value)
+    before = deepcopy(spec)
+    assert policy.check_plan_bounds(value, spec) is None
+    assert spec == before
+    assert policy.validate_plan_bounds(spec['submission_policy']) == spec['submission_policy']
+    # The validation result cannot mutate the immutable plan bytes through a
+    # shared nested dictionary reference.
+    copy = policy.validate_plan_bounds(spec['submission_policy'])
+    copy['clusters']['default']['max_jobs'] = 1
+    assert spec == before
+
+
+@pytest.mark.parametrize('key', sorted(policy.PLAN_BOUND_KEYS))
+def test_plan_bounds_missing_field(key):
+    spec = plan_spec()
+    del spec['submission_policy'][key]
+    with pytest.raises(ValueError, match='plan submission policy'):
+        policy.check_plan_bounds(rule(), spec)
+
+
+@pytest.mark.parametrize('key', ['round_id', 'plan_sha256', 'study_id', 'quote',
+                                  'set_at', 'expires_at', 'max_attempts', 'unknown'])
+def test_plan_bounds_do_not_accept_context_or_duplicate_limits(key):
+    bounds = plan_spec()['submission_policy']
+    bounds[key] = 'unbound'
+    with pytest.raises(ValueError, match='plan submission policy'):
+        policy.validate_plan_bounds(bounds)
+
+
+@pytest.mark.parametrize('spec', [None, {}, {'method_policy': 'allow all'},
+    {'method_policy': json.dumps(rule())}])
+def test_old_text_plan_cannot_supply_machine_authority(spec):
+    with pytest.raises(ValueError, match='machine-readable'):
+        policy.check_plan_bounds(rule(), spec)
+
+
+@pytest.mark.parametrize('key,value', [('attempt_limit', True), ('attempt_limit', 0),
+    ('attempt_limit', 1.5), ('valid_until', True), ('valid_until', float('nan')),
+    ('valid_until', float('inf')), ('valid_until', 0), ('valid_until', '2030-01-01')])
+def test_plan_existing_limits_are_strict(key, value):
+    spec = plan_spec()
+    spec[key] = value
+    with pytest.raises(ValueError):
+        policy.check_plan_bounds(rule(), spec)
+
+
+def test_rule_can_narrow_all_plan_bounds():
+    value = rule()
+    value['clusters']['default']['nodes'] = ['node-a']
+    spec = plan_spec(value)
+    bounds = spec['submission_policy']
+    bounds['templates'].append('xtb')
+    bounds['methods']['xtb'] = [{'parameters': {'--gfn': '2'}}]
+    bounds['clusters']['default'] = dict(nodes=['node-a', 'node-b'],
+        max_committed_cores=64, max_queued_cores=32, max_jobs=8)
+    bounds['clusters']['other'] = deepcopy(bounds['clusters']['default'])
+    bounds['max_cores_per_job'] = 16
+    bounds['max_walltime'] = '02:00:00'
+    bounds['allow_relaxed'] = True
+    bounds['methods']['gaussian'][0]['opt_convergence'] = 'normal'
+    bounds['methods']['gaussian'].append({**bounds['methods']['gaussian'][0], 'basis': '6-31+g(d)'})
+    value['methods']['gaussian'][0]['scf_convergence'] = 9
+    spec['attempt_limit'] = 20
+    spec['valid_until'] += 3600
+    policy.check_plan_bounds(value, spec)
+
+
+@pytest.mark.parametrize('key,value', [('max_cores_per_job', 12), ('max_walltime', '02:00:00'),
+    ('max_attempts', 11), ('expires_at', '2026-10-31T00:00:00+00:00'),
+    ('routing_sha256', 'c' * 64), ('allow_relaxed', True)])
+def test_rule_cannot_widen_top_plan_bounds(key, value):
+    spec = plan_spec()
+    changed = rule()
+    changed[key] = value
+    policy.validate_policy(changed)
+    with pytest.raises(ValueError, match='plan'):
+        policy.check_plan_bounds(changed, spec)
+
+
+@pytest.mark.parametrize('added', ['template', 'cluster'])
+def test_rule_cannot_add_plan_destination_or_program(added):
+    value = rule()
+    spec = plan_spec(value)
+    if added == 'template':
+        value['templates'].append('xtb')
+        value['methods']['xtb'] = [{'parameters': {'--gfn': '2'}}]
+    else:
+        value['clusters']['other'] = deepcopy(value['clusters']['default'])
+    with pytest.raises(ValueError, match='outside plan'):
+        policy.check_plan_bounds(value, spec)
+
+
+@pytest.mark.parametrize('key,value', [('max_committed_cores', 64),
+    ('max_queued_cores', 24), ('max_jobs', 5)])
+def test_rule_cannot_widen_cluster_limits(key, value):
+    spec = plan_spec()
+    changed = rule()
+    changed['clusters']['default'][key] = value
+    policy.validate_policy(changed)
+    with pytest.raises(ValueError, match='Rule exceeds plan ' + key):
+        policy.check_plan_bounds(changed, spec)
+
+
+@pytest.mark.parametrize('planned,allowed', [([], ['node-a']), (['node-a'], []),
+    (['node-a'], ['node-b']), (['node-a'], ['node-a', 'node-b'])])
+def test_rule_node_scope_cannot_change_targeting_class(planned, allowed):
+    value = rule()
+    value['clusters']['default']['nodes'] = allowed
+    spec = plan_spec()
+    spec['submission_policy']['clusters']['default']['nodes'] = planned
+    with pytest.raises(ValueError, match='node scope'):
+        policy.check_plan_bounds(value, spec)
+
+
+@pytest.mark.parametrize('changes', [dict(method='rpbe0'), dict(basis='6-31+g(d)'),
+    dict(basis_function_type='5D 7F'), dict(dispersion='gd3bj'),
+    dict(solvent_model='smd', solvent='water'), dict(integration_grid='finegrid')])
+def test_rule_method_and_grid_must_match_a_whole_plan_entry(changes):
+    value = rule()
+    spec = plan_spec(value)
+    value['methods']['gaussian'][0].update(changes)
+    policy.validate_policy(value)
+    with pytest.raises(ValueError, match='method/grid/convergence'):
+        policy.check_plan_bounds(value, spec)
+
+
+@pytest.mark.parametrize('floor,value', [('opt_convergence', 'verytight'), ('scf_convergence', 9)])
+def test_rule_cannot_weaken_plan_convergence(floor, value):
+    spec = plan_spec()
+    spec['submission_policy']['methods']['gaussian'][0][floor] = value
+    with pytest.raises(ValueError, match='method/grid/convergence'):
+        policy.check_plan_bounds(rule(), spec)
+
+
+def test_rule_cannot_combine_weakest_floors_from_different_plan_entries():
+    value = rule()
+    value['methods']['gaussian'][0]['opt_convergence'] = 'normal'
+    spec = plan_spec(value)
+    method = spec['submission_policy']['methods']['gaussian'][0]
+    spec['submission_policy']['methods']['gaussian'] = [
+        {**method, 'opt_convergence': 'normal', 'scf_convergence': 10},
+        {**method, 'opt_convergence': 'tight', 'scf_convergence': 8},
+    ]
+    with pytest.raises(ValueError, match='method/grid/convergence'):
+        policy.check_plan_bounds(value, spec)
+    value['methods']['gaussian'][0]['scf_convergence'] = 10
+    policy.check_plan_bounds(value, spec)
+
+
+@pytest.mark.parametrize('template,params', [('xtb', {'--gfn': '2'}), ('crest', {'--gfn2': ''})])
+def test_rule_non_gaussian_parameters_must_match_plan(template, params):
+    value = rule()
+    value['templates'] = [template]
+    value['methods'] = {template: [{'parameters': params}]}
+    spec = plan_spec(value)
+    policy.check_plan_bounds(value, spec)
+    value['methods'][template][0]['parameters'] = {**params, '--alpb': 'water'}
+    with pytest.raises(ValueError, match='parameters are outside plan'):
+        policy.check_plan_bounds(value, spec)
+
+
+@pytest.mark.parametrize('extra', ['Pop=Full', 'Population=Minimal', 'GFPrint',
+    'GFInput', 'GFInput=AONormalization', 'Density=Current', 'Density=SCF',
+    'Pop=Full GFInput Density=Current'])
+def test_printing_options_keep_normal_method_verification(cfg, tmp_path, extra):
+    path, _ = make(cfg, tmp_path, ROUTE + ' ' + extra)
+    assert policy.check_attempt(cfg, path, rule())['method_verified']
+
+
+@pytest.mark.parametrize('extra', ['Density=Checkpoint', 'Density=Check', 'Pop=NBORead'])
+def test_analysis_options_that_inherit_or_read_unverified_settings_refuse(cfg, tmp_path, extra):
+    path, _ = make(cfg, tmp_path, ROUTE + ' ' + extra)
+    with pytest.raises(ValueError):
+        policy.check_attempt(cfg, path, rule())
+
+
+def test_heterogeneous_entry_caps_do_not_shrink_global_ceiling(cfg, tmp_path):
+    value = rule()
+    value['max_cores_per_job'] = 32
+    value['clusters']['other'] = dict(nodes=[], max_committed_cores=64,
+                                      max_queued_cores=32, max_jobs=2)
+    policy.validate_policy(value)
+    path, _ = make(cfg, tmp_path)
+    assert policy.check_attempt(cfg, path, value)['method_verified']
+    value['clusters']['default']['max_queued_cores'] = 4
+    with pytest.raises(ValueError, match='target policy capacity'):
+        policy.check_attempt(cfg, path, value)
+
+
+def test_multiwfn_checked_by_its_actual_template_parameters(cfg, tmp_path):
+    from test_multiwfn_template import prepare_nci
+    study.init(cfg, 'smoke')
+    cfg['programs']['multiwfn'] = str(tmp_path / 'Multiwfn')
+    path, manifest = prepare_nci(cfg, tmp_path)
+    value = rule()
+    value['templates'] = ['multiwfn']
+    value['methods'] = {'multiwfn': [{'parameters': {'--analysis': 'igm', '--grid': 'medium'}}]}
+    result = policy.check_attempt(cfg, path, value)
+    assert result['method'] == {'parameters': manifest['template_params']}
+    assert 'basis' not in result['method']
+    value['methods']['multiwfn'][0]['parameters']['--grid'] = 'low'
+    with pytest.raises(ValueError, match='template parameters'):
+        policy.check_attempt(cfg, path, value)
+
+
+def test_gaussian_cp_retains_its_gas_phase_fragment_boundary(cfg, tmp_path):
+    from test_counterpoise import WATER, CSV
+    study.init(cfg, 'smoke')
+    source = tmp_path / 'cp.gjf'
+    source.write_text('%nprocshared=8\n%mem=10GB\n# B3LYP/6-31G(d) Counterpoise=2 SP Int=UltraFine SCF=(Conver=8)\n\nWater pair\n\n0 1\n' + WATER + '\n\n')
+    fragments = tmp_path / 'cp.csv'
+    fragments.write_text(CSV)
+    manifest = attempt.prepare(cfg, study_name='smoke', template='gaussian-cp', input_path=source,
+        tier='simple', walltime='00:30:00', label='cp', method_basis='合成水二聚体验证', fragments=fragments)
+    path = attempt.find(cfg, manifest['attempt_id'])
+    value = rule()
+    value['templates'] = ['gaussian-cp']
+    value['methods'] = {'gaussian-cp': value['methods']['gaussian']}
+    assert policy.check_attempt(cfg, path, value)['method_verified']
+    input_path = path / 'inputs' / 'cp.gjf'
+    input_path.write_text(input_path.read_text().replace('Fragment=1', 'Fragment=2'))
+    with pytest.raises(ValueError, match='bundle'):
+        policy.check_attempt(cfg, path, value)
+
+
+def checked_budget(value, **kwargs):
+    return policy.check_budget(value, plan_spec=kwargs.pop('plan_spec', plan_spec(value)), **kwargs)
+
+
+def test_counterpoise_cannot_use_ordinary_gaussian_policy(cfg, tmp_path):
+    path, _ = make(cfg, tmp_path, ROUTE.replace('Opt=Tight Freq', 'Counterpoise=2 SP'))
+    with pytest.raises(ValueError, match='gaussian-cp fragment'):
+        policy.check_attempt(cfg, path, rule())
+
+
+def test_removed_peer_keeps_plan_shared_account_ceiling():
+    planned = rule()
+    planned['clusters']['peer'] = dict(nodes=[], max_committed_cores=8,
+                                      max_queued_cores=8, max_jobs=1)
+    value = deepcopy(planned)
+    del value['clusters']['peer']
+    policy.check_plan_bounds(value, plan_spec(planned))
+    with pytest.raises(ValueError, match='Shared-account'):
+        checked_budget(value, plan_spec=plan_spec(planned), round_attempts=0,
+            requested_attempts=2, occupancy=occupancy(clusters=['default', 'peer'],
+                                                     requested_cores=16, requested_jobs=2))

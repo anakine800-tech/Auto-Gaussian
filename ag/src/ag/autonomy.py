@@ -88,10 +88,15 @@ def validate_plan(plan):
     number(plan['created_at'])
     validate_versions(plan['versions'])
     spec = plan['spec']
-    if not isinstance(spec, dict) or set(spec) != {
+    required = {
             'goal', 'comparison_groups', 'method_policy', 'mechanism_scope',
-            'system_rules', 'estimated_hours', 'attempt_limit', 'valid_until'}:
+            'system_rules', 'estimated_hours', 'attempt_limit', 'valid_until'}
+    if (not isinstance(spec, dict) or not required <= set(spec)
+            or set(spec) - required - {'submission_policy'}):
         raise ValueError('Plan requires goal, groups, method, mechanism, system rules, time and limits')
+    if 'submission_policy' in spec:
+        from ag.autonomy_policy import validate_plan_bounds
+        validate_plan_bounds(spec['submission_policy'])
     for key in ('goal', 'method_policy', 'mechanism_scope'):
         text(spec[key], key)
     groups = spec['comparison_groups']
@@ -123,13 +128,16 @@ def idle(state):
         raise ValueError('End the current run before changing plans')
 
 
-def bound_plan(state, plan_id, current_versions, at):
+def bound_plan(state, plan_id, current_versions, at, *, observation=False):
     plan = state['plans'][plan_id]
     if not plan['confirmation']:
         raise ValueError('Plan needs explicit human confirmation')
     if plan['body']['versions'] != current_versions:
         raise ValueError('Plan versions differ from the actual runtime; create and confirm a new plan')
-    if at >= plan['body']['spec']['valid_until']:
+    # Expiry stops new calculation actions, but must not strand evidence from
+    # jobs already submitted. Observation still requires the original confirmed
+    # plan, toolchain and a separately current wake lease.
+    if not observation and at >= plan['body']['spec']['valid_until']:
         raise ValueError('Plan expired')
     return plan
 
@@ -146,8 +154,11 @@ def owner(state, run_id, token_hash, at):
 def eligible(state, run_id, token_hash, current_versions, at, action, expected_sha=None):
     if action not in ACTIONS:
         raise ValueError('Unknown autonomy action')
-    owner(state, run_id, token_hash, at)
-    plan = bound_plan(state, state['current_plan'], current_versions, at)
+    lease = owner(state, run_id, token_hash, at)
+    if lease.get('observe_only', False) and action not in READ_ACTIONS:
+        raise ValueError('Observe-only lease cannot authorize new actions')
+    plan = bound_plan(state, state['current_plan'], current_versions, at,
+                      observation=action in READ_ACTIONS)
     if expected_sha is not None and expected_sha != plan['sha256']:
         raise ValueError('Plan hash mismatch')
     if state['phase'] == 'ended' or (state['paused'] and action not in READ_ACTIONS):
@@ -205,7 +216,12 @@ def apply(previous, event):
             state['current_plan'] = data['plan_id']
             state['phase'] = 'paused' if state['paused'] else 'running'
         elif op == 'start':
-            bound_plan(state, data['plan_id'], data['versions'], at)
+            observe_only = data.get('observe_only', False)
+            if type(observe_only) is not bool:
+                raise ValueError('observe_only must be a boolean')
+            if observe_only and data['plan_id'] != state['current_plan']:
+                raise ValueError('Observe-only lease requires the current round and current plan')
+            bound_plan(state, data['plan_id'], data['versions'], at, observation=observe_only)
             if state['phase'] == 'ended' or state['current_round'] is None:
                 raise ValueError('Authorization round ended; explicit begin with human confirmation is required')
             old = state['lease']
@@ -227,6 +243,11 @@ def apply(previous, event):
                                   started_at=at, run_until=at + RUN_SECONDS, expires_at=at + LEASE_SECONDS)
             state['runs'][run_id] = dict(owner=data['owner'], plan_id=data['plan_id'], round_id=state['current_round'], started_at=at,
                                          ended_at=None, outcome=None, totals=dict.fromkeys(COUNTERS, 0))
+            # Omit the optional field for ordinary starts, including replay of
+            # old events: changing historical state shapes breaks verification.
+            if observe_only:
+                state['lease']['observe_only'] = True
+                state['runs'][run_id]['observe_only'] = True
             plans = state['rounds'][state['current_round']]['plan_ids']
             if data['plan_id'] not in plans:
                 plans.append(data['plan_id'])
@@ -252,6 +273,8 @@ def apply(previous, event):
                     state['lease'] = None
             else:
                 owner(state, data['run_id'], data['token_sha256'], at)
+            if op in ('resume', 'count') and state['lease'].get('observe_only', False):
+                raise ValueError('Observe-only lease cannot resume or count new actions')
             if op == 'recover':
                 text(data['reason'], 'Recovery reason')
             elif op == 'finish':
@@ -364,7 +387,9 @@ def begin(cfg, name, plan_id, quote):
         return public(store.commit(snapshot, 'begin', now(), data, apply))
 
 
-def start(cfg, name, plan_id, owner_name, *, takeover_reason=None, recover=False):
+def start(cfg, name, plan_id, owner_name, *, takeover_reason=None, recover=False, observe_only=False):
+    if type(observe_only) is not bool:
+        raise ValueError('observe_only must be a boolean')
     with disk.locked(cfg, name, write=True) as store:
         snapshot, stale = load(store, allow_stale=recover)
         old = snapshot['state']['lease']
@@ -375,6 +400,8 @@ def start(cfg, name, plan_id, owner_name, *, takeover_reason=None, recover=False
                     token_sha256=sha256(token.encode()).hexdigest(), versions=versions(),
                     takeover_reason=takeover_reason, previous_lease=old,
                     recovered_stale_state=stale)
+        if observe_only:
+            data['observe_only'] = True
         result = public(store.commit(snapshot, 'start', now(), data, apply))
         result.update(run_id=run_id, token=token)
         return result
@@ -398,6 +425,8 @@ def change(cfg, name, op, run_id, token, **fields):
         inactive_end = op == 'end' and snapshot['state']['lease'] is None
         if not inactive_end and (op != 'recover' or run_id is not None or token is not None):
             owner(snapshot['state'], run_id, data['token_sha256'], at)
+        if op in ('resume', 'count') and snapshot['state']['lease'].get('observe_only', False):
+            raise ValueError('Observe-only lease cannot resume or count new actions')
         if op == 'count' and fields.get('request_id') in snapshot['state']['counts']:
             saved = snapshot['state']['counts'][fields['request_id']]
             if {k: v for k, v in saved.items() if k not in ('plan_id', 'round_id', 'at')} != data:
@@ -466,7 +495,8 @@ def run(args):
     elif op == 'begin':
         result = begin(cfg, name, args.plan, args.quote)
     elif op == 'start':
-        result = start(cfg, name, args.plan, args.owner, takeover_reason=args.takeover_reason, recover=args.recover)
+        result = start(cfg, name, args.plan, args.owner, takeover_reason=args.takeover_reason,
+                       recover=args.recover, observe_only=args.observe_only)
     elif op == 'pause':
         result = pause(cfg, name, args.reason)
     elif op == 'status':
@@ -510,6 +540,9 @@ def register(subparsers):
                 if op == 'begin' else 'Verbatim human plan confirmation; NOT submission approval'))
         if op == 'start':
             child.add_argument('--owner', required=True, help='Session identity')
+            child.add_argument('--observe-only', action='store_true', help=(
+                'Acquire a lease only for observing, fetching and organizing the current plan; '
+                'plan expiry is allowed, but confirmation, versions and lease limits still apply'))
             child.add_argument('--takeover-reason', help='Explicit reason to take over an expired lease')
             child.add_argument('--recover', action='store_true', help='Replay a verified stale snapshot during expired takeover')
         if op in ('pause', 'resume', 'finish', 'end', 'recover'):

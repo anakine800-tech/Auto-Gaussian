@@ -800,3 +800,190 @@ def test_cli_lifecycle_is_local_only_and_never_constructs_transport(env, monkeyp
     assert command('status')['state']['phase'] == 'ended'
     assert image_tree(study) == old
     assert len(loads) == 16
+
+
+def expiring_run(env):
+    cfg, study, _ = env
+    a.initialize(cfg, study.name)
+    plan = a.create_plan(cfg, study.name, spec(valid_until=1100))
+    a.confirm(cfg, study.name, plan['plan_id'], plan['sha256'], 'Synthetic short plan confirmation')
+    a.begin(cfg, study.name, plan['plan_id'], 'Explicit synthetic short round')
+    return plan, a.start(cfg, study.name, plan['plan_id'], 'session-one')
+
+
+def test_plan_expiry_preserves_reads_only_with_current_ordinary_lease(env):
+    cfg, study, clock = env
+    plan, run = expiring_run(env)
+    # Default events and replayed snapshots retain their historical shape.
+    assert 'observe_only' not in run['state']['lease']
+    assert 'observe_only' not in run['state']['runs'][run['run_id']]
+    start_event = json.loads((study / 'autonomy/journal.jsonl').read_text().splitlines()[-1])
+    assert 'observe_only' not in start_event['data']
+    clock[0] = 1100
+    before = image_tree(study)
+    for action in a.READ_ACTIONS:
+        assert check(env, plan, run, action)['eligible_now']
+    for action in set(a.ACTIONS) - set(a.READ_ACTIONS):
+        with pytest.raises(ValueError, match='expired'):
+            check(env, plan, run, action)
+    assert image_tree(study) == before
+    updated = change(env, run)
+    assert updated['state']['objects']['water']['attempt'] == 'synthetic-001'
+    clock[0] = 4600
+    for action in a.READ_ACTIONS:
+        with pytest.raises(ValueError, match='60 minute'):
+            check(env, plan, run, action)
+
+
+def test_observe_only_expired_plan_takeover_preserves_round_and_fences_old_token(env):
+    cfg, study, clock = env
+    plan, first = expiring_run(env)
+    count(env, first)
+    clock[0] = 6400 - 0.001
+    with pytest.raises(ValueError, match='holds the lease'):
+        a.start(cfg, study.name, plan['plan_id'], 'observer', observe_only=True,
+                takeover_reason='Expired original wake')
+    clock[0] = 6400
+    with pytest.raises(ValueError, match='expired'):
+        a.start(cfg, study.name, plan['plan_id'], 'ordinary', takeover_reason='Expired original wake')
+    with pytest.raises(ValueError, match='takeover reason'):
+        a.start(cfg, study.name, plan['plan_id'], 'observer', observe_only=True)
+    observer = a.start(cfg, study.name, plan['plan_id'], 'observer', observe_only=True,
+                       takeover_reason='Collect already submitted synthetic outputs')
+    assert observer['token'] != first['token']
+    assert observer['state']['lease']['observe_only'] is True
+    assert observer['state']['runs'][observer['run_id']]['observe_only'] is True
+    assert observer['state']['current_round'] == first['state']['current_round']
+    assert observer['state']['rounds'][first['state']['current_round']]['totals']['attempt'] == 1
+    before = image_tree(study)
+    for action in a.READ_ACTIONS:
+        assert check(env, plan, observer, action)['eligible_now']
+    for action in a.ACTIONS:
+        with pytest.raises(ValueError, match='owner'):
+            check(env, plan, first, action)
+    for action in set(a.ACTIONS) - set(a.READ_ACTIONS):
+        with pytest.raises(ValueError, match='Observe-only'):
+            check(env, plan, observer, action)
+    for kind in a.COUNTERS:
+        with pytest.raises(ValueError, match='Observe-only'):
+            count(env, observer, 'observer-' + kind, kind=kind)
+    with pytest.raises(ValueError, match='Observe-only'):
+        change(env, observer, 'resume', reason='Cannot turn observation into submission')
+    assert image_tree(study) == before
+    change(env, observer, 'finish', reason='Observation complete')
+    with pytest.raises(ValueError, match='owner'):
+        check(env, plan, observer, 'fetch')
+    next_observer = a.start(cfg, study.name, plan['plan_id'], 'next-observer', observe_only=True)
+    change(env, next_observer, 'end', reason='Explicitly end the synthetic round')
+    with pytest.raises(ValueError, match='ended'):
+        a.start(cfg, study.name, plan['plan_id'], 'after-end', observe_only=True)
+
+
+@pytest.mark.parametrize('action', a.READ_ACTIONS)
+def test_observe_only_keeps_60_minute_limit(env, action):
+    cfg, study, clock = env
+    plan, original = expiring_run(env)
+    change(env, original, 'finish', reason='End ordinary wake')
+    clock[0] = 1100
+    observer = a.start(cfg, study.name, plan['plan_id'], 'observer', observe_only=True)
+    clock[0] = 4699.999
+    assert check(env, plan, observer, action)['eligible_now']
+    clock[0] = 4700
+    with pytest.raises(ValueError, match='60 minute'):
+        check(env, plan, observer, action)
+
+
+def test_observe_only_cannot_switch_plans_or_create_a_round(env):
+    cfg, study, _ = env
+    plan = ready(env)
+    other = a.create_plan(cfg, study.name, spec(goal='Different synthetic plan'))
+    # Even a confirmed alternative may not be adopted through the read path.
+    for confirmed in (False, True):
+        if confirmed:
+            a.confirm(cfg, study.name, other['plan_id'], other['sha256'], 'Synthetic alternative confirmation')
+        before = image_tree(study)
+        with pytest.raises(ValueError, match='current round and current plan'):
+            a.start(cfg, study.name, other['plan_id'], 'observer', observe_only=True)
+        assert image_tree(study) == before
+    observer = a.start(cfg, study.name, plan['plan_id'], 'observer', observe_only=True)
+    a.pause(cfg, study.name, 'Synthetic pause')
+    before = image_tree(study)
+    with pytest.raises(ValueError, match='Observe-only'):
+        change(env, observer, 'resume', reason='Read lease is not resume authority')
+    assert image_tree(study) == before
+
+
+@pytest.mark.parametrize('damage', ['versions', 'plan', 'state', 'confirmation'])
+def test_observe_only_still_requires_versions_confirmation_and_integrity(env, monkeypatch, damage):
+    cfg, study, clock = env
+    plan, original = expiring_run(env)
+    change(env, original, 'finish', reason='End ordinary wake')
+    clock[0] = 1100
+    observer = a.start(cfg, study.name, plan['plan_id'], 'observer', observe_only=True)
+    if damage == 'versions':
+        monkeypatch.setattr(a, 'versions', lambda: dict(VERSIONS, rdkit='changed'))
+    elif damage == 'plan':
+        (study / 'autonomy' / ('plan-' + plan['plan_id'] + '.json')).write_bytes(b'{}\n')
+    elif damage == 'state':
+        (study / 'autonomy/state.json').write_bytes(b'{')
+    else:
+        target = study / 'autonomy/state.json'
+        saved = json.loads(target.read_text())
+        saved['state']['plans'][plan['plan_id']]['confirmation'] = None
+        target.write_bytes(disk.encode(saved))
+    before = image_tree(study)
+    for action in a.READ_ACTIONS:
+        with pytest.raises((ValueError, OSError)):
+            check(env, plan, observer, action)
+    assert image_tree(study) == before
+
+
+def test_observe_only_start_cli_is_local_and_does_not_enable_new_actions(env, monkeypatch, capsys):
+    cfg, study, clock = env
+    plan, original = expiring_run(env)
+    change(env, original, 'finish', reason='End ordinary wake')
+    clock[0] = 1100
+    def local_config(*, local_only=False):
+        assert local_only
+        return cfg
+    def forbidden(*args, **kwargs):
+        pytest.fail('Observe-only bookkeeping must not construct transport or use network')
+    monkeypatch.setattr(cli, 'load_config', local_config)
+    monkeypatch.setattr(transport.SSHTransport, '__init__', forbidden)
+    monkeypatch.setattr(socket, 'create_connection', forbidden)
+    monkeypatch.setattr(socket.socket, 'connect', forbidden)
+    assert cli.main(['autonomy', 'start', '--study', study.name, '--plan', plan['plan_id'],
+                     '--owner', 'synthetic-observer', '--observe-only', '--json']) == 0
+    observer = json.loads(capsys.readouterr().out)
+    assert observer['state']['lease']['observe_only'] is True
+    for action, code in [('fetch', 0), ('submit', 1)]:
+        assert cli.main(['autonomy', 'check', '--study', study.name, '--run', observer['run_id'],
+                         '--token', observer['token'], '--sha256', plan['sha256'],
+                         '--for-action', action, '--json']) == code
+        value = json.loads(capsys.readouterr().out)
+        assert ('eligible_now' in value) is (code == 0)
+
+
+def test_optional_structured_submission_plan_is_immutable_and_replayable(env):
+    from ag.autonomy_policy import PLAN_BOUND_KEYS
+    from test_autonomy_policy import rule
+    cfg, study, _ = env
+    a.initialize(cfg, study.name)
+    bounds = {key: rule()[key] for key in PLAN_BOUND_KEYS}
+    plan = a.create_plan(cfg, study.name, spec(submission_policy=bounds))
+    saved = (study / 'autonomy' / f"plan-{plan['plan_id']}.json").read_bytes()
+    a.confirm(cfg, study.name, plan['plan_id'], plan['sha256'], 'Synthetic bounds confirmed')
+    assert a.status(cfg, study.name)['state']['plans'][plan['plan_id']]['body']['spec']['submission_policy'] == bounds
+    assert (study / 'autonomy' / f"plan-{plan['plan_id']}.json").read_bytes() == saved
+    bounds['routing_sha256'] = 'c' * 64
+    revised = a.create_plan(cfg, study.name, spec(submission_policy=bounds))
+    assert revised['sha256'] != plan['sha256']
+
+
+def test_invalid_structured_plan_rejected_before_publication(env):
+    cfg, study, _ = env
+    a.initialize(cfg, study.name)
+    before = image_tree(study)
+    with pytest.raises(ValueError, match='plan submission policy'):
+        a.create_plan(cfg, study.name, spec(submission_policy={}))
+    assert image_tree(study) == before

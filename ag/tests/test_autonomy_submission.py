@@ -161,3 +161,30 @@ def test_unsupported_or_incomplete_identity_is_not_adopted(cfg, prepared, damage
             target.write_text(json.dumps(value))
     with pytest.raises(ValueError, match='audit refused'):
         autonomy_submission.audit(path)
+
+
+def test_manifest_input_order_does_not_imply_primary_input(cfg, prepared):
+    path, manifest = prepared
+    manifest['inputs'].reverse()
+    (path / 'manifest.json').write_text(json.dumps(manifest))
+    report = autonomy_submission.audit(path)
+    assert report['classification'] == 'unconsumed'
+    assert report['bundle_sha256'] == manifest['bundle_sha256']
+    assert not report['autonomous_ownership_verified']
+
+
+def test_duplicate_input_entry_still_refused(cfg, prepared):
+    path, manifest = prepared
+    manifest['inputs'].append(manifest['inputs'][0])
+    (path / 'manifest.json').write_text(json.dumps(manifest))
+    with pytest.raises(ValueError, match='bundle'):
+        autonomy_submission.audit(path)
+
+
+@pytest.mark.parametrize('field,value', [('size', True), ('size', 1.0), ('size', -1), ('sha256', 'bad')])
+def test_input_manifest_types_cannot_compare_equal_to_valid_records(cfg, prepared, field, value):
+    path, manifest = prepared
+    manifest['inputs'][0][field] = value
+    (path / 'manifest.json').write_text(json.dumps(manifest))
+    with pytest.raises(ValueError, match='input file manifest'):
+        autonomy_submission.audit(path)

@@ -99,7 +99,16 @@ def audit(path):
         inputs = study.local_path(root, path / 'inputs')
         files = {item.name: read(item) for item in inputs.iterdir()}
         records, bundle_hash = attempt.bundle(files)
-        if not files or records != manifest['inputs'] or bundle_hash != manifest['bundle_sha256']:
+        declared = manifest['inputs']
+        if (not isinstance(declared, list) or any(not isinstance(item, dict) or set(item) != {
+                'name', 'size', 'sha256'} or not isinstance(item['name'], str)
+                or type(item['size']) is not int or item['size'] < 0
+                or not _hash(item['sha256']) for item in declared)):
+            raise ValueError('Invalid input file manifest')
+        # File ordering may identify a primary input for program-specific
+        # consumers. Audit only the exact file map and canonical bundle hash;
+        # it must not infer a main input from order or a .gjf suffix.
+        if not files or records != sorted(declared, key=lambda item: item['name']) or bundle_hash != manifest['bundle_sha256']:
             raise ValueError('Input bundle differs from immutable manifest')
         current = _json(read(path / 'status.json'))
         if current['state'] not in state.TRANSITIONS:
