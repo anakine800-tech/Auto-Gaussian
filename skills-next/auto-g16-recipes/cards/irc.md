@@ -13,7 +13,7 @@
 
 ## 2. 前置条件
 
-[TS 搜索卡片](ts-search.md#6-结果判据清单)的优化、完整频率、恰好一个虚频及目标方向审核全部通过；[机理假设](reaction-plan.md)已签字，阶段导航与结果登记见 [TS 入口](ts.md)。两个方向使用同一已接受 TS 的最终几何、原子顺序、电荷、多重度和方法；预先列明可能的反应物/产物与原子映射，不预设 Forward 就是产物。
+[TS 搜索卡片](ts-search.md#6-结果判据清单)的优化、完整频率及恰好一个虚频判据通过；手动模式目标方向须经人审核。符合 [AGENTS 自主运行规则](../../../AGENTS.md#自主运行)时，可按已确认计划初查方向后继续 IRC，逐条标“待人确认”，不能据此声称方向已获人工接受；[机理假设](reaction-plan.md)已签字，阶段导航与结果登记见 [TS 入口](ts.md)。两个方向使用同一 TS 候选的最终几何、原子顺序、电荷、多重度和方法；预先列明可能的反应物/产物与原子映射，不预设 Forward 就是产物。
 
 按**各产物分支内部**的重要性和结构新颖性安排 IRC，不按全局权重筛掉次要分支。以下情形必须做 IRC：
 
@@ -58,7 +58,7 @@ Gaussian 路线形式为 `irc=(calcfc,maxpoints=<点数>,stepsize=<步长>,forwa
 ```
 
 这里不重选 IRC 方法；阴离子的弥散方案也必须与 TS 一致。
-方法、色散和溶剂（溶液相含 SMD）必须替换为该 TS 的实际设置。另建 reverse 输入、标签和 Attempt；每个方向完整展示输入摘要并经人确认。已有准备接口如下（反方向相应换输入和标签）：
+方法、色散和溶剂（溶液相含 SMD）必须替换为该 TS 的实际设置。另建 reverse 输入、标签和 Attempt；每个方向均保存完整输入摘要，手动模式提交前展示并确认；授权按 Study 模式规则核对。已有准备接口如下（反方向相应换输入和标签）：
 
 ```text
 ag prepare --study <study_id> --template gaussian --input <irc-forward.gjf> --tier simple --walltime 24:00:00 --label irc-forward --card irc --parent <ts_id> --relation irc_from --method-basis <与 TS 相同的依据：文献先例 DOI 及位置 / 本课题既有方案及来源（不是文献先例，精度未经验证） / 兜底方法声明>
@@ -96,7 +96,7 @@ prepare 已在 `--parent-chk` + RCFC/ReadFC 时逐原子校验输入与父作业
 
 prepare 纯本地；submit 的父 chk 摘要、独占复制、源/目标哈希及失败停止要求沿用 [TS 搜索的父 chk 流程](ts-search.md#3-输入模板)。父文件只读，复制失败、SSH 255、超时或哈希变化不重试、不提交，不用本地报告代替提交时核验。
 
-两侧端点经人工确认坐标后，要各自再按 [Opt+Freq](opt-freq.md)优化为极小点；可用现有 parent/relation 参数记录 `endpoint_of` 来源。`ag facts <irc_id>` 提取 `irc` 字段及 `irc_end.xyz`；后者只是最后报告路径点，不是已验证的端点。
+两侧端点坐标经审阅后，要各自再按 [Opt+Freq](opt-freq.md)优化为极小点；可用现有 parent/relation 参数记录 `endpoint_of` 来源。`ag facts <irc_id>` 提取 `irc` 字段及 `irc_end.xyz`；后者只是最后报告路径点，不是已验证的端点。手动模式先请人确认；符合 [AGENTS 自主运行规则](../../../AGENTS.md#自主运行)时，可按计划暂定选择坐标继续端点计算，逐条标“待人确认”，不代替最终端点识别。
 
 ## 4. 资源建议
 
@@ -104,9 +104,9 @@ prepare 纯本地；submit 的父 chk 摘要、独占复制、源/目标哈希�
 
 ## 5. 提交前检查清单
 
-- 起点是通过 TS 及振动方向审核的同一个几何；两份输入元素和原子行号一致，方向关键词明确且不重复。
+- 起点是按第 2 节完成 TS 及方向核对的同一个几何；两份输入元素和原子行号一致，方向关键词明确且不重复。
 - 方法、电荷、多重度、溶剂与 TS 一致，CalcFC 的来源和代价已说明；采用 RCFC 时核对父力常数适用性、`final_input.xyz` 取向（或父 TS 的 `nosymm`）、附件声明和确认哈希。
-- 结构、立体警告、方法依据、完整 route、资源档位、walltime、远程目录和输入哈希均已展示，提交仍须按 Study 流程取得聊天批准记录、匹配长期规则或 Mac 人工确认。
+- 结构、立体警告、方法依据、完整 route、资源档位、walltime、远程目录和输入哈希均已保存，手动模式提交前展示；提交仍须按 [Study 流程](../../auto-g16-study/SKILL.md)取得对应模式的提交授权。
 - 端点获取和人工审阅路径已说明；解析或比对证据缺失就记录具体缺口，不把通用终止字段当成 IRC 专用完成标志。
 
 ## 6. 结果判据清单
@@ -158,8 +158,8 @@ ag irc-review --study <study_dir> --ts <ts_id> --forward <forward_irc_id> --reve
    语义见 [Gaussian IRC 手册（镜像）](https://theochem.mercer.edu/chm295/g09ur/k_irc.htm)；
    使用前核对实际版本，说明增加 Hessian 计算的成本。
 
-每次修改均提出新 Attempt，展示完整参数、依据和代价，经人确认后提交；
-这不是自动重提阶梯。
+每次修改均提出新 Attempt，保存完整参数、依据和代价，手动模式经人确认后提交；
+这些建议不授权重提旧 Attempt；新 Attempt 的有界补救按 [失败诊断](failure-diagnosis.md)和上述 AGENTS 模式规则处理。
 
 **L3 流程验收实例（T46 之前的历史验收）：**
 015/016 用 Standard 坐标读取父 Hessian，双向首点校正失败；

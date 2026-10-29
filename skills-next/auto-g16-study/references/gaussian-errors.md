@@ -11,7 +11,7 @@ TS、路径与端点失败语义；其旧传输、重试、取消和 checkpoint 
 
 | 报错特征（必须结合前文） | 常见原因或待查假设 | 首选处理 | 对应的 ag 操作/卡片 |
 |---|---|---|---|
-| `l9999.exe`；`Number of steps exceeded` 或优化未完成 | 达到优化步数上限、停滞，或其他受控终止；仅有 Link 号不能定因 | 先看步数、能量/梯度与四项收敛趋势；接近收敛才考虑加步数，停滞先审阅几何/Hessian | [失败诊断第 2–3 级](../../auto-g16-recipes/cards/failure-diagnosis.md#第-2-级最小数值收敛调整)；经人决定用 `ag prepare` 新建 Attempt，以 `--parent <id> --relation retry_of` 留来源 |
+| `l9999.exe`；`Number of steps exceeded` 或优化未完成 | 达到优化步数上限、停滞，或其他受控终止；仅有 Link 号不能定因 | 先看步数、能量/梯度与四项收敛趋势；接近收敛才考虑加步数，停滞先审阅几何/Hessian | [失败诊断第 2–3 级](../../auto-g16-recipes/cards/failure-diagnosis.md#第-2-级最小数值收敛调整)；按适用模式核验授权后用 `ag prepare` 新建 Attempt，以 `--parent <id> --relation retry_of` 留来源 |
 | `l9999.exe`；`Wrong number of Negative eigenvalues` | TS 曲率与目标不符，可能初猜或 Hessian 不合适 | 回查负本征值和目标反应坐标，不能只加 MaxCycles 或关闭曲率检查来宣称成功 | [TS](../../auto-g16-recipes/cards/ts.md)；有完整合格频率段时用 `ag mode-review`，无频率则记录缺口；新初猜需新 Attempt |
 | `l502.exe`；`Convergence failure` | SCF 不收敛；可能错误电荷/多重度、近接触、振荡或电子态问题 | 按已有阶梯核对输入与 SCF 轨迹，再提出单一收敛调整 | [失败诊断第 2 级](../../auto-g16-recipes/cards/failure-diagnosis.md#第-2-级最小数值收敛调整)；新 Attempt，不把未收敛能量放入 thermo/profile |
 | `l103.exe`；`Optimization stopped`、步数耗尽，或 `Bend failed` / 坐标定义失败 | 优化停止也可能来自近线性角、内坐标奇异或坏几何；步数耗尽也常由 l9999 收尾 | 区分步数上限与坐标问题；检查原子接触和最后完整几何，不机械地延长所有作业 | [失败诊断第 2–4 级](../../auto-g16-recipes/cards/failure-diagnosis.md)；按原驻点类型新建 Attempt，TS 不改成普通极小点优化 |
@@ -25,4 +25,4 @@ TS、路径与端点失败语义；其旧传输、重试、取消和 checkpoint 
 没有单独新建恢复流程：真实意外的停止/报告、UNKNOWN、SSH、哈希不一致见
 [不确定状态与失败](unknown-and-failures.md)；同一问题已修两次仍失败的处理、
 最小改变与后续科学验收见 [失败诊断](../../auto-g16-recipes/cards/failure-diagnosis.md)。
-表内操作都是人决定继续后的对应入口；新 Attempt 不等于获准提交，提交仍须按 Study 流程取得聊天批准记录、匹配长期规则或 Mac 人工确认。
+表内操作不是提交授权：手动模式由人决定继续并按 Study 提交流程执行；已启用自主模式只按 [AGENTS](../../../AGENTS.md#自主运行)的有界补救规则。UNKNOWN 或缺证据不能借诊断改成确定失败，新 Attempt 也不等于获准提交。
