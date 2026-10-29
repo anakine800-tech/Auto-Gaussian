@@ -438,7 +438,7 @@ def test_cli_discovery_local_only_and_no_implicit_target(targeted,monkeypatch,ca
     assert cli.main(['nodes','--json'])==0
     result=json.loads(capsys.readouterr().out)
     assert result['schema']=='ag-node-targets/1' and result['valid_until']
-    assert clusters.describe(cfg)['clusters'][0]['node_targeting']==dict(default_fraction='1/2',fractions=['1/2','1/4'])
+    assert clusters.describe(cfg)['clusters'][0]['node_targeting']==dict(default_fraction='1/2',fractions=['1/2','1/4','1'])
     with pytest.raises(ValueError):attempt.prepare(cfg,**(args|dict(node_fraction='1/4')))
 
 

@@ -67,7 +67,7 @@ Gaussian prepare 在档位与 walltime 检查后依次补缺失的 `%nprocshared
 输入和 bundle 哈希绑定最终保存字节，源文件不变；verified_files 只核验，不补齐、不重写旧 manifest 或哈希，缺少可选说明的旧记录照常读取。
 
 T185 的 `node_targeting.FRACTIONS` 末尾追加 `'1'`，整节点仍走既有档位、max_cores、精确总内存与两次准入核验，
-不改变半/四分之一脚本字节或共享节点排队行为。`clusters.py` 的比例元数据尚未扩展，该文件不在本工单范围内。
+不改变半/四分之一脚本字节或共享节点排队行为。按协调补充范围，`clusters.py` 的发现元数据复用同一 `FRACTIONS`，保留原顺序和默认 `1/2`。
 `route.select_ladder` 与 `ladder_config_identity` 供后续 prepare/提交适配共用；不得为 T186 另写一套阶梯顺序。
 函数只处理传入数据，要求独立的 `round_id`（整个自主轮次）和 `run_id`（一次唤醒运行），输出 `ag-routing-ladder/1` 的两项身份、候选、原因、推荐及配置/快照/占用/唤醒证据哈希。
 可信适配须核对全部活跃本地预留及真实提交绑定、运行事件和首次选格完整输入；T184 的意向计数不能当实际占用。

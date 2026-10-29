@@ -11,8 +11,11 @@
 - `ag/src/ag/config.py`、`ag/src/ag/cli.py`：阶梯配置校验、只读路由入口及参数。
 - `ag/src/ag/attempt.py`、`ag/src/ag/render.py`：整节点声明/渲染和必要的只读选格证据绑定，不改submit授权流程。
 - `ag/config.clusters.example.toml`：仅合成入口/节点例子。
+- `ag/src/ag/clusters.py`、`ag/tests/test_clusters.py`：仅整节点比例发现元数据及针对回归（2026-10-29 协调补充范围）。
 - `ag/tests/test_route.py`、`ag/tests/test_node_targeting.py`、`ag/tests/test_core.py`、`ag/tests/test_routing_ladder.py`（新）：合成回归。
 - `README.md`、`ag/README.md`、`docs/DEVELOPING.md`、`docs/redesign-tasks/T185-routing-ladder.md`。
+
+2026-10-29 范围补充：允许发现接口复用 `node_targeting.FRACTIONS`，保留既有比例顺序和默认 `1/2`，仅追加整节点。防范后端已支持整节点但发现接口漏报导致入口不可选；不扩展前端工作、模板能力或提交授权。先记录本补充与 PR，再修改对应实现。
 
 ## 要做的
 
