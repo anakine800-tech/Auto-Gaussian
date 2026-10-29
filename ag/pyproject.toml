@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ag"
-version = "4.6.3"
+version = "4.7.0"
 description = "Auto-Gaussian command-line tools"
 requires-python = ">=3.11"
 

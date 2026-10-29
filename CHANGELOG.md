@@ -1,5 +1,83 @@
 # Changelog
 
+## v4.7.0
+
+### 发布准备状态与范围
+
+**发布候选，尚未创建 tag/Release 或部署。** 功能基线为 `7dba69194e0093dca955b98d9220653f8dd7e038`；
+相对 v4.6.3 的 first-parent 清单恰为下列 21 个后端 PR，Git 合并对象与 GitHub 合并状态已逐项核对。
+T176 已完成独立格式/数值验收、代码审阅与最终 HEAD CI 并合并；T163 保留为历史设计，
+实际导入能力及限制以 T176 为准。T178 仅整理版本与文档，不新增产品功能。
+本次发布验证见 [T178 记录](docs/redesign-tasks/T178-release-v4.7.0-backend.md)；T177 最终配套在 T178 合并后完成。
+
+| 后端任务 | PR | 确切合并提交 |
+| --- | --- | --- |
+| T154 入口默认档位 | [#351](https://github.com/anakine800-tech/Auto-Gaussian/pull/351) | `751f6b6d9ba4c141159ae4f2c6b6d006061cfd21` |
+| T155 路由 walltime 与容量 | [#362](https://github.com/anakine800-tech/Auto-Gaussian/pull/362) | `20840ee7a51dae4e4da1c75dd6eef63052d47802` |
+| T156 单节点容量 | [#354](https://github.com/anakine800-tech/Auto-Gaussian/pull/354) | `5bef4daede45f5bf10e064ec9a07a2fce769aa14` |
+| T157 具名 PBS 共享准入与排队 | [#361](https://github.com/anakine800-tech/Auto-Gaussian/pull/361) | `e109019b3028aad75fb434b5eafce1633af72aca` |
+| T159 CREST 取回与诊断 | [#357](https://github.com/anakine800-tech/Auto-Gaussian/pull/357) | `ebf711cafc934b15c6b045582e69511752117e53` |
+| T161 G0 批量局部错误 | [#352](https://github.com/anakine800-tech/Auto-Gaussian/pull/352) | `e9e2f5b8fa2e7e78b668f55e58245f83d9668ddb` |
+| T162 G0 原子对应来源 | [#359](https://github.com/anakine800-tech/Auto-Gaussian/pull/359) | `a921a48750fe2426c06694ef75a3d2fc4bc11a89` |
+| T163 Hessian 来源与导入规格（仅设计） | [#355](https://github.com/anakine800-tech/Auto-Gaussian/pull/355) | `a3cc131b8935a208c29bc70c3463cb4334195ae3` |
+| T164 父 checkpoint 证据报告 | [#358](https://github.com/anakine800-tech/Auto-Gaussian/pull/358) | `b6dc3cb81b1b43ae4521503e73923ca5d7ad196d` |
+| T165 SMD 片段单点组合 | [#356](https://github.com/anakine800-tech/Auto-Gaussian/pull/356) | `df5d0413b00bc64eaf8db5a866892eccc285bb42` |
+| T166 TS 卡片拆分与指南整理 | [#360](https://github.com/anakine800-tech/Auto-Gaussian/pull/360) | `488903eb26c3bac42d11bed4356b01758f0fd17d` |
+| T167 历史 unreadable 调查 | [#353](https://github.com/anakine800-tech/Auto-Gaussian/pull/353) | `780f1f227132d415142566a66b03497bb644ab15` |
+| T168 开发/部署说明统一 | [#367](https://github.com/anakine800-tech/Auto-Gaussian/pull/367) | `7304ffe89db9bdb58af608f827db4cc49b3f68ed` |
+| T169 卡片快照、SP、预算与资源说明 | [#366](https://github.com/anakine800-tech/Auto-Gaussian/pull/366) | `806110cf02201fc0e6afa916cc428ea1a8440867` |
+| T170 构象分支与结构入口 | [#368](https://github.com/anakine800-tech/Auto-Gaussian/pull/368) | `812a1b4c27f5898b0244532f86a4cfa0af4bce98` |
+| T171 ChemDraw 私有输出 | [#364](https://github.com/anakine800-tech/Auto-Gaussian/pull/364) | `8545600831ee1086f2f0d1dd26bce3a67a47012b` |
+| T172 现行公开扫描器范围 | [#363](https://github.com/anakine800-tech/Auto-Gaussian/pull/363) | `bc0b2a99b70e64728ab8ad3eb98610bf3e347e01` |
+| T173 方法先例定位与学习引用 | [#365](https://github.com/anakine800-tech/Auto-Gaussian/pull/365) | `f46660a17b3062d8eaf09168eed74080242e6cf0` |
+| T174 历史来源与动力学说明整理 | [#369](https://github.com/anakine800-tech/Auto-Gaussian/pull/369) | `c73298d3acbd1d7795be0cea38ab40af8e4892af` |
+| T175 缺失分类与回执读取修复 | [#370](https://github.com/anakine800-tech/Auto-Gaussian/pull/370) | `c1a0d084fd5f53d1fb4ab15dd3c57c12ad447a8f` |
+| T176 本地 xTB Hessian 导入与 G0 来源 | [#371](https://github.com/anakine800-tech/Auto-Gaussian/pull/371) | `7dba69194e0093dca955b98d9220653f8dd7e038` |
+
+配套前端 v4.7.0 由 T177 准备，汇总已合并的 [T158 #49](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/49)
+默认资源、容量与具名节点反馈，以及 [T160 #50](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/50)
+CREST 诊断来源展示；两项历史功能基线为 `fa48ab1a0c0d669233a189bb5457b143d07dd798`，不代表当前前端 main。
+本批另纳入已合并的 [T179 #52](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/52)，合并提交
+`8ceda045b1aa007c9dba882f287b11b4df12b840`：前端构建工具 setuptools 精确固定为 84.1.0，
+对应 [GHSA-xmj3-9gf7-h52w](https://github.com/pypa/setuptools/security/advisories/GHSA-xmj3-9gf7-h52w) 的修复版本。
+T179 未改前端运行代码或产品版本，T178 不修改后端依赖；T177 已整合该修复，最终配套仍使用 T178 实际合并源码。
+上述提交均不是未来的 T177 发布合并 SHA。T179 的既有验证为 Python 203 passed / 2 个可选配套 skip、
+浏览器 362 passed、四项 CI 通过；这些跳过不计为 T177 最终后端配套通过，也未声称做过 Windows 现场复现。
+
+### 行为与兼容边界
+
+- **资源与路由（T154–T157）。** 新 prepare 可省略 tier，仅采用已选入口明确配置的 `resources.default_tier`；显式选择优先，无默认仍拒绝。默认解析早于节点映射、编号和目录分配，旧 manifest/bundle 不改。route 仍要求显式 tier，并核对提供的 walltime；未提供时限、未配置上限或快照过期均说明未知。容量同时检查同一节点的 CPU 和精确申请内存；已证实总规格不适用的入口不进入排队回退。具名 PBS 正常占用或具名排队不再一律拒绝，身份、状态、总规格、一致性和两次提交复查仍保留；半数/四分之一按总 slots 映射，不自动换节点。建议不保证启动时间。
+- **核数和本机默认。** 单作业、运行加排队及可选排队上限分别生效；同一实际集群的入口合并全部本人作业与本地未观测预留，总上限取各入口 `max_committed_cores` 的最小值，已配置的排队上限同样取最小值；单作业仍核对所选入口的 `max_cores`。未知预留不释放，Slurm 台账完整性仍检查。ag 不设置调度器运行限额，运行核数可达到 committed 上限。各机器实际档位和默认值属于私有部署配置，不是本版为所有用户设置的生产默认；发布不改配置。
+- **CREST（T159）。** 新普通 CREST/mdopt manifest 以 `crest_output_set=diagnostics-v1` 固定新增调度器输出集合；旧 manifest、旧不完整取回记录和 bundle 不扩写。错误、警告、正常标记及未知信息分开，来源记录本地文件哈希与行号；构象解析失败仍保留诊断但返回失败。缺日志不等于正常，不自动补取或刷新；前端 T160 读取已保存来源并校验哈希，不触发远程诊断。
+- **G0（T161/T162）。** 明确的频率分段歧义及可定位到候选的映射声明错误保留其他成功项，批次返回 2，整批不登记；完整性错误仍停止。reference/frequency 的显式双射分别绑定候选、目标源字节和段范围；缺有效 frequency 映射不投影，声明通过不证明化学身份。Gaussian 来源及批量自动选取规则保持原样；G0 仅诊断，不替代 DFT、TS/IRC 或科学签字。
+- **本地 xTB Hessian（T176）。** `ag import-xtb-hessian --study <study> --source <local-source.json> --out analyses/<new-dir>` 只读已有本地来源，独占生成分析；不计算 Hessian、不连接远程、不改 Attempt。有限支持 conda-forge osx-64 `xtb 6.7.1 gfortran_h7141999_5` 的普通非线性、非周期、无约束 GFN2 CLI 路径、默认有效质量与 scale=1，其他构建和变体不据此宣称支持。保留完整带符号谱，按几何和打印精度区分外部空间；无法可靠区分时不给可用模式。g98 校验按 writer 的可见频率子集，不丢弃内部软模式。单候选显式使用 `--modes-analysis analyses/<dir>/analysis.json`，与 `--modes-attempt` 互斥；重新核验来源、结果字节及特征系统，沿用来源绑定的 1-based 原子双射，只转换 Bq 的原子索引，不伪造 Gaussian Attempt。科学信息未知保留警示，数学必需来源缺失、损坏、矛盾或已知失败不能发布可用模式；正常结束不证明驻点。接口及格式见 [本地导入说明](docs/research/xtb-hessian-import.md#8-t176-本地导入接口) 和 [G0](docs/g0.md#模式投影)。
+- **本地报告（T164/T165）。** 父 chk 报告区分真实频率段、坐标框架和历史 checkpoint 关联；不读取 chk/fchk，内部力常数仍未验证。CP 可组合已有同几何、自身基组的两个 SMD 片段单点；缺项保留 null，齐全时给出相互作用能及加气相 BSSE 的近似值，不是结合自由能，也不进入 thermo/profile。
+- **远程观察（T175）。** receipt 和普通 output（含 Multiwfn）以固定助手区分 ENOENT 与不可核实错误；回执在读内容前固定文件身份，拒绝替换、链接及非普通文件。新增远端 Python ≥3.6 和 Linux O_PATH/O_DIRECTORY/O_NOFOLLOW/O_NONBLOCK、dir_fd/no-follow 能力要求；缺能力明确失败，不静默回退。回执格式、文件白名单、4096 字节上限和既有 UNKNOWN 规则不变；strict incomplete 及其结束证据规则未改。T167 的历史根因无法判定，与本次两个独立复现缺陷的修复分开。
+- **Skills 与文档（T166–T174）。** TS 拆为初猜、搜索/Freq、IRC 阶段；卡片快照、筛选 SP、资源和核时台账说明对齐实现。构象可选先统一 xTB 或仅几何合并后统一 DFT，禁止跨来源混用低层能量；mdopt 不算独立来源。ChemDraw 研究输出留私有目录，方法 SI 仅补可核查定位，历史链接指向冻结来源而不恢复旧规则。方法、基组、能窗和科学适用边界未扩大。
+
+### 已有验证与未覆盖范围
+
+下表引用既有执行证据；T178 本身未连接集群、部署或运行计算。功能 PR 的测试不能替代本次最终发布 HEAD 的回归和 CI。
+
+| 项目 | 已有证据 | 不外推的范围 |
+| --- | --- | --- |
+| T156 Slurm 节点格式 | 两个获批入口各一次固定查询，节点 CPU/内存字段解析通过，绑定代码与合并版本相同 | 只证明当次格式，不证明所有现场容量或实际调度 |
+| T157 具名 PBS | 空闲节点合法选项可选；占用节点因作业/节点不能匹配保持 unknown；两次现场读取非原子 | 权限限制只是待核解释；本人/他人共享、具名排队、enough/queue、仅内存未知可选、并行运行及提交位置验证未全部覆盖 |
+| T159 旧取回兼容 | 旧普通 PBS 四文件、Slurm 五文件正式取回成功，哈希一致；相关代码/旧现场 blob 兼容已在当前基线复核，相关回归 290 passed / 1 skipped（本机非 Linux GNU stat） | diagnostics-v1 与 mdopt 的正常计算方案仅为可选补强，尚未执行；不完整取回、真实程序/调度错误等待自然样例，不制造故障；原工单最低实际取回要求已满足 |
+| T175 回执与普通输出 | 原 10 次观察后新增 8 次获准调用，各一次、无重试，全部通过预定判据；helper 现场证据现覆盖两个 PBS 和两个 Slurm 入口。新增 Slurm 双回执及 5 输出、PBS Multiwfn 隔离副本 status 的双回执/规范作业缺失/17 输出，以及 PBS xTB 3 输出；原控制文件、journal 和配置哈希不变 | 新增 7 条 helper 返回 0；qstat 返回 153 按正式协议识别已结束作业记录缺失，不能泛称全部 rc=0。声明输出仍全部存在；未测 PBS 入口、完整新作业生命周期及自然 output absent 未覆盖，权限/替换/I/O 负例仍为本地及 Linux CI 证据 |
+| T167 历史事故 | 回退后指定观察恢复；两个独立复现缺陷由 T175 修复 | 关键底层诊断未保存，历史根因无法判定；不声称原事故已复现或根因已查明 |
+| T176 Hessian | 同次真实非研究水包及脱敏 fixture 的独立格式/数值、公开数据审阅通过；三个内部频率约 1538.8984、3642.6655、3651.1643 cm⁻¹，与独立重建一致，完整九维带符号谱保留。最终 head `e722d9887e288015ebd4630afa4ee9c1a1e485b7` 两路独立代码终审与五项 CI 通过；Linux 后端 6385 passed / 2 skipped，Skills 527 passed，扫描 1896 文件零错误 | 小分子来源/格式和算术验收不证明其他构建、复杂体系、科学驻点或机制。原水包由协调方另行获准生成；T178 未执行该计算，未新增 Hessian 生成、上传或取回能力 |
+
+自然错误、自然缺失和全部共享正例不额外变成无界扩大的发布条件；发布声明必须对应已观察范围，实际新失败仍按原停止条件处理。
+T175 原始停止记录和受审续行保留，最终执行/测试详情见 [实现与验证记录](docs/research/observation-read-safety.md)。
+
+### 升级、回退与发布顺序
+
+1. 本版不自动迁移配置、study、catalog 或旧 Attempt，不修改既有输入、事实、哈希与签字。旧配置无 default_tier 时继续显式选档；实际资源值由负责人在本机设置。科学工作仍限已验证的主族闭壳层流程，局部数值或格式验收不扩大体系适用性。
+2. 获准升级前按 [OPERATIONS](docs/OPERATIONS.md) 保存两仓确切提交、依赖、构建、配置和服务恢复信息；核对实际导入与所有版本元数据。后续回退恢复相容配置和环境，保留新增诊断输出、报告和原始证据；旧版不能安全理解的记录不交给旧版写入，不删字段或重写哈希。既有 catalog v2 不可降级、节点/资源配置兼容要求继续适用。T176 的 analyses 与源文件原样保留；缺少该适配器的旧版不能导入或重新核验此来源，不把分析改写成 Attempt 或让旧版重写其派生记录；原 Gaussian 来源接口保持兼容。此为恢复边界，未执行现场回退。
+3. 顺序为 **T176 合并 → T178 独立审阅、最终验证并合并 → T177 使用实际 T178 合并源码完成配套验证并合并**。协调方随后记录两仓真实发布合并 SHA、版本、CI 与配套结果；本 PR 不预填未来 SHA，不用 CI 中跳过的配套用例冒充完成。
+4. 本阶段不创建 tag/Release、不部署。准备完成后仍由用户明确决定发布；两个同号 tag 只能指向各自发布 PR 的确切合并提交。运维顺序、核数阈值、首轮/心跳、停止条件和计算批准均不变。
+
 ## v4.6.3
 
 ### 发布范围与配套
