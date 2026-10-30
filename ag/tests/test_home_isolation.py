@@ -125,7 +125,7 @@ def test_python_cannot_disable_child_bootstrap(flags):
         subprocess.run([sys.executable, *flags, '-c', 'raise AssertionError("launched")'])
 
 
-def test_default_global_registry_uses_isolated_home(isolated_test_home):
+def test_default_global_registry_uses_isolated_home(isolated_test_home, tmp_path):
     from ag import _autonomy_store as disk
     from ag import autonomy_submission
     with autonomy_submission.machine_lock():
@@ -133,10 +133,34 @@ def test_default_global_registry_uses_isolated_home(isolated_test_home):
             pass
     assert (isolated_test_home / '.config/ag/autonomy-submit.lock').is_file()
     assert (isolated_test_home / '.config/ag/manual-writers' / ('a' * 64)).is_dir()
+    assert not isolated_test_home.is_relative_to(tmp_path)
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_previous_test_registry_does_not_survive(isolated_test_home):
     assert list(isolated_test_home.iterdir()) == []
+
+
+def test_os_capabilities_and_function_identity_restore(tmp_path):
+    from _test_home_isolation import HomeGuard
+    names = ('stat', 'lstat', 'readlink', 'access', 'open', 'scandir', 'read', 'write', 'fstat')
+    capabilities = ('supports_dir_fd', 'supports_fd', 'supports_follow_symlinks', 'supports_effective_ids')
+    functions = {name: getattr(os, name) for name in names}
+    supported = {name: getattr(os, name) for name in capabilities}
+    fake = tmp_path / 'simulated-real-home'
+    fake.mkdir()
+    guard = HomeGuard([str(fake)])
+    try:
+        guard.install()
+        for name, original in functions.items():
+            wrapped = getattr(os, name)
+            assert wrapped is not original
+            for capability, members in supported.items():
+                assert (wrapped in getattr(os, capability)) == (original in members), (name, capability)
+    finally:
+        guard.close()
+    assert all(getattr(os, name) is original for name, original in functions.items())
+    assert all(getattr(os, name) is original for name, original in supported.items())
 
 
 def test_source_and_runtime_exceptions_are_read_only(tmp_path, home_guard):
@@ -146,10 +170,15 @@ def test_source_and_runtime_exceptions_are_read_only(tmp_path, home_guard):
     source = fake / 'repo/ag/src/example.py'
     source.parent.mkdir(parents=True)
     source.write_text('pass\n')
-    guard = HomeGuard([str(fake)], [str(source)], repo=str(fake / 'repo'))
+    runtime_data = fake / 'runtime/share/RDKit/Data'
+    runtime_data.mkdir(parents=True)
+    descriptor = runtime_data / 'FragmentDescriptors.csv'
+    descriptor.write_text('synthetic dependency data\n')
+    guard = HomeGuard([str(fake)], [str(source)], [str(runtime_data)], repo=str(fake / 'repo'))
     guard.active = True
     guard.check(source)
-    for path, mode in ((source, 'write'), (fake, 'list'),
+    guard.check(descriptor)
+    for path, mode in ((source, 'write'), (descriptor, 'write'), (fake, 'list'),
                        (fake / 'repo/study/private.json', 'read'),
                        (fake / '.config/ag/config.toml', 'read')):
         with pytest.raises(HomeAccessError):

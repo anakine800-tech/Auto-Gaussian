@@ -341,6 +341,7 @@ def cli_arguments(kind, root, path):
 
 @pytest.mark.parametrize('kind', ['facts', 'init', 'manifest', 'mode'])
 @pytest.mark.parametrize('authorization', ['owner', 'partial', 'manual'])
+@pytest.mark.usefixtures("synthetic_cwd")
 def test_actual_cli_owner_wiring(evidence, env, monkeypatch, capsys, kind, authorization):
     cfg, root, path, clock = evidence
     _, _, owner = context(env)

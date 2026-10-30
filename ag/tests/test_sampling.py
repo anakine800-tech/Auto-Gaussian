@@ -138,6 +138,7 @@ def test_ambiguous_energies_not_silently_selected(tmp_path, capsys):
     assert result['unmatched_candidates'][0]['reason'] == 'multiple_matching_energies'
 
 
+@pytest.mark.usefixtures("synthetic_cwd")
 def test_native_thermo_table_and_attempt_json_list(tmp_path, capsys):
     merged = merge(tmp_path, capsys)
     paths = attempts(tmp_path, geo.read_xyz(DATA))

@@ -166,10 +166,10 @@ def test_bad_distance_contact_options(kwargs):
 
 @pytest.mark.parametrize("kwargs,label", [(dict(dihedral_bins=["1,2,3,15:-90,90"]), "dihedral"),
     (dict(report_distance=["1,15"]), "distance"), (dict(contact_atoms=["15"]), "contact atoms")])
-def test_out_of_range_fails_before_output(tmp_path, capsys, kwargs, label):
+def test_out_of_range_fails_before_output(tmp_path, capsys, kwargs, label, butane_xyz):
     option, values = next(iter(kwargs.items()))
     cli_args = ["--" + option.replace("_", "-"), values[0]]
-    assert main(["dedup", str(DATA), "--charge", "0", "--out", str(tmp_path), *cli_args]) == 1
+    assert main(["dedup", str(butane_xyz), "--charge", "0", "--out", str(tmp_path), *cli_args]) == 1
     error = capsys.readouterr().err
     assert "frame 1" in error and label in error and "15" in error and "out of range" in error
     assert not list(tmp_path.iterdir())

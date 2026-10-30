@@ -9,6 +9,9 @@ import sys
 
 import pytest
 
+# Molecule strings are probed as possible paths before SMILES interpretation.
+pytestmark = pytest.mark.usefixtures('synthetic_cwd')
+
 pytest.importorskip('rdkit')
 from rdkit import Chem
 from rdkit.Chem import rdMolDescriptors

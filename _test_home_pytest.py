@@ -1,6 +1,7 @@
 """Shared pytest hooks; child Python bootstrap has no pytest dependency."""
 from pathlib import Path
 import sys
+import tempfile
 from _test_home_isolation import TestHomeSession
 
 import atexit
@@ -37,16 +38,23 @@ def pytest_ignore_collect(collection_path, config):
 
 
 @pytest.fixture(autouse=True)
-def isolated_test_home(tmp_path):
+def isolated_test_home():
     """An independent patch outlives other function fixtures and their teardown."""
-    home = tmp_path / 'isolated-home'
-    home.mkdir()
-    with pytest.MonkeyPatch.context() as patch:
+    with tempfile.TemporaryDirectory(prefix='case-home-', dir=_session.root) as directory, pytest.MonkeyPatch.context() as patch:
+        home = Path(directory)
         patch.setenv('HOME', str(home))
         patch.setenv('XDG_CONFIG_HOME', str(home / '.config'))
         patch.setenv('XDG_CACHE_HOME', str(home / '.cache'))
         patch.setenv('XDG_DATA_HOME', str(home / '.local/share'))
         yield home
+
+
+@pytest.fixture
+def synthetic_cwd(tmp_path_factory, monkeypatch):
+    """Resolve synthetic IDs/missing inputs away from the checkout's user HOME."""
+    directory = tmp_path_factory.mktemp('synthetic-cwd')
+    monkeypatch.chdir(directory)
+    return directory
 
 
 @pytest.fixture

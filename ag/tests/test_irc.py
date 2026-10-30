@@ -288,6 +288,7 @@ def snapshot(root):
     return {str(p.relative_to(root)): p.read_bytes() for p in root.rglob('*') if p.is_file()}
 
 
+@pytest.mark.usefixtures("synthetic_cwd")
 def test_cli_only_creates_out_and_marks_unoptimized(tmp_path, capsys, monkeypatch):
     r, p = sn2()
     for name, src in [('ts', r), ('forward', r), ('reverse', p)]:
@@ -324,6 +325,7 @@ def test_cli_requires_out_and_rejects_symlink(tmp_path, capsys):
     assert not (tmp_path / 'absent.json').exists()
 
 
+@pytest.mark.usefixtures("synthetic_cwd")
 def test_configured_ids_use_only_local_studies_root(tmp_path, monkeypatch):
     r, _ = sn2()
     root = tmp_path / 'studies'

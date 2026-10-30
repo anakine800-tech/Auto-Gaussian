@@ -132,8 +132,15 @@ class HomeGuard:
             self.check(args[1], 'write', args[2])
 
     def patch(self, obj, name, replacement):
-        self.originals.append((obj, name, getattr(obj, name)))
+        original = getattr(obj, name)
+        self.originals.append((obj, name, original))
         setattr(obj, name, replacement)
+        if obj is os:
+            for capability in ('supports_dir_fd', 'supports_fd', 'supports_follow_symlinks', 'supports_effective_ids'):
+                supported = getattr(os, capability, set())
+                if original in supported:
+                    self.originals.append((os, capability, supported))
+                    setattr(os, capability, supported | {replacement})
 
     def install(self):
         # An interpreter's editable .pth can point at a different, private checkout.
@@ -344,8 +351,17 @@ class TestHomeSession:
             env=dict(os.environ, GIT_OPTIONAL_LOCKS='0', GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=os.devnull),
         ).decode().split('\0')
         files = [str(repo / path) for path in files if path]
+        # Editable setuptools metadata is generated, not tracked source. Only
+        # these package-discovery files are needed; the directory is not exempt.
+        files += [str(repo / 'ag/src/ag.egg-info' / name) for name in (
+            'PKG-INFO', 'SOURCES.txt', 'entry_points.txt', 'top_level.txt',
+            'dependency_links.txt', 'requires.txt',
+        )]
         runtime = sysconfig.get_paths()
         trees = {runtime[key] for key in ('stdlib', 'platstdlib', 'purelib', 'platlib')}
+        # Conda keeps RDKit's distributed descriptor data outside site-packages.
+        # Do not use an arbitrary RDBASE override to grant access to user data.
+        trees.update(str(Path(prefix) / 'share/RDKit/Data') for prefix in {sys.prefix, sys.base_prefix})
         import gettext
         trees.add(gettext._default_localedir)  # argparse's installed translations only
         files += [sys.executable, os.path.realpath(sys.executable), str(Path(sys.prefix) / 'pyvenv.cfg')]

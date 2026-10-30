@@ -2526,6 +2526,7 @@ def _fetched_facts_cli_attempt(prepared):
 
 
 @pytest.mark.parametrize('mode', [[], ['--refresh'], ['--reparse']])
+@pytest.mark.usefixtures("synthetic_cwd")
 def test_facts_cli_refuses_running_study_before_parsing(env, cfg, prepared, monkeypatch, capsys, mode):
     from ag import facts
     path = _fetched_facts_cli_attempt(prepared)
@@ -2578,6 +2579,7 @@ def test_facts_cli_running_study_keeps_external_dry_run_available(env, cfg, prep
 
 
 @pytest.mark.parametrize('alias', ['symlink', 'noncanonical-study-child'])
+@pytest.mark.usefixtures("synthetic_cwd")
 def test_facts_cli_path_alias_cannot_escape_existing_autonomy(env, cfg, prepared, tmp_path, monkeypatch, capsys, alias):
     from ag import facts
     path = _fetched_facts_cli_attempt(prepared)
