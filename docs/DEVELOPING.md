@@ -523,6 +523,33 @@ T62 的远程观察改动虽通过离线测试，真实运行却出现 unreadabl
 已有几何仍不得覆盖。新 facts 的 `ag_provenance` 记录解析器 checkout 的提交号与 dirty 状态；
 review 快照绑定该来源，不能用当前 HEAD 或 Skills 提交号代替。旧记录缺版本时明确报告未知。
 
+T207 为独立 `facts`、`review init`、`review manifest`、`mode-review` 增加成组的
+`--run`、`--token`、`--plan-sha256`。本地 API 分别为 `facts.write_facts`、
+`review.init`、`_review_manifest.create`、`mode_review.create`，使用对应的
+`run_id`、`token`、`plan_sha256` 关键字参数。它们复用现有
+`observation_publication_guard(action='organize')`：当前 owner 在暂停或计划到期后
+仍可整理已有证据，但须满足已确认计划、版本和 60 分钟唤醒期限。所有来源核验结束后、
+第一次正式写入前再次核验资格，不能缓存分析前的许可。
+
+无 owner 的规范 study 写入登记现有 `manual_write_guard`，登记覆盖完整分析过程，
+使租约获取与人工写入互斥；原先不能取得 ag 租约的独立旧目录仍保留人工工具兼容。
+不接受部分 owner 参数，不回退人工权限。`review check` 不接受写入 owner 参数；
+`facts --reparse --dry-run --out` 保持不写 study、不登记 writer 的外部预览。
+自主 facts 拒绝 `--refresh` 和 `--reparse`，冲突保留旧字节交人核对；
+`review manifest --accept-unresolved` 仍只供人工逐项核对后使用，owner 参数不能冒充该确认。
+
+解析、计算、哈希、报告正文预写和文件 fsync 在共享锁外完成；最终短锁仅核验
+固定来源的文件描述符/目录身份及元数据、资格，并独占发布。来源变化（含同字节文件
+替换或恢复 mtime）、新旧 fetch 回执变化、输出冲突均拒绝。review/mode/manifest
+使用本地候选文件与独占硬链接，成功后清理本次候选；发布拒绝或失败时保留已准备的
+候选供核查。mode 的多个成员不是跨文件事务，局部失败可能留下部分成员，不能据此
+声称完整报告或自动重试覆盖。预写数据已 fsync，不把链接发布当作完整的断电事务保证。
+对不合作的外部编辑器只做发布前的乐观核验，不宣称能排除最后一瞬间的任意改写。
+
+fetch 自动 facts 继续使用原 guard 与 `build_facts` 发布接口；scientific-review
+继续独立核对实际提交归属及 mode/位移文件来源，结果标为待人确认。T207 不新增
+科学签字、自动刷新或任意文件写入口；不改变科学算法、阈值或自主运行启用前提。
+
 签字前运行 `ag review manifest --study <dir>`；它无需配置或网络，独占创建
 `analyses/review-manifest-<UTC时间>.json`。清单包含 study.md、全部 facts.json/review.md，
 以及从 study/review 和已引用分析文件递归发现的 analyses/ 输出，记录相对路径、字节数和 SHA-256。

@@ -1,7 +1,7 @@
 """Local extraction of reported facts; scientific acceptance belongs to the reviewer."""
 
 from hashlib import sha256
-from contextlib import ExitStack, nullcontext
+from contextlib import ExitStack, contextmanager, nullcontext
 from datetime import datetime, timezone
 import difflib
 import fcntl
@@ -364,30 +364,146 @@ def _publication_read(path, handles):
     return data, proof
 
 
+def _publication_pin(path, handles, *, contents=False):
+    """Pin local review evidence without reading large logs/checkpoints twice.
+
+    Files retain all metadata; directories normally retain identity only.
+    Directory membership matters for log selection and inventory collection.
+    """
+    from ag.study import local_path
+    if path.is_symlink():
+        raise ValueError('Symbolic links (符号链接) are not allowed in review evidence')
+    path = local_path(path.parent, path)
+    try:
+        info = path.stat(follow_symlinks=False)
+    except FileNotFoundError:
+        return path, None, None
+    if not (stat.S_ISREG(info.st_mode) or stat.S_ISDIR(info.st_mode)):
+        raise ValueError('Review evidence must be a regular file or directory')
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    handles.callback(os.close, fd)
+    identity = _publication_identity(info)
+    if stat.S_ISDIR(info.st_mode) and not contents:
+        identity = identity[:3]
+    proof = path, fd, identity
+    _publication_unchanged(proof)
+    return proof
+
+
 def _publication_unchanged(proof):
+    from ag.study import local_path
     path, handle, identity = proof
+    local_path(path.parent, path)
     if handle is None:
         if os.path.lexists(path):
             raise ValueError(f'{path.name} 在发布前已变化，拒绝写入')
-    elif (_publication_identity(os.fstat(handle.fileno())) != identity
-          or _publication_identity(path.stat(follow_symlinks=False)) != identity):
+    elif (_publication_identity(os.fstat(handle if isinstance(handle, int) else handle.fileno()))[:len(identity)] != identity
+          or _publication_identity(path.stat(follow_symlinks=False))[:len(identity)] != identity):
         raise ValueError(f'{path.name} 在发布前已变化，拒绝写入')
 
 
-def _publication_stage(directory, content, handles, staged):
-    fd, name = tempfile.mkstemp(prefix='.facts-stage-', dir=directory)
+@contextmanager
+def _local_review_write(root, *, run_id=None, token=None, plan_sha256=None,
+                        action=None, attempt_ids=None):
+    """Reuse the existing owner/manual guards for these local review writers."""
+    from ag import autonomy, study
+    root = study.local_path(Path(root).absolute(), Path(root).absolute())
+    owned = any(value is not None for value in (run_id, token, plan_sha256))
+    if owned and not all((run_id, token, plan_sha256)):
+        raise ValueError('Local review requires run, token and plan SHA together')
+    autonomous_roots = [p for p in (root, *root.parents) if os.path.lexists(p / 'autonomy')]
+    if any(p != root for p in autonomous_roots):
+        raise ValueError('Local review path does not belong to its autonomous study')
+    try:
+        study.identifier(root.name)
+    except ValueError:
+        if owned or autonomous_roots:
+            raise ValueError('Autonomous local review requires a canonical study path') from None
+        # Existing standalone directories cannot acquire an ag lease.
+        yield nullcontext
+        return
+    cfg = {'local': {'studies_root': str(root.parent)}}
+    if owned:
+        def publication():
+            return autonomy.observation_publication_guard(cfg, root.name, run_id, token,
+                action='organize', plan_sha256=plan_sha256)
+        with publication():
+            pass
+        yield publication
+    else:
+        with autonomy.manual_write_guard(cfg, root.name, action=action, attempt_ids=attempt_ids):
+            yield nullcontext
+
+
+def _publication_recheck(current):
+    """Recheck the state yielded by the *currently held* observation guard.
+
+    Both standalone review writers and fetch automatic facts use the same
+    internal state dictionary. This is not a cached authorization or a new lock.
+    """
+    if current is None:  # Manual writer registration already excludes a lease.
+        return
+    from ag import autonomy
+    try:
+        versions = autonomy.versions()
+        at = autonomy.number(autonomy.now())
+        if at < current['updated_at']:
+            raise ValueError('Autonomy clock moved backwards')
+        lease = current['lease']
+        plan = current['plans'][current['current_plan']]
+        autonomy.eligible(current, lease['run_id'], lease['token_sha256'], versions,
+                          at, 'organize', plan['sha256'])
+    except (ValueError, OSError, KeyError, TypeError) as exc:
+        raise autonomy.PublicationRefused(str(exc)) from exc
+
+
+def _attempt_publication_sources(directory, handles):
+    """The fixed facts/mode source set, including absent facts and fetch receipts."""
+    proofs = [_publication_pin(p, handles) for p in
+              (directory.parent.parent, directory.parent, directory,
+               directory / 'manifest.json', directory / 'status.json', directory / 'facts.json')]
+    for name in ('inputs', 'outputs'):
+        folder = directory / name
+        proofs.append(_publication_pin(folder, handles, contents=True))
+        if folder.exists():
+            for path in folder.iterdir():
+                if path.name != '.partial':
+                    proofs.append(_publication_pin(path, handles))
+    receipts = sorted(directory.glob('fetch-incomplete-*.json'))
+    proofs.extend(_publication_pin(p, handles) for p in receipts)
+    def verify():
+        if sorted(directory.glob('fetch-incomplete-*.json')) != receipts:
+            raise ValueError('Fetch evidence changed before publication')
+        for proof in proofs:
+            _publication_unchanged(proof)
+    return verify
+
+
+def _publication_stage(directory, content, handles, staged, *, prefix='.facts-stage-'):
+    fd, name = tempfile.mkstemp(prefix=prefix, dir=directory)
     path = Path(name)
     staged.append(path)
     handle = handles.enter_context(os.fdopen(fd, 'w+b'))
     handle.write(content)
     handle.flush()
     os.fsync(fd)
-    return path, (path, handle, _publication_identity(os.fstat(fd)))
+    proof = (path, handle, _publication_identity(os.fstat(fd)))
+    handle.seek(0)
+    if handle.read() != content:
+        raise ValueError('Staged review bytes differ from the prepared content')
+    _publication_unchanged(proof)
+    return path, proof
 
 
 def build_facts(attempt_dir, *, refresh=False, publication=None):
     """The ag facts write entry point; preserve exact old bytes before refresh."""
-    directory = Path(attempt_dir)
+    directory = Path(attempt_dir).absolute()
+    with ExitStack() as sources:
+        verify = _attempt_publication_sources(directory, sources)
+        return _build_facts(directory, refresh=refresh, publication=publication, verify=verify)
+
+
+def _build_facts(directory, *, refresh, publication, verify):
     facts, geometries = parse_facts(directory)
     facts['ag_provenance'] = ag_provenance()
     content = (json.dumps(facts, indent=2, ensure_ascii=False, allow_nan=False) + '\n').encode('utf-8')
@@ -451,26 +567,27 @@ def build_facts(attempt_dir, *, refresh=False, publication=None):
                             raise ValueError(f'{archive.name} 内容不匹配，拒绝覆盖旧版')
                 # All reads, comparisons, hashing and payload writes are done.
                 # Only pinned-inode checks and publication hold shared locks.
-                with (publication or nullcontext)():
+                directory_fd = os.open(directory, os.O_RDONLY | os.O_NOFOLLOW)
+                handles.callback(os.close, directory_fd)
+                with (publication or nullcontext)() as recheck:
+                    verify()
                     for proof in proofs:
                         _publication_unchanged(proof)
+                    _publication_recheck(recheck)
                     for temporary, destination in geometries_to_publish:
                         os.link(temporary, destination, follow_symlinks=False)
-                    directory_fd = os.open(directory, os.O_RDONLY | os.O_NOFOLLOW)
-                    try:
-                        if replacement is not None:
-                            if old is None:
-                                os.link(replacement, target, follow_symlinks=False)
-                            else:
-                                if archive_stage is not None:
-                                    os.link(archive_stage, archive, follow_symlinks=False)
-                                # Persist the backup before replacing signed facts.
-                                os.fsync(directory_fd)
-                                _publication_unchanged(target_proof)
-                                os.replace(replacement, target)
-                        os.fsync(directory_fd)
-                    finally:
-                        os.close(directory_fd)
+                    if replacement is not None:
+                        if old is None:
+                            os.link(replacement, target, follow_symlinks=False)
+                        else:
+                            if archive_stage is not None:
+                                os.link(archive_stage, archive, follow_symlinks=False)
+                            # Manual refresh persists its backup before replacing
+                            # signed facts; autonomous refresh is not permitted.
+                            os.fsync(directory_fd)
+                            _publication_unchanged(target_proof)
+                            os.replace(replacement, target)
+                os.fsync(directory_fd)
                 complete = True
         finally:
             # Preserve unpublished stages after autonomous refusal/failure;
@@ -555,6 +672,13 @@ def _write_synced(handle, content):
 
 
 def reparse_facts(attempt_dir, *, dry_run=False, out=None):
+    with ExitStack() as sources:
+        directory = Path(attempt_dir).expanduser().absolute()
+        verify = _attempt_publication_sources(directory, sources)
+        return _reparse_facts(directory, dry_run=dry_run, out=out, verify=verify)
+
+
+def _reparse_facts(attempt_dir, *, dry_run, out, verify):
     """Locally reparse fetched evidence, preserving every prior facts version.
 
     All input/path/reference checks precede writes. Unlike build_facts this
@@ -603,6 +727,7 @@ def reparse_facts(attempt_dir, *, dry_run=False, out=None):
                   references_to_old_sha256=references, dry_run=dry_run)
     if 'crest_diagnostics' in facts:
         result['crest_diagnostics'] = facts['crest_diagnostics']
+    verify()
     if dry_run:
         destination = Path(out).expanduser().absolute()
         destination = local_path(destination.parent, destination)
@@ -641,6 +766,7 @@ def reparse_facts(attempt_dir, *, dry_run=False, out=None):
             _facts_object(staged)
             if staged != content:
                 raise ValueError('Temporary facts validation failed')
+            verify()
             history.mkdir(exist_ok=True)
             with archive.open('xb') as handle:
                 try:
@@ -664,6 +790,7 @@ def reparse_facts(attempt_dir, *, dry_run=False, out=None):
                 os.close(directory_fd)
             if _existing_bytes(target) != old or status_path.read_bytes() != status_bytes:
                 raise ValueError('facts.json or status.json changed during reparse')
+            verify()
             os.replace(temporary, target)
         finally:
             Path(temporary).unlink(missing_ok=True)
@@ -671,37 +798,45 @@ def reparse_facts(attempt_dir, *, dry_run=False, out=None):
     return _parsed_result(result)
 
 
+def write_facts(directory, *, refresh=False, reparse=False, dry_run=False, out=None,
+                run_id=None, token=None, plan_sha256=None):
+    """Standalone writer; fetch retains its own existing publication context."""
+    from ag import study
+    directory = Path(directory).expanduser().absolute()
+    owned = any(value is not None for value in (run_id, token, plan_sha256))
+    if owned and (refresh or reparse):
+        raise ValueError('Autonomous facts cannot refresh or reparse existing evidence')
+    if (dry_run or out is not None) and not reparse:
+        raise ValueError('--dry-run and --out require --reparse')
+    if reparse and dry_run:
+        return reparse_facts(directory, dry_run=True, out=out)
+    root = directory.parent.parent
+    canonical = directory.parent.name == 'attempts'
+    if canonical:
+        try:
+            study.identifier(directory.name)
+        except ValueError:
+            canonical = False
+    if not canonical:
+        if owned or any(os.path.lexists(p / 'autonomy') for p in (directory, *directory.parents)):
+            raise ValueError('Facts in an autonomous study require a canonical Attempt path')
+        context = nullcontext(nullcontext)
+    else:
+        context = _local_review_write(root, run_id=run_id, token=token, plan_sha256=plan_sha256,
+                                      action='facts', attempt_ids=[directory.name])
+    with context as publication:
+        return (reparse_facts(directory, out=out) if reparse else
+                build_facts(directory, refresh=refresh,
+                            publication=None if publication is nullcontext else publication))
+
+
 def _run(args):
     try:
-        if (args.dry_run or args.out is not None) and not args.reparse:
-            raise ValueError('--dry-run and --out require --reparse')
-        directory = resolve_attempt(args.attempt, args.study, strict=args.reparse)
-        writer = nullcontext()
-        if not (args.reparse and args.dry_run):
-            from ag import autonomy, study
-            directory = Path(directory).absolute()
-            autonomous_roots = [parent for parent in (directory, *directory.parents)
-                                if os.path.lexists(parent / 'autonomy')]
-            root = directory.parent.parent
-            if directory.parent.name == 'attempts':
-                try:
-                    study.identifier(root.name)
-                    study.identifier(directory.name)
-                except ValueError:
-                    if autonomous_roots:
-                        raise ValueError('Facts in an autonomous study require a canonical Attempt path') from None
-                    # Old standalone/legacy directories retain their old path rules.
-                else:
-                    if any(parent != root for parent in autonomous_roots):
-                        raise ValueError('Facts path does not belong to its autonomous study')
-                    local_cfg = {'local': {'studies_root': str(root.parent)}}
-                    writer = autonomy.manual_write_guard(local_cfg, root.name,
-                                                         action='facts', attempt_ids=[directory.name])
-            elif autonomous_roots:
-                raise ValueError('Facts in an autonomous study require a canonical Attempt path')
-        with writer:
-            facts = (reparse_facts(directory, dry_run=args.dry_run, out=args.out) if args.reparse else
-                     build_facts(directory, refresh=args.refresh))
+        owned = any(value is not None for value in (args.run, args.token, args.plan_sha256))
+        directory = resolve_attempt(args.attempt, args.study, strict=args.reparse or owned)
+        facts = write_facts(directory, refresh=args.refresh, reparse=args.reparse,
+                            dry_run=args.dry_run, out=args.out, run_id=args.run,
+                            token=args.token, plan_sha256=args.plan_sha256)
         print(json.dumps(facts, indent=2, ensure_ascii=False, allow_nan=False))
         return 0
     except CrestParseIncomplete as exc:
@@ -728,4 +863,7 @@ def register(subparsers):
                        help='Reparse fetched local logs, archive old facts and report hashes/references')
     parser.add_argument('--dry-run', action='store_true', help='Preview --reparse outside the study')
     parser.add_argument('--out', help='New .json file outside the study, required with --dry-run')
+    parser.add_argument('--run', help='Current autonomous review wake')
+    parser.add_argument('--token', help='Current owner lease token')
+    parser.add_argument('--plan-sha256', help='Confirmed plan hash')
     parser.set_defaults(func=_run)

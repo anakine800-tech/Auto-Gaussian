@@ -1763,7 +1763,8 @@ def scientific_review_case(cfg, selector, tmp_path, monkeypatch):
                      [[[0, 0, 0], [0.1, 0, 0], [0, 0.1, 0]]] * 3, 'standard')
             monkeypatch.setattr(mode_review, 'read_modes', lambda block: frame)
             mode_path = 'analyses/mode.json'
-            mode_review.create(path.name, path.parent.parent, [(1, 2)], mode_path)
+            mode_review.create(path.name, path.parent.parent, [(1, 2)], mode_path,
+                               run_id=run['run_id'], token=run['token'], plan_sha256=plan['sha256'])
         arguments = dict(run_id=run['run_id'], token=run['token'], plan_sha256=plan['sha256'], object_id='water',
             outcome=outcome, reason='Synthetic model judgment; pending human confirmation.', mode_review=mode_path)
         return cfg, path, manifest, arguments, parsed, clock
@@ -2377,3 +2378,41 @@ def test_ended_failed_program_allows_only_two_actual_remedies(t186_driver):
     assert not {'create_attempt', 'upload', 'submit'} & set(fake.operations())
     assert not (child_path / '.submit-claim').exists()
     assert len(autonomy.status(cfg, 'smoke')['state']['submissions']) == 3
+
+
+def test_actual_mode_report_feeds_scientific_review(scientific_review_case, monkeypatch):
+    """Real parsers and report files, with only scheduler/clock/identity fixtures."""
+    from ag import facts, mode_review
+    from test_mode_review import synthetic_log
+    parse, modes = facts.parse_facts, mode_review.read_modes
+    cfg, path, manifest, arguments, _, clock = scientific_review_case()
+    monkeypatch.setattr(facts, 'parse_facts', parse)
+    monkeypatch.setattr(mode_review, 'read_modes', modes)
+    # Three handwritten modes for a nonlinear synthetic three-atom geometry.
+    log = synthetic_log().replace(' NAtoms=    3\n',
+        ' NAtoms=    3\n Rotational constants (GHZ): 10 20 30\n')
+    log = log.replace('                      1\n', '                      1                      2                      3\n')
+    log = log.replace('                      A\n', '                      A                      A                      A\n')
+    log = log.replace('Frequencies --   -100.0000', 'Frequencies --   -100.0000 100.0000 300.0000')
+    for prefix in ('Red. masses --', 'Frc consts  --', 'IR Inten    --'):
+        log = log.replace(prefix + '      1.0000', prefix + '      1.0000 1.0000 1.0000')
+    log = log.replace('  Atom  AN      X      Y      Z',
+                      '  Atom  AN      X      Y      Z      X      Y      Z      X      Y      Z')
+    for row in ('     1   1     1.00   0.00   0.00', '     2   1    -1.00   0.00   0.00',
+                '     3   1     0.00   0.00   0.00'):
+        log = log.replace(row, row + '   0.00  1.00  0.00   0.00  0.00  1.00')
+    (path / 'outputs/water.log').write_text(log)
+    # Discard only this test fixture's stub; product code never refreshes it.
+    (path / 'facts.json').unlink()
+    owner = {key: arguments[key] for key in ('run_id', 'token', 'plan_sha256')}
+    parsed = facts.write_facts(path, **owner)
+    assert parsed['n_imag'] == 1 and parsed['vibrational_modes_complete']
+    report = mode_review.create(path.name, path.parent.parent, [(1, 2)],
+                                'analyses/actual-mode.json', **owner)
+    assert report['frequency'] == -100
+    arguments.update(outcome='ts_wrong_mode', mode_review='analyses/actual-mode.json')
+    result = autonomy_submission.write_scientific_review(cfg, path, **arguments)
+    assert result['scientific_judgment'] == 'pending_human_confirmation'
+    evidence = json.loads((path / result['record']).read_bytes())
+    assert evidence['mode_review']['path'] == 'analyses/actual-mode.json'
+    assert set(evidence['mode_review']['geometries']) == {'plus', 'minus'}

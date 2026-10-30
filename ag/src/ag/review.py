@@ -1,10 +1,13 @@
 """Local review skeletons and read-only completeness/freshness checks."""
 from hashlib import sha256
+from contextlib import ExitStack
 import json
 import os
 import re
 
 from ag import attempt, cards, study
+from ag.facts import (_publication_recheck, _local_review_write, _attempt_publication_sources,
+                      _publication_stage, _publication_unchanged)
 
 
 def cell(value):
@@ -98,7 +101,14 @@ def facts_snapshot(path):
     return facts, fingerprint
 
 
-def init(path, card=None):
+def init(path, card=None, *, run_id=None, token=None, plan_sha256=None):
+    with _local_review_write(path.parent.parent, run_id=run_id, token=token,
+                             plan_sha256=plan_sha256) as publication, ExitStack() as sources:
+        verify = _attempt_publication_sources(path, sources)
+        return _init(path, card, publication, verify, pending=run_id is not None)
+
+
+def _init(path, card, publication, verify, *, pending):
     destination = study.local_path(path.parent.parent, path / 'review.md')
     if destination.exists():
         raise FileExistsError('review.md already exists; will not overwrite')
@@ -127,8 +137,19 @@ def init(path, card=None):
             '| 判据 | 依据（facts 字段、日志行号或文件） | 结论 |\n'
             '|---|---|---|\n')
     text += ''.join('| ' + ' | '.join(cell(v) for v in row) + ' |\n' for row in rows)
-    with destination.open('x', encoding='utf-8') as handle:
-        handle.write(text)
+    if pending:
+        text += '\n自主临时审阅：待人确认；不构成科学结论或里程碑签字。\n'
+    staged = []
+    with ExitStack() as sources:
+        temporary, proof = _publication_stage(path, text.encode('utf-8'), sources, staged,
+                                              prefix='.review-stage-')
+        with publication() as recheck:
+            verify()
+            _publication_unchanged(proof)
+            study.local_path(path.parent.parent, destination)
+            _publication_recheck(recheck)
+            os.link(temporary, destination, follow_symlinks=False)
+    temporary.unlink()
     return dict(attempt_id=path.name, review='review.md', rows=len(rows))
 
 
@@ -209,6 +230,10 @@ def check(path):
     return result
 
 
-def run(cfg, action, attempt_id, *, card=None):
+def run(cfg, action, attempt_id, *, card=None, run_id=None, token=None, plan_sha256=None):
     path = attempt.find(cfg, attempt_id)
-    return init(path, card=card) if action == 'init' else check(path)
+    if action == 'check':
+        if any(value is not None for value in (run_id, token, plan_sha256)):
+            raise ValueError('Read-only review check does not accept write ownership')
+        return check(path)
+    return init(path, card=card, run_id=run_id, token=token, plan_sha256=plan_sha256)

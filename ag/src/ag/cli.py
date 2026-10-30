@@ -97,7 +97,9 @@ def core_command(args):
         return run(cfg, args.watch, json_output=args.json)
     if command == 'review':
         from ag import review
-        result = review.run(cfg, args.action, args.id, card=getattr(args, 'card', None))
+        result = review.run(cfg, args.action, args.id, card=getattr(args, 'card', None),
+                            run_id=getattr(args, 'run', None), token=getattr(args, 'token', None),
+                            plan_sha256=getattr(args, 'plan_sha256', None))
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return int(args.action == 'check' and (not result['complete'] or result['stale']))
     if command == 'clusters':
@@ -238,6 +240,9 @@ def register(subparsers):
                 child.add_argument('id')
                 if action == 'init':
                     child.add_argument('--card', help='Recipe for legacy manifests without a recorded card')
+                    child.add_argument('--run', help='Current autonomous review wake')
+                    child.add_argument('--token', help='Current owner lease token')
+                    child.add_argument('--plan-sha256', help='Confirmed plan hash')
                 child.add_argument('--json', action='store_true', default=argparse.SUPPRESS)
             from ag._review_manifest import run as review_manifest
             child = actions.add_parser('manifest', help='Freeze a signature evidence inventory')
@@ -245,6 +250,9 @@ def register(subparsers):
             child.add_argument('--study', help='Local study directory (alternative to positional)')
             child.add_argument('--accept-unresolved', action='store_true',
                                help='Confirm the listed unresolved references before writing')
+            child.add_argument('--run', help='Current autonomous review wake')
+            child.add_argument('--token', help='Current owner lease token')
+            child.add_argument('--plan-sha256', help='Confirmed plan hash')
             child.add_argument('--json', action='store_true', default=argparse.SUPPRESS)
             child.set_defaults(func=review_manifest)
         elif name == 'monitor':

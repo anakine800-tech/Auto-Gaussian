@@ -1,5 +1,6 @@
 """Local, append-only inventories of the evidence presented for a signature."""
 from datetime import datetime, timezone
+from contextlib import ExitStack
 from hashlib import sha256
 import errno
 import json
@@ -7,9 +8,11 @@ import os
 from pathlib import Path
 import re
 import sys
+import tempfile
 from urllib.parse import unquote, urlsplit
 
-from ag.facts import ag_provenance
+from ag.facts import (_publication_recheck, ag_provenance, _local_review_write,
+                      _publication_pin, _publication_unchanged, _publication_identity)
 from ag.study import local_path
 
 
@@ -158,17 +161,43 @@ def _analysis_reference(root, source, value, explicit, field='reference', key=''
         return invalid('path exceeds the filesystem length limit (ENAMETOOLONG)')
 
 
-def create(directory, *, accept_unresolved=False):
+def create(directory, *, accept_unresolved=False, run_id=None, token=None, plan_sha256=None):
+    if accept_unresolved and any(value is not None for value in (run_id, token, plan_sha256)):
+        raise ValueError('Accepting unresolved signature references still requires manual review')
     root = Path(directory).expanduser().absolute()
     root = local_path(root, root)
-    if not (root / 'study.md').is_file() or not (root / 'analyses').is_dir():
-        raise ValueError('Expected a study directory with study.md and analyses/')
+    with _local_review_write(root, run_id=run_id, token=token,
+                             plan_sha256=plan_sha256) as publication, ExitStack() as sources:
+        if not (root / 'study.md').is_file() or not (root / 'analyses').is_dir():
+            raise ValueError('Expected a study directory with study.md and analyses/')
+        local_path(root, root / 'analyses')
+        # Allocate before recording directory membership. Filling this private
+        # candidate later cannot invalidate the inventory's directory receipts.
+        fd, name = tempfile.mkstemp(prefix='.review-manifest-stage-', dir=root / 'analyses')
+        temporary = Path(name)
+        handle = sources.enter_context(os.fdopen(fd, 'w+b'))
+        try:
+            result = _create(root, accept_unresolved, publication, sources, temporary, handle)
+        except BaseException:
+            # No payload means analysis failed before preparing publication.
+            # Preserve a filled candidate after a publication refusal/failure.
+            if os.fstat(fd).st_size == 0:
+                temporary.unlink()
+            raise
+        temporary.unlink()
+        return result
+
+
+def _create(root, accept_unresolved, publication, sources, temporary, handle):
     pending = {root / 'study.md'}
+    proofs = [_publication_pin(root, sources, contents=True)]
     analysis_names = set()
     # Refuse linked subtrees rather than silently omitting their evidence.
     for path in root.rglob('*'):
         if path.is_symlink():
             raise ValueError('Symbolic links are not allowed in study evidence')
+        if path.is_dir():
+            proofs.append(_publication_pin(path, sources, contents=True))
         if path.is_relative_to(root / 'analyses') and path.is_file():
             analysis_names.add(path.name)
         if path.name in {'facts.json', 'review.md'}:
@@ -182,6 +211,7 @@ def create(directory, *, accept_unresolved=False):
         pending.remove(path)
         if path in files:
             continue
+        proofs.append(_publication_pin(path, sources))
         data = local_path(root, path).read_bytes()
         files[path] = dict(path=path.relative_to(root).as_posix(), size=len(data),
                            sha256=sha256(data).hexdigest())
@@ -251,11 +281,22 @@ def create(directory, *, accept_unresolved=False):
     name = 'review-manifest-' + now.strftime('%Y%m%dT%H%M%S%fZ') + '.json'
     destination = local_path(root, root / 'analyses' / name)
     content = (json.dumps(manifest, indent=2, ensure_ascii=False, allow_nan=False) + '\n').encode('utf-8')
-    # xb is O_CREAT | O_EXCL: collisions never overwrite or retry another name.
-    with destination.open('xb') as handle:
-        handle.write(content)
-        handle.flush()
-        os.fsync(handle.fileno())
+    handle.write(content)
+    handle.flush()
+    os.fsync(handle.fileno())
+    proof = temporary, handle, _publication_identity(os.fstat(handle.fileno()))
+    handle.seek(0)
+    if handle.read() != content:
+        raise ValueError('Staged inventory bytes differ from the prepared content')
+    _publication_unchanged(proof)
+    proofs.append(proof)
+    with publication() as recheck:
+        for proof in proofs:
+            _publication_unchanged(proof)
+        local_path(root, destination)
+        _publication_recheck(recheck)
+        # An exclusive link, like xb, never replaces an existing inventory.
+        os.link(temporary, destination, follow_symlinks=False)
     return dict(manifest=destination.relative_to(root).as_posix(),
                 size=len(content), sha256=sha256(content).hexdigest(), **manifest)
 
@@ -265,7 +306,9 @@ def run(args):
     if not directory or (args.study and args.directory):
         raise ValueError('Specify one study directory: <study> or --study <study>')
     try:
-        result = create(directory, accept_unresolved=args.accept_unresolved)
+        result = create(directory, accept_unresolved=args.accept_unresolved,
+                        run_id=getattr(args, 'run', None), token=getattr(args, 'token', None),
+                        plan_sha256=getattr(args, 'plan_sha256', None))
     except UnresolvedReferences as exc:
         result = dict(error=str(exc), exit_code=4, unresolved_references=exc.references)
         if exc.unqualified_names:
