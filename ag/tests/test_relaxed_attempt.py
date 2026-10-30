@@ -122,6 +122,35 @@ def test_includes_bound_without_mutation_main_input_first(cfg, tmp_path):
     assert INCLUDED in summary and BASIS.decode() in summary
 
 
+@pytest.mark.parametrize('main_name,include_name', [
+    ('water.gjf', 'a-basis.gjf'),
+    ('water..gjf', 'a..basis.inc'),
+])
+def test_main_identity_and_plain_double_dot_basenames(cfg, tmp_path, main_name, include_name):
+    study.init(cfg, 'smoke')
+    source, attachment = tmp_path / main_name, tmp_path / include_name
+    text = INCLUDED.replace('a-basis.inc', include_name)
+    source.write_text(text)
+    attachment.write_bytes(BASIS)
+    manifest = attempt.prepare(cfg, study_name='smoke', template='gaussian', input_path=source,
+                               tier='simple', walltime='00:30:00', label='sp',
+                               method_basis='兜底方法：合成测试', relaxed_input=True,
+                               include_files=[attachment])
+    path = attempt.find(cfg, manifest['attempt_id'])
+    files = attempt.verified_files(cfg, path, manifest)
+    assert include_name < main_name
+    assert manifest['inputs'][0]['name'] == main_name
+    assert attempt.program_input_name(manifest) == main_name
+    assert attempt.prepared_bundle(files) == (manifest['inputs'], manifest['bundle_sha256'])
+    assert remote.output_names(manifest)[0] == Path(main_name).stem + '.log'
+    assert files[main_name] == source.read_bytes() == text.encode()
+    assert files[include_name] == attachment.read_bytes() == BASIS
+    record = json.loads(files['input-validation.json'])
+    assert record['main_input'] == main_name
+    assert record['attachments'] == [dict(name=include_name, size=len(BASIS),
+                                        sha256=sha256(BASIS).hexdigest())]
+
+
 @pytest.mark.parametrize('template', ['gaussian-cp', 'xtb', 'crest'])
 def test_relaxed_input_never_expands_other_template_boundaries(cfg, tmp_path, template):
     study.init(cfg, 'smoke')
@@ -172,7 +201,9 @@ def test_invalid_input_never_allocates_attempt(cfg, tmp_path, damage):
 
 @pytest.mark.parametrize('damage', ['marker-removed', 'mode', 'method', 'skip', 'science',
                                    'sidecar-removed', 'sidecar-bytes', 'include-bytes',
-                                   'rebound-sidecar', 'rebound-skips'])
+                                   'rebound-sidecar', 'rebound-skips',
+                                   'rebound-main-missing', 'rebound-main-path', 'rebound-main-suffix',
+                                   'rebound-record-list', 'rebound-record-extra', 'rebound-record-missing'])
 def test_verify_and_submit_refuse_tampering_before_remote(cfg, tmp_path, monkeypatch, damage):
     path, manifest = prepare(cfg, tmp_path, text=INCLUDED, include=True)
     changed = deepcopy(manifest)
@@ -197,6 +228,20 @@ def test_verify_and_submit_refuse_tampering_before_remote(cfg, tmp_path, monkeyp
         record = json.loads((path / 'inputs/input-validation.json').read_text())
         record['input_validation'] = changed['input_validation']
         (path / 'inputs/input-validation.json').write_text(json.dumps(record))
+    elif damage.startswith(('rebound-main-', 'rebound-record-')):
+        record = json.loads((path / 'inputs/input-validation.json').read_text())
+        if damage.startswith('rebound-main-'):
+            record['main_input'] = {'rebound-main-missing': 'absent.gjf',
+                                    'rebound-main-path': '../water.gjf',
+                                    'rebound-main-suffix': 'a-basis.inc'}[damage]
+        elif damage == 'rebound-record-list':
+            record = []
+        elif damage == 'rebound-record-extra':
+            record['unexpected'] = True
+        else:
+            del record['attachments']
+        (path / 'inputs/input-validation.json').write_text(
+            json.dumps(record, ensure_ascii=False, sort_keys=True, separators=(',', ':')))
     if damage.startswith('rebound-'):
         rebind_bundle(path, changed)
     else:

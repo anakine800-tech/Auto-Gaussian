@@ -31,17 +31,18 @@
 
 每类放宽输入有最小合成接受用例；每条底线有拒绝用例，覆盖第二/第三 Link1 段、空段/重复资源、资源继承与不匹配、大小写/换行 External、附件递归/缺失/环/越界/链接、危险文件名、包文件被替换、冻结标记/跳过清单被篡改、父 chk 与 Geom=AllCheck、旧严格输入不变。分别验证 prepare、verified_files 和提交前复核，失败不产生远程动作。
 
-相关测试及全量 ag/Skills 回归通过；敏感扫描用私有词表、精确暂存、noreply 身份及当前 head CI。不要用仅接受异常的测试冒充该类语法可用。
+本地只跑受影响相关测试；全量 ag/Skills 交给 CI，并在真实验证前对最终源码组合统一运行一次，不做 AST 比对。
+敏感扫描用私有词表、精确暂存、noreply 身份及当前 head CI。不要用仅接受异常的测试冒充该类语法可用。
 
 ## 真实环境验证（敏感，合并前必需）
 
 当前仅授权开发与离线测试，不连接集群、不修改真实配置、不提交或取消。整理非研究小分子矩阵：上述每类放宽至少一个独立 Attempt，固定单次 prepare/submit，status/fetch 观察次数执行前列明。可让一个安全输入覆盖数个语法类别，但必须明确对应；底线拒绝只在本地执行，绝不将危险输入送上服务器。
 
-交最终提交 SHA、对象/电荷/多重度/方法/完整 route/资源、输入和 bundle 哈希、精确命令和次数、预期与停止条件，由协调方和 T185/T186/T187 汇总后请负责人批准实际执行并亲手确认。任何真实 UNKNOWN、哈希不符、SSH 错误或异常结束立即停，不重新提交。真实验证缺失不得合并。
+交最终提交 SHA、对象/电荷/多重度/方法/完整 route/资源、输入和 bundle 哈希、精确命令和次数、预期与停止条件，由协调方汇总 T185/T186 最终组合后请负责人批准实际执行并亲手确认。取消/改投接口不阻塞此验证。任何真实 UNKNOWN、哈希不符、SSH 错误或异常结束立即停，不重新提交。真实验证缺失不得合并。
 
 ## 交付
 
-PR 首行 `Task: T188`；说明最终字段、允许及仍拒绝的语法、方法未核验和工具限制、底线矩阵、兼容性和真实验证缺口。协调会话负责审阅与本次授权合并，开发对话不合并、不发布或部署。范围外、同问题两次未解决或底线语义不清时向协调方报告，独立工作继续。
+PR 首行 `Task: T188`；说明最终字段、允许及仍拒绝的语法、方法未核验和工具限制、底线矩阵、兼容性和真实验证缺口。敏感生产路径在 T185/T186 后交 Claude 审阅一次定稿，之后只复核回应意见的改动；审阅意见未处理完不得合并，协调方的独立合并授权不覆盖本 PR。开发对话不合并、不发布或部署。范围外、同问题两次未解决或底线语义不清时向协调方报告，独立工作继续。
 
 ## 合并前验证准备清单（未执行）
 
@@ -60,27 +61,29 @@ TS 成立或 profile 可以采用结果。危险拒绝输入只在本地合成�
 | --- | --- | --- | --- |
 | R01 | 水；0/1 | `# HF/Gen SP` | H/O 的 STO-3G 基组块，`****` 分隔；Gen。 |
 | R02 | 氯化氢；0/1 | `# HF/GenECP SP` | H 用 STO-3G，Cl 用 LANL2DZ 基组及 ECP 块；GenECP。 |
-| R03 | 水；0/1 | `# HF/STO-3G SP SCRF=(PCM,Solvent=Generic,Read)` | `eps=78.3553`、`epsinf=1.7778`；SCRF=Read。 |
+| R03 | 水；0/1 | `# HF/STO-3G SP SCRF=(PCM,Solvent=Water,Read)` | `eps=78.3553`、`epsinf=1.7778`；覆盖已命名溶剂参数，不声称两个参数构成完整 Generic 溶剂。 |
 | R04 | 水；0/1 | `# HF/STO-3G SP Pop=NBORead` | `$NBO BNDIDX $END`；NBO 附加段。 |
-| R05 | 平面氨反转初猜；0/1 | `# HF/STO-3G Opt=(TS,CalcFC,ModRedundant)` | `B 1 2 F`，固定一条 N–H；TS 与 ModRedundant。只验收执行链路，TS 科学判定另需频率与方向审阅。 |
+| R05 | 平面氨反转初猜；0/1 | `# HF/STO-3G Opt=(TS,CalcFC,ModRedundant) NoSymm` | `B 1 2 F`，固定一条 N–H；TS 与 ModRedundant。只验收执行链路，TS 科学判定另需频率与方向审阅。 |
 | R06 | 水；首段0/1，第二段显式0/1，第三段电子态来自前段 chk | 1. `# HF/STO-3G SP`；2. `# HF/STO-3G SP Geom=Check Guess=Read`；3. `# HF/STO-3G SP Geom=AllCheck Guess=Read` | 三段显式 `%chk=water.chk`；后段只用本 Attempt 前段来源。第二段有标题/电子态，无几何；第三段不写标题/电子态/几何。覆盖 Link1、Check、AllCheck。 |
-| R07 | 水；0/1 | `# HF/STO-3G Opt=ModRedundant` | 两条 O–H 与 H–O–H 共三条 S 行，每维两步、小步长；多于两个扫描坐标。 |
-| R08 | 氢气；0/1 | `# HF/STO-3G Opt=ModRedundant` | `B 1 2 S 51 0.001`；超出原 50 步白名单。 |
-| R09 | 甲烷；0/1 | `# HF/STO-3G Opt=ModRedundant` | `B 1 * F` 与 `X 1 F`；通配符和笛卡尔冻结。 |
-| R10 | 水；0/1 | `# HF/Gen Opt=ModRedundant Units=Bohr SCRF=(PCM,Solvent=Generic,Read) Pop=NBORead` | 正确换算为 Bohr 的坐标，安全冻结行、Gen 基组、SCRF 数值和 NBO 段；Units 与多类附加段组合。 |
-| R11 | 水；0/1 | `# HF/Gen SP` | 显式收集 `basis.inc` 与其引用的 `hydrogen.inc`、`oxygen.inc`；有界递归 include，所有引用为普通 basename。 |
+| R07 | 金字塔氨；0/1 | `# HF/STO-3G Opt=ModRedundant NoSymm` | 三条 N–H 各 `S 2 0.010`，保留弯曲自由度；多于两个扫描坐标。 |
+| R08 | 水；0/1 | `# HF/STO-3G Opt=ModRedundant NoSymm` | `B 1 2 S 51 0.001`，其余内部坐标仍可优化；超出原 50 步白名单。 |
+| R09 | 甲烷；两个显式几何段均0/1 | 两段均为 `# HF/STO-3G Opt=ModRedundant NoSymm` | 第一段 `B 1 * F`；第二段 `X 1 B` 后 `X 1 F`，分别使用不同 chk；通配符与笛卡尔冻结。 |
+| R10 | 水；0/1 | `# HF/Gen Opt=ModRedundant NoSymm Units=AU SCRF=(PCM,Solvent=Water,Read) Pop=NBORead` | 正确换算为 AU 的坐标；尾段顺序 ModRedundant → Gen → 普通 SCRF Read → NBO。 |
+| R11 | 水；0/1 | `# HF/Gen SP` | 嵌套 `basis.inc` → `hydrogen.inc` / `oxygen.inc`；仅本地打包覆盖，Gaussian 嵌套语义未证明，真实调用为零，保留 HOLD。 |
+| R11-flat | 水；0/1 | `# HF/Gen SP` | 主输入直接引用 `hydrogen.inc`、`oxygen.inc`；可替代直接 include 覆盖，不能算递归语义通过。 |
 | P00 | 水；0/1 | `# HF/STO-3G SP` | 独立严格输入，`%chk=water.chk`，作为 P01 的专用父 chk 来源。 |
-| P01 | 水；电子态/几何来自 P00，输入不重复写 | `# HF/STO-3G SP Geom=AllCheck Guess=Read` | `--parent`、`--relation`、`--parent-chk` 显式绑定 P00；`%oldchk=parent.chk`、`%chk=child.chk`；只读父 chk 来源。 |
+| P01 | 水；电子态/几何拟来自 P00，输入不重复写 | `# HF/STO-3G SP Geom=AllCheck Guess=Read` | 真实父尚未完成、chk 哈希未知，HOLD；条件具备后以 `--parent`、`--relation`、`--parent-chk` 绑定 P00，父文件只读。 |
 
-R01–R11、P01 使用 `--relaxed-input`；P00 保持严格模式以覆盖兼容与父来源。
-R11 的三个附件全部通过重复的 `--include-file` 显式收集，不按引用隐式打开文件。
+R01–R10、R11-flat、P01 使用 `--relaxed-input`；P00 保持严格模式以覆盖兼容与父来源。
+R11-flat 的两个附件全部通过重复的 `--include-file` 显式收集，不按引用隐式打开文件。
+最多 12 个可审阅候选加条件解锁后的 P01；嵌套 R11 不进入真实执行列表。
 多段与组合输入还需针对最终 Gaussian 版本复核附加段顺序；若最终校验器不能证明安全，
 本地拒绝并记录具体缺口，不把该行标成接受，也不发往服务器探测。
 
 ### 固定命令、次数与验收
 
 执行前替换并审阅下列全部占位符，保存每一行的实际命令；本表不是执行授权。
-`<INCLUDE_ARGS>` 仅用于 R11，展开为三个 `--include-file`；`<PARENT_ARGS>` 仅用于 P01，
+`<INCLUDE_ARGS>` 仅用于 R11-flat，展开为两个 `--include-file`；`<PARENT_ARGS>` 仅用于 P01，
 展开为 P00 的确切 `--parent`、经审阅的 `--relation` 与 `--parent-chk`。
 P00 完成、核验来源并取回后才能准备 P01，不能用尚未完成的父作业。
 
@@ -113,7 +116,7 @@ P00 的 prepare 删除 `--relaxed-input` 和两个附加参数组。每行 prepa
 - 真实配置解析出的入口、档位、核数、内存、walltime、远程目录，以及本地和账号合并容量核验。
 - 各行输入、附件、sidecar、脚本和 bundle SHA-256；父 chk 的来源、目标名、大小和哈希在专用流程中核验。
 - 替换占位符后的精确命令、固定次数、负责人授权及人工确认安排。
-- T186 提交规则集成、T185/T186/T187 联合清单与独立审阅结果。真实验证缺失仍禁止合并。
+- T186 提交规则集成、T185/T186 最终组合与 Claude 敏感代码审阅；T188 在 T185/T186 后送审，不等待取消/改投接口。真实验证缺失仍禁止合并。
 
 当前实际阻塞属于**提交/环境**：集成接口与最终执行清单尚待协调，未获真实执行授权；
 不存在真实成功或失败结论。输入和 bundle 哈希依赖最终配置和独占 Attempt 身份，

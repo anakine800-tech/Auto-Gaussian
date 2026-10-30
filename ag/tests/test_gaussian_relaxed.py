@@ -116,10 +116,60 @@ def test_command_and_unknown_reader_routes_refused(route):
 
 
 @pytest.mark.parametrize('name', ['../water.chk', '/water.chk', r'folder\water.chk',
-                                 '$HOME.chk', 'job.pbs', 'parent.chk', 'water..chk'])
+                                 '$HOME.chk', 'job.pbs', 'parent.chk'])
 def test_unsafe_or_protected_checkpoint_names(name):
     with pytest.raises(ValueError):
         check(job(chk=name))
+
+
+def test_plain_double_dot_names_are_not_parent_path_components():
+    data = job('# HF/Gen SP', '@a..basis.inc\n', chk='water..chk')
+    science, marker = check(data, input_name='water..gjf',
+                            attachments={'a..basis.inc': b'O H 0\nSTO-3G\n****\n'})
+    assert science['geometry'] == WATER and marker['method_verified'] is False
+
+
+@pytest.mark.parametrize('option', ['Units=UnverifiedUnit', 'EmpiricalDispersion=UnverifiedModel',
+                                  'EM=UnverifiedModel'])
+def test_scientific_option_values_remain_unverified_not_selected(option):
+    # Parser acceptance deliberately does not certify these synthetic choices.
+    science, marker = check(job('# HF/STO-3G SP ' + option))
+    assert option in science['route'] and marker['method_verified'] is False
+    assert 'scientific_method' in marker['skipped_checks']
+    if option.startswith('Units='):
+        assert 'coordinate_unit_semantics' in marker['skipped_checks']
+
+
+def test_newton_is_not_a_file_or_execution_directive():
+    # Synthetic basis label: data acceptance does not endorse a basis definition.
+    science, marker = check(job('# HF/Gen SP', 'O H 0\nNewton\n****\n'))
+    assert science['geometry'] == WATER and marker['method_verified'] is False
+
+
+@pytest.mark.parametrize('option', [
+    'Stable=(RepOpt,Int)', 'Stable=(AO,NoOpt)',
+    'Symmetry=(PG=C2v,Follow,Int,NoSCF)',
+    'Symmetry=(PrintOrientation,SaveOrientation)',
+    'Polar=(Cubic,EnOnly,FourPoint,Step=10)', 'Polar=OptRot',
+    'Polar=(Susceptibility,NoWorkerPerturbations)', 'Freq=Raman',
+])
+def test_scientific_stable_polar_symmetry_choices_do_not_require_value_allowlist(option):
+    science, marker = check(job('# HF/STO-3G ' + option))
+    assert option in science['route'] and marker['method_verified'] is False
+
+
+@pytest.mark.parametrize('option', [
+    'Stable=Restart', 'Stable=Rest', 'Polar=Restart', 'Polar=Rest',
+    'Polar=Raman', 'Polar=Ram', 'Polar=ROA', 'Polar=RO',
+    'Polar=DCSHG', 'Polar=DCS', 'Polar=Gamma', 'Polar=Gam',
+    'Polar=WorkerPerturbations', 'Polar=Worker',
+    'Stable=(Opt Rest)', 'Polar(Numer\tRama)', 'Polar=(Cubic,\nGamm)',
+])
+def test_implicit_checkpoint_frequency_and_worker_options_remain_refused(option):
+    # Even a known earlier geometry checkpoint does not prove Hessian/frequency
+    # provenance or authorize a different parallel worker model.
+    with pytest.raises(ValueError):
+        check(chain(job(), job(), job('# HF/STO-3G ' + option)))
 
 
 @pytest.mark.parametrize('tail', ['FILE=job.pbs', 'Output=job.pbs', 'job.pbs',

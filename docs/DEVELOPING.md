@@ -97,12 +97,23 @@ SCNet 类末级运行加排队最多 4 个、兜底排队最多 2 个，按全�
 解析有界：最多 32 个附件、8 层 include、32 个 Link1 段，冻结输入与展开文本各最多 1 MiB。
 附件只含数据片段，不能注入 Link0/route/Link1；未被引用的附件也拒绝。
 
+不再用 Units、EmpiricalDispersion/EM、Stable/Polar/Symmetry 的值白名单选择科学方案；
+这不证明输入的算法名称、拼写或方法可用，方法口径仍未核验。纯 basename 中间的连续点
+可以保留，父目录路径组件、路径分隔符、展开和别名检查不放宽。
+Stable/Polar 的 Restart 继续拒绝；Polar 的 Raman/ROA 需读取旧力常数，DCSHG/Gamma
+隐含频率读入，WorkerPerturbations 涉及 Linda 资源模型，也拒绝。这些危险选项的非空前缀
+一并拒绝，防止 Gaussian 的最短唯一缩写绕过完整拼写检查；不扩为所有科学值的白名单。
+依据为 Gaussian 经销方的 G16 手册转载：[Stable](https://www.conflex.co.jp/gaussian_support/stable.php)、
+[Polar](https://www.conflex.co.jp/gaussian_support/polar.php)、[Symmetry](https://www.conflex.co.jp/gaussian_support/symmetry.php)
+及[输入缩写规则](https://www.conflex.co.jp/gaussian_support/input.php)。语义核查不等于目标程序实测。
+
 唯一的 manifest 放宽标记为 `input_validation`，准确字段是 `mode: "relaxed"`、
 `skipped_checks: [...]`、`method_verified: false`。输入包中的 `input-validation.json`
 另绑定该标记、主输入名称和附件记录，随 bundle SHA-256 冻结；标记、跳过项或包文件不一致即拒绝，
 不能因为严格解析恰好成功而消除标记。输入、附件、脚本与 sidecar 都保留各自的字节哈希。
 提交审计共用 `attempt.prepared_bundle(files)`，不要对新包直接比较 `bundle(files)` 的记录顺序：
 旧记录仍按名称排序，放宽包按已哈希 sidecar 将主输入排首，其余按名称排序，摘要计算仍用规范名称顺序。
+verified_files 直接复用 prepared_bundle 的 sidecar 结构核验与首位主输入身份，不重复解析同一 sidecar 或再检查同一后缀。
 这是为兼容现有输出选择器而保留的主文件身份；经过 `verified_files` 核验后可用
 `attempt.program_input_name(manifest)` 读取 Gaussian 主输入，不能按后缀从附件中猜选。
 摘要展示完整各段 route、资源、几何/电子态来源或未知，并提醒 scan-peak 不可用、profile 可能不支持。

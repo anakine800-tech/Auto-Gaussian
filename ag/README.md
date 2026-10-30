@@ -179,7 +179,7 @@ studies_root = "<ABS_LOCAL_STUDIES_ROOT_OUTSIDE_GIT>"
   别名，不能把 `HostName` 的地址误填为一个未定义的别名。
 - `remote.allowed_root` 填已存在的 SDL 根目录；`remote.ag_root` 必须严格等于它加上
   `/ag`，不填末尾斜杠。实际作业目录为 `<ABS_REMOTE_SDL_ROOT>/ag/<STUDY_ID>/<ATTEMPT_ID>`。
-  远程路径不能包含空格、`..` 或符号链接，根目录需有访问和写入权限。
+  远程路径不能包含空格、父目录组件 `..` 或符号链接，根目录需有访问和写入权限。
 - `programs.gaussian.g16root` 的当前含义是**直接包含 `g16` 可执行文件的目录**。
   doctor 检查 `<ABS_GAUSSIAN_EXECUTABLE_DIRECTORY>/g16`，不是再向下一层找程序。
 - `programs.xtb.root` 下应有 `bin/xtb`、`bin/crest` 和运行时所需的 `share/xtb`。
@@ -290,6 +290,10 @@ Geom=Check/AllCheck，以及原扫描白名单之外的坐标数、步数、通�
 SCRF 读入段限数值 `eps`/`epsinf`，NBO 限已列入白名单的分析标志，Gen/GenECP 和
 ModRedundant 附加段接受受限的数据语法；不接受任意文件读写、External、IOp 或外部 NBO 程序。
 放宽路径目前拒绝 RCFC/ReadFC/ReadCartesianFC，避免绕过既有父力常数取向核验；需要时使用已支持的严格流程。
+Units、色散及 Stable/Polar/Symmetry 不再按科学选项值白名单筛选，方法仍标为未核验；普通 basename 中间的连续点不视为父目录组件。
+已知读取与资源边界仍保留：Stable/Polar 的 Restart、Polar 的 Raman/ROA（读取旧力常数）、
+DCSHG/Gamma（隐含频率读入）及 WorkerPerturbations（Linda 工作进程分配）均拒绝，包括这些选项的前缀缩写。
+这不拒绝普通 Freq=Raman；其余路径、命令、每段资源和 checkpoint 来源检查不变。
 现有父 chk 机制只接受单程序输入的父 Attempt；放宽包带有校验 sidecar，当前不能作为父来源。
 
 不可变 manifest 中的唯一放宽标记为 `input_validation`。显式放宽普通 SP 输入的最小合成示例为：

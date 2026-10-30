@@ -455,21 +455,13 @@ def verified_files(cfg, path, manifest):
     if relaxed:
         if m['template'] != 'gaussian' or 'input_validation' not in m or RELAXED_RECORD not in files:
             raise ValueError('Missing or incompatible frozen relaxed input validation')
-        try:
-            record = json.loads(files[RELAXED_RECORD])
-            name = filename(record['main_input'])
-            if set(record) != {'main_input', 'attachments', 'input_validation'} or name not in files:
-                raise ValueError('Invalid relaxed input record')
-        except (KeyError, TypeError, ValueError) as exc:
-            raise ValueError('Invalid frozen relaxed input record') from exc
         records, digest = prepared_bundle(files)
+        name = records[0]['name']
     else:
         records, digest = bundle(files)
     if records != m['inputs'] or digest != m['bundle_sha256']:
         raise ValueError('Input bundle differs from confirmed manifest')
     if relaxed:
-        if Path(name).suffix.lower() != '.gjf':
-            raise ValueError('Gaussian input must have .gjf extension')
         includes = {n: raw for n, raw in files.items() if n not in {script, name, RELAXED_RECORD}}
         if 'parent_chk' in m:
             from ag.parent_chk import resolve

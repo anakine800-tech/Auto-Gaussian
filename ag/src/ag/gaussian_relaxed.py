@@ -26,7 +26,7 @@ _ROUTE_KEYS = {'opt', 'freq', 'sp', 'force', 'irc', 'scf', 'int', 'integral',
                'density'}
 _FORBIDDEN_WORDS = {'external', 'include', 'file', 'filename', 'output', 'punch',
                     'save', 'load', 'rwf', 'restart', 'extrabasis', 'extraoverlay',
-                    'iop', 'massage', 'newton', 'nbo6', 'nbo7', 'nbo6read',
+                    'iop', 'massage', 'nbo6', 'nbo7', 'nbo6read',
                     'nbo7read', 'rcfc', 'readfc', 'readcartesianfc'}
 _NBO_FLAGS = {'nbo', 'npa', 'nlmo', 'bndidx', 'steric', 'dipole', 'natural',
               'detail', 'print', 'nbosum', 'nobond', 'nomo', 'aonbo', 'aonlmo'}
@@ -41,7 +41,7 @@ _FEATURE_CHECKS = {
 
 def filename(value):
     """Only unambiguous basenames, including on case-insensitive source disks."""
-    if not isinstance(value, str) or not _NAME.fullmatch(value) or '..' in value:
+    if not isinstance(value, str) or not _NAME.fullmatch(value):
         raise ValueError('Relaxed input files require a plain basename without aliases')
     return value
 
@@ -181,16 +181,19 @@ def _route(text):
         'scf': r'(?:tight|verytight|xqc|qc|yqc|novaracc|direct|fermi|damp|(?:maxcycle|maxcycles|conver|vshift)=\d+)',
         'int': r'(?:ultrafine|superfinegrid|finegrid|ultrafinegrid|grid=[a-z0-9]+|acc2e=\d+)',
         'integral': r'(?:ultrafine|superfinegrid|finegrid|ultrafinegrid|grid=[a-z0-9]+|acc2e=\d+)',
-        'units': r'(?:bohr|au|angstroms?|degrees|radians)',
-        'empiricaldispersion': r'(?:gd2|gd3|gd3bj)',
-        'em': r'(?:gd2|gd3|gd3bj)',
-        'stable': r'(?:opt|reopt|noopt)',
-        'polar': r'(?:numer|numerical|raman)',
-        'symmetry': r'(?:none|loose|tight)',
     }
     for key, grammar in scalar_options.items():
         if options.get(key) and any(not re.fullmatch(grammar, item) for item in options[key].split(',')):
             raise ValueError('Unreviewed reader or option in ' + key)
+    # These documented options read checkpoint/frequency data or select Linda
+    # workers. Reject their prefixes too; scientific option values stay unverified.
+    for key, readers in (
+            ('stable', ('restart',)),
+            ('polar', ('restart', 'raman', 'roa', 'dcshg', 'gamma', 'workerperturbations'))):
+        for option in re.split(r'[\s,]+', options.get(key, '')):
+            name = option.split('=', 1)[0]
+            if name and any(reader.startswith(name) for reader in readers):
+                raise ValueError('Unverified checkpoint/frequency reader or worker option in ' + key)
     return route, options
 
 
