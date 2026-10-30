@@ -24,9 +24,6 @@ VERSIONS = dict(ag_version='test-version', git_commit='a' * 40, dirty=False,
 @pytest.fixture
 def env(tmp_path, monkeypatch):
     root = tmp_path.resolve()
-    home = root / 'synthetic-home'
-    home.mkdir()
-    monkeypatch.setattr(Path, 'home', classmethod(lambda cls: home))
     study = root / 'study-demo'
     study.mkdir()
     (study / 'attempts').mkdir()

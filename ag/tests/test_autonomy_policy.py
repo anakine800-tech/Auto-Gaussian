@@ -15,13 +15,6 @@ NOW = datetime(2026, 10, 29, tzinfo=timezone.utc)
 ROUTE = '# B3LYP/6-31G(d) Opt=Tight Freq Int=UltraFine SCF=(XQC,Conver=8)'
 
 
-@pytest.fixture(autouse=True)
-def isolated_machine_registry(tmp_path, monkeypatch):
-    home = tmp_path / 'synthetic-home'
-    home.mkdir()
-    monkeypatch.setattr(Path, 'home', classmethod(lambda cls: home))
-
-
 def rule(cfg=None):
     key = (sha256(str(Path(cfg['local']['studies_root']).absolute() / 'smoke').encode()).hexdigest()
            if cfg is not None else 'e' * 64)

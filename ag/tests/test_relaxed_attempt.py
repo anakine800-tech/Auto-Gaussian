@@ -12,13 +12,6 @@ from test_core import cfg, prepared, Fake, INPUT
 from test_parent_chk import parent, CheckpointFake
 
 
-@pytest.fixture(autouse=True)
-def isolated_machine_registry(tmp_path, monkeypatch):
-    home = tmp_path / 'synthetic-home'
-    home.mkdir()
-    monkeypatch.setattr(Path, 'home', classmethod(lambda cls: home))
-
-
 INCLUDED = INPUT.replace('B3LYP/6-31G(d)', 'HF/Gen') + '@a-basis.inc\n'
 BASIS = b'O H 0\nSTO-3G\n****\n'
 LINKED = INPUT + ('--Link1--\n%nprocshared=8\n%mem=10GB\n%chk=water.chk\n'
