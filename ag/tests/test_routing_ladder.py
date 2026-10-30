@@ -424,6 +424,67 @@ def test_unknown_first_entry_blocks_lower_priority_but_parent_excludes_it(ladder
     assert selected(choose(ladder, parent_cluster='pool'))['cluster'] == 'pool'
 
 
+@pytest.mark.parametrize('kind', ['stale', 'failed-node-sampling'])
+@pytest.mark.parametrize('unknown_entry,expected', [('batch', 'empty-alpha'), ('compute', None)])
+def test_r33_main_unknown_only_blocks_a_candidate_after_it(ladder, kind, unknown_entry, expected):
+    _, snaps = ladder
+    if kind == 'stale':
+        snaps[unknown_entry]['sampled_at'] = (NOW-timedelta(minutes=4)).isoformat()
+    else:
+        snaps[unknown_entry]['cluster']['nodes_error'] = 'synthetic sampling failure'
+    choice = selected(choose(ladder))
+    assert (choice['cell_id'] if choice else None) == expected
+
+
+@pytest.mark.parametrize('unknown_entry,expected', [('compute', 'free-pool'), ('pool', None)])
+def test_r33_small_unknown_uses_queue_priority_before_entry_order(ladder, unknown_entry, expected):
+    raw, snaps = ladder
+    raw['routing']['ladder'] = [
+        cell('queue-compute', tier='general', nodes=['alpha'], classes=['small'],
+             condition='queue', node_fraction='1/4'),
+        cell('free-pool', 'pool', 'simple', classes=['small'], condition='free', min_free_cores=16)]
+    snaps[unknown_entry]['sampled_at'] = (NOW-timedelta(minutes=4)).isoformat()
+    choice = selected(choose(ladder, job_class='small'))
+    # A queued cell sorts after a non-queue cell, even at the earlier entry.
+    assert (choice['cell_id'] if choice else None) == expected
+
+
+@pytest.mark.parametrize('unknown_entry,expected', [('compute', 'free-pool'), ('pool', None)])
+def test_r33_small_unknown_uses_entry_order_before_cell_index(ladder, unknown_entry, expected):
+    raw, snaps = ladder
+    raw['routing']['ladder'] = [
+        cell('queue-pool', 'pool', 'simple', classes=['small'], condition='queue'),
+        cell('free-compute', tier='general', nodes=['alpha'], classes=['small'],
+             condition='free', node_fraction='1/4', min_free_cores=24),
+        cell('free-pool', 'pool', 'simple', classes=['small'], condition='free', min_free_cores=16)]
+    snaps[unknown_entry]['sampled_at'] = (NOW-timedelta(minutes=4)).isoformat()
+    choice = selected(choose(ladder, job_class='small'))
+    # The first pool cell establishes entry order. Its later free cell outranks
+    # the earlier-declared free cell at the second entry.
+    assert (choice['cell_id'] if choice else None) == expected
+
+
+def test_r33_later_unknown_does_not_release_shared_account_reservations(ladder):
+    raw, snaps = ladder
+    raw['routing']['ladder'] = [
+        cell('first', 'batch', 'max', condition='free', min_free_cores=44),
+        cell('later', 'pool', 'ultra', condition='free', min_free_cores=48)]
+    raw['clusters']['batch-test']['resources']['max_committed_cores'] = 48
+    snaps['pool']['sampled_at'] = (NOW-timedelta(minutes=4)).isoformat()
+    p = placement(ladder, cluster='batch-test', node_name=None, cores=12,
+                  run=None, state='reserved', job=None)
+    assert selected(choose(ladder, placements=[p])) is None  # 12 + 44 exceeds the shared 48-core cap.
+
+
+def test_r33_parent_binding_excludes_unknown_other_entries_without_crossing_cluster(ladder):
+    _, snaps = ladder
+    for name in ('compute', 'batch'):
+        snaps[name]['sampled_at'] = (NOW-timedelta(minutes=4)).isoformat()
+    assert selected(choose(ladder, parent_cluster='pool'))['cluster'] == 'pool'
+    snaps['pool']['cluster']['nodes'][0] = node('pool-a', used=96)
+    assert selected(choose(ladder, parent_cluster='pool')) is None
+
+
 @pytest.mark.parametrize('mode', ['jobs', 'queue'])
 def test_locally_finished_scheduler_residue_keeps_job_and_queue_slots(ladder, mode):
     raw, snaps = ladder
@@ -904,6 +965,19 @@ def test_evaluation_selects_higher_cell_without_exempting_other_evidence(reevalu
     # The original job is still part of the exact same occupation evidence.
     for key in ('placements_sha256', 'config_sha256', 'snapshots', 'wakeups_sha256'):
         assert result['evidence'][key] == ordinary['evidence'][key]
+
+
+@pytest.mark.parametrize('kind', ['stale', 'failed-node-sampling'])
+def test_r33_evaluation_source_snapshot_must_remain_known(reevaluation, kind):
+    ladder, source = reevaluation
+    _, snaps = ladder
+    if kind == 'stale':
+        snaps['pool']['sampled_at'] = (NOW-timedelta(minutes=4)).isoformat()
+    else:
+        snaps['pool']['cluster']['nodes_error'] = 'synthetic sampling failure'
+    result = choose(ladder, placements=[source], evaluate_from=evaluation_reference(source))
+    assert selected(result) is None
+    assert result['reason'] == 'snapshot_missing_failed_or_stale'
 
 
 @pytest.mark.parametrize('kind', ['empty', 'missing-study', 'missing-attempt', 'missing-sha',

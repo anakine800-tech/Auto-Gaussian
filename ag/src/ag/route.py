@@ -553,20 +553,12 @@ def select_ladder(cfg, snapshots, *, template, job_class, walltime, study_key, s
         effective.append(item)
     queued = [p for p in effective if p.get('run_id') is not None
               and p['state'] in ('reserved', 'queued')]
-    # Unknown evidence cannot establish that an earlier cell should be skipped.
-    relevant = [c for c in cells if job_class in c['classes']
-                and (parent_cluster is None or c['cluster'] == parent_cluster)
-                and _enabled(select_cluster(cfg, c['cluster']), template)
-                and (template == 'gaussian' or 'node_targeting' not in select_cluster(cfg, c['cluster']))]
-    if any(not _ladder_snapshot(cfg, c['cluster'], snapshots.get(c['cluster']), now)
-           or snapshots[c['cluster']]['cluster'].get('nodes_error') for c in relevant):
-        result['reason'] = 'snapshot_missing_failed_or_stale'
-        return result
     if any(p['study_key'] == study_key and p.get('round_id') == round_id and p.get('object_id') == object_id
            and p['state'] != 'finished' and not is_original(p) for p in effective):
         result['reason'] = 'object_already_active_in_round'
         return result
     rows = result['candidates']
+    unknown_cells = []
     for cell_index, cell in enumerate(cells):
         if job_class not in cell['classes']:
             continue
@@ -587,7 +579,9 @@ def select_ladder(cfg, snapshots, *, template, job_class, walltime, study_key, s
             reasons.append('unsupported_template')
         if time_check['status'] == 'exceeded':
             reasons.append('walltime_exceeded')
-        if not _ladder_snapshot(cfg, name, data, now):
+        if not _ladder_snapshot(cfg, name, data, now) or data['cluster'].get('nodes_error'):
+            if not reasons:
+                unknown_cells.append(base)
             reasons.append('snapshot_missing_failed_or_stale')
         if reasons:
             rows.append(base)
@@ -747,6 +741,10 @@ def select_ladder(cfg, snapshots, *, template, job_class, walltime, study_key, s
         return (row['cell_index'],)
 
     if evaluation_source is not None:
+        # The source's current position is required even if a higher cell fits.
+        if any(r['cell_id'] == evaluation_source['cell_id'] for r in unknown_cells):
+            result['reason'] = 'snapshot_missing_failed_or_stale'
+            return result
         source_rows = [r for r in rows if r['cell_id'] == evaluation_source['cell_id']
                        and r['capacity_node'] == evaluation_source['capacity_node']]
         if len(source_rows) != 1:
@@ -762,6 +760,13 @@ def select_ladder(cfg, snapshots, *, template, job_class, walltime, study_key, s
                 row['eligible'] = False
                 row['reasons'].append('not_strictly_higher_than_source')
     choices = sorted((row for row in rows if row['eligible']), key=priority)
+    # A lower-priority outage must not stop a known better candidate. For
+    # small jobs, unknown occupancy may have the preferred occupied rank;
+    # use that bound only for comparison, never as observed resource evidence.
+    if unknown_cells and (not choices or any(
+            priority(dict(row, occupied=True)) < priority(choices[0]) for row in unknown_cells)):
+        result['reason'] = 'snapshot_missing_failed_or_stale'
+        return result
     if choices:
         chosen = deepcopy(choices[0])
         chosen.update(config_sha256=config_hash, selected_at=now.isoformat(),
