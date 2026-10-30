@@ -29,6 +29,7 @@
 - 负责人原话“允许这两处最小扩展”：增加 `ag/src/ag/monitor.py`、`ag/tests/test_monitor.py`，仅保存完整前驱本地快照及离线回归，不新增远程查询。
 - 负责人随后原话“允许这个最小补充（推荐）”：成功监控样本增加由既有本地账号展开计算的 `account_sha256`，两张快照均与 Attempt/当前账号匹配；旧无指纹快照不能释放预留。
 - 负责人原话“允许这两份测试的最小修改（推荐）”：`ag/tests/test_monitor_resilience.py` 4 处、`test_monitor_all_jobs.py` 8 处旧 `login_user` 假对象迁移为 `ssh_identity` 三元组，仅这 12 处测试兼容修改。
+- CI 暴露此前未检出的非 monitor 命名测试引用后，负责人原话“批准全部 18 处测试修改（推荐）”：增加 `ag/tests/test_clusters.py` 1 处、`test_hpc_resources_crest.py` 1 处、`test_mixed_clusters.py` 3 处、`test_pbs_arrays.py` 1 处、`test_queue.py` 1 处、`test_resource_limits.py` 1 处、`test_resources_monitor.py` 8 处、`test_shared_cluster_caps.py` 2 处，同样仅迁移身份假对象，不改生产绑定或添加测试兜底。
 - 负责人原话“采用 2 次（推荐）”：同对象每轮实际派发前失败上限 2，独立于科学补救额度；实际消费不退回，连续两次唤醒 SSH 失败仍全局暂停。
 - 取消/UNKNOWN 的带原话本地解除、对象局部拒绝、补救算法和状态反向竞态按已转交审阅修复；不改模板。当前仅离线，研究、真实配置、集群查询及计算均未获授权。
 - 本轮只交增量差异、逐项回应、红绿证据和修订草稿。T185/T188 尚未正式集成时不删除其能力判断、不复制解析器或路由；最终集成冲突另审。
@@ -113,3 +114,6 @@ T206/T207 保持独立，待本单进入 main 后重定向与核验，不提前�
   NoIncFock、NoDIIS 四项仍为跨工单缺口；T186 普通八项已支持，不宣称完整放宽链路完成。
 - 本次敏感扫描与差异检查通过；新修复提交的 CI 全量及 Claude 增量复核另记于 PR。
   没有运行本地全量、AST、真实配置/集群/研究操作或真实验证。
+- 生产修复提交 `77884650` 的首轮 CI 为 7086 passed、85 skipped，另有 36 failed、
+  6 errors，均为此前遗漏的旧身份假对象引用；保留原 CI 证据。按追加批准仅修 8 个
+  测试文件的 18 处引用，生产代码不变，相关用例与新提交 CI 分别复验。

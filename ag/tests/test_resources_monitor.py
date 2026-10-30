@@ -201,7 +201,7 @@ def test_reload_add_remove_invalid_and_recover(multi, monkeypatch, capsys):
     calls, rounds = [], []
     tick = [0]
     monkeypatch.setattr(monitor.time, 'monotonic', lambda: tick[0])
-    monkeypatch.setattr(monitor, 'login_user', lambda _: 'fixture')
+    monkeypatch.setattr(monitor, 'ssh_identity', lambda _: ('fixture', 22, 'fixture'))
     def transport(entry, **kwargs):
         calls.append(entry['_cluster'])
         return SlurmFake(entry) if config.scheduler_kind(entry) == 'slurm' else PBSFake()
@@ -242,7 +242,7 @@ def test_single_reload_custom_file_and_timeout_then_recovery(cfg, tmp_path, monk
     file = tmp_path / 'custom.toml'
     file.write_bytes(write_config(cfg).read_bytes())
     loaded = config.load_config(file)
-    monkeypatch.setattr(monitor, 'login_user', lambda _: 'fixture')
+    monkeypatch.setattr(monitor, 'ssh_identity', lambda _: ('fixture', 22, 'fixture'))
     fake = PBSFake()
     fake.replies['jobs'] = subprocess.TimeoutExpired('ssh fixture', 60)
     monkeypatch.setattr(monitor, 'MonitorTransport', lambda *a, **k: fake)
@@ -268,7 +268,7 @@ def test_single_reload_custom_file_and_timeout_then_recovery(cfg, tmp_path, monk
 
 
 def test_timeout_isolated_between_clusters(multi, monkeypatch, capsys):
-    monkeypatch.setattr(monitor, 'login_user', lambda _: 'fixture')
+    monkeypatch.setattr(monitor, 'ssh_identity', lambda _: ('fixture', 22, 'fixture'))
     def transport(entry, **kwargs):
         if entry['_cluster'] == 'default':
             fake = PBSFake()
@@ -287,7 +287,7 @@ def test_timeout_isolated_between_clusters(multi, monkeypatch, capsys):
 
 def test_storage_hourly_timeout_cache_and_recovery(multi, monkeypatch):
     entry = config.select_cluster(multi, 'batch')
-    monkeypatch.setattr(monitor, 'login_user', lambda _: 'fixture')
+    monkeypatch.setattr(monitor, 'ssh_identity', lambda _: ('fixture', 22, 'fixture'))
     class Clock(datetime):
         instant = datetime(2026, 1, 1, tzinfo=timezone.utc)
         @classmethod
@@ -333,7 +333,7 @@ def test_monitor_transport_timeout_no_retry_and_still_readonly(cfg, monkeypatch)
         raise SSHConnectionError('synthetic timeout')
     monkeypatch.setattr(monitor.MonitorTransport, '_execute', execute)
     monkeypatch.setattr(monitor.time, 'sleep', lambda _: pytest.fail('No transport retries'))
-    monkeypatch.setattr(monitor, 'login_user', lambda _: 'fixture')
+    monkeypatch.setattr(monitor, 'ssh_identity', lambda _: ('fixture', 22, 'fixture'))
     transport = monitor.MonitorTransport(cfg, read_only=True)
     assert not monitor.sample(cfg, transport)['ok']
     assert len(calls) == 1
@@ -400,7 +400,7 @@ def test_display_name_discovery_cli_is_local_and_preserves_identity(multi, tmp_p
 @pytest.mark.parametrize('name', ['default', 'batch'])
 def test_display_name_success_failure_old_cache_and_removal(multi, monkeypatch, name):
     entry = config.select_cluster(multi, name)
-    monkeypatch.setattr(monitor, 'login_user', lambda _: 'fixture')
+    monkeypatch.setattr(monitor, 'ssh_identity', lambda _: ('fixture', 22, 'fixture'))
     fake = SlurmFake(entry) if name == 'batch' else PBSFake()
     previous = monitor.sample(entry, fake)
     entry['display_name'] = '初筛入口'
@@ -600,7 +600,7 @@ def test_changed_control_root_stops_before_migration_or_second_sample(cfg, monke
     new_root = original_root.with_name('other-studies')
     fake = PBSFake()
     monkeypatch.setattr(monitor, 'MonitorTransport', lambda *a, **k: fake)
-    monkeypatch.setattr(monitor, 'login_user', lambda _: 'fixture')
+    monkeypatch.setattr(monitor, 'ssh_identity', lambda _: ('fixture', 22, 'fixture'))
     def sleep(seconds):
         clock.advance(seconds)
         cfg['local']['studies_root'] = str(new_root)
@@ -613,7 +613,7 @@ def test_changed_control_root_stops_before_migration_or_second_sample(cfg, monke
 
 
 def test_removed_marker_never_appends_sampling_history(cfg, monkeypatch):
-    monkeypatch.setattr(monitor, 'login_user', lambda _: 'fixture')
+    monkeypatch.setattr(monitor, 'ssh_identity', lambda _: ('fixture', 22, 'fixture'))
     snapshot = monitor.sample(cfg, PBSFake())
     root = monitor.cache_dir(cfg)
     before = (root / 'history.jsonl').read_bytes()

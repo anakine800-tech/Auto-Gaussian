@@ -205,7 +205,7 @@ def test_public_caps_and_failed_monitor_snapshot(cfg, monkeypatch):
     assert rows[0]['resources']['scheduler_max_running_cores'] == 72
     assert rows[0]['programs_enabled']['crest']
     assert 'private-crest-marker' not in str(rows)
-    monkeypatch.setattr(monitor, 'login_user', lambda _: 'fixture')
+    monkeypatch.setattr(monitor, 'ssh_identity', lambda _: ('fixture', 22, 'fixture'))
     assert monitor.sample(cfg, MonitorFake())['own']['max_queued_cores'] == 216
     cfg['resources'].pop('max_queued_cores')
     cfg['resources'].pop('scheduler_max_running_cores')

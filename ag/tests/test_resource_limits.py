@@ -216,7 +216,7 @@ def test_monitor_refreshes_config_fields_in_success_and_retained_failure(cfg, mo
     cfg['resources']['tiers']['max'] = dict(cores=8, mem_gb=12)
     cfg['resources']['tiers']['unknown-metadata'] = {'secret-marker': True}
     cfg['resources']['max_walltime'] = '36:00:00'
-    monkeypatch.setattr(monitor, 'login_user', lambda cfg: 'fixture')
+    monkeypatch.setattr(monitor, 'ssh_identity', lambda cfg: ('fixture', 22, 'fixture'))
     first = monitor.sample(cfg, MonitorFake(), 60)
     assert first['ok'] and first['schema'] == 'ag-monitor/1'
     assert first['own']['max_walltime'] == '36:00:00'

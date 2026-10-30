@@ -94,7 +94,7 @@ def test_damaged_attempt_identified_before_confirmation(mixed, tmp_path, monkeyp
         value = cluster + ':bad-id' if damage == 'job-format' else 'other:123'
         (damaged / 'status.json').write_text(json.dumps(dict(state='submitted', job_id=value)))
     selected, fake = scheduler(multi, cluster)
-    monkeypatch.setattr(monitor, 'login_user', lambda _: 'fixture')
+    monkeypatch.setattr(monitor, 'ssh_identity', lambda _: ('fixture', 22, 'fixture'))
     snapshot = monitor.sample(selected, fake)
     assert not snapshot['ok'] and damaged.name in snapshot['error']
     monkeypatch.setattr('ag.confirm.confirm', lambda _: pytest.fail('damage must fail before confirmation'))
@@ -175,7 +175,7 @@ def test_multicluster_monitor_keeps_failure_in_own_snapshot(mixed, monkeypatch, 
     multi, records = mixed
     path, _ = records['slurm']
     (path / 'status.json').write_text('{')
-    monkeypatch.setattr(monitor, 'login_user', lambda _: 'fixture')
+    monkeypatch.setattr(monitor, 'ssh_identity', lambda _: ('fixture', 22, 'fixture'))
     monkeypatch.setattr(monitor, 'MonitorTransport',
                         lambda cfg, **_: scheduler(multi, cfg['_cluster'])[1])
     assert monitor.run_clusters(multi) == 2
@@ -188,7 +188,7 @@ def test_multicluster_monitor_keeps_failure_in_own_snapshot(mixed, monkeypatch, 
 def test_unconfigured_cluster_does_not_poison_configured_sampling(mixed, monkeypatch, capsys):
     multi, records = mixed
     del multi['clusters']['batch']
-    monkeypatch.setattr(monitor, 'login_user', lambda _: 'fixture')
+    monkeypatch.setattr(monitor, 'ssh_identity', lambda _: ('fixture', 22, 'fixture'))
     monkeypatch.setattr(monitor, 'MonitorTransport',
                         lambda cfg, **_: scheduler(multi, cfg['_cluster'])[1])
     assert monitor.run_clusters(multi) == 0

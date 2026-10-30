@@ -257,7 +257,7 @@ def monitored(multi, monkeypatch):
     batch['resources']['budget_core_hours'] = 100
     batch['expires'] = '2027-01-31'
     seed_budget(multi)
-    monkeypatch.setattr(monitor, 'login_user', lambda cfg: 'fixture')
+    monkeypatch.setattr(monitor, 'ssh_identity', lambda cfg: ('fixture', 22, 'fixture'))
     selected = config.select_cluster(multi, 'batch')
     return selected, SlurmFake(selected)
 
