@@ -64,5 +64,9 @@ exec_host 时的替代放置证据。明确不匹配的 exec_host 始终拒绝�
 - 首两组出现 pytest 清理旧临时目录的 EINVAL 告警，退出码均为 0；定向补测与自主观察无告警。
 - 完整冻结脚本在本地假程序上执行：正确节点可写回执，错节点/核数、缺失/链接节点文件
   均在 scratch、回执和程序启动前拒绝。独立只读代码复核未发现需修改的问题。
+- 首轮 CI：8146 passed、2 skipped、1 failed；唯一失败是对应 status 观察测试的旧
+  monkeypatch 替身不接受新增 start_evidence 关键字。只将替身改为接受关键字参数，
+  生产 API 与原断言未改。修复后本地对应 remote_observation 文件：248 passed、
+  7 skipped（Linux O_PATH/GNU stat 语义交 CI），24.62 秒；原 CI 失败记录保留。
 
 当前阻塞：监督方敏感复核与 CI 待完成；真实验证按上述安排未执行。
