@@ -1,5 +1,47 @@
 # Changelog
 
+## v4.7.1（发布准备）
+
+**2026-10-30 候选版本，未发布、未部署；自主运行尚未启用。** 本版与前端 4.7.1 配对，只整理已合并能力，不修改现有普通人工工作流或本机集群配置。后端功能基线为 `04dc27582ea08cd03287529af1eff574ca755d15`；T208 在此基础上更新版本、既有版本断言和发布说明，不携带未合并实现。
+
+### 已合并内容
+
+| 后端任务 | PR | 确切合并提交 |
+| --- | --- | --- |
+| T182 自主运行规则与权限边界 | [#375](https://github.com/anakine800-tech/Auto-Gaussian/pull/375) | `694d43633b505512cbfa24f851c240973e6c38e8` |
+| T183 开发安装与 CI 固定 RDKit 2026.3.3 | [#374](https://github.com/anakine800-tech/Auto-Gaussian/pull/374) | `a2f27c9d8d34dc753c97fde227c86bc7cc1e02de` |
+| T184 本地计划、授权轮次、唤醒租约、暂停与意图记录 | [#377](https://github.com/anakine800-tech/Auto-Gaussian/pull/377) | `8ff90e3bcf5f8b99542b2425c65fa09af6bcafb5` |
+| T189 科学卡片、失败诊断与学习资料修订 | [#376](https://github.com/anakine800-tech/Auto-Gaussian/pull/376) | `1ff84dccd47a003a12d2f2420d1bc1d9e545b524` |
+| T205 同次唤醒失败阈值措辞校正 | [#384](https://github.com/anakine800-tech/Auto-Gaussian/pull/384) | `04dc27582ea08cd03287529af1eff574ca755d15` |
+
+相对 v4.7.0 另有 [T180 #373](https://github.com/anakine800-tech/Auto-Gaussian/pull/373) 的历史发布状态收尾；它不新增功能。以上五项与 T180 构成该区间完整的 first-parent 合并清单。
+
+配套前端功能基线为 `3c0cee19d17739b0e9c6acc13c669aa6ff022d4f`，六项均已合并：
+
+| 前端任务 | 已合并功能 |
+| --- | --- |
+| [T192 #54](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/54) | 最多十个结构比较 |
+| [T193 #55](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/55) | 已存能级图、来源跳转与 CSV |
+| [T194 #56](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/56) | 振动模式完整性展示 |
+| [T195 #57](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/57) | 当前 study 的方法检索 |
+| [T196 #59](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/59) | 自主状态只读页及人工操作保护；无自主目录时不显示自主内容 |
+| [T197 #58](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/pull/58) | 已保存的放宽输入标记与警示 |
+
+前端发布准备由 T209 完成；其最终候选/发布提交和配套验证单独记录，不将上述功能基线称为发布 tag。T201/T202 保留为后续 4.8.0 发布任务。
+
+### 行为与兼容边界
+
+- **自主运行尚未启用。** T182/T205 是规则和措辞，T184 只保存本地计划、状态、租约和意图计数，尚未接入 prepare/submit/cancel 的动作授权。意图不证明真实提交或取消；规则、本地记录和前端状态页均不授予自主权限。研究会话不得据此尝试自主提交、取消或改投，旧 `--policy` 也不能启动自主计算。
+- **在途代码不属于本版。** 不纳入 T185/T186/T187/T188/T190/T206/T207。前端可显示输入标记不等于后端已支持放宽输入；科学支持范围不扩大。手动提交仍按现行授权和资源核验，取消仍须 Mac 人工点击；UNKNOWN 不重试、每 Attempt 至多一次、字节绑定及服务器不覆盖规则保持。
+- **依赖与科学口径。** 按既有安装方式固定 RDKit `2026.3.3`，记录实际构建与依赖；固定版本不保证跨平台数值逐位一致。T189 解释频率/ZPE、负能垒、电子态、本地模式诊断与失败补救；默认因子、方法层级、TS/IRC 判据和人工签字要求不变，不宣称新的方法或体系已验证。
+- **旧记录与回退。** 不迁移配置，不重写旧 Attempt、卡片快照、facts 或签字。回退须同时恢复已核对的源码、依赖、前端构建和服务方式；自主目录和新记录原样保留，旧版不能安全理解的写入口保持停用。部署目标、候选包与回退说明见 [运维草稿](docs/OPERATIONS.md#v471-发布准备配对与回退草稿)。
+
+### 验证与发布流程
+
+本地仅版本一致性、必要打包/导入、相关既有测试、敏感扫描及差异检查；实际结果见 [T208](docs/redesign-tasks/T208-release-v4.7.1-backend.md)。后端与 Skills 全量由候选 head 的 CI 执行。T196 对未合并后端组合的历史验证不计作本版配套；T209 须核对本版实际来源。离线通过不代表已安装、已部署、已启用自主运行或完成科学验收。
+
+源码/构建来源 SHA、候选文件与 SHA-256、两仓配对及具体发布/部署/回退命令草稿保存在私有交付包。待两仓发布 PR 审阅、CI 通过并人工合并后，协调方汇总确切合并 SHA，向负责人申请发布与部署授权；本任务不创建 tag/Release、不启动服务。以下 v4.7.0 及更早内容保留为历史记录。
+
 ## v4.7.0
 
 ### 发布状态与范围
