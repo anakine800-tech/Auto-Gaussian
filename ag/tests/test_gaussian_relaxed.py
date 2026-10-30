@@ -64,12 +64,12 @@ def test_parent_checkpoint_allcheck_never_invents_science():
     assert 'checkpoint_geometry_science' in marker['skipped_checks']
 
 
-def test_safe_recursive_explicit_includes_are_bound_and_checked():
-    data = job('# HF/Gen SP', '@basis.inc\n')
-    attachments = {'basis.inc': b'O H 0\n@sto.inc\n****\n', 'sto.inc': b'STO-3G\n'}  # scan-public: allow synthetic Gaussian include, not an email
+def test_safe_direct_explicit_includes_are_bound_and_checked():
+    data = job('# HF/Gen SP', '\n'.join(('@basis.inc', '@hydrogen.inc', '')))
+    attachments = {'basis.inc': b'O 0\nSTO-3G\n****\n', 'hydrogen.inc': b'H 0\nSTO-3G\n****\n'}
     science, marker = check(data, attachments=attachments)
     assert science['n_atoms'] == 3 and 'general_basis_semantics' in marker['skipped_checks']
-    assert data.endswith(b'@basis.inc\n') and attachments['sto.inc'] == b'STO-3G\n'
+    assert data.endswith(b'@hydrogen.inc\n') and attachments['basis.inc'] == b'O 0\nSTO-3G\n****\n'
 
 
 @pytest.mark.parametrize('memory', ['10GB', '10000MB', '1250MW', '1GW'])
@@ -299,3 +299,89 @@ def test_explicit_general_basis_shell_data_acceptance():
 def test_nbo_skip_describes_only_the_additional_section_reader(route, tail, skipped):
     _, marker = check(job(route, tail))
     assert ('nbo_section_semantics' in marker['skipped_checks']) is skipped
+
+
+@pytest.mark.parametrize('connectivity', ['1 2 1.0 3 1.0\n2\n3\n', '1\n2\n3\n'])
+def test_review_connectivity_accepts_numeric_bonds_and_isolated_rows(connectivity):
+    science, marker = check(job('# HF/STO-3G Geom=Connectivity', connectivity))
+    assert science['geometry'] == WATER and science['n_atoms'] == 3
+    assert marker['method_verified'] is False
+
+
+def test_review_connectivity_precedes_modredundant_and_general_basis():
+    data = job('# HF/Gen Geom=Connectivity Opt=ModRedundant',
+               '1 2 1.0 3 1.0\n2\n3\n\nB 1 2 F\n\n'
+               'O H 0\nS 1 1.00\n1.0 1.0\n****\n')
+    science, marker = check(data)
+    assert science['n_atoms'] == 3 and marker['method_verified'] is False
+    assert {'general_basis_semantics', 'modredundant_semantics',
+            'additional_section_semantics'} <= set(marker['skipped_checks'])
+
+
+@pytest.mark.parametrize('connectivity', [
+    '', '1 2 1.0\n2\n', '1.0 2 1.0\n2\n3\n',
+    '1 2\n2\n3\n', '1 2.0 1.0\n2\n3\n',
+    '1 0 1.0\n2\n3\n', '1 4 1.0\n2\n3\n',
+    '1 2 NaN\n2\n3\n', '1 2 1e999\n2\n3\n',
+    '1 2 1.0\n3\n2\n', '1 2 1.0\n2\n2\n',
+    'O H 0\nSTO-3G\n****\n', '1 2 0\nS 1 1.00\n1.0 1.0\n',
+    '1 2 1.0\n2\n3\nB 1 2 F\n',
+])
+def test_review_connectivity_is_required_and_not_inferred_from_basis_rows(connectivity):
+    # Gen/ModRedundant must not make a malformed first Connectivity block pass.
+    with pytest.raises(ValueError, match='Connectivity'):
+        check(job('# HF/Gen Geom=Connectivity Opt=ModRedundant', connectivity))
+
+
+@pytest.mark.parametrize('mode', ['Check', 'AllCheck'])
+def test_review_connectivity_with_unknown_checkpoint_atom_count_is_ambiguous(mode):
+    route = '# HF/STO-3G Geom=(' + mode + ',Connectivity)'
+    section = (allcheck(route=route) + b'1 2 1.0 3 1.0\n2\n3\n' if mode == 'AllCheck'
+               else job(route, '1 2 1.0 3 1.0\n2\n3\n', geometry=''))
+    with pytest.raises(ValueError, match='Connectivity'):
+        check(chain(job(), section))
+
+
+@pytest.mark.parametrize('option', [
+    'Opt=GEDIIS', 'Opt=NoTrust', 'SCF=NoIncFock', 'SCF=NoDIIS',
+    'IRC=GS2', 'IRC=CalcAll', 'Freq=HPModes', 'Freq=SaveNormalModes',
+])
+def test_review_additional_scalar_options_remain_scientifically_unverified(option):
+    science, marker = check(job('# HF/STO-3G ' + option))
+    assert option in science['route']
+    assert marker == dict(mode='relaxed', skipped_checks=['scientific_method'], method_verified=False)
+
+
+@pytest.mark.parametrize('option', ['ReadFC', 'RCFC'])
+@pytest.mark.parametrize('source', ['earlier', 'parent'])
+def test_review_opt_force_constant_readers_require_only_checkpoint_provenance(option, source):
+    # This is source acceptance only: the validator cannot inspect a Hessian.
+    section = job('# HF/STO-3G Opt=(Tight,' + option + ')')
+    if source == 'earlier':
+        science, marker = check(chain(job(), section))
+    else:
+        science, marker = check(b'%oldchk=parent.chk\n' + section,
+                                parent_chk=dict(target_name='parent.chk', attempt_id='sample-001'))
+    assert science['geometry'] == WATER and marker['method_verified'] is False
+
+
+@pytest.mark.parametrize('option', ['ReadFC', 'RCFC'])
+def test_review_opt_force_constant_reader_without_source_is_rejected(option):
+    section = job('# HF/STO-3G Opt=(TS,' + option + ')', chk='fresh.chk')
+    with pytest.raises(ValueError, match='proven'):
+        check(section)
+    with pytest.raises(ValueError, match='proven'):
+        check(chain(job(), section))
+
+
+@pytest.mark.parametrize('option', ['ReadF', 'RCF', 'ReadFC1', 'RCFC1', 'ReadCartesianFC'])
+def test_review_force_constant_reader_abbreviations_do_not_bypass_source_check(option):
+    with pytest.raises(ValueError):
+        check(chain(job(), job('# HF/STO-3G Opt=' + option)))
+
+
+def test_review_include_depth_is_one_and_attachment_cannot_include_again():
+    assert relaxed.MAX_INCLUDE_DEPTH == 1
+    with pytest.raises(ValueError, match='depth'):
+        check(job('# HF/Gen', '@basis.inc\n'),
+              attachments={'basis.inc': b'O H 0\n@sto.inc\n****\n', 'sto.inc': b'STO-3G\n'})  # scan-public: allow synthetic Gaussian include, not an email

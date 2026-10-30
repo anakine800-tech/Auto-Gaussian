@@ -12,7 +12,7 @@ from ag import gaussian_input
 
 MAX_ATTACHMENTS = 32
 MAX_BYTES = 1024 * 1024
-MAX_INCLUDE_DEPTH = 8
+MAX_INCLUDE_DEPTH = 1
 MAX_SECTIONS = 32
 _RESERVED = {'job.pbs', 'job.slurm', 'input-validation.json', 'manifest.json',
              'submission.json', 'status.json', 'parent.chk', 'ag-start.json',
@@ -27,7 +27,7 @@ _ROUTE_KEYS = {'opt', 'freq', 'sp', 'force', 'irc', 'scf', 'int', 'integral',
 _FORBIDDEN_WORDS = {'external', 'include', 'file', 'filename', 'output', 'punch',
                     'save', 'load', 'rwf', 'restart', 'extrabasis', 'extraoverlay',
                     'iop', 'massage', 'nbo6', 'nbo7', 'nbo6read',
-                    'nbo7read', 'rcfc', 'readfc', 'readcartesianfc'}
+                    'nbo7read', 'readcartesianfc'}
 _NBO_FLAGS = {'nbo', 'npa', 'nlmo', 'bndidx', 'steric', 'dipole', 'natural',
               'detail', 'print', 'nbosum', 'nobond', 'nomo', 'aonbo', 'aonlmo'}
 _FEATURE_CHECKS = {
@@ -86,6 +86,8 @@ def _expand(data, attachments, input_name):
         for row in text.splitlines(keepends=True):
             stripped = row.strip()
             if '@' in row:
+                if stack:
+                    raise ValueError('Include depth is limited to one; attachments cannot include files')
                 match = re.fullmatch(r'@([A-Za-z0-9][A-Za-z0-9_.-]{0,127})', stripped)
                 if not match:
                     raise ValueError('Include must be exactly @basename; paths and aliases are forbidden')
@@ -175,10 +177,10 @@ def _route(text):
             raise ValueError('Unsupported reader/writer option in ' + key)
     scalar_options = {
         'scrf': r'(?:pcm|cpcm|iefpcm|smd|read|solvent=[a-z0-9-]+)',
-        'opt': r'(?:ts|calcfc|calcall|modredundant|tight|verytight|loose|cartesian|noeigentest|rfo|ef|gdiis|(?:maxcycles|maxstep|recalcfc)=\d+)',
-        'freq': r'(?:noraman|raman|anharmonic|vcd|roa|numer|numerical)',
-        'irc': r'(?:calcfc|forward|reverse|lqa|hpc|tight|(?:maxpoints|stepsize|recalc)=\d+)',
-        'scf': r'(?:tight|verytight|xqc|qc|yqc|novaracc|direct|fermi|damp|(?:maxcycle|maxcycles|conver|vshift)=\d+)',
+        'opt': r'(?:ts|calcfc|calcall|readfc|rcfc|modredundant|tight|verytight|loose|cartesian|noeigentest|rfo|ef|gdiis|gediis|notrust|(?:maxcycles|maxstep|recalcfc)=\d+)',
+        'freq': r'(?:noraman|raman|anharmonic|vcd|roa|numer|numerical|hpmodes|savenormalmodes)',
+        'irc': r'(?:calcfc|calcall|forward|reverse|lqa|hpc|gs2|tight|(?:maxpoints|stepsize|recalc)=\d+)',
+        'scf': r'(?:tight|verytight|xqc|qc|yqc|novaracc|direct|fermi|damp|noincfock|nodiis|(?:maxcycle|maxcycles|conver|vshift)=\d+)',
         'int': r'(?:ultrafine|superfinegrid|finegrid|ultrafinegrid|grid=[a-z0-9]+|acc2e=\d+)',
         'integral': r'(?:ultrafine|superfinegrid|finegrid|ultrafinegrid|grid=[a-z0-9]+|acc2e=\d+)',
     }
@@ -219,7 +221,26 @@ def _resources(lines, cores, mem_gb):
     return link, dict(cores=cores, mem_gb=memory_mb / 1000, source='explicit')
 
 
-def _tail(text, options):
+def _tail(text, options, atom_count):
+    if 'connectivity' in re.findall(r'[a-z]+', options.get('geom', '')):
+        if atom_count is None:
+            raise ValueError('Connectivity requires explicit coordinates to identify its atom rows')
+        # Gaussian orders Connectivity before ModRedundant and Gen. Consume the
+        # complete first block so permissive basis data cannot mask malformed rows.
+        blocks = re.split(r'\n\s*\n', text.strip(), maxsplit=1)
+        rows = blocks[0].splitlines()
+        if len(rows) != atom_count:
+            raise ValueError('Connectivity requires one row per atom, then a blank line before other data')
+        for index, row in enumerate(rows, 1):
+            fields = row.split()
+            if not fields or not re.fullmatch(r'[0-9]+', fields[0]) or int(fields[0]) != index or len(fields) % 2 != 1:
+                raise ValueError('Connectivity requires ordered integer atom rows and neighbor/bond-order pairs')
+            for neighbor, order in zip(fields[1::2], fields[2::2]):
+                if not re.fullmatch(r'[0-9]+', neighbor) or not 1 <= int(neighbor) <= atom_count:
+                    raise ValueError('Connectivity neighbor index must identify an explicit atom')
+                if not re.fullmatch(_NUMBER, order) or not math.isfinite(float(order)):
+                    raise ValueError('Connectivity bond order must be a finite number')
+        text = blocks[1] if len(blocks) > 1 else ''
     if not text.strip():
         return
     if any(c in text for c in '\\;`|<>\"\'') or re.search(r'\b(?:' + '|'.join(_FORBIDDEN_WORDS) + r')\b', text, re.I):
@@ -303,7 +324,8 @@ def validate(data, *, cores, mem_gb, attachments=None, parent_chk=None, input_na
         from_checkpoint = bool(geometry_options & {'check', 'checkpoint', 'allcheck'})
         allcheck = 'allcheck' in geometry_options
         checkpoint_reader = ('read' in re.findall(r'[a-z]+', options.get('guess', ''))
-                             or bool({'check', 'checkpoint'} & set(re.findall(r'[a-z]+', options.get('density', '')))))
+                             or bool({'check', 'checkpoint'} & set(re.findall(r'[a-z]+', options.get('density', ''))))
+                             or bool({'readfc', 'rcfc'} & set(re.findall(r'[a-z][a-z0-9]*', options.get('opt', '')))))
         if (from_checkpoint or checkpoint_reader) and source is None:
             raise ValueError('Checkpoint reader requires a proven same-Attempt or declared parent source')
         features = set()
@@ -339,7 +361,7 @@ def validate(data, *, cores, mem_gb, attachments=None, parent_chk=None, input_na
                 gaussian_input.check_electrons(symbols, charge, multiplicity, location=f'Link1 section {index}')
                 geometry, n_atoms = '\n'.join(rows[1:]), len(symbols)
             tail = '\n\n'.join(blocks[3:])
-        _tail(tail, options)
+        _tail(tail, options, n_atoms)
         if tail.strip():
             features.add('additional_sections')
         geometry_source = source if from_checkpoint else dict(kind='explicit', section=index)

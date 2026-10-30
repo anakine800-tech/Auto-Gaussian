@@ -371,10 +371,9 @@ def check_attempt(cfg, path, policy):
             'Unsupported relaxed-input marker')
     relaxed = manifest.get('input_validation')
     if relaxed is not None:
-        require(policy['allow_relaxed'] and hasattr(attempt, 'prepared_bundle')
-                and hasattr(attempt, 'program_input_name'),
-                'Relaxed-input submission is not implemented or not allowed')
+        require(policy['allow_relaxed'], 'Relaxed-input submission is not allowed')
     files = attempt.verified_files(cfg, path, manifest)
+    input_records, bundle_sha256 = attempt.prepared_bundle(files)
     if relaxed is not None:
         require(set(relaxed) == {'mode', 'skipped_checks', 'method_verified'}
                 and relaxed['mode'] == 'relaxed' and relaxed['method_verified'] is False
@@ -405,20 +404,18 @@ def check_attempt(cfg, path, policy):
         # T188's verified_files re-parses the actual primary input and compares
         # the exact frozen input-validation.json and attachment list. Permission
         # to use that exception never turns an unverified method into a match.
-        return dict(attempt_id=manifest['attempt_id'], bundle_sha256=manifest['bundle_sha256'],
-                    inputs=deepcopy(manifest['inputs']), method=None, method_verified=False,
+        return dict(attempt_id=manifest['attempt_id'], bundle_sha256=bundle_sha256,
+                    inputs=input_records, method=None, method_verified=False,
                     skipped_checks=deepcopy(relaxed['skipped_checks']))
     if template in ('gaussian', 'gaussian-cp'):
         from ag._profile_sources import protocol, integration_grid
-        inputs = ([attempt.program_input_name(manifest)] if hasattr(attempt, 'program_input_name')
-                  else [name for name in files if name.endswith('.gjf')])
-        require(len(inputs) == 1, 'Expected exactly one frozen Gaussian input')
+        input_name = attempt.program_input_name(manifest)
         if template == 'gaussian-cp':
             fragments = manifest['science']['counterpoise']['file']
-            _, science = gaussian_input.counterpoise_input(files[inputs[0]].decode(), files[fragments],
+            _, science = gaussian_input.counterpoise_input(files[input_name].decode(), files[fragments],
                 manifest['cores'], manifest['mem_gb'], prepared=True)
         else:
-            science = gaussian_input.validate(files[inputs[0]].decode(), manifest['cores'], manifest['mem_gb'],
+            science = gaussian_input.validate(files[input_name].decode(), manifest['cores'], manifest['mem_gb'],
                                               parent_chk='parent_chk' in manifest)
         require(science['multiplicity'] == 1, 'Autonomous method verifier requires closed-shell input')
         actual = protocol(science['route'], science['multiplicity'])
@@ -442,8 +439,8 @@ def check_attempt(cfg, path, policy):
         # cannot change the executable method. No Gaussian protocol is invented.
         actual = {'parameters': manifest['template_params']}
         require(actual in policy['methods'][template], 'Frozen template parameters differ from policy')
-    return dict(attempt_id=manifest['attempt_id'], bundle_sha256=manifest['bundle_sha256'],
-                inputs=deepcopy(manifest['inputs']), method=actual, method_verified=True)
+    return dict(attempt_id=manifest['attempt_id'], bundle_sha256=bundle_sha256,
+                inputs=input_records, method=actual, method_verified=True)
 
 
 def check_budget(policy, *, plan_spec, round_attempts, requested_attempts, occupancy):

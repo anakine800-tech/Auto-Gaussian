@@ -279,8 +279,9 @@ ag prepare --study '<STUDY>' --template gaussian --input '<INPUT.gjf>' \
 所有 Link1 段均核对资源、文件引用和外部程序调用；放宽不允许覆盖脚本、清单或只读父 chk。
 每一段都必须显式写 `%nprocshared` 和 `%mem`；核数匹配档位，内存不超过档位的 85%。
 此路径不继承或自动补齐缺失资源。
-当前上限为 32 个附件、8 层 include、32 个 Link1 段；冻结输入总字节数和展开后的文本
-各不超过 1 MiB。附件仅接受数据片段，不接受 Link0、route 或 Link1；每个打包附件都必须被引用。
+当前只接受主输入直接引用附件的单层 include，附件内再次出现 include 即拒绝；
+最多 32 个附件、32 个 Link1 段，冻结输入总字节数和展开后的文本各不超过 1 MiB。
+附件仅接受数据片段，不接受 Link0、route 或 Link1；每个打包附件都必须被引用。
 
 支持的受控范围包括 Gen/GenECP、SCRF=Read、NBO 附加段、TS 与 ModRedundant、Link1、
 Geom=Check/AllCheck，以及原扫描白名单之外的坐标数、步数、通配符、笛卡尔冻结、Units 和
@@ -288,8 +289,16 @@ Geom=Check/AllCheck，以及原扫描白名单之外的坐标数、步数、通�
 `--parent` / `--relation` / `--parent-chk` 机制绑定父 chk；缺失几何、电荷或多重度保持未知，
 不会补造。无法确认安全的文件读取、写入或语法组合仍拒绝。
 SCRF 读入段限数值 `eps`/`epsinf`，NBO 限已列入白名单的分析标志，Gen/GenECP 和
-ModRedundant 附加段接受受限的数据语法；不接受任意文件读写、External、IOp 或外部 NBO 程序。
-放宽路径目前拒绝 RCFC/ReadFC/ReadCartesianFC，避免绕过既有父力常数取向核验；需要时使用已支持的严格流程。
+ModRedundant 附加段接受受限的数据语法。GaussView 格式的 `Geom=Connectivity` 仅在显式坐标
+提供原子数时接受；首个附加块须按顺序逐原子列行，索引为整数、键级为有限数值。
+Check/AllCheck 与 Connectivity 的组合拒绝；连接表之后沿用既有尾段数据语法，不声称 Gen/
+ModRedundant 等完整科学分段顺序已验证。不接受任意文件读写、External、IOp 或外部 NBO 程序。
+本轮只开放 `Opt=ReadFC`、`RCFC` 两个选项，`ReadCartesianFC` 别名仍拒绝；
+已开放选项要求可追溯的同 Attempt 前段或专用父 chk 来源。
+放宽路径只证明来源、文件归属和冻结字节，不声称父文件确有适用的 Hessian，也不验收力常数的
+方法、原子映射或坐标取向；既有严格路径的父力常数取向核验保持不变。
+放宽语法还接受 Opt 的 `GEDIIS`、`NoTrust`，SCF 的 `NoIncFock`、`NoDIIS`，
+IRC 的 `GS2`、`CalcAll`，Freq 的 `HPModes`、`SaveNormalModes`；接受选项不代表科学方案已核验。
 Units、色散及 Stable/Polar/Symmetry 不再按科学选项值白名单筛选，方法仍标为未核验；普通 basename 中间的连续点不视为父目录组件。
 已知读取与资源边界仍保留：Stable/Polar 的 Restart、Polar 的 Raman/ROA（读取旧力常数）、
 DCSHG/Gamma（隐含频率读入）及 WorkerPerturbations（Linda 工作进程分配）均拒绝，包括这些选项的前缀缩写。
@@ -310,7 +319,10 @@ DCSHG/Gamma（隐含频率读入）及 WorkerPerturbations（Linda 工作进程�
 thermo/profile/facts 的科学接受条件没有扩大，解析成功也不会消除放宽标记。
 旧 `--policy` 长期规则拒绝放宽 Attempt；显式绑定输入包的一次性批准和 Mac 对话框仍按原流程核验，
 失败不回退其他授权方式，具体真实验证仍须负责人逐次亲手点击。
-自主提交尚未接入；后续须与 T186 协调、集成并完成真实验证，不能只凭 `allow_relaxed` 字段获得权限。
+T186 放宽接口已接入开发代码：计划与有效规则均须允许放宽，逐段保留收敛下限、字节核验及未核验标记。
+Stable 的 relaxed 语法保持现状；自主 policy 原有的 Stable 拒绝不因本次扩展而解除。
+接口接入不启用自主运行；最终组合验证、敏感审阅、非研究试点和负责人显式启用仍须完成，
+不能只凭 `allow_relaxed` 字段获得权限。
 合并前非研究验证矩阵见 [T188](../docs/redesign-tasks/T188-relaxed-gaussian-input.md)。
 
 ## 弛豫扫描与 TS 初猜

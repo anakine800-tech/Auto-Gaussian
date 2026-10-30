@@ -12,6 +12,13 @@ from test_core import cfg, prepared, Fake, INPUT
 from test_parent_chk import parent, CheckpointFake
 
 
+@pytest.fixture(autouse=True)
+def isolated_machine_registry(tmp_path, monkeypatch):
+    home = tmp_path / 'synthetic-home'
+    home.mkdir()
+    monkeypatch.setattr(Path, 'home', classmethod(lambda cls: home))
+
+
 INCLUDED = INPUT.replace('B3LYP/6-31G(d)', 'HF/Gen') + '@a-basis.inc\n'
 BASIS = b'O H 0\nSTO-3G\n****\n'
 LINKED = INPUT + ('--Link1--\n%nprocshared=8\n%mem=10GB\n%chk=water.chk\n'
@@ -120,6 +127,24 @@ def test_includes_bound_without_mutation_main_input_first(cfg, tmp_path):
     assert 'general_basis_semantics' in manifest['input_validation']['skipped_checks']
     summary = attempt.summary(cfg, manifest)
     assert INCLUDED in summary and BASIS.decode() in summary
+
+
+def test_nested_include_is_refused_before_attempt_allocation(cfg, tmp_path):
+    study.init(cfg, 'smoke')
+    source = tmp_path / 'water.gjf'
+    attachment = tmp_path / 'a-basis.inc'
+    leaf = tmp_path / 'leaf.inc'
+    source.write_text(INCLUDED)
+    attachment.write_bytes(b'@leaf.inc\n')
+    leaf.write_bytes(BASIS)
+    before = {p: p.read_bytes() for p in (source, attachment, leaf)}
+    with pytest.raises(ValueError, match='[Ii]nclude|depth'):
+        attempt.prepare(cfg, study_name='smoke', template='gaussian', input_path=source,
+                        tier='simple', walltime='00:30:00', label='sp',
+                        method_basis='Synthetic include validation', relaxed_input=True,
+                        include_files=[attachment, leaf])
+    assert list((Path(cfg['local']['studies_root']) / 'smoke/attempts').iterdir()) == []
+    assert {p: p.read_bytes() for p in before} == before
 
 
 @pytest.mark.parametrize('main_name,include_name', [
@@ -357,6 +382,39 @@ def test_checkpoint_geometry_uses_existing_parent_copy(cfg, parent, tmp_path, mo
     assert (Path(remote.attempt_dir(cfg, manifest)) / 'parent.chk').read_bytes() == original
     assert fake.operations().count('copy_parent_chk') == 1
     assert fake.operations().count('parent_chk_metadata') == 3
+
+
+@pytest.mark.parametrize('reader', ['ReadFC', 'RCFC'])
+@pytest.mark.parametrize('origin', ['earlier-section', 'parent'])
+def test_force_constant_reader_uses_existing_checkpoint_source(cfg, parent, tmp_path, reader, origin):
+    text = INPUT.replace('%chk=water.chk', '%chk=child.chk').replace(
+        ' SP', f' Opt=(TS,Tight,{reader}) SCF=(Conver=8)')
+    options = {}
+    if origin == 'parent':
+        text = '%oldchk=parent.chk\n' + text
+        options = dict(parents=[dict(attempt_id=parent[0].name, relation='restart_from')],
+                       parent_chk=parent[0].name + ':water.chk')
+    else:
+        text = INPUT.replace(' SP', ' Freq') + '--Link1--\n%oldchk=water.chk\n' + text
+    path, manifest = prepare(cfg, tmp_path, text=text, **options)
+    before = {p: p.read_bytes() for p in [path / 'manifest.json', path / 'status.json',
+                                       *list((path / 'inputs').iterdir())]}
+    files = attempt.verified_files(cfg, path, manifest)
+    assert files['water.gjf'] == text.encode()
+    assert manifest['input_validation']['method_verified'] is False
+    assert 'parent.chk' not in files
+    assert {p: p.read_bytes() for p in before} == before
+    assert not (path / '.submit-claim').exists()
+
+
+@pytest.mark.parametrize('reader', ['ReadFC', 'RCFC'])
+def test_force_constant_reader_without_source_never_allocates_attempt(cfg, tmp_path, reader):
+    study.init(cfg, 'smoke')
+    text = INPUT.replace(' SP', f' Opt=(TS,Tight,{reader}) SCF=(Conver=8)')
+    with pytest.raises(ValueError, match='[Cc]heckpoint|source'):
+        prepare(cfg, tmp_path, text=text)
+    assert list((Path(cfg['local']['studies_root']) / 'smoke/attempts').iterdir()) == []
+    assert (tmp_path / 'water.gjf').read_text() == text
 
 
 def test_parent_input_replacement_blocks_relaxed_child_before_remote(cfg, parent, tmp_path, monkeypatch):

@@ -91,11 +91,20 @@ SCNet 类末级运行加排队最多 4 个、兜底排队最多 2 个，按全�
 `prepare --template gaussian --relaxed-input` 使用独立校验器；默认路径与旧记录保持原样。
 每一段必须显式提供 `%nprocshared` 和 `%mem`，核数匹配所选档位，内存遵守原 85% 上限；
 放宽路径不继承、不猜测也不自动补齐资源。`--include-file` 可重复，附件只从显式参数收集，
-主文件及递归引用的附件都在编号/目录分配前检查，随后 `verified_files` 对最终保存字节重验。
+主文件及直接引用的附件都在编号/目录分配前检查，随后 `verified_files` 对最终保存字节重验。
 收集时逐级用目录描述符与 `O_NOFOLLOW` 打开路径，防止父目录在检查后被替换为链接；
 读到的文件必须是普通文件，同 inode 别名拒绝。
-解析有界：最多 32 个附件、8 层 include、32 个 Link1 段，冻结输入与展开文本各最多 1 MiB。
+解析只允许单层 include：主输入可直接引用多个显式附件，附件不能再引用附件。
+最多 32 个附件、32 个 Link1 段，冻结输入与展开文本各最多 1 MiB。
 附件只含数据片段，不能注入 Link0/route/Link1；未被引用的附件也拒绝。
+GaussView 格式的 `Geom=Connectivity` 仅在显式坐标使原子数已知时接受，
+Check/AllCheck 与 Connectivity 的组合明确拒绝。首个附加块须按顺序逐原子列行，
+核验整数索引与有限数值键级；剩余尾段沿用原有数据语法，不代表 Gen/ECP、
+ModRedundant 等完整科学分段顺序已获验证。
+Opt 的 GEDIIS/NoTrust、SCF 的 NoIncFock/NoDIIS、IRC 的 GS2/CalcAll、
+Freq 的 HPModes/SaveNormalModes 均纳入放宽语法；算法选择和力常数科学合理性不由这些检查证明。
+[G16 输入顺序表](https://www.conflex.co.jp/gaussian_support/input.php) 是人工核对组合输入的依据，
+不是当前尾段校验器已完整实现该顺序的声明；ReadFC/RCFC 用途见 [Opt 手册转载](https://www.conflex.co.jp/gaussian_support/opt.php)。
 
 不再用 Units、EmpiricalDispersion/EM、Stable/Polar/Symmetry 的值白名单选择科学方案；
 这不证明输入的算法名称、拼写或方法可用，方法口径仍未核验。纯 basename 中间的连续点
@@ -124,14 +133,23 @@ verified_files 直接复用 prepared_bundle 的 sidecar 结构核验与首位主
 `modredundant_semantics`、`coordinate_unit_semantics`、`checkpoint_geometry_science`、
 `link1_scientific_consistency`、`additional_section_semantics` 中的适用项。
 这些名称说明未核验的科学语义，不表示资源、模板、路径或授权检查被跳过。
+本次不新增标记字段或 skipped_checks 名称；力常数的科学适用性仍由总是存在的
+`scientific_method` 未核验状态表达，连接表使用既有附加段标记，不使旧已接受输入的标记漂移。
 
-Geom=Check/AllCheck 只能使用同 Attempt 的已证明 chk 来源，或现有专用父 chk 机制。
+Geom=Check/AllCheck、Opt=ReadFC/RCFC 只能使用同 Attempt 的可追溯 chk 来源，
+或现有专用父 chk 机制。放宽力常数检查证明的是来源与文件归属，不证明 Hessian 是否存在、
+方法是否适用或原子/坐标取向匹配；不得称为通过严格路径的 `validate_force_constant_frame`。
+本轮只开放 Opt 下的 ReadFC/RCFC，ReadCartesianFC 别名仍在拒绝集合内。
+严格路径原有取向核验保留，不能为减少验证对象而改父 chk 读取或复制机制。
 当前父 chk 机制要求父 Attempt 只有一个程序输入，放宽包含 sidecar，因此放宽 Attempt
 不能作为该机制的父来源；严格父 Attempt 可以被放宽子 Attempt 显式声明。
 旧 `approval.policies` / `--policy` 不绑定本轮计划和方法例外，因此拒绝带放宽标记的 Attempt；
 一次性批准与人工对话框继续使用现有字节核验、摘要和单次提交流程，不添加授权回退。
-自主入口与 T186 的放宽规则集成尚未完成，带标记的 Attempt 不能仅凭配置中的
-`allow_relaxed` 获得自主提交权限。非研究合并前验证及实际阻塞记录在
+T186 放宽接口已接入开发代码：计划和有效规则均须允许例外，`verified_files` 重验实际主输入、
+sidecar 与附件；每个 Link1 段仍核验获批收敛下限，方法继续为未核验而非自动匹配。
+Stable 的 relaxed 语法不作本轮扩展；自主 policy 已有的 Stable 拒绝保持原样。
+这不启用自主运行；最终组合验证、敏感审阅、非研究试点和负责人显式启用仍未被文档替代，
+不能仅凭配置中的 `allow_relaxed` 获得权限。非研究合并前验证及实际阻塞记录在
 [T188](redesign-tasks/T188-relaxed-gaussian-input.md)，离线通过不代替该验证。
 
 ## 自主运行的实现边界
@@ -276,8 +294,9 @@ UNKNOWN 须由正式 status 成功按唯一作业名查询无匹配，并通过�
 [T186 工单](redesign-tasks/T186-plan-bound-submission.md)留存：本地只跑受影响流程，
 全量交 CI，真实验证前对最终组合另跑一次；不做 AST 比对。旧含 T187 组合仅为历史证据。
 首轮审阅回应只交绑定新 head 的增量 diff、逐项答复、红绿证据及修订的未执行真实验证
-草稿，不再重复整份源码包。T188 当前放宽语法仍缺 GEDIIS/NoTrust/NoIncFock/NoDIIS；
-T186 普通输入八项已支持，不能声称八项放宽链路均完成。监督审阅、真实试点及显式启用完成前不能运行自主计算。
+草稿，不再重复整份源码包。T188 放宽语法现已补齐 Opt GEDIIS/NoTrust、SCF NoIncFock/NoDIIS、
+IRC GS2/CalcAll、Freq HPModes/SaveNormalModes 八项；最终组合回归与真实验证仍须分别留证，
+语法接入不等于现场通过。监督审阅、真实试点及显式启用完成前不能运行自主计算。
 
 ## 提交流程：规范顺序
 
