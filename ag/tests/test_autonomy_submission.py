@@ -648,7 +648,12 @@ def test_historical_manual_terminal_record_does_not_block_accounting(cfg, prepar
     before = tree(path.parent.parent)
     result = autonomy_submission.read_reservations(cfg)
     assert result['placements'] == []
-    assert result['warnings'] == [dict(kind='manual_terminal_excluded',
+    warnings = result['warnings']
+    if history == 'old_slurm':
+        unconsumed = [item for item in warnings if item['kind'] == 'manual_unconsumed_excluded']
+        assert len(unconsumed) == 1 and unconsumed[0]['attempt_id'] == prepared[0].name
+        warnings = [item for item in warnings if item['kind'] != 'manual_unconsumed_excluded']
+    assert warnings == [dict(kind='manual_terminal_excluded',
         study_key=autonomy_submission.study_identity(path.parent.parent)['study_key'],
         study_id='smoke', attempt_id=path.name, state='fetched' if history == 'old_slurm' else terminal)]
     assert tree(path.parent.parent) == before

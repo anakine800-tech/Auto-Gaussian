@@ -1386,9 +1386,26 @@ def run(args):
     return 0
 
 
+def _run_reservation_audit(args):
+    from ag.config import load_config
+    from ag.autonomy_submission import audit_reservations
+    configuration_error = None
+    try:
+        cfg = load_config()
+    except (ValueError, OSError, KeyError):
+        cfg = None
+        configuration_error = 'Cannot read complete local configuration; configured studies coverage is unknown'
+    result = audit_reservations(cfg, configuration_error=configuration_error)
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0 if result['ok'] else 1
+
+
 def register(subparsers):
     p = subparsers.add_parser('autonomy', help='Purely local plan, run lease, pause and journal (no submission)')
     children = p.add_subparsers(dest='action', required=True)
+    audit = children.add_parser('audit-reservations', help='Read-only full local reservation health check; never authorizes actions')
+    audit.set_defaults(func=_run_reservation_audit)
+    audit.add_argument('--json', action='store_true', help='JSON output (also the default)')
     for op in ('init', 'plan', 'confirm', 'begin', 'start', 'pause', 'resume', 'finish', 'end', 'update', 'count', 'recover', 'status', 'check', 'manual-writers', 'release-writer', 'resolve-attempt', 'scientific-review', 'publish-study'):
         child = children.add_parser(op)
         child.set_defaults(func=run)
