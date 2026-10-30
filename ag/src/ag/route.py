@@ -72,8 +72,6 @@ def autonomous_selection(cfg, state, context, *, template, walltime,
     """
     import os
     from ag import autonomy, autonomy_submission, _autonomy_store as disk
-    if 'select_ladder' not in globals():
-        raise ValueError('Reviewed routing ladder is not integrated in this checkout')
     at = datetime.fromtimestamp(autonomy.now(), timezone.utc)
     name = context['study_id']
     scope = str(Path(cfg['local']['studies_root']) / name)
@@ -876,8 +874,6 @@ def select_legacy(cfg, snapshots, *, template, job_class, walltime, study_key, s
     """
     from ag import approval
     from ag.capacity import evaluate_node
-    if 'select_ladder' not in globals():
-        raise ValueError('Reviewed routing accounting is not integrated in this checkout')
     if template not in ('crest', 'xtb') or job_class != 'small':
         raise ValueError('Legacy autonomous routing requires a small CREST/xTB object')
     if tier not in TIERS:
@@ -1076,11 +1072,8 @@ def run(args):
                            args.autonomous_policy, args.token, args.plan_sha256)
         if any(value is not None for value in routing_options):
             raise ValueError('--config-identity cannot be combined with routing arguments')
-        identity = globals().get('ladder_config_identity')
-        if not callable(identity):
-            raise ValueError('Reviewed T185 routing configuration identity is not integrated in this checkout')
         try:
-            result = dict(routing_sha256=identity(load_config()))
+            result = dict(routing_sha256=ladder_config_identity(load_config()))
         except Exception as exc:
             # Discovery must not expose private configuration values in errors.
             raise ValueError('Cannot read routing configuration identity; check local configuration') from exc

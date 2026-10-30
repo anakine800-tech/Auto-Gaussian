@@ -149,8 +149,6 @@ def autonomous_configuration(cfg):
 
 def bound_policy(cfg, snapshot, context):
     from ag import autonomy, autonomy_policy, autonomy_submission, route, study
-    if not hasattr(route, 'ladder_config_identity'):
-        raise ValueError('Reviewed routing ladder is not integrated in this checkout')
     policy = autonomy_policy.read_policy(cfg, context['policy_name'])
     plan = snapshot['plans'][snapshot['current_plan']]
     autonomy_policy.check_plan_bounds(policy, plan['body']['spec'])

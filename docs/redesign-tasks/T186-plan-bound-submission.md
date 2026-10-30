@@ -36,6 +36,34 @@
 
 ## 最终实现
 
+2026-10-30 第二轮监督意见（审阅基线 `25b9be37`）：上轮六项已处理，原两项阻断已解除。
+负责人转交后明确补充允许本单修改
+`skills-next/auto-g16-study/references/autonomous-run.md`，与既有
+`autonomy_submission.py`、对应测试及本工单共同完成以下三项：
+
+- 历史手动非终态（submitted/running/stalled/awaiting_second_observation/unknown）
+  审计失败时，按可核验 manifest 核数保守保留 reserved 并提示，不因旧授权格式拖垮全局；
+  不把自主记录降级为手动记录，身份、文件和实际消费的严格核验保持。
+- PBS interrupted 的 walltime 分类使用稳定观察所绑定 Gaussian 日志的最后修改时间；
+  只有可信 mtime 不早于 started_at + walltime − 600 秒时才分类 walltime，
+  早崩晚观察或时间证据不确定保持 interrupted，不用查询时间代替结束时间。
+- 自主运行卡同步持续 watch、PBS 两次至少相隔 300 秒 status 后 fetch --incomplete、
+  cancelled/UNKNOWN 等待带原话的人工 resolve-attempt，以及 PresubmitDeferred 等下次唤醒、
+  ObjectRefused 仅标当前对象的行为。
+
+T185 已合并为 `eb3b90eb292a3fb732ba9adbc59982f8ec9eda31`，本分支已在该 main
+完成纯变基，基点为 `806dff839cbf66dc69a38141dd44eabd43dd277f`；保留旧 `25b9be37`。
+冲突仅在 `route.py` 与 `test_route.py`：保留 T185 完整选择器、T186 可信接线及两侧测试。
+同时落实首轮小项：T185 已实际集成后直接调用其接口，删除三个生产文件内的分支存在性
+判断及一项只测试缺 T185 的旧用例；T188 尚未合入的判断保留。
+把纯变基冲突、该项接线清理和上述三项修复精确分列在同一回应增量包，供一次复核。
+UNKNOWN 人工解除的 600 秒证据过期后重新计占问题另留后续，不混入本 PR；
+T188 的 GEDIIS/NoTrust/NoIncFock/NoDIIS 放宽语法缺口由该单处理，不阻塞本单。
+本轮仅相关离线测试及 CI，禁止本地全量、AST、真实配置/study/集群操作；
+真实验证只修订草稿，加入前端服务器监控页的一轮缓存读取/轮换检查，不执行。
+变基后三项修复的相关回归为 1015 passed，卡片检查 5 passed；上述接线清理后只复验
+受影响子集，最终 CI 与确切提交见 PR。本地未跑全量。
+
 1. `approval.autonomous_policies` 与旧手动规则隔离。字段为 `schema/study_id/study_key/round_id/plan_sha256/routing_sha256/templates/clusters/max_cores_per_job/max_walltime/max_attempts/quote/set_at/expires_at/methods/allow_relaxed`；各 cluster 明列节点、总核数、排队核数和作业数上限。未知字段、矛盾限额及无效身份拒绝。自主拒绝不回退聊天批准或弹框。
 2. 计划 `spec.submission_policy` 限制模板、集群、单作业资源、方法、路由哈希及放宽例外；Attempt 上限与到期复用计划原字段。`ag route --config-identity --json` 在首次计划之前只读取得 T185 同一算法的哈希，不要求 study/规则/租约，不输出账号、主机或路径，不产生文件或远端查询。
 3. 普通 Gaussian 依据冻结输入核验方法、基组类型、色散、溶剂、积分网格和最终 Opt/Freq/SCF 收敛。T188 正式标记组合时才允许计划/规则均批准的放宽例外；保存跳过清单，方法口径未核验，仍不放宽最终收敛。非 Gaussian 只使用其受支持参数。

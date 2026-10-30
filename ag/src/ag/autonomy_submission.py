@@ -552,13 +552,11 @@ def verify_selection(cfg, selection, *, batch_inputs=None):
     """Replay the reviewed selector; the caller supplies verified batch inputs."""
     from ag import route
     _selection(selection)
-    function = 'select_legacy' if selection['result']['schema'] == 'ag-routing-legacy/1' else 'select_ladder'
-    _require(hasattr(route, function) and hasattr(route, 'ladder_config_identity'),
-             'Reviewed routing selector is not available')
+    selector = route.select_legacy if selection['result']['schema'] == 'ag-routing-legacy/1' else route.select_ladder
     original = selection['input']
     _require(original['config_sha256'] == route.ladder_config_identity(cfg),
              'Routing configuration changed')
-    result = getattr(route, function)(cfg, original['snapshots'], **original['request'],
+    result = selector(cfg, original['snapshots'], **original['request'],
         placements=original['placements'], wakeups=original['wakeups'],
         batch_inputs=batch_inputs or {}, now=approval.timestamp(original['selected_at']))
     _require(result == selection['result'], 'Selection cannot be replayed from original evidence')
@@ -1174,8 +1172,25 @@ def _incomplete_remedy_outputs(path, manifest, completion):
                  and end['verified_at'] >= completion['observed_at'] >= observations[1]['at'],
                  'Incomplete PBS receipt lacks exact stable inactive observations')
         start = completion['start']
-        completion['walltime_reached'] = (start is not None and observations[0]['at']
-            - approval.timestamp(start['started_at']).timestamp() >= completion['walltime_seconds'])
+        completion['walltime_reached'] = False
+        if start is not None and manifest['template'] in ('gaussian', 'gaussian-cp'):
+            log_name = output_names(manifest)[0]
+            observed = observations[0]['outputs'].get(log_name)
+            fetched = record['outputs'].get(log_name)
+            # Late polling cannot date an earlier crash. Only the stable log
+            # metadata also bound to the fetched bytes may date the last write.
+            if (isinstance(observed, dict) and fetched is not None
+                    and observed.get('size') == fetched['size']
+                    and observed.get('mtime') == fetched['mtime']
+                    and re.fullmatch(r'\d{4}-\d\d-\d\d \d\d:\d\d:\d\d(?:\.\d+)? [+-]\d{4}', fetched['mtime'])):
+                try:
+                    modified = datetime.fromisoformat(fetched['mtime'].replace(' ', 'T', 1).replace(' ', '')).timestamp()
+                except (ValueError, OverflowError, OSError):
+                    pass  # An unreadable timestamp cannot establish walltime.
+                else:
+                    started = approval.timestamp(start['started_at']).timestamp()
+                    completion['walltime_reached'] = (started <= modified <= observations[0]['at']
+                        and modified >= started + completion['walltime_seconds'] - 600)
     else:
         _require(isinstance(end, dict) and end.get('scheduler') == 'slurm'
                  and end.get('queue_absent') is True and type(end.get('at')) in (int, float)
@@ -1660,7 +1675,7 @@ def read_reservations(cfg, *, states=None):
                      'Consumed Attempt is missing its global reservation')
     entries = _entries(cfg)
     identities = {name: account_identity(entry) for name, entry in entries.items()}
-    from ag.config import cluster_identity
+    from ag.config import cluster_identity, scheduler_kind
     grouped = {}
     for name, identity in identities.items():
         explicit = cluster_identity(entries[name])
@@ -1748,7 +1763,32 @@ def read_reservations(cfg, *, states=None):
                 if warning is not None:
                     warnings.append(warning)
                     continue
-                report = audit(target)  # Autonomous summaries with no record fail here.
+                unverified_manual = False
+                try:
+                    report = audit(target)
+                except ValueError:
+                    current = _json(_read_file(target / 'status.json'))
+                    _require(current.get('state') in ('submitted', 'running', 'stalled',
+                             'awaiting_second_observation', 'unknown'),
+                             'Unverified manual reservation has no nonterminal status')
+                    # Missing historical authorization must retain usage, but
+                    # an autonomous origin must never become a manual fallback.
+                    for filename in ('submission-summary.json', 'submission.json'):
+                        if os.path.lexists(target / filename):
+                            value = _json(_read_file(target / filename))
+                            authorization = value.get('authorization') if isinstance(value, dict) else None
+                            _require(not isinstance(authorization, dict)
+                                     or authorization.get('method') != 'autonomy-policy',
+                                     'Autonomous summary is missing its global reservation')
+                    for line in _read_file(path / 'journal.jsonl').splitlines():
+                        event = _json(line)
+                        detail = event.get('detail')
+                        _require(not (event.get('attempt_id') == name
+                                 and event.get('action') == 'submit_authorization'
+                                 and isinstance(detail, dict) and detail.get('method') == 'autonomy-policy'),
+                                 'Autonomous authorization is missing its global reservation')
+                    report = dict(classification='reserved', state=current['state'], job_id=None)
+                    unverified_manual = True
                 if report['classification'] == 'unconsumed':
                     continue
                 raw, manifest = _manifest_bytes(target)
@@ -1756,8 +1796,18 @@ def read_reservations(cfg, *, states=None):
                          'Unmapped historical manual reservation requires reconciliation')
                 cluster = manifest.get('cluster', 'default')
                 _require(cluster in entries, 'Manual reservation cluster is not configured')
+                if unverified_manual:
+                    _require(type(manifest['cores']) is int and manifest['cores'] > 0
+                             and type(manifest['mem_gb']) in (int, float)
+                             and math.isfinite(manifest['mem_gb']) and manifest['mem_gb'] > 0
+                             and manifest.get('scheduler', 'pbs') == scheduler_kind(entries[cluster]),
+                             'Unverified manual reservation resources or scheduler are invalid')
+                    report['evidence_sha256'] = {'manifest.json': sha256(raw).hexdigest()}
+                    warnings.append(dict(kind='manual_unverified_reserved',
+                        study_key=study_identity(path)['study_key'], study_id=manifest['study_id'],
+                        attempt_id=name, state=report['state'], cores=manifest['cores']))
                 raw_job = submission.raw_job(manifest, report['job_id']) if report['job_id'] else None
-                placement_state = _placement_state(target, manifest, report)
+                placement_state = 'reserved' if unverified_manual else _placement_state(target, manifest, report)
                 placements.append(dict(study_id=manifest['study_id'], study_key=study_identity(path)['study_key'], attempt_id=name, cluster=cluster,
                     scheduler_job_name=manifest['attempt_id'] if manifest.get('scheduler') == 'slurm' else manifest['pbs_job_name'],
                     state=placement_state, cores=manifest['cores'], mem_gb=manifest['mem_gb'], job_id=raw_job,

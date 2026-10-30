@@ -1087,15 +1087,6 @@ def test_route_still_requires_template_outside_identity_mode(options, monkeypatc
     assert 'required: --template' in capsys.readouterr().err
 
 
-def test_config_identity_requires_the_reviewed_t185_function(monkeypatch, capsys):
-    monkeypatch.delattr(route, 'ladder_config_identity', raising=False)
-    monkeypatch.setattr(route, 'load_config', lambda: pytest.fail('Missing dependency must fail before loading'))
-    assert cli.main(['route', '--config-identity', '--json']) == 1
-    result = json.loads(capsys.readouterr().out)
-    assert result == {'error': 'Reviewed T185 routing configuration identity is not integrated in this checkout',
-                      'exit_code': 1}
-
-
 @pytest.mark.parametrize('stage', ['configuration', 'identity'])
 @pytest.mark.parametrize('json_output', [False, True])
 def test_config_identity_errors_do_not_expose_private_values(monkeypatch, capsys, stage, json_output):

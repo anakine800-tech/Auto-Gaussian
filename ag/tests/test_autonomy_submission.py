@@ -661,6 +661,84 @@ def test_historical_manual_terminal_record_does_not_block_accounting(cfg, prepar
     assert tree(path.parent.parent) == before
 
 
+@pytest.mark.parametrize('local_state', [
+    'submitted', 'running', 'stalled', 'awaiting_second_observation', 'unknown',
+])
+def test_pre_t111_nonterminal_manual_keeps_conservative_cores(cfg, prepared, selector, local_state):
+    from ag.locks import claim
+    path, manifest = prepared
+    claim(path / '.submit-claim')
+    state.write(path, 'submitting')
+    if local_state == 'unknown':
+        state.write(path, 'unknown')
+    else:
+        submission.record(path, manifest, '123.fixture')
+        state.write(path, 'submitted', job_id='default:123.fixture')
+        if local_state != 'submitted':
+            state.write(path, local_state)
+    assert not (path / 'submission-summary.json').exists()
+    before = tree(path.parent.parent)
+    result = autonomy_submission.read_reservations(cfg)
+    assert result['records'] == [] and result['batch_inputs'] == {}
+    assert len(result['placements']) == 1
+    placement = result['placements'][0]
+    assert placement['state'] == 'reserved' and placement['cores'] == manifest['cores']
+    assert placement['job_id'] is None
+    assert placement['round_id'] is placement['run_id'] is None
+    assert result['warnings'] == [dict(kind='manual_unverified_reserved',
+        study_key=placement['study_key'], study_id='smoke', attempt_id=path.name,
+        state=local_state, cores=manifest['cores'])]
+    assert tree(path.parent.parent) == before
+
+
+@pytest.mark.parametrize('origin', ['submission-summary.json', 'submission.json', 'journal'])
+def test_unverified_manual_fallback_never_downgrades_autonomous_origin(cfg, prepared, selector, origin):
+    from ag import journal
+    from ag.locks import claim
+    path, _ = prepared
+    claim(path / '.submit-claim')
+    state.write(path, 'submitting')
+    state.write(path, 'unknown')
+    if origin == 'journal':
+        journal.append(path.parent.parent, 'submit_authorization', path.name, 'ok',
+                       {'method': 'autonomy-policy'})
+    else:
+        (path / origin).write_text(json.dumps({'authorization': {'method': 'autonomy-policy'}}))
+    before = tree(path.parent.parent)
+    with pytest.raises(ValueError, match='Autonomous.*missing its global reservation'):
+        autonomy_submission.read_reservations(cfg)
+    assert tree(path.parent.parent) == before
+
+
+@pytest.mark.parametrize('damage', ['identity', 'bundle', 'zero_cores', 'bool_cores', 'string_cores',
+                                    'invalid_mem', 'scheduler', 'cluster', 'symlink'])
+def test_unverified_manual_fallback_requires_trustworthy_manifest(cfg, prepared, selector, tmp_path, damage):
+    from ag.locks import claim
+    path, manifest = prepared
+    claim(path / '.submit-claim')
+    state.write(path, 'submitting')
+    state.write(path, 'unknown')
+    target = path / 'manifest.json'
+    if damage == 'symlink':
+        external = tmp_path / 'redirected-manifest.json'
+        external.write_bytes(target.read_bytes())
+        target.unlink()
+        target.symlink_to(external)
+    else:
+        key, value = {
+            'identity': ('study_id', 'other'), 'bundle': ('bundle_sha256', 'f' * 64),
+            'zero_cores': ('cores', 0), 'bool_cores': ('cores', True), 'string_cores': ('cores', '8'),
+            'invalid_mem': ('mem_gb', -1), 'scheduler': ('scheduler', 'slurm'),
+            'cluster': ('cluster', 'unconfigured'),
+        }[damage]
+        manifest[key] = value
+        target.write_text(json.dumps(manifest))
+    before = tree(path.parent.parent)
+    with pytest.raises((ValueError, OSError)):
+        autonomy_submission.read_reservations(cfg)
+    assert tree(path.parent.parent) == before
+
+
 @pytest.mark.parametrize('terminal', ['interrupted', 'cancelled'])
 def test_terminal_owned_usage_releases_only_after_two_fresh_absent_samples(
         cfg, prepared, selector, monkeypatch, terminal):
@@ -930,23 +1008,38 @@ def test_human_resolution_rechecks_metadata_time_and_exact_consumption(actual_un
     assert not autonomy.status(cfg, 'smoke')['state'].get('manual_resolutions')
 
 
-@pytest.mark.parametrize('start_at,expected', [(1000, 'walltime'), (1301, 'interrupted'), (None, 'interrupted')])
-def test_formal_pbs_interrupted_fetch_supports_bounded_failure(cfg, prepared, selector, monkeypatch, start_at, expected):
+@pytest.mark.parametrize('start_at,log_at,first_at,expected', [
+    pytest.param(1000, 2690, 2700, 'walltime', id='log-near-walltime'),
+    pytest.param(1000, 1100, 4000, 'interrupted', id='early-crash-observed-late'),
+    pytest.param(None, 2690, 4000, 'interrupted', id='missing-start'),
+    pytest.param(1000, 2200, 4000, 'walltime', id='ten-minute-boundary'),
+    pytest.param(1000, 2199, 4000, 'interrupted', id='before-ten-minute-boundary'),
+    pytest.param(1000, '1970-01-01 08:36:40.000000000 +0800', 4000, 'walltime', id='explicit-offset'),
+    pytest.param(1000, '1970-99-01 00:44:50.000000000 +0000', 4000, 'interrupted', id='invalid-calendar'),
+    pytest.param(1000, 4001, 4000, 'interrupted', id='future-log-mtime'),
+    pytest.param(1000, 999, 4000, 'interrupted', id='log-before-start'),
+    pytest.param(1000, None, 4000, 'interrupted', id='missing-log'),
+])
+def test_formal_pbs_interrupted_fetch_supports_bounded_failure(
+        cfg, prepared, selector, monkeypatch, start_at, log_at, first_at, expected):
     from datetime import datetime, timezone
     from ag import fetch, remote, status
     from test_incomplete_fetch import IncompleteFake
     path, _ = prepared
     _, current, manifest = bound_owned(cfg, path, selector[0], monkeypatch)
-    fake = IncompleteFake(manifest)
+    mtime = (log_at if isinstance(log_at, str) else
+             datetime.fromtimestamp(log_at or 0, timezone.utc).strftime('%Y-%m-%d %H:%M:%S.000000000 %z'))
+    monkeypatch.setattr('test_incomplete_fetch.MTIME', mtime)
+    fake = IncompleteFake(manifest, files={} if log_at is None else None)
     outputs = status.outputs(cfg, manifest, fake)
     observations = [dict(at=at, job_id='123.fixture', scheduler_state=None, outputs=outputs, exit_receipt=None)
-                    for at in (2800.0, 3100.0)]
+                    for at in (first_at, first_at + 300)]
     start = (None if start_at is None else dict(PBS_JOBID='123.fixture',
              started_at=datetime.fromtimestamp(start_at, timezone.utc).isoformat()))
     state.write(path, 'interrupted', observation={'job_id': '123.fixture'},
         receipts={'start': start, 'exit': None}, incomplete_observations=observations,
-        scheduler_observed_at=3100.0)
-    monkeypatch.setattr(status.time, 'time', lambda: 3101.0)
+        scheduler_observed_at=first_at + 300)
+    monkeypatch.setattr(status.time, 'time', lambda: first_at + 301)
     fetched = fetch.fetch(cfg, path, fake, incomplete=True)
     source = autonomy_submission.prepare_remedy_evidence(cfg, current, 'water')
     evidence = autonomy_submission.verify_remedy_evidence(cfg, current, 'water', source)
