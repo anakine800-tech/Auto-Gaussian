@@ -63,17 +63,21 @@ PR 首行 `Task: T188`；说明最终字段、允许及仍拒绝的语法、方�
 | R07 | 金字塔氨；0/1 | `# HF/STO-3G Opt=ModRedundant NoSymm` | 三条 N–H 各 `S 2 0.010`，保留弯曲自由度；读取三坐标并从输出核对实际点数和收敛，不推断耗时。 |
 | R09 | 甲烷；两段均显式0/1 | 两段均为 `# HF/STO-3G Opt=ModRedundant NoSymm` | 独立几何/不同 chk：先 `B 1 * F`，后 `X 1 B` 与 `X 1 F`；分别核对通配符与笛卡尔冻结。 |
 | R11-flat | 水；0/1 | `# HF/Gen SP` | 主输入直接引用 `hydrogen.inc`、`oxygen.inc`；只验单层附件，不代表递归通过。 |
-| P00 → P01 | 水；两者显式0/1，P01 原子顺序/坐标取自 P00 候选输入 | P00 严格：`# HF/STO-3G Freq NoSymm`；P01 放宽：`# HF/STO-3G Opt=RCFC NoSymm` | 两个独立 Attempt。P00 `%chk=water.chk`；P01 `%oldchk=parent.chk`、`%chk=child.chk`。只证明来源/归属/复制哈希及读取执行，不声称 Hessian 适用或取向通过科学验收。 |
+| P00 → P01 | 平面 NH3；与 R05 同源几何，两者显式0/1、相同原子顺序/坐标 | P00 严格：`# HF/STO-3G Freq NoSymm`；P01 放宽：`# HF/STO-3G Opt=(TS,RCFC) NoSymm` | 两个独立 Attempt，目标为氨反转 TS 输入路径。P00 `%chk=ammonia.chk`；P01 `%oldchk=parent.chk`、`%chk=child.chk`。只证明来源/归属/复制哈希及读取执行，不保证 Gaussian TS 成功或 Hessian 科学适用。 |
 | G01 | 合成水；0/1 | `# HF/STO-3G SP Geom=Connectivity` | GaussView 格式连接表：`1 2 1.0 3 1.0`、`2`、`3` 各一行；不声称真实从 GaussView 导出。 |
 
 R01/R02/R05/R06/R07/R09/R11-flat/G01 与 P01 使用 `--relaxed-input`，P00 保持严格。
 P00 必须独立：现有父 chk 机制要求一个程序输入，relaxed 包含 sidecar，不能借 R06 或其它
-放宽 Attempt 充当父来源；不得为减少数量改该机制。P00 Freq、P01 RCFC、G01 已另存合成新候选；
-P00/G01 离线 prepare 与 verified_files 通过，P01 仅在显式合成父参数下通过纯校验，
-prepare 因 P00 未完成而拒绝，没有 checkpoint 或伪造的完成证据。最终真实输入/哈希仍待确认。
+放宽 Attempt 充当父来源；不得为减少数量改该机制。P00/P01 改用与 R05 同源的平面 NH3
+几何，但不继承 R05 的冻结约束；新的 Freq → TS/RCFC 候选另存，前水父子候选保留历史，
+其离线结果不能转作本组证据。G01 已有离线 prepare 与 verified_files 结果；NH3 新候选
+的纯校验/prepare 状态须按新归档记录，不能伪造 checkpoint 或父完成证据。最终真实输入/哈希仍待确认。
 P01 必须等待真实 P00 完成、取回并核验关联后再 prepare；父 chk 的实际
 大小/哈希由专用 submit 流程在人工确认前核验，不能预造值或用合成父记录。
 放宽 P01 不要求调用严格路径的取向检查；这必须写成尚未科学核验，不能写成该检查已通过。
+若 P00 频率负曲率不适于目标 TS 初猜、P01 收敛不适或异常终止，记录未通过/待人处理；
+不追加 NoEigenTest、不自动补救。P01 即使正常结束，也不构成 TS 科学验收：
+最终结构恰一个虚频、振动方向及 IRC 均未验收。
 
 R03（SCRF Read）、R04（NBO）、R08（51 增量）、R10（Units 与组合附加段）后置，
 本轮真实调用均为零；其离线覆盖不能冒充现场验证。八项新选项及 Connectivity/尾段组合
@@ -98,7 +102,7 @@ ag fetch '<ATTEMPT_ID>' --no-facts --json
 P00 仅删除 `--relaxed-input` 及两个附加参数组。其它普通行两组为空。
 R11-flat 的 `<INCLUDE_ARGS>` 展开为两个确切附件路径的 `--include-file`。
 P01 的 `<PARENT_ARGS>` 固定展开为
-`--parent '<REAL_P00_ID>' --relation restart_from --parent-chk '<REAL_P00_ID>:water.chk'`。
+`--parent '<REAL_P00_ID>' --relation restart_from --parent-chk '<REAL_P00_ID>:ammonia.chk'`。
 不用 `--policy` / `--approval` 代替本次逐 Attempt 的 Mac 人工确认。
 
 | 动作 | 含 P01 的总上限（10 个 Attempt） | P01 未解锁时（9 个 Attempt） |
