@@ -12,9 +12,13 @@
 - `ag/src/ag/cli.py`、`autonomy.py`，仅复用或最小整合现有 guard。
 - 相应测试、`docs/DEVELOPING.md` 与本单。
 
-基线为 T186 `e4b1c876213c3aaedeb2c166dcd7e3d693f54ea0`。
-分支 `codex/t207-autonomous-local-review-writes`，PR 暂以
-`codex/t186-plan-bound-submission` 为 base。共享文件先等待 T206 冻结接口再串行接入。
+原 T186 父基点为 `e4b1c876213c3aaedeb2c166dcd7e3d693f54ea0`，
+原 T207 head 为 `aa67c55e0ffb2801cba63de5ee61e5731f1cc70b`。
+2026-10-30 按负责人要求，只移植 T207 自身增量到已含 T186/T185 的
+main `807b1e27b15fa4dc1a81011b010e801608310900`。
+沿用分支 `codex/t207-autonomous-local-review-writes`，PR #386 以 main 为 base。
+不复制未合并的 T206/T188；T206 共享 guard 的已确认 state-dict 接口保持不变。
+测试文件尾部冲突保留 main 的新回归，仅补回 T207 模式报告测试，不恢复旧 T187 改投测试。
 
 ## 实现边界
 
@@ -32,6 +36,9 @@ reparse dry-run 不获得写权限。模式报告保持独占新建，已有证�
 - 输入、facts、manifest、日志或文件/目录身份变化拒绝发布；冲突不覆盖。
 - mode 报告到 scientific-review 使用实际模块组合，保留待人确认标识。
 - 固定来源组合覆盖 T184/T185/T186/T187/T188，相关测试、全量离线回归、敏感扫描和当前 head CI。
+
+上述旧组合是原 head 的历史验收。此次 main 整合仅跑相关本地回归，新 head 全量交 CI；
+不跑本地全量或 AST 比对。另交 range-diff、冲突解法、来源哈希及整合增量，保持待复核。
 
 ## 真实环境验证
 
