@@ -12,7 +12,7 @@
 - `cli.py`：参数解析、子命令挂载、配置选择与退出码。
 - `config.py`：本机配置校验、集群选择及按 manifest 绑定目标。
 - `clusters.py`：只读输出供前端发现的集群、档位和资源上限白名单字段；当前不发布预算余额。
-- `study.py`：study 骨架、标识符和本地路径校验。
+- `study.py`：study 骨架、标识符、本地路径校验及固定自主摘要发布。
 - `attempt.py`：prepare、不可变 manifest、输入哈希及统一的本地记录读取。
 - `state.py`：允许的状态迁移和本地 status 原子更新。
 - `journal.py`：追加本地动作记录。
@@ -398,7 +398,7 @@ Slurm 取回前后均只读核对 squeue 无此作业及 sacct 终态（TIMEOUT�
 参数、JSON、错误及已有输出不覆盖都用合成数据测试；科学判据优先写卡片，不再建工作流框架。
 
 `ag autonomy` 的实际命令、字段和恢复步骤见 [autonomy 使用说明](../ag/README.md#本地自主运行记录autonomy)。
-它只在已有 study 的 `autonomy/` 写入，计划创建与负责人确认分开；版本取实际干净 ag 提交和已安装依赖。
+除下述 `publish-study` 固定摘要外，它只在已有 study 的 `autonomy/` 写入，计划创建与负责人确认分开；版本取实际干净 ag 提交和已安装依赖。
 计划字节不覆盖，动态对象写状态/日志；`begin --plan --quote` 明确创建授权轮次，`start` 只创建该轮内的一次唤醒租约。
 `finish` 只关闭唤醒并保留轮次状态；`end --round '<ROUND_ID>' --reason '<原因>'` 才结束授权轮次，
 其中轮次 ID 取 `begin` 输出的 `state.current_round`，必须在锁内核对并记入日志，避免迟到请求关闭新轮。
@@ -418,6 +418,32 @@ T186 的 submission_guard 在 prepare/submit 边界重查，并按不可变声�
 本地意图计数不是执行证据。可核验的版本/计划失效会在短事务中记录暂停；
 不能在 `action_guard` 内嵌套调用再次获取锁的 `pause()`。本版自主取消及改投关闭，需要时记录“需要你看”。
 验证只用临时合成 study、模拟时钟及真实本地子进程；不读取研究数据、不改共享运行环境、不连接集群。
+
+### T206：study.md 自主摘要发布
+
+`ag autonomy publish-study --study '<STUDY>' --run '<RUN>' --token '<TOKEN>'
+--plan-sha256 '<SHA256>' --json` 仅把已有 summary/pending 与自主目录链接发布到
+study.md 的一个固定生成区块。Python 入口为
+`study.publish_autonomy_summary(cfg, name, *, run_id, token, plan_sha256)`；返回
+`changed`、`study_sha256`、`source_seq`、`source_journal_sha256`、`plan_sha256`。
+不接受任意正文/输出路径；来源状态、对象表、计数和签字不写回。
+
+先用现有 `autonomy update` 保存摘要与待决定事项，再发布，最后 `finish/end`。
+结束摘要是待人确认的 summary 副本，不证明研究完成，也不创建科学签字。
+暂停或到期计划的 observe-only 租约可以整理，但仍须有效 owner、计划哈希、相同运行版本和
+60 分钟期限；已经 finish/end 或被接管的旧 token 拒绝，不能借报告恢复写权限。
+
+正文读取、渲染、哈希和候选文件落盘在全机锁外；最终进入现有 observation guard，
+用可选 `expected_source=(seq, journal_sha256)` 拒绝渲染期间的源事件变化。
+再次核对目录和文件身份、类型、大小、纳秒 mtime/ctime，拒绝可检测到的人工编辑、同字节重写、
+源文件替换、链接及越界。固定区块带内容校验；人的区块外正文/签字按原始字节保留，
+人工修改过的区块或损坏/重复标记须人工核对，命令不强制覆盖。
+原子 rename 发布整份候选；文件元数据核验属于乐观并发检查，不是对外部编辑器的强制互斥。
+
+无变化返回 `changed=false`，不改文件 mtime，仍核验整理权。缺少 study.md 不重建。
+状态更新和 Markdown 发布不是跨文件事务：失败不回滚已有状态，失败候选留在
+`.autonomy-study-<随机值>.tmp`；命令不自动清理或重试。替换/目录 fsync 报错时可能已发布，
+先检查文件；显式再次调用可确认字节已一致。详细验收见 [T206](redesign-tasks/T206-autonomous-study-summary.md)。
 
 ### 远程命令
 

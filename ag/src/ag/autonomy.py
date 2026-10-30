@@ -1286,7 +1286,8 @@ def manual_publication_guard(cfg, name):
 
 
 @contextmanager
-def observation_publication_guard(cfg, name, run_id, token, *, action, plan_sha256):
+def observation_publication_guard(cfg, name, run_id, token, *, action, plan_sha256,
+                                  expected_source=None):
     """Fence final local publication only; network and parsing stay outside.
 
     Plan expiry permits observation of existing work, but current ownership,
@@ -1309,6 +1310,9 @@ def observation_publication_guard(cfg, name, run_id, token, *, action, plan_sha2
                 raise ValueError('Autonomy clock moved backwards')
             eligible(snapshot['state'], run_id, sha256(token.encode()).hexdigest(), current_versions,
                      at, action, plan_sha256)
+            if expected_source is not None and expected_source != (
+                    snapshot['seq'], snapshot['journal_sha256']):
+                raise ValueError('Autonomy source changed before publication')
             store.verify_lock()
         except (ValueError, OSError) as exc:
             raise PublicationRefused(str(exc)) from exc
@@ -1346,6 +1350,9 @@ def run(args):
         result = pause(cfg, name, args.reason)
     elif op == 'status':
         result = status(cfg, name)
+    elif op == 'publish-study':
+        result = study.publish_autonomy_summary(cfg, name, run_id=args.run,
+            token=args.token, plan_sha256=args.plan_sha256)
     elif op == 'manual-writers':
         result = manual_writers(cfg, name)
     elif op == 'release-writer':
@@ -1382,7 +1389,7 @@ def run(args):
 def register(subparsers):
     p = subparsers.add_parser('autonomy', help='Purely local plan, run lease, pause and journal (no submission)')
     children = p.add_subparsers(dest='action', required=True)
-    for op in ('init', 'plan', 'confirm', 'begin', 'start', 'pause', 'resume', 'finish', 'end', 'update', 'count', 'recover', 'status', 'check', 'manual-writers', 'release-writer', 'resolve-attempt', 'scientific-review'):
+    for op in ('init', 'plan', 'confirm', 'begin', 'start', 'pause', 'resume', 'finish', 'end', 'update', 'count', 'recover', 'status', 'check', 'manual-writers', 'release-writer', 'resolve-attempt', 'scientific-review', 'publish-study'):
         child = children.add_parser(op)
         child.set_defaults(func=run)
         child.add_argument('--study', required=True)
@@ -1416,6 +1423,10 @@ def register(subparsers):
             child.add_argument('--outcome', choices=('ts_zero_imaginary', 'ts_wrong_mode'), required=True)
             child.add_argument('--reason', required=True, help='Scientific reasoning, pending human confirmation')
             child.add_argument('--mode-review', help='Existing source-bound mode review report; required for wrong direction')
+        if op == 'publish-study':
+            child.add_argument('--run', required=True)
+            child.add_argument('--token', required=True)
+            child.add_argument('--plan-sha256', required=True)
         if op == 'start':
             child.add_argument('--owner', required=True, help='Session identity')
             child.add_argument('--observe-only', action='store_true', help=(
