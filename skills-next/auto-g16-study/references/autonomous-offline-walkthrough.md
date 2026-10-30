@@ -2,7 +2,7 @@
 
 2026-10-30 更新。首个试点关闭自主取消、停止核验及取消/改投后继路径；需要时只提醒负责人。已结束且确认失败的作业仍可按规则新建 Attempt 补救。短入口见[自主运行卡](autonomous-run.md)，本页不启用真实计算。
 
-现行 main 的自主能力仅为本地计划、租约和状态记录，提交路径尚未合并。研究会话不能据 AGENTS、候选分支或离线结果尝试自主提交。T186 正在移除取消依赖，最终 CLI 示例与组合验收尚未完成；试点不再依赖 T187。Slurm 自主取消/改投移出 V4.8，PBS 留待试点后交付。
+现行 main 的自主能力仅为本地计划、租约和状态记录，提交路径尚未合并。研究会话不能据 AGENTS、候选分支或离线结果尝试自主提交。T186 已固定为 `e2c499415ecb2932752e394c117e280ef64ea90a`，本页已核对其实际 CLI、关闭与提醒语义；最终跨功能组合仍须在真实验证前完成。试点不依赖 T187。Slurm 自主取消/改投移出 V4.8，PBS 留待试点后交付。
 
 ## 首个试点验收
 
@@ -19,7 +19,25 @@
 | 预算与路由 | 实际提交消费不与 prepare 意图重复计数；90% 暂停；全机跨 study/轮次额度与账号核数核验；不为普通提交新增取消适配版本门槛 |
 | 科学审阅与报告 | 中间判断逐条待人确认，不代替三类签字；简报一页以内，只列完成、阻塞、需负责人决定事项，详细证据私有归档 |
 
-本轮已完成下节卡片分支走读。入口实际关闭、最终失败补救 CLI 以及组合运行验收须绑定 T186 定稿，当前不宣称通过。开发中仅跑本次改动相关测试，不做 AST 比对；全量只在 CI，以及真实验证前对最终源码组合执行一次。
+本轮已完成卡片分支走读，以及下节固定 T186 的 CLI/本地提醒和 44 项相关行为核验。单独 T186 的局部证据不替代最终 T185/T186 等组合；T185 接口未变时不为本次文档提前重跑组合。开发中仅跑相关测试，不做 AST 比对；全量只在 CI，以及真实验证前对最终源码组合执行一次。
+
+## 固定 T186 的本轮核验
+
+从上述确切提交独立归档源码，605 文件在核验前后哈希未变，未混入 T187、T185 或 T206/T207。临时 Git 快照仅供本地版本记录，源码身份以原提交和文件清单绑定。实际执行 20 项帮助、9 次本地状态命令，以及 2 次旧自主取消参数的预期拒绝：
+
+- init → plan → 合成 confirm/begin → start → update 保留原分支 → update 加入提醒 → status → finish。正式 plan 接受本模板字段；合成零哈希仅测试解析，不断言真实 T185 路由身份。
+- status 原样读回 summary 第一行的 Mac 点击提醒、pending 和对象条目，其他分支未丢失。网络/Transport 调用尝试 0、Attempt 目录 0、study.md 未变；没有真实配置、放行规则或生产动作。
+- cancel 的旧 owner 参数与停止核验参数在配置加载前退出 2；没有打开确认框、建立 Transport 或发出取消。普通 cancel 仍保留人工确认入口，不能将它当作自主会话的替代路径。
+
+44 项现有相关测试通过：prepare/submit 旧改投参数和上下文拒绝；旧 reservation/取消记录不释放占用、不成为补救来源；Slurm CANCELLED 不按普通失败处理；已结束失败证据分类及 UNKNOWN/成功/冲突拒绝；正式不完整失败取回；计划字段与方法约束。包含 SCF=13 和重复列表的实际接受用例。部分用例使用固定路由选择器替身，只验证 T186 相关行为，不声称复验 T185 算法。没有运行完整 driver 组合或全量测试。
+
+| 本轮私有证据索引 | SHA-256 |
+| --- | --- |
+| 20 项 `help.json` | `87be12442953f96e3ec99f150f653027960f48ff995254daed66d2f2abfc03fe` |
+| 9 次状态命令与 2 次拒绝 `commands.json` | `13636d19ab04cd52f4387931446a649411f2b7864e25b8d167573e1cfa02e24f` |
+| CLI/提醒 `report.json` | `1d25d76eb19cbcf1e3046929e1bb8a2f9722e27c36cd00a8f15285af72aaa7e7` |
+
+上述测试日志、输入、脚本及源码清单私有归档。T186 任务单另报告无 T187 的 13 项提交/补救组合，本轮没有重复执行，也不将其算入上述 44 项。
 
 ## 合成分支逐项走读
 
@@ -49,16 +67,32 @@
 
 ## 接口核验与缺口
 
-本节区分历史源码、固定候选接口和最终试点组合，不能混用参数。最终动作命令示例等 T186 缩减取消依赖后，逐项以实际帮助和相关回归核验；不从旧组合复制取消、停止核验或后继参数。
+本节参数来自固定 T186 的实际帮助；每行入口均为 ag 子命令，不能把不同入口的参数混用。这里只说明候选源码接口，不构成研究执行指令或 main 已可用声明。T206/T207 单列其来源，不从旧组合恢复取消、停止核验或后继参数。
 
 | 入口 | 当前核验状态及文档处理 |
 | --- | --- |
-| 本地计划/租约/update/status/pause/finish/end | 主线已演练；这些本地记录不赋予提交能力，结束 wake 不重置 round 额度 |
-| 提交、已结束失败补救、owner 保护的观察/取回、路由与科学失败记录 | 旧 T186 组合有证据；新定稿须复核实际 CLI 和相关行为，尚不能把旧通过结果移到新提交 |
-| 首次路由身份 | 历史只读入口已核验，见下节；最终 T186 再核对，配置身份不等于资源可用或授权 |
+| autonomy start | `--study --plan --owner`；暂停/到期观察加 `--observe-only`，接管加 `--takeover-reason`；结束 wake 不重置 round 额度 |
+| autonomy update | `--study --run --token --input`；没有 `--plan-sha256` 参数，正式入口核对当前计划/owner，三项状态整体替换 |
+| autonomy check / finish | check 用 `--study --run --token --sha256 --for-action`，注意这里不是 plan-sha256；finish 用 study/run/token/reason |
+| prepare / submit | 成组提供 `--autonomous-policy --run --token --plan-sha256 --object-id --job-class`；补救可声明 `--failure-class`，省略或改名不能绕过从正式证据得到的分类；不再接受 reroute-source |
+| prepare 的其余输入 | 仍需 study/template、各模板所需输入、walltime/label/method-basis、所选 cluster/资源及必要父来源；本表不替代完整帮助。T188 放宽标记须按其实际集成另核对 |
+| status / snapshot / fetch | `--run --token --plan-sha256` 成组；status 可选 id 或 study，snapshot 接 id，可加 study/max-bytes；fetch 接 id，不带 study，可按实际结束证据使用 incomplete |
+| route 配置身份 | `--config-identity --json`，不能混入路由参数；需要实际 T185 身份算法，缺失则拒绝。本轮仅核对帮助，不重跑 T185 组合 |
+| route 自主建议 | `--study --template --job-class --round-id --run-id --object-id --walltime --autonomous-policy --token --plan-sha256`；这里用 run-id，CREST/xTB 另需 tier，Gaussian 阶梯不带 tier |
+| autonomy scientific-review | `--study --attempt --run --token --plan-sha256 --object-id --outcome --reason`；outcome 为 ts_zero_imaginary/ts_wrong_mode，后者另需已有 mode-review 报告；判断仍待人确认 |
 | study.md 摘要发布 | T206 `6e1523fe00299f03acf93043bd5873c5bf2bb824` 的 publish-study 已读源码及帮助；从已有 summary/pending 发布固定区块，要求 run/token/plan-sha256；未作为当前 main 能力使用 |
 | facts、review init/manifest、mode-review | T207 `aa67c55e0ffb2801cba63de5ee61e5731f1cc70b` 已读源码及帮助；owner 三参数须成组，最终发布沿用 state-dict guard；review check 仍只读、不带 owner |
-| 自主取消、停止核验、取消/改投后继 | 不列执行命令；首个试点关闭，验收提醒与零远程取消；不依赖 T187 |
+| 自主取消、停止核验、取消/改投后继 | 无自主执行命令；cancel 仅接 id/json 并保留 Mac 人工确认。旧 owner/停止核验参数被拒绝，旧改投上下文也不能重新开启后继；自主会话只提醒 |
+
+已在隔离合成 study 执行的提醒保存形状：
+
+```sh
+ag autonomy update --study '<S>' --run '<R>' --token '<T>' --input '<UPDATE_JSON>'
+ag autonomy status --study '<S>' --json
+ag autonomy finish --study '<S>' --run '<R>' --token '<T>' --reason '<提醒已保存>'
+```
+
+UPDATE_JSON 只有 summary、pending、objects，summary 第一行是上节 Mac 点击提醒；读取旧值后保留未完成分支。这些命令只保存/读取本地记录，不执行取消或提交。
 
 T206/T207 在 T186 合并后改以 main 为基准并复核增量；目前不把固定分支帮助当成已经集成或部署。摘要发布须先 update、再正式发布、最后 finish/end；不接任意正文或路径，人工改动/来源变化/失权拒绝，update 与文档发布不是跨文件原子事务。独立 facts 不自主 refresh/reparse；review manifest 不能自主接受未解决引用，骨架或模式报告不代替科学签字。依赖写入口尚未集成时将待办保存在正式状态，不能直接编辑 state/journal 或用普通编辑器绕过 owner 保护。
 
