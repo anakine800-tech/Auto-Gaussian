@@ -115,13 +115,22 @@ def prepare(cfg, *, study_name, autonomous=None, **kwargs):
     if autonomous is None:
         with autonomy.manual_write_guard(cfg, study_name, action='prepare'):
             return _prepare(cfg, study_name=study_name, **kwargs)
-    from ag.submit import prepare_autonomous, WaitingForRoute
+    from ag.submit import prepare_autonomous, WaitingForRoute, check_autonomous_retry, report_autonomous_transport
     from ag.transport import TransportError
+    autonomous = dict(autonomous) if isinstance(autonomous, dict) else autonomous
     try:
+        check_autonomous_retry(cfg, study_name, autonomous)
         return prepare_autonomous(cfg, study_name=study_name, context=autonomous, options=kwargs)
-    except WaitingForRoute:
+    except (WaitingForRoute, autonomy.PresubmitDeferred):
         raise
-    except (ValueError, OSError, TransportError):
+    except autonomy.ObjectRefused as exc:
+        autonomy.object_refused(cfg, study_name, autonomous.get('run_id'), autonomous.get('token'),
+                                autonomous.get('object_id'), str(exc))
+        raise
+    except TransportError as exc:
+        report_autonomous_transport(cfg, study_name, autonomous, exc)
+        raise
+    except (ValueError, OSError):
         autonomy.pause_if_current_owner(cfg, study_name, autonomous.get('run_id'), autonomous.get('token'),
             'Autonomous preparation stopped; review retained evidence')
         raise

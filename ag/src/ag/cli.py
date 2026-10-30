@@ -49,7 +49,14 @@ def observation_context(args, path, *, action):
         manual_action = 'fetch' if action == 'fetch' else args.command
         with autonomy.manual_write_guard(args.config, path.parent.parent.name,
                                           action=manual_action, attempt_ids=[path.name]):
-            yield None
+            # The writer registration excludes initialize/begin while IO is in
+            # flight. A study with no autonomy therefore retains its ordinary
+            # observation API; an existing autonomy store shares cancel's fence.
+            if (path.parent.parent / 'autonomy').exists():
+                yield {'publication': lambda: autonomy.manual_publication_guard(
+                    args.config, path.parent.parent.name)}
+            else:
+                yield None
 
 
 class ObservationTransport:
@@ -155,14 +162,16 @@ def core_command(args):
                 with observation_context(args, path, action='observe') as observation:
                     options = {}
                     if observation is not None:
-                        transport = ObservationTransport(transport, observation['check'])
+                        if 'check' in observation:
+                            transport = ObservationTransport(transport, observation['check'])
                         options['publication'] = observation['publication']
                     result.append(dict(attempt_id=id_, **status.check(selected, path, transport, **options)))
         elif command == 'snapshot':
             with observation_context(args, path, action='observe') as observation:
                 options = {}
                 if observation is not None:
-                    transport = ObservationTransport(transport, observation['check'])
+                    if 'check' in observation:
+                        transport = ObservationTransport(transport, observation['check'])
                     options['publication'] = observation['publication']
                 result = snapshot.capture(cfg, path, transport, max_bytes=args.max_bytes, **options)
         elif command == 'fetch':
@@ -174,7 +183,8 @@ def core_command(args):
                     # the observation proxy hides the concrete SSH type.
                     if getattr(args, 'incomplete', False) and isinstance(transport, _SSH_TRANSPORT_TYPE):
                         transport = fetch._IncompleteSSHTransport(cfg)
-                    transport = ObservationTransport(transport, observation['check'])
+                    if 'check' in observation:
+                        transport = ObservationTransport(transport, observation['check'])
                     options['publication'] = observation['publication']
                 result = fetch.fetch(cfg, path, transport,
                                      add_missing=args.add_missing, incomplete=getattr(args, 'incomplete', False), **options)

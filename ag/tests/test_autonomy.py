@@ -1003,6 +1003,220 @@ def consumed_record(plan, run, attempt_id='water-001', *, failure_class=None, ob
                 plan_sha256=plan['sha256'], rule_sha256=rule_sha256, max_attempts=max_attempts)
 
 
+@pytest.mark.parametrize('scheduler', ['pbs', 'slurm'])
+def test_unknown_formal_absence_is_recorded_without_resolving_or_resubmitting(
+        cfg, prepared, multi, tmp_path, monkeypatch, scheduler):
+    from ag import approval, config as config_module, state, status
+    from test_core import Fake
+    from test_slurm import SlurmFake, prepare
+    if scheduler == 'slurm':
+        path, manifest = prepare(multi, tmp_path)
+        config = multi
+        from ag.config import select_cluster
+        fake = SlurmFake(select_cluster(multi, 'batch'))
+    else:
+        path, manifest = prepared
+        config, fake = cfg, Fake(cfg)
+    state.write(path, 'submitting')
+    state.write(path, 'unknown')
+    (path / '.submit-claim').write_text('Synthetic unchanged claim')
+    # This marker requests the extra existing read operation; it grants no
+    # authority. The resolution adapter separately audits immutable ownership.
+    (path / 'submission-summary.json').write_text(json.dumps(
+        {'authorization': {'method': 'autonomy-policy'}}))
+    monkeypatch.setattr(status.time, 'time', lambda: 2000.)
+    identity = ('fixture-host', 22, 'fixture')
+    monkeypatch.setattr(config_module, 'ssh_identity', lambda _: identity)
+    result = status.check(config, path, fake)
+    assert result['state'] == 'unknown' and result['job_id'] is None
+    assert result['unknown_reconciliation'] == dict(schema='ag-unknown-observation/1',
+        observed_at=2000., scheduler=scheduler,
+        job_name=manifest['pbs_job_name'] if scheduler == 'pbs' else manifest['attempt_id'],
+        matches=[], start_absent=True,
+        account_sha256=approval.digest({'scheduler': scheduler, 'ssh': list(identity)}))
+    assert (path / '.submit-claim').read_text() == 'Synthetic unchanged claim'
+    assert 'receipt' in fake.operations()
+    assert not {'submit', 'cancel', 'create_attempt'} & set(fake.operations())
+
+
+def test_manual_resolution_event_is_bound_once_and_does_not_resume_or_reset_budget(env):
+    plan, run = running(env)
+    cfg, root, clock = env
+    record = consumed_record(plan, run)
+    consume(env, plan, run, record)
+    a.pause(cfg, root.name, 'UNKNOWN requires human review')
+    with disk.locked(cfg, root.name) as store:
+        snapshot, _ = a.load(store)
+    fields = dict(attempt_id=record['attempt_id'], object_id='water',
+        ownership_sha256=record['ownership_sha256'], status_sha256='c' * 64,
+        evidence_sha256='d' * 64, kind='unknown', quote='Explicit synthetic human resolution')
+    after = a.apply(snapshot['state'], dict(op='manual_resolution', at=clock[0], data=fields))
+    assert after['paused'] and after['phase'] == 'paused'
+    assert after['submissions'] == snapshot['state']['submissions']
+    assert after['manual_resolutions'][record['attempt_id']] == dict(fields, at=clock[0])
+    with pytest.raises(ValueError, match='already|Duplicate'):
+        a.apply(after, dict(op='manual_resolution', at=clock[0], data=fields))
+    for key, value in [('ownership_sha256', 'e' * 64), ('object_id', 'other'), ('quote', '')]:
+        with pytest.raises(ValueError):
+            a.apply(snapshot['state'], dict(op='manual_resolution', at=clock[0],
+                data=dict(fields, **{key: value})))
+
+
+def test_unknown_observation_cannot_overwrite_a_newer_cancel(cfg, prepared):
+    from ag import state, status
+    from test_core import Fake, seed_submission
+    path, manifest = prepared
+    state.write(path, 'submitting')
+    seed_submission(path)
+    fake = Fake(cfg)
+    original = fake.run
+    def run(command):
+        result = original(command)
+        if command.operation == 'output_observation':
+            state.write(path, 'cancelled', note='Newer explicit manual cancellation')
+        return result
+    fake.run = run
+    with pytest.raises(ValueError, match='changed during observation'):
+        status.check(cfg, path, fake)
+    assert state.read(path)['state'] == 'cancelled'
+
+
+def test_slurm_absent_reply_cannot_overwrite_a_newer_cancel(multi, tmp_path, monkeypatch):
+    from ag import state, status
+    from ag.transport import Result
+    from test_slurm import submitted
+    path, manifest, fake = submitted(multi, tmp_path, monkeypatch)
+    fake.accounting = Result()
+    original = fake.run
+    def run(command):
+        result = original(command)
+        if command.operation == 'slurm_accounting':
+            state.write(path, 'cancelled', note='Newer explicit manual cancellation')
+        return result
+    fake.run = run
+    with pytest.raises(ValueError, match='changed during observation'):
+        status.check(multi, path, fake)
+    assert state.read(path)['state'] == 'cancelled'
+
+
+@pytest.mark.parametrize('later', ['failed-query', 'start-present', 'ambiguous'])
+def test_new_unknown_observation_invalidates_previous_absence(cfg, prepared, monkeypatch, later):
+    from ag import config, state, status
+    from ag.transport import Result, TransportError
+    from test_core import Fake, job_text
+    monkeypatch.setattr(config, 'ssh_identity', lambda _: ('fixture', 22, 'fixture'))
+    path, manifest = prepared
+    state.write(path, 'submitting')
+    state.write(path, 'unknown')
+    (path / 'submission-summary.json').write_text(json.dumps(
+        {'authorization': {'method': 'autonomy-policy'}}))
+    fake = Fake(cfg)
+    assert status.check(cfg, path, fake)['unknown_reconciliation']['start_absent']
+    if later == 'failed-query':
+        fake.fail = 'jobs'
+        with pytest.raises(TransportError):
+            status.check(cfg, path, fake)
+    else:
+        original = fake.run
+        if later == 'start-present':
+            def run(command):
+                if command.operation == 'receipt':
+                    return Result(stdout='{"PBS_JOBID":"123.fixture","started_at":"2026-10-30T00:00:00Z"}')
+                return original(command)
+            fake.run = run
+        else:
+            fake.qstat = Result(stdout=job_text(manifest) + job_text(manifest).replace('123.fixture', '124.fixture'))
+        assert status.check(cfg, path, fake)['state'] == 'unknown'
+    assert state.read(path)['unknown_reconciliation'] is None
+
+
+def test_manual_resolution_cli_requires_verbatim_quote():
+    import argparse
+    parser = argparse.ArgumentParser()
+    a.register(parser.add_subparsers(dest='command', required=True))
+    args = parser.parse_args(['autonomy', 'resolve-attempt', '--study', 'water',
+        '--attempt', 'water-001', '--quote', 'Explicit synthetic human decision'])
+    assert args.action == 'resolve-attempt' and args.quote == 'Explicit synthetic human decision'
+    with pytest.raises(SystemExit):
+        parser.parse_args(['autonomy', 'resolve-attempt', '--study', 'water', '--attempt', 'water-001'])
+
+
+def test_observation_baseline_is_original_read_not_a_later_read(cfg, prepared, monkeypatch):
+    from ag import state, status
+    from test_core import Fake, seed_submission
+    path, _ = prepared
+    state.write(path, 'submitting')
+    seed_submission(path)
+    original = status._publication_scope
+    def scope(target, current, publication):
+        state.write(target, 'cancelled', note='Cancellation between initial read and scope')
+        return original(target, current, publication)
+    monkeypatch.setattr(status, '_publication_scope', scope)
+    with pytest.raises(ValueError, match='changed during observation'):
+        status.check(cfg, path, Fake(cfg))
+    assert state.read(path)['state'] == 'cancelled'
+
+
+def test_existing_slurm_cancelled_without_accounting_stays_cancelled(multi, tmp_path, monkeypatch):
+    from ag import state, status
+    from ag.transport import Result
+    from test_slurm import submitted
+    path, _, fake = submitted(multi, tmp_path, monkeypatch)
+    state.write(path, 'cancelled', note='Explicit prior manual cancellation')
+    fake.accounting = Result()
+    assert status.check(multi, path, fake)['state'] == 'cancelled'
+
+
+@pytest.mark.parametrize('failure', ['slurm_find', 'receipt'])
+def test_slurm_unknown_failed_observation_clears_prior_negative(multi, tmp_path, monkeypatch, failure):
+    from ag import config, state, status
+    from ag.config import select_cluster
+    from ag.transport import TransportError
+    from test_slurm import SlurmFake, prepare
+    monkeypatch.setattr(config, 'ssh_identity', lambda _: ('fixture', 22, 'fixture'))
+    path, _ = prepare(multi, tmp_path)
+    state.write(path, 'submitting')
+    state.write(path, 'unknown')
+    (path / 'submission-summary.json').write_text(json.dumps(
+        {'authorization': {'method': 'autonomy-policy'}}))
+    fake = SlurmFake(select_cluster(multi, 'batch'))
+    assert status.check(multi, path, fake)['unknown_reconciliation']['start_absent']
+    original = fake.run
+    def run(command):
+        if command.operation == failure:
+            raise TransportError('Synthetic failed formal observation')
+        return original(command)
+    fake.run = run
+    with pytest.raises(TransportError):
+        status.check(multi, path, fake)
+    assert state.read(path)['state'] == 'unknown'
+    assert state.read(path)['unknown_reconciliation'] is None
+
+
+def test_unknown_observation_account_change_during_query_is_not_absence(cfg, prepared, monkeypatch):
+    from ag import config, state, status
+    from test_core import Fake
+    path, _ = prepared
+    state.write(path, 'submitting')
+    state.write(path, 'unknown')
+    (path / 'submission-summary.json').write_text(json.dumps(
+        {'authorization': {'method': 'autonomy-policy'}}))
+    identity = [('original-fixture', 22, 'fixture')]
+    monkeypatch.setattr(config, 'ssh_identity', lambda _: identity[0])
+    fake = Fake(cfg)
+    original = fake.run
+    def run(command):
+        result = original(command)
+        if command.operation == 'receipt':
+            identity[0] = ('changed-fixture', 22, 'fixture')
+        return result
+    fake.run = run
+    with pytest.raises(ValueError, match='account changed during query'):
+        status.check(cfg, path, fake)
+    assert state.read(path)['state'] == 'unknown'
+    assert state.read(path)['unknown_reconciliation'] is None
+
+
 def consume(env, plan, run, record):
     from ag.autonomy_submission import machine_lock
     cfg, study, _ = env
@@ -2540,3 +2754,198 @@ def test_snapshot_stages_large_payload_before_guard_and_publishes_complete_group
     assert 'write' in seen and replacements == [True]
     assert (path / result['snapshot'] / 'water.log').read_bytes() == payload
     assert not list(path.glob('.snapshot-stage-*'))
+
+
+def test_aborted_scientific_remedy_does_not_consume_scientific_limit(env):
+    from ag.autonomy_submission import machine_lock
+    cfg, directory, _ = env
+    plan, run = running(env)
+    first = consumed_record(plan, run, 'water-001', failure_class='scf')
+    consume(env, plan, run, first)
+    with machine_lock():
+        a.boundary_failure(cfg, directory.name, first['attempt_id'], first['ownership_sha256'],
+            run_id=run['run_id'], token=run['token'], dispatched=False, reason='failed_presubmit')
+    change(env, run, 'resume', reason='Explicit synthetic resume')
+    second = consumed_record(plan, run, 'water-002', failure_class='scf')
+    consume(env, plan, run, second)
+    with machine_lock(), a.submission_guard(cfg, directory.name, run['run_id'], run['token'],
+                                           plan_sha256=plan['sha256']) as guard:
+        guard.dispatch_started(second['attempt_id'])
+    consume(env, plan, run, consumed_record(plan, run, 'water-003', failure_class='scf'))
+    assert len(a.status(cfg, directory.name)['state']['submissions']) == 3
+
+
+def test_two_actual_predispatch_failures_block_only_the_same_object(env):
+    from ag.autonomy_submission import machine_lock
+    cfg, directory, _ = env
+    plan, run = running(env)
+    for index in (1, 2):
+        record = consumed_record(plan, run, f'water-{index:03d}')
+        consume(env, plan, run, record)
+        with machine_lock():
+            a.boundary_failure(cfg, directory.name, record['attempt_id'], record['ownership_sha256'],
+                run_id=run['run_id'], token=run['token'], dispatched=False, reason='failed_presubmit')
+        change(env, run, 'resume', reason='Explicit synthetic resume')
+    before = image_tree(directory)
+    with pytest.raises(a.ObjectRefused, match='presubmit'):
+        consume(env, plan, run, consumed_record(plan, run, 'water-003'))
+    assert image_tree(directory) == before
+    consume(env, plan, run, consumed_record(plan, run, 'water-004', object_id='other'))
+
+
+def test_ssh_failure_counts_once_per_wake_and_pauses_after_two_consecutive_wakes(env):
+    cfg, directory, clock = env
+    plan, first = running(env)
+    options = dict(object_id='water', attempt_id='water-001', plan_sha256=plan['sha256'],
+                   reason='Synthetic SSH failure')
+    result = a.record_presubmit_failure(cfg, directory.name, first['run_id'], first['token'], **options)
+    assert not result['state']['paused']
+    before = image_tree(directory)
+    a.record_presubmit_failure(cfg, directory.name, first['run_id'], first['token'], **options)
+    assert image_tree(directory) == before
+    with pytest.raises(a.PresubmitDeferred):
+        a.check_presubmit_retry(result['state'], 'water')
+    change(env, first, 'finish', reason='End first failed wake')
+    clock[0] += 1
+    second = a.start(cfg, directory.name, plan['plan_id'], 'second')
+    a.check_presubmit_retry(second['state'], 'water')
+    result = a.record_presubmit_failure(cfg, directory.name, second['run_id'], second['token'], **options)
+    assert result['state']['paused']
+    assert len(result['state']['presubmit_failures']) == 2
+    assert 'submissions' not in result['state']
+
+
+def test_successful_intervening_wake_breaks_ssh_streak_and_late_owner_cannot_pause(env):
+    cfg, directory, clock = env
+    plan, first = running(env)
+    options = dict(object_id='water', attempt_id=None, plan_sha256=plan['sha256'], reason='Synthetic SSH failure')
+    a.record_presubmit_failure(cfg, directory.name, first['run_id'], first['token'], **options)
+    change(env, first, 'finish', reason='End first wake')
+    clock[0] += 1
+    middle = a.start(cfg, directory.name, plan['plan_id'], 'middle')
+    change(env, middle, 'finish', reason='Wake completed without SSH failure')
+    clock[0] += 1
+    last = a.start(cfg, directory.name, plan['plan_id'], 'last')
+    result = a.record_presubmit_failure(cfg, directory.name, last['run_id'], last['token'], **options)
+    assert not result['state']['paused']
+    before = image_tree(directory)
+    assert a.record_presubmit_failure(cfg, directory.name, first['run_id'], first['token'], **options) is False
+    assert image_tree(directory) == before
+
+
+@pytest.mark.parametrize('dispatched', [False, True])
+def test_typed_boundary_ssh_keeps_exact_evidence_and_unknown_pause(env, dispatched):
+    from ag.autonomy_submission import machine_lock
+    cfg, directory, _ = env
+    plan, run = running(env)
+    record = consumed_record(plan, run)
+    consume(env, plan, run, record)
+    with machine_lock(), a.submission_guard(cfg, directory.name, run['run_id'], run['token'],
+                                           plan_sha256=plan['sha256']) as guard:
+        if dispatched:
+            guard.dispatch_started(record['attempt_id'])
+    with machine_lock():
+        result = a.boundary_failure(cfg, directory.name, record['attempt_id'], record['ownership_sha256'],
+            run_id=run['run_id'], token=run['token'], dispatched=dispatched,
+            reason='unknown' if dispatched else 'failed_presubmit', failure_kind='ssh')
+    assert result['state']['paused'] == dispatched
+    saved = result['state']['submissions'][record['attempt_id']]
+    assert saved['boundary_failure']['failure_kind'] == 'ssh'
+    assert (saved['aborted_before_dispatch'] is None) == dispatched
+
+
+def test_old_presubmit_consumption_journal_replays_without_new_failure_cap(env):
+    from ag.autonomy_submission import machine_lock
+    cfg, directory, _ = env
+    plan, run = running(env)
+    # This is the exact old event shape, not a new driver asking for old rules.
+    for index in range(3):
+        record = consumed_record(plan, run, f'water-{index + 1:03d}',
+                                 failure_class=None if index == 0 else 'presubmit')
+        with machine_lock(), disk.locked(cfg, directory.name, write=True) as store:
+            snapshot, _ = a.load(store)
+            store.commit(snapshot, 'submission_consume', a.now(), dict(record=record,
+                token_sha256=sha256(run['token'].encode()).hexdigest(), versions=VERSIONS), a.apply)
+        with machine_lock():
+            a.boundary_failure(cfg, directory.name, record['attempt_id'], record['ownership_sha256'],
+                run_id=run['run_id'], token=run['token'], dispatched=False, reason='failed_presubmit')
+        change(env, run, 'resume', reason='Historical explicit resume')
+    assert len(a.status(cfg, directory.name)['state']['submissions']) == 3
+    before = image_tree(directory)
+    with pytest.raises(a.ObjectRefused, match='presubmit'):
+        consume(env, plan, run, consumed_record(plan, run, 'water-004', failure_class='presubmit'))
+    assert image_tree(directory) == before
+
+
+def test_no_attempt_failure_cap_survives_a_successful_intervening_wake(env):
+    cfg, directory, clock = env
+    plan, run = running(env)
+    for index in range(3):
+        if index != 1:
+            a.record_presubmit_failure(cfg, directory.name, run['run_id'], run['token'],
+                object_id='water', attempt_id=None, plan_sha256=plan['sha256'], reason='Synthetic install-query SSH failure')
+        change(env, run, 'finish', reason='End synthetic wake')
+        clock[0] += 1
+        run = a.start(cfg, directory.name, plan['plan_id'], 'next-' + str(index))
+    current = a.status(cfg, directory.name)['state']
+    assert not current['paused'] and 'submissions' not in current
+    assert current['totals']['attempt'] == 0
+    with pytest.raises(a.ObjectRefused, match='presubmit'):
+        a.check_presubmit_retry(current, 'water')
+    a.check_presubmit_retry(current, 'other')
+
+
+def test_old_owner_typed_presubmit_outcome_does_not_pause_successor(env):
+    from ag.autonomy_submission import machine_lock
+    cfg, directory, clock = env
+    plan, old = running(env)
+    record = consumed_record(plan, old)
+    consume(env, plan, old, record)
+    clock[0] += 5401
+    new = a.start(cfg, directory.name, plan['plan_id'], 'successor', takeover_reason='Synthetic expired lease')
+    with machine_lock():
+        result = a.boundary_failure(cfg, directory.name, record['attempt_id'], record['ownership_sha256'],
+            run_id=old['run_id'], token=old['token'], dispatched=False,
+            reason='failed_presubmit', failure_kind='ssh')
+    assert not result['state']['paused'] and result['state']['lease']['run_id'] == new['run_id']
+    assert result['state']['submissions'][record['attempt_id']]['aborted_before_dispatch']
+    with pytest.raises(ValueError, match='owner'):
+        check(env, plan, old)
+    assert check(env, plan, new)['eligible_now']
+
+
+@pytest.mark.parametrize('change_kind', ['lease', 'plan', 'versions'])
+def test_ssh_failure_does_not_hide_changed_global_authorization(env, monkeypatch, change_kind):
+    cfg, directory, clock = env
+    plan, run = expiring_run(env)
+    if change_kind == 'lease':
+        clock[0] += 3600
+    elif change_kind == 'plan':
+        clock[0] = plan['plan']['spec']['valid_until']
+    else:
+        monkeypatch.setattr(a, 'versions', lambda: dict(VERSIONS, rdkit='changed'))
+    assert a.record_presubmit_failure(cfg, directory.name, run['run_id'], run['token'],
+        object_id='water', attempt_id='water-001', plan_sha256=plan['sha256'], reason='Synthetic SSH failure') is False
+    assert a.status(cfg, directory.name)['state']['paused']
+
+
+def test_object_qualification_aborts_keep_attempt_budget_without_spending_ssh_failure_cap(env):
+    from ag.autonomy_submission import machine_lock
+    cfg, directory, _ = env
+    plan, run = running(env)
+    for index in (1, 2):
+        record = consumed_record(plan, run, f'water-{index:03d}')
+        consume(env, plan, run, record)
+        with machine_lock():
+            result = a.boundary_failure(cfg, directory.name, record['attempt_id'], record['ownership_sha256'],
+                run_id=run['run_id'], token=run['token'], dispatched=False,
+                reason='Placement no longer eligible', failure_kind='object')
+        assert not result['state']['paused']
+        assert result['state']['submissions'][record['attempt_id']]['aborted_before_dispatch']
+    current = a.status(cfg, directory.name)['state']
+    assert len(current['submissions']) == 2
+    assert not current['runs'][run['run_id']].get('ssh_failed')
+    assert a._presubmit_failures(current, 'water') == {}
+    a.check_presubmit_retry(current, 'water')
+    consume(env, plan, run, consumed_record(plan, run, 'water-003'))
+    assert len(a.status(cfg, directory.name)['state']['submissions']) == 3

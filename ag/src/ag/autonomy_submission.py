@@ -149,6 +149,12 @@ def _audit(path, validate_authorization, *, allow_prepared_claim=False):
                       state=current['state'], manifest_sha256=sha256(raw_manifest).hexdigest(),
                       bundle_sha256=bundle_hash, autonomous_ownership_verified=False,
                       round_id=None, run_id=None, job_id=None, evidence_sha256=evidence)
+        # Repeated status/fetch publications keep one terminal episode. Only
+        # a return to an active/unknown state starts a new absence window.
+        for event in reversed([item for item in events if item['action'] == 'state']):
+            if event['result'] not in ('finished', 'fetched', 'cancelled', 'interrupted'):
+                break
+            result['terminal_since'] = approval.timestamp(event['ts']).timestamp()
         if not claim_path.exists():
             if (set(states) != {'prepared'} or current.get('job_id') is not None
                     or summary_path.exists() or binding_path.exists() or authorizations):
@@ -215,7 +221,8 @@ _INPUT_KEYS = {'config_sha256', 'request', 'snapshots', 'placements', 'wakeups',
 _REQUEST_KEYS = {'template', 'job_class', 'walltime', 'study_id', 'study_key', 'round_id', 'run_id',
                  'object_id', 'waiting_since', 'parent_cluster'}
 _FAILURE_CLASSES = {'presubmit', 'gaussian-scf', 'gaussian-opt-steps',
-                    'gaussian-irc-corrector', 'gaussian-ts-curvature', 'gaussian-error', 'program-exit', 'walltime'}
+                    'gaussian-irc-corrector', 'gaussian-ts-curvature', 'gaussian-error', 'program-exit', 'walltime',
+                    'interrupted'}
 _REMEDY_KEYS = {'failure_class', 'source_attempt', 'source_ownership_sha256',
                 'status_sha256', 'outputs', 'completion'}
 _SCIENTIFIC_REVIEW = 'autonomy-scientific-review.json'
@@ -229,6 +236,12 @@ _SCIENTIFIC_KEYS = {'schema', 'study_id', 'study_key', 'study_device', 'study_in
 def _require(ok, message):
     if not ok:
         raise ValueError(message)
+
+
+def _object_require(ok, message):
+    if not ok:
+        from ag.autonomy import ObjectRefused
+        raise ObjectRefused(message)
 
 
 def _fields(value, keys, label):
@@ -478,10 +491,11 @@ def _context(record):
     for key in ('round_id', 'run_id', 'object_id'):
         study.identifier(record[key])
     source = record['remedy_source']
-    if record['failure_class'] is None:
-        _require(source is None, 'Initial submission cannot declare a remedy source')
+    if source is None:
+        _require(record['failure_class'] is None, 'Remedy requires its source evidence')
     else:
-        _require(isinstance(record['failure_class'], str) and record['failure_class'] in _FAILURE_CLASSES,
+        _require(record['failure_class'] is None or
+                 isinstance(record['failure_class'], str) and record['failure_class'] in _FAILURE_CLASSES,
                  'Unsupported remedy failure class')
         _fields(source, _REMEDY_KEYS, 'remedy source')
         _require(source['failure_class'] == record['failure_class'], 'Remedy classification mismatch')
@@ -490,6 +504,10 @@ def _context(record):
             digest(source[key], key)
         _require(isinstance(source['outputs'], list) and isinstance(source['completion'], dict),
                  'Invalid remedy evidence')
+        if record['failure_class'] is None:
+            _require(source['completion'].get('source') == 'human-resolution'
+                     and source['completion'].get('manual_resolution', {}).get('kind') == 'unknown',
+                     'Unknown continuation requires explicit human resolution')
         for output in source['outputs']:
             _fields(output, {'name', 'size', 'sha256'}, 'remedy output')
             _require(isinstance(output['name'], str) and Path(output['name']).name == output['name']
@@ -784,6 +802,30 @@ def _completion(path, manifest, report):
     return dict(source=source, job_id=report['job_id'], observed_at=observed, **completion), sha256(raw).hexdigest()
 
 
+def _interrupted_completion(path, manifest, report, consumed):
+    raw = _read_file(path / 'status.json')
+    current = _json(raw)
+    _object_require(manifest.get('scheduler', 'pbs') == 'pbs' and report['state'] == 'interrupted',
+                    'Interrupted remedy needs ordinary PBS end evidence')
+    job = submission.raw_job(manifest, report['job_id'])
+    _require(current.get('observation', {}).get('job_id') == job
+             and current.get('receipts', {}).get('exit') is None,
+             'Interrupted status lacks exact-job observation')
+    observed = current.get('scheduler_observed_at')
+    _require(type(observed) in (int, float) and math.isfinite(observed) and observed >= consumed['at'],
+             'Interrupted observation time is invalid')
+    start = current.get('receipts', {}).get('start')
+    if start is not None:
+        _require(isinstance(start, dict) and start.get('PBS_JOBID') == job,
+                 'Interrupted start receipt job differs')
+        _require(approval.timestamp(start['started_at']).timestamp() <= observed,
+                 'Interrupted start receipt is from the future')
+    return dict(source='interrupted', job_id=report['job_id'], observed_at=observed,
+                start=deepcopy(start), submitted_at=consumed['at'],
+                inactive_observations=deepcopy(current.get('incomplete_observations', [])),
+                walltime_seconds=approval.walltime_seconds(manifest['walltime'])), sha256(raw).hexdigest()
+
+
 def _reject_disabled_evidence(path, manifest):
     # Old experimental origins and reroute manifests cannot authorize the
     # ordinary submission path after those capabilities have been removed.
@@ -807,10 +849,78 @@ def _has_cancellation(path, current=None):
                     'autonomy-cancel-response.json', 'autonomy-cancel-stopped.json')))
 
 
-def _placement_state(path, manifest, report, *, current=None):
+def _terminal_absence(cfg, manifest, report, *, account_sha256, cluster=None, since=0):
+    """Two consecutive, fresh complete monitor samples for resource accounting.
+
+    This is neither a cancellation receipt nor permission to retry UNKNOWN.
+    Stable metadata across both reads rejects an in-progress cache rotation.
+    """
+    from ag import autonomy
+    if report['state'] not in ('finished', 'fetched', 'cancelled', 'interrupted') or not report['job_id']:
+        return None
+    if report.get('terminal_since') is None:
+        return None
+    since = max(since, report['terminal_since'])
+    name = cluster or manifest.get('cluster', 'default')
+    root = Path(cfg['local']['studies_root']) / '.ag-monitor'
+    named, legacy = root / name, root
+    folder = named if 'clusters' in cfg or name != 'default' else legacy
+    paths = [folder / 'previous.json', folder / 'latest.json']
+    try:
+        _require(account_identity(_entries(cfg)[name]) == account_sha256,
+                 'Monitor entry no longer belongs to the reservation account')
+        _require(not (name == 'default' and (named / 'latest.json').exists()
+                      and (legacy / 'latest.json').exists()), 'Ambiguous monitor snapshots')
+        before = [_file_metadata(path) for path in paths]
+        raws = [_read_file(path) for path in paths]
+        _require(before == [_file_metadata(path) for path in paths], 'Monitor pair changed during reading')
+        scheduler = manifest.get('scheduler', 'pbs')
+        expected_job = submission.raw_job(manifest, report['job_id'])
+        expected_name = manifest['attempt_id'] if scheduler == 'slurm' else manifest['pbs_job_name']
+        now, samples, times = autonomy.now(), [], []
+        for raw in raws:
+            value = _json(raw)
+            interval = value['interval_seconds']
+            at = approval.timestamp(value['sampled_at']).timestamp()
+            _require(value['schema'] == 'ag-monitor/1' and value['ok'] is True
+                     and not value.get('error') and not value.get('config_removed')
+                     and not value.get('config_warning')
+                     and type(interval) is int and 30 <= interval <= 600
+                     and 0 <= now - at <= 3 * interval and at >= since,
+                     'Monitor absence sample is not fresh and successful')
+            _require(value['cluster'].get('name', name) == name
+                     and value['cluster']['scheduler'] == scheduler
+                     and value.get('account_sha256') == account_sha256
+                     and isinstance(value['own']['jobs'], list), 'Monitor account snapshot differs')
+            for job in value['own']['jobs']:
+                identity = job['job_id']
+                _require(isinstance(identity, str) and isinstance(job['name'], str),
+                         'Monitor job identity missing')
+                if ':' in identity:
+                    alias, identity = identity.split(':', 1)
+                    _require(alias == name, 'Monitor job belongs to another entry')
+                elif name != 'default' or scheduler != 'pbs':
+                    raise ValueError('Monitor job identity is not qualified')
+                from ag import remote
+                (remote.slurm_job_id if scheduler == 'slurm' else remote.job_id)(identity)
+                _require(identity != expected_job and job['name'] != expected_name,
+                         'Bound job remains in the account snapshot')
+            times.append(at)
+            samples.append(dict(sampled_at=value['sampled_at'], sha256=sha256(raw).hexdigest()))
+        _require(times[0] < times[1], 'Monitor samples are not strictly consecutive in time')
+        return dict(source='two-monitor-absences', cluster=name, scheduler=scheduler,
+                    account_sha256=account_sha256, job_id=report['job_id'], samples=samples,
+                    fresh_until=min(at + 3 * _json(raw)['interval_seconds'] for at, raw in zip(times, raws)))
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return None
+
+
+def _placement_state(path, manifest, report, *, current=None, absence=None):
     local = report['state']
     if local == 'unknown':
         return 'unknown'
+    if absence is not None:
+        return 'finished'
     if local == 'cancelled' or _has_cancellation(path, current):
         return 'queued'
     if local in ('finished', 'fetched'):
@@ -823,6 +933,143 @@ def _placement_state(path, manifest, report, *, current=None):
     return 'queued' if report['job_id'] else 'reserved'
 
 
+def _manual_terminal_accounting(path):
+    """Historical terminal manual jobs need no local in-flight reservation.
+
+    Global ownership and the reverse consumption scan run first. Preserve the
+    orphan-autonomous rejection, but do not require old manual jobs to acquire
+    newer authorization summaries or program-exit receipts retroactively.
+    Actual scheduler jobs still count through the complete account inventory.
+    """
+    current = _json(_read_file(path / 'status.json'))
+    _require(isinstance(current, dict), 'Invalid manual status record')
+    if current.get('state') not in ('finished', 'fetched', 'cancelled', 'interrupted', 'failed_presubmit'):
+        return None
+    for name in ('submission-summary.json', 'submission.json'):
+        target = path / name
+        if not os.path.lexists(target):
+            continue
+        raw = _read_file(target)  # Redirected/special files remain an integrity error.
+        try:
+            value = _json(raw)
+        except ValueError:
+            continue  # Historical manual audit damage is a warning, not usage.
+        authorization = value.get('authorization') if isinstance(value, dict) else None
+        _require(not isinstance(authorization, dict) or authorization.get('method') != 'autonomy-policy',
+                 'Autonomous summary is missing its global reservation')
+    return dict(kind='manual_terminal_excluded', study_key=study_identity(path.parent.parent)['study_key'],
+                study_id=path.parent.parent.name,
+                attempt_id=path.name, state=current['state'])
+
+
+def _resolution_source(cfg, current, attempt_id):
+    consumed = current.get('submissions', {}).get(attempt_id)
+    _require(isinstance(consumed, dict), 'Resolution requires an actual autonomous consumption')
+    matches = [item for item in _read_global_records() if item['sha256'] == consumed['ownership_sha256']]
+    _require(len(matches) == 1, 'Resolution source reservation is missing')
+    saved = matches[0]
+    path = _record_path(saved['record'])
+    _require(path.name == attempt_id and path.parent.parent.parent == Path(cfg['local']['studies_root']).absolute(),
+             'Resolution source belongs to another study location')
+    _check_consumption(saved['record'], saved['sha256'], current)
+    report = _owned_audit(path, saved['record'], saved['sha256'])
+    _, manifest = _manifest_bytes(path)
+    return saved, path, manifest, report, consumed
+
+
+class PreparedResolution:
+    """Local read receipt for a later explicit human resolution event."""
+    def __init__(self, root, previous, data, reads, fresh_until):
+        self.root, self.previous, self.data = root, previous, data
+        self.reads, self.fresh_until = reads, fresh_until
+
+
+def _resolution_kind(path, report, status, current):
+    if report['state'] == 'unknown':
+        return 'unknown'
+    if report['state'] in ('cancelled', 'finished', 'fetched', 'interrupted') and (
+            report['state'] == 'cancelled' or status.get('scheduler_state') == 'CANCELLED'
+            or _has_cancellation(path, current)):
+        return 'cancelled'
+    return None
+
+
+def _resolution_observation(cfg, record, manifest, report, consumed, raw, kind):
+    from ag import autonomy
+    current = _json(raw)
+    _object_require(kind in ('cancelled', 'unknown'), 'Only cancelled or UNKNOWN Attempts need human resolution')
+    if kind == 'cancelled':
+        entries = _entries(cfg)
+        aliases = [name for name, entry in entries.items() if account_identity(entry) == record['account_sha256']]
+        _require(bool(aliases), 'Resolution source account is not configured')
+        name = manifest.get('cluster', 'default')
+        evidence = _terminal_absence(cfg, manifest, report,
+            account_sha256=record['account_sha256'], cluster=name if name in aliases else aliases[0], since=consumed['at'])
+        _object_require(evidence is not None, 'Cancelled resolution requires two fresh absent monitor samples')
+        return evidence, evidence['fresh_until']
+    evidence = current.get('unknown_reconciliation')
+    _object_require(isinstance(evidence, dict), 'UNKNOWN resolution requires a formal read-only observation')
+    _object_require('account_sha256' in evidence, 'UNKNOWN observation needs fresh account-bound status evidence')
+    _fields(evidence, {'schema', 'observed_at', 'scheduler', 'job_name', 'matches', 'start_absent', 'account_sha256'},
+            'UNKNOWN observation')
+    aliases = [entry for entry in _entries(cfg).values() if account_identity(entry) == record['account_sha256']]
+    _require(bool(aliases) and evidence['account_sha256'] == record['account_sha256'],
+             'UNKNOWN observation belongs to another account')
+    at = evidence['observed_at']
+    expected_name = manifest['attempt_id'] if manifest.get('scheduler') == 'slurm' else manifest['pbs_job_name']
+    _require(evidence['schema'] == 'ag-unknown-observation/1'
+             and evidence['scheduler'] == manifest.get('scheduler', 'pbs')
+             and evidence['job_name'] == expected_name,
+             'UNKNOWN observation identity mismatch')
+    _object_require(report['job_id'] is None, 'UNKNOWN now has an exact scheduler binding')
+    _object_require(evidence['matches'] == [] and evidence['start_absent'] is True,
+                    'UNKNOWN still has scheduler or start-receipt evidence')
+    _require(type(at) in (int, float) and math.isfinite(at) and at >= consumed['at'], 'UNKNOWN observation time is invalid')
+    _object_require(0 <= autonomy.now() - at <= 600, 'UNKNOWN observation is stale or from the future')
+    return evidence, at + 600
+
+
+def prepare_resolution_evidence(cfg, verified_state, attempt_id):
+    with _capture_reads() as reads:
+        saved, path, manifest, report, consumed = _resolution_source(cfg, verified_state, attempt_id)
+        raw = _read_file(path / 'status.json')
+        kind = _resolution_kind(path, report, _json(raw), verified_state)
+        evidence, fresh_until = _resolution_observation(cfg, saved['record'], manifest, report, consumed, raw, kind)
+        data = dict(attempt_id=attempt_id, object_id=consumed['object_id'],
+            ownership_sha256=saved['sha256'], status_sha256=sha256(raw).hexdigest(),
+            evidence_sha256=approval.digest(evidence), kind=kind)
+    return PreparedResolution(str(Path(cfg['local']['studies_root']).absolute()),
+        _remedy_signature(consumed), data, reads, fresh_until)
+
+
+def verify_resolution_evidence(cfg, verified_state, prepared):
+    from ag import autonomy
+    _require(type(prepared) is PreparedResolution, 'Resolution requires internal verified evidence')
+    _require(prepared.root == str(Path(cfg['local']['studies_root']).absolute())
+             and _remedy_signature(verified_state.get('submissions', {}).get(prepared.data['attempt_id'])) == prepared.previous,
+             'Resolution consumption changed during review')
+    prepared.reads.verify()
+    _object_require(autonomy.now() <= prepared.fresh_until, 'Resolution observation expired during review')
+    return deepcopy(prepared.data)
+
+
+def _manual_resolution(current, path, digest):
+    value = current.get('manual_resolutions', {}).get(path.name)
+    if value is None:
+        return None
+    _fields(value, {'attempt_id', 'object_id', 'ownership_sha256', 'status_sha256', 'evidence_sha256',
+                    'kind', 'quote', 'at'}, 'manual resolution')
+    consumed = current['submissions'][path.name]
+    _require(value['attempt_id'] == path.name and value['ownership_sha256'] == digest
+             and value['object_id'] == consumed['object_id'] and _hash(value['evidence_sha256'])
+             and _hash(value['status_sha256'])
+             and value['kind'] in ('cancelled', 'unknown') and isinstance(value['quote'], str)
+             and bool(value['quote'].strip()) and type(value['at']) in (int, float)
+             and math.isfinite(value['at']) and value['at'] >= consumed['at'],
+             'Manual resolution ownership differs')
+    return deepcopy(value)
+
+
 def _fetched_outputs(path, manifest):
     """Read published outputs; ordinary fetch keeps a staging hard link."""
     from ag.remote import output_names
@@ -831,7 +1078,7 @@ def _fetched_outputs(path, manifest):
     _require(any(event['attempt_id'] == path.name and event['action'] == 'fetch'
                  and event['result'] == 'ok' and event['detail'] == {'files': names} for event in events),
              'Remedy requires a successful fetch journal record')
-    _require(not any(event['attempt_id'] == path.name and event['action'] == 'facts'
+    _object_require(not any(event['attempt_id'] == path.name and event['action'] == 'facts'
                      and isinstance(event['detail'], dict) and event['detail'].get('status') == 'conflict'
                      for event in events), 'Conflicting facts require human review')
     files = {}
@@ -884,8 +1131,6 @@ def _incomplete_remedy_outputs(path, manifest, completion):
     """Verify a formal incomplete receipt outside submission locks."""
     from ag import fetch
     from ag.remote import output_names
-    _require(manifest.get('scheduler') == 'slurm',
-             'Incomplete PBS diagnostics do not prove a stopped failed program')
     paths = list(path.glob('fetch-incomplete-*.json'))
     _require(len(paths) == 1, 'Remedy requires one complete incomplete-fetch receipt')
     raw = _published_bytes(paths[0])
@@ -911,18 +1156,39 @@ def _incomplete_remedy_outputs(path, manifest, completion):
     _require(official == (paths[0].name, record), 'Formal incomplete-fetch receipt verification disagrees')
     reads.verify()
     end = record['end_evidence']
-    _require(isinstance(end, dict) and end.get('scheduler') == 'slurm'
-             and end.get('queue_absent') is True and type(end.get('at')) in (int, float)
-             and math.isfinite(end['at']) and end['at'] >= completion['observed_at'],
-             'Incomplete fetch lacks an exact later stopped-job observation')
-    account = end.get('accounting')
-    expected = dict(job_id=submission.raw_job(manifest, completion['job_id']),
-        state=completion['scheduler_state'], exit_code=completion['exit_code'],
-        exit_signal=completion['exit_signal'], elapsed=completion['elapsed'],
-        allocated_cpus=completion['allocated_cpus'])
-    _require(account == expected and account['state'] in
-             ('TIMEOUT', 'FAILED', 'OUT_OF_MEMORY', 'NODE_FAIL', 'COMPLETED'),
-             'Incomplete fetch end evidence conflicts with terminal accounting or is cancellation')
+    _require(isinstance(end, dict), 'Invalid incomplete end evidence')
+    if manifest.get('scheduler', 'pbs') == 'pbs':
+        observations = end.get('observations') if isinstance(end, dict) else None
+        job = submission.raw_job(manifest, completion['job_id'])
+        _require(end.get('scheduler') == 'pbs' and completion['source'] == 'interrupted'
+                 and isinstance(observations, list) and len(observations) == 2
+                 and observations == completion['inactive_observations'],
+                 'Incomplete PBS receipt differs from interrupted observations')
+        _require(all(type(row.get('at')) in (int, float) and math.isfinite(row['at'])
+                     and row['at'] >= completion['submitted_at'] and row.get('job_id') == job
+                     and row.get('scheduler_state') in (None, 'C') and row.get('exit_receipt') is None
+                     for row in observations)
+                 and observations[1]['at'] - observations[0]['at'] >= 300
+                 and observations[0]['outputs'] == observations[1]['outputs']
+                 and type(end.get('verified_at')) in (int, float) and math.isfinite(end['verified_at'])
+                 and end['verified_at'] >= completion['observed_at'] >= observations[1]['at'],
+                 'Incomplete PBS receipt lacks exact stable inactive observations')
+        start = completion['start']
+        completion['walltime_reached'] = (start is not None and observations[0]['at']
+            - approval.timestamp(start['started_at']).timestamp() >= completion['walltime_seconds'])
+    else:
+        _require(isinstance(end, dict) and end.get('scheduler') == 'slurm'
+                 and end.get('queue_absent') is True and type(end.get('at')) in (int, float)
+                 and math.isfinite(end['at']) and end['at'] >= completion['observed_at'],
+                 'Incomplete fetch lacks an exact later stopped-job observation')
+        account = end.get('accounting')
+        expected = dict(job_id=submission.raw_job(manifest, completion['job_id']),
+            state=completion['scheduler_state'], exit_code=completion['exit_code'],
+            exit_signal=completion['exit_signal'], elapsed=completion['elapsed'],
+            allocated_cpus=completion['allocated_cpus'])
+        _require(account == expected and account['state'] in
+                 ('TIMEOUT', 'FAILED', 'OUT_OF_MEMORY', 'NODE_FAIL', 'COMPLETED'),
+                 'Incomplete fetch end evidence conflicts with terminal accounting or is cancellation')
     if end.get('scheduler_cluster') is not None:
         binding = _json(_read_file(path / 'submission.json'))
         _require(end['scheduler_cluster'] == binding.get('scheduler_cluster'),
@@ -1075,7 +1341,8 @@ def _read_scientific_review(path, record, digest, current, manifest):
     try:
         raw = _read_file(path / _SCIENTIFIC_REVIEW)
     except FileNotFoundError as exc:
-        raise ValueError('Normal Gaussian result requires an immutable scientific review') from exc
+        from ag.autonomy import ObjectRefused
+        raise ObjectRefused('Normal Gaussian result requires an immutable scientific review') from exc
     value = _json(raw)
     _fields(value, _SCIENTIFIC_KEYS, 'scientific review')
     identity = study_identity(path.parent.parent)
@@ -1107,7 +1374,32 @@ def _read_scientific_review(path, record, digest, current, manifest):
 def _walltime_failure(completion):
     # A program log mentioning a walltime limit is only a hint. This path has
     # already verified exact-job sacct terminal evidence through _completion.
-    return completion['source'] == 'sacct' and completion.get('scheduler_state') == 'TIMEOUT'
+    return ((completion['source'] == 'sacct' and completion.get('scheduler_state') == 'TIMEOUT')
+            or completion['source'] == 'interrupted' and completion.get('walltime_reached') is True)
+
+
+def _presubmit_classification(current, record, digest):
+    """An upload failure cannot erase a scientific remedy's original class."""
+    seen, previous = set(), None
+    while True:
+        _require(digest not in seen, 'Cyclic immutable remedy ownership')
+        seen.add(digest)
+        if previous is not None:
+            _require(record['attempt_id'] == previous['source_attempt']
+                     and record['object_id'] == object_id, 'Presubmit remedy lineage differs')
+            _check_consumption(record, digest, current)
+            _owned_audit(_record_path(record), record, digest)
+        object_id = record['object_id']
+        classification = record['failure_class']
+        if classification not in (None, 'presubmit'):
+            return classification
+        previous = record['remedy_source']
+        if previous is None:
+            return 'presubmit'
+        matches = [item for item in _read_global_records()
+                   if item['sha256'] == previous['source_ownership_sha256']]
+        _require(len(matches) == 1, 'Presubmit source lost its immutable ownership')
+        record, digest = matches[0]['record'], matches[0]['sha256']
 
 
 def _remedy_previous(current, object_id, exclude_attempt):
@@ -1142,7 +1434,8 @@ def prepare_remedy_evidence(cfg, verified_state, object_id, *, exclude_attempt=N
     previous = _remedy_previous(verified_state, object_id, exclude_attempt)
     with _capture_reads() as reads:
         evidence = remedy_evidence(cfg, verified_state, object_id, exclude_attempt=exclude_attempt)
-    sources = [path.parent for path in reads.files if path.name == 'status.json']
+    sources = [path.parent for path in reads.files if path.name == 'status.json'
+               and evidence is not None and path.parent.name == evidence['source_attempt']]
     _require(len(sources) == (1 if evidence is not None else 0), 'Ambiguous prepared remedy source')
     prepared = PreparedRemedy(str(Path(cfg['local']['studies_root']).absolute()),
         verified_state.get('current_round'), object_id, _remedy_signature(previous), evidence,
@@ -1157,8 +1450,16 @@ def _prepared_remedy_binding(cfg, current, object_id, prepared, exclude_attempt)
              and prepared.round_id == current.get('current_round') and prepared.object_id == object_id
              and prepared.previous == _remedy_signature(previous),
              'Latest actual remedy consumption changed after evidence preparation')
-    _require(prepared.source_path is None or not _has_cancellation(prepared.source_path, current),
-             'Cancelled jobs cannot be remedy sources; human review is required')
+    resolution = (prepared.evidence or {}).get('completion', {}).get('manual_resolution')
+    if resolution is not None:
+        _require(current.get('manual_resolutions', {}).get(prepared.source_path.name) == resolution,
+                 'Human source resolution changed during evidence review')
+        from ag import autonomy
+        _object_require(autonomy.now() <= prepared.evidence['completion']['fresh_until'],
+                        'Resolved source observation expired')
+    else:
+        _object_require(prepared.source_path is None or not _has_cancellation(prepared.source_path, current),
+                        'Cancelled jobs cannot be remedy sources; human review is required')
 
 
 def verify_remedy_evidence(cfg, verified_state, object_id, prepared, *, exclude_attempt=None):
@@ -1241,26 +1542,38 @@ def remedy_evidence(cfg, verified_state, object_id, *, exclude_attempt=None):
     report = _owned_audit(path, record, digest)
     _, manifest = _manifest_bytes(path)
     events = [_json(line) for line in _read_file(path.parent.parent / 'journal.jsonl').splitlines()]
-    _require(not any(event['attempt_id'] == path.name and event['action'] == 'facts'
+    _object_require(not any(event['attempt_id'] == path.name and event['action'] == 'facts'
                      and isinstance(event.get('detail'), dict) and event['detail'].get('status') == 'conflict'
                      for event in events), 'Conflicting facts require human review before a remedy')
-    _require(not _has_cancellation(path, verified_state),
-             'Cancelled jobs cannot be remedy sources; human review is required')
+    resolution = _manual_resolution(verified_state, path, digest)
+    status_raw = _read_file(path / 'status.json')
+    if resolution is not None:
+        kind = _resolution_kind(path, report, _json(status_raw), verified_state)
+        _object_require(kind == resolution['kind'], 'Resolved source now has different scheduler evidence')
+        evidence, fresh_until = _resolution_observation(cfg, record, manifest, report, consumed, status_raw, kind)
+        return dict(failure_class=None if kind == 'unknown' else 'interrupted',
+            source_attempt=path.name, source_ownership_sha256=digest, status_sha256=sha256(status_raw).hexdigest(),
+            outputs=[], completion=dict(source='human-resolution', manual_resolution=resolution,
+                                        current_observation=evidence, fresh_until=fresh_until))
+    _object_require(not _has_cancellation(path, verified_state),
+                    'Cancelled jobs cannot be remedy sources; human review is required')
     outputs = []
     if consumed.get('aborted_before_dispatch') is not None:
         _require(consumed.get('dispatch_started') is None and report['job_id'] is None
                  and report['state'] in ('prepared', 'submitting', 'failed_presubmit'),
                  'Aborted remedy source contradicts dispatch evidence')
-        classification = 'presubmit'
+        classification = _presubmit_classification(verified_state, record, digest)
         completion = dict(source='aborted-before-dispatch', evidence=deepcopy(consumed['aborted_before_dispatch']))
         status_hash = sha256(_read_file(path / 'status.json')).hexdigest()
     else:
         incomplete = bool(list(path.glob('fetch-incomplete-*.json')))
-        _require(report['state'] == ('finished' if incomplete else 'fetched'),
-                 'Remedy requires confirmed completion and fetched outputs')
-        completion, status_hash = _completion(path, manifest, report)
-        _require(completion.get('scheduler_state') != 'CANCELLED',
-                 'Cancelled jobs cannot be remedy sources; human review is required')
+        interrupted = report['state'] == 'interrupted'
+        _object_require(report['state'] == ('finished' if incomplete else 'fetched') or interrupted and incomplete,
+                        'Remedy requires confirmed completion and fetched outputs')
+        completion, status_hash = (_interrupted_completion(path, manifest, report, consumed) if interrupted else
+                                   _completion(path, manifest, report))
+        _object_require(completion.get('scheduler_state') != 'CANCELLED',
+                        'Cancelled jobs cannot be remedy sources; human review is required')
         if incomplete:
             files, outputs, reference = _incomplete_remedy_outputs(path, manifest, completion)
             completion['incomplete_fetch'] = reference
@@ -1270,30 +1583,32 @@ def remedy_evidence(cfg, verified_state, object_id, *, exclude_attempt=None):
                        for name, data in sorted(files.items())]
         if _walltime_failure(completion):
             classification = 'walltime'
+        elif interrupted:
+            classification = 'interrupted'
         elif manifest['template'] in ('gaussian', 'gaussian-cp'):
             from ag._parse_outputs import gaussian_job_sections, gaussian_section_text, termination
             from ag.remote import output_names
             log_name = output_names(manifest)[0]
             if incomplete and log_name not in files:
-                _require(completion['exit_code'] != 0 or completion['exit_signal'] != 0,
+                _object_require(completion['exit_code'] != 0 or completion['exit_signal'] != 0,
                          'Missing Gaussian log does not prove program failure')
                 classification = 'program-exit'
                 return dict(failure_class=classification, source_attempt=path.name, source_ownership_sha256=digest,
                     status_sha256=status_hash, outputs=outputs, completion=completion)
             text = files[log_name].decode('utf-8', errors='replace')
             sections, warnings = gaussian_job_sections(text)
-            _require(not warnings, 'Latest Gaussian job has ambiguous sections')
+            _object_require(not warnings, 'Latest Gaussian job has ambiguous sections')
             if all(section['termination'] == 'normal' for section in sections):
-                _require(not incomplete, 'Incomplete normally terminated Gaussian result is not a remedy source')
+                _object_require(not incomplete, 'Incomplete normally terminated Gaussian result is not a remedy source')
                 completion['scientific_review'] = _read_scientific_review(path, record, digest, verified_state, manifest)
                 classification = 'gaussian-ts-curvature'
             else:
                 if incomplete and sections[-1]['termination'] != 'error':
-                    _require(completion['exit_code'] != 0 or completion['exit_signal'] != 0,
+                    _object_require(completion['exit_code'] != 0 or completion['exit_signal'] != 0,
                              'Incomplete Gaussian log does not prove program failure')
                     return dict(failure_class='program-exit', source_attempt=path.name, source_ownership_sha256=digest,
                         status_sha256=status_hash, outputs=outputs, completion=completion)
-                _require(sections[-1]['termination'] == 'error', 'Latest Gaussian job is not a verified failed section')
+                _object_require(sections[-1]['termination'] == 'error', 'Latest Gaussian job is not a verified failed section')
                 failed = gaussian_section_text(text, sections[-1])
                 parsed = termination(failed, 'Normal termination of Gaussian')
                 hint = parsed['error_hint'] or ''
@@ -1307,7 +1622,7 @@ def remedy_evidence(cfg, verified_state, object_id, *, exclude_attempt=None):
         else:
             code = completion.get('receipt', {}).get('returncode', completion.get('exit_code'))
             signal = completion.get('exit_signal', 0)
-            _require(code != 0 or signal != 0, 'Successful program exit is not a remedy source')
+            _object_require(code != 0 or signal != 0, 'Successful program exit is not a remedy source')
             classification = 'program-exit'
     return dict(failure_class=classification, source_attempt=path.name, source_ownership_sha256=digest,
                 status_sha256=status_hash, outputs=outputs, completion=completion)
@@ -1352,7 +1667,7 @@ def read_reservations(cfg, *, states=None):
         _require(identity not in grouped or grouped[identity] == explicit,
                  'Equivalent accounts use unmerged cluster identities; use one verified SSH identity')
         grouped[identity] = explicit
-    placements, batch_inputs = [], {}
+    placements, batch_inputs, warnings = [], {}, []
     for saved in records:
         record, digest = saved['record'], saved['sha256']
         path = _record_path(record)
@@ -1382,8 +1697,23 @@ def read_reservations(cfg, *, states=None):
                         object_id=record['object_id'], template=manifest['template'], walltime=manifest['walltime'])
         _require(all(request.get(k) == v for k, v in expected.items()), 'Reservation selection ownership changed')
         bound_job = submission.raw_job(manifest, report['job_id']) if report['job_id'] else None
-        placement_state = _placement_state(path, manifest, report,
-                                           current=current_states.get(str(path.parent.parent)))
+        current = current_states.get(str(path.parent.parent))
+        absence = _terminal_absence(cfg, manifest, report, account_sha256=record['account_sha256'],
+                                    cluster=name, since=consumed['at'])
+        resolution = _manual_resolution(current, path, digest)
+        resolved = False
+        raw_status = _read_file(path / 'status.json') if resolution is not None else None
+        kind = _resolution_kind(path, report, _json(raw_status), current) if raw_status is not None else None
+        if resolution is not None and resolution['kind'] == kind:
+            from ag.autonomy import ObjectRefused
+            try:
+                _resolution_observation(cfg, record, manifest, report, consumed, raw_status, kind)
+            except ObjectRefused:
+                pass  # Lost negative evidence retains the reservation.
+            else:
+                resolved = True
+        placement_state = ('finished' if resolved else
+            _placement_state(path, manifest, report, current=current, absence=absence))
         placement = dict(study_id=record['study_id'], study_key=record['study_key'], attempt_id=record['attempt_id'], cluster=name,
             scheduler_job_name=manifest['attempt_id'] if manifest.get('scheduler') == 'slurm' else manifest['pbs_job_name'],
             state=placement_state, cores=manifest['cores'], mem_gb=manifest['mem_gb'], job_id=bound_job,
@@ -1414,6 +1744,10 @@ def read_reservations(cfg, *, states=None):
                     continue
                 directory = disk.directory(target)
                 os.close(directory)
+                warning = _manual_terminal_accounting(target)
+                if warning is not None:
+                    warnings.append(warning)
+                    continue
                 report = audit(target)  # Autonomous summaries with no record fail here.
                 if report['classification'] == 'unconsumed':
                     continue
@@ -1429,7 +1763,7 @@ def read_reservations(cfg, *, states=None):
                     state=placement_state, cores=manifest['cores'], mem_gb=manifest['mem_gb'], job_id=raw_job,
                     manifest_sha256=sha256(raw).hexdigest(), record_sha256=approval.digest(report['evidence_sha256']),
                     target_node=manifest.get('node_target', {}).get('name'), round_id=None, run_id=None))
-    return dict(records=records, placements=placements, batch_inputs=batch_inputs)
+    return dict(records=records, placements=placements, batch_inputs=batch_inputs, warnings=warnings)
 
 
 def write_waiting(cfg, study_id, selection, *, batch_inputs=None):

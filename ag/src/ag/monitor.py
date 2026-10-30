@@ -15,9 +15,10 @@ import tempfile
 import time
 import threading
 
-from ag import remote, status, slurm, attempt, budget, pbs
+from ag import remote, status, slurm, attempt, budget, pbs, approval
 from ag.config import (load_config, select_cluster, scheduler_kind, committed_cap,
-                       shared_clusters, optional_resource_caps, RESOURCE_TIERS, cluster_name)
+                       shared_clusters, optional_resource_caps, RESOURCE_TIERS, cluster_name,
+                       ssh_identity)
 from ag.pbs import parse_nodes
 from ag.transport import SSHTransport, SSHConnectionError, TransportError, Result, redact_stderr, require_ok
 
@@ -48,24 +49,6 @@ def watch_seconds(value):
     if not 30 <= seconds <= 600:
         raise argparse.ArgumentTypeError('--watch must be from 30 to 600 seconds')
     return seconds
-
-
-def login_user(cfg):
-    # ssh -G evaluates local configuration (including Include/Host rules) and
-    # exits without connecting. This avoids a fourth remote identity command.
-    try:
-        result = subprocess.run(
-            ['ssh', '-G', '-F', cfg['ssh']['config_file'], cfg['ssh']['host']],
-            capture_output=True, text=True, timeout=15)
-    except subprocess.TimeoutExpired as exc:
-        raise OSError('Local SSH configuration lookup timed out') from exc
-    if result.returncode:
-        raise OSError('Local SSH configuration lookup failed: ' + result.stderr)
-    users = [line.split()[1] for line in result.stdout.splitlines()
-             if line.startswith('user ') and len(line.split()) == 2]
-    if len(users) != 1 or not re.fullmatch(r'[A-Za-z0-9_.-]+', users[0]):
-        raise ValueError('Cannot identify SSH login user')
-    return users[0]
 
 
 def parse_queues(text):
@@ -193,7 +176,8 @@ def cache_dir(cfg, *, create=True):
     if cfg.get('_cluster'):
         root = root / cfg['_cluster']
     # A redirected cache/history could otherwise overwrite study files.
-    for path in (root.parent, root, *(root / name for name in ('latest.json', 'history.jsonl', 'history.1.jsonl'))):
+    for path in (root.parent, root, *(root / name for name in
+                                    ('latest.json', 'previous.json', 'history.jsonl', 'history.1.jsonl'))):
         if path.is_symlink():
             raise ValueError('Monitor cache must not contain symbolic links')
     if create:
@@ -201,36 +185,93 @@ def cache_dir(cfg, *, create=True):
     return root
 
 
-def publish(root, snapshot, *, record_history=True):
+def _replace_snapshot(root, name, data):
     temporary = None
     try:
-        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=root,
-                                         prefix='.latest-', suffix='.tmp', delete=False) as handle:
+        with tempfile.NamedTemporaryFile(mode='wb', dir=root,
+                                         prefix='.' + name + '-', suffix='.tmp', delete=False) as handle:
             temporary = Path(handle.name)
-            json.dump(snapshot, handle, ensure_ascii=False, indent=2)
-            handle.write('\n')
+            handle.write(data)
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(temporary, root / 'latest.json')
+        os.replace(temporary, root / name)
     finally:
         if temporary is not None and temporary.exists():
             temporary.unlink()
-    if not record_history:
-        return
-    summary = {key: snapshot[key] for key in ('sampled_at', 'interval_seconds', 'ok', 'error', 'last_ok_at')}
-    summary.update(sampling_state=snapshot.get('sampling', once_sampling())['state'],
-                   consecutive_failures=snapshot.get('sampling', once_sampling())['consecutive_failures'],
-                   trigger=snapshot.get('sampling', once_sampling())['trigger'],
-                   cores_in_use=snapshot['own']['cores_in_use'],
-                   jobs=len(snapshot['own']['jobs']), warnings=len(snapshot['warnings']),
-                   job_summary=snapshot['cluster'].get('job_summary'),
-                   sample_duration_ms=snapshot.get('sample_duration_ms'))
-    history = root / 'history.jsonl'
-    with history.open('a', encoding='utf-8') as handle:
-        handle.write(json.dumps(summary, ensure_ascii=False) + '\n')
-    if history.stat().st_size > HISTORY_BYTES:
-        os.replace(history, root / 'history.1.jsonl')
-        history.touch(exist_ok=False)
+
+
+def _snapshot_bytes(fd, name):
+    try:
+        handle = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd)
+    except FileNotFoundError:
+        return None
+    with os.fdopen(handle, 'rb') as stream:
+        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+            raise ValueError('Invalid monitor snapshot file')
+        return stream.read()
+
+
+def publish(root, snapshot, *, record_history=True):
+    # Once and watch may finish together. Serialize only local publication so
+    # their previous/latest generations cannot interleave; never hold over sampling.
+    fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        for name in ('latest.json', 'previous.json', 'history.jsonl', 'history.1.jsonl'):
+            if (root / name).is_symlink():
+                raise ValueError('Monitor cache must not contain symbolic links')
+        latest = _snapshot_bytes(fd, 'latest.json')
+        previous = _snapshot_bytes(fd, 'previous.json')
+        continuous = True
+        if latest is not None and previous is not None:
+            try:
+                continuous = (datetime.fromisoformat(json.loads(previous)['sampled_at'])
+                              < datetime.fromisoformat(json.loads(latest)['sampled_at']))
+            except (ValueError, KeyError, TypeError):
+                continuous = False
+        if latest is None:
+            # An orphaned previous cannot be paired with a new cache.
+            (root / 'previous.json').unlink(missing_ok=True)
+        elif not continuous:
+            # Keep a durable break even if this recovery itself is interrupted.
+            # Deleting previous here would make the old latest look like a
+            # normal first sample after a crash. This is not a new observation.
+            try:
+                interrupted = json.loads(latest)
+                if not isinstance(interrupted, dict):
+                    raise ValueError('Invalid cached snapshot')
+            except (ValueError, TypeError):
+                interrupted = dict(snapshot, sampled_at=None)
+            interrupted.update(ok=False, error='Monitor snapshot continuity interrupted')
+            _replace_snapshot(root, 'previous.json',
+                              (json.dumps(interrupted, ensure_ascii=False, indent=2) + '\n').encode('utf-8'))
+        else:
+            _replace_snapshot(root, 'previous.json', latest)
+        # Persist the predecessor before publishing a newer latest. A crash
+        # between these replaces leaves equal generations, which readers reject.
+        # Failed samples and control tombstones also rotate; never skip them.
+        os.fsync(fd)
+        data = (json.dumps(snapshot, ensure_ascii=False, indent=2) + '\n').encode('utf-8')
+        _replace_snapshot(root, 'latest.json', data)
+        os.fsync(fd)
+        if not record_history:
+            return
+        summary = {key: snapshot[key] for key in ('sampled_at', 'interval_seconds', 'ok', 'error', 'last_ok_at')}
+        summary.update(sampling_state=snapshot.get('sampling', once_sampling())['state'],
+                       consecutive_failures=snapshot.get('sampling', once_sampling())['consecutive_failures'],
+                       trigger=snapshot.get('sampling', once_sampling())['trigger'],
+                       cores_in_use=snapshot['own']['cores_in_use'],
+                       jobs=len(snapshot['own']['jobs']), warnings=len(snapshot['warnings']),
+                       job_summary=snapshot['cluster'].get('job_summary'),
+                       sample_duration_ms=snapshot.get('sample_duration_ms'))
+        history = root / 'history.jsonl'
+        with history.open('a', encoding='utf-8') as handle:
+            handle.write(json.dumps(summary, ensure_ascii=False) + '\n')
+        if history.stat().st_size > HISTORY_BYTES:
+            os.replace(history, root / 'history.1.jsonl')
+            history.touch(exist_ok=False)
+    finally:
+        os.close(fd)
 
 
 def empty_snapshot(cfg, interval=None):
@@ -288,13 +329,19 @@ def sample(cfg, transport, interval=None, *, config_warning=None, schedule=None,
                          ('storage_kib', 'storage_checked_at', 'storage_sampled_at', 'storage_error')
                          if key in snapshot['cluster']}
         operation = 'Collect monitor sample'
-        snapshot.update(observation(cfg, transport, login_user(cfg), storage_state=storage_state,
+        # One local ssh -G supplies both job ownership and the account binding;
+        # an alias name alone cannot bind an empty queue after its target changes.
+        identity = ssh_identity(cfg)
+        if identity is None or not re.fullmatch(r'[A-Za-z0-9_.-]+', identity[2]):
+            raise ValueError('Cannot identify local SSH scheduler account')
+        snapshot.update(observation(cfg, transport, identity[2], storage_state=storage_state,
                                     sampled_at=datetime.fromisoformat(now)))
     except (OSError, ValueError, KeyError, AttributeError, TypeError, subprocess.TimeoutExpired) as exc:
         category = getattr(transport, 'failure_category', None) or failure_category(exc)
         snapshot['error'] = redact_stderr(f'{operation}: {exc}', cfg)
     else:
-        snapshot.update(ok=True, last_ok_at=now)
+        snapshot.update(ok=True, last_ok_at=now,
+                        account_sha256=approval.digest({'scheduler': scheduler_kind(cfg), 'ssh': list(identity)}))
     # Even a failed sample or old cache must use today's configured caps.
     # Historical usage stays historical; never invent a running/queued split.
     snapshot['own'].update(core_cap=cfg['resources']['max_cores'], committed_cap=committed_cap(cfg))

@@ -39,6 +39,14 @@ class PublicationRefused(ValueError):
     """An observation lost its verified owner before final local publication."""
 
 
+class ObjectRefused(ValueError):
+    """This object's evidence needs human review; unrelated branches may proceed."""
+
+
+class PresubmitDeferred(ValueError):
+    """A failed SSH observation cannot be retried in the same wake."""
+
+
 def now():
     return datetime.now(timezone.utc).timestamp()
 
@@ -186,9 +194,56 @@ def _sha256(value, label):
     return value
 
 
+def _presubmit_failures(state, object_id):
+    """Count each real failure once, independent of scientific remedy classes."""
+    failures = {}
+    for saved in state.get('submissions', {}).values():
+        failure = saved.get('boundary_failure')
+        if (saved['round_id'] == state['current_round'] and saved['object_id'] == object_id
+                and failure is not None and not failure['dispatched']
+                and failure.get('failure_kind') != 'object'):
+            failures[(saved['run_id'], saved['attempt_id'])] = failure.get('failure_kind')
+    for row in state.get('presubmit_failures', []):
+        if row['round_id'] == state['current_round'] and row['object_id'] == object_id:
+            failures.setdefault((row['run_id'], row['attempt_id']), 'ssh')
+    return failures
+
+
+def check_presubmit_retry(state, object_id):
+    failures = _presubmit_failures(state, object_id)
+    # A failed preparation may have no Attempt yet. It still spends this
+    # object's failure allowance, never its actual Attempt/scientific budget.
+    if len(failures) >= 2:
+        raise ObjectRefused('Object already has two actual presubmit failures; 需要你看')
+    run_id = (state.get('lease') or {}).get('run_id')
+    if any(run == run_id and kind == 'ssh' for (run, _), kind in failures.items()):
+        raise PresubmitDeferred('SSH failed for this object in this wake; wait for the next wake')
+
+
+def _record_ssh_wake(state, run_id, at):
+    run = state['runs'][run_id]
+    run['ssh_failed'] = True
+    lease = state['lease']
+    # A delayed old owner may retain its own evidence, but cannot turn it into
+    # a current action or a new pause of its replacement's run.
+    if (not lease or lease['run_id'] != run_id or at >= lease['run_until']
+            or run['round_id'] != state['current_round']):
+        return
+    # Store.load returns journal replay, so insertion order is wake start order
+    # even when timestamps tie. UUID sorting would invent a different history.
+    wakes = [key for key, value in state['runs'].items() if value['round_id'] == run['round_id']]
+    position = wakes.index(run_id)
+    if position and state['runs'][wakes[position - 1]].get('ssh_failed'):
+        state['paused'] = True
+        if state['phase'] != 'ended':
+            state['phase'] = 'paused'
+
+
 def _submission_record(state, data, at):
     """Validate real reservation consumption; intent counters are not evidence."""
-    if set(data) != {'record', 'token_sha256', 'versions'}:
+    fields = {'record', 'token_sha256', 'versions'}
+    if (set(data) not in (fields, fields | {'failure_accounting'})
+            or ('failure_accounting' in data and data['failure_accounting'] != 'separate-presubmit/1')):
         raise ValueError('Invalid submission consumption event')
     record = data['record']
     if not isinstance(record, dict) or set(record) != SUBMISSION_FIELDS:
@@ -219,9 +274,16 @@ def _submission_record(state, data, at):
         raise _SubmissionLimit('Actual round submission limit reached')
     if len(consumed) * 10 >= maximum * 9:
         raise _SubmissionLimit('Actual round submission count reached 90%; pause required')
-    if failure is not None and sum(saved['object_id'] == record['object_id']
-            and saved['failure_class'] == failure for saved in consumed) >= 2:
-        raise ValueError('Object already consumed two remedies for this failure class')
+    modern = 'failure_accounting' in data
+    if modern:
+        check_presubmit_retry(state, record['object_id'])
+    # Old journal events replay their original accepted counting semantics.
+    # Only new driver events distinguish actual pre-dispatch failures.
+    if failure is not None and (not modern or failure != 'presubmit') and sum(
+            saved['object_id'] == record['object_id'] and saved['failure_class'] == failure
+            and (not modern or saved['aborted_before_dispatch'] is None)
+            for saved in consumed) >= 2:
+        raise ObjectRefused('Object already consumed two remedies for this failure class')
     return record, len(consumed) + 1, maximum
 
 
@@ -348,6 +410,22 @@ def apply(previous, event):
             text(data['reason'], 'Manual takeover reason')
             state['runs'][old['run_id']].update(ended_at=at, outcome='manual-takeover')
             state['lease'] = None
+        elif op == 'manual_resolution':
+            if set(data) != {'attempt_id', 'object_id', 'ownership_sha256',
+                             'status_sha256', 'evidence_sha256', 'kind', 'quote'}:
+                raise ValueError('Invalid manual Attempt resolution event')
+            text(data['quote'], 'Verbatim human Attempt resolution quote')
+            for key in ('ownership_sha256', 'status_sha256', 'evidence_sha256'):
+                _sha256(data[key], key)
+            saved = state.get('submissions', {}).get(data['attempt_id'])
+            if (saved is None or data['kind'] not in ('cancelled', 'unknown')
+                    or saved['round_id'] != state['current_round']
+                    or any(saved[key] != data[key] for key in ('object_id', 'ownership_sha256'))):
+                raise ValueError('Manual resolution must bind a consumed Attempt in the current round')
+            resolutions = state.setdefault('manual_resolutions', {})
+            if data['attempt_id'] in resolutions:
+                raise ValueError('Attempt already has a manual resolution')
+            resolutions[data['attempt_id']] = dict(data, at=at)
         elif op == 'submission_consume':
             record, consumed, maximum = _submission_record(state, data, at)
             state.setdefault('submissions', {})[record['attempt_id']] = dict(
@@ -370,8 +448,12 @@ def apply(previous, event):
             else:
                 saved['aborted_before_dispatch'] = {'at': at, 'reason': data['reason']}
         elif op == 'submission_boundary_failure':
-            if set(data) != {'attempt_id', 'ownership_sha256', 'run_id', 'token_sha256', 'dispatched', 'reason'}:
+            fields = {'attempt_id', 'ownership_sha256', 'run_id', 'token_sha256', 'dispatched', 'reason'}
+            if set(data) not in (fields, fields | {'failure_kind'}):
                 raise ValueError('Invalid submission boundary failure event')
+            kind = data.get('failure_kind')
+            if 'failure_kind' in data and kind not in ('ssh', 'object', 'global'):
+                raise ValueError('Invalid submission failure kind')
             saved = state.get('submissions', {}).get(data['attempt_id'])
             if (saved is None or saved['ownership_sha256'] != data['ownership_sha256']
                     or saved['run_id'] != data['run_id']
@@ -384,11 +466,51 @@ def apply(previous, event):
             if 'boundary_failure' in saved:
                 raise ValueError('Submission boundary failure already recorded')
             saved['boundary_failure'] = {'at': at, 'dispatched': data['dispatched'], 'reason': data['reason']}
+            if kind is not None:
+                saved['boundary_failure']['failure_kind'] = kind
             if not data['dispatched'] and saved['aborted_before_dispatch'] is None:
                 saved['aborted_before_dispatch'] = {'at': at, 'reason': data['reason']}
-            state['paused'] = True
-            if state['phase'] != 'ended':
-                state['phase'] = 'paused'
+            if kind == 'ssh':
+                _record_ssh_wake(state, saved['run_id'], at)
+            # Missing kind retains the exact historical event projection.
+            if kind in (None, 'global') or data['dispatched']:
+                state['paused'] = True
+                if state['phase'] != 'ended':
+                    state['phase'] = 'paused'
+        elif op == 'presubmit_failure':
+            if set(data) != {'round_id', 'run_id', 'token_sha256', 'plan_sha256',
+                             'object_id', 'attempt_id', 'reason'}:
+                raise ValueError('Invalid pre-consumption failure event')
+            owner(state, data['run_id'], data['token_sha256'], at)
+            if (data['round_id'] != state['current_round']
+                    or data['plan_sha256'] != state['plans'][state['current_plan']]['sha256']):
+                raise ValueError('Pre-consumption failure belongs to another round or plan')
+            study.identifier(data['object_id'])
+            if data['attempt_id'] is not None:
+                study.identifier(data['attempt_id'])
+                if data['attempt_id'] in state.get('submissions', {}):
+                    raise ValueError('Consumed Attempt requires its durable boundary failure')
+            text(data['reason'], 'SSH failure reason')
+            rows = state.setdefault('presubmit_failures', [])
+            if any(row['run_id'] == data['run_id'] and row['object_id'] == data['object_id']
+                   and row['attempt_id'] == data['attempt_id'] for row in rows):
+                raise ValueError('Pre-consumption failure already recorded')
+            rows.append(dict(at=at, **{key: value for key, value in data.items() if key != 'token_sha256'}))
+            _record_ssh_wake(state, data['run_id'], at)
+        elif op == 'object_refused':
+            if set(data) != {'run_id', 'token_sha256', 'object_id', 'reason'}:
+                raise ValueError('Invalid object refusal event')
+            owner(state, data['run_id'], data['token_sha256'], at)
+            study.identifier(data['object_id'])
+            text(data['reason'], 'Object refusal reason')
+            old = state['objects'].get(data['object_id'])
+            item = deepcopy(old) if isinstance(old, dict) else {}
+            item.update(status='需要你看', reason=data['reason'], round_id=state['current_round'],
+                        run_id=data['run_id'])
+            state['objects'][data['object_id']] = item
+            pending = data['object_id'] + ': 需要你看 — ' + data['reason']
+            if pending not in state['pending']:
+                state['pending'].append(pending)
         elif op == 'waiting':
             if set(data) != {'object_id', 'record_sha256', 'round_id', 'run_id',
                              'plan_sha256', 'token_sha256', 'versions'}:
@@ -634,6 +756,28 @@ def status(cfg, name):
         return public(snapshot)
 
 
+def resolve_attempt(cfg, name, attempt_id, quote):
+    """Record a human decision from verified local observations, without IO.
+
+    The old Attempt and its claim remain untouched. A later new Attempt still
+    requires the current plan, rule, owner, resource and byte checks.
+    """
+    from ag import autonomy_submission
+    text(quote, 'Verbatim human Attempt resolution quote')
+    study.identifier(attempt_id)
+    with disk.locked(cfg, name) as store:
+        snapshot, _ = load(store)
+    prepared = autonomy_submission.prepare_resolution_evidence(cfg, snapshot['state'], attempt_id)
+    with autonomy_submission.machine_lock(), disk.locked(cfg, name, write=True) as store:
+        snapshot, _ = load(store)
+        data = autonomy_submission.verify_resolution_evidence(cfg, snapshot['state'], prepared)
+        store.verify_lock()
+        result = public(store.commit(snapshot, 'manual_resolution', now(), dict(data, quote=quote), apply))
+    result['effect'] = ('Local resolution only; no resumption, job action, old Attempt retry, '
+                        'submission-count reset or submission authorization')
+    return result
+
+
 class _SubmissionGuard:
     """A short local transaction; never retain this object for remote IO."""
     def __init__(self, store, run_id, token, plan_sha256):
@@ -689,7 +833,8 @@ class _SubmissionGuard:
 
     def consume(self, record):
         at, current_versions = self._recheck('submit')
-        data = dict(record=deepcopy(record), token_sha256=self._token_hash, versions=current_versions)
+        data = dict(record=deepcopy(record), token_sha256=self._token_hash, versions=current_versions,
+                    failure_accounting='separate-presubmit/1')
         if not isinstance(record, dict) or record.get('run_id') != self._run_id:
             raise ValueError('Reservation run differs from the current submission guard')
         try:
@@ -705,7 +850,8 @@ class _SubmissionGuard:
         if not isinstance(record, dict) or record.get('run_id') != self._run_id:
             raise ValueError('Reservation run differs from the current submission guard')
         _submission_record(self._snapshot['state'], dict(record=deepcopy(record),
-            token_sha256=self._token_hash, versions=current_versions), at)
+            token_sha256=self._token_hash, versions=current_versions,
+            failure_accounting='separate-presubmit/1'), at)
 
     def pause(self, reason):
         at, _ = self._recheck('organize')
@@ -761,7 +907,8 @@ def submission_guard(cfg, name, run_id, token, *, plan_sha256):
             guard._active = False
 
 
-def boundary_failure(cfg, name, attempt_id, ownership_sha256, *, run_id, token, dispatched, reason):
+def boundary_failure(cfg, name, attempt_id, ownership_sha256, *, run_id, token, dispatched, reason,
+                     failure_kind=None):
     """Record only an existing owner's outcome after pause/expiry/lost lease.
 
     Caller holds the machine submission lock. The original secret token binds
@@ -773,6 +920,8 @@ def boundary_failure(cfg, name, attempt_id, ownership_sha256, *, run_id, token, 
         raise ValueError('Submission failure requires the original owner token')
     data = dict(attempt_id=attempt_id, ownership_sha256=ownership_sha256, run_id=run_id,
                 token_sha256=sha256(token.encode()).hexdigest(), dispatched=dispatched, reason=reason)
+    if failure_kind is not None:
+        data['failure_kind'] = failure_kind
     with disk.locked(cfg, name, write=True) as store:
         snapshot, _ = load(store)
         at = now()
@@ -782,9 +931,66 @@ def boundary_failure(cfg, name, attempt_id, ownership_sha256, *, run_id, token, 
             if (saved['ownership_sha256'] == ownership_sha256 and saved['run_id'] == run_id
                     and saved['owner_token_sha256'] == data['token_sha256']
                     and type(dispatched) is bool and previous['dispatched'] == dispatched
-                    and previous['reason'] == reason):
+                    and previous['reason'] == reason and previous.get('failure_kind') == failure_kind):
                 return public(snapshot)  # acknowledgement, never another write or permit
         return public(store.commit(snapshot, 'submission_boundary_failure', at, data, apply))
+
+
+def record_presubmit_failure(cfg, name, run_id, token, *, object_id, attempt_id, plan_sha256, reason):
+    """Record an actual SSH failure once; this never consumes or retries work."""
+    from ag.autonomy_submission import machine_lock
+    if not isinstance(token, str) or not token:
+        return False
+    token_hash = sha256(token.encode()).hexdigest()
+    with machine_lock(), disk.locked(cfg, name, write=True) as store:
+        snapshot, _ = load(store)
+        current, at = snapshot['state'], now()
+        lease = current['lease']
+        if not lease or lease['run_id'] != run_id or lease['token_sha256'] != token_hash:
+            return False
+        # A network failure must not hide an independently expired/changed
+        # authorization. Only the still-current owner can record this pause.
+        try:
+            current_versions = versions()
+            eligible(current, run_id, token_hash, current_versions, at, 'organize', plan_sha256)
+            bound_plan(current, current['current_plan'], current_versions, at)
+        except ValueError:
+            store.commit(snapshot, 'pause', at, {'reason': 'SSH failure returned after authorization changed'}, apply)
+            return False
+        saved = current.get('submissions', {}).get(attempt_id)
+        if saved is not None:
+            if (saved['run_id'] == run_id and saved['owner_token_sha256'] == token_hash
+                    and saved.get('boundary_failure', {}).get('failure_kind') == 'ssh'):
+                return public(snapshot)  # driver already recorded this exact failure
+            raise ValueError('Consumed Attempt requires its durable boundary failure')
+        rows = current.get('presubmit_failures', [])
+        if any(row['run_id'] == run_id and row['object_id'] == object_id
+               and row['attempt_id'] == attempt_id for row in rows):
+            return public(snapshot)
+        data = dict(round_id=current['current_round'], run_id=run_id, token_sha256=token_hash,
+                    plan_sha256=plan_sha256, object_id=object_id, attempt_id=attempt_id, reason=reason)
+        return public(store.commit(snapshot, 'presubmit_failure', at, data, apply))
+
+
+def object_refused(cfg, name, run_id, token, object_id, reason):
+    """Mark only the affected branch, without granting or extending ownership."""
+    from ag.autonomy_submission import machine_lock
+    if not isinstance(token, str) or not token:
+        return False
+    token_hash = sha256(token.encode()).hexdigest()
+    with machine_lock(), disk.locked(cfg, name, write=True) as store:
+        snapshot, _ = load(store)
+        current, at = snapshot['state'], now()
+        try:
+            owner(current, run_id, token_hash, at)
+        except ValueError:
+            return False
+        previous = current['objects'].get(object_id)
+        if (isinstance(previous, dict) and previous.get('status') == '需要你看'
+                and previous.get('reason') == reason and previous.get('run_id') == run_id):
+            return public(snapshot)
+        return public(store.commit(snapshot, 'object_refused', at,
+            dict(run_id=run_id, token_sha256=token_hash, object_id=object_id, reason=reason), apply))
 
 
 @contextmanager
@@ -1059,6 +1265,27 @@ def action_guard(cfg, name, run_id, token, *, action, plan_sha256):
 
 
 @contextmanager
+def manual_publication_guard(cfg, name):
+    """Serialize local manual publication with autonomous observers.
+
+    Authorization remains at each caller: ordinary manual writers retain their
+    existing registration and cancel retains the Mac confirmation. Neither the
+    confirmation dialog nor remote IO belongs inside this short transaction.
+    """
+    from ag.autonomy_submission import machine_lock
+    with machine_lock():
+        root = study.locate(cfg, name)
+        directory = study.local_path(root, root / 'autonomy')
+        with disk.locked(cfg, name, write=True) if os.path.lexists(directory) else nullcontext() as store:
+            snapshot = load(store)[0] if store else None
+            if store:
+                store.verify_lock()
+            yield deepcopy(snapshot['state']) if snapshot else None
+            if store:
+                store.verify_lock()
+
+
+@contextmanager
 def observation_publication_guard(cfg, name, run_id, token, *, action, plan_sha256):
     """Fence final local publication only; network and parsing stay outside.
 
@@ -1123,6 +1350,8 @@ def run(args):
         result = manual_writers(cfg, name)
     elif op == 'release-writer':
         result = release_writer(cfg, name, args.writer_id, args.quote)
+    elif op == 'resolve-attempt':
+        result = resolve_attempt(cfg, name, args.attempt, args.quote)
     elif op == 'scientific-review':
         from ag import attempt, autonomy_submission
         path = attempt.find(cfg, args.attempt)
@@ -1153,7 +1382,7 @@ def run(args):
 def register(subparsers):
     p = subparsers.add_parser('autonomy', help='Purely local plan, run lease, pause and journal (no submission)')
     children = p.add_subparsers(dest='action', required=True)
-    for op in ('init', 'plan', 'confirm', 'begin', 'start', 'pause', 'resume', 'finish', 'end', 'update', 'count', 'recover', 'status', 'check', 'manual-writers', 'release-writer', 'scientific-review'):
+    for op in ('init', 'plan', 'confirm', 'begin', 'start', 'pause', 'resume', 'finish', 'end', 'update', 'count', 'recover', 'status', 'check', 'manual-writers', 'release-writer', 'resolve-attempt', 'scientific-review'):
         child = children.add_parser(op)
         child.set_defaults(func=run)
         child.add_argument('--study', required=True)
@@ -1173,6 +1402,11 @@ def register(subparsers):
             child.add_argument('--quote', required=True, help=(
                 'Verbatim human confirmation to release ONLY this abandoned writer registration; '
                 'does not resume autonomy or change job reservations, UNKNOWN or single-submit protection'))
+        if op == 'resolve-attempt':
+            child.add_argument('--attempt', required=True, help='Exact consumed cancelled/UNKNOWN Attempt')
+            child.add_argument('--quote', required=True, help=(
+                'Verbatim human resolution based on fresh formal observations; '
+                'does not resume autonomy, authorize submission or permit reuse of this Attempt'))
         if op == 'scientific-review':
             child.add_argument('--attempt', required=True)
             child.add_argument('--run', required=True)

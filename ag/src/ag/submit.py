@@ -1,5 +1,6 @@
 """Single-use submission. Ambiguous qsub outcomes stop the entire batch."""
 from hashlib import sha256
+from copy import deepcopy
 from contextlib import contextmanager, nullcontext, ExitStack
 from datetime import datetime, timezone
 from pathlib import Path
@@ -39,6 +40,49 @@ def autonomous_transaction(cfg):
             yield
 
 
+def _autonomous_unobserved_cores(root_cfg, selected, jobs, *, exclude=None):
+    """Project verified resource releases without forgiving any core-hour debt."""
+    from ag import autonomy_submission
+    from ag.config import shared_clusters
+    with autonomous_transaction(root_cfg):
+        # Re-audit on both inventory checks. A prior finished placement is not
+        # enough: its negative observation may have expired or changed accounts.
+        usage = autonomy_submission.read_reservations(root_cfg)
+        ledgers = deepcopy(budget.shared_ledgers(selected))
+        finished = {item['record_sha256'] for item in usage['placements'] if item['state'] == 'finished'}
+        owned = {Path(item['record']['studies_root']) / item['record']['study_id'] / 'attempts' /
+                 item['record']['attempt_id']: item for item in usage['records']}
+        manual = {(item['study_key'], item['attempt_id']): item['state'] for item in usage['warnings']
+                  if item['kind'] == 'manual_terminal_excluded'}
+        for name, entry in shared_clusters(selected).items():
+            for aid, row in list(ledgers[name]['attempts'].items()):
+                if row['state'] != 'reserved':
+                    continue
+                path = attempt.find(entry, aid).absolute()
+                saved = owned.get(path)
+                if saved is not None:
+                    if saved['sha256'] not in finished:
+                        continue
+                    record = saved['record']
+                    if (record['account_sha256'] != autonomy_submission.account_identity(entry)
+                            or record['selection']['result']['recommendation']['cluster'] != name
+                            or record['bundle_sha256'] != row['bundle_sha256']):
+                        raise ValueError('Finished reservation and core ledger identity differ')
+                else:
+                    key = (autonomy_submission.study_identity(path.parent.parent)['study_key'], aid)
+                    if key not in manual or state.read(path)['state'] != manual[key]:
+                        continue
+                manifest = attempt.read_manifest(path)
+                if (manifest.get('cluster', 'default') != name or manifest.get('scheduler') != 'slurm'
+                        or manifest['bundle_sha256'] != row['bundle_sha256']):
+                    raise ValueError('Terminal Attempt and core ledger identity differ')
+                # The immutable consumption, claim and real ledger stay intact.
+                # Only this calculation omits the old local in-flight estimate;
+                # actual scheduler jobs still count in the complete inventory.
+                del ledgers[name]['attempts'][aid]
+        return budget.shared_unobserved_cores(selected, jobs, ledgers, exclude=exclude)
+
+
 def autonomy_context(value, study_id):
     from ag import study
     if isinstance(value, dict) and value.get('reroute_source') is not None:
@@ -58,6 +102,37 @@ def autonomy_context(value, study_id):
         study.identifier(failure)
     return dict({key: item for key, item in value.items() if key != 'reroute_source'},
                 study_id=study_id, failure_class=failure)
+
+
+def check_autonomous_retry(cfg, study_id, context):
+    from ag import autonomy
+    c = autonomy_context(context, study_id)
+    with autonomous_transaction(cfg), autonomy.submission_guard(cfg, study_id, c['run_id'], c['token'],
+                                                               plan_sha256=c['plan_sha256']) as guard:
+        autonomy.check_presubmit_retry(guard.snapshot, c['object_id'])
+    return c
+
+
+def report_autonomous_transport(cfg, study_id, context, exc, *, attempt_id=None):
+    from ag import autonomy
+    c = autonomy_context(context, study_id)
+    current = autonomy.status(cfg, study_id)['state']
+    saved = current.get('submissions', {}).get(attempt_id)
+    if saved is not None and saved['dispatch_started'] is not None:
+        # A known accepted job's optional placement query is not a pre-submit
+        # failure. Preserve its binding and the existing conservative stop.
+        autonomy.pause_if_current_owner(cfg, study_id, c['run_id'], c['token'],
+                                         'Accepted job observation failed; review retained evidence')
+        return
+    result = autonomy.record_presubmit_failure(cfg, study_id, c['run_id'], c['token'],
+        object_id=c['object_id'], attempt_id=attempt_id, plan_sha256=c['plan_sha256'], reason=str(exc))
+    if result:
+        try:
+            autonomy.check_presubmit_retry(result['state'], c['object_id'])
+        except autonomy.ObjectRefused as limit:
+            autonomy.object_refused(cfg, study_id, c['run_id'], c['token'], c['object_id'], str(limit))
+        except autonomy.PresubmitDeferred:
+            pass
 
 
 def autonomous_configuration(cfg):
@@ -88,16 +163,17 @@ def bound_policy(cfg, snapshot, context):
 
 
 def match_selection(manifest, selection):
+    from ag.autonomy import ObjectRefused
     choice = selection['result']['recommendation']
     if choice is None:
         raise WaitingForRoute('No currently eligible routing cell: ' + selection['result']['reason'])
     for key in ('cluster', 'tier', 'cores', 'mem_gb'):
         if manifest[key] != choice[key]:
-            raise ValueError('Frozen Attempt differs from selected routing resource: ' + key)
+            raise ObjectRefused('Frozen Attempt differs from selected routing resource: ' + key)
     target = manifest.get('node_target', {})
     if (target.get('name') != choice['target_node']
             or target.get('fraction') != choice.get('node_fraction')):
-        raise ValueError('Frozen Attempt differs from selected routing node/fraction')
+        raise ObjectRefused('Frozen Attempt differs from selected routing node/fraction')
     return choice
 
 
@@ -126,6 +202,7 @@ class AutonomousSubmission:
         from ag.config import select_cluster, shared_clusters
         cfg = autonomous_configuration(self.cfg)
         snapshot = guard.snapshot
+        autonomy.check_presubmit_retry(snapshot, self.context['object_id'])
         policy, digest = bound_policy(cfg, snapshot, self.context)
         if self.rule_sha256 is not None and digest != self.rule_sha256:
             raise ValueError('Autonomous rule changed during this submission')
@@ -149,16 +226,23 @@ class AutonomousSubmission:
             requested_tier=manifest['tier'],
             parent_cluster=manifest.get('parent_chk', {}).get('cluster'),
             exclude_ownership=self.reservation['sha256'] if consumed else None)
-        choice = match_selection(manifest, selection)
+        try:
+            choice = match_selection(manifest, selection)
+        except WaitingForRoute as exc:
+            if consumed:
+                raise autonomy.ObjectRefused('Routing placement is no longer eligible after reservation') from exc
+            raise
         if consumed:
             original = self.reservation['record']['selection']['result']['recommendation']
+            if choice.get('config_sha256') != original.get('config_sha256'):
+                raise ValueError('Routing configuration changed after reservation')
             keys = ('cell_id', 'capacity_node', 'target_node', 'node_fraction',
-                    'batch_input_sha256', 'config_sha256')
+                    'batch_input_sha256')
             # A first member has a newly timed input on each recheck; subsequent
             # members must continue to reference the exact first batch origin.
             keys = tuple(key for key in keys if key != 'batch_input_sha256')
             if any(choice.get(key) != original.get(key) for key in keys):
-                raise ValueError('Routing position changed after reservation')
+                raise autonomy.ObjectRefused('Routing position changed after reservation')
         records = [v for v in snapshot.get('submissions', {}).values()
                    if v['round_id'] == snapshot['current_round']]
         existing = snapshot.get('submissions', {}).get(self.path.name)
@@ -269,7 +353,7 @@ class AutonomousSubmission:
                 guard.dispatch_started(self.path.name)
                 self.dispatch_started = True
 
-    def failed(self, target, note):
+    def failed(self, target, note, *, failure_kind='global'):
         from ag import autonomy
         if self.reservation is None:
             return
@@ -285,7 +369,7 @@ class AutonomousSubmission:
                 submission.verified_job(self.path, manifest, current)
             autonomy.boundary_failure(self.cfg, c['study_id'], self.path.name,
                 self.reservation['sha256'], run_id=c['run_id'], token=c['token'],
-                dispatched=self.dispatch_started, reason=target)
+                dispatched=self.dispatch_started, reason=target, failure_kind=failure_kind)
             if not self.dispatch_started:
                 manifest = attempt.read_manifest(self.path)
                 selected = for_manifest(self.cfg, manifest)
@@ -339,6 +423,7 @@ def prepare_autonomous(cfg, *, study_name, context, options):
     with autonomous_transaction(cfg), autonomy.submission_guard(cfg, study_name, c['run_id'], c['token'],
                                     plan_sha256=c['plan_sha256']) as guard:
         current = autonomous_configuration(cfg)
+        autonomy.check_presubmit_retry(guard.snapshot, c['object_id'])
         policy, digest = bound_policy(current, guard.snapshot, c)
         selection = route.autonomous_selection(current, guard.snapshot, c,
             template=options['template'], walltime=options['walltime'],
@@ -371,7 +456,7 @@ def prepare_autonomous(cfg, *, study_name, context, options):
                 requested_tier=values['tier'], parent_cluster=parent_cluster)['result']['recommendation']
             keys = ('cell_id', 'cluster', 'tier', 'cores', 'mem_gb', 'capacity_node', 'target_node', 'node_fraction')
             if selected is None or any(selected.get(k) != choice.get(k) for k in keys):
-                raise ValueError('Routing selection changed before Attempt publication')
+                raise autonomy.ObjectRefused('Routing selection changed before Attempt publication')
             consumed = [row for row in guard.snapshot.get('submissions', {}).values()
                         if row['round_id'] == guard.snapshot['current_round']]
             if len(consumed) * 10 >= fresh_policy['max_attempts'] * 9:
@@ -429,11 +514,26 @@ def submit(cfg, ids, transport, *, approval_id=None, policy_name=None, autonomou
     if autonomous is not None and (approval_id is not None or policy_name is not None):
         raise ValueError('Autonomous authorization cannot fall back to manual approval')
     if autonomous is not None:
+        autonomous = dict(autonomous) if isinstance(autonomous, dict) else autonomous
         try:
+            for id_ in ids:
+                name = attempt.find(cfg, id_).parent.parent.name
+                check_autonomous_retry(cfg, name, autonomous)
             return _submit(cfg, ids, transport, autonomous=autonomous)
-        except WaitingForRoute:
+        except (WaitingForRoute, autonomy.PresubmitDeferred):
             raise
-        except (ValueError, UnknownSubmission, TransportError):
+        except autonomy.ObjectRefused as exc:
+            for id_ in ids:
+                name = attempt.find(cfg, id_).parent.parent.name
+                autonomy.object_refused(cfg, name, autonomous.get('run_id'), autonomous.get('token'),
+                                        autonomous.get('object_id'), str(exc))
+            raise
+        except TransportError as exc:
+            for id_ in ids:
+                name = attempt.find(cfg, id_).parent.parent.name
+                report_autonomous_transport(cfg, name, autonomous, exc, attempt_id=id_)
+            raise
+        except (ValueError, UnknownSubmission):
             # A valid local journal can record the stop even if the lease/rule
             # has just expired. Damaged state remains untouched and blocking.
             for id_ in ids:
@@ -463,7 +563,7 @@ def _submit(cfg, ids, transport, *, approval_id=None, policy_name=None, autonomo
         # transactions below, not a transport callback during network IO.
         transport.record_to([] if autonomous is not None else [attempt.find(cfg, id_) for id_ in ids])
     # Existing manual submission keeps its config budget mutex. Autonomous
-    # submission takes it only in the short machine -> config transactions.
+    # submission takes it only in the short config -> machine transactions.
     configuration_lock = nullcontext() if autonomous is not None else submission_lock(cfg)
     with configuration_lock:
         prepared = []
@@ -501,7 +601,8 @@ def _submit(cfg, ids, transport, *, approval_id=None, policy_name=None, autonomo
                 attachments[path.name] = (parent, observed)
         running, queued = (slurm.core_breakdown(jobs, username) if is_slurm else status.core_breakdown(jobs, username))
         if is_slurm:
-            held = budget.shared_unobserved_cores(cfg, jobs, ledgers)
+            held = (_autonomous_unobserved_cores(root_cfg, cfg, jobs) if autonomous_run is not None
+                    else budget.shared_unobserved_cores(cfg, jobs, ledgers))
             used += held
             queued += held
         cap = capacity(cfg)
@@ -589,8 +690,9 @@ def _submit(cfg, ids, transport, *, approval_id=None, policy_name=None, autonomo
                     fresh_used = fresh_running + fresh_queued
                     # Read every peer again; the current reservation is now on
                     # disk, and earlier batch submissions must remain counted.
-                    fresh_held = budget.shared_unobserved_cores(
-                        cfg, jobs, budget.shared_ledgers(cfg), exclude=m['attempt_id'])
+                    fresh_held = (_autonomous_unobserved_cores(root_cfg, cfg, jobs, exclude=m['attempt_id'])
+                        if autonomous_run is not None else budget.shared_unobserved_cores(
+                            cfg, jobs, budget.shared_ledgers(cfg), exclude=m['attempt_id']))
                     fresh_used += fresh_held
                     fresh_queued += fresh_held
                 else:
@@ -692,7 +794,10 @@ def _submit(cfg, ids, transport, *, approval_id=None, policy_name=None, autonomo
                 target = 'unknown' if qsub_started else 'failed_presubmit'
                 note = str(exc) if isinstance(exc, (ValueError, TransportError, UnknownSubmission)) else 'Submission interrupted'
                 if autonomous_run is not None:
-                    autonomous_run.failed(target, note)
+                    from ag import autonomy
+                    kind = ('ssh' if isinstance(exc, TransportError) else
+                            'object' if isinstance(exc, (autonomy.ObjectRefused, autonomy.PresubmitDeferred)) else 'global')
+                    autonomous_run.failed(target, note, failure_kind=kind)
                 else:
                     state.write(path, target, note=note)
                 if qsub_started:

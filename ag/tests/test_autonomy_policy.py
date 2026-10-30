@@ -730,3 +730,97 @@ def test_relaxed_strictest_candidate_floor_does_not_verify_method(cfg, tmp_path)
     path, value = relaxed_convergence_case(cfg, tmp_path, section + '--Link1--\n' + section)
     checked = policy.check_attempt(cfg, path, value)
     assert checked['method_verified'] is False and checked['method'] is None
+
+
+REMEDY_ALGORITHMS = [
+    ('opt', 'GDIIS'), ('opt', 'GEDIIS'), ('opt', 'RFO'), ('opt', 'NoTrust'),
+    ('scf', 'VShift=100'), ('scf', 'NoIncFock'), ('scf', 'Damp'), ('scf', 'NoDIIS'),
+]
+
+
+def remedy_algorithm_route(kind, option):
+    if kind == 'opt':
+        return ROUTE.replace('Opt=Tight', 'Opt=(Tight,' + option + ')')
+    return ROUTE.replace('SCF=(XQC,Conver=8)', 'SCF=(Conver=8,' + option + ')')
+
+
+@pytest.mark.parametrize('kind,option', REMEDY_ALGORITHMS)
+def test_standard_remedy_algorithm_preserves_verified_method(cfg, tmp_path, kind, option):
+    path, manifest = make(cfg, tmp_path, remedy_algorithm_route(kind, option))
+    before = (path / 'manifest.json').read_bytes()
+    checked = policy.check_attempt(cfg, path, rule(cfg))
+    assert checked['method_verified'] is True
+    assert checked['method'] == {key: rule(cfg)['methods']['gaussian'][0][key]
+                                 for key in policy.PROTOCOL_KEYS}
+    assert checked['bundle_sha256'] == manifest['bundle_sha256']
+    assert (path / 'manifest.json').read_bytes() == before
+    assert not (path / '.submit-claim').exists()
+
+
+@pytest.mark.parametrize('kind,option', REMEDY_ALGORITHMS)
+@pytest.mark.parametrize('weaken', ['opt', 'scf'])
+def test_standard_remedy_algorithm_keeps_convergence_floor(kind, option, weaken):
+    route = remedy_algorithm_route(kind, option)
+    route = route.replace('Tight', 'Normal') if weaken == 'opt' else route.replace('Conver=8', 'Conver=6')
+    with pytest.raises(ValueError, match='convergence below policy floor'):
+        policy._convergence(route, rule()['methods']['gaussian'][0])
+
+
+def test_standard_remedy_algorithm_cannot_change_method(cfg, tmp_path):
+    route = remedy_algorithm_route('scf', 'Damp').replace('B3LYP', 'PBE0')
+    path, _ = make(cfg, tmp_path, route)
+    with pytest.raises(ValueError, match='method/grid differs'):
+        policy.check_attempt(cfg, path, rule(cfg))
+
+
+@pytest.mark.parametrize('value', ['0', '1', '100'])
+def test_standard_remedy_vshift_accepts_nonnegative_integer(value):
+    policy._convergence(remedy_algorithm_route('scf', 'VShift=' + value),
+                        rule()['methods']['gaussian'][0])
+
+
+@pytest.mark.parametrize('option', ['VShift', 'VShift=-1', 'VShift=1.5', 'VShift=NaN',
+                                   'VShift=', 'NoIncFock=1', 'Damp=1', 'NoDIIS=1'])
+def test_standard_remedy_scf_option_spelling_remains_bounded(option):
+    with pytest.raises(ValueError, match='SCF option'):
+        policy._convergence(remedy_algorithm_route('scf', option), rule()['methods']['gaussian'][0])
+
+
+def test_standard_remedy_stable_opt_remains_unapproved(cfg, tmp_path):
+    path, _ = make(cfg, tmp_path, ROUTE + ' Stable=Opt')
+    with pytest.raises(ValueError, match='method/grid/convergence'):
+        policy.check_attempt(cfg, path, rule(cfg))
+
+
+# The reviewed T188 parser already accepts these four algorithm options. Its
+# GEDIIS/NoTrust/NoIncFock/NoDIIS grammar remains a separate upstream change.
+@pytest.mark.parametrize('kind,option', [
+    ('opt', 'GDIIS'), ('opt', 'RFO'), ('scf', 'VShift=100'), ('scf', 'Damp'),
+])
+def test_relaxed_standard_remedy_algorithm_stays_method_unverified(cfg, tmp_path, kind, option):
+    route = remedy_algorithm_route(kind, option).replace('Tight', 'VeryTight').replace('Conver=8', 'Conver=10')
+    path, value = relaxed_convergence_case(cfg, tmp_path,
+        INPUT.replace('# B3LYP/6-31G(d) SP', route))
+    checked = policy.check_attempt(cfg, path, value)
+    assert checked['method_verified'] is False and checked['method'] is None
+
+
+@pytest.mark.parametrize('kind,option', [
+    ('opt', 'GDIIS'), ('opt', 'RFO'), ('scf', 'VShift=100'), ('scf', 'Damp'),
+])
+@pytest.mark.parametrize('weaken', ['opt', 'scf'])
+def test_relaxed_standard_remedy_algorithm_keeps_strictest_floor(cfg, tmp_path, kind, option, weaken):
+    route = remedy_algorithm_route(kind, option).replace('Tight', 'VeryTight').replace('Conver=8', 'Conver=10')
+    route = route.replace('VeryTight', 'Tight') if weaken == 'opt' else route.replace('Conver=10', 'Conver=8')
+    path, value = relaxed_convergence_case(cfg, tmp_path,
+        INPUT.replace('# B3LYP/6-31G(d) SP', route))
+    with pytest.raises(ValueError, match='convergence below policy floor'):
+        policy.check_attempt(cfg, path, value)
+
+
+def test_relaxed_standard_remedy_cannot_hide_stable_opt(cfg, tmp_path):
+    route = ROUTE.replace('Tight', 'VeryTight').replace('Conver=8', 'Conver=10') + ' Stable=Opt'
+    path, value = relaxed_convergence_case(cfg, tmp_path,
+        INPUT.replace('# B3LYP/6-31G(d) SP', route))
+    with pytest.raises(ValueError, match='Stable'):
+        policy.check_attempt(cfg, path, value)

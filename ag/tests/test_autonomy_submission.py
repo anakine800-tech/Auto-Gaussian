@@ -619,12 +619,391 @@ def test_finished_label_alone_never_releases_owned_placement(cfg, prepared, sele
         autonomy_submission.read_reservations(cfg, states=supplied(path, current))
 
 
-def test_finished_label_alone_never_releases_manual_placement(cfg, prepared, selector):
+def test_manual_terminal_is_excluded_only_from_local_reservations(cfg, prepared, selector):
     path, _ = prepared
     submit.submit(cfg, [path.name], Fake(cfg), approval_id=authorized(cfg, path))
     state.write(path, 'finished')
-    with pytest.raises(ValueError, match='terminal return code'):
-        autonomy_submission.read_reservations(cfg)
+    result = autonomy_submission.read_reservations(cfg)
+    assert result['placements'] == []
+    assert result['warnings'][0]['state'] == 'finished'
+    assert autonomy_submission.audit(path)['retained_cores'] == 8
+
+
+@pytest.mark.parametrize('history', ['pre_t111', 'legacy_marker', 'cancelled', 'interrupted', 'incomplete_fetch', 'old_slurm'])
+def test_historical_manual_terminal_record_does_not_block_accounting(cfg, prepared, selector, tmp_path, history):
+    from ag import attempt
+    from ag.locks import claim
+    path, manifest = prepared
+    if history == 'old_slurm':
+        cfg.update(scheduler='slurm', partition='fixture')
+        manifest = attempt.prepare(cfg, study_name='smoke', template='gaussian', input_path=tmp_path / 'water.gjf',
+            tier='simple', walltime='00:30:00', label='old-slurm', method_basis='Synthetic historical record')
+        path = attempt.find(cfg, manifest['attempt_id'])
+    claim(path / '.submit-claim')
+    state.write(path, 'submitting')
+    job = '123' if history == 'old_slurm' else '123.fixture'
+    submission.record(path, manifest, job)  # Pre-T111 binding has no authorization summary.
+    state.write(path, 'submitted', job_id='default:' + job)
+    terminal = history if history in ('cancelled', 'interrupted') else 'finished'
+    if history == 'incomplete_fetch':
+        terminal = 'interrupted'
+        (path / 'fetch-incomplete-legacy.json').write_text('{"complete": false}\n')
+    state.write(path, terminal, **({'completion_source': 'legacy-marker-stable-scheduler-absent'}
+                                 if history == 'legacy_marker' else {}))
+    if history == 'old_slurm':
+        state.write(path, 'fetched')
+    before = tree(path.parent.parent)
+    result = autonomy_submission.read_reservations(cfg)
+    assert result['placements'] == []
+    assert result['warnings'] == [dict(kind='manual_terminal_excluded',
+        study_key=autonomy_submission.study_identity(path.parent.parent)['study_key'],
+        study_id='smoke', attempt_id=path.name, state='fetched' if history == 'old_slurm' else terminal)]
+    assert tree(path.parent.parent) == before
+
+
+@pytest.mark.parametrize('terminal', ['interrupted', 'cancelled'])
+def test_terminal_owned_usage_releases_only_after_two_fresh_absent_samples(
+        cfg, prepared, selector, monkeypatch, terminal):
+    from datetime import datetime, timezone
+    from ag import autonomy, monitor
+    path, _ = prepared
+    saved, current, _ = bound_owned(cfg, path, selector[0], monkeypatch)
+    state.write(path, terminal, scheduler_observed_at=1003)
+    clock = [approval.timestamp(state.read(path)['updated_at']).timestamp() + 1]
+    monkeypatch.setattr(autonomy, 'now', lambda: clock[0])
+    cache = monitor.cache_dir(cfg)
+    for index in range(2):
+        sample = monitor.empty_snapshot(cfg, interval=60)
+        stamp = datetime.fromtimestamp(clock[0], timezone.utc).isoformat()
+        sample.update(sampled_at=stamp, ok=True, error=None, last_ok_at=stamp,
+                      account_sha256=saved['record']['account_sha256'])
+        sample['own']['jobs'] = []
+        monitor.publish(cache, sample)
+        result = autonomy_submission.read_reservations(cfg, states=supplied(path, current))
+        assert result['placements'][0]['state'] == ('queued' if index == 0 else 'finished')
+        clock[0] += 60
+    assert state.read(path)['state'] == terminal
+    assert len(current['submissions']) == 1
+
+
+def publish_owned_absences(cfg, saved, monkeypatch):
+    from datetime import datetime, timezone
+    from ag import autonomy, monitor
+    path = autonomy_submission._record_path(saved['record'])
+    terminal = approval.timestamp(state.read(path)['updated_at']).timestamp()
+    clock = [terminal + 61]
+    monkeypatch.setattr(autonomy, 'now', lambda: clock[0])
+    cache = monitor.cache_dir(cfg)
+    for at in (terminal + 1, terminal + 61):
+        sample = monitor.empty_snapshot(cfg, interval=60)
+        stamp = datetime.fromtimestamp(at, timezone.utc).isoformat()
+        sample.update(sampled_at=stamp, ok=True, error=None, last_ok_at=stamp,
+                      account_sha256=saved['record']['account_sha256'])
+        monitor.publish(cache, sample)
+    return cache, clock
+
+
+def test_absence_pair_belongs_to_latest_continuous_terminal_episode(cfg, prepared, selector, monkeypatch):
+    from datetime import datetime, timezone
+    from ag import autonomy, journal, monitor
+    path, _ = prepared
+    clock = [1002.0]
+    stamp = lambda: datetime.fromtimestamp(clock[0], timezone.utc).isoformat()
+    monkeypatch.setattr(autonomy, 'now', lambda: clock[0])
+    monkeypatch.setattr(journal, 'now', stamp)
+    saved, current, _ = bound_owned(cfg, path, selector[0], monkeypatch)
+    cache = monitor.cache_dir(cfg)
+
+    def sample(at):
+        clock[0] = at
+        value = monitor.empty_snapshot(cfg, interval=60)
+        value.update(sampled_at=stamp(), ok=True, error=None, last_ok_at=stamp(),
+                     account_sha256=saved['record']['account_sha256'])
+        monitor.publish(cache, value)
+
+    def placement():
+        return autonomy_submission.read_reservations(cfg, states=supplied(path, current))['placements'][0]['state']
+
+    # Fresh queue invisibility during submission is not evidence for a later stop.
+    sample(1010)
+    sample(1070)
+    clock[0] = 1080
+    state.write(path, 'interrupted', scheduler_observed_at=clock[0])
+    assert placement() == 'queued'
+    sample(1090)
+    assert placement() == 'queued'
+    sample(1150)
+    assert placement() == 'finished'
+    clock[0] = 1151
+    state.write(path, 'interrupted', scheduler_observed_at=clock[0])
+    assert placement() == 'finished'  # A synonymous status refresh preserves the episode.
+    clock[0] = 1152
+    state.write(path, 'running')
+    clock[0] = 1153
+    state.write(path, 'interrupted', scheduler_observed_at=clock[0])
+    assert placement() == 'queued'
+    sample(1160)
+    assert placement() == 'queued'
+    sample(1220)
+    assert placement() == 'finished'
+
+
+@pytest.mark.parametrize('damage', ['missing', 'failed', 'duplicate', 'stale', 'future',
+                                  'missing_account', 'other_account', 'job', 'name', 'rotation', 'unknown'])
+def test_terminal_accounting_never_infers_two_absences_from_partial_or_conflicting_cache(
+        cfg, prepared, selector, monkeypatch, damage):
+    path, _ = prepared
+    saved, current, manifest = bound_owned(cfg, path, selector[0], monkeypatch)
+    state.write(path, 'interrupted', scheduler_observed_at=1003)
+    cache, clock = publish_owned_absences(cfg, saved, monkeypatch)
+    previous, latest = cache / 'previous.json', cache / 'latest.json'
+    value = json.loads(previous.read_text())
+    if damage == 'missing':
+        previous.unlink()
+    elif damage == 'stale':
+        clock[0] += 181
+    elif damage == 'unknown':
+        state.write(path, 'unknown')
+    elif damage == 'rotation':
+        read = autonomy_submission._read_file
+        def rotate(target):
+            raw = read(target)
+            if Path(target) == previous:
+                following = latest.read_bytes()
+                latest.unlink()
+                latest.write_bytes(following)
+            return raw
+        monkeypatch.setattr(autonomy_submission, '_read_file', rotate)
+    else:
+        if damage == 'failed':
+            value.update(ok=False, error='Synthetic sampling failure')
+        elif damage == 'duplicate':
+            value['sampled_at'] = json.loads(latest.read_text())['sampled_at']
+        elif damage == 'future':
+            value['sampled_at'] = '2030-01-01T00:00:00+00:00'
+        elif damage == 'missing_account':
+            value.pop('account_sha256')
+        elif damage == 'other_account':
+            value['account_sha256'] = 'd' * 64
+        else:
+            value['own']['jobs'] = [dict(job_id='default:123.fixture' if damage == 'job' else 'default:999.fixture',
+                name=manifest['pbs_job_name'] if damage == 'name' else 'another-job')]
+        previous.write_text(json.dumps(value))
+    result = autonomy_submission.read_reservations(cfg, states=supplied(path, current))
+    assert result['placements'][0]['state'] == ('unknown' if damage == 'unknown' else 'queued')
+    assert len(current['submissions']) == 1
+
+
+@pytest.mark.parametrize('terminal', ['finished', 'fetched'])
+def test_slurm_cancelled_accounting_still_requires_explicit_resolution_before_new_source(
+        ordinary_slurm_owned_case, monkeypatch, terminal):
+    from ag import autonomy
+    cfg, path, current, saved = ordinary_slurm_owned_case()
+    manifest = json.loads((path / 'manifest.json').read_text())
+    submission.record(path, manifest, '123', authorization=saved['authorization'], autonomy_state=current)
+    state.write(path, 'submitted', job_id='default:123')
+    state.write(path, 'finished', exit_status=1, completion_source='sacct', scheduler_state='CANCELLED',
+                exit_code=1, exit_signal=9, allocated_cpus=8, elapsed='00:01:00', scheduler_observed_at=1003)
+    if terminal == 'fetched':
+        state.write(path, 'fetched', exit_status=1)
+    _, clock = publish_owned_absences(cfg, saved, monkeypatch)
+    with pytest.raises(autonomy.ObjectRefused):
+        autonomy_submission.prepare_remedy_evidence(cfg, current, 'water')
+    prepared = autonomy_submission.prepare_resolution_evidence(cfg, current, path.name)
+    data = autonomy_submission.verify_resolution_evidence(cfg, current, prepared)
+    assert data['kind'] == 'cancelled'
+    current['manual_resolutions'] = {path.name: dict(data, quote='Synthetic explicit cancellation resolution', at=clock[0])}
+    source = autonomy_submission.prepare_remedy_evidence(cfg, current, 'water').evidence
+    assert source['failure_class'] == 'interrupted'
+    assert source['completion']['manual_resolution']['kind'] == 'cancelled'
+
+
+@pytest.fixture
+def actual_unknown_resolution(cfg, prepared, selector, monkeypatch):
+    from ag import autonomy
+    from ag.locks import claim
+    from test_autonomy import VERSIONS, spec
+    path, manifest = prepared
+    clock = [1000.0]
+    monkeypatch.setattr(autonomy, 'now', lambda: clock[0])
+    monkeypatch.setattr(autonomy, 'versions', lambda: deepcopy(VERSIONS))
+    autonomy.initialize(cfg, 'smoke')
+    plan = autonomy.create_plan(cfg, 'smoke', spec())
+    autonomy.confirm(cfg, 'smoke', plan['plan_id'], plan['sha256'], 'Synthetic confirmed plan')
+    begun = autonomy.begin(cfg, 'smoke', plan['plan_id'], 'Synthetic confirmed round')
+    run = autonomy.start(cfg, 'smoke', plan['plan_id'], 'fixture-owner')
+    context = reservation_context(cfg, path, selector[0], round_id=begun['state']['current_round'],
+        run_id=run['run_id'], plan_sha256=plan['sha256'],
+        selection=selection_for(cfg, path, selector[0], round_id=begun['state']['current_round'], run_id=run['run_id']))
+    with autonomy_submission.machine_lock(), autonomy.submission_guard(cfg, 'smoke', run['run_id'], run['token'],
+                                                                       plan_sha256=plan['sha256']) as guard:
+        saved = autonomy_submission.write_reservation(cfg, path, context, verified_state=guard.snapshot)
+        claim(path / '.submit-claim')
+        approval.archive(path, saved['authorization'], saved['record']['summary'])
+        guard.consume(saved['consume'])
+        guard.dispatch_started(path.name)
+    state.write(path, 'submitting')
+    clock[0] += 1
+    negative = dict(schema='ag-unknown-observation/1', observed_at=clock[0], scheduler='pbs',
+                    job_name=manifest['pbs_job_name'], matches=[], start_absent=True,
+                    account_sha256=saved['record']['account_sha256'])
+    state.write(path, 'unknown', unknown_reconciliation=negative)
+    autonomy.pause(cfg, 'smoke', 'Synthetic unknown submission')
+    return cfg, path, manifest, saved, clock, negative
+
+
+@pytest.mark.parametrize('later', ['same_negative', 'cleared', 'start_present', 'binding'])
+def test_actual_unknown_resolution_survives_only_equivalent_fresh_observation(actual_unknown_resolution, later):
+    from ag import autonomy
+    cfg, path, manifest, saved, clock, negative = actual_unknown_resolution
+    before = tree(path)
+    result = autonomy.resolve_attempt(cfg, 'smoke', path.name, '  Synthetic explicit human resolution.\n')
+    current = result['state']
+    row = current['manual_resolutions'][path.name]
+    assert row['quote'] == '  Synthetic explicit human resolution.\n'
+    assert current['phase'] == 'paused' and len(current['submissions']) == 1
+    assert tree(path) == before
+    first = autonomy_submission.prepare_remedy_evidence(cfg, current, 'water').evidence
+    assert first['failure_class'] is None and first['completion']['manual_resolution'] == row
+    assert first['source_attempt'] == path.name
+    clock[0] += 1
+    if later == 'binding':
+        submission.record(path, manifest, '123.fixture', authorization=saved['authorization'], autonomy_state=current)
+        state.write(path, 'submitted', job_id='default:123.fixture')
+    else:
+        updated = (None if later == 'cleared' else
+                   dict(negative, observed_at=clock[0], start_absent=later != 'start_present'))
+        state.write(path, 'unknown', unknown_reconciliation=updated)
+    if later == 'same_negative':
+        refreshed = autonomy_submission.prepare_remedy_evidence(cfg, current, 'water').evidence
+        assert refreshed['status_sha256'] != first['status_sha256']
+        assert refreshed['completion']['manual_resolution'] == row
+        assert refreshed['failure_class'] is None
+    else:
+        with pytest.raises(autonomy.ObjectRefused):
+            autonomy_submission.prepare_remedy_evidence(cfg, current, 'water')
+    assert len(autonomy.status(cfg, 'smoke')['state']['submissions']) == 1
+    assert (path / '.submit-claim').read_bytes() == before['.submit-claim']
+
+
+@pytest.mark.parametrize('account', [None, 'd' * 64])
+def test_unknown_resolution_requires_current_account_bound_negative(actual_unknown_resolution, account):
+    from ag import autonomy
+    cfg, path, _, _, _, negative = actual_unknown_resolution
+    changed = deepcopy(negative)
+    if account is None:
+        changed.pop('account_sha256')
+    else:
+        changed['account_sha256'] = account
+    state.write(path, 'unknown', unknown_reconciliation=changed)
+    before = tree(path.parent.parent)
+    with pytest.raises(ValueError) as error:
+        autonomy.resolve_attempt(cfg, 'smoke', path.name, 'Synthetic explicit human resolution.')
+    assert isinstance(error.value, autonomy.ObjectRefused) is (account is None)
+    assert not autonomy.status(cfg, 'smoke')['state'].get('manual_resolutions')
+    assert tree(path.parent.parent) == before
+
+
+@pytest.mark.parametrize('damage', ['status', 'expired', 'consumption', 'blank_quote'])
+def test_human_resolution_rechecks_metadata_time_and_exact_consumption(actual_unknown_resolution, damage):
+    from ag import autonomy
+    cfg, path, _, _, clock, _ = actual_unknown_resolution
+    current = autonomy.status(cfg, 'smoke')['state']
+    before = tree(path.parent.parent)
+    prepared = autonomy_submission.prepare_resolution_evidence(cfg, current, path.name)
+    if damage == 'status':
+        target = path / 'status.json'
+        raw = target.read_bytes()
+        target.unlink()
+        target.write_bytes(raw)
+    elif damage == 'expired':
+        clock[0] += 601
+    elif damage == 'consumption':
+        current['submissions'][path.name]['ownership_sha256'] = 'd' * 64
+    else:
+        with pytest.raises(ValueError):
+            autonomy.resolve_attempt(cfg, 'smoke', path.name, ' \n')
+        assert tree(path.parent.parent) == before
+        return
+    with pytest.raises(ValueError):
+        autonomy_submission.verify_resolution_evidence(cfg, current, prepared)
+    assert not autonomy.status(cfg, 'smoke')['state'].get('manual_resolutions')
+
+
+@pytest.mark.parametrize('start_at,expected', [(1000, 'walltime'), (1301, 'interrupted'), (None, 'interrupted')])
+def test_formal_pbs_interrupted_fetch_supports_bounded_failure(cfg, prepared, selector, monkeypatch, start_at, expected):
+    from datetime import datetime, timezone
+    from ag import fetch, remote, status
+    from test_incomplete_fetch import IncompleteFake
+    path, _ = prepared
+    _, current, manifest = bound_owned(cfg, path, selector[0], monkeypatch)
+    fake = IncompleteFake(manifest)
+    outputs = status.outputs(cfg, manifest, fake)
+    observations = [dict(at=at, job_id='123.fixture', scheduler_state=None, outputs=outputs, exit_receipt=None)
+                    for at in (2800.0, 3100.0)]
+    start = (None if start_at is None else dict(PBS_JOBID='123.fixture',
+             started_at=datetime.fromtimestamp(start_at, timezone.utc).isoformat()))
+    state.write(path, 'interrupted', observation={'job_id': '123.fixture'},
+        receipts={'start': start, 'exit': None}, incomplete_observations=observations,
+        scheduler_observed_at=3100.0)
+    monkeypatch.setattr(status.time, 'time', lambda: 3101.0)
+    fetched = fetch.fetch(cfg, path, fake, incomplete=True)
+    source = autonomy_submission.prepare_remedy_evidence(cfg, current, 'water')
+    evidence = autonomy_submission.verify_remedy_evidence(cfg, current, 'water', source)
+    assert evidence['failure_class'] == expected
+    assert evidence['completion']['source'] == 'interrupted'
+    assert evidence['completion']['incomplete_fetch']['record'] == fetched['record']
+    assert not any(command.operation in ('submit', 'cancel') for command in fake.calls)
+    assert state.read(path)['state'] == 'interrupted'
+
+
+@pytest.mark.parametrize('legacy_bridge', [False, True])
+def test_presubmit_chain_preserves_scientific_class_through_prepare_verify_and_refresh(
+        cfg, prepared, selector, tmp_path, monkeypatch, legacy_bridge):
+    from ag import attempt, journal
+    from ag.locks import claim
+    path, _ = prepared
+    _, current, manifest = bound_owned(cfg, path, selector[0], monkeypatch)
+    finish_owned(path, manifest, '-----\n# B3LYP/6-31G(d) Opt\n-----\nConvergence failure\nError termination\n')
+    ancestor = None
+    for index in range(2 if legacy_bridge else 1):
+        child = attempt.prepare(cfg, study_name='smoke', template='gaussian', input_path=tmp_path / 'water.gjf',
+            tier='simple', walltime='00:30:00', label='aborted-' + str(index), method_basis='Synthetic retry')
+        target = attempt.find(cfg, child['attempt_id'])
+        prepared_source = autonomy_submission.prepare_remedy_evidence(cfg, current, 'water')
+        source = deepcopy(prepared_source.evidence)
+        # Reproduce the old persisted presubmit bridge. The live API below
+        # still validates every ordinary write using its real source receipt.
+        if index:
+            source['failure_class'] = 'presubmit'
+        context = reservation_context(cfg, target, selector[0],
+            failure_class=source['failure_class'], remedy_source=source)
+        with monkeypatch.context() as old_version:
+            if index:
+                old_version.setattr(autonomy_submission, 'verify_remedy_evidence', lambda *a, **k: deepcopy(source))
+            saved = autonomy_submission.write_reservation(cfg, target, context, verified_state=current,
+                                                           prepared_remedy=prepared_source)
+        claim(target / '.submit-claim')
+        approval.archive(target, saved['authorization'], saved['record']['summary'])
+        at = 1004 + index * 3
+        current['submissions'][target.name] = dict(saved['consume'], plan_id='plan-one', at=at,
+            dispatch_started=None, aborted_before_dispatch={'at': at + 1, 'reason': 'Synthetic upload failure'})
+        state.write(target, 'submitting')
+        state.write(target, 'failed_presubmit')
+        ancestor, path = path, target
+    evidence = autonomy_submission.prepare_remedy_evidence(cfg, current, 'water')
+    checked = autonomy_submission.verify_remedy_evidence(cfg, current, 'water', evidence)
+    assert checked['source_attempt'] == path.name and checked['failure_class'] == 'gaussian-scf'
+    journal.append(path.parent.parent, 'state', 'smoke-099-another', 'prepared')
+    refreshed = autonomy_submission.refresh_remedy_evidence(cfg, current, 'water', evidence)
+    assert autonomy_submission.verify_remedy_evidence(cfg, current, 'water', refreshed) == checked
+    if legacy_bridge:
+        status_path = ancestor / 'status.json'
+        raw = status_path.read_bytes()
+        status_path.unlink()
+        status_path.write_bytes(raw)
+        with pytest.raises(ValueError, match='Evidence file changed'):
+            autonomy_submission.verify_remedy_evidence(cfg, current, 'water', refreshed)
 
 
 @pytest.mark.parametrize('cause,expected', [
@@ -728,13 +1107,14 @@ def test_archived_summary_text_must_match_global_record(cfg, prepared, selector)
         autonomy_submission.read_reservations(cfg, states=supplied(path, current))
 
 
+@pytest.mark.parametrize('template', ['crest', 'xtb'])
 @pytest.mark.parametrize('returncode', [0, 2])
-def test_non_gaussian_remedy_requires_confirmed_nonzero_exit(cfg, prepared, selector, monkeypatch, tmp_path, returncode):
-    from ag import attempt
+def test_non_gaussian_remedy_requires_confirmed_nonzero_exit(cfg, prepared, selector, monkeypatch, tmp_path, returncode, template):
+    from ag import attempt, autonomy
     xyz = tmp_path / 'water.xyz'
     xyz.write_text('3\nwater\nO 0 0 0\nH 0 0 1\nH 0 1 0\n')
-    manifest = attempt.prepare(cfg, study_name='smoke', template='xtb', input_path=xyz,
-        tier='simple', walltime='00:30:00', label='xtb', method_basis='Synthetic water method')
+    manifest = attempt.prepare(cfg, study_name='smoke', template=template, input_path=xyz,
+        tier='simple', walltime='00:30:00', label=template, method_basis='Synthetic water method')
     path = attempt.find(cfg, manifest['attempt_id'])
     _, current, manifest = bound_owned(cfg, path, selector[0], monkeypatch)
     finish_owned(path, manifest, 'Synthetic program output\n', returncode=returncode)
@@ -742,7 +1122,7 @@ def test_non_gaussian_remedy_requires_confirmed_nonzero_exit(cfg, prepared, sele
         source = autonomy_submission.remedy_evidence(cfg, current, 'water')
         assert source['failure_class'] == 'program-exit'
     else:
-        with pytest.raises(ValueError, match='Successful program exit'):
+        with pytest.raises(autonomy.ObjectRefused, match='Successful program exit'):
             autonomy_submission.remedy_evidence(cfg, current, 'water')
 
 
@@ -952,12 +1332,12 @@ def test_driver_cross_root_competitors_reserve_only_fourth_global_job(t186_drive
     assert sum(fake.operations().count('submit') for fake in fakes) == 1
 
 
-def test_third_actual_remedy_rejects_before_new_reservation(t186_driver):
+def test_two_actual_presubmit_failures_reject_before_another_attempt(t186_driver):
     from ag import attempt, autonomy
     from ag.transport import TransportError
     cfg, path, manifest, context, at, policy = t186_driver
     source = Path(cfg['local']['studies_root']).parent / 'water.gjf'
-    for index in range(3):
+    for index in range(2):
         if index:
             manifest = attempt.prepare(cfg, study_name='smoke', template='gaussian', input_path=source,
                 tier='simple', walltime='00:30:00', label='retry' + str(index),
@@ -967,29 +1347,28 @@ def test_third_actual_remedy_rejects_before_new_reservation(t186_driver):
         fake.fail = 'create_attempt'
         with pytest.raises(TransportError):
             submit.submit(cfg, [path.name], fake, autonomous=context)
-        row = autonomy.status(cfg, 'smoke')['state']['submissions'][path.name]
+        current = autonomy.status(cfg, 'smoke')['state']
+        row = current['submissions'][path.name]
         assert row['failure_class'] == (None if index == 0 else 'presubmit')
         assert row['aborted_before_dispatch'] is not None
         assert 'submit' not in fake.operations()
+        assert current['phase'] == ('running' if index == 0 else 'paused')
         at[0] += 1
-        autonomy.change(cfg, 'smoke', 'resume', context['run_id'], context['token'],
-                        reason='Synthetic explicit resume')
-    manifest = attempt.prepare(cfg, study_name='smoke', template='gaussian', input_path=source,
-        tier='simple', walltime='00:30:00', label='retry3', method_basis='Synthetic fixture', autonomous=context)
-    path = attempt.find(cfg, manifest['attempt_id'])
+        finished = autonomy.change(cfg, 'smoke', 'finish', context['run_id'], context['token'], reason='Synthetic wake finish')
+        run = autonomy.start(cfg, 'smoke', finished['state']['current_plan'], 'fixture-next-wake')
+        context.update(run_id=run['run_id'], token=run['token'])
+    autonomy.change(cfg, 'smoke', 'resume', context['run_id'], context['token'], reason='Synthetic explicit resume')
     registry = Path.home() / '.config/ag/autonomy-reservations'
     before = tree(registry)
-    fake = Fake(cfg)
-    with pytest.raises(ValueError, match='two remedies'):
-        submit.submit(cfg, [path.name], fake, autonomous=context)
-    assert not (path / '.submit-claim').exists()
-    assert not (path / 'submission-summary.json').exists()
-    assert not {'create_attempt', 'upload', 'submit'} & set(fake.operations())
+    attempts_before = sorted(item.name for item in path.parent.iterdir())
+    with pytest.raises(autonomy.ObjectRefused, match='two actual presubmit failures'):
+        attempt.prepare(cfg, study_name='smoke', template='gaussian', input_path=source,
+            tier='simple', walltime='00:30:00', label='retry3', method_basis='Synthetic fixture', autonomous=context)
+    assert sorted(item.name for item in path.parent.iterdir()) == attempts_before
     assert tree(registry) == before
-    assert path.name not in autonomy.status(cfg, 'smoke')['state']['submissions']
     with autonomy_submission.machine_lock(create=False):
         evidence = autonomy_submission.read_reservations(cfg)
-    assert len(evidence['records']) == 3
+    assert len(evidence['records']) == 2
     assert evidence['placements'] == []
 
 
@@ -1368,10 +1747,11 @@ def test_walltime_uses_exact_terminal_accounting_not_model_or_log_hint(scientifi
 
 
 def test_walltime_words_in_completed_pbs_output_do_not_authorize_retry(scientific_review_case):
+    from ag import autonomy
     cfg, path, manifest, arguments, parsed, clock = scientific_review_case()
     (path / 'outputs/job.pbs.out').write_text('Synthetic walltime limit exceeded hint\n')
     current = autonomy_submission._load_state(path.parent.parent, {})
-    with pytest.raises(ValueError, match='immutable scientific review'):
+    with pytest.raises(autonomy.ObjectRefused, match='immutable scientific review'):
         autonomy_submission.remedy_evidence(cfg, current, 'water')
 
 

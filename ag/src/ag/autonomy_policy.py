@@ -308,7 +308,8 @@ def _convergence(route, method, *, template='gaussian'):
     if 'opt' in opts:
         options = opts['opt']
         flags = {'normal', 'tight', 'verytight', 'calcfc', 'calcall', 'readfc', 'rcfc',
-                 'ts', 'qst2', 'qst3', 'noeigentest', 'cartesian', 'modredundant'}
+                 'ts', 'qst2', 'qst3', 'noeigentest', 'cartesian', 'modredundant',
+                 'gdiis', 'gediis', 'rfo', 'notrust'}
         for option in options:
             require(option in flags or re.fullmatch(r'(?:maxcycles|maxcycle|maxstep|recalcfc)=[1-9][0-9]*', option),
                     'Unsupported or relaxed Opt option')
@@ -325,8 +326,10 @@ def _convergence(route, method, *, template='gaussian'):
         if re.fullmatch(r'(?:conver|convergence)=[0-9]+', option):
             explicit.append(int(option.split('=')[1]))
         else:
-            require(option in {'xqc', 'qc', 'yqc', 'tight', 'verytight', 'novaracc', 'fermi'}
-                    or re.fullmatch(r'(?:maxcycle|maxcycles)=[1-9][0-9]*', option),
+            require(option in {'xqc', 'qc', 'yqc', 'tight', 'verytight', 'novaracc', 'fermi',
+                               'noincfock', 'damp', 'nodiis'}
+                    or re.fullmatch(r'(?:maxcycle|maxcycles)=[1-9][0-9]*', option)
+                    or re.fullmatch(r'vshift=[0-9]+', option),
                     'Unsupported or relaxed SCF option')
     require(len(explicit) <= 1, 'Ambiguous SCF convergence')
     # Do not assert that an absent setting equals an explicit tighter floor.
@@ -388,6 +391,7 @@ def check_attempt(cfg, path, policy):
                      scf_convergence=max(m['scf_convergence'] for m in methods))
         for section in sections:
             _, options = _route(section['route'])
+            require('stable' not in options, 'Stable is outside the autonomous method policy')
             # General basis/ECP and additional-section semantics remain
             # unverified. The explicit input exception cannot relax convergence
             # in any Link1 section, including a model-labelled preliminary one.
