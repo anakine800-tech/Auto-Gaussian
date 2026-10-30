@@ -53,8 +53,14 @@ def observation_context(args, path, *, action):
             # flight. A study with no autonomy therefore retains its ordinary
             # observation API; an existing autonomy store shares cancel's fence.
             if (path.parent.parent / 'autonomy').exists():
-                yield {'publication': lambda: autonomy.manual_publication_guard(
-                    args.config, path.parent.parent.name)}
+                @contextmanager
+                def publication():
+                    with autonomy.manual_publication_guard(args.config, path.parent.parent.name) as current:
+                        # Automatic facts distinguishes explicit ownership from
+                        # this registered manual writer; retain the same fence.
+                        # Status still needs the state for bound observations.
+                        yield None if action == 'fetch' else current
+                yield {'publication': publication}
             else:
                 yield None
 

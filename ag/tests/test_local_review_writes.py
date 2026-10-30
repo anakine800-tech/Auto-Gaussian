@@ -419,3 +419,52 @@ def test_cli_fetch_automatic_facts_rechecks_native_guard_state(
     else:
         assert json.loads(output.out)['facts']['status'] == 'written'
         assert (path / 'facts.json').is_file()
+
+
+@pytest.mark.parametrize('lifecycle', ['initialized', 'paused', 'ended'])
+def test_cli_manual_fetch_automatic_facts_keeps_manual_publication_fence(
+        env, cfg, prepared, monkeypatch, capsys, lifecycle):
+    from ag import transport
+    from test_core import finish
+    from test_fetch import ReadOnlyFake
+    path, _ = prepared
+    root = path.parent.parent
+    finish(path)
+    ctx = cfg, root, env[2]
+    if lifecycle == 'initialized':
+        autonomy.initialize(cfg, root.name)
+    else:
+        plan, run = running(ctx)
+        autonomy.pause(cfg, root.name, 'Synthetic manual fetch pause')
+        change(ctx, run, 'finish', reason='Synthetic release for manual fetch')
+        if lifecycle == 'ended':
+            autonomy.change(cfg, root.name, 'end', None, None,
+                round_id=run['state']['current_round'], reason='Synthetic ended round')
+    fake = ReadOnlyFake({'water.log': synthetic_log().encode(), 'job.pbs.out': b''})
+    monkeypatch.setattr(cli, 'load_config', lambda: cfg)
+    monkeypatch.setattr(transport, 'SSHTransport', lambda *a, **kw: fake)
+    original_guard = autonomy.manual_publication_guard
+    held = [False]
+    @contextmanager
+    def guard(*a, **kw):
+        with original_guard(*a, **kw) as current:
+            assert isinstance(current, dict) and current['lease'] is None
+            held[0] = True
+            try:
+                yield current
+            finally:
+                held[0] = False
+    monkeypatch.setattr(autonomy, 'manual_publication_guard', guard)
+    original_check = facts._publication_unchanged
+    checked_under_guard = []
+    def checked(proof):
+        original_check(proof)
+        if held[0]:
+            checked_under_guard.append(proof[0].name)
+    monkeypatch.setattr(facts, '_publication_unchanged', checked)
+    code = cli.main(['fetch', path.name, '--json'])
+    result = json.loads(capsys.readouterr().out)
+    assert code == 0, result
+    assert checked_under_guard and result['facts']['status'] == 'written'
+    assert (path / 'facts.json').is_file() and (path / 'final.xyz').is_file()
+    assert all(row['state'] == 'completed' for row in autonomy.manual_writers(cfg, root.name)['writers'])

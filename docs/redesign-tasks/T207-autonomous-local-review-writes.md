@@ -19,6 +19,8 @@ main `807b1e27b15fa4dc1a81011b010e801608310900`。
 沿用分支 `codex/t207-autonomous-local-review-writes`，PR #386 以 main 为 base。
 不复制未合并的 T206/T188；T206 共享 guard 的已确认 state-dict 接口保持不变。
 测试文件尾部冲突保留 main 的新回归，仅补回 T207 模式报告测试，不恢复旧 T187 改投测试。
+main 新增人工发布 guard 的 state 返回值需在人工 fetch 接线处区分，保留原锁与 writer 登记，
+避免自动 facts 将无租约的人工状态误作自主 owner；初始化、暂停、结束三种 CLI 场景均有回归。
 
 ## 实现边界
 

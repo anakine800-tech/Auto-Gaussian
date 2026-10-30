@@ -549,6 +549,8 @@ T207 为独立 `facts`、`review init`、`review manifest`、`mode-review` 增�
 fetch 自动 facts 继续使用原 guard 与 `build_facts` 发布接口；scientific-review
 继续独立核对实际提交归属及 mode/位移文件来源，结果标为待人确认。T207 不新增
 科学签字、自动刷新或任意文件写入口；不改变科学算法、阈值或自主运行启用前提。
+人工 fetch 在现有 writer 登记与 `manual_publication_guard` 内向自动 facts 传递人工上下文，
+不把无租约的 state 字典误作自主 owner；status 仍保留它需要的状态，公共 guard 返回格式不变。
 
 签字前运行 `ag review manifest --study <dir>`；它无需配置或网络，独占创建
 `analyses/review-manifest-<UTC时间>.json`。清单包含 study.md、全部 facts.json/review.md，
