@@ -1,6 +1,8 @@
 # Auto-Gaussian CLI
 
 `ag/` 是独立 Python 项目，负责安全的作业生命周期和确定性本地工具。
+当前候选版本为 **4.7.1（发布准备）**，配套前端同号；版本与范围见 [CHANGELOG](../CHANGELOG.md#v471发布准备)。
+**自主运行尚未启用**：T184 仅提供本地记录，研究会话不得据此尝试自主提交、取消或改投。普通人工工作流保持；发布准备不代表已发布或部署。
 按[根目录安装步骤](../README.md#安装)为当前 worktree 创建独立 `.venv`，
 从仓库根目录在 Python 3.11+ 环境运行 `python -m pip install -e 'ag[test,chem]' 'rdkit==2026.3.3'`，
 然后用 `ag --version` 和 `ag --help` 检查安装。
