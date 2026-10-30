@@ -934,9 +934,11 @@ def select_legacy(cfg, snapshots, *, template, job_class, walltime, study_key, s
     if parent_cluster is not None and name != parent_cluster:
         result['reason'] = 'parent_cluster_binding'
         return result
-    # Reject unknown earlier entries rather than changing their established
-    # priority using a second, reservation-specific routing algorithm.
-    relevant = [n for n in (advice['order'] or [])
+    # Check the recommendation and earlier entries in suggest's own order.
+    # A lower-priority failure must not veto a verified recommendation; usage
+    # still receives all snapshots and records for shared-account accounting.
+    order = advice['order']
+    relevant = [n for n in order[:order.index(name) + 1]
                 if _enabled(select_cluster(cfg, n), template)
                 and tier in select_cluster(cfg, n)['resources']['tiers']]
     if any(not _ladder_snapshot(cfg, n, snapshots.get(n), now) for n in relevant):

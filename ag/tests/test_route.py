@@ -17,6 +17,13 @@ from test_core import cfg, INPUT, write_config
 NOW = datetime(2026, 10, 24, tzinfo=timezone.utc)
 
 
+@pytest.fixture(autouse=True)
+def isolated_machine_home(tmp_path, monkeypatch):
+    home = tmp_path / 'home'
+    home.mkdir()
+    monkeypatch.setattr(Path, 'home', lambda: home)
+
+
 @pytest.fixture
 def routed(cfg):
     entry = {k: deepcopy(v) for k, v in cfg.items() if k not in ('local', '_config_dir')}
@@ -918,6 +925,170 @@ def test_legacy_autonomous_keeps_existing_order_tier_and_replay(routed, template
         autonomy_submission.verify_selection(routed, damaged)
 
 
+@pytest.mark.parametrize('template', ['crest', 'xtb'])
+@pytest.mark.parametrize('damage', ['stale', 'failed', 'missing', 'missing-jobs'])
+@pytest.mark.parametrize('position', [0, 1])
+@pytest.mark.parametrize('study_order', [False, True])
+def test_legacy_lower_unknown_preserves_existing_recommendation(
+        routed, template, damage, position, study_order):
+    order = routed['routing']['crest']
+    if study_order:
+        order = list(reversed(order))
+        routed['routing']['studies'] = {'water': {'crest': order}}
+    snapshots = {name: snapshot(routed, name) for name in routed['clusters']}
+    for name in order[:position]:
+        snapshots[name] = snapshot(routed, name, idle=0)
+    lower = order[position + 1]
+    if damage == 'stale':
+        snapshots[lower]['sampled_at'] = (NOW - timedelta(minutes=4)).isoformat()
+    elif damage == 'failed':
+        snapshots[lower]['ok'] = False
+    elif damage == 'missing':
+        del snapshots[lower]
+    else:
+        del snapshots[lower]['own']['jobs']
+    before = deepcopy((routed, snapshots))
+    advice = route.suggest(routed, template, 'general', 'water', walltime='00:30:00',
+                           now=NOW, captured_snapshots=snapshots)
+    assert advice['recommendation']['name'] == order[position]
+    result = route.select_legacy(routed, snapshots, **legacy_request(template=template),
+                                placements=[], wakeups=[], now=NOW)
+    assert result['reason'] == 'selected'
+    assert result['recommendation']['cluster'] == advice['recommendation']['name']
+    assert result['recommendation']['needs_queue'] == advice['recommendation']['needs_queue']
+    assert result['candidates'] == advice['clusters']
+    assert (routed, snapshots) == before
+
+
+@pytest.mark.parametrize('template', ['crest', 'xtb'])
+@pytest.mark.parametrize('damage', ['stale', 'failed', 'missing', 'missing-jobs'])
+@pytest.mark.parametrize('earlier', [False, True])
+def test_legacy_recommendation_and_earlier_unknown_still_refused(routed, template, damage, earlier):
+    snapshots = {name: snapshot(routed, name, idle=0) for name in routed['clusters']}
+    if earlier:
+        snapshots['default'] = snapshot(routed, 'default')
+    if damage == 'stale':
+        snapshots['scnet-test']['sampled_at'] = (NOW - timedelta(minutes=4)).isoformat()
+    elif damage == 'failed':
+        snapshots['scnet-test']['ok'] = False
+    elif damage == 'missing':
+        del snapshots['scnet-test']
+    else:
+        del snapshots['scnet-test']['own']['jobs']
+    result = route.select_legacy(routed, snapshots, **legacy_request(template=template),
+                                placements=[], wakeups=[], now=NOW)
+    assert result['recommendation'] is None
+    assert result['reason'] == ('account_or_reservation_evidence_unknown' if damage == 'missing-jobs'
+        else 'snapshot_missing_failed_or_stale' if earlier else 'legacy_recommendation_capacity_unknown')
+
+
+@pytest.mark.parametrize('template', ['crest', 'xtb'])
+@pytest.mark.parametrize('exclusion', ['disabled', 'unsupported-tier'])
+def test_legacy_irrelevant_earlier_unknown_does_not_block(routed, template, exclusion):
+    entry = routed['clusters']['scnet-test']
+    if exclusion == 'disabled':
+        entry['allowed_templates'] = []
+    else:
+        del entry['resources']['tiers']['general']
+    snapshots = {name: snapshot(routed, name) for name in routed['clusters'] if name != 'scnet-test'}
+    result = route.select_legacy(routed, snapshots, **legacy_request(template=template),
+                                placements=[], wakeups=[], now=NOW)
+    assert result['recommendation']['cluster'] == 'default'
+
+
+@pytest.mark.parametrize('template', ['crest', 'xtb'])
+@pytest.mark.parametrize('cap', ['max_committed_cores', 'max_queued_cores'])
+@pytest.mark.parametrize('cores', [66, 67])
+def test_legacy_lower_shared_alias_keeps_reservations_and_minimum_caps(routed, template, cap, cores):
+    routed['routing']['crest'] = ['scnet-test', 'scnet', 'default']
+    for name in ('scnet-test', 'scnet'):
+        routed['clusters'][name]['resources']['max_committed_cores'] = 200
+    routed['clusters']['scnet']['resources'][cap] = 88
+    snapshots = {'scnet-test': snapshot(routed, 'scnet-test')}
+    held = legacy_placement(cluster='scnet', cores=cores, state='unknown')
+    result = route.select_legacy(routed, snapshots, **legacy_request(template=template),
+                                placements=[held], wakeups=[], now=NOW)
+    assert result['reason'] == ('selected' if cores == 66 else 'account_or_queue_core_limit')
+    if cores == 66:
+        assert result['recommendation']['cluster'] == 'scnet-test'
+    else:
+        assert result['recommendation'] is None
+
+
+@pytest.mark.parametrize('template', ['crest', 'xtb'])
+@pytest.mark.parametrize('damage', ['missing-jobs', 'conflicting-usage', 'wrong-job-name'])
+def test_legacy_lower_shared_alias_still_checks_account_evidence(routed, template, damage):
+    routed['routing']['crest'] = ['scnet-test', 'scnet']
+    snapshots = {name: snapshot(routed, name) for name in routed['clusters']}
+    held = []
+    if damage == 'missing-jobs':
+        del snapshots['scnet']['own']['jobs']
+    elif damage == 'conflicting-usage':
+        snapshots['scnet'] = snapshot(routed, 'scnet', running=8)
+    else:
+        held = [legacy_placement(cluster='scnet', state='running', job_id='123')]
+        for name in ('scnet', 'scnet-test'):
+            snapshots[name]['own']['jobs'] = [dict(job_id='123', name='different-job', state='RUNNING')]
+    result = route.select_legacy(routed, snapshots, **legacy_request(template=template),
+                                placements=held, wakeups=[], now=NOW)
+    assert result['recommendation'] is None
+    assert result['reason'] == 'account_or_reservation_evidence_unknown'
+
+
+@pytest.mark.parametrize('template', ['crest', 'xtb'])
+@pytest.mark.parametrize('count', [1, 2])
+def test_legacy_lower_missing_still_counts_global_queue_slots(routed, template, count):
+    snapshots = {'scnet-test': snapshot(routed, 'scnet-test', idle=0)}
+    held = [legacy_placement(cluster=name, study_key=str(i + 1) * 64,
+            attempt_id=f'older-{i}', scheduler_job_name=f'older-{i}')
+            for i, name in enumerate(('default', 'newhpc')[:count])]
+    result = route.select_legacy(routed, snapshots, **legacy_request(template=template),
+                                placements=held, wakeups=[], now=NOW)
+    assert result['reason'] == ('selected' if count == 1 else 'global_queue_limit')
+    if count == 1:
+        assert result['recommendation']['cluster'] == 'scnet-test'
+        assert result['recommendation']['needs_queue'] is True
+    else:
+        assert result['recommendation'] is None
+
+
+@pytest.mark.parametrize('template', ['crest', 'xtb'])
+@pytest.mark.parametrize('binding', ['parent', 'same-run', 'same-round'])
+def test_legacy_lower_missing_preserves_parent_and_object_binding(routed, template, binding):
+    snapshots = {'scnet-test': snapshot(routed, 'scnet-test')}
+    request = legacy_request(template=template)
+    held = []
+    if binding == 'parent':
+        request['parent_cluster'] = 'default'
+        reason = 'parent_cluster_binding'
+    else:
+        held = [legacy_placement(cluster='scnet', study_key=request['study_key'],
+            study_id=request['study_id'], round_id=request['round_id'], object_id=request['object_id'],
+            run_id=request['run_id'] if binding == 'same-run' else 'older-run')]
+        reason = 'object_already_placed_in_run' if binding == 'same-run' else 'object_already_active_in_round'
+    result = route.select_legacy(routed, snapshots, **request, placements=held, wakeups=[], now=NOW)
+    assert result['recommendation'] is None and result['reason'] == reason
+
+
+@pytest.mark.parametrize('template', ['crest', 'xtb'])
+@pytest.mark.parametrize('condition', ['no-order', 'empty-order', 'disabled', 'unsupported-tier'])
+def test_legacy_no_recommendation_behavior_unchanged(routed, template, condition):
+    if condition == 'no-order':
+        del routed['routing']['crest']
+    elif condition == 'empty-order':
+        routed['routing']['crest'] = []
+    else:
+        for entry in routed['clusters'].values():
+            if condition == 'disabled':
+                entry['allowed_templates'] = []
+            else:
+                del entry['resources']['tiers']['general']
+    snapshots = {name: snapshot(routed, name) for name in routed['clusters']}
+    result = route.select_legacy(routed, snapshots, **legacy_request(template=template),
+                                placements=[], wakeups=[], now=NOW)
+    assert result['recommendation'] is None and result['reason'] == 'legacy_route_has_no_recommendation'
+
+
 @requires_ladder
 def test_legacy_autonomous_does_not_invent_fallback_after_reservation(routed):
     snapshots = {name: snapshot(routed, name) for name in routed['clusters']}
@@ -975,13 +1146,16 @@ def test_legacy_autonomous_global_queue_and_root_identity(routed):
 @requires_ladder
 @pytest.mark.parametrize('template', ['crest', 'xtb'])
 @pytest.mark.parametrize('count', [3, 4])
-def test_legacy_shared_account_job_ceiling_includes_old_unobserved_work(routed, template, count):
+@pytest.mark.parametrize('lower_missing', [False, True])
+def test_legacy_shared_account_job_ceiling_includes_old_unobserved_work(routed, template, count, lower_missing):
     # The Gaussian ladder's account cap applies to CREST/xTB without changing
     # their established recommendation order. No template filter may hide old
     # Gaussian/CREST/xTB/Multiwfn consumption in the common placement registry.
     routed['routing']['ladder'] = [dict(id='scnet-cap', cluster='scnet', tier='general',
         classes=['main', 'small'], condition='jobs', max_jobs=4, max_placements=1)]
     snapshots = {name: snapshot(routed, name) for name in routed['clusters']}
+    if lower_missing:
+        snapshots = {'scnet-test': snapshots['scnet-test']}
     placements = [legacy_placement(cluster=('scnet' if i % 2 else 'scnet-test'),
         study_key=str(i + 1) * 64, record_sha256=str(i + 1) * 64,
         attempt_id=f'older-{i}', scheduler_job_name=f'older-{i}',
