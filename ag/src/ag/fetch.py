@@ -287,12 +287,9 @@ def _end_evidence(cfg, path, manifest, current, transport):
         if status.read_receipt(cfg, manifest, transport, 'ag-exit.json', job) is not None:
             raise ValueError('Exit receipt exists; use ordinary status/fetch')
     if manifest.get('scheduler') == 'slurm':
-        from ag.autonomy_submission import bound_scheduler_cluster
-        target = bound_scheduler_cluster(path)
-        query_options = {} if target is None else {'scheduler_cluster': target}
         username = require_ok(transport.run(remote.identity()), 'identity').strip()
         remote.slurm_token(username)
-        result = transport.run(remote.slurm_jobs(job, **query_options))
+        result = transport.run(remote.slurm_jobs(job))
         # Match status: a purged exact job may produce this diagnostic instead
         # of an empty queue. Only sacct below can establish terminal evidence.
         if result.returncode and result.returncode != 255 and 'Invalid job id specified' in result.stderr:
@@ -301,14 +298,12 @@ def _end_evidence(cfg, path, manifest, current, transport):
             active = slurm.parse_queue(require_ok(result, 'squeue exact job'))
         if active:
             raise ValueError('Job still present in squeue; incomplete fetch refused')
-        raw = require_ok(transport.run(remote.slurm_accounting(job, **query_options)), 'sacct exact job')
+        raw = require_ok(transport.run(remote.slurm_accounting(job)), 'sacct exact job')
         rows = slurm.parse_accounting(raw, job, name=manifest['attempt_id'], username=username)
         if len(rows) != 1 or rows[0]['state'] not in {
                 'TIMEOUT', 'CANCELLED', 'FAILED', 'OUT_OF_MEMORY', 'NODE_FAIL', 'COMPLETED'}:
             raise ValueError('Incomplete fetch requires a supported sacct terminal state')
         evidence = dict(scheduler='slurm', at=time.time(), queue_absent=True, accounting=rows[0])
-        if target is not None:
-            evidence['scheduler_cluster'] = target
         return evidence
     observations = current.get('incomplete_observations', [])
     if len(observations) != 2:

@@ -16,12 +16,11 @@ def autonomous_args(args):
               'policy_name': 'autonomous_policy', 'object_id': 'object_id', 'job_class': 'job_class'}
     values = {key: getattr(args, option, None) for key, option in fields.items()}
     failure = getattr(args, 'failure_class', None)
-    reroute = getattr(args, 'reroute_source', None)
-    if not any(value is not None for value in values.values()) and failure is None and reroute is None:
+    if not any(value is not None for value in values.values()) and failure is None:
         return None
     if any(value is None for value in values.values()):
         raise ValueError('Autonomous actions require policy, run, token, plan SHA, object and class together')
-    return dict(values, failure_class=failure, reroute_source=reroute)
+    return dict(values, failure_class=failure)
 
 
 @contextmanager
@@ -210,7 +209,6 @@ def register(subparsers):
             p.add_argument('--object-id', help='Object within the confirmed plan scope')
             p.add_argument('--job-class', choices=('main', 'small'))
             p.add_argument('--failure-class', help='Confirmed failure class for a bounded remedy')
-            p.add_argument('--reroute-source', help='Exact stopped queued Attempt for its single reroute successor')
         if name in ('status', 'snapshot', 'fetch'):
             p.add_argument('--run', help='Current autonomous observation wake')
             p.add_argument('--token', help='Current observation lease token')

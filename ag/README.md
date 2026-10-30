@@ -384,7 +384,7 @@ study 内符号链接、歧义、非法显式路径、空分析目录、收集�
 `ag autonomy` 在已有 study 的 `autonomy/` 内保存计划、运行租约和日志，
 只加载本地配置，不连接集群或运行量化程序；`scientific-review` 另在原 Attempt
 保存待人确认的来源记录，不改 facts、签字或 `study.md`。T186 已接入开发中的
-自主 prepare/submit，取消与改投需组合 T187；计划确认和资格检查本身不能启用
+自主 prepare/submit 和已结束失败的有界补救；自主取消、改投及其后继关闭。计划确认和资格检查本身不能启用
 自主计算。所有子命令默认输出 JSON，接受 `--json`。
 
 组合 T185 后，可在创建计划前读取当前本地路由配置身份：
@@ -504,10 +504,12 @@ ag autonomy count --study '<STUDY>' --run '<RUN_ID>' --token '<TOKEN>' --kind re
 本命令不运行全机审计，JSON 仍明示 `submission_counts_verified: false`；
 不能把人工增加意图计数或本地状态显示当作实际提交或取消许可。
 
-与 T187 组合后，无进展取消的补救必须有正式停止及完整/不完整取回证据，固定为
-`no-progress` 失败类别。独立改投使用 prepare/submit 的 `--reroute-source`，
-核验原排队作业的停止记录、同对象和一次谱系，并重新核对资源、科学输入与真实预算。
-当前改投只接已审阅的 T185 阶梯评估；CREST/xTB 保留原建议顺序，尚无对应改投评估入口。
+本版提交不依赖 T187。已证实结束失败的作业可在同一计划内新建 Attempt 补救，
+同对象同失败最多两次；UNKNOWN、仍运行和取消来源不能作为普通失败补救。
+自主取消、取消停止证明、改投及其后继入口关闭，`--reroute-source` 不再提供。
+需要取消或改投时，唯一 owner 用上述 `update` 保存“需要你看”和原因，保留其他分支，
+summary 第一行提醒负责人在 Mac 上亲手确认取消；自主会话不执行取消命令。
+旧 `count/check` 的取消/改投意图只供历史记录，不能赋予执行权限。
 具体接口和验证边界见[开发手册](../docs/DEVELOPING.md#自主运行的实现边界)。
 
 文件均位于 study 的 `autonomy/`：`plan-<PLAN_ID>.json` 为不可变计划；`journal.jsonl` 为追加事件；

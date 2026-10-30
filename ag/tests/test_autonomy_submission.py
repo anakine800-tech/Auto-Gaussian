@@ -1412,172 +1412,6 @@ def test_scientific_review_checks_unique_latest_consumption_before_publication(
         assert not (path / 'autonomy-scientific-review.json').exists()
 
 
-@pytest.fixture
-def slurm_probe_case(cfg, selector, tmp_path, monkeypatch):
-    from ag import attempt, autonomy, remote, status, study
-    from test_core import INPUT
-    if not hasattr(status, 'slurm_submission_probe'):
-        pytest.skip('Requires the actual T187 Slurm submission probe integration')
-    cfg.update(scheduler='slurm', partition='fixture')
-    study.init(cfg, 'smoke')
-    source = tmp_path / 'water.gjf'
-    source.write_text(INPUT)
-    manifest = attempt.prepare(cfg, study_name='smoke', template='gaussian', input_path=source,
-        tier='simple', walltime='00:30:00', label='sp', method_basis='Synthetic probe fixture')
-    path = attempt.find(cfg, manifest['attempt_id'])
-    monkeypatch.setattr(status.time, 'time', lambda: 1000.25)
-    monkeypatch.setattr(autonomy, 'now', lambda: 1001.0)
-    current = dict(current_round='round-one', current_plan='plan-one',
-        plans={'plan-one': {'sha256': 'a' * 64, 'confirmation': {'quote': 'Synthetic confirmation'}}},
-        runs={'run-one': {'round_id': 'round-one', 'plan_id': 'plan-one', 'started_at': 1000}},
-        rounds={'round-one': {}}, submissions={})
-    def collect(*, version='26.05.5', unavailable=None):
-        class ProbeTransport:
-            def __init__(self):
-                self.cfg, self.calls = cfg, []
-            def run(self, command):
-                expected = [remote.slurm_evidence_config(), remote.slurm_evidence_version('scontrol'),
-                            remote.slurm_evidence_version('sacct')]
-                if hasattr(remote, 'slurm_submit_bound'):
-                    expected.extend(remote.slurm_evidence_version(program) for program in ('sbatch', 'scancel'))
-                assert command == expected[len(self.calls)]
-                self.calls.append(command)
-                if len(self.calls) == 1:
-                    if unavailable == 'config_tool_missing':
-                        return Result(127, stderr='env: scontrol: No such file or directory\n')
-                    if unavailable == 'config_option_unsupported':
-                        return Result(1, stderr="scontrol: unrecognized option '--local'\n")
-                    return Result(stdout='ClusterName = actual-fixture\nSLURM_VERSION = 26.05.5\n')
-                if len(self.calls) == 3 and unavailable == 'client_tool_missing':
-                    return Result(127, stderr='env: sacct: No such file or directory\n')
-                return Result(stdout='slurm ' + version + '\n')
-        return status.slurm_submission_probe(cfg, path, ProbeTransport())
-    def context(probe):
-        return reservation_context(cfg, path, selector[0], slurm_probe=probe)
-    def write(probe):
-        import os
-        from ag import _autonomy_store as disk
-        from ag.locks import claim
-        saved = autonomy_submission.write_reservation(cfg, path, context(probe), verified_state=current)
-        descriptor = disk.directory(path)
-        try:
-            disk.Store(descriptor).exclusive('slurm-origin-probe.json', disk.encode(probe['record']))
-        finally:
-            os.close(descriptor)
-        claim(path / '.submit-claim')
-        approval.archive(path, saved['authorization'], saved['record']['summary'])
-        current['submissions'][path.name] = {**saved['consume'], 'plan_id': 'plan-one', 'at': 1001.0,
-                                           'dispatch_started': None, 'aborted_before_dispatch': None}
-        return saved
-    return cfg, path, current, collect, context, write
-
-
-@pytest.mark.parametrize('version,unavailable', [
-    ('26.05.5', None), ('24.05.0', None), ('26.05.5-vendor', None),
-    ('26.05.5', 'client_tool_missing'), ('26.05.5', 'config_tool_missing'),
-    ('26.05.5', 'config_option_unsupported'),
-])
-def test_slurm_probe_original_envelope_is_consumed_without_origin_authority(slurm_probe_case, version, unavailable):
-    cfg, path, current, collect, context, write = slurm_probe_case
-    probe = collect(version=version, unavailable=unavailable)
-    before = tree(path)
-    assert not (path / 'slurm-origin-probe.json').exists()
-    saved = write(probe)
-    assert saved['record']['slurm_probe'] == probe
-    from ag import _autonomy_store as disk
-    assert (path / 'slurm-origin-probe.json').read_bytes() == disk.encode(probe['record'])
-    verified = autonomy_submission.verified_reservation(path, verified_state=current)
-    assert set(verified) == {'record', 'sha256'}
-    assert verified['record'] == saved['record'] and verified['sha256'] == saved['sha256']
-    assert verified['record']['slurm_probe']['record']['origin_available'] is False
-    assert verified['record']['slurm_probe']['record']['reroute_authorized'] is False
-    assert not any(key in verified for key in ('authorized', 'permit', 'eligible'))
-    assert all((path / name).read_bytes() == data for name, data in before.items())
-    assert autonomy_submission.read_reservations(cfg, states=supplied(path, current))['placements'][0]['state'] == 'reserved'
-
-
-@pytest.mark.parametrize('damage', ['hash', 'binding', 'actual_cluster', 'response_hash', 'query_command',
-    'query_time', 'outside_run', 'future', 'ssh_error', 'error_record', 'version', 'format', 'origin', 'extra'])
-def test_slurm_probe_invalid_evidence_refuses_before_registration(slurm_probe_case, damage):
-    from hashlib import sha256
-    from ag import _autonomy_store as disk
-    cfg, path, current, collect, context, write = slurm_probe_case
-    probe = collect()
-    record = probe['record']
-    if damage == 'hash':
-        probe['sha256'] = 'f' * 64
-    elif damage == 'binding':
-        record['binding']['bundle_sha256'] = 'f' * 64
-    elif damage == 'actual_cluster':
-        record['scheduler_cluster'] = 'other-fixture'
-    elif damage == 'response_hash':
-        record['queries'][0]['stdout_sha256'] = 'f' * 64
-    elif damage == 'query_command':
-        record['queries'][0]['command'] = 'invented command'
-    elif damage == 'query_time':
-        record['queries'][1]['started_at'] = 999.0
-    elif damage == 'outside_run':
-        current['runs']['run-one']['started_at'] = 1000.5
-    elif damage == 'future':
-        record['capture_finished_at'] = 1002.0
-    elif damage == 'ssh_error':
-        record['queries'][2]['returncode'] = 255
-    elif damage == 'error_record':
-        record['error_type'] = 'ValueError'
-    elif damage == 'version':
-        record['versions']['sacct']['parsed'] = '24.05.0'
-    elif damage == 'format':
-        record['format_candidate'] = False
-    elif damage == 'origin':
-        record['origin_available'] = True
-    else:
-        record['invented'] = True
-    if damage != 'hash':
-        probe['sha256'] = sha256(disk.encode(record)).hexdigest()
-    with pytest.raises(ValueError):
-        autonomy_submission.write_reservation(cfg, path, context(probe), verified_state=current)
-    assert not (path / '.submit-claim').exists()
-    assert not (Path.home() / '.config/ag/autonomy-reservations').exists()
-
-
-@pytest.mark.parametrize('damage', ['global_record', 'consumption', 'summary', 'inputs', 'registration',
-                                  'probe_missing', 'probe_changed', 'probe_symlink'])
-def test_verified_reservation_rejects_missing_or_changed_ownership(slurm_probe_case, damage):
-    cfg, path, current, collect, context, write = slurm_probe_case
-    saved = write(collect())
-    if damage == 'global_record':
-        reservation_path(saved).unlink()
-    elif damage == 'consumption':
-        current['submissions'][path.name]['ownership_sha256'] = 'f' * 64
-    elif damage == 'summary':
-        (path / 'submission-summary.json').write_text('{}')
-    elif damage == 'inputs':
-        (path / 'inputs/water.gjf').write_text('changed frozen bytes')
-    elif damage == 'registration':
-        key = saved['record']['study_key']
-        (Path.home() / '.config/ag/autonomy-studies' / (key + '.json')).unlink()
-    else:
-        target = path / 'slurm-origin-probe.json'
-        raw = target.read_bytes()
-        target.unlink()
-        if damage == 'probe_changed':
-            target.write_bytes(raw + b'\n')
-        elif damage == 'probe_symlink':
-            alternate = path / 'alternate-probe.json'
-            alternate.write_bytes(raw)
-            target.symlink_to(alternate)
-    with pytest.raises((OSError, ValueError)):
-        autonomy_submission.verified_reservation(path, verified_state=current)
-
-
-def test_verified_reservation_preserves_legacy_record_without_probe(cfg, prepared, selector):
-    path, manifest = prepared
-    saved, current = install_owned(cfg, path, selector[0])
-    value = autonomy_submission.verified_reservation(path, verified_state=current)
-    assert value == dict(record=saved['record'], sha256=saved['sha256'])
-    assert 'slurm_probe' not in value['record']
-
-
 @pytest.mark.parametrize('mode', ['success', 'copy-failure', 'lease-expired'])
 def test_parent_checkpoint_journal_has_fresh_publication_guard(t186_driver, monkeypatch, mode):
     from contextlib import contextmanager
@@ -1786,153 +1620,35 @@ def test_initial_remedy_receipt_cannot_ignore_new_history(cfg, prepared, selecto
         autonomy_submission.verify_remedy_evidence(cfg, current, 'water', None)
 
 
+
 @pytest.fixture
-def bound_query_case(slurm_probe_case, monkeypatch):
-    cfg, path, current, collect, context, write = slurm_probe_case
-    def create(*, version='26.05.5', dispatched=True):
-        probe = collect(version=version)
-        if 'bound_submit_format_candidate' not in probe['record']:
-            pytest.skip('Requires T187 bound-submit probe fields')
-        saved = write(probe)
-        if dispatched:
-            current['submissions'][path.name]['dispatch_started'] = {'at': 1001.0}
+def ordinary_slurm_owned_case(cfg, selector, tmp_path, monkeypatch):
+    """Existing ordinary Slurm binding; no version probe or cancellation APIs."""
+    from ag import attempt, study
+    from test_core import INPUT
+    def create():
+        cfg.update(scheduler='slurm', partition='fixture')
+        study.init(cfg, 'smoke')
+        source = tmp_path / 'water.gjf'
+        source.write_text(INPUT)
+        manifest = attempt.prepare(cfg, study_name='smoke', template='gaussian', input_path=source,
+            tier='simple', walltime='00:30:00', label='sp', method_basis='Synthetic ordinary Slurm fixture')
+        path = attempt.find(cfg, manifest['attempt_id'])
+        saved, current = install_owned(cfg, path, selector[0])
+        current['submissions'][path.name]['dispatch_started'] = {'at': 1001.0}
+        monkeypatch.setattr(autonomy_submission, '_load_state', lambda root, supplied: deepcopy(current))
         state.write(path, 'submitting')
-        state.write(path, 'unknown')
-        def load(root, supplied):
-            assert root == path.parent.parent
-            if supplied:
-                assert supplied == {str(root): current}
-            return deepcopy(current)
-        monkeypatch.setattr(autonomy_submission, '_load_state', load)
-        return cfg, path, current, saved, probe
+        return cfg, path, current, saved
     return create
 
-
-@pytest.mark.parametrize('actual', ['unbound', None, 'actual-fixture', 'different-fixture'])
-def test_bound_scheduler_cluster_preserves_known_and_unknown_binding(bound_query_case, actual):
-    cfg, path, current, saved, probe = bound_query_case()
-    if actual != 'unbound':
-        manifest = json.loads((path / 'manifest.json').read_text())
-        submission.record(path, manifest, '123', scheduler_cluster=actual,
-                          authorization=saved['authorization'], autonomy_state=current)
-        state.write(path, 'submitted', job_id='default:123')
-    before = tree(path.parent.parent)
-    if actual in (None, 'different-fixture'):
-        for check in (
-            lambda: autonomy_submission.bound_scheduler_cluster(path),
-            lambda: autonomy_submission.verified_reservation(path, verified_state=current),
-            lambda: autonomy_submission.read_reservations(cfg, states=supplied(path, current)),
-        ):
-            with pytest.raises(ValueError, match='Known scheduler cluster differs'):
-                check()
-    else:
-        assert autonomy_submission.bound_scheduler_cluster(path) == 'actual-fixture'
-    assert tree(path.parent.parent) == before
-    if actual is None:
-        assert json.loads((path / 'submission.json').read_text())['scheduler_cluster'] is None
-
-
-@pytest.mark.parametrize('damage', ['side_false', 'side_missing', 'side_symlink', 'manual_auth', 'global_missing'])
-def test_bound_scheduler_cluster_cannot_downgrade_frozen_target(bound_query_case, damage):
-    from ag import _autonomy_store as disk
-    cfg, path, current, saved, probe = bound_query_case()
-    side = path / 'slurm-origin-probe.json'
-    if damage == 'side_false':
-        value = deepcopy(probe['record'])
-        value['bound_submit_format_candidate'] = False
-        side.write_bytes(disk.encode(value))
-    elif damage == 'side_missing':
-        side.unlink()
-    elif damage == 'side_symlink':
-        raw = side.read_bytes()
-        side.unlink()
-        alternate = path / 'alternate-probe.json'
-        alternate.write_bytes(raw)
-        side.symlink_to(alternate)
-    elif damage == 'manual_auth':
-        target = path / 'submission-summary.json'
-        value = json.loads(target.read_text())
-        value['authorization'] = dict(method='dialog', approval_id=None, policy_name=None, quote=None, rule_sha256=None)
-        target.write_text(json.dumps(value))
-    else:
-        reservation_path(saved).unlink()
-    with pytest.raises((OSError, ValueError)):
-        autonomy_submission.bound_scheduler_cluster(path)
-
-
-@pytest.mark.parametrize('dispatched', [False, True])
-def test_unavailable_bound_target_still_requires_real_dispatch_ownership(bound_query_case, dispatched):
-    cfg, path, current, saved, probe = bound_query_case(version='24.05.0', dispatched=dispatched)
-    if dispatched:
-        assert autonomy_submission.bound_scheduler_cluster(path) is None
-        manifest = json.loads((path / 'manifest.json').read_text())
-        submission.record(path, manifest, '123', scheduler_cluster=None,
-                          authorization=saved['authorization'], autonomy_state=current)
-        state.write(path, 'submitted', job_id='default:123')
-        assert autonomy_submission.read_reservations(cfg, states=supplied(path, current))['placements'][0]['job_id'] == '123'
-    else:
-        with pytest.raises(ValueError, match='recorded dispatch boundary'):
-            autonomy_submission.bound_scheduler_cluster(path)
-
-
-def test_old_manual_queries_keep_default_but_manual_probe_is_rejected(cfg, prepared):
-    path, manifest = prepared
-    assert autonomy_submission.bound_scheduler_cluster(path) is None
-    submit.submit(cfg, [path.name], Fake(cfg), approval_id=authorized(cfg, path))
-    assert autonomy_submission.bound_scheduler_cluster(path) is None
-    (path / 'slurm-origin-probe.json').write_text('{"bound_submit_format_candidate": false}\n')
-    with pytest.raises(ValueError, match='archived autonomous ownership'):
-        autonomy_submission.bound_scheduler_cluster(path)
-
-
-@pytest.mark.parametrize('actual_still_running', [False, True])
-def test_incomplete_fetch_uses_frozen_scheduler_target_for_both_end_checks(
-        bound_query_case, actual_still_running):
-    from ag import fetch, remote
-    from test_incomplete_fetch import IncompleteFake
-    cfg, path, current, saved, _ = bound_query_case()
-    manifest = json.loads((path / 'manifest.json').read_text())
-    submission.record(path, manifest, '123', scheduler_cluster='actual-fixture',
-                      authorization=saved['authorization'], autonomy_state=current)
-    state.write(path, 'submitted', job_id='default:123')
-    state.write(path, 'finished')
-    expected_queue = remote.slurm_jobs('123', scheduler_cluster='actual-fixture')
-    expected_accounting = remote.slurm_accounting('123', scheduler_cluster='actual-fixture')
-
-    class TargetedFake(IncompleteFake):
-        def run(self, command):
-            if command == expected_queue and actual_still_running:
-                self.calls.append(command)
-                return Result(stdout=f"123|{manifest['attempt_id']}|fixture|RUNNING|8|00:01:00|fixture\n")
-            # A default-cluster query sees an unrelated terminal job with the
-            # same numeric ID, name and user. It must never authorize this fetch.
-            return super().run(command)
-
-    fake = TargetedFake(manifest)
-    if actual_still_running:
-        with pytest.raises(ValueError, match='still present in squeue'):
-            fetch.fetch(cfg, path, fake, incomplete=True)
-        assert fake.downloaded == []
-        assert not list(path.glob('fetch-incomplete-*.json'))
-        expected = [expected_queue]
-    else:
-        result = fetch.fetch(cfg, path, fake, incomplete=True)
-        assert result['files'] == ['water.log']
-        assert fetch.incomplete_record(path)[1]['end_evidence']['accounting']['job_id'] == '123'
-        expected = [expected_queue, expected_accounting] * 2
-    queries = [command for command in fake.calls if command.operation in ('slurm_jobs', 'slurm_accounting')]
-    assert queries == expected
-
-
 @pytest.fixture
-def incomplete_remedy_case(bound_query_case, monkeypatch):
+def incomplete_remedy_case(ordinary_slurm_owned_case, monkeypatch):
     from ag import fetch, status
     from test_incomplete_fetch import IncompleteFake
     def create(*, scheduler_state='TIMEOUT', files=None, exit_code=1, exit_signal=9):
-        cfg, path, current, saved, probe = bound_query_case()
+        cfg, path, current, saved = ordinary_slurm_owned_case()
         manifest = json.loads((path / 'manifest.json').read_text())
-        submission.record(path, manifest, '123', scheduler_cluster='actual-fixture',
-                          authorization=saved['authorization'], autonomy_state=current)
+        submission.record(path, manifest, '123', authorization=saved['authorization'], autonomy_state=current)
         state.write(path, 'submitted', job_id='default:123')
         state.write(path, 'finished', exit_status=exit_code, completion_source='sacct',
                     scheduler_state=scheduler_state, exit_code=exit_code, exit_signal=exit_signal,
@@ -1963,17 +1679,14 @@ def test_formal_incomplete_fetch_is_a_bounded_terminal_remedy(incomplete_remedy_
     assert reference['record'] == result['record']
     assert reference['sha256'] == sha256((path / result['record']).read_bytes()).hexdigest()
     assert reference['receipt']['missing'] == result['missing']
-    assert reference['receipt']['end_evidence']['scheduler_cluster'] == 'actual-fixture'
 
 
-@pytest.mark.parametrize('damage', ['target', 'job', 'state', 'time', 'missing', 'output', 'receipt_symlink'])
+@pytest.mark.parametrize('damage', ['job', 'state', 'time', 'missing', 'output', 'receipt_symlink'])
 def test_incomplete_remedy_requires_receipt_stop_target_and_bytes(incomplete_remedy_case, damage):
     cfg, path, current, saved, result = incomplete_remedy_case()
     target = path / result['record']
     value = json.loads(target.read_text())
-    if damage == 'target':
-        value['end_evidence']['scheduler_cluster'] = 'different-fixture'
-    elif damage == 'job':
+    if damage == 'job':
         value['end_evidence']['accounting']['job_id'] = '456'
     elif damage == 'state':
         value['end_evidence']['accounting']['state'] = 'RUNNING'
@@ -2013,435 +1726,181 @@ def test_incomplete_receipt_is_hashed_once_before_short_lock(incomplete_remedy_c
         autonomy_submission.verify_remedy_evidence(cfg, current, 'water', prepared)
 
 
-# Actual T185/T186/T187/T188 chains. All scheduler effects use recording fakes;
-# plan, lease, selection, ownership, stop proof and successor APIs stay real.
-@pytest.fixture
-def t186_stopped_driver(cfg, t186_driver_factory, tmp_path, monkeypatch):
-    # Import after module collection to avoid the approval fixture's existing
-    # dependency on t186_driver_factory. Its own API check skips absent T187.
-    from test_approval import bound_slurm_driver
-    return bound_slurm_driver.__wrapped__(cfg, t186_driver_factory, tmp_path, monkeypatch)
+@pytest.mark.parametrize('command', ['prepare', 'submit'])
+def test_retired_reroute_cli_option_is_rejected_before_configuration(monkeypatch, capsys, command):
+    from ag import cli
+    monkeypatch.setattr(cli, 'load_config', lambda *a, **k: pytest.fail('Removed option must not read config'))
+    arguments = (['submit', 'smoke-001-sp'] if command == 'submit' else
+                 ['prepare', '--study', 'smoke', '--template', 'gaussian', '--input', 'water.gjf',
+                  '--walltime', '00:30:00', '--label', 'sp', '--method-basis', 'Synthetic'])
+    with pytest.raises(SystemExit) as error:
+        cli.main([*arguments, '--reroute-source', 'smoke-000-old'])
+    assert error.value.code == 2
+    assert 'unrecognized arguments: --reroute-source' in capsys.readouterr().err
 
 
-@pytest.mark.parametrize('mode', ['accepted', 'accepted_full', 'accepted_without_stop', 'bad_review', 'restarted', 'unknown'])
-def test_actual_no_progress_cancel_and_bounded_successor(t186_stopped_driver, monkeypatch, mode):
-    from datetime import datetime, timezone
-    from ag import attempt, autonomy, cancel, fetch, remote, snapshot, status
-    from test_snapshot import Fake as SnapshotFake
-    from test_autonomy_cancel import SchedulerEvidenceFake
-    cfg, path, manifest, context, clock, fake_type = t186_stopped_driver
-    fake = fake_type()
-    submit.submit(cfg, [path.name], fake, autonomous=context)
-    fake.exact = Result(stdout=f'123|{path.name}|fixture|RUNNING|8|00:01:00|fixture\n')
-    def publication():
-        return autonomy.observation_publication_guard(cfg, 'smoke', context['run_id'], context['token'],
-            action='observe', plan_sha256=context['plan_sha256'])
-    assert status.check(cfg, path, fake, publication=publication)['state'] == 'running'
-    class Clock:
-        @staticmethod
-        def now(tz):
-            return datetime.fromtimestamp(clock[0], tz)
-    monkeypatch.setattr(snapshot, 'datetime', Clock)
-    reviews = []
-    for index in range(2):
-        clock[0] += 1
-        observed = snapshot.capture_for_run(cfg, path, SnapshotFake(b'Synthetic stationary progress\n'),
-            run_id=context['run_id'], token=context['token'], plan_sha256=context['plan_sha256'])
-        reviews.append(dict(snapshot=observed['snapshot'], snapshot_sha256=observed['autonomy']['snapshot_sha256'],
-            log_sha256=observed['sha256'], no_progress=True, reason='Synthetic unchanged-progress review'))
-        if index == 0:
-            plan = autonomy.status(cfg, 'smoke')['state']['current_plan']
-            autonomy.change(cfg, 'smoke', 'finish', context['run_id'], context['token'], reason='Synthetic next wake')
-            clock[0] += 1
-            wake = autonomy.start(cfg, 'smoke', plan, 'cancel-observer-two')
-            context = dict(context, run_id=wake['run_id'], token=wake['token'])
-    query = SchedulerEvidenceFake(manifest)
-    query.commands.insert(3, remote.slurm_evidence_version('scancel'))
-    query.responses.insert(3, Result(stdout='slurm 26.05.5\n'))
-    for index in (4, 5):
-        query.responses[index].stdout = query.responses[index].stdout.replace('PENDING', 'RUNNING')
-    if mode == 'bad_review':
-        reviews[-1]['snapshot_sha256'] = '0' * 64
-    elif mode == 'restarted':
-        query.responses[4].stdout = query.responses[4].stdout.replace('|RUNNING|0|', '|RUNNING|1|')
-        query.responses[5].stdout = query.responses[5].stdout.replace('Restarts=0 ', 'Restarts=1 ')
-    class CancellationTransport:
-        def __init__(self):
-            self.calls = []
-        def record_to(self, paths):
-            assert paths == []
-        def run(self, command):
-            self.calls.append(command)
-            if command.operation == 'cancel':
-                return Result(255, '', 'Synthetic cancellation response lost') if mode == 'unknown' else Result()
-            return query.run(command)
-    transport = CancellationTransport()
-    clock[0] += 1
-    def execute():
-        return cancel.autonomous_cancel(cfg, path, transport, run_id=context['run_id'], token=context['token'],
-            plan_sha256=context['plan_sha256'], policy_name=context['policy_name'], kind='no_progress',
-            reason='Synthetic cancellation integration', reviews=reviews)
-    if mode in ('bad_review', 'restarted'):
-        with pytest.raises(ValueError):
-            execute()
-        assert not (path / '.cancel-claim').exists()
-        assert not (path / 'autonomy-cancel-request.json').exists()
-        assert not [c for c in transport.calls if c.operation == 'cancel']
-        assert len(query.calls) == (0 if mode == 'bad_review' else 6)
-    elif mode == 'unknown':
-        with pytest.raises(cancel.AutonomousCancellationUnknown) as error:
-            execute()
-        assert error.value.evidence['outcome'] == 'unknown'
-        assert error.value.evidence['stopped'] is False
-        assert (path / '.cancel-claim').exists()
-        with pytest.raises(ValueError):
-            execute()
-        assert len([c for c in transport.calls if c.operation == 'cancel']) == 1
+@pytest.mark.parametrize('entry', ['prepare', 'submit'])
+def test_external_reroute_context_cannot_reopen_disabled_action(cfg, prepared, tmp_path, entry):
+    from ag import attempt
+    path, _ = prepared
+    before = tree(path.parent.parent)
+    fake = Fake(cfg)
+    with pytest.raises(ValueError, match='需要你看.*Mac.*未启用'):
+        if entry == 'submit':
+            submit.submit(cfg, [path.name], fake, autonomous={'reroute_source': 'smoke-000-old'})
+        else:
+            attempt.prepare(cfg, study_name='smoke', template='gaussian', input_path=tmp_path / 'water.gjf',
+                tier='simple', walltime='00:30:00', label='old-route', method_basis='Synthetic',
+                autonomous={'reroute_source': 'smoke-000-old'})
+    assert not fake.operations()
+    assert tree(path.parent.parent) == before
+
+
+@pytest.mark.parametrize('key', ['slurm_probe', 'reroute_source'])
+def test_retired_reservation_context_cannot_consume(cfg, prepared, selector, key):
+    path, _ = prepared
+    value = reservation_context(cfg, path, selector[0], **{key: {}})
+    before = tree(path.parent.parent)
+    with pytest.raises(ValueError, match='Invalid reservation context'):
+        autonomy_submission.write_reservation(cfg, path, value, verified_state={})
+    assert tree(path.parent.parent) == before
+    assert not (Path.home() / '.config/ag/autonomy-reservations').exists()
+
+
+@pytest.mark.parametrize('key', ['slurm_probe', 'reroute_source'])
+def test_retired_reservation_record_cannot_release_or_authorize_remedy(
+        cfg, prepared, selector, monkeypatch, key):
+    path, _ = prepared
+    saved, current, manifest = bound_owned(cfg, path, selector[0], monkeypatch)
+    finish_owned(path, manifest, 'Convergence failure\nError termination\n')
+    target = reservation_path(saved)
+    value = json.loads(target.read_text())
+    value[key] = {'attempt_id': 'smoke-000-old'}
+    target.write_text(json.dumps(value))
+    before = target.read_bytes(), tree(path.parent.parent)
+    with pytest.raises(ValueError, match='Invalid reservation record'):
+        autonomy_submission.read_reservations(cfg, states=supplied(path, current))
+    with pytest.raises(ValueError, match='Invalid reservation record'):
+        autonomy_submission.prepare_remedy_evidence(cfg, current, 'water')
+    assert (target.read_bytes(), tree(path.parent.parent)) == before
+
+
+@pytest.mark.parametrize('legacy', ['reroute_source', 'slurm-origin-probe.json', '.cancel-claim',
+                                  'autonomy-cancel-stopped.json'])
+def test_old_prepared_reroute_or_cancel_evidence_cannot_be_submitted(t186_driver, legacy):
+    from ag import autonomy
+    cfg, path, _, context, _, _ = t186_driver
+    if legacy == 'reroute_source':
+        target = path / 'manifest.json'
+        value = json.loads(target.read_text())
+        value['reroute_source'] = {'attempt_id': 'smoke-000-old'}
+        target.write_text(json.dumps(value))
     else:
-        result = execute()
-        assert result['outcome'] == 'accepted' and result['stopped'] is False
-        assert result['status_published'] is True
-        assert len([c for c in transport.calls if c.operation == 'cancel']) == 1
-        assert json.loads((path / 'autonomy-cancel-response.json').read_text())['stopped'] is False
-        clock[0] += 1
-        stopped_query = SchedulerEvidenceFake(manifest, include_cancel_version=True)
-        end = datetime.fromtimestamp(clock[0], timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')
-        stopped_query.responses[4].stdout = stopped_query.responses[4].stdout.replace(
-            '|Unknown|Unknown|PENDING|', '|2026-01-01T00:01:00|' + end + '|CANCELLED|')
-        stopped_query.responses[5].stdout = stopped_query.responses[5].stdout.replace(
-            'JobState=PENDING', 'JobState=CANCELLED').replace('StartTime=Unknown', 'StartTime=2026-01-01T00:01:00').replace(
-            'EndTime=Unknown', 'EndTime=' + end)
-        before = (path / 'status.json').read_bytes()
-        if mode != 'accepted_without_stop':
-            stop = cancel.verify_stopped(cfg, path, stopped_query, run_id=context['run_id'], token=context['token'],
-                plan_sha256=context['plan_sha256'])
-            assert stop['stopped'] is True and stop['kind'] == 'no_progress'
-            assert stop['consumption_sha256'] == result['consumption_sha256']
-            assert (path / 'status.json').read_bytes() == before
-            assert len(stopped_query.calls) == 6
-            assert all(c.operation != 'cancel' for c in stopped_query.calls)
-            with pytest.raises(ValueError, match='already published'):
-                cancel.verify_stopped(cfg, path, stopped_query, run_id=context['run_id'], token=context['token'],
-                    plan_sha256=context['plan_sha256'])
-            assert len(stopped_query.calls) == 6
-        from test_incomplete_fetch import IncompleteFake
-        incomplete = IncompleteFake(manifest)
-        incomplete.accounting_state = 'CANCELLED'
-        def fetch_publication():
-            return autonomy.observation_publication_guard(cfg, 'smoke', context['run_id'], context['token'],
-                action='fetch', plan_sha256=context['plan_sha256'])
-        if mode == 'accepted_full':
-            for name in remote.output_names(manifest):
-                incomplete.files.setdefault(name, b'Synthetic scheduler output\n')
-            assert status.check(cfg, path, incomplete, publication=publication)['state'] == 'finished'
-            assert state.read(path)['scheduler_state'] == 'CANCELLED'
-            fetched = fetch.fetch(cfg, path, incomplete, publication=fetch_publication)
-            assert state.read(path)['state'] == 'fetched'
-            assert not list(path.glob('fetch-incomplete-*.json'))
-        else:
-            fetched = fetch.fetch(cfg, path, incomplete, incomplete=True, publication=fetch_publication)
-            assert fetched['record'].startswith('fetch-incomplete-')
-            original_record = fetch.incomplete_record(path)
-            assert original_record[1]['complete'] is True
-            assert original_record[1]['end_evidence']['accounting']['state'] == 'CANCELLED'
-            assert (path / 'status.json').read_bytes() == before
-        assert all('--clusters=fixture' in command.text for command in incomplete.calls
-                   if command.operation in ('slurm_jobs', 'slurm_accounting'))
-        with publication() as current:
-            pass
-        if mode == 'accepted_without_stop':
-            with pytest.raises(ValueError):
-                autonomy_submission.prepare_remedy_evidence(cfg, current, context['object_id'])
-            return
-        prepared = autonomy_submission.prepare_remedy_evidence(cfg, current, context['object_id'])
-        evidence = autonomy_submission.verify_remedy_evidence(cfg, current, context['object_id'], prepared)
-        assert evidence['failure_class'] == 'no-progress'
-        public_state = deepcopy(current)
-        for row in public_state['cancellations'].values():
-            row.pop('token_sha256', None)
-        public_prepared = autonomy_submission.prepare_remedy_evidence(cfg, public_state, context['object_id'])
-        assert autonomy_submission.verify_remedy_evidence(cfg, current, context['object_id'], public_prepared) == evidence
-        changed = deepcopy(current)
-        changed['cancellation_results'][path.name]['outcome'] = 'unknown'
-        with pytest.raises(ValueError, match='Accepted cancellation changed'):
-            autonomy_submission.verify_remedy_evidence(cfg, changed, context['object_id'], public_prepared)
-        assert evidence['completion']['cancel_stopped']['record']['kind'] == 'no_progress'
-        if mode != 'accepted_full':
-            assert evidence['completion']['incomplete_fetch']['record'] == fetched['record']
-        else:
-            assert evidence['completion']['terminal']['scheduler_state'] == 'CANCELLED'
-            assert 'incomplete_fetch' not in evidence['completion']
-        # Exercise the real bounded successor after the canonical source,
-        # with one synthetic convergence iteration-limit adjustment.
-        from test_slurm import SlurmFake, SubmissionProbeFake
-        source_dir = path.parent.parent.parent.parent / 'no-progress-successor'
-        source_dir.mkdir()
-        source = source_dir / 'water.gjf'
-        source.write_bytes((path / 'inputs/water.gjf').read_bytes().replace(
-            b'SCF=(XQC,Conver=8)', b'SCF=(XQC,Conver=8,MaxCycle=128)'))
-        child = attempt.prepare(cfg, study_name='smoke', template='gaussian', input_path=source,
-            tier='simple', walltime=manifest['walltime'], label='no-progress-remedy',
-            method_basis=manifest['science']['method_basis'], autonomous=context)
-        child_path = attempt.find(cfg, child['attempt_id'])
-        class Successor(SlurmFake):
-            def __init__(self):
-                super().__init__(cfg)
-                self.qsub = Result(stdout='124;fixture\n')
-                self.probe = SubmissionProbeFake(cfg)
-                self.origin = SchedulerEvidenceFake(child)
-                self.origin.commands[-2:] = [remote.slurm_evidence_history('124','fixture'), remote.slurm_evidence_job('124','fixture')]
-                for response in self.origin.responses:
-                    response.stdout = response.stdout.replace('fixture|123|','fixture|124|').replace('JobId=123 ','JobId=124 ')
-            def run(self, command):
-                if command.operation.startswith('slurm_evidence_'):
-                    self.calls.append(command)
-                    receiver = self.origin if (child_path / 'slurm-origin-claim.json').exists() else self.probe
-                    return receiver.run(command)
-                return super().run(command)
-        successor = Successor()
-        assert submit.submit(cfg, [child_path.name], successor, autonomous=context)[0]['state'] == 'submitted'
-        with publication() as current:
-            child_saved = autonomy_submission.verified_reservation(child_path, verified_state=current)
-        assert child_saved['record']['failure_class'] == 'no-progress'
-        assert child_saved['record']['remedy_source']['completion']['cancel_stopped'] == evidence['completion']['cancel_stopped']
+        (path / legacy).write_bytes(b'Old disabled evidence, deliberately not parsed\n')
+    before = tree(path)
+    fake = Fake(cfg)
+    with pytest.raises(ValueError, match='disabled|Cancelled Attempts|需要你看.*Mac.*未启用'):
+        submit.submit(cfg, [path.name], fake, autonomous=context)
+    assert not {'create_attempt', 'upload', 'submit'} & set(fake.operations())
+    assert tree(path) == before
+    current = autonomy.status(cfg, 'smoke')['state']
+    assert not current.get('submissions')
+    if legacy != 'reroute_source':
+        assert current['phase'] == 'paused'
 
 
-@pytest.fixture
-def t186_reroute_factory(cfg, tmp_path, monkeypatch):
-    from hashlib import sha256
-    from ag import cancel, remote
-    if not hasattr(cancel, 'verify_stopped') or not hasattr(remote, 'slurm_submit_bound'):
-        pytest.skip('Requires the reviewed T187 cancellation, stopping and bound Slurm APIs')
-    """Actual T184/185/186 integration; only clock, config IO and transport fake."""
-    from datetime import datetime, timezone
-    from ag import attempt, autonomy, autonomy_policy, config, route, study
-    from test_core import INPUT
-    from test_autonomy import VERSIONS, spec
-    from test_autonomy_policy import rule, ROUTE
-    if not all(hasattr(route, name) for name in ('select_ladder', 'ladder_config_identity', '_ladder_usage')):
-        pytest.skip('Requires the reviewed T185 selector in the T184/T185/T186 combination checkout')
-    home = tmp_path / 'reroute-home'
-    home.mkdir()
-    monkeypatch.setattr(Path, 'home', classmethod(lambda cls: home))
-    cfg.update(scheduler='slurm', partition='fixture')
-    at = [datetime(2026, 10, 29, tzinfo=timezone.utc).timestamp()]
-    monkeypatch.setattr(autonomy, 'now', lambda: at[0])
-    monkeypatch.setattr(autonomy, 'versions', lambda: deepcopy(VERSIONS))
-    monkeypatch.setattr(config, 'ssh_identity', lambda selected: ('fixture', 22, 'fixture'))
-    configurations = {}
-    def load(path=None, **kwargs):
-        return deepcopy(configurations[str(Path(path).absolute())])
-    monkeypatch.setattr(config, 'load_config', load)
-    def create(name, study_name='smoke'):
-        local = deepcopy(cfg)
-        root = tmp_path / name
-        root.mkdir()
-        directory = root / 'config'
-        directory.mkdir()
-        local['_config_dir'] = str(directory)
-        local['local']['studies_root'] = str(root / 'studies')
-        local['resources'].update(max_committed_cores=128, max_walltime='12:00:00')
-        local['routing'] = dict(gaussian=['default'], crest=['default'], ladder=[
-            dict(id='higher-default', cluster='default', tier='general', classes=['main'],
-                 condition='free', min_free_cores=22, max_placements=1),
-            dict(id='source-default', cluster='default', tier='simple', classes=['main'],
-                 condition='free', min_free_cores=8, max_placements=1)])
-        config_path = directory / 'config.toml'
-        config_path.write_text('Synthetic config parsed by a fixed local test loader\n')
-        local['_config_path'] = str(config_path)
-        configurations[str(config_path)] = local
-        study.init(local, study_name)
-        source = root / 'water.gjf'
-        source.write_text(INPUT.replace('# B3LYP/6-31G(d) SP', ROUTE))
-        manifest = attempt.prepare(local, study_name=study_name, template='gaussian', input_path=source,
-            tier='simple', walltime='00:30:00', label='optfreq', method_basis='Synthetic fixture')
-        path = attempt.find(local, manifest['attempt_id'])
-        policy = rule(local)
-        policy.update(study_id=study_name, study_key=sha256(str(Path(local['local']['studies_root']) / study_name).encode()).hexdigest())
-        policy['max_cores_per_job'] = 44
-        policy['routing_sha256'] = route.ladder_config_identity(local)
-        policy['clusters']['default'].update(max_committed_cores=128, max_queued_cores=128, max_jobs=4)
-        bounds = {key: deepcopy(policy[key]) for key in autonomy_policy.PLAN_BOUND_KEYS}
-        autonomy.initialize(local, study_name)
-        plan = autonomy.create_plan(local, study_name, spec(valid_until=at[0] + 86400, submission_policy=bounds))
-        autonomy.confirm(local, study_name, plan['plan_id'], plan['sha256'], 'Synthetic plan confirmation')
-        begun = autonomy.begin(local, study_name, plan['plan_id'], 'Synthetic round confirmation')
-        run = autonomy.start(local, study_name, plan['plan_id'], 'fixture-session')
-        policy.update(round_id=begun['state']['current_round'], plan_sha256=plan['sha256'])
-        local['approval'] = {'autonomous_policies': {'bounded': policy}}
-        snapshot = dict(schema='ag-monitor/1', ok=True,
-            sampled_at=datetime.fromtimestamp(at[0], timezone.utc).isoformat(), interval_seconds=60,
-            own=dict(cores_in_use=0, cores_running=0, cores_queued=0, jobs=[]),
-            cluster=dict(name='default', scheduler='slurm', job_summary=dict(others_queued_jobs=0),
-                nodes=[dict(name='fixture-node', cores_total=44, cores_used=32, cores_idle=12, cores_other=0,
-                    mem_total_gb=120, mem_assigned_gb=80, jobs=1, state='mixed',
-                    partition='fixture', partition_state='up',
-                    capacity_cpu_consistent=True, targeting_consistent=True, targeting_reserved=False)]))
-        cache = Path(local['local']['studies_root']) / '.ag-monitor'
-        cache.mkdir()
-        (cache / 'latest.json').write_text(json.dumps(snapshot))
-        context = dict(policy_name='bounded', run_id=run['run_id'], token=run['token'],
-                       plan_sha256=plan['sha256'], object_id='water', job_class='main')
-        return local, path, manifest, context, at, policy
-    return create
+@pytest.mark.parametrize('legacy', ['cancellations', 'cancellation_results', '.cancel-claim',
+                                  'autonomy-cancel-request.json', 'autonomy-cancel-response.json',
+                                  'autonomy-cancel-stopped.json'])
+@pytest.mark.parametrize('lifecycle', ['fetched', 'unknown'])
+def test_old_cancellation_cannot_release_usage_or_authorize_failure_remedy(
+        cfg, prepared, selector, monkeypatch, legacy, lifecycle):
+    path, _ = prepared
+    if lifecycle == 'fetched':
+        _, current, manifest = bound_owned(cfg, path, selector[0], monkeypatch)
+        finish_owned(path, manifest, '-----\n# B3LYP/6-31G(d) Opt\n-----\nConvergence failure\nError termination\n')
+    else:
+        _, current = install_owned(cfg, path, selector[0])
+        manifest = json.loads((path / 'manifest.json').read_text())
+        current['submissions'][path.name]['dispatch_started'] = {'at': 1002}
+        monkeypatch.setattr(autonomy_submission, '_load_state', lambda root, supplied: current)
+        state.write(path, 'submitting')
+        state.write(path, 'unknown')
+    if legacy in ('cancellations', 'cancellation_results'):
+        current[legacy] = {path.name: {'outcome': 'accepted'}}
+    else:
+        (path / legacy).write_bytes(b'Untrusted disabled proof; do not interpret as stopped\n')
+    before = tree(path.parent.parent)
+    evidence = autonomy_submission.read_reservations(cfg, states=supplied(path, current))
+    assert evidence['placements'][0]['state'] == ('unknown' if lifecycle == 'unknown' else 'queued')
+    assert evidence['placements'][0]['cores'] == manifest['cores']
+    with pytest.raises(ValueError, match='Cancelled jobs cannot be remedy sources'):
+        autonomy_submission.prepare_remedy_evidence(cfg, current, 'water')
+    assert tree(path.parent.parent) == before
 
 
-
-def _t186_reroute_scheduler_evidence(manifest, *, stopped_at=None, cancel_version=False, submitted_at=None, job='123'):
-    from datetime import datetime, timezone
-    from ag import remote
-    from test_autonomy_cancel import SchedulerEvidenceFake
-    fake = SchedulerEvidenceFake(manifest, include_cancel_version=stopped_at is not None or cancel_version)
-    submitted = ('2026-10-29T00:00:00' if submitted_at is None else datetime.fromtimestamp(submitted_at, timezone.utc).strftime('%Y-%m-%dT%H:%M:%S'))
-    for response in fake.responses:
-        response.stdout = response.stdout.replace('2026-01-01T00:00:00', submitted)
-    if stopped_at is not None:
-        end = datetime.fromtimestamp(stopped_at, timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')
-        fake.responses[4].stdout = fake.responses[4].stdout.replace('|Unknown|Unknown|PENDING|', '|Unknown|' + end + '|CANCELLED|')
-        fake.responses[5].stdout = fake.responses[5].stdout.replace('JobState=PENDING', 'JobState=CANCELLED').replace('EndTime=Unknown', 'EndTime=' + end)
-    if job != '123':
-        fake.commands[-2:] = [remote.slurm_evidence_history(job,'fixture'), remote.slurm_evidence_job(job,'fixture')]
-        for response in fake.responses:
-            response.stdout = response.stdout.replace('fixture|123|', 'fixture|' + job + '|').replace('JobId=123 ', 'JobId=' + job + ' ')
-            response.stdout = response.stdout.replace('s0123456789ABC', 's0123456789CDE').replace('38390726480144748', '38390726480146862')
-    return fake
-
-
-def _t186_exercise_actual_reroute(t186_reroute_factory, monkeypatch, capacity, *, scope='smoke', stop_only=False):
-    from datetime import datetime, timezone
-    from ag import attempt, autonomy, cancel, remote, route, status
-    from test_slurm import SubmissionProbeFake, SlurmFake
-    cfg, path, manifest, context, clock, policy = t186_reroute_factory('reroute-' + scope, study_name=scope)
-    submitted_at = clock[0]
-    job = '321' if scope != 'smoke' else '123'
-    monkeypatch.setattr(status.time, 'time', lambda: clock[0])
-    class Initial(SlurmFake):
-        def __init__(self):
-            super().__init__(cfg)
-            self.qsub = Result(stdout=job + ';fixture\n')
-            self.probe = SubmissionProbeFake(cfg)
-            self.origin = _t186_reroute_scheduler_evidence(manifest, submitted_at=submitted_at, job=job)
-        def run(self, command):
-            if command.operation.startswith('slurm_evidence_'):
-                self.calls.append(command)
-                receiver = self.origin if (path / 'slurm-origin-claim.json').exists() else self.probe
-                return receiver.run(command)
-            return super().run(command)
-    initial = Initial()
-    assert submit.submit(cfg, [path.name], initial, autonomous=context)[0]['state'] == 'submitted'
-    assert (path / 'slurm-origin.json').exists()
-    plan = autonomy.status(cfg, scope)['state']['current_plan']
-    autonomy.change(cfg, scope, 'finish', context['run_id'], context['token'], reason='Waiting for six-hour pending review')
-    clock[0] += 6 * 3600 + 1
-    wake = autonomy.start(cfg, scope, plan, 'reroute-wake')
-    context = dict(context, study_id=scope, run_id=wake['run_id'], token=wake['token'])
-    cache = Path(cfg['local']['studies_root']) / '.ag-monitor/latest.json'
-    observation = json.loads(cache.read_text())
-    observation['sampled_at'] = datetime.fromtimestamp(clock[0], timezone.utc).isoformat()
-    observation['cluster']['nodes'][0].update(cores_used=44-capacity, cores_idle=capacity,
-        mem_assigned_gb=0, state='idle' if capacity==44 else 'mixed')
-    cache.write_text(json.dumps(observation))
-    prepared_stops = autonomy_submission.prepare_stopped_reservations(cfg)
-    with autonomy_submission.machine_lock():
-        with autonomy.submission_guard(cfg, scope, context['run_id'], context['token'], plan_sha256=context['plan_sha256']) as guard:
-            current = guard.snapshot
-            saved = autonomy_submission.verified_reservation(path, verified_state=current)
-            source = {key: saved['record'][key] for key in ('study_key', 'attempt_id')}
-            source['record_sha256'] = saved['sha256']
-            selected = route.autonomous_selection(cfg, current, context, template='gaussian', walltime=manifest['walltime'], evaluate_from=source, prepared_stops=prepared_stops)
-    retained = [p for p in selected['input']['placements'] if p['record_sha256'] == saved['sha256']]
-    assert len(retained) == 1 and retained[0]['cores'] == 8
-    choice = selected['result']['recommendation']
-    if capacity == 22:
-        assert choice is None
-        return
-    assert choice['cell_id'] == 'higher-default' and choice['cores'] == 22
-    assert selected['result']['evaluation_only'] is True
-    query = _t186_reroute_scheduler_evidence(manifest, cancel_version=True, submitted_at=submitted_at, job=job)
-    class Cancellation:
-        def __init__(self):
-            self.calls = []
-        def record_to(self, paths):
-            assert paths == []
-        def run(self, command):
-            self.calls.append(command)
-            if command.operation == 'cancel':
-                return Result()
-            return query.run(command)
-    cancellation = Cancellation()
-    accepted = cancel.autonomous_cancel(cfg, path, cancellation,
-        run_id=context['run_id'], token=context['token'], plan_sha256=context['plan_sha256'],
-        policy_name=context['policy_name'], kind='reroute', reason='Synthetic strictly higher immediate candidate')
-    assert accepted['outcome'] == 'accepted' and accepted['stopped'] is False
-    assert len([c for c in cancellation.calls if c.operation == 'cancel']) == 1
-    assert not (path / 'autonomy-cancel-stopped.json').exists()
-    clock[0] += 1
-    stopped = cancel.verify_stopped(cfg, path, _t186_reroute_scheduler_evidence(manifest, stopped_at=clock[0], submitted_at=submitted_at, job=job),
-        run_id=context['run_id'], token=context['token'], plan_sha256=context['plan_sha256'])
-    assert stopped['stopped'] is True and stopped['kind'] == 'reroute'
-    with autonomy.observation_publication_guard(cfg, scope, context['run_id'], context['token'],
-            action='observe', plan_sha256=context['plan_sha256']) as current:
-        pass
-    prepared = autonomy_submission.prepare_reroute_evidence(cfg, current, context['object_id'], path.name)
-    assert prepared.source['record_sha256'] == saved['sha256']
-    assert prepared.source['stopped_sha256'] == stopped['evidence_sha256']
-    stops = autonomy_submission.prepare_stopped_reservations(cfg)
-    with autonomy_submission.machine_lock():
-        evidence = autonomy_submission.read_reservations(cfg, states={str(path.parent.parent): current}, prepared_stops=stops)
-    old = [p for p in evidence['placements'] if p['record_sha256'] == saved['sha256']]
-    assert len(old) == 1 and old[0]['state'] == 'finished'
-    if stop_only:
-        return path
-    source_dir = path.parent.parent.parent.parent / 'reroute-source'
-    source_dir.mkdir()
-    source = source_dir / 'water.gjf'
-    source.write_bytes((path / 'inputs/water.gjf').read_bytes().replace(b'%nprocshared=8', b'%nprocshared=22').replace(b'%mem=10GB', b'%mem=40GB'))
-    successor_context = dict(context, reroute_source=path.name)
-    successor_context.pop('study_id')
-    child = attempt.prepare(cfg, study_name=scope, template='gaussian', input_path=source,
-        tier='general', walltime=manifest['walltime'], label='reroute-successor',
-        method_basis=manifest['science']['method_basis'], autonomous=successor_context)
-    child_path = attempt.find(cfg, child['attempt_id'])
-    assert child['reroute_source'] == prepared.source
-    assert attempt.reroute_input_identity(child, attempt.verified_files(cfg, child_path, child)) == prepared.scientific_identity
-    class Successor(SlurmFake):
-        def __init__(self):
-            super().__init__(cfg)
-            self.qsub = Result(stdout='124;fixture\n')
-            self.probe = SubmissionProbeFake(cfg)
-            self.origin = _t186_reroute_scheduler_evidence(child)
-            self.origin.commands[-2:] = [remote.slurm_evidence_history('124','fixture'), remote.slurm_evidence_job('124','fixture')]
-            for response in self.origin.responses:
-                response.stdout = response.stdout.replace('fixture|123|', 'fixture|124|').replace('JobId=123 ', 'JobId=124 ')
-        def run(self, command):
-            if command.operation.startswith('slurm_evidence_'):
-                self.calls.append(command)
-                receiver = self.origin if (child_path / 'slurm-origin-claim.json').exists() else self.probe
-                return receiver.run(command)
-            return super().run(command)
-    successor = Successor()
-    assert submit.submit(cfg, [child_path.name], successor, autonomous=successor_context)[0]['state'] == 'submitted'
-    with autonomy.observation_publication_guard(cfg, scope, context['run_id'], context['token'],
-            action='observe', plan_sha256=context['plan_sha256']) as current:
-        saved_child = autonomy_submission.verified_reservation(child_path, verified_state=current)
-    assert saved_child['record']['reroute_source'] == prepared.source
-    assert saved_child['record']['failure_class'] is None
-    assert saved_child['record']['remedy_source'] is None
-    assert current['reroute_lineages'][saved['sha256']] == path.name
-    existing = {item.name for item in path.parent.iterdir()}
-    with pytest.raises(ValueError, match='unique latest|successor|already'):
-        attempt.prepare(cfg, study_name=scope, template='gaussian', input_path=source,
-            tier='general', walltime=manifest['walltime'], label='duplicate-reroute',
-            method_basis=manifest['science']['method_basis'], autonomous=successor_context)
-    assert {item.name for item in path.parent.iterdir()} == existing
+def test_cancelled_slurm_accounting_is_not_an_ordinary_failed_remedy(ordinary_slurm_owned_case):
+    cfg, path, current, saved = ordinary_slurm_owned_case()
+    manifest = json.loads((path / 'manifest.json').read_text())
+    submission.record(path, manifest, '123', authorization=saved['authorization'], autonomy_state=current)
+    state.write(path, 'submitted', job_id='default:123')
+    state.write(path, 'finished', exit_status=1, completion_source='sacct', scheduler_state='CANCELLED',
+        exit_code=1, exit_signal=9, allocated_cpus=8, elapsed='00:05:00', scheduler_observed_at=1002)
+    evidence = autonomy_submission.read_reservations(cfg, states=supplied(path, current))
+    assert evidence['placements'][0]['state'] == 'queued'
     with pytest.raises(ValueError):
-        submit.submit(cfg, [child_path.name], successor, autonomous=successor_context)
-    assert len([c for c in successor.calls if c.operation == 'submit']) == 1
+        autonomy_submission.prepare_remedy_evidence(cfg, current, 'water')
 
 
-@pytest.mark.parametrize('capacity,prior_stopped', [(22,False),(44,False),(44,True)])
-def test_actual_reroute_stop_and_single_successor(t186_reroute_factory, monkeypatch, capacity, prior_stopped):
-    if prior_stopped:
-        old = _t186_exercise_actual_reroute(t186_reroute_factory, monkeypatch, 44, scope='prior-study', stop_only=True)
-        assert (old / 'autonomy-cancel-stopped.json').exists()
-    _t186_exercise_actual_reroute(t186_reroute_factory, monkeypatch, capacity)
+def test_autonomous_pbs_needs_no_t187_api(t186_driver, monkeypatch):
+    from ag import remote, status
+    cfg, path, manifest, context, _, _ = t186_driver
+    for module, names in ((status, ('slurm_submission_probe', 'capture_slurm_origin')),
+                          (remote, ('slurm_submit_bound', 'slurm_evidence_config', 'slurm_evidence_version'))):
+        for name in names:
+            monkeypatch.delattr(module, name, raising=False)
+    fake = Fake(cfg)
+    assert submit.submit(cfg, [path.name], fake, autonomous=context)[0]['state'] == 'submitted'
+    assert [command for command in fake.calls if command.operation == 'submit'] == [remote.submit(cfg, manifest)]
+    assert not list(path.glob('slurm-origin*'))
+
+
+def test_ended_failed_program_allows_only_two_actual_remedies(t186_driver):
+    from ag import attempt, autonomy, journal, remote
+    cfg, path, manifest, context, clock, _ = t186_driver
+    source = Path(cfg['local']['studies_root']).parent / 'water.gjf'
+    for number in range(3):
+        if number:
+            manifest = attempt.prepare(cfg, study_name='smoke', template='gaussian', input_path=source,
+                tier='simple', walltime='00:30:00', label='failed-retry-' + str(number),
+                method_basis='Synthetic fixture', autonomous=context)
+            path = attempt.find(cfg, manifest['attempt_id'])
+        job = str(123 + number) + '.fixture'
+        fake = Fake(cfg)
+        fake.qsub = Result(stdout=job + '\n')
+        assert submit.submit(cfg, [path.name], fake, autonomous=context)[0]['state'] == 'submitted'
+        owned = autonomy.status(cfg, 'smoke')['state']['submissions'][path.name]
+        assert owned['failure_class'] == (None if number == 0 else 'gaussian-scf')
+        receipt = dict(PBS_JOBID=job, returncode=1, finished_at='2026-10-29T00:00:00+00:00')
+        state.write(path, 'finished', exit_status=1, completion_source='ag-exit.json',
+            receipts={'start': None, 'exit': receipt}, observation={'job_id': job}, scheduler_observed_at=clock[0])
+        names = remote.output_names(manifest)
+        for name in names:
+            (path / 'outputs' / name).write_text('-----\n# B3LYP/6-31G(d) Opt\n-----\nConvergence failure\nError termination\n'
+                if name == names[0] else 'Synthetic scheduler output\n')
+        state.write(path, 'fetched', exit_status=1)
+        journal.append(path.parent.parent, 'fetch', path.name, detail={'files': names})
+        clock[0] += 1
+        finished = autonomy.change(cfg, 'smoke', 'finish', context['run_id'], context['token'],
+                                   reason='Synthetic completed observation wake')
+        run = autonomy.start(cfg, 'smoke', finished['state']['current_plan'], 'fixture-next-wake')
+        context.update(run_id=run['run_id'], token=run['token'])
+    child = attempt.prepare(cfg, study_name='smoke', template='gaussian', input_path=source,
+        tier='simple', walltime='00:30:00', label='third-remedy', method_basis='Synthetic fixture', autonomous=context)
+    child_path = attempt.find(cfg, child['attempt_id'])
+    fake = Fake(cfg)
+    with pytest.raises(ValueError, match='two remedies'):
+        submit.submit(cfg, [child_path.name], fake, autonomous=context)
+    assert not {'create_attempt', 'upload', 'submit'} & set(fake.operations())
+    assert not (child_path / '.submit-claim').exists()
+    assert len(autonomy.status(cfg, 'smoke')['state']['submissions']) == 3

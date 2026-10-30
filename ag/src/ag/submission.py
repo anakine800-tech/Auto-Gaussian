@@ -51,12 +51,6 @@ def record(path, manifest, job, *, scheduler_cluster=None, authorization=None, a
         # Read-only scheduler recovery may bind a late reply, but cannot invent
         # ownership or consume another authorization after UNKNOWN.
         authorization = verified_authorization(path, authorization, verified_state=autonomy_state)
-        probe_path = study.local_path(path.parent.parent, path / 'slurm-origin-probe.json')
-        if probe_path.exists():
-            # verified_authorization cross-checks these exact bytes against the
-            # consumed global reservation. This reference does not turn an
-            # unreported scheduler cluster into a verified original instance.
-            value['scheduler_probe_sha256'] = sha256(probe_path.read_bytes()).hexdigest()
     if authorization is not None:
         value['authorization'] = authorization
     target = study.local_path(path.parent.parent, path / 'submission.json')
@@ -69,8 +63,6 @@ def record(path, manifest, job, *, scheduler_cluster=None, authorization=None, a
         if (existing.get('scheduler_cluster') is not None and scheduler_cluster is not None
                 and existing['scheduler_cluster'] != scheduler_cluster):
             raise ValueError('Submission scheduler cluster mismatch')
-        if existing.get('scheduler_probe_sha256') != value.get('scheduler_probe_sha256'):
-            raise ValueError('Submission original probe reference mismatch')
         return existing
     # O_EXCL prevents racing writers from assigning two identities. A partial
     # record fails closed; it is never replaced or automatically repaired.

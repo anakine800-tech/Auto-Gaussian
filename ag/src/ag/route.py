@@ -63,8 +63,7 @@ def _snapshot(cfg, name, now):
 
 
 def autonomous_selection(cfg, state, context, *, template, walltime,
-                         parent_cluster=None, exclude_ownership=None, requested_tier=None,
-                         evaluate_from=None, prepared_stops=None):
+                         parent_cluster=None, exclude_ownership=None, requested_tier=None):
     """Capture local evidence and invoke the reviewed ladder, under caller locks.
 
     There is no JSON-input escape hatch. The original monitor bytes, verified
@@ -79,8 +78,7 @@ def autonomous_selection(cfg, state, context, *, template, walltime,
     name = context['study_id']
     scope = str(Path(cfg['local']['studies_root']) / name)
     study_key = autonomy_submission.study_identity(scope)['study_key']
-    evidence = autonomy_submission.read_reservations(cfg, states={scope: state},
-                                                    prepared_stops=prepared_stops)
+    evidence = autonomy_submission.read_reservations(cfg, states={scope: state})
     placements = [p for p in evidence['placements']
                   if p['record_sha256'] != exclude_ownership]
     placements = _placement_records(cfg, placements)
@@ -110,13 +108,6 @@ def autonomous_selection(cfg, state, context, *, template, walltime,
                    study_id=name, round_id=state['current_round'], run_id=context['run_id'],
                    object_id=context['object_id'], waiting_since=waiting_since,
                    parent_cluster=parent_cluster)
-    if evaluate_from is not None:
-        if template in ('crest', 'xtb'):
-            raise ValueError('The legacy routing advisor has no reviewed exact-source reroute evaluation')
-        # The source remains in placements and therefore in all capacity and
-        # job-count checks. Only the selector's exact-source object exemption
-        # and strict position comparison may treat it specially.
-        request['evaluate_from'] = deepcopy(evaluate_from)
     selector = select_ladder
     if template in ('crest', 'xtb'):
         selector = select_legacy
@@ -1115,7 +1106,6 @@ def run(args):
         identifier(args.round_id)
         # Advisory inspection must not initialize registries, emit waiting
         # events, pause a round, or create a missing lock/configuration file.
-        prepared_stops = autonomy_submission.prepare_stopped_reservations(load_config())
         with autonomy_submission.machine_lock(create=False):
             cfg = load_config()
             with disk.locked(cfg, args.study) as store:
@@ -1131,7 +1121,7 @@ def run(args):
                     raise ValueError('Routing request belongs to another authorization round')
                 bound_policy(cfg, state, context)
                 selection = autonomous_selection(cfg, state, context, template=args.template,
-                    walltime=args.walltime, requested_tier=args.tier, prepared_stops=prepared_stops)
+                    walltime=args.walltime, requested_tier=args.tier)
                 store.verify_lock()
         result = selection['result']
         if args.json:

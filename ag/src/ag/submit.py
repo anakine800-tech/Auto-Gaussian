@@ -41,6 +41,8 @@ def autonomous_transaction(cfg):
 
 def autonomy_context(value, study_id):
     from ag import study
+    if isinstance(value, dict) and value.get('reroute_source') is not None:
+        raise ValueError('需要你看，请在 Mac 上人工确认取消；自主改投及取消后继未启用')
     required = {'run_id', 'token', 'plan_sha256', 'policy_name', 'object_id', 'job_class'}
     if (not isinstance(value, dict) or not required <= set(value)
             or set(value) - required - {'failure_class', 'reroute_source'}):
@@ -54,12 +56,8 @@ def autonomy_context(value, study_id):
     failure = value.get('failure_class')
     if failure is not None:
         study.identifier(failure)
-    reroute = value.get('reroute_source')
-    if reroute is not None:
-        study.identifier(reroute)
-        if failure is not None:
-            raise ValueError('A reroute successor cannot also claim a failure remedy')
-    return dict(value, study_id=study_id, failure_class=failure, reroute_source=reroute)
+    return dict({key: item for key, item in value.items() if key != 'reroute_source'},
+                study_id=study_id, failure_class=failure)
 
 
 def autonomous_configuration(cfg):
@@ -111,16 +109,11 @@ class AutonomousSubmission:
         self.context = autonomy_context(context, path.parent.parent.name)
         self.requested_failure_class = self.context['failure_class']
         self.remedy_source = None
-        self.reroute_source = None
         self.rule_sha256 = None
         self.reservation = None
         self.dispatch_started = False
         self.live = None
-        self.slurm_probe = None
-        self.scheduler_target = None
         self.prepared_remedy = None
-        self.prepared_reroute = None
-        self.prepared_stops = None
 
     def guard(self):
         from ag import autonomy
@@ -140,27 +133,13 @@ class AutonomousSubmission:
         verified = autonomy_policy.check_attempt(cfg, self.path, policy)
         manifest = attempt.read_manifest(self.path)
         excluded = self.path.name if consumed else None
-        if self.context['reroute_source'] is not None:
-            if self.context['job_class'] != self.prepared_reroute.job_class:
-                raise ValueError('Reroute object class differs from its original routing request')
-            self.reroute_source = autonomy_submission.verify_reroute_evidence(cfg, snapshot,
-                self.context['object_id'], self.prepared_reroute, exclude_attempt=excluded)
-            if (manifest.get('reroute_source') != self.reroute_source
-                    or self.reroute_source['attempt_id'] != self.context['reroute_source']):
-                raise ValueError('Reroute source differs from the frozen prepared Attempt')
-            files = attempt.verified_files(cfg, self.path, manifest)
-            if attempt.reroute_input_identity(manifest, files) != self.prepared_reroute.scientific_identity:
-                raise ValueError('Reroute scientific input differs from its original submission')
-            self.remedy_source = None
-        else:
-            if 'reroute_source' in manifest:
-                raise ValueError('A prepared reroute successor requires its explicit original source')
-            self.remedy_source = autonomy_submission.verify_remedy_evidence(cfg, snapshot, self.context['object_id'],
-                self.prepared_remedy, exclude_attempt=excluded)
+        if 'reroute_source' in manifest:
+            raise ValueError('需要你看，请在 Mac 上人工确认取消；自主改投及取消后继未启用')
+        self.remedy_source = autonomy_submission.verify_remedy_evidence(cfg, snapshot, self.context['object_id'],
+            self.prepared_remedy, exclude_attempt=excluded)
         actual_failure = self.remedy_source['failure_class'] if self.remedy_source else None
         if consumed and (self.remedy_source != self.reservation['record']['remedy_source']
-                         or actual_failure != self.reservation['record']['failure_class']
-                         or self.reroute_source != self.reservation['record'].get('reroute_source')):
+                         or actual_failure != self.reservation['record']['failure_class']):
             raise ValueError('Frozen remedy evidence changed after reservation')
         if self.requested_failure_class is not None and self.requested_failure_class != actual_failure:
             raise ValueError('Claimed remedy class differs from verified failure evidence')
@@ -169,11 +148,7 @@ class AutonomousSubmission:
             template=manifest['template'], walltime=manifest['walltime'],
             requested_tier=manifest['tier'],
             parent_cluster=manifest.get('parent_chk', {}).get('cluster'),
-            exclude_ownership=self.reservation['sha256'] if consumed else None,
-            evaluate_from=({key: self.reroute_source[key] for key in
-                            ('study_key', 'attempt_id', 'record_sha256')}
-                           if self.reroute_source is not None else None),
-            prepared_stops=self.prepared_stops)
+            exclude_ownership=self.reservation['sha256'] if consumed else None)
         choice = match_selection(manifest, selection)
         if consumed:
             original = self.reservation['record']['selection']['result']['recommendation']
@@ -241,64 +216,13 @@ class AutonomousSubmission:
         """Read/hash scientific sources before taking any submission mutex."""
         from ag import autonomy, autonomy_submission
         current = autonomy.status(self.cfg, self.context['study_id'])['state']
-        self.prepared_stops = autonomy_submission.prepare_stopped_reservations(self.cfg)
         options = {'exclude_attempt': self.path.name if self.reservation is not None else None}
-        if self.context['reroute_source'] is not None:
-            if self.prepared_reroute is None:
-                self.prepared_reroute = autonomy_submission.prepare_reroute_evidence(self.cfg, current,
-                    self.context['object_id'], self.context['reroute_source'], **options)
-            else:
-                self.prepared_reroute = autonomy_submission.refresh_reroute_evidence(self.cfg, current,
-                    self.context['object_id'], self.prepared_reroute, **options)
-            return
         if self.prepared_remedy is None:
             self.prepared_remedy = autonomy_submission.prepare_remedy_evidence(self.cfg, current,
                 self.context['object_id'], **options)
         else:
             self.prepared_remedy = autonomy_submission.refresh_remedy_evidence(self.cfg, current,
                 self.context['object_id'], self.prepared_remedy, **options)
-
-    def collect_slurm_probe(self, transport):
-        """Collect only the reviewed optional origin probe before consumption."""
-        if not hasattr(status, 'slurm_submission_probe'):
-            # T186 alone retains ordinary submission, without original-instance
-            # evidence or any automatic reroute qualification.
-            return
-        self.validate()
-        try:
-            probe = status.slurm_submission_probe(self.cfg, self.path, transport)
-        except Exception as exc:
-            evidence = getattr(exc, 'evidence', None)
-            if evidence is not None:
-                # Diagnostics from a failed read are never promoted to an
-                # ownership record or fetched scientific output. Preserve them
-                # outside the study even if the owner expired during the read.
-                from ag import _autonomy_store as disk
-                directory = Path(tempfile.mkdtemp(prefix='ag-slurm-probe-'))
-                with (directory / 'failed-probe.json').open('xb') as handle:
-                    handle.write(disk.encode(evidence))
-                print('Failed submission probe diagnostic: ' + str(directory / 'failed-probe.json'), file=sys.stderr)
-            raise
-        self.validate()
-        self.slurm_probe = probe
-
-    def scheduler_submission(self, cfg, manifest):
-        if manifest.get('scheduler') != 'slurm':
-            return remote.submit(cfg, manifest)
-        probe = self.reservation['record'].get('slurm_probe', {}).get('record', {})
-        if probe.get('bound_submit_format_candidate') is True:
-            if not hasattr(remote, 'slurm_submit_bound'):
-                raise ValueError('Reviewed bound Slurm submission constructor is unavailable')
-            command = remote.slurm_submit_bound(cfg, manifest, scheduler_cluster=probe['scheduler_cluster'])
-            self.scheduler_target = probe['scheduler_cluster']
-            return command
-        return remote.slurm_submit(cfg, manifest)
-
-    def scheduler_query_options(self):
-        probe = (self.reservation['record'].get('slurm_probe', {}).get('record', {})
-                 if self.reservation is not None else (self.slurm_probe or {}).get('record', {}))
-        return ({'scheduler_cluster': probe['scheduler_cluster']}
-                if probe.get('bound_submit_format_candidate') is True else {})
 
     def consume(self, summary, manifest, files):
         from ag import autonomy_submission
@@ -314,29 +238,17 @@ class AutonomousSubmission:
                 max_attempts=policy['max_attempts'], plan_sha256=c['plan_sha256'],
                 rule_sha256=self.rule_sha256, routing_sha256=policy['routing_sha256'],
                 policy_name=c['policy_name'], quote=policy['quote'], summary=summary, selection=selection)
-            if self.slurm_probe is not None:
-                record['slurm_probe'] = self.slurm_probe
-            if self.reroute_source is not None:
-                record['reroute_source'] = self.reroute_source
             selected = for_manifest(cfg, manifest)
             ledger = None
             if scheduler_kind(selected) == 'slurm':
                 ledger = budget.shared_ledgers(selected)[selected['_cluster']]
                 budget.check(selected, budget.requested(manifest), ledger=ledger)
             evidence = autonomy_submission.read_reservations(cfg,
-                states={str(self.path.parent.parent): guard.snapshot}, prepared_stops=self.prepared_stops)
+                states={str(self.path.parent.parent): guard.snapshot})
             saved = autonomy_submission.write_reservation(cfg, self.path, record,
                 batch_inputs=evidence['batch_inputs'], verified_state=guard.snapshot,
-                validate_consume=guard.validate_consume, prepared_remedy=self.prepared_remedy,
-                prepared_reroute=self.prepared_reroute)
+                validate_consume=guard.validate_consume, prepared_remedy=self.prepared_remedy)
             self.reservation = saved
-            if self.slurm_probe is not None:
-                from ag import _autonomy_store as disk
-                fd = disk.directory(self.path)
-                try:
-                    disk.Store(fd).exclusive('slurm-origin-probe.json', disk.encode(self.slurm_probe['record']))
-                finally:
-                    os.close(fd)
             claim(self.path / '.submit-claim')
             approval.archive(self.path, saved['authorization'], summary)
             guard.consume(saved['consume'])
@@ -415,50 +327,11 @@ class AutonomousSubmission:
         return autonomy.observation_publication_guard(self.cfg, c['study_id'], c['run_id'],
             c['token'], action='observe', plan_sha256=c['plan_sha256'])
 
-    def capture_origin(self, transport, reported_cluster):
-        """Preserve a known job while separately collecting optional origin data."""
-        from ag import autonomy_submission
-        if self.slurm_probe is None or not hasattr(status, 'capture_slurm_origin'):
-            return None
-        probed_cluster = self.slurm_probe['record'].get('scheduler_cluster')
-        if probed_cluster is not None and reported_cluster is not None and probed_cluster != reported_cluster:
-            raise ValueError('Submitted scheduler cluster differs from the original controller probe')
-
-        @contextmanager
-        def publication():
-            with self.publication() as current:
-                saved = autonomy_submission.verified_reservation(self.path, verified_state=current)
-                if saved != {key: self.reservation[key] for key in ('record', 'sha256')}:
-                    raise ValueError('Initial scheduler observation ownership changed')
-                yield current
-
-        if probed_cluster is not None and reported_cluster is None:
-            # The existing fixed sbatch command does not select an actual
-            # cluster. A controller probe alone cannot fill an omitted reply
-            # field: inherited scheduler environment may select another one.
-            result = dict(status='unavailable', reason='Submission did not report its actual scheduler cluster',
-                          scheduler_probe_sha256=self.slurm_probe['sha256'], reroute_authorized=False)
-            with publication():
-                journal.append(self.path.parent.parent, 'slurm_origin', self.path.name, 'unavailable', result)
-            return result
-        return status.capture_slurm_origin(self.cfg, self.path, transport,
-            probe_sha256=self.slurm_probe['sha256'], ownership_sha256=self.reservation['sha256'],
-            publication=publication)
-
 
 def prepare_autonomous(cfg, *, study_name, context, options):
     """Prepare with current ownership and trusted selection, never a JSON receipt."""
     from ag import autonomy, autonomy_submission, route
     c = autonomy_context(context, study_name)
-    prepared_stops = autonomy_submission.prepare_stopped_reservations(cfg)
-    prepared_reroute = None
-    if c['reroute_source'] is not None:
-        if options.get('parent_chk') is not None or options.get('relaxed_input'):
-            raise ValueError('Reroute cannot add a checkpoint dependency or relaxed input')
-        prepared_reroute = autonomy_submission.prepare_reroute_evidence(cfg,
-            autonomy.status(cfg, study_name)['state'], c['object_id'], c['reroute_source'])
-        if c['job_class'] != prepared_reroute.job_class:
-            raise ValueError('Reroute object class differs from its original routing request')
     parent_cluster = None
     if options.get('parent_chk'):
         parent_id = options['parent_chk'].split(':', 1)[0]
@@ -467,19 +340,13 @@ def prepare_autonomous(cfg, *, study_name, context, options):
                                     plan_sha256=c['plan_sha256']) as guard:
         current = autonomous_configuration(cfg)
         policy, digest = bound_policy(current, guard.snapshot, c)
-        reroute_source = (autonomy_submission.verify_reroute_evidence(current, guard.snapshot,
-            c['object_id'], prepared_reroute) if prepared_reroute is not None else None)
-        evaluate_from = ({key: reroute_source[key] for key in ('study_key', 'attempt_id', 'record_sha256')}
-                         if reroute_source is not None else None)
         selection = route.autonomous_selection(current, guard.snapshot, c,
             template=options['template'], walltime=options['walltime'],
-            requested_tier=options.get('tier'), parent_cluster=parent_cluster,
-            evaluate_from=evaluate_from, prepared_stops=prepared_stops)
+            requested_tier=options.get('tier'), parent_cluster=parent_cluster)
         choice = selection['result']['recommendation']
         if choice is None:
             evidence = autonomy_submission.read_reservations(current,
-                states={str(Path(current['local']['studies_root']) / study_name): guard.snapshot},
-                prepared_stops=prepared_stops)
+                states={str(Path(current['local']['studies_root']) / study_name): guard.snapshot})
             saved = autonomy_submission.write_waiting(current, study_name, selection,
                                                        batch_inputs=evidence['batch_inputs'])
             guard.waiting(c['object_id'], saved)
@@ -490,37 +357,18 @@ def prepare_autonomous(cfg, *, study_name, context, options):
     # mutexes. Publication recaptures authorization instead of reusing this read.
     values = dict(options, cluster=choice['cluster'], tier=choice['tier'],
                   target_node=choice['target_node'], node_fraction=choice.get('node_fraction'))
-    if prepared_reroute is not None:
-        values['reroute_evidence'] = dict(source=reroute_source,
-                                        scientific_identity=prepared_reroute.scientific_identity)
-        parents = list(values.get('parents') or [])
-        relation = dict(attempt_id=reroute_source['attempt_id'], relation='reroute')
-        if any(parent.get('relation') == 'reroute' and parent != relation for parent in parents):
-            raise ValueError('Reroute parent differs from its exact original source')
-        if relation not in parents:
-            parents.append(relation)
-        values['parents'] = parents
 
     @contextmanager
     def publication():
-        # Parse all retained stop proofs before acquiring shared locks; their
-        # unchanged identities and actual cancellation ledgers are checked in it.
-        fresh_stops = autonomy_submission.prepare_stopped_reservations(cfg)
         with autonomous_transaction(cfg), autonomy.submission_guard(cfg, study_name, c['run_id'], c['token'],
                                         plan_sha256=c['plan_sha256']) as guard:
             fresh = autonomous_configuration(cfg)
             fresh_policy, fresh_digest = bound_policy(fresh, guard.snapshot, c)
             if fresh_digest != digest or fresh != current:
                 raise ValueError('Configuration or rule changed during preparation')
-            if prepared_reroute is not None:
-                source = autonomy_submission.verify_reroute_evidence(fresh, guard.snapshot,
-                    c['object_id'], prepared_reroute)
-                if source != reroute_source:
-                    raise ValueError('Reroute stopping or lineage evidence changed during preparation')
             selected = route.autonomous_selection(fresh, guard.snapshot, c,
                 template=values['template'], walltime=values['walltime'],
-                requested_tier=values['tier'], parent_cluster=parent_cluster,
-                evaluate_from=evaluate_from, prepared_stops=fresh_stops)['result']['recommendation']
+                requested_tier=values['tier'], parent_cluster=parent_cluster)['result']['recommendation']
             keys = ('cell_id', 'cluster', 'tier', 'cores', 'mem_gb', 'capacity_node', 'target_node', 'node_fraction')
             if selected is None or any(selected.get(k) != choice.get(k) for k in keys):
                 raise ValueError('Routing selection changed before Attempt publication')
@@ -637,15 +485,12 @@ def _submit(cfg, ids, transport, *, approval_id=None, policy_name=None, autonomo
                 raise ValueError('Each autonomous call binds exactly one object and Attempt')
             autonomous_run = AutonomousSubmission(root_cfg, prepared[0][0], autonomous)
             autonomous_run.validate()
-            if is_slurm:
-                autonomous_run.collect_slurm_probe(transport)
             authorization = None
         else:
             authorization = approval.authorize(cfg, prepared, approval_id=approval_id, policy_name=policy_name)
         ledgers = budget.shared_ledgers(cfg) if is_slurm else None
         budget_ledger = ledgers[cfg['_cluster']] if is_slurm else None
-        query_options = autonomous_run.scheduler_query_options() if autonomous_run is not None else {}
-        username, jobs, used = status.inventory(transport, cfg, **query_options)
+        username, jobs, used = status.inventory(transport, cfg)
         if autonomous_run is not None:
             autonomous_run.live = (username, jobs)
         attachments = {}
@@ -739,7 +584,7 @@ def _submit(cfg, ids, transport, *, approval_id=None, policy_name=None, autonomo
                     approval.archive(path, authorization, text)
                 # Other scheduler clients can submit during the confirmation window.
                 if is_slurm:
-                    jobs = slurm.parse_queue(require_ok(transport.run(remote.slurm_jobs(user=username, **query_options)), 'squeue'))
+                    jobs = slurm.parse_queue(require_ok(transport.run(remote.slurm_jobs(user=username)), 'squeue'))
                     fresh_running, fresh_queued = slurm.core_breakdown(jobs, username)
                     fresh_used = fresh_running + fresh_queued
                     # Read every peer again; the current reservation is now on
@@ -805,13 +650,11 @@ def _submit(cfg, ids, transport, *, approval_id=None, policy_name=None, autonomo
                             raise ValueError('Uploaded file hash mismatch; stop')
                 # Upload can take time: do not admit using the earlier observation.
                 node_targeting.fresh_check(cfg, m, transport)
+                dispatch_command = remote.slurm_submit(cfg, m) if is_slurm else remote.submit(cfg, m)
                 if autonomous_run is not None:
-                    live_user, live_jobs, _ = status.inventory(transport, cfg, **query_options)
+                    live_user, live_jobs, _ = status.inventory(transport, cfg)
                     autonomous_run.live = (live_user, live_jobs)
-                    dispatch_command = autonomous_run.scheduler_submission(cfg, m)
                     autonomous_run.boundary('dispatch')
-                else:
-                    dispatch_command = remote.slurm_submit(cfg, m) if is_slurm else remote.submit(cfg, m)
                 qsub_started = True
                 result = transport.run(dispatch_command)
                 if result.returncode:
@@ -826,10 +669,6 @@ def _submit(cfg, ids, transport, *, approval_id=None, policy_name=None, autonomo
                     raise UnknownSubmission(f'{scheduler_command} outcome unknown; stop and use read-only status')
                 try:
                     job, reported_cluster = slurm.parse_submission(result.stdout) if is_slurm else (remote.job_id(result.stdout.strip()), None)
-                    # A known target may only come from the actual fixed bound
-                    # command we dispatched, never from a controller probe alone.
-                    if reported_cluster is None and autonomous_run is not None:
-                        reported_cluster = autonomous_run.scheduler_target
                     # A late exact response may bind an already dispatched job.
                     # Do not hold a study guard: authorization verification reads
                     # that same state, and does not authorize another action.
@@ -859,12 +698,6 @@ def _submit(cfg, ids, transport, *, approval_id=None, policy_name=None, autonomo
                 if qsub_started:
                     raise UnknownSubmission(f'{scheduler_command} outcome unknown; no further remote writes') from exc
                 raise
-            if autonomous_run is not None and is_slurm:
-                # Submission is already known. An extra evidence failure may
-                # stop/pause this wake, but never downgrades or resubmits it.
-                origin = autonomous_run.capture_origin(transport, reported_cluster)
-                if origin is not None:
-                    results[-1]['origin'] = origin
             if 'node_target' in m:
                 # Acceptance is already durably bound. A placement-query failure
                 # must not turn a known job into an ambiguous qsub outcome.

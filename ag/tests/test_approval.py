@@ -743,171 +743,93 @@ def test_actual_remedy_driver_reads_and_parses_history_outside_short_locks(late_
 
 
 @pytest.fixture
-def bound_slurm_driver(cfg, autonomous_driver_factory, tmp_path, monkeypatch):
-    from ag import remote
-    if not hasattr(remote, 'slurm_submit_bound') or not hasattr(status, 'slurm_submission_probe'):
-        pytest.skip('Requires the reviewed T187 bound Slurm submission and original-instance APIs')
-    from test_slurm import SubmissionProbeFake
-    from test_autonomy_cancel import SchedulerEvidenceFake
-    home = tmp_path / 'slurm-driver-home'
+def ordinary_slurm_driver(cfg, autonomous_driver_factory, tmp_path, monkeypatch):
+    home = tmp_path / 'ordinary-slurm-home'
     home.mkdir()
     monkeypatch.setattr(Path, 'home', classmethod(lambda cls: home))
     cfg.update(scheduler='slurm', partition='fixture')
-    local, path, manifest, context, clock, policy = autonomous_driver_factory('slurm-driver')
+    local, path, manifest, context, clock, _ = autonomous_driver_factory('ordinary-slurm')
     monkeypatch.setattr(status.time, 'time', lambda: clock[0])
-    snapshot_path = Path(local['local']['studies_root']) / '.ag-monitor/latest.json'
-    snapshot = json.loads(snapshot_path.read_text())
+    target = Path(local['local']['studies_root']) / '.ag-monitor/latest.json'
+    snapshot = json.loads(target.read_text())
     snapshot['cluster']['scheduler'] = 'slurm'
     snapshot['cluster']['nodes'][0].update(state='idle', partition='fixture', partition_state='up',
         mem_total_gb=120, mem_assigned_gb=0)
-    snapshot_path.write_text(json.dumps(snapshot))
-
-    class ActualSlurm(SlurmFake):
-        def __init__(self):
-            super().__init__(local)
-            self.probe = SubmissionProbeFake(local)
-            self.origin = SchedulerEvidenceFake(manifest)
-
-        def run(self, command):
-            if command.operation.startswith('slurm_evidence_'):
-                self.calls.append(command)
-                receiver = self.origin if (path / 'slurm-origin-claim.json').exists() else self.probe
-                return receiver.run(command)
-            return super().run(command)
-
-    return local, path, manifest, context, clock, ActualSlurm
+    target.write_text(json.dumps(snapshot))
+    return local, path, manifest, context, SlurmFake(local)
 
 
-@pytest.mark.parametrize('supported', [False, True])
 @pytest.mark.parametrize('reported', [False, True])
-def test_actual_slurm_driver_bound_target_and_optional_origin(bound_slurm_driver, supported, reported):
-    from hashlib import sha256
+def test_autonomous_slurm_submission_needs_no_version_or_origin_api(ordinary_slurm_driver, monkeypatch, reported):
     from ag import autonomy, autonomy_submission, remote
-    cfg, path, manifest, context, _, fake_type = bound_slurm_driver
-    fake = fake_type()
-    if not supported:
-        for response in fake.probe.responses[1:]:
-            response.stdout = 'slurm 24.05.0\n'
+    cfg, path, manifest, context, fake = ordinary_slurm_driver
+    for module, names in ((status, ('slurm_submission_probe', 'capture_slurm_origin')),
+                          (remote, ('slurm_submit_bound', 'slurm_evidence_config', 'slurm_evidence_version'))):
+        for name in names:
+            monkeypatch.delattr(module, name, raising=False)
     fake.qsub = Result(stdout='123;fixture\n' if reported else '123\n')
     result = submit.submit(cfg, [path.name], fake, autonomous=context)[0]
-    commands = [command for command in fake.calls if command.operation == 'submit']
-    assert len(commands) == 1 and result['state'] == 'submitted'
-    assert commands[0] == (remote.slurm_submit_bound(cfg, manifest, scheduler_cluster='fixture')
-                           if supported else remote.slurm_submit(cfg, manifest))
+    assert result['state'] == 'submitted'
+    assert [c for c in fake.calls if c.operation == 'submit'] == [remote.slurm_submit(cfg, manifest)]
+    assert not any(c.operation.startswith('slurm_evidence_') for c in fake.calls)
+    assert not list(path.glob('slurm-origin*'))
     binding = json.loads((path / 'submission.json').read_text())
-    assert binding['scheduler_cluster'] == ('fixture' if supported or reported else None)
-    assert binding['scheduler_probe_sha256'] == sha256((path / 'slurm-origin-probe.json').read_bytes()).hexdigest()
-    assert len(fake.probe.calls) == 5
-    inventory = [command for command in fake.calls if command.operation == 'slurm_jobs' and ' -u ' in command.text]
-    assert len(inventory) >= 2
-    expected_inventory = remote.slurm_jobs(user='fixture', **({'scheduler_cluster': 'fixture'} if supported else {}))
-    assert all(command == expected_inventory for command in inventory)
-    assert fake.calls.index(inventory[0]) < next(i for i, command in enumerate(fake.calls) if command.operation == 'create_attempt')
-    assert max(i for i, command in enumerate(fake.calls) if command in inventory) < fake.calls.index(commands[0])
-    if supported:
-        assert result['origin']['initial_instance_recorded'] is True
-        assert len(fake.origin.calls) == 5
-    else:
-        assert result['origin']['status'] == 'unavailable'
-        assert not fake.origin.calls
-    assert result['origin']['reroute_authorized'] is False
+    assert binding['scheduler_cluster'] == ('fixture' if reported else None)
+    assert 'scheduler_probe_sha256' not in binding
     current = autonomy.status(cfg, 'smoke')['state']
+    assert len(current['submissions']) == 1
     with autonomy_submission.machine_lock(create=False):
-        saved = autonomy_submission.verified_reservation(path, verified_state=current)
-    assert saved['record']['slurm_probe']['record']['bound_submit_format_candidate'] is supported
+        evidence = autonomy_submission.read_reservations(cfg)
+    assert len(evidence['records']) == 1 and 'slurm_probe' not in evidence['records'][0]['record']
     with pytest.raises(ValueError):
         submit.submit(cfg, [path.name], fake, autonomous=context)
     assert fake.operations().count('submit') == 1
 
 
-@pytest.mark.parametrize('reply', [Result(255, '', 'Synthetic lost bound reply'),
-                                  Result(1, '123;fixture\n', 'Synthetic nonzero bound reply')])
-def test_actual_bound_slurm_unknown_retains_consumption_without_origin(bound_slurm_driver, reply):
+@pytest.mark.parametrize('reply', [Result(255, '', 'Synthetic lost response'),
+                                  Result(1, '123;fixture\n', 'Synthetic nonzero response')])
+def test_autonomous_slurm_unknown_keeps_actual_consumption(ordinary_slurm_driver, reply):
     from ag import autonomy, autonomy_submission
-    cfg, path, _, context, _, fake_type = bound_slurm_driver
-    fake = fake_type()
+    cfg, path, _, context, fake = ordinary_slurm_driver
     fake.qsub = reply
     with pytest.raises(submit.UnknownSubmission):
         submit.submit(cfg, [path.name], fake, autonomous=context)
     assert state.read(path)['state'] == 'unknown'
     assert not (path / 'submission.json').exists()
-    assert not (path / 'slurm-origin-claim.json').exists()
     current = autonomy.status(cfg, 'smoke')['state']
     assert current['submissions'][path.name]['dispatch_started'] is not None
     with autonomy_submission.machine_lock(create=False):
-        saved = autonomy_submission.verified_reservation(path, verified_state=current)
-    assert saved['record']['slurm_probe']['record']['bound_submit_format_candidate'] is True
-    assert not fake.origin.calls
-    with pytest.raises(ValueError):
-        submit.submit(cfg, [path.name], fake, autonomous=context)
-    assert fake.operations().count('submit') == 1
-
-
-def test_actual_bound_slurm_origin_failure_preserves_known_submission(bound_slurm_driver):
-    from ag.transport import TransportError
-    cfg, path, _, context, _, fake_type = bound_slurm_driver
-    fake = fake_type()
-    fake.origin.responses[3] = TransportError('Synthetic original-instance query failed')
-    with pytest.raises(ValueError, match='Slurm evidence unavailable'):
-        submit.submit(cfg, [path.name], fake, autonomous=context)
-    assert state.read(path)['state'] == 'submitted'
-    binding = json.loads((path / 'submission.json').read_text())
-    assert binding['job_id'] == 'default:123' and binding['scheduler_cluster'] == 'fixture'
-    assert (path / 'slurm-origin-claim.json').exists()
-    assert json.loads((path / 'slurm-origin.json').read_text())['initial_instance_recorded'] is False
-    assert len(fake.origin.calls) == 4
+        evidence = autonomy_submission.read_reservations(cfg)
+    assert evidence['placements'][0]['state'] == 'unknown'
     with pytest.raises(ValueError):
         submit.submit(cfg, [path.name], fake, autonomous=context)
     assert fake.operations().count('submit') == 1
 
 
 @pytest.mark.parametrize('source', ['queue', 'accounting', 'absent'])
-def test_actual_bound_slurm_unknown_recovery_uses_original_controller(bound_slurm_driver, source):
+def test_autonomous_slurm_unknown_recovery_uses_existing_read_commands(ordinary_slurm_driver, source):
     from ag import autonomy, remote
-    cfg, path, manifest, context, _, fake_type = bound_slurm_driver
-    fake = fake_type()
-    fake.qsub = Result(255, '', 'Synthetic lost response after bound dispatch')
+    cfg, path, manifest, context, fake = ordinary_slurm_driver
+    fake.qsub = Result(255, '', 'Synthetic lost submission response')
     with pytest.raises(submit.UnknownSubmission):
         submit.submit(cfg, [path.name], fake, autonomous=context)
-    dispatch = next(command for command in fake.calls if command.operation == 'submit')
-    assert dispatch == remote.slurm_submit_bound(cfg, manifest, scheduler_cluster='fixture')
     fake.calls.clear()
-    original_run = fake.run
-    queried, wrong_controller = [], []
     own = f'123|{path.name}|fixture|PENDING|8|00:00:00|fixture\n'
     completed = f'123|{path.name}|fixture|COMPLETED|0:0|00:01:00|8\n'
-
-    def run(command):
-        if command.operation not in ('slurm_jobs', 'slurm_find', 'slurm_accounting'):
-            return original_run(command)
-        queried.append(command)
-        fake.calls.append(command)
-        if '--clusters=fixture' not in command.text:
-            # The default/inherited controller has a same-named unrelated job.
-            wrong_controller.append(command)
-            return Result(stdout=(own if command.operation == 'slurm_jobs' else completed).replace('123|', '999|'))
-        if command.operation == 'slurm_jobs':
-            return Result(stdout=own if source == 'queue' else '')
-        return Result(stdout=completed if source == 'accounting' else '')
-
-    fake.run = run
+    fake.queue = Result(stdout=own if source == 'queue' else '')
+    fake.find = Result(stdout=completed if source == 'accounting' else '')
+    fake.exact = Result(stdout=own if source == 'queue' else '')
+    fake.accounting = Result(stdout=completed)
     def publication():
         return autonomy.observation_publication_guard(cfg, 'smoke', context['run_id'], context['token'],
             action='observe', plan_sha256=context['plan_sha256'])
     result = status.check(cfg, path, fake, publication=publication)
-    assert not wrong_controller
-    assert queried[0] == remote.slurm_jobs(user='fixture', scheduler_cluster='fixture')
-    assert queried[1] == remote.slurm_find('fixture', path.name, manifest['created_at'][:10], scheduler_cluster='fixture')
+    queries = [c for c in fake.calls if c.operation in ('slurm_jobs', 'slurm_find', 'slurm_accounting')]
+    assert queries[:2] == [remote.slurm_jobs(user='fixture'),
+                           remote.slurm_find('fixture', path.name, manifest['created_at'][:10])]
     if source == 'absent':
         assert result['state'] == 'unknown' and not (path / 'submission.json').exists()
-        assert len(queried) == 2
     else:
         assert result['job_id'] == 'default:123'
         assert result['state'] == ('submitted' if source == 'queue' else 'finished')
-        binding = json.loads((path / 'submission.json').read_text())
-        assert binding['scheduler_cluster'] == 'fixture'
-        assert queried[2] == remote.slurm_jobs('123', scheduler_cluster='fixture')
-        if source == 'accounting':
-            assert queried[3] == remote.slurm_accounting('123', scheduler_cluster='fixture')
-    assert not (path / 'slurm-origin-claim.json').exists()
-    assert not any(command.operation in ('submit', 'cancel') for command in fake.calls)
+    assert not any(c.operation in ('submit', 'cancel') or c.operation.startswith('slurm_evidence_') for c in fake.calls)

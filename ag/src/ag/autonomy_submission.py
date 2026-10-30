@@ -209,16 +209,13 @@ _CONTEXT_KEYS = {'round_id', 'run_id', 'object_id', 'failure_class', 'max_attemp
 _RECORD_KEYS = _CONTEXT_KEYS | {'schema', 'study_id', 'attempt_id', 'studies_root',
     'config_path', 'account_sha256', 'manifest_sha256', 'bundle_sha256', 'inputs',
     'study_key', 'study_device', 'study_inode'}
-_OPTIONAL_CONTEXT_KEYS = {'slurm_probe', 'reroute_source'}
 _CONSUME_KEYS = {'attempt_id', 'object_id', 'failure_class', 'round_id', 'run_id',
                  'plan_sha256', 'rule_sha256', 'max_attempts'}
 _INPUT_KEYS = {'config_sha256', 'request', 'snapshots', 'placements', 'wakeups', 'selected_at'}
 _REQUEST_KEYS = {'template', 'job_class', 'walltime', 'study_id', 'study_key', 'round_id', 'run_id',
                  'object_id', 'waiting_since', 'parent_cluster'}
 _FAILURE_CLASSES = {'presubmit', 'gaussian-scf', 'gaussian-opt-steps',
-                    'gaussian-irc-corrector', 'gaussian-ts-curvature', 'gaussian-error', 'program-exit', 'walltime', 'no-progress'}
-_REROUTE_KEYS = {'study_key', 'attempt_id', 'record_sha256', 'stopped_sha256',
-                 'manifest_sha256', 'bundle_sha256', 'round_id', 'plan_sha256', 'object_id', 'cell_id'}
+                    'gaussian-irc-corrector', 'gaussian-ts-curvature', 'gaussian-error', 'program-exit', 'walltime'}
 _REMEDY_KEYS = {'failure_class', 'source_attempt', 'source_ownership_sha256',
                 'status_sha256', 'outputs', 'completion'}
 _SCIENTIFIC_REVIEW = 'autonomy-scientific-review.json'
@@ -236,156 +233,6 @@ def _require(ok, message):
 
 def _fields(value, keys, label):
     _require(isinstance(value, dict) and set(value) == keys, 'Invalid ' + label)
-
-
-def _reservation_fields(value, keys, label):
-    _require(isinstance(value, dict) and keys <= set(value)
-             and set(value) <= keys | _OPTIONAL_CONTEXT_KEYS, 'Invalid ' + label)
-
-
-def _slurm_probe(value):
-    """Validate frozen probe observations without granting origin eligibility."""
-    from ag import remote, slurm
-    _fields(value, {'record', 'sha256'}, 'Slurm probe envelope')
-    record = value['record']
-    _require(_hash(value['sha256']) and sha256(disk.encode(record)).hexdigest() == value['sha256'],
-             'Slurm probe hash mismatch')
-    keys = {'schema', 'binding', 'queries', 'versions', 'scheduler_cluster', 'capture_started_at',
-            'capture_finished_at', 'format_candidate', 'origin_available', 'reroute_authorized', 'reason'}
-    execution = isinstance(record, dict) and 'execution_versions' in record
-    if execution:
-        keys |= {'execution_versions', 'bound_submit_format_candidate',
-                 'instance_cancel_format_candidate', 'live_validated'}
-    _require(isinstance(record, dict) and keys <= set(record) and set(record) <= keys | {'unavailable'},
-             'Invalid Slurm probe record')
-    _require(record['schema'] == 'ag-slurm-submission-probe/1'
-             and type(record['format_candidate']) is bool
-             and record['origin_available'] is False and record['reroute_authorized'] is False
-             and isinstance(record['reason'], str) and bool(record['reason'].strip()),
-             'Slurm probe cannot assert original-instance or reroute authority')
-    if execution:
-        _require(record['live_validated'] is False
-                 and type(record['bound_submit_format_candidate']) is bool
-                 and type(record['instance_cancel_format_candidate']) is bool,
-                 'Execution-format probe cannot assert live validation')
-    _fields(record['binding'], {'attempt_id', 'study_id', 'cluster', 'scheduler',
-                               'manifest_sha256', 'bundle_sha256'}, 'Slurm probe binding')
-    _require(record['binding']['scheduler'] == 'slurm', 'Probe must bind a Slurm Attempt')
-    for key in ('attempt_id', 'study_id'):
-        study.identifier(record['binding'][key])
-    cluster_name(record['binding']['cluster'])
-    _require(all(_hash(record['binding'][key]) for key in ('manifest_sha256', 'bundle_sha256')),
-             'Invalid Slurm probe bound hashes')
-    def timestamp(value):
-        _require(type(value) in (int, float) and math.isfinite(value) and value >= 0,
-                 'Invalid Slurm probe timestamp')
-        return value
-    previous = timestamp(record['capture_started_at'])
-    finished = timestamp(record['capture_finished_at'])
-    missing_config = record.get('unavailable') in ('config_tool_missing', 'config_option_unsupported')
-    _require(isinstance(record['queries'], list) and len(record['queries']) == (1 if missing_config else 5 if execution else 3),
-             'Slurm probe requires complete controller/client observations')
-    expected = [('config', remote.slurm_evidence_config()),
-                ('scontrol-version', remote.slurm_evidence_version('scontrol')),
-                ('sacct-version', remote.slurm_evidence_version('sacct'))]
-    if execution:
-        expected.extend((program + '-version', remote.slurm_evidence_version(program))
-                        for program in ('sbatch', 'scancel'))
-    for query, (label, command) in zip(record['queries'], expected):
-        _fields(query, {'label', 'command', 'operation', 'started_at', 'finished_at', 'returncode',
-                        'stdout', 'stderr', 'stdout_sha256', 'stderr_sha256'}, 'Slurm probe query')
-        _require(query['label'] == label and query['command'] == command.text
-                 and query['operation'] == command.operation
-                 and type(query['returncode']) is int and query['returncode'] >= 0
-                 and query['returncode'] != 255,
-                 'Slurm probe query identity or result mismatch')
-        _require(previous <= timestamp(query['started_at']) <= timestamp(query['finished_at']) <= finished,
-                 'Slurm probe query time is inconsistent')
-        previous = query['finished_at']
-        for stream in ('stdout', 'stderr'):
-            _require(isinstance(query[stream], str) and _hash(query[stream + '_sha256'])
-                     and sha256(query[stream].encode()).hexdigest() == query[stream + '_sha256'],
-                     'Slurm probe response hash mismatch')
-        _require(query['returncode'] != 0 or not query['stderr'].strip(),
-                 'Slurm probe contains unexpected diagnostics')
-    config_query = record['queries'][0]
-    if missing_config:
-        _require(config_query['returncode'] == (127 if record['unavailable'] == 'config_tool_missing' else 1)
-                 and not config_query['stdout'].strip() and bool(config_query['stderr'].strip())
-                 and record['scheduler_cluster'] is None and record['versions'] == {}
-                 and record['format_candidate'] is False,
-                 'Unavailable controller probe cannot assert an actual cluster or format eligibility')
-        if execution:
-            _require(record['execution_versions'] == {key: dict(raw=None, parsed=None) for key in ('sbatch', 'scancel')}
-                     and not record['bound_submit_format_candidate']
-                     and not record['instance_cancel_format_candidate'],
-                     'Unavailable controller cannot qualify an execution format')
-        # The formal collector classified this negative observation. Keeping
-        # its bytes proves no positive fact about a cluster or original job.
-        return record
-    _require(config_query['returncode'] == 0, 'Slurm probe controller query did not succeed')
-    controller = slurm.parse_evidence_config(record['queries'][0]['stdout'], strict_version=False)
-    _require(record['scheduler_cluster'] == controller['cluster'], 'Slurm probe actual cluster mismatch')
-    _fields(record['versions'], {'controller', 'scontrol', 'sacct'}, 'Slurm probe versions')
-    raw_versions = {'controller': controller['server_version'],
-                    'scontrol': record['queries'][1]['stdout'], 'sacct': record['queries'][2]['stdout']}
-    for program, raw in raw_versions.items():
-        _fields(record['versions'][program], {'raw', 'parsed'}, 'Slurm probe version')
-        query = record['queries'][1 if program == 'scontrol' else 2] if program != 'controller' else None
-        parsed = None
-        if query is None or query['returncode'] == 0:
-            try:
-                parsed = slurm.parse_evidence_version('slurm ' + (raw or '') if program == 'controller' else raw)
-            except ValueError:
-                pass
-        _require(record['versions'][program] == dict(raw=raw, parsed=parsed),
-                 'Slurm probe version differs from original response')
-    if execution:
-        _fields(record['execution_versions'], {'sbatch', 'scancel'}, 'Slurm execution versions')
-        for index, program in enumerate(('sbatch', 'scancel'), 3):
-            query = record['queries'][index]
-            raw, parsed = query['stdout'], None
-            if query['returncode'] == 0:
-                try:
-                    parsed = slurm.parse_evidence_version(raw)
-                except ValueError:
-                    pass
-            _require(record['execution_versions'][program] == dict(raw=raw, parsed=parsed),
-                     'Slurm execution version differs from original response')
-    candidate = all(item['parsed'] == '26.05.5' for item in record['versions'].values())
-    _require(record['format_candidate'] is candidate
-             and ((candidate and 'unavailable' not in record)
-                  or (not candidate and record.get('unavailable') == 'evidence_version_unsupported')),
-             'Slurm probe format observation mismatch')
-    if execution:
-        bound = (all(record['versions'][program]['parsed'] == '26.05.5'
-                     for program in ('controller', 'scontrol'))
-                 and record['execution_versions']['sbatch']['parsed'] == '26.05.5')
-        instance = candidate and record['execution_versions']['scancel']['parsed'] == '26.05.5'
-        _require(record['bound_submit_format_candidate'] is bound
-                 and record['instance_cancel_format_candidate'] is instance,
-                 'Slurm execution-format observation mismatch')
-    return record
-
-
-def _probe_binding(probe, raw, manifest):
-    expected = dict(attempt_id=manifest['attempt_id'], study_id=manifest['study_id'],
-        cluster=manifest.get('cluster', 'default'), scheduler=manifest.get('scheduler', 'pbs'),
-        manifest_sha256=sha256(raw).hexdigest(), bundle_sha256=manifest['bundle_sha256'])
-    _require(probe['binding'] == expected and expected['scheduler'] == 'slurm',
-             'Slurm probe differs from frozen Attempt identity or bytes')
-
-
-def _probe_time(probe, run, at):
-    _require(isinstance(run, dict) and run['started_at'] <= probe['capture_started_at']
-             <= probe['capture_finished_at'] <= at
-             and probe['capture_finished_at'] < run['started_at'] + 3600
-             and (run.get('ended_at') is None or probe['capture_finished_at'] <= run['ended_at']),
-             'Slurm probe was not captured during its consuming wake')
-
-
-def _regular(store, name):
-    return _json(store.read(name))
 
 
 @contextmanager
@@ -656,25 +503,6 @@ def _context(record):
     text(record['quote'], 'quote')
     text(record['summary'], 'summary')
     _selection(record['selection'])
-    if 'slurm_probe' in record:
-        _slurm_probe(record['slurm_probe'])
-    if 'reroute_source' in record:
-        _reroute_source(record['reroute_source'])
-        _require(record['failure_class'] is None and record['remedy_source'] is None,
-                 'Reroute cannot also declare a failed-program remedy')
-        _require(all(record['reroute_source'][key] == record[key]
-                     for key in ('round_id', 'plan_sha256', 'object_id')),
-                 'Reroute successor changed its original round, plan or object')
-
-
-def _reroute_source(source):
-    _fields(source, _REROUTE_KEYS, 'reroute source')
-    for key in ('study_key', 'record_sha256', 'stopped_sha256', 'manifest_sha256',
-                'bundle_sha256', 'plan_sha256'):
-        _require(_hash(source[key]), 'Invalid reroute source hash')
-    for key in ('attempt_id', 'round_id', 'object_id'):
-        study.identifier(source[key])
-    cluster_name(source['cell_id'])
 
 
 def _selection(selection):
@@ -686,16 +514,7 @@ def _selection(selection):
     legacy = result['schema'] == 'ag-routing-legacy/1'
     keys = _REQUEST_KEYS | ({'tier'} if legacy else set())
     request = original['request']
-    _require(isinstance(request, dict) and keys <= set(request)
-             and set(request) <= keys | (set() if legacy else {'evaluate_from'}),
-             'Invalid original selection request')
-    if 'evaluate_from' in request:
-        _fields(request['evaluate_from'], {'study_key', 'attempt_id', 'record_sha256'}, 'reroute selection source')
-        _require(_hash(request['evaluate_from']['study_key']) and _hash(request['evaluate_from']['record_sha256']),
-                 'Invalid reroute selection source hash')
-        study.identifier(request['evaluate_from']['attempt_id'])
-        _require(result.get('evaluation_only') is True and result.get('evaluate_from') == request['evaluate_from'],
-                 'Reroute evaluation source/result mismatch')
+    _fields(request, keys, 'original selection request')
     if legacy:
         _require(original['request']['template'] in ('crest', 'xtb'), 'Legacy selector only supports CREST/xTB')
     _require(_hash(original['config_sha256']), 'Invalid selection config hash')
@@ -763,7 +582,7 @@ def _manifest_bytes(path):
 
 
 def write_reservation(cfg, path, record, *, batch_inputs=None, verified_state, validate_consume=None,
-                      prepared_remedy=None, prepared_reroute=None):
+                      prepared_remedy=None):
     """Exclusive durable ownership; caller holds machine + current study locks.
 
     Call only after freshly reconciling all reservations, selecting from that
@@ -771,28 +590,19 @@ def write_reservation(cfg, path, record, *, batch_inputs=None, verified_state, v
     and freezes actual manifest/input identities; it does not grant authority.
     A crash before the matching T184 consume remains a blocking orphan.
     """
-    _reservation_fields(record, _CONTEXT_KEYS, 'reservation context')
+    _fields(record, _CONTEXT_KEYS, 'reservation context')
     _context(record)
-    if 'reroute_source' in record:
-        source = verify_reroute_evidence(cfg, verified_state, record['object_id'], prepared_reroute)
-        _require(source == record['reroute_source'], 'Reroute source differs from verified stopped consumption')
-    else:
-        _require(prepared_reroute is None, 'Prepared reroute lacks its frozen source')
-        source = verify_remedy_evidence(cfg, verified_state, record['object_id'], prepared_remedy)
-        _require(source == record['remedy_source'], 'Remedy source differs from verified previous consumption')
+    source = verify_remedy_evidence(cfg, verified_state, record['object_id'], prepared_remedy)
+    _require(source == record['remedy_source'], 'Remedy source differs from verified previous consumption')
     path = study.local_path(Path(cfg['local']['studies_root']), Path(path).absolute())
     _require(path.parent.name == 'attempts' and path.parent.parent.parent == Path(cfg['local']['studies_root']).absolute(),
              'Reservation must belong to configured studies root')
     _require(not (path / '.submit-claim').exists(), 'Attempt already consumed')
     _require(audit(path)['classification'] == 'unconsumed', 'Attempt already consumed')
     raw, manifest = _manifest_bytes(path)
-    _require(manifest.get('reroute_source') == record.get('reroute_source'),
-             'Frozen Attempt reroute lineage differs from reservation')
-    if 'slurm_probe' in record:
-        from ag import autonomy
-        probe = record['slurm_probe']['record']
-        _probe_binding(probe, raw, manifest)
-        _probe_time(probe, verified_state.get('runs', {}).get(record['run_id']), autonomy.now())
+    _reject_disabled_evidence(path, manifest)
+    _require(not _has_cancellation(path, verified_state),
+             'Cancelled Attempts cannot be submitted again; human review is required')
     config_path = Path(cfg['_config_path']).absolute()
     _read_file(config_path)  # Reject absent, redirected or special config paths.
     entry = _entries(cfg)[manifest.get('cluster', 'default')]
@@ -800,12 +610,6 @@ def write_reservation(cfg, path, record, *, batch_inputs=None, verified_state, v
     choice = result.get('recommendation')
     _require(isinstance(choice, dict), 'Reservation requires a selected position')
     request = record['selection']['input']['request']
-    expected_from = ({key: record['reroute_source'][key] for key in
-                     ('study_key', 'attempt_id', 'record_sha256')} if 'reroute_source' in record else None)
-    _require(request.get('evaluate_from') == expected_from, 'Selection does not use its verified reroute source')
-    if prepared_reroute is not None:
-        _require(request['job_class'] == prepared_reroute.job_class,
-                 'Reroute successor changed the original job class')
     identity = study_identity(path.parent.parent)
     for key in ('round_id', 'run_id', 'object_id'):
         _require(record[key] == request[key], 'Reservation selection ownership mismatch')
@@ -865,7 +669,7 @@ def _read_global_records():
             for name in sorted(os.listdir(store.fd)):
                 raw = _read_file(Path.home() / '.config/ag/autonomy-reservations' / name)
                 value = _json(raw)
-                _reservation_fields(value, _RECORD_KEYS, 'reservation record')
+                _fields(value, _RECORD_KEYS, 'reservation record')
                 _context(value)
                 _require(value['schema'] == RESERVATION_SCHEMA and name == _filename(_record_path(value)),
                          'Reservation filename/schema mismatch')
@@ -926,24 +730,7 @@ def _owned_audit(path, record, digest):
     _require(report['manifest_sha256'] == record['manifest_sha256']
              and report['bundle_sha256'] == record['bundle_sha256'], 'Reservation and frozen bytes disagree')
     _require(summary['summary'] == record['summary'], 'Archived summary differs from immutable reservation')
-    if 'slurm_probe' in record:
-        raw, manifest = _manifest_bytes(path)
-        _probe_binding(_slurm_probe(record['slurm_probe']), raw, manifest)
-        probe_bytes = _read_file(Path(path) / 'slurm-origin-probe.json')
-        _require(probe_bytes == disk.encode(record['slurm_probe']['record'])
-                 and sha256(probe_bytes).hexdigest() == record['slurm_probe']['sha256'],
-                 'Slurm probe side record differs from immutable reservation')
-    else:
-        _require(not os.path.lexists(Path(path) / 'slurm-origin-probe.json'),
-                 'Unreserved Slurm probe cannot become original-instance evidence')
-    if (Path(path) / 'submission.json').exists():
-        binding = _json(_read_file(Path(path) / 'submission.json'))
-        _require(binding.get('scheduler_probe_sha256') == record.get('slurm_probe', {}).get('sha256'),
-                 'Submission original probe reference differs from reservation')
-        probe = record.get('slurm_probe', {}).get('record', {})
-        if probe.get('bound_submit_format_candidate') is True:
-            _require(binding.get('scheduler_cluster') == probe['scheduler_cluster'],
-                     'Known scheduler cluster differs from the original bound target')
+    _reject_disabled_evidence(path, _json(_read_file(Path(path) / 'manifest.json')))
     return report
 
 
@@ -957,8 +744,6 @@ def _check_consumption(record, digest, current):
     _require(plan['sha256'] == record['plan_sha256'] and plan['confirmation'] is not None
              and run['round_id'] == record['round_id'] and run['plan_id'] == item['plan_id']
              and record['round_id'] in current['rounds'], 'Reservation plan/run/round ownership mismatch')
-    if 'slurm_probe' in record:
-        _probe_time(record['slurm_probe']['record'], run, item['at'])
     return item
 
 
@@ -999,135 +784,40 @@ def _completion(path, manifest, report):
     return dict(source=source, job_id=report['job_id'], observed_at=observed, **completion), sha256(raw).hexdigest()
 
 
-def _verified_stopped(path, current):
-    """Replay T187's exact-instance proof and its real cancellation ledger."""
-    from ag import autonomy, autonomy_cancel, cancel, autonomy_submission
-    if _CAPTURE_READS.get() is None:
-        with _capture_reads():
-            return _verified_stopped(path, current)
-    filename = 'autonomy-cancel-stopped.json'
-    raw = _read_file(path / filename)
-    value = _json(raw)
-    _require(raw == disk.encode(value) and value.get('schema') == 'ag-autonomy-cancel-stopped/1',
-             'Invalid canonical stopping proof')
-    # T187 reads these files itself. Capture their identities before replay so
-    # a short publication check need not parse scheduler output again.
-    documents = [value]
-    for name in ('autonomy-cancel-request.json', 'autonomy-cancel-response.json',
-                 'slurm-origin-probe.json', 'slurm-origin-claim.json', 'slurm-origin.json'):
-        documents.append(_json(_read_file(path / name)))
-    _read_file(path / '.cancel-claim')
-    references = set()
-    def references_in(item):
-        if isinstance(item, dict):
-            reference = item.get('observation')
-            if reference is not None:
-                _require(isinstance(reference, str)
-                         and re.fullmatch(r'scheduler-observations/\d{8}T\d{12}Z', reference),
-                         'Invalid stopping observation reference')
-                references.add(reference)
-            for child in item.values():
-                references_in(child)
-        elif isinstance(item, list):
-            for child in item:
-                references_in(child)
-    for document in documents:
-        references_in(document)
-    for reference in sorted(references):
-        directory = path / reference
-        fd = disk.directory(directory)
-        try:
-            reads = _CAPTURE_READS.get()
-            if reads is not None:
-                reads.directory(directory)
-            for name in os.listdir(fd):
-                _read_file(directory / name)
-        finally:
-            os.close(fd)
-    accepted = cancel._accepted_cancellation(path, autonomy_submission, _CAPTURE_READS.get())
-    cancel._check_accepted_cancellation(path, current, autonomy_submission, accepted)
-    proof = autonomy_cancel.verify_slurm_stopped(path,
-        ownership_sha256=accepted['ownership_sha256'],
-        observation=value.get('slurm_instance', {}).get('current_observation'),
-        cancel_response=dict(response='autonomy-cancel-response.json', response_sha256=accepted['response_sha256']))
-    _require(value == dict(schema='ag-autonomy-cancel-stopped/1', **proof,
-                          verified_run_id=value.get('verified_run_id'),
-                          verified_plan_sha256=value.get('verified_plan_sha256'),
-                          recorded_at=value.get('recorded_at')),
-             'Stopping proof differs from its original scheduler evidence')
-    run = current.get('runs', {}).get(value['verified_run_id'])
-    plan = current.get('plans', {}).get(run.get('plan_id')) if isinstance(run, dict) else None
-    _require(isinstance(plan, dict) and plan['sha256'] == value['verified_plan_sha256']
-             and run['round_id'] == accepted['request']['round_id']
-             and value['verified_plan_sha256'] == accepted['request']['plan_sha256']
-             and proof['consumption_sha256'] == accepted['consumption_sha256']
-             and type(value['recorded_at']) in (int, float) and math.isfinite(value['recorded_at'])
-             and proof['slurm_instance']['current_observation']['capture_finished_at']
-                 <= value['recorded_at'] <= autonomy.now(),
-             'Stopping proof differs from the actual cancellation run or consumption')
-    if proof['kind'] == 'reroute':
-        digest = accepted['ownership_sha256']
-        _require(accepted['request'].get('lineage_sha256') == digest
-                 and current.get('cancellations', {}).get(path.name, {}).get('lineage_sha256') == digest
-                 and current.get('reroute_lineages', {}).get(digest) == path.name,
-                 'Reroute cancellation lacks its actual one-time lineage consumption')
-    return dict(record=value, sha256=sha256(raw).hexdigest())
+def _reject_disabled_evidence(path, manifest):
+    # Old experimental origins and reroute manifests cannot authorize the
+    # ordinary submission path after those capabilities have been removed.
+    _require('reroute_source' not in manifest
+             and not any(os.path.lexists(Path(path) / name) for name in
+                         ('slurm-origin-probe.json', 'slurm-origin-claim.json', 'slurm-origin.json')),
+             'Autonomous probe and reroute evidence are disabled; human review is required')
+    if (Path(path) / 'submission.json').exists():
+        binding = _json(_read_file(Path(path) / 'submission.json'))
+        _require('scheduler_probe_sha256' not in binding,
+                 'Autonomous probe evidence is disabled; human review is required')
 
 
-class PreparedStoppedReservations:
-    """Process-local replay receipts for globally registered stopped jobs."""
-    def __init__(self, receipts):
-        self.receipts = receipts
+def _has_cancellation(path, current=None):
+    # Acceptance or a legacy stop file does not prove ordinary completion.
+    # Do not parse disabled cancellation proofs or use them to release a slot.
+    return (Path(path).name in (current or {}).get('cancellations', {})
+            or Path(path).name in (current or {}).get('cancellation_results', {})
+            or any(os.path.lexists(Path(path) / name) for name in
+                   ('.cancel-claim', 'autonomy-cancel-request.json',
+                    'autonomy-cancel-response.json', 'autonomy-cancel-stopped.json')))
 
 
-def prepare_stopped_reservations(cfg, *, states=None):
-    """Parse scheduler stopping proofs before acquiring the machine mutex."""
-    supplied = {str(Path(key).absolute()): value for key, value in (states or {}).items()}
-    receipts = {}
-    for saved in _read_global_records():
-        record, digest = saved['record'], saved['sha256']
-        path = _record_path(record)
-        if not os.path.lexists(path / 'autonomy-cancel-stopped.json'):
-            continue
-        current = _load_state(path.parent.parent, supplied)
-        with _capture_reads() as reads:
-            stopped = _verified_stopped(path, current)
-        receipts[str(path)] = dict(record=record, digest=digest, stopped=stopped, reads=reads,
-            consumption=_remedy_signature(_check_consumption(record, digest, current)),
-            cancellation=_cancellation_signature(current, path.name))
-    return PreparedStoppedReservations(receipts)
-
-
-def _check_prepared_stop(path, current, prepared):
-    _require(type(prepared) is PreparedStoppedReservations,
-             'Stopping evidence must be prepared outside the machine lock')
-    receipt = prepared.receipts.get(str(Path(path).absolute()))
-    _require(receipt is not None, 'New stopping evidence requires preparation outside the machine lock')
-    consumed = _check_consumption(receipt['record'], receipt['digest'], current)
-    _require(receipt['consumption'] == _remedy_signature(consumed)
-             and receipt['cancellation'] == _cancellation_signature(current, path.name),
-             'Stopping ownership or cancellation changed after evidence preparation')
-    if receipt['stopped']['record']['kind'] == 'reroute':
-        _require(current.get('reroute_lineages', {}).get(receipt['digest']) == path.name,
-                 'Stopped reroute lineage consumption changed')
-    receipt['reads'].verify()
-
-
-def _placement_state(path, manifest, report, *, current=None, prepared_stops=None):
+def _placement_state(path, manifest, report, *, current=None):
     local = report['state']
-    if current is not None and local in ('cancelled', 'finished', 'fetched'):
-        if os.path.lexists(path / 'autonomy-cancel-stopped.json'):
-            _check_prepared_stop(path, current, prepared_stops)
-            return 'finished'
-        if path.name in current.get('cancellations', {}):
-            # Acceptance or a later numeric-ID status alone cannot discharge
-            # an exact-instance cancellation reservation.
-            return 'queued'
-    if local in ('finished', 'fetched'):
-        _completion(path, manifest, report)
-        return 'finished'
     if local == 'unknown':
         return 'unknown'
+    if local == 'cancelled' or _has_cancellation(path, current):
+        return 'queued'
+    if local in ('finished', 'fetched'):
+        completion, _ = _completion(path, manifest, report)
+        if completion.get('scheduler_state') == 'CANCELLED':
+            return 'queued'
+        return 'finished'
     if local in ('running', 'stalled'):
         return 'running'
     return 'queued' if report['job_id'] else 'reserved'
@@ -1190,7 +880,7 @@ def _published_bytes(path):
         os.close(fd)
 
 
-def _incomplete_remedy_outputs(path, manifest, ownership, completion, *, stopped=None):
+def _incomplete_remedy_outputs(path, manifest, completion):
     """Verify a formal incomplete receipt outside submission locks."""
     from ag import fetch
     from ag.remote import output_names
@@ -1226,28 +916,15 @@ def _incomplete_remedy_outputs(path, manifest, ownership, completion, *, stopped
              and math.isfinite(end['at']) and end['at'] >= completion['observed_at'],
              'Incomplete fetch lacks an exact later stopped-job observation')
     account = end.get('accounting')
-    if stopped is None:
-        expected = dict(job_id=submission.raw_job(manifest, completion['job_id']),
-            state=completion['scheduler_state'], exit_code=completion['exit_code'],
-            exit_signal=completion['exit_signal'], elapsed=completion['elapsed'],
-            allocated_cpus=completion['allocated_cpus'])
-        _require(account == expected and account['state'] in
-                 ('TIMEOUT', 'FAILED', 'OUT_OF_MEMORY', 'NODE_FAIL', 'COMPLETED'),
-                 'Incomplete fetch stop evidence conflicts with exact terminal accounting or is cancellation')
-    else:
-        _fields(account, {'job_id', 'state', 'exit_code', 'exit_signal', 'elapsed', 'allocated_cpus'},
-                'cancelled incomplete accounting')
-        _require(account['job_id'] == stopped['binding']['job_id'] and account['state'] == 'CANCELLED'
-                 and all(type(account[key]) is int and account[key] >= 0
-                         for key in ('exit_code', 'exit_signal', 'allocated_cpus'))
-                 and isinstance(account['elapsed'], str) and bool(account['elapsed']),
-                 'Incomplete fetch conflicts with the exact cancelled instance')
-    probe = ownership.get('slurm_probe', {}).get('record', {})
-    binding = _json(_read_file(path / 'submission.json'))
-    if probe.get('bound_submit_format_candidate') is True:
-        _require(end.get('scheduler_cluster') == binding.get('scheduler_cluster') == probe['scheduler_cluster'],
-                 'Incomplete fetch did not verify the original bound scheduler target')
-    elif end.get('scheduler_cluster') is not None:
+    expected = dict(job_id=submission.raw_job(manifest, completion['job_id']),
+        state=completion['scheduler_state'], exit_code=completion['exit_code'],
+        exit_signal=completion['exit_signal'], elapsed=completion['elapsed'],
+        allocated_cpus=completion['allocated_cpus'])
+    _require(account == expected and account['state'] in
+             ('TIMEOUT', 'FAILED', 'OUT_OF_MEMORY', 'NODE_FAIL', 'COMPLETED'),
+             'Incomplete fetch end evidence conflicts with terminal accounting or is cancellation')
+    if end.get('scheduler_cluster') is not None:
+        binding = _json(_read_file(path / 'submission.json'))
         _require(end['scheduler_cluster'] == binding.get('scheduler_cluster'),
                  'Incomplete fetch scheduler target differs from known submission')
     outputs = [dict(name=name, size=info['size'], sha256=info['sha256'])
@@ -1325,7 +1002,7 @@ def _scientific_reservation(path):
     with _registry('autonomy-reservations') as store:
         raw = _read_file(Path.home() / '.config/ag/autonomy-reservations' / _filename(path))
     record = _json(raw)
-    _reservation_fields(record, _RECORD_KEYS, 'reservation record')
+    _fields(record, _RECORD_KEYS, 'reservation record')
     _context(record)
     _require(record['schema'] == RESERVATION_SCHEMA and _record_path(record) == path
              and raw == disk.encode(record), 'Invalid scientific-review ownership record')
@@ -1458,7 +1135,6 @@ class PreparedRemedy:
         self.root, self.round_id, self.object_id = root, round_id, object_id
         self.previous, self.evidence = previous, evidence
         self.reads, self.source_path = reads, source_path
-        self.cancellation = None
 
 
 def prepare_remedy_evidence(cfg, verified_state, object_id, *, exclude_attempt=None):
@@ -1471,8 +1147,6 @@ def prepare_remedy_evidence(cfg, verified_state, object_id, *, exclude_attempt=N
     prepared = PreparedRemedy(str(Path(cfg['local']['studies_root']).absolute()),
         verified_state.get('current_round'), object_id, _remedy_signature(previous), evidence,
         reads, sources[0] if sources else None)
-    if evidence is not None and 'cancel_stopped' in evidence['completion']:
-        prepared.cancellation = _cancellation_signature(verified_state, evidence['source_attempt'])
     return prepared
 
 
@@ -1483,9 +1157,8 @@ def _prepared_remedy_binding(cfg, current, object_id, prepared, exclude_attempt)
              and prepared.round_id == current.get('current_round') and prepared.object_id == object_id
              and prepared.previous == _remedy_signature(previous),
              'Latest actual remedy consumption changed after evidence preparation')
-    if prepared.cancellation is not None:
-        _require(prepared.cancellation == _cancellation_signature(current, prepared.evidence['source_attempt']),
-                 'Accepted cancellation changed after remedy evidence preparation')
+    _require(prepared.source_path is None or not _has_cancellation(prepared.source_path, current),
+             'Cancelled jobs cannot be remedy sources; human review is required')
 
 
 def verify_remedy_evidence(cfg, verified_state, object_id, prepared, *, exclude_attempt=None):
@@ -1541,160 +1214,7 @@ def refresh_remedy_evidence(cfg, verified_state, object_id, prepared, *, exclude
     updated.verify()
     refreshed = PreparedRemedy(prepared.root, prepared.round_id, prepared.object_id,
         deepcopy(prepared.previous), deepcopy(prepared.evidence), updated, prepared.source_path)
-    refreshed.cancellation = deepcopy(prepared.cancellation)
     return refreshed
-
-
-def _cancellation_signature(current, attempt_id):
-    signature = {key: deepcopy(current.get(key, {}).get(attempt_id))
-                 for key in ('cancellations', 'cancellation_results')}
-    if isinstance(signature['cancellations'], dict):
-        # Public replay hides this secret. The unchanged consumption digest
-        # still binds the complete original event, including its owner token.
-        signature['cancellations'].pop('token_sha256', None)
-    return signature
-
-
-class PreparedReroute:
-    """Verified stopped-source bytes; not serializable execution permission."""
-    def __init__(self, remedy, source, manifest, files, cancellation, job_class):
-        self._remedy, self.source = remedy, deepcopy(source)
-        self.source_manifest, self.source_files = deepcopy(manifest), dict(files)
-        self.scientific_identity = attempt.reroute_input_identity(manifest, files)
-        self._cancellation = deepcopy(cancellation)
-        self.job_class = job_class
-
-
-def _reroute_binding(cfg, current, object_id, prepared, exclude_attempt):
-    _require(type(prepared) is PreparedReroute, 'Reroute requires an internal stopped-source receipt')
-    _prepared_remedy_binding(cfg, current, object_id, prepared._remedy, exclude_attempt)
-    source = prepared.source
-    plan = current.get('plans', {}).get(current.get('current_plan'))
-    _require(isinstance(plan, dict) and plan['sha256'] == source['plan_sha256']
-             and current.get('current_round') == source['round_id']
-             and source['object_id'] == object_id
-             and _cancellation_signature(current, source['attempt_id']) == prepared._cancellation,
-             'Reroute source plan, round, object or accepted cancellation changed')
-
-
-def _unique_reroute_successor(source, exclude_attempt):
-    for saved in _read_global_records():
-        record = saved['record']
-        prior = record.get('reroute_source')
-        if prior is None or (exclude_attempt is not None and record['study_key'] == source['study_key']
-                             and record['attempt_id'] == exclude_attempt):
-            continue
-        _require((prior['study_key'], prior['attempt_id']) != (source['study_key'], source['attempt_id']),
-                 'Stopped source already has an immutable reroute successor')
-
-
-def _reroute_local_outputs(path, manifest):
-    """Reject known product evidence; local absence is not a remote observation."""
-    from ag import fetch, remote
-    reads = _CAPTURE_READS.get()
-    _require(reads is not None, 'Reroute output evidence must be prepared outside locks')
-    reads.directory(path)
-    reads.directory(path / 'outputs')
-    _require(not any(os.path.lexists(path / 'outputs' / name) for name in remote.output_names(manifest)),
-             'Reroute source already has declared output evidence')
-    events = [_json(line) for line in _read_file(path.parent.parent / 'journal.jsonl').splitlines()]
-    _require(not any(event['attempt_id'] == path.name and event['action'] == 'fetch'
-                     and event['result'] == 'ok' for event in events),
-             'Reroute source has a successful output fetch')
-    paths = list(path.glob('fetch-incomplete-*.json'))
-    _require(len(paths) <= 1, 'Ambiguous reroute incomplete-fetch evidence')
-    if paths:
-        receipt = _json(_published_bytes(paths[0]))
-        _require(not receipt.get('outputs'), 'Reroute source has positive incomplete-fetch output evidence')
-        _require(fetch.incomplete_record(path) == (paths[0].name, receipt),
-                 'Reroute incomplete receipt differs from its formal bytes')
-
-
-def prepare_reroute_evidence(cfg, verified_state, object_id, source_attempt, *, exclude_attempt=None):
-    """Reparse the official stopped-instance evidence before taking action locks."""
-    study.identifier(source_attempt)
-    previous = _remedy_previous(verified_state, object_id, exclude_attempt)
-    _require(previous is not None and previous['attempt_id'] == source_attempt,
-             'Reroute source must be the unique latest actual object submission')
-    with _capture_reads() as reads:
-        matches = [saved for saved in _read_global_records()
-                   if saved['sha256'] == previous['ownership_sha256']]
-        _require(len(matches) == 1, 'Reroute source lacks its unique global ownership')
-        saved = matches[0]
-        record, digest = saved['record'], saved['sha256']
-        path = _record_path(record)
-        _require(path.parent.parent.parent == Path(cfg['local']['studies_root']).absolute()
-                 and _registered_studies().get(record['study_key']) == path.parent.parent,
-                 'Reroute source study location changed')
-        _require('reroute_source' not in record, 'An already rerouted job cannot be rerouted again')
-        _require(record['selection']['result']['schema'] == 'ag-routing-ladder/1',
-                 'Reroute requires the reviewed ladder selector')
-        consumed = _check_consumption(record, digest, verified_state)
-        _require(consumed.get('dispatch_started') is not None
-                 and consumed.get('aborted_before_dispatch') is None,
-                 'Reroute requires a real dispatched source')
-        report = _owned_audit(path, record, digest)
-        _require(report['state'] in ('cancelled', 'finished', 'fetched'),
-                 'Reroute source is not stopped')
-        raw, manifest = _manifest_bytes(path)
-        _reroute_local_outputs(path, manifest)
-        if report['state'] != 'cancelled':
-            completion, _ = _completion(path, manifest, report)
-            _require(completion.get('scheduler_state') == 'CANCELLED',
-                     'Reroute terminal status conflicts with the exact cancelled instance')
-        stopped = _verified_stopped(path, verified_state)
-        _require(stopped['record']['kind'] == 'reroute', 'Reroute requires its formal never-started stopping proof')
-        _require(stopped['record']['ownership_sha256'] == digest,
-                 'Reroute stopped evidence belongs to another submission')
-        request = _json(_read_file(path / 'autonomy-cancel-request.json'))
-        source_key = {key: record[key] for key in ('study_key', 'attempt_id')}
-        source_key['record_sha256'] = digest
-        selection = request.get('routing_selection')
-        batches = {item['record']['selection']['result']['evidence']['input_sha256']:
-                   item['record']['selection']['input'] for item in _read_global_records()}
-        result = verify_selection(cfg, selection, batch_inputs=batches)
-        choice = result.get('recommendation')
-        _require(selection['input']['request'].get('evaluate_from') == source_key
-                 and selection['input']['request']['job_class'] == record['selection']['input']['request']['job_class']
-                 and result.get('evaluation_only') is True and result.get('evaluate_from') == source_key
-                 and isinstance(choice, dict) and choice.get('eligible') is True
-                 and choice.get('needs_queue') is False and choice.get('capacity', {}).get('availability') == 'enough'
-                 and choice.get('cell_id') != record['selection']['result']['recommendation']['cell_id'],
-                 'Reroute cancellation lacks its replayable higher immediate candidate')
-        source = dict(study_key=record['study_key'], attempt_id=source_attempt, record_sha256=digest,
-            stopped_sha256=stopped['sha256'], manifest_sha256=sha256(raw).hexdigest(),
-            bundle_sha256=manifest['bundle_sha256'], round_id=record['round_id'],
-            plan_sha256=record['plan_sha256'], object_id=record['object_id'],
-            cell_id=record['selection']['result']['recommendation']['cell_id'])
-        _reroute_source(source)
-        files = {item['name']: _read_file(path / 'inputs' / item['name']) for item in manifest['inputs']}
-        status_hash = sha256(_read_file(path / 'status.json')).hexdigest()
-        proxy = PreparedRemedy(str(Path(cfg['local']['studies_root']).absolute()),
-            verified_state.get('current_round'), object_id, _remedy_signature(previous),
-            {'status_sha256': status_hash}, reads, path)
-        prepared = PreparedReroute(proxy, source, manifest, files,
-                                  _cancellation_signature(verified_state, source_attempt),
-                                  record['selection']['input']['request']['job_class'])
-        _reroute_binding(cfg, verified_state, object_id, prepared, exclude_attempt)
-        _unique_reroute_successor(source, exclude_attempt)
-    return prepared
-
-
-def verify_reroute_evidence(cfg, verified_state, object_id, prepared, *, exclude_attempt=None):
-    """Inside the transaction, check unchanged metadata and unique lineage."""
-    _reroute_binding(cfg, verified_state, object_id, prepared, exclude_attempt)
-    prepared._remedy.reads.verify()
-    _unique_reroute_successor(prepared.source, exclude_attempt)
-    return deepcopy(prepared.source)
-
-
-def refresh_reroute_evidence(cfg, verified_state, object_id, prepared, *, exclude_attempt=None):
-    """Refresh bounded local receipts outside locks without reparsing outputs."""
-    _reroute_binding(cfg, verified_state, object_id, prepared, exclude_attempt)
-    proxy = refresh_remedy_evidence(cfg, verified_state, object_id, prepared._remedy,
-                                    exclude_attempt=exclude_attempt)
-    return PreparedReroute(proxy, prepared.source, prepared.source_manifest, prepared.source_files,
-                          prepared._cancellation, prepared.job_class)
 
 
 def remedy_evidence(cfg, verified_state, object_id, *, exclude_attempt=None):
@@ -1724,6 +1244,8 @@ def remedy_evidence(cfg, verified_state, object_id, *, exclude_attempt=None):
     _require(not any(event['attempt_id'] == path.name and event['action'] == 'facts'
                      and isinstance(event.get('detail'), dict) and event['detail'].get('status') == 'conflict'
                      for event in events), 'Conflicting facts require human review before a remedy')
+    _require(not _has_cancellation(path, verified_state),
+             'Cancelled jobs cannot be remedy sources; human review is required')
     outputs = []
     if consumed.get('aborted_before_dispatch') is not None:
         _require(consumed.get('dispatch_started') is None and report['job_id'] is None
@@ -1734,36 +1256,13 @@ def remedy_evidence(cfg, verified_state, object_id, *, exclude_attempt=None):
         status_hash = sha256(_read_file(path / 'status.json')).hexdigest()
     else:
         incomplete = bool(list(path.glob('fetch-incomplete-*.json')))
-        if os.path.lexists(path / 'autonomy-cancel-stopped.json'):
-            stopped = _verified_stopped(path, verified_state)
-            _require(stopped['record']['kind'] == 'no_progress',
-                     'A stopped reroute requires its explicit reroute successor')
-            _require(report['state'] in ('cancelled', 'finished', 'fetched'),
-                     'No-progress remedy requires a formally stopped source')
-            status_hash = sha256(_read_file(path / 'status.json')).hexdigest()
-            completion = dict(source='slurm-cancel-stopped', job_id=report['job_id'],
-                observed_at=stopped['record']['slurm_instance']['current_observation']['capture_finished_at'],
-                cancel_stopped=stopped)
-            if incomplete:
-                _, outputs, reference = _incomplete_remedy_outputs(path, manifest, record, completion,
-                                                                 stopped=stopped['record'])
-                completion['incomplete_fetch'] = reference
-            else:
-                _require(report['state'] == 'fetched', 'No-progress remedy requires fetched outputs')
-                terminal, status_hash = _completion(path, manifest, report)
-                _require(terminal.get('scheduler_state') == 'CANCELLED',
-                         'Fetched terminal status conflicts with the exact cancelled instance')
-                completion['terminal'] = terminal
-                files = _fetched_outputs(path, manifest)
-                outputs = [dict(name=name, size=len(data), sha256=sha256(data).hexdigest())
-                           for name, data in sorted(files.items())]
-            return dict(failure_class='no-progress', source_attempt=path.name, source_ownership_sha256=digest,
-                        status_sha256=status_hash, outputs=outputs, completion=completion)
         _require(report['state'] == ('finished' if incomplete else 'fetched'),
                  'Remedy requires confirmed completion and fetched outputs')
         completion, status_hash = _completion(path, manifest, report)
+        _require(completion.get('scheduler_state') != 'CANCELLED',
+                 'Cancelled jobs cannot be remedy sources; human review is required')
         if incomplete:
-            files, outputs, reference = _incomplete_remedy_outputs(path, manifest, record, completion)
+            files, outputs, reference = _incomplete_remedy_outputs(path, manifest, completion)
             completion['incomplete_fetch'] = reference
         else:
             files = _fetched_outputs(path, manifest)
@@ -1814,7 +1313,7 @@ def remedy_evidence(cfg, verified_state, object_id, *, exclude_attempt=None):
                 status_sha256=status_hash, outputs=outputs, completion=completion)
 
 
-def read_reservations(cfg, *, states=None, prepared_stops=None):
+def read_reservations(cfg, *, states=None):
     """Cross-check both sides of all local ownership before returning placements.
 
     Caller holds machine_lock. states maps absolute study directories to raw,
@@ -1884,8 +1383,7 @@ def read_reservations(cfg, *, states=None, prepared_stops=None):
         _require(all(request.get(k) == v for k, v in expected.items()), 'Reservation selection ownership changed')
         bound_job = submission.raw_job(manifest, report['job_id']) if report['job_id'] else None
         placement_state = _placement_state(path, manifest, report,
-                                           current=current_states.get(str(path.parent.parent)),
-                                           prepared_stops=prepared_stops)
+                                           current=current_states.get(str(path.parent.parent)))
         placement = dict(study_id=record['study_id'], study_key=record['study_key'], attempt_id=record['attempt_id'], cluster=name,
             scheduler_job_name=manifest['attempt_id'] if manifest.get('scheduler') == 'slurm' else manifest['pbs_job_name'],
             state=placement_state, cores=manifest['cores'], mem_gb=manifest['mem_gb'], job_id=bound_job,
@@ -2000,55 +1498,6 @@ def waiting_history(cfg, current, study_id, object_id):
     return datetime.fromtimestamp(since, timezone.utc).isoformat(), wakeups
 
 
-def verified_reservation(path, *, verified_state):
-    """Read consumed immutable ownership; this result grants no action permit.
-
-    The caller supplies its freshly replayed state while holding the study
-    mutex. No present-day observation is added to the original reservation.
-    """
-    path = Path(path).absolute()
-    record, digest = _scientific_reservation(path)
-    _check_consumption(record, digest, verified_state)
-    _owned_audit(path, record, digest)
-    return dict(record=deepcopy(record), sha256=digest)
-
-
-def bound_scheduler_cluster(path):
-    """Read the original autonomous query target; never repair old bindings.
-
-    Call outside publication guards: authorization verification loads the study
-    state itself. A missing or downgraded probe cannot select a default target.
-    """
-    path = Path(path).absolute()
-    side_exists = os.path.lexists(path / 'slurm-origin-probe.json')
-    global_path = Path.home() / '.config/ag/autonomy-reservations' / _filename(path)
-    summary_path = path / 'submission-summary.json'
-    if not side_exists and not os.path.lexists(global_path) and not os.path.lexists(summary_path):
-        return None
-    archived = _json(_read_file(summary_path))
-    auth = archived.get('authorization') if isinstance(archived, dict) else None
-    autonomous = isinstance(auth, dict) and auth.get('method') == 'autonomy-policy'
-    if not side_exists and not os.path.lexists(global_path) and not autonomous:
-        return None
-    _require(autonomous, 'Slurm query target requires archived autonomous ownership')
-    record, digest = _scientific_reservation(path)
-    _require(auth == authorization(record, digest), 'Slurm query target ownership differs from reservation')
-    if not side_exists and 'slurm_probe' not in record:
-        return None
-    verified_authorization(path, auth)
-    probe = record.get('slurm_probe', {}).get('record', {})
-    if probe.get('bound_submit_format_candidate') is not True:
-        return None
-    target = probe['scheduler_cluster']
-    _require(isinstance(target, str) and bool(target), 'Bound Slurm query target is missing')
-    if os.path.lexists(path / 'submission.json'):
-        binding = _json(_read_file(path / 'submission.json'))
-        actual = binding.get('scheduler_cluster')
-        _require(actual is None or actual == target,
-                 'Known scheduler cluster differs from the original bound target')
-    return target
-
-
 def verified_authorization(path, value, *, verified_state=None):
     """Recover only authorization already bound before scheduler dispatch.
 
@@ -2059,7 +1508,7 @@ def verified_authorization(path, value, *, verified_state=None):
     with _registry('autonomy-reservations') as store:
         raw = store.read(_filename(path))
     record = _json(raw)
-    _reservation_fields(record, _RECORD_KEYS, 'reservation record')
+    _fields(record, _RECORD_KEYS, 'reservation record')
     _context(record)
     _require(record['schema'] == RESERVATION_SCHEMA and _record_path(record) == path
              and raw == disk.encode(record), 'Invalid immutable reservation encoding/identity')

@@ -77,7 +77,7 @@ def core_breakdown(jobs, username):
     return running, total - running
 
 
-def inventory(transport, cfg=None, *, scheduler_cluster=None):
+def inventory(transport, cfg=None):
     if cfg is not None:
         # Validate local identities before using scheduler occupancy for submit.
         list(attempt.local_records(cfg['local']['studies_root'],
@@ -86,8 +86,7 @@ def inventory(transport, cfg=None, *, scheduler_cluster=None):
     if not re.fullmatch(r'[A-Za-z0-9_.-]+', username):
         raise ValueError('Cannot identify remote user')
     if cfg is not None and scheduler_kind(cfg) == 'slurm':
-        target = {} if scheduler_cluster is None else {'scheduler_cluster': scheduler_cluster}
-        jobs = slurm.parse_queue(require_ok(transport.run(remote.slurm_jobs(user=username, **target)), 'squeue'))
+        jobs = slurm.parse_queue(require_ok(transport.run(remote.slurm_jobs(user=username)), 'squeue'))
         return username, jobs, sum(slurm.core_breakdown(jobs, username))
     jobs = parse_jobs(require_ok(transport.run(remote.jobs()), 'qstat'))
     return username, jobs, occupied(jobs, username)
@@ -396,20 +395,17 @@ def format_status(results):
 
 
 def check_slurm(cfg, path, transport, m, *, publication=None):
-    from ag.autonomy_submission import bound_scheduler_cluster
     username = None
     if hasattr(transport, 'record_to'):
         transport.record_to([path] if publication is None else [])
     current = state.read(path)
     current, publish = _publication_scope(path, current, publication)
-    scheduler_cluster = bound_scheduler_cluster(path)
-    query_options = {} if scheduler_cluster is None else {'scheduler_cluster': scheduler_cluster}
     if current['state'] == 'unknown' and not current.get('job_id'):
-        username, jobs, _ = inventory(transport, cfg, **query_options)
+        username, jobs, _ = inventory(transport, cfg)
         matches = {j['job_id'] for j in jobs if j['name'] == m['attempt_id'] and j['owner'] == username}
         # Explicit start date avoids sacct's default midnight window hiding a
         # submission whose reply was lost before the next day's reconciliation.
-        text = require_ok(transport.run(remote.slurm_find(username, m['attempt_id'], m['created_at'][:10], **query_options)), 'sacct name reconciliation')
+        text = require_ok(transport.run(remote.slurm_find(username, m['attempt_id'], m['created_at'][:10])), 'sacct name reconciliation')
         for row in slurm.parse_accounting(text, name=m['attempt_id'], username=username):
             matches.add(row['job_id'])
         if len(matches) != 1:
@@ -418,7 +414,7 @@ def check_slurm(cfg, path, transport, m, *, publication=None):
         job = next(iter(matches))
         with publish() as autonomy_state:
             binding = {} if publication is None else {'autonomy_state': autonomy_state}
-            submission.record(path, m, job, scheduler_cluster=scheduler_cluster, **binding)
+            submission.record(path, m, job, **binding)
             current = state.write(path, 'submitted', job_id=submission.qualified(m, job), note='Read-only scheduler reconciliation')
     if current['state'] not in ('submitted', 'running', 'unknown', 'interrupted', 'finished', 'fetched', 'cancelled'):
         with publish():
@@ -427,7 +423,7 @@ def check_slurm(cfg, path, transport, m, *, publication=None):
     if username is None:
         username = require_ok(transport.run(remote.identity()), 'identity').strip()
         remote.slurm_token(username)
-    result = transport.run(remote.slurm_jobs(job, **query_options))
+    result = transport.run(remote.slurm_jobs(job))
     # Some versions return an explicit invalid-job diagnostic after purging;
     # it only triggers accounting lookup, never an inference of completion.
     if result.returncode and result.returncode != 255 and 'Invalid job id specified' in result.stderr:
@@ -439,8 +435,6 @@ def check_slurm(cfg, path, transport, m, *, publication=None):
         raise ValueError('squeue exact-job identity mismatch')
     details = dict(scheduler='slurm', cluster=m['cluster'], scheduler_residue=False,
                    scheduler_observed_at=time.time())
-    if scheduler_cluster is not None:
-        details['scheduler_cluster'] = scheduler_cluster
     if active:
         scheduler = active[0]['state']
         target = 'running' if scheduler == 'RUNNING' else 'submitted'
@@ -450,7 +444,7 @@ def check_slurm(cfg, path, transport, m, *, publication=None):
         with publish():
             return state.write(path, target, exit_status=current.get('exit_status'),
                                scheduler_state=scheduler, note='Active Slurm scheduler observation', **details)
-    rows = slurm.parse_accounting(require_ok(transport.run(remote.slurm_accounting(job, **query_options)), 'sacct exact job'),
+    rows = slurm.parse_accounting(require_ok(transport.run(remote.slurm_accounting(job)), 'sacct exact job'),
                                   job, name=m['attempt_id'], username=username)
     if not rows:
         with publish():

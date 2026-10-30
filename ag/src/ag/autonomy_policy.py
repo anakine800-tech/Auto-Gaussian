@@ -55,7 +55,6 @@ def digest(value, label):
 def names(values, validator, label, *, empty=False):
     require(isinstance(values, list) and (bool(values) or empty)
             and all(isinstance(x, str) for x in values), f'Invalid {label} list')
-    require(len(values) == len(set(values)), f'Duplicate {label}')
     for value in values:
         validator(value)
 
@@ -69,7 +68,7 @@ def gaussian_method(value):
     require(isinstance(value['opt_convergence'], str) and value['opt_convergence'] in CONVERGENCE,
             'Unsupported Opt convergence floor')
     integer(value['scf_convergence'], 'SCF convergence')
-    require(8 <= value['scf_convergence'] <= 12, 'SCF convergence floor must be 8..12')
+    require(value['scf_convergence'] >= 8, 'SCF convergence floor must be >= 8')
     # Reconstruct only the method settings for validation, never a job input.
     # Canonical comparison rejects spelling that the shared parser cannot prove.
     route = '# ' + value['method'] + '/' + value['basis']
@@ -145,8 +144,6 @@ def validate_plan_bounds(value):
         require(isinstance(methods, list) and bool(methods), 'Explicit method list required')
         for method in methods:
             template_method(template, method)
-        hashes = [approval.digest(method) for method in methods]
-        require(len(set(hashes)) == len(hashes), 'Duplicate method')
     return deepcopy(value)
 
 

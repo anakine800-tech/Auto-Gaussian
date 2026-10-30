@@ -127,37 +127,7 @@ def prepare(cfg, *, study_name, autonomous=None, **kwargs):
         raise
 
 
-def reroute_input_identity(manifest, files):
-    """Compare frozen scientific bytes while allowing only declared resources.
-
-    The scheduler script is regenerated for the new Attempt/target. Gaussian
-    may change its two validated Link0 resource directives; every other input
-    byte, attachment, program parameter and scientific summary stays exact.
-    Call only after the ordinary input/bundle validation has succeeded.
-    """
-    if (manifest.get('template') not in ('gaussian', 'gaussian-cp', 'crest', 'xtb')
-            or 'parent_chk' in manifest or 'input_validation' in manifest):
-        raise ValueError('Reroute requires a supported strict input without checkpoint dependencies')
-    scientific = {}
-    for name, data in files.items():
-        if name in ('job.slurm', 'job.pbs'):
-            continue
-        if manifest['template'] in ('gaussian', 'gaussian-cp') and name.endswith('.gjf'):
-            lines = data.splitlines(keepends=True)
-            kept, link0 = [], True
-            for line in lines:
-                if not line.startswith(b'%'):
-                    link0 = False
-                if link0 and re.fullmatch(rb'%(?:nprocshared|mem)\s*=.*(?:\r?\n)?', line, re.I):
-                    continue
-                kept.append(line)
-            data = b''.join(kept)
-        scientific[name] = dict(size=len(data), sha256=sha256(data).hexdigest())
-    return dict(template=manifest['template'], template_params=manifest['template_params'],
-                science=manifest['science'], inputs=scientific)
-
-
-def _prepare(cfg, *, study_name, template, input_path, tier=None, walltime, label, params=None, parents=None, method_basis, constraints=None, cluster='default', card=None, parent_chk=None, analysis=None, grid=None, fragments=None, transport=None, target_node=None, node_fraction=None, publication=None, reroute_evidence=None):
+def _prepare(cfg, *, study_name, template, input_path, tier=None, walltime, label, params=None, parents=None, method_basis, constraints=None, cluster='default', card=None, parent_chk=None, analysis=None, grid=None, fragments=None, transport=None, target_node=None, node_fraction=None, publication=None):
     from ag import node_targeting
     cfg = select_cluster(cfg, cluster)
     tier = resolve_tier(cfg, tier)
@@ -299,16 +269,6 @@ def _prepare(cfg, *, study_name, template, input_path, tier=None, walltime, labe
         program_files[name + '.fragments.csv'] = cp_fragments
     if constraint_data is not None:
         program_files['constraints.inp'] = constraint_data
-    if reroute_evidence is not None:
-        # The owner adapter supplies a verified source and its frozen science.
-        # Compare the actual parsed bytes before allocating a new Attempt;
-        # submission independently re-verifies the immutable source later.
-        candidate = dict(template=template, template_params=params,
-                         science={**science, 'method_basis': method_basis})
-        if attachment is not None:
-            candidate['parent_chk'] = attachment
-        if reroute_input_identity(candidate, program_files) != reroute_evidence['scientific_identity']:
-            raise ValueError('Reroute changed scientific input; only declared resource changes are allowed')
     with publication() if publication is not None else nullcontext():
         # O_EXCL reserves the numeric sequence, even with concurrent different labels.
         for number in range(1, 1000):
@@ -336,8 +296,6 @@ def _prepare(cfg, *, study_name, template, input_path, tier=None, walltime, labe
             m['auto_nprocshared'] = auto_nprocshared
         if auto_mem is not None:
             m['auto_mem_gb'] = auto_mem
-        if reroute_evidence is not None:
-            m['reroute_source'] = reroute_evidence['source']
         script = 'job.slurm' if m['scheduler'] == 'slurm' else 'job.pbs'
         files = {**program_files, script: render.render(cfg, m, name).encode()}
         m['inputs'], m['bundle_sha256'] = bundle(files)

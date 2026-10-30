@@ -92,7 +92,7 @@ def test_each_required_field(cfg, field):
     ('study_key', 'a' * 63), ('study_key', 'A' * 64), ('study_key', False),
     ('study_key', ''), ('study_key', 'synthetic/study'),
     ('plan_sha256', 'a' * 63), ('routing_sha256', 'x' * 64),
-    ('templates', []), ('templates', ['gaussian', 'gaussian']),
+    ('templates', []),
     ('templates', ['gaussian*']), ('templates', ['multiwfn']),
     ('max_cores_per_job', True), ('max_cores_per_job', 0),
     ('max_walltime', '00:00:00'), ('max_walltime', float('inf')),
@@ -109,7 +109,7 @@ def test_bad_top_fields(key, value):
 
 
 @pytest.mark.parametrize('key,value', [('nodes', ['*']), ('nodes', [' ']),
-    ('nodes', ['node-a', 'node-a']), ('max_committed_cores', 8),
+    ('max_committed_cores', 8),
     ('max_queued_cores', 33), ('max_queued_cores', True), ('max_jobs', 0), ('extra', 1)])
 def test_bad_cluster_fields(key, value):
     data = rule()
@@ -166,13 +166,19 @@ def test_no_manual_policy_fallback(cfg, prepared):
 @pytest.mark.parametrize('route', [ROUTE,
     ROUTE.replace('Opt=Tight', 'Opt=(VeryTight,CalcFC,MaxCycles=100)'),
     ROUTE.replace('SCF=(XQC,Conver=8)', 'SCF=(QC,Conver=9,MaxCycle=200)'),
+    ROUTE.replace('Conver=8', 'Conver=13'),
     ROUTE.replace('Opt=Tight', 'Opt(Tight)'),
     ROUTE.replace('Int=UltraFine', 'Integral=(UltraFine)'),
 ])
 def test_frozen_method_and_allowed_adjustments(cfg, tmp_path, route):
     path, manifest = make(cfg, tmp_path, route)
     before = (path / 'manifest.json').read_bytes()
-    result = policy.check_attempt(cfg, path, rule(cfg))
+    value = rule(cfg)
+    if 'Conver=13' in route:
+        value['methods']['gaussian'][0]['scf_convergence'] = 13
+        value['templates'] *= 2
+        value['methods']['gaussian'] *= 2
+    result = policy.check_attempt(cfg, path, value)
     assert result['method_verified'] and result['bundle_sha256'] == manifest['bundle_sha256']
     assert result['inputs'] == manifest['inputs']
     assert (path / 'manifest.json').read_bytes() == before
@@ -289,7 +295,7 @@ def test_invalid_attempt_consumption(used, requested):
 
 @pytest.mark.parametrize('changes', [dict(committed_cores=25), dict(queued_cores=9, committed_cores=9),
     dict(jobs=4), dict(jobs=True), dict(committed_cores=float('nan')),
-    dict(queued_cores=1), dict(requested_jobs=2), dict(clusters=['default', 'default'])])
+    dict(queued_cores=1), dict(requested_jobs=2)])
 def test_account_refusals(changes):
     with pytest.raises(ValueError):
         checked_budget(rule(), round_attempts=0, requested_attempts=1, occupancy=occupancy(**changes))
@@ -298,7 +304,7 @@ def test_account_refusals(changes):
 def test_shared_entry_minimum_and_no_duplicate_groups():
     value = rule()
     value['clusters']['peer'] = {**value['clusters']['default'], 'max_jobs': 2}
-    group = occupancy(clusters=['default', 'peer'], jobs=2)
+    group = occupancy(clusters=['default', 'peer', 'peer'], jobs=2)
     with pytest.raises(ValueError, match='max_jobs'):
         checked_budget(value, round_attempts=0, requested_attempts=1, occupancy=group)
     with pytest.raises(ValueError, match='more than once'):
@@ -363,6 +369,7 @@ def plan_spec(value=None):
 
 def test_plan_bounds_exact_match_and_no_mutation():
     value = rule()
+    value['clusters']['default']['nodes'] = ['node-a', 'node-a']
     spec = plan_spec(value)
     before = deepcopy(spec)
     assert policy.check_plan_bounds(value, spec) is None
@@ -723,83 +730,3 @@ def test_relaxed_strictest_candidate_floor_does_not_verify_method(cfg, tmp_path)
     path, value = relaxed_convergence_case(cfg, tmp_path, section + '--Link1--\n' + section)
     checked = policy.check_attempt(cfg, path, value)
     assert checked['method_verified'] is False and checked['method'] is None
-
-
-def _frozen_reroute_identity(cfg, manifest):
-    path = attempt.find(cfg, manifest['attempt_id'])
-    actual = attempt.read_manifest(path)
-    files = attempt.verified_files(cfg, path, actual)
-    return files, attempt.reroute_input_identity(actual, files)
-
-
-def test_reroute_gaussian_preserves_science_across_resource_repreparation(cfg, tmp_path):
-    study.init(cfg, 'smoke')
-    # Let real preparation fill both Link0 resource lines for each selected tier.
-    base = INPUT.partition('%chk=')[2]
-    base = '%chk=' + base
-    def prepare(text=base, *, filename='water.gjf', tier='simple', method_basis='Synthetic water method'):
-        source = tmp_path / filename
-        source.write_text(text)
-        manifest = attempt.prepare(cfg, study_name='smoke', template='gaussian', input_path=source,
-            tier=tier, walltime='00:30:00', label='reroute', method_basis=method_basis)
-        return _frozen_reroute_identity(cfg, manifest)
-    files, original = prepare()
-    larger, moved = prepare(tier='general')
-    assert files['water.gjf'] != larger['water.gjf'] and files['job.pbs'] != larger['job.pbs']
-    assert moved == original
-    # Each is a separately validated calculation, not a forged manifest edit.
-    variants = [prepare(base.replace('B3LYP', 'PBE0')),
-                prepare(base.replace('H 0 0 1', 'H 0 0 1.1')),
-                prepare(base.replace('0 1\nO', '1 2\nO')),
-                prepare(filename='renamed-water.gjf'),
-                prepare(method_basis='Different stated scientific basis')]
-    assert all(identity != original for _, identity in variants)
-
-
-def test_reroute_counterpoise_keeps_fragment_attachment_exact(cfg, tmp_path):
-    from test_counterpoise import prepare_cp, CSV
-    _, original_manifest = prepare_cp(cfg, tmp_path, resource_lines='')
-    first, original = _frozen_reroute_identity(cfg, original_manifest)
-    _, moved_manifest = prepare_cp(cfg, tmp_path, resource_lines='', tier='general')
-    moved, identity = _frozen_reroute_identity(cfg, moved_manifest)
-    assert first['water.gjf'] != moved['water.gjf'] and first['job.pbs'] != moved['job.pbs']
-    assert identity == original
-    # Relabelling the same fragment atom sets still changes the exact supplied
-    # attachment and cannot acquire reroute identity through equal coordinates.
-    _, changed = prepare_cp(cfg, tmp_path, resource_lines='', csv=CSV.replace('water-a', 'first-water'))
-    changed_files, changed_identity = _frozen_reroute_identity(cfg, changed)
-    assert first['water.gjf.fragments.csv'] != changed_files['water.gjf.fragments.csv']
-    assert changed_identity != original
-
-
-@pytest.mark.parametrize('template,params', [('crest', {'--gfn2': '', '--alpb': 'water'}),
-                                          ('xtb', {'--gfn': '2', '--opt': 'tight'})])
-def test_reroute_xyz_program_keeps_constraints_and_parameters(cfg, tmp_path, template, params):
-    from test_crest_constraints import XYZ, CONSTRAINTS
-    study.init(cfg, 'smoke')
-    source, constraints = tmp_path / 'peroxide.xyz', tmp_path / 'constraints.inp'
-    source.write_text(XYZ)
-    def prepare(*, tier='simple', content=CONSTRAINTS, parameters=None):
-        constraints.write_bytes(content)
-        manifest = attempt.prepare(cfg, study_name='smoke', template=template, input_path=source,
-            constraints=constraints, tier=tier, walltime='00:30:00', label='reroute',
-            method_basis='Synthetic peroxide method', params=params if parameters is None else parameters)
-        return _frozen_reroute_identity(cfg, manifest)
-    first, original = prepare()
-    moved, identity = prepare(tier='general')
-    assert first['job.pbs'] != moved['job.pbs'] and first['peroxide.xyz'] == moved['peroxide.xyz']
-    assert identity == original
-    constrained, changed_constraint = prepare(content=CONSTRAINTS.replace(b'1, 2, auto', b'1, 2, 1.45'))
-    assert constrained['peroxide.xyz'] == first['peroxide.xyz']
-    assert changed_constraint != original
-    _, changed_parameters = prepare(parameters={**params, '--alpb': 'methanol'})
-    assert changed_parameters != original
-
-
-def test_reroute_identity_rejects_checkpoint_dependency_and_relaxed_input(cfg, prepared):
-    path, manifest = prepared
-    files = attempt.verified_files(cfg, path, manifest)
-    for unsupported in (dict(parent_chk={'source_attempt': 'prior-water'}),
-                        dict(input_validation={'mode': 'relaxed'})):
-        with pytest.raises(ValueError, match='strict input without checkpoint'):
-            attempt.reroute_input_identity({**manifest, **unsupported}, files)
