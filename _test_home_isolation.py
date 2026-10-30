@@ -28,11 +28,12 @@ def inside(path, root):
 def runtime_trees():
     runtime = sysconfig.get_paths()
     trees = {runtime[key] for key in ('stdlib', 'platstdlib', 'purelib', 'platlib')}
-    # Conda installs dependency/standard timezone data outside site-packages.
+    # Conda's compiled TZPATH includes both fixed timezone directories below.
+    # Dependency/standard timezone data can live outside site-packages.
     # RDBASE, PYTHONTZPATH and TZDIR must not grant access to user data.
     trees.update(str(Path(prefix) / relative)
                  for prefix in {sys.prefix, sys.base_prefix}
-                 for relative in ('share/RDKit/Data', 'share/zoneinfo'))
+                 for relative in ('share/RDKit/Data', 'share/zoneinfo', 'share/tzinfo'))
     import gettext
     trees.add(gettext._default_localedir)  # argparse's installed translations only
     return trees

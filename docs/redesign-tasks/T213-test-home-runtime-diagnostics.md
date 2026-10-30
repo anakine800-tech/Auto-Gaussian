@@ -22,10 +22,13 @@ T211 已合并，本单从 main `64307e9cab561b556dd222340b9ffac4d5030ffb` 独�
 
 - 仅对 prefix/base_prefix 下的标准时区发行数据追加只读范围；不按任意
   `PYTHONTZPATH`、`TZDIR` 或其他用户环境变量放行用户数据，原写拒绝与临时 HOME 保留。
+  固定目录为 `share/zoneinfo` 与 `share/tzinfo`，对应已核实的编译内置 TZPATH；
+  不放行整个 prefix 或 share，也不从运行时环境覆盖推导许可。
 - 虚拟源码在实际磁盘查询前按无源码处理；不扩大普通路径 metadata/open 白名单，
   不吞掉原始 `HomeAccessError`。会话结束恢复诊断适配。
-- 用临时模拟 HOME 验证两个解释器前缀的时区数据可读不可写，私有覆盖、相邻数据及
-  链接越界仍拒绝；真实 zoneinfo 读取与三个原失败参数均通过。
+- 用临时模拟 HOME 验证两个解释器前缀、两个发行目录的时区数据可读不可写，缺失时区
+  fallback 正常失败，私有覆盖、相邻数据及链接越界仍拒绝；真实 zoneinfo 读取及
+  所有成功/非法/PBS 与 Slurm 的 timezone 参数均通过。
 - 实际 pytest 子进程用默认 traceback 触发带 frozen-frame 的模拟 HOME 违规，
   报告原始失败并 exit 1，无 INTERNALERROR，哨兵字节与目录不变。
 - 保留 descriptor、子进程、吞错、能力身份和临时 HOME 隔离回归；不关闭保护、不扩大
@@ -37,6 +40,12 @@ T211 已合并，本单从 main `64307e9cab561b556dd222340b9ffac4d5030ffb` 独�
 自主登记。原全量 exit 3 和三个定向失败的私有证据保持原样；新的最终源码组合由协调
 统一验证，旧失败不能改记为通过。原复现环境为 Python 3.11.15、pytest 9.1.1、
 RDKit 2026.3.3；环境位置、完整命令、源文件哈希和原始日志仅放私有复现包。
+
+首轮 head `00db1e1153ef1eaf30668524d326a1bc46904633` 的协调扩大复测为
+21 passed / 2 failed / 67 deselected：`Not/A_Zone` 与带尾空格的时区在查找不到后
+访问编译内置 `share/tzinfo`，该 fallback 目录尚未放行。原成功参数及默认 traceback
+已通过，原诊断修复不回退。本次仍在同一工单内追加第二个固定只读目录并扩大定向回归；
+首轮证据不覆盖，修订后另交冻结 SHA。
 
 公开扫描、精确暂存后创建 PR，首行 `Task: T213`。交付冻结 SHA、精确增量、
 定向结果、当前 head CI、支持边界与私有证据位置；开发会话不合并，无真实运行授权。

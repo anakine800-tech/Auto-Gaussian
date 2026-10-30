@@ -533,7 +533,8 @@ T213 在 pytest 的代码帧路径/源码查询处识别 `<frozen ...>`、`<stri
 `entry_points.txt`、`top_level.txt`、`dependency_links.txt`、`requires.txt` 六个确切元数据文件。
 解释器、ag/pytest 启动脚本为确切文件；标准库、site-packages 和已安装 gettext 翻译目录
 只读。Conda 的 RDKit 与标准时区发行数据仅放行解释器 prefix/base_prefix 下的
-`share/RDKit/Data` 与 `share/zoneinfo`；不按任意 `RDBASE`、`PYTHONTZPATH`、`TZDIR`
+`share/RDKit/Data`、`share/zoneinfo` 与 `share/tzinfo`；两个固定时区目录对应已核实的
+解释器编译内置 TZPATH，后者也供不存在时区的 fallback 探测。不按任意 `RDBASE`、`PYTHONTZPATH`、`TZDIR`
 环境变量扩大许可，写入和链接解析后的越界仍拒绝。其他 editable checkout 的搜索路径移除。真实 HOME、整个工程目录和未跟踪的
 研究/config 文件不获内容读取或写入许可。Git provenance 仅放行当前检出的固定
 rev-parse/status 查询，关闭可选锁和全局/系统 Git 配置；合成临时仓库可正常用于回归。

@@ -13,9 +13,9 @@
 
 ## 发行时区数据误拦与虚拟源码遮蔽原始失败（T213）
 现象：最终组合在 1346 项通过后 exit 3；Conda 时区数据被误拦，默认 pytest 报告又把 `<frozen genericpath>` 当磁盘路径而 INTERNALERROR。
-修复：仅追加解释器 prefix/base_prefix 的 `share/zoneinfo` 只读例外；pytest 虚拟代码帧直接按无磁盘源码处理，普通路径保护不变。
-验证：合成 HOME 覆盖时区读写、私有覆盖与链接拒绝；真实 pytest 子进程用默认 traceback 保留原始 HOME 违规并 exit 1，哨兵不变。
-以后：同时验证成功路径与失败报告，不用简化 traceback 代替诊断兼容；原全量与三个定向失败证据保留，修复后组合由协调另验。
+修复：仅追加解释器 prefix/base_prefix 的 `share/zoneinfo`、`share/tzinfo` 只读例外；pytest 虚拟代码帧直接按无磁盘源码处理，普通路径保护不变。
+验证：合成 HOME 覆盖两个发行目录的时区读写、缺失时区 fallback、私有覆盖与链接拒绝；默认 traceback 子 pytest 保留原始 HOME 违规并 exit 1，哨兵不变。
+以后：核对编译内置 TZPATH，同时测成功与非法时区、失败报告；首轮遗漏 fallback 的两项失败及原全量/定向失败证据保留，修复后组合由协调另验。
 
 ## 默认档位只在新 prepare 时解析（T154，风险预防）
 风险：复制任务沿用旧资源、跨入口借用默认值，或先做节点映射再解析默认值，都会使资源选择不符合当前入口。

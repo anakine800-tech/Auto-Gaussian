@@ -367,7 +367,8 @@ def test_default_pytest_traceback_preserves_frozen_home_violation(tmp_path, home
 
 
 @pytest.mark.parametrize('prefix_name', ['prefix', 'base_prefix'])
-def test_installed_timezone_data_is_read_only_and_overrides_stay_blocked(tmp_path, monkeypatch, prefix_name):
+@pytest.mark.parametrize('data_directory', ['zoneinfo', 'tzinfo'])
+def test_installed_timezone_data_is_read_only_and_overrides_stay_blocked(tmp_path, monkeypatch, prefix_name, data_directory):
     import struct
     import zoneinfo
     from datetime import datetime, timedelta
@@ -379,13 +380,15 @@ def test_installed_timezone_data_is_read_only_and_overrides_stay_blocked(tmp_pat
     tzif = (b'TZif\0' + bytes(15) + struct.pack('>6l', 0, 0, 0, 0, 1, 4)
             + struct.pack('>lbb', 28800, 0, 0) + b'SYN\0')
     for prefix in prefixes.values():
-        path = prefix / 'share/zoneinfo/Asia/Shanghai'
+        for directory in ('zoneinfo', 'tzinfo'):
+            (prefix / 'share' / directory).mkdir(parents=True)
+        path = prefix / 'share' / data_directory / 'Asia/Shanghai'
         path.parent.mkdir(parents=True)
         path.write_bytes(tzif)
     private = fake / 'private-timezones'
     (private / 'Asia').mkdir(parents=True)
     (private / 'Asia/Shanghai').write_bytes(tzif)
-    installed = prefixes[prefix_name] / 'share/zoneinfo'
+    installed = prefixes[prefix_name] / 'share' / data_directory
     (installed / 'escape').symlink_to(private / 'Asia/Shanghai')
     for name, prefix in prefixes.items():
         monkeypatch.setattr(sys, name, str(prefix))
@@ -396,8 +399,12 @@ def test_installed_timezone_data_is_read_only_and_overrides_stay_blocked(tmp_pat
     guard = HomeGuard([str(fake)], trees=runtime_trees())
     try:
         guard.install()
-        zoneinfo.reset_tzpath([str(installed)])
+        zoneinfo.reset_tzpath([str(prefixes[prefix_name] / 'share' / directory)
+                              for directory in ('zoneinfo', 'tzinfo')])
         assert datetime(2026, 1, 1, tzinfo=zoneinfo.ZoneInfo.no_cache('Asia/Shanghai')).utcoffset() == timedelta(hours=8)
+        for missing in ('Not/A_Zone', 'Asia/Shanghai '):
+            with pytest.raises(zoneinfo.ZoneInfoNotFoundError):
+                zoneinfo.ZoneInfo.no_cache(missing)
         for operation in (
             lambda: (installed / 'Asia/Shanghai').write_bytes(b'forbidden'),
             lambda: (installed / 'new-zone').write_bytes(b'forbidden'),
