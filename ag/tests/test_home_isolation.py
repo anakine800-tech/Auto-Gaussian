@@ -227,11 +227,14 @@ def test_pytest_entry_and_environment_restoration(home_guard, subdirectory):
     relative = 'tests' if subdirectory else 'ag/tests'
     code = (
         'import os, pytest\n'
+        'from _pytest._code.code import Code\n'
         'before = dict(os.environ)\n'
+        'source_properties = (Code.path, Code.fullsource)\n'
         f'result = pytest.main(["-c", {str(repo / "ag/pyproject.toml")!r}, {relative + "/test_home_isolation.py"!r}, '
         '"-k", "test_default_home_and_default_config", "-q"])\n'
         'assert result == 0\n'
         'assert dict(os.environ) == before\n'
+        'assert (Code.path, Code.fullsource) == source_properties\n'
     )
     result = subprocess.run([sys.executable, '-c', code], cwd=repo / 'ag' if subdirectory else repo,
                             capture_output=True, text=True)
@@ -278,3 +281,154 @@ def test_saved_directory_entry_and_open_stop_before_syscall(tmp_path, home_guard
     # An earlier audit hook raised: even the later hook, before the OS, was not called.
     assert later_audit_events == []
     assert sentinel.read_text() == 'unchanged'
+
+
+@pytest.mark.parametrize('filename', ['<frozen genericpath>', '<string>', '<stdin>'])
+def test_virtual_traceback_sources_do_not_probe_disk(monkeypatch, filename):
+    import inspect
+    from _pytest._code.code import Code
+
+    code = Code(compile('pass', filename, 'exec'))
+    calls = []
+
+    def unexpected_probe(*args, **kwargs):
+        calls.append(args)
+        raise HomeAccessError('virtual source reached disk/source lookup')
+
+    with monkeypatch.context() as patch:
+        patch.setattr(os, 'stat', unexpected_probe)
+        patch.setattr(inspect, 'findsource', unexpected_probe)
+        assert code.path == filename
+        assert code.fullsource is None
+    assert calls == []
+
+
+def test_real_source_with_virtual_basename_still_protected(tmp_path, home_guard):
+    from _pytest._code.code import Code
+
+    fake = tmp_path / 'simulated-real-home'
+    fake.mkdir()
+    source = fake / '<frozen genericpath>'
+    source.write_bytes(b'pass\n')
+    code = Code(compile('pass', str(source), 'exec'))
+    with home_guard.protect_synthetic_home(fake):
+        with pytest.raises(HomeAccessError):
+            _ = code.path
+        with pytest.raises(HomeAccessError):
+            _ = code.fullsource
+        with pytest.raises(HomeAccessError):
+            source.read_bytes()
+    assert list(fake.iterdir()) == [source]
+    assert source.read_bytes() == b'pass\n'
+
+
+def test_default_pytest_traceback_preserves_frozen_home_violation(tmp_path, home_guard):
+    fake = tmp_path / 'simulated-real-home'
+    fake.mkdir()
+    sentinel = fake / 'sentinel'
+    sentinel.write_bytes(b'unchanged')
+    before = sentinel.stat()
+    suite = tmp_path / 'suite'
+    suite.mkdir()
+    (suite / 'conftest.py').write_text(
+        'from pathlib import Path\n'
+        'import _test_home_pytest as isolation\n'
+        f'isolation.start_session(Path({home_guard.repo!r}))\n'
+        'pytest_plugins = ["_test_home_pytest"]\n'
+    )
+    test = suite / 'test_frozen_violation.py'
+    test.write_text(
+        'import os\n'
+        'exec(compile("def frozen_probe(path):\\n    return os.path.exists(path)\\n", '
+        '"<frozen genericpath>", "exec"))\n'
+        'def test_original_home_violation():\n'
+        '    try:\n'
+        f'        frozen_probe({str(sentinel)!r})\n'
+        '    except Exception:\n'
+        '        pass\n'
+    )
+    config = suite / 'pytest.ini'
+    config.write_text('[pytest]\n')
+    with home_guard.protect_synthetic_home(fake):
+        result = subprocess.run(
+            [sys.executable, '-m', 'pytest', '-c', str(config), str(test), '-q'],
+            cwd=home_guard.repo, env=dict(os.environ, PYTEST_ADDOPTS=''),
+            capture_output=True, text=True,
+        )
+    output = result.stdout + result.stderr
+    (suite / 'pytest.log').write_text(output)
+    assert result.returncode == 1, output
+    assert '1 failed' in output and 'INTERNALERROR' not in output
+    assert '<frozen genericpath>' in output
+    assert 'HomeAccessError: test HOME isolation blocked metadata: <protected-home>/sentinel' in output
+    assert list(fake.iterdir()) == [sentinel]
+    assert sentinel.read_bytes() == b'unchanged'
+    assert sentinel.stat().st_mtime_ns == before.st_mtime_ns
+
+
+@pytest.mark.parametrize('prefix_name', ['prefix', 'base_prefix'])
+@pytest.mark.parametrize('data_directory', ['zoneinfo', 'tzinfo'])
+def test_installed_timezone_data_is_read_only_and_overrides_stay_blocked(tmp_path, monkeypatch, prefix_name, data_directory):
+    import struct
+    import zoneinfo
+    from datetime import datetime, timedelta
+    from _test_home_isolation import HomeGuard, runtime_trees
+
+    fake = tmp_path / 'simulated-real-home'
+    prefixes = {name: fake / name for name in ('prefix', 'base_prefix')}
+    # A minimal v1 TZif file: one fixed offset, no transitions or leap seconds.
+    tzif = (b'TZif\0' + bytes(15) + struct.pack('>6l', 0, 0, 0, 0, 1, 4)
+            + struct.pack('>lbb', 28800, 0, 0) + b'SYN\0')
+    for prefix in prefixes.values():
+        for directory in ('zoneinfo', 'tzinfo'):
+            (prefix / 'share' / directory).mkdir(parents=True)
+        path = prefix / 'share' / data_directory / 'Asia/Shanghai'
+        path.parent.mkdir(parents=True)
+        path.write_bytes(tzif)
+    private = fake / 'private-timezones'
+    (private / 'Asia').mkdir(parents=True)
+    (private / 'Asia/Shanghai').write_bytes(tzif)
+    installed = prefixes[prefix_name] / 'share' / data_directory
+    (installed / 'escape').symlink_to(private / 'Asia/Shanghai')
+    for name, prefix in prefixes.items():
+        monkeypatch.setattr(sys, name, str(prefix))
+    monkeypatch.setenv('PYTHONTZPATH', str(private))
+    monkeypatch.setenv('TZDIR', str(private))
+    before = sorted(str(path.relative_to(fake)) for path in fake.rglob('*'))
+    previous_tzpath = zoneinfo.TZPATH
+    guard = HomeGuard([str(fake)], trees=runtime_trees())
+    try:
+        guard.install()
+        zoneinfo.reset_tzpath([str(prefixes[prefix_name] / 'share' / directory)
+                              for directory in ('zoneinfo', 'tzinfo')])
+        assert datetime(2026, 1, 1, tzinfo=zoneinfo.ZoneInfo.no_cache('Asia/Shanghai')).utcoffset() == timedelta(hours=8)
+        for missing in ('Not/A_Zone', 'Asia/Shanghai '):
+            with pytest.raises(zoneinfo.ZoneInfoNotFoundError):
+                zoneinfo.ZoneInfo.no_cache(missing)
+        for operation in (
+            lambda: (installed / 'Asia/Shanghai').write_bytes(b'forbidden'),
+            lambda: (installed / 'new-zone').write_bytes(b'forbidden'),
+            lambda: (private / 'Asia/Shanghai').read_bytes(),
+            lambda: (installed / 'escape').read_bytes(),
+            lambda: (prefixes[prefix_name] / 'share/private-data').stat(),
+        ):
+            with pytest.raises(HomeAccessError):
+                operation()
+        zoneinfo.reset_tzpath()  # PYTHONTZPATH must not acquire a runtime exception.
+        with pytest.raises(HomeAccessError):
+            zoneinfo.ZoneInfo.no_cache('Asia/Shanghai')
+    finally:
+        guard.close()
+        zoneinfo.reset_tzpath(previous_tzpath)
+    assert sorted(str(path.relative_to(fake)) for path in fake.rglob('*')) == before
+    assert (installed / 'Asia/Shanghai').read_bytes() == tzif
+    assert (private / 'Asia/Shanghai').read_bytes() == tzif
+
+
+def test_real_zoneinfo_data_read_under_home_guard(home_guard):
+    import zoneinfo
+    from datetime import datetime, timedelta
+
+    assert home_guard.active
+    zone = zoneinfo.ZoneInfo.no_cache('Asia/Shanghai')
+    assert datetime(2026, 1, 1, tzinfo=zone).utcoffset() == timedelta(hours=8)

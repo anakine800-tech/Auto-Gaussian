@@ -523,14 +523,19 @@ T211 修复 T188 测试曾尝试打开真实 HOME 自主登记锁的事故：仓
 包装后的 OS 函数保留原有 `os.supports_*` 能力身份，结束时恢复函数和集合，不改变生产能力检查。
 旧绝对路径或把 Path.home 改回原值不能避开。隔离错误继承 BaseException，产品的
 `except OSError/Exception` 不能把违规变成通过；负向回归只保护临时模拟 HOME 哨兵。
+T213 在 pytest 的代码帧路径/源码查询处识别 `<frozen ...>`、`<string>` 等完整虚拟文件名，
+直接保留显示名并返回无源码，不进入 inspect/stat；会话结束恢复这两项 pytest 属性。
+普通绝对路径（即使 basename 长得像虚拟文件名）仍按原保护检查，不捕获原始隔离错误。
 
 只读例外按启动时 `git ls-files` 的确切文件清单，包括 CI/hook 源码；新源码先精确暂存。
 源文件的字节码读取、父目录元数据/枚举及 pytest 的固定包/虚拟环境探测也列入有限例外。
 当前检出的 editable 安装另只读放行 `ag/src/ag.egg-info/` 的 `PKG-INFO`、`SOURCES.txt`、
 `entry_points.txt`、`top_level.txt`、`dependency_links.txt`、`requires.txt` 六个确切元数据文件。
 解释器、ag/pytest 启动脚本为确切文件；标准库、site-packages 和已安装 gettext 翻译目录
-只读。Conda 的 RDKit 发行数据仅放行解释器 prefix/base_prefix 下的 `share/RDKit/Data`，
-不按任意 `RDBASE` 环境变量扩大许可。其他 editable checkout 的搜索路径移除。真实 HOME、整个工程目录和未跟踪的
+只读。Conda 的 RDKit 与标准时区发行数据仅放行解释器 prefix/base_prefix 下的
+`share/RDKit/Data`、`share/zoneinfo` 与 `share/tzinfo`；两个固定时区目录对应已核实的
+解释器编译内置 TZPATH，后者也供不存在时区的 fallback 探测。不按任意 `RDBASE`、`PYTHONTZPATH`、`TZDIR`
+环境变量扩大许可，写入和链接解析后的越界仍拒绝。其他 editable checkout 的搜索路径移除。真实 HOME、整个工程目录和未跟踪的
 研究/config 文件不获内容读取或写入许可。Git provenance 仅放行当前检出的固定
 rev-parse/status 查询，关闭可选锁和全局/系统 Git 配置；合成临时仓库可正常用于回归。
 需要探测相对缺失输入的用例切到合成临时目录；需要探测固定输入旁的可选文件时先复制输入到临时目录。
