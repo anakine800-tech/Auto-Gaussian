@@ -142,6 +142,7 @@ def test_refuses_unsuitable_input(tmp_path, kind):
         calculate_thermo([directory])
 
 
+@pytest.mark.usefixtures("synthetic_cwd")
 def test_cli_and_options(tmp_path, capsys):
     from ag.cli import main
     conformers(tmp_path)

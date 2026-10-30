@@ -98,6 +98,7 @@ def test_sp_frequency_conformer_mismatch_is_rejected(tmp_path, capsys):
 
 
 @pytest.mark.parametrize('alias', [False, True])
+@pytest.mark.usefixtures("synthetic_cwd")
 def test_thermo_duplicate_attempt_is_rejected(tmp_path, capsys, alias):
     # Prevent one conformer being counted twice, including ID/path aliases.
     directory = peroxide(tmp_path)

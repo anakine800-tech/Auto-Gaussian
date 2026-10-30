@@ -131,8 +131,8 @@ def test_mapping_cap_checks_one_beyond_limit_even_for_identity(monkeypatch, tmp_
                  "--out", str(output)]) == 0
 
 
-def test_mirror_report_never_merges_and_default_is_off(tmp_path, capsys):
-    base = ["dedup", str(DATA), "--charge", "0", "--out", str(tmp_path), "--json"]
+def test_mirror_report_never_merges_and_default_is_off(tmp_path, capsys, butane_xyz):
+    base = ["dedup", str(butane_xyz), "--charge", "0", "--out", str(tmp_path), "--json"]
     results = []
     for options in ([], ["--mirror", "off"], ["--mirror", "report"]):
         assert main([*base, *options]) == 0

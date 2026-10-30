@@ -140,6 +140,7 @@ def test_qst_groups_are_named(tmp_path, chemistry):
     assert report['sources']['submitted']['geometries'][2]['geometry_pointer'] == '/science/structures/2/geometry'
 
 
+@pytest.mark.usefixtures("synthetic_cwd")
 def test_cli_sources_fallback_readonly_and_summary(tmp_path, chemistry, capsys, monkeypatch):
     path = attempt(tmp_path)
     (path / 'final_input.xyz').rename(path / 'final.xyz')

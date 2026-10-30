@@ -67,6 +67,7 @@ def test_dry_run_exact_field_diff_and_no_study_writes(attempt, tmp_path, capsys)
         'analysis.json', 'attempts/water/review.md', 'index.csv', 'study.md']
 
 
+@pytest.mark.usefixtures("synthetic_cwd")
 def test_formal_reparse_preserves_old_bytes_and_lists_references(attempt, capsys):
     study = attempt.parent.parent
     before = snapshot(study)

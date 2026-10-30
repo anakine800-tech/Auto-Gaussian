@@ -10,13 +10,6 @@ from ag.transport import Result
 from test_core import cfg, prepared, Fake
 
 
-@pytest.fixture(autouse=True)
-def isolated_machine_home(tmp_path, monkeypatch):
-    home = tmp_path / 'home'
-    home.mkdir()
-    monkeypatch.setattr(Path, 'home', lambda: home)
-
-
 def authorized(cfg, path):
     return approval.create(cfg, path.parent.parent.name, [path.name], 'Approve synthetic water validation.')['id']
 

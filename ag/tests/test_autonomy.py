@@ -24,9 +24,6 @@ VERSIONS = dict(ag_version='test-version', git_commit='a' * 40, dirty=False,
 @pytest.fixture
 def env(tmp_path, monkeypatch):
     root = tmp_path.resolve()
-    home = root / 'synthetic-home'
-    home.mkdir()
-    monkeypatch.setattr(Path, 'home', classmethod(lambda cls: home))
     study = root / 'study-demo'
     study.mkdir()
     (study / 'attempts').mkdir()
@@ -2529,6 +2526,7 @@ def _fetched_facts_cli_attempt(prepared):
 
 
 @pytest.mark.parametrize('mode', [[], ['--refresh'], ['--reparse']])
+@pytest.mark.usefixtures("synthetic_cwd")
 def test_facts_cli_refuses_running_study_before_parsing(env, cfg, prepared, monkeypatch, capsys, mode):
     from ag import facts
     path = _fetched_facts_cli_attempt(prepared)
@@ -2581,6 +2579,7 @@ def test_facts_cli_running_study_keeps_external_dry_run_available(env, cfg, prep
 
 
 @pytest.mark.parametrize('alias', ['symlink', 'noncanonical-study-child'])
+@pytest.mark.usefixtures("synthetic_cwd")
 def test_facts_cli_path_alias_cannot_escape_existing_autonomy(env, cfg, prepared, tmp_path, monkeypatch, capsys, alias):
     from ag import facts
     path = _fetched_facts_cli_attempt(prepared)

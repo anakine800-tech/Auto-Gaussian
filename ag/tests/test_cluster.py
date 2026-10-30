@@ -47,8 +47,8 @@ def test_mirror_energy_tolerance():
         cluster(frames, maximum=0)
 
 
-def test_full_cli_outputs_no_overwrite(tmp_path, capsys):
-    assert main(["dedup", str(DATA), "--charge", "0", "--out", str(tmp_path), "--json"]) == 0
+def test_full_cli_outputs_no_overwrite(tmp_path, capsys, butane_xyz):
+    assert main(["dedup", str(butane_xyz), "--charge", "0", "--out", str(tmp_path), "--json"]) == 0
     dedup = json.loads(capsys.readouterr().out)
     for _ in range(2):
         assert main(["cluster", dedup["output"], "--mirror", "--json"]) == 0
@@ -60,8 +60,8 @@ def test_full_cli_outputs_no_overwrite(tmp_path, capsys):
     assert len(list(tmp_path.glob("cluster-*.xyz"))) == 4
 
 
-def test_stale_dedup_energy_rejected(tmp_path, capsys):
-    assert main(["dedup", str(DATA), "--charge", "0", "--out", str(tmp_path), "--json"]) == 0
+def test_stale_dedup_energy_rejected(tmp_path, capsys, butane_xyz):
+    assert main(["dedup", str(butane_xyz), "--charge", "0", "--out", str(tmp_path), "--json"]) == 0
     result = json.loads(capsys.readouterr().out)
     path = Path(result["output"])
     payload = json.loads(path.read_text())

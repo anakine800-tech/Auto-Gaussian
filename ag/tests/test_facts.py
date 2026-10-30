@@ -104,6 +104,7 @@ def test_xtb(tmp_path):
     assert facts['termination'] == 'normal' and xyz.startswith('1\n')
 
 
+@pytest.mark.usefixtures("synthetic_cwd")
 def test_cli_and_resolution(tmp_path, capsys):
     from ag.cli import main
     directory = attempt(tmp_path)

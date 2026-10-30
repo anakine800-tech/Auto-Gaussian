@@ -511,6 +511,37 @@ T62 的远程观察改动虽通过离线测试，真实运行却出现 unreadabl
 
 ### 测试范围
 
+T211 修复 T188 测试曾尝试打开真实 HOME 自主登记锁的事故：仓库根与
+`ag/tests/conftest.py` 自动加载同一测试插件，收集前设置临时 HOME，每个用例再使用
+独立 HOME（与用例的 `tmp_path` 分开，保留空输出目录等断言）；`Path.home()`、`~` 展开及默认配置随之隔离。常用根目录、单文件和
+`ag` 子目录入口均无需开关，不在启动测试的 shell 中改 HOME。pytest 缓存也在临时目录，
+用例及会话结束恢复环境；异常退出只可能留下临时材料。已有用例需要另一合成 HOME 时，
+应改测试进程的 HOME，保持路径展开和子进程一致，不只替换 `Path.home()`。
+
+测试保护用 Python audit hook 阻断 open、目录枚举和文件变更，补充 stat/readlink、
+描述符相对 os.open、描述符读写及 DirEntry 检查；先检查路径，再解析链接并复查目标。
+包装后的 OS 函数保留原有 `os.supports_*` 能力身份，结束时恢复函数和集合，不改变生产能力检查。
+旧绝对路径或把 Path.home 改回原值不能避开。隔离错误继承 BaseException，产品的
+`except OSError/Exception` 不能把违规变成通过；负向回归只保护临时模拟 HOME 哨兵。
+
+只读例外按启动时 `git ls-files` 的确切文件清单，包括 CI/hook 源码；新源码先精确暂存。
+源文件的字节码读取、父目录元数据/枚举及 pytest 的固定包/虚拟环境探测也列入有限例外。
+当前检出的 editable 安装另只读放行 `ag/src/ag.egg-info/` 的 `PKG-INFO`、`SOURCES.txt`、
+`entry_points.txt`、`top_level.txt`、`dependency_links.txt`、`requires.txt` 六个确切元数据文件。
+解释器、ag/pytest 启动脚本为确切文件；标准库、site-packages 和已安装 gettext 翻译目录
+只读。Conda 的 RDKit 发行数据仅放行解释器 prefix/base_prefix 下的 `share/RDKit/Data`，
+不按任意 `RDBASE` 环境变量扩大许可。其他 editable checkout 的搜索路径移除。真实 HOME、整个工程目录和未跟踪的
+研究/config 文件不获内容读取或写入许可。Git provenance 仅放行当前检出的固定
+rev-parse/status 查询，关闭可选锁和全局/系统 Git 配置；合成临时仓库可正常用于回归。
+需要探测相对缺失输入的用例切到合成临时目录；需要探测固定输入旁的可选文件时先复制输入到临时目录。
+
+subprocess.Popen 自动为 Python 脚本、`-c`、`-m` 和继承环境的后代安装 sitecustomize
+保护，显式 env/PYTHONPATH 不会丢掉它；直接 Python 启动的 `-E/-I/-S` 及组合选项拒绝。
+fork 继承保护；子进程引导失败直接退出。边界：这不是 OS 沙箱，不控制保护启用前的
+解释器/插件启动、已打开的缓冲对象、无 audit 的原生库或 Shell/Git 等外部命令内部 IO，
+也不保证恶意绕过或并发链接替换的安全性。外部命令测试仍须只用临时合成路径；禁止用
+真实用户目录做负向探针。不能因临时 HOME 就声称任意外部程序受保护。
+
 负责人 2026-10-16 决定：开发中只跑相关测试；推送前本地跑一次后端全量 `pytest ag/tests skills-next`，之后以 CI 为准。纯文档改动本地只跑 `skills-next`，其余交给 CI。
 前端首次开 PR 和合并前跑全部浏览器测试；复测只跑受影响部分加构建，前提是 rebase 没有带进其他前端改动。跨页面的完整集成回归只在发版前做一次。测试通过不能代替合并前的真实验证。
 

@@ -423,6 +423,7 @@ def test_no_opt_energy_fallback_missing_values_and_latest_adoption(water):
     assert sum(e['op'] == 'adopt' for e in catalog.read_journal(water)[1]) == 3
 
 
+@pytest.mark.usefixtures("synthetic_cwd")
 def test_study_name_uses_only_local_config(water, monkeypatch):
     calls = []
     def config(**kwargs):

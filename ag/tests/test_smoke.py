@@ -43,7 +43,7 @@ def test_registered_command_runs_without_loading_config(monkeypatch, command):
     assert seen == ["ag.facts", "ag.thermo", "ag.dedup", "ag.cluster", "ag.graph", "ag.irc_compare", "ag.profile", "ag.coverage", "ag.scan_peak", "ag.qst_endpoints", "ag.topology", "ag.mode_review", "ag.fragments", "ag.ensemble", "ag.channel_coverage", "ag.asm", "ag.irc_review", "ag.nci_report", "ag.cp_report", "ag.catalog", "ag.g0"]
 
 
-def test_dedup_help_and_run_without_config(monkeypatch, tmp_path, capsys):
+def test_dedup_help_and_run_without_config(monkeypatch, tmp_path, capsys, butane_xyz):
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
     assert not (tmp_path / ".config/ag/config.toml").exists()
     with pytest.raises(SystemExit) as help_exit:
@@ -51,7 +51,7 @@ def test_dedup_help_and_run_without_config(monkeypatch, tmp_path, capsys):
     assert help_exit.value.code == 0
     assert "usage: ag dedup" in capsys.readouterr().out
 
-    data = Path(__file__).parent / "data" / "butane.xyz"
+    data = butane_xyz
     assert cli.main(["dedup", str(data), "--charge", "0", "--out", str(tmp_path), "--json"]) == 0
     result = json.loads(capsys.readouterr().out)
     assert len(result["kept"]) == 3

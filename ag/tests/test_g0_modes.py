@@ -446,6 +446,7 @@ def test_coordinate_channel_ids_validated_even_when_unselected(channel):
         gm.reaction_coordinates({'reaction_coordinates': {channel: []}}, 'transfer')
 
 
+@pytest.mark.usefixtures("synthetic_cwd")
 def test_frequency_reader_resolves_configured_study_name(fetched, monkeypatch):
     root, path = fetched
     monkeypatch.setattr(gm.catalog, 'load_config', lambda **kw: {'local': {'studies_root': str(root.parent)}})
