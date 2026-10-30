@@ -1,5 +1,6 @@
 """Strict parsing of Slurm observations; no remote shell construction here."""
 import re
+from datetime import datetime, timezone
 from ag import remote
 
 TERMINAL = frozenset({'COMPLETED', 'FAILED', 'CANCELLED', 'TIMEOUT', 'OUT_OF_MEMORY',
@@ -176,3 +177,205 @@ def parse_nodes(text, partition):
         else:
             rows[name] = row
     return list(rows.values())
+
+
+# T187 observations only. The candidate grammar is SchedMD slurm-26-05-5-1:
+# src/scontrol/info_job.c, src/sacct/sacct.c and src/common/sluid.c.
+# Successful parsing is neither never-started proof nor execution permission.
+_EVIDENCE_VERSION = r'[0-9]+\.[0-9]+\.[0-9]+'
+_EVIDENCE_SLUID = r's[0-9A-F][0-9A-HJKMNP-TV-Z]{12}'
+_EVIDENCE_TIME = r'(?:[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}|Unknown)'
+
+
+def _evidence_text(text):
+    if not isinstance(text, str) or any(ord(c) < 32 and c not in '\n\t' or ord(c) == 127 for c in text):
+        raise ValueError('Invalid Slurm evidence text')
+    return text
+
+
+def _evidence_cluster(value):
+    if not isinstance(value, str) or value.casefold() == 'all':
+        raise ValueError('Slurm evidence requires one actual cluster')
+    return remote.slurm_token(value)
+
+
+def _evidence_identity(job_id, cluster, name):
+    if not isinstance(job_id, str) or not isinstance(name, str):
+        raise ValueError('Invalid Slurm evidence job/name identity')
+    remote.slurm_job_id(job_id)
+    _evidence_cluster(cluster)
+    # ag Attempt names are tokens. Accepting arbitrary whitespace here makes
+    # scontrol's unescaped JobName output indistinguishable from forged keys.
+    remote.slurm_token(name)
+
+
+def _evidence_uint(value, bits, *, positive=False):
+    if not re.fullmatch(r'0|[1-9][0-9]*', value):
+        raise ValueError('Invalid Slurm evidence integer')
+    result = int(value)
+    if result >= 2 ** bits or positive and result == 0:
+        raise ValueError('Slurm evidence integer outside its field range')
+    return result
+
+
+def _evidence_sluid(value):
+    if not re.fullmatch(_EVIDENCE_SLUID, value) or value == 's0000000000000':
+        raise ValueError('Invalid or missing Slurm evidence SLUID')
+    return value
+
+
+def _evidence_sluid_number(value):
+    number = 0
+    for character in _evidence_sluid(value)[1:]:
+        number = number * 32 + '0123456789ABCDEFGHJKMNPQRSTVWXYZ'.index(character)
+    return number
+
+
+def _evidence_time(value, *, required=False):
+    # Only the fixed commands using TZ=UTC and SLURM_TIME_FORMAT=standard feed
+    # this parser. No local-time inference and no substitution for missing data.
+    if value == 'Unknown' and not required:
+        return None
+    if not re.fullmatch(_EVIDENCE_TIME, value) or value == 'Unknown':
+        raise ValueError('Invalid or missing Slurm evidence timestamp')
+    try:
+        return datetime.strptime(value, '%Y-%m-%dT%H:%M:%S').replace(tzinfo=timezone.utc).isoformat()
+    except ValueError as exc:
+        raise ValueError('Invalid Slurm evidence calendar timestamp') from exc
+
+
+def parse_evidence_config(text, *, strict_version=True):
+    """Extract controller identity; a submission probe may retain unknown versions.
+
+    Relaxing version recognition never relaxes the actual cluster identity or
+    accepts duplicate fields. Existing observation callers keep strict parsing.
+    """
+    fields = {}
+    for line in _evidence_text(text).splitlines():
+        match = re.match(r'^\s*(ClusterName|SLURM_VERSION)\s*=(.*)$', line)
+        if not match:
+            continue
+        key, value = match.groups()
+        if key in fields:
+            raise ValueError('Duplicate Slurm controller evidence field')
+        fields[key] = value.strip()
+    if 'ClusterName' not in fields or strict_version and 'SLURM_VERSION' not in fields:
+        raise ValueError('Missing Slurm controller identity/version')
+    _evidence_cluster(fields['ClusterName'])
+    version = fields.get('SLURM_VERSION')
+    if strict_version and (not version or not re.fullmatch(_EVIDENCE_VERSION, version)):
+        raise ValueError('Invalid Slurm controller version')
+    return dict(cluster=fields['ClusterName'], server_version=version)
+
+
+def parse_evidence_version(text):
+    """Parse a client --version response; this says nothing about slurmctld."""
+    match = re.fullmatch(r'slurm (' + _EVIDENCE_VERSION + r')\n?', _evidence_text(text))
+    if not match:
+        raise ValueError('Invalid Slurm client version')
+    return match[1]
+
+
+def parse_evidence_job(text, *, job_id, cluster, name):
+    """Parse one ordinary batch scontrol --details --oneliner observation.
+
+    Cluster comes from the separately checked controller probe; scontrol's job
+    text has no ordinary-job Cluster field. Missing jobs are errors, not absence.
+    """
+    _evidence_identity(job_id, cluster, name)
+    text = _evidence_text(text)
+    if not text.endswith('\n') or len(text.splitlines()) != 1:
+        raise ValueError('Expected one complete scontrol evidence record')
+    line = text[:-1]
+    # Match the fixed prefix, not arbitrary key-looking text from job names,
+    # commands, paths or comments. Its fields precede all of those free texts.
+    token = r'[^\s=]+'
+    prefix = (
+        r'JobId=(?P<job_id>[1-9][0-9]*) JobName=(?P<name>' + token + r') '
+        r'SLUID=(?P<sluid>' + _EVIDENCE_SLUID + r') '
+        r'UserId=(?P<owner>[A-Za-z0-9_.-]+)\((?P<uid>[0-9]+)\) '
+        r'GroupId=' + token + r' MCS_label=' + token + r' '
+        r'Priority=[0-9]+ Nice=-?[0-9]+ Account=' + token + r' QOS=' + token + r' '
+        r'(?:WCKey=' + token + r' )?'
+        r'JobState=(?P<state>[A-Z_]+) Reason=' + token + r' '
+        r'(?:FailedNode=' + token + r' )?Dependency=' + token + r' '
+        r'Requeue=[0-9]+ Restarts=(?P<restarts>[0-9]+) BatchFlag=(?P<batch_flag>[0-9]+) Reboot=[0-9]+ '
+        r'ExitCode=[0-9]+:[0-9]+ DerivedExitCode=[0-9]+:[0-9]+ '
+        r'RunTime=' + token + r' TimeLimit=' + token + r' TimeMin=' + token + r' '
+        r'SubmitTime=(?P<submit>' + _EVIDENCE_TIME + r') '
+        r'EligibleTime=' + _EVIDENCE_TIME + r' AccrueTime=' + _EVIDENCE_TIME + r' '
+        r'(?:ResizeTime=' + _EVIDENCE_TIME + r' )?'
+        r'StartTime=(?P<start>' + _EVIDENCE_TIME + r') '
+        r'EndTime=(?P<end>' + _EVIDENCE_TIME + r') Deadline=(?:' + _EVIDENCE_TIME + r'|N/A) '
+    )
+    # Formatting may pad adjacent fields; permit horizontal separators without
+    # allowing a free-text value or a second output line to supply these keys.
+    match = re.match(prefix.replace(' ', r'[ \t]+'), line)
+    if not match or match['job_id'] != job_id or match['name'] != name:
+        raise ValueError('Invalid scontrol evidence prefix or job/name identity')
+    key_matches = list(re.finditer(r'(?:^|[ \t])([A-Za-z][A-Za-z0-9_:/]*)=', line))
+    keys = [item[1] for item in key_matches]
+    if any(key.startswith(('Array', 'HetJob', 'Fed')) for key in keys):
+        raise ValueError('Array, heterogeneous or federated evidence is unsupported')
+    # Requiring the later batch-output fields establishes that the record was
+    # read past the federation section. Never recover missing prefix fields
+    # from this suffix; a key in a path is ambiguous and must reject the record.
+    required = ('JobId', 'JobName', 'SLUID', 'UserId', 'JobState', 'Restarts',
+                'SubmitTime', 'StartTime', 'EndTime', 'Command', 'SubmitLine',
+                'WorkDir', 'StdErr', 'StdIn', 'StdOut')
+    if any(keys.count(key) != 1 for key in required):
+        raise ValueError('Missing, duplicate or ambiguous scontrol evidence field')
+    tail_keys = [key for key in keys if key in required[9:]]
+    command_at = next(item.start() for item in key_matches if item[1] == 'Command')
+    if tail_keys != list(required[9:]) or command_at < match.end():
+        raise ValueError('Invalid scontrol evidence suffix')
+    if match['state'] not in (ACTIVE | TERMINAL) - {'REQUEUE_FED', 'REVOKED'}:
+        raise ValueError('Unknown scontrol evidence state')
+    _evidence_uint(match['batch_flag'], 16, positive=True)
+    return dict(cluster=cluster, job_id=job_id, name=name, owner=match['owner'],
+                uid=_evidence_uint(match['uid'], 32), state=match['state'],
+                submit=_evidence_time(match['submit'], required=True),
+                start=_evidence_time(match['start']), end=_evidence_time(match['end']),
+                restarts=_evidence_uint(match['restarts'], 16), sluid=_evidence_sluid(match['sluid']))
+
+
+def parse_evidence_history(text, *, job_id, cluster, name):
+    """Keep distinct sacct --duplicates instances; never infer missing history."""
+    _evidence_identity(job_id, cluster, name)
+    widths = (256, 64, 200, 20, 32, 32, 32, 32, 64, 20, 64, 64)
+    rows, by_index, by_sluid = [], {}, {}
+    for line in _evidence_text(text).splitlines():
+        fields = [value.strip() for value in line.split('|')]
+        if (len(fields) != len(widths) or any(not value or len(value) >= width
+                for value, width in zip(fields, widths))):
+            raise ValueError('Missing or truncated sacct evidence field')
+        (actual_cluster, job, actual_name, uid, index, submitted, start, end,
+         state_raw, restarts, sluid, original_sluid) = fields
+        if (actual_cluster, job, actual_name) != (cluster, job_id, name):
+            raise ValueError('sacct evidence cluster/job/name identity mismatch')
+        state = 'CANCELLED' if re.fullmatch(r'CANCELLED by [0-9]+', state_raw) else state_raw
+        if state not in (ACTIVE | TERMINAL) - {'REQUEUE_FED', 'REVOKED'}:
+            raise ValueError('Unknown or truncated sacct evidence state')
+        row = dict(cluster=cluster, job_id=job_id, name=name,
+                   uid=_evidence_uint(uid, 32), db_index=_evidence_uint(index, 64, positive=True),
+                   submit=_evidence_time(submitted, required=True), start=_evidence_time(start),
+                   end=_evidence_time(end), state=state, state_raw=state_raw,
+                   restarts=_evidence_uint(restarts, 16), sluid=_evidence_sluid(sluid),
+                   # Older protocol records can carry zero for the original
+                   # SLUID. print_fields_sluid prints that as s0000000000000;
+                   # retain its absence rather than inventing a lineage root.
+                   original_sluid=None if original_sluid == 's0000000000000' else _evidence_sluid(original_sluid),
+                   original_sluid_raw=original_sluid)
+        # In 26.05.5 sacct PRINT_DB_INX and PRINT_SLUID both print db_index,
+        # respectively as decimal and Crockford base32 (src/sacct/print.c).
+        if row['db_index'] != _evidence_sluid_number(row['sluid']):
+            raise ValueError('sacct DBIndex/SLUID identity mismatch')
+        for seen, key in ((by_index, row['db_index']), (by_sluid, row['sluid'])):
+            if key in seen and seen[key] != row:
+                raise ValueError('Conflicting duplicate sacct evidence instance')
+        if row['db_index'] not in by_index:
+            rows.append(row)
+        by_index[row['db_index']] = by_sluid[row['sluid']] = row
+    if not rows:
+        raise ValueError('No sacct evidence history returned')
+    return rows

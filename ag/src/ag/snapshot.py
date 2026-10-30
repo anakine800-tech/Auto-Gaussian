@@ -1,6 +1,7 @@
 """Read-only, byte-preserving log observations, never result collection."""
 import base64
 import binascii
+from contextlib import contextmanager, nullcontext
 from datetime import datetime, timezone
 from hashlib import sha256
 import json
@@ -71,7 +72,7 @@ def _decode(value, max_bytes):
     return size, mtime, data
 
 
-def capture(cfg, path, transport, *, max_bytes=DEFAULT_MAX_BYTES):
+def capture(cfg, path, transport, *, max_bytes=DEFAULT_MAX_BYTES, publication=None):
     root = Path(cfg['local']['studies_root'])
     path = study.local_path(root, Path(path))
     manifest, current, job = attempt.local_record(path)
@@ -101,13 +102,71 @@ def capture(cfg, path, transport, *, max_bytes=DEFAULT_MAX_BYTES):
                   max_bytes=max_bytes, truncated=size > max_bytes, sha256=sha256(data).hexdigest(),
                   notice=NOTICE, progress=progress(data, manifest['template'], truncated=size > max_bytes),
                   snapshot=destination.relative_to(path).as_posix())
-    directory.mkdir(mode=0o700, exist_ok=True)
-    destination.mkdir(mode=0o700)  # A timestamp collision fails, never overwrites.
-    for filename, content in ((name, data), ('snapshot.json', (json.dumps(result, ensure_ascii=False, indent=2) + '\n').encode())):
-        target = study.local_path(root, destination / filename)
-        with os.fdopen(os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600), 'wb') as stream:
-            stream.write(content)
+    with publication() if publication is not None else nullcontext():
+        directory.mkdir(mode=0o700, exist_ok=True)
+        destination.mkdir(mode=0o700)  # A timestamp collision fails, never overwrites.
+        for filename, content in ((name, data), ('snapshot.json', (json.dumps(result, ensure_ascii=False, indent=2) + '\n').encode())):
+            target = study.local_path(root, destination / filename)
+            with os.fdopen(os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600), 'wb') as stream:
+                stream.write(content)
     return result
+
+
+def capture_for_run(cfg, path, transport, *, run_id, token, plan_sha256,
+                    max_bytes=DEFAULT_MAX_BYTES):
+    """Bind a new formal capture to a wake; no lock spans network IO.
+
+    An owner that expires in flight cannot publish the returned bytes. Paused
+    owners may still observe; cancellation review requires an active run.
+    """
+    from ag import autonomy
+    from ag import _autonomy_store as disk
+    from ag.autonomy_cancel import bound_attempt, snapshot_evidence
+    root = Path(cfg['local']['studies_root'])
+    path = study.local_path(root, Path(path))
+    name = path.parent.parent.name
+    publication_guard = getattr(autonomy, 'observation_publication_guard', None)
+    if publication_guard is not None:
+        from ag.autonomy_submission import machine_lock
+        def registry_lock():
+            return machine_lock(create=False)
+    else:
+        # T184 supports local observation provenance independently. When T186
+        # is integrated, its global registry lock and publication fence apply.
+        registry_lock = nullcontext
+    with registry_lock():
+        with autonomy.action_guard(cfg, name, run_id, token,
+                                   action='observe', plan_sha256=plan_sha256) as before:
+            binding = bound_attempt(path)
+            started = autonomy.now()
+    @contextmanager
+    def publication():
+        guard = publication_guard or autonomy.action_guard
+        with guard(cfg, name, run_id, token, action='observe', plan_sha256=plan_sha256):
+            if bound_attempt(path) != binding:
+                raise ValueError('Attempt binding changed before snapshot publication')
+            yield
+    result = capture(cfg, path, transport, max_bytes=max_bytes, publication=publication)
+    with registry_lock(), disk.locked(cfg, name, write=True) as store:
+        current, _ = autonomy.load(store)
+        token_hash = sha256(token.encode()).hexdigest()
+        evidence = snapshot_evidence(path, result['snapshot'], binding)
+        if evidence['snapshot_sha256'] != sha256(
+                (json.dumps(result, ensure_ascii=False, indent=2) + '\n').encode()).hexdigest():
+            raise ValueError('Captured snapshot changed before registration')
+        versions = autonomy.versions()
+        at = autonomy.now()
+        autonomy.eligible(current['state'], run_id, token_hash, versions,
+                          at, 'observe', plan_sha256)
+        data = dict(binding=binding, run_id=run_id, token_sha256=token_hash,
+                    round_id=before['state']['current_round'], plan_sha256=plan_sha256,
+                    capture_started_seq=before['seq'],
+                    versions=versions, capture_started_at=started, capture_finished_at=at,
+                    **{k: evidence[k] for k in ('snapshot', 'snapshot_sha256', 'log_sha256', 'captured_at')})
+        saved = store.commit(current, 'snapshot', at, data, autonomy.apply)
+    return dict(result, autonomy=dict(run_id=run_id, round_id=data['round_id'],
+                plan_sha256=plan_sha256, journal_seq=saved['seq'],
+                snapshot_sha256=evidence['snapshot_sha256']))
 
 
 def format_snapshot(result):

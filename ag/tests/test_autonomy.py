@@ -800,3 +800,399 @@ def test_cli_lifecycle_is_local_only_and_never_constructs_transport(env, monkeyp
     assert command('status')['state']['phase'] == 'ended'
     assert image_tree(study) == old
     assert len(loads) == 16
+
+
+def _cancel_binding(env, attempt_id='synthetic-001'):
+    return dict(study_id=env[1].name, attempt_id=attempt_id, cluster='Synthetic_Cluster',
+                scheduler='slurm', job_id='123', manifest_sha256='b' * 64,
+                submission_sha256='c' * 64)
+
+
+def _consume_cancel(env, plan, run, attempt_id='synthetic-001', **changes):
+    cfg, study, _ = env
+    fields = dict(plan_sha256=plan['sha256'], binding=_cancel_binding(env, attempt_id),
+                  ownership_sha256='d' * 64, kind='no_progress',
+                  reason='Synthetic two-snapshot judgment', evidence_sha256='e' * 64)
+    fields.update(changes)
+    return a._consume_cancellation(cfg, study.name, run['run_id'], run['token'], **fields)
+
+
+def _cancel_result(env, run, receipt, **changes):
+    cfg, study, _ = env
+    record = receipt['record']
+    fields = dict(attempt_id=record['binding']['attempt_id'],
+                  consumption_sha256=record['consumption_sha256'], outcome='accepted',
+                  reason='Synthetic scheduler acceptance, not termination', evidence_sha256='f' * 64)
+    fields.update(changes)
+    return a._record_cancellation_result(cfg, study.name, run['run_id'], run['token'], **fields)
+
+
+def _guard_consume(guard, env, attempt_id='synthetic-001'):
+    return guard.consume(binding=_cancel_binding(env, attempt_id), ownership_sha256='d' * 64,
+                         kind='no_progress', reason='Synthetic frozen no-progress evidence',
+                         evidence_sha256='e' * 64)
+
+
+def test_cancellation_guard_consumes_and_claims_without_reentering_store(env, monkeypatch):
+    from contextlib import contextmanager
+    from ag.locks import claim
+    cfg, study, _ = env
+    plan, run = running(env)
+    path = study / 'attempts/synthetic-001'
+    path.mkdir()
+    real_locked, entries, active = disk.locked, [], []
+    @contextmanager
+    def locked(*args, **kwargs):
+        assert not active, 'Cancellation verification must not re-enter flock'
+        entries.append(kwargs)
+        with real_locked(*args, **kwargs) as store:
+            active.append(True)
+            try:
+                yield store
+            finally:
+                active.pop()
+    monkeypatch.setattr(disk, 'locked', locked)
+    with a._cancellation_guard(cfg, study.name, run['run_id'], run['token'],
+                               plan_sha256=plan['sha256']) as guard:
+        current, raw = guard.current, guard.snapshot
+        assert current['seq'] > 0 and len(current['journal_sha256']) == 64
+        assert 'token_sha256' not in current['state']['lease']
+        assert raw['lease']['token_sha256'] == sha256(run['token'].encode()).hexdigest()
+        current['state']['lease'].clear()
+        raw['lease'].clear()
+        assert guard.snapshot['lease']['run_id'] == run['run_id']
+        guard.recheck()
+        receipt = _guard_consume(guard, env)
+        claim(path / '.cancel-claim')
+        assert guard.current['seq'] == current['seq'] + 1
+        assert guard.snapshot['cancellations'][path.name]['consumption_sha256'] == receipt['record']['consumption_sha256']
+        assert len(entries) == 1 and not receipt['cancellation_authorized']
+        with pytest.raises(ValueError, match='Unresolved cancellation'):
+            _guard_consume(guard, env, 'synthetic-002')
+    for operation in (lambda: guard.current, lambda: guard.snapshot, guard.recheck,
+                      lambda: _guard_consume(guard, env)):
+        with pytest.raises(ValueError, match='guard is closed'):
+            operation()
+    assert (path / '.cancel-claim').is_file()
+    assert _cancel_result(env, run, receipt)['record']['outcome'] == 'accepted'
+
+
+@pytest.mark.parametrize('change', ['expired', 'version_drift', 'clock_back', 'slow_versions'])
+def test_cancellation_guard_rechecks_after_local_evidence_reads(env, monkeypatch, change):
+    cfg, study, clock = env
+    plan, run = running(env)
+    with a._cancellation_guard(cfg, study.name, run['run_id'], run['token'],
+                               plan_sha256=plan['sha256']) as guard:
+        if change == 'expired':
+            clock[0] += a.RUN_SECONDS
+        elif change == 'clock_back':
+            clock[0] -= 1
+        elif change == 'version_drift':
+            monkeypatch.setattr(a, 'versions', lambda: dict(VERSIONS, git_commit='0' * 40))
+        else:
+            def slow_versions():
+                clock[0] += a.RUN_SECONDS
+                return dict(VERSIONS)
+            monkeypatch.setattr(a, 'versions', slow_versions)
+        before = image_tree(study)
+        with pytest.raises(ValueError):
+            _guard_consume(guard, env)
+        assert image_tree(study) == before
+
+
+def test_pending_cancellation_blocks_actions_without_pausing_normal_inflight_work(env):
+    cfg, study, _ = env
+    plan, run = running(env)
+    receipt = _consume_cancel(env, plan, run)
+    before = image_tree(study)
+    for action in ('prepare', 'submit', 'remedy', 'cancel', 'reroute'):
+        with pytest.raises(ValueError, match='Unresolved cancellation'):
+            check(env, plan, run, action)
+    for action in a.READ_ACTIONS:
+        assert check(env, plan, run, action)['eligible_now']
+    assert image_tree(study) == before
+    current = a.status(cfg, study.name)['state']
+    assert not current['paused'] and current['phase'] == 'running'
+    assert current.get('cancellation_results', {}) == {}
+    _cancel_result(env, run, receipt)
+    assert check(env, plan, run, 'prepare')['eligible_now']
+    assert not a.status(cfg, study.name)['state']['paused']
+    _consume_cancel(env, plan, run, 'synthetic-002')
+
+
+@pytest.mark.parametrize('transition', ['finish', 'takeover', 'new_round'])
+def test_pending_cancellation_enters_next_wake_paused_and_late_acceptance_does_not_resume(env, transition):
+    cfg, study, clock = env
+    plan, old = running(env)
+    receipt = _consume_cancel(env, plan, old)
+    options = {}
+    if transition == 'takeover':
+        clock[0] += a.LEASE_SECONDS
+        options['takeover_reason'] = 'Synthetic interrupted cancellation owner'
+    else:
+        change(env, old, 'finish' if transition == 'finish' else 'end', reason='Synthetic interrupted wake')
+        if transition == 'new_round':
+            a.begin(cfg, study.name, plan['plan_id'], 'Explicit synthetic next round')
+    new = a.start(cfg, study.name, plan['plan_id'], 'replacement-owner', **options)
+    current = a.status(cfg, study.name)['state']
+    assert current['paused'] and current['phase'] == 'paused'
+    assert current.get('cancellation_results', {}) == {}
+    assert current['cancellations']['synthetic-001']['consumption_sha256'] == receipt['record']['consumption_sha256']
+    for action in a.READ_ACTIONS:
+        assert check(env, plan, new, action)['eligible_now']
+    before = image_tree(study)
+    with pytest.raises(ValueError, match='Unresolved cancellation'):
+        change(env, new, 'resume', reason='Cannot overlook an outstanding cancel')
+    with pytest.raises(ValueError, match='paused'):
+        check(env, plan, new, 'prepare')
+    with pytest.raises(ValueError, match='original consumption'):
+        _cancel_result(env, new, receipt)
+    assert image_tree(study) == before
+    result = _cancel_result(env, old, receipt)
+    assert result['record']['outcome'] == 'accepted'
+    after = a.status(cfg, study.name)['state']
+    assert after['paused'] and after['phase'] == 'paused'
+    for key in ('lease', 'current_round', 'current_plan', 'rounds', 'runs'):
+        assert after[key] == current[key]
+    with pytest.raises(ValueError, match='paused'):
+        check(env, plan, new, 'submit')
+    change(env, new, 'resume', reason='Explicit synthetic continuation after inspecting accepted result')
+    assert check(env, plan, new, 'prepare')['eligible_now']
+    with pytest.raises(ValueError, match='already consumed'):
+        _consume_cancel(env, plan, new)
+
+
+def test_cancellation_consumption_is_separate_from_intents_and_never_a_permit(env, monkeypatch):
+    cfg, study, _ = env
+    plan, run = running(env)
+    monkeypatch.setattr(transport.SSHTransport, '__init__', lambda *a, **k: pytest.fail('local only'))
+    monkeypatch.setattr(socket, 'create_connection', lambda *a, **k: pytest.fail('local only'))
+    count(env, run, kind='cancel')
+    before = a.status(cfg, study.name)['state']
+    first = _consume_cancel(env, plan, run)
+    result = _cancel_result(env, run, first)
+    second = _consume_cancel(env, plan, run, 'synthetic-002')
+    _cancel_result(env, run, second)
+    assert not first['cancellation_authorized'] and not second['cancellation_authorized']
+    assert 'token_sha256' not in first['record'] and not first['duplicate']
+    assert first['record']['binding'] == _cancel_binding(env)
+    assert first['record']['ownership_sha256'] == 'd' * 64
+    assert first['record']['evidence_sha256'] == 'e' * 64
+    after = a.status(cfg, study.name)['state']
+    for key in ('counts', 'totals', 'rounds', 'runs'):
+        assert after[key] == before[key]
+    assert all('token_sha256' not in record for record in after['cancellations'].values())
+    with pytest.raises(ValueError, match='limit of two'):
+        _consume_cancel(env, plan, run, 'synthetic-003')
+    with pytest.raises(ValueError, match='already consumed'):
+        _consume_cancel(env, plan, run, ownership_sha256='1' * 64)
+    assert not result['cancellation_authorized'] and result['record']['outcome'] == 'accepted'
+    assert not a.status(cfg, study.name)['state']['paused']
+    with pytest.raises(ValueError, match='already consumed'):
+        _consume_cancel(env, plan, run)
+
+
+@pytest.mark.parametrize('override', [
+    {'ownership_sha256': ''}, {'evidence_sha256': True}, {'plan_sha256': 'bad'},
+    {'reason': ' '}, {'kind': 'submit'}, {'kind': 'reroute'},
+    {'kind': 'reroute', 'lineage_sha256': 'bad'}, {'lineage_sha256': 'a' * 64},
+])
+def test_cancellation_rejects_incomplete_evidence_binding_without_mutation(env, override):
+    plan, run = running(env)
+    before = image_tree(env[1])
+    with pytest.raises(ValueError):
+        _consume_cancel(env, plan, run, **override)
+    assert image_tree(env[1]) == before
+
+
+@pytest.mark.parametrize('field,value', [
+    ('study_id', 'other-study'), ('attempt_id', '../other'), ('cluster', 'other;true'),
+    ('scheduler', 'other'), ('job_id', '123,124'), ('manifest_sha256', 'bad'),
+    ('submission_sha256', None),
+])
+def test_cancellation_rejects_invalid_exact_attempt_binding(env, field, value):
+    plan, run = running(env)
+    binding = dict(_cancel_binding(env), **{field: value})
+    before = image_tree(env[1])
+    with pytest.raises(ValueError):
+        _consume_cancel(env, plan, run, binding=binding)
+    assert image_tree(env[1]) == before
+
+
+@pytest.mark.parametrize('condition', ['paused', 'expired', 'wrong_token', 'wrong_plan', 'version_drift', 'clock_back'])
+def test_cancellation_consumption_rechecks_current_eligibility(env, monkeypatch, condition):
+    cfg, study, clock = env
+    plan, run = running(env)
+    if condition == 'paused':
+        a.pause(cfg, study.name, 'Synthetic human pause')
+    elif condition == 'expired':
+        clock[0] += a.RUN_SECONDS
+    elif condition == 'wrong_token':
+        run = dict(run, token='different-token')
+    elif condition == 'wrong_plan':
+        plan = dict(plan, sha256='0' * 64)
+    elif condition == 'version_drift':
+        monkeypatch.setattr(a, 'versions', lambda: dict(VERSIONS, git_commit='0' * 40))
+    else:
+        clock[0] -= 1
+    before = image_tree(study)
+    with pytest.raises(ValueError):
+        _consume_cancel(env, plan, run)
+    assert image_tree(study) == before
+
+
+def test_cancellation_reads_clock_after_version_inspection(env, monkeypatch):
+    _, study, clock = env
+    plan, run = running(env)
+    def slow_versions():
+        clock[0] += a.RUN_SECONDS
+        return dict(VERSIONS)
+    monkeypatch.setattr(a, 'versions', slow_versions)
+    before = image_tree(study)
+    with pytest.raises(ValueError, match='60 minute'):
+        _consume_cancel(env, plan, run)
+    assert image_tree(study) == before
+
+
+def test_cancellation_and_reroute_consumption_survive_new_plan_run_and_round(env):
+    cfg, study, _ = env
+    plan, run = running(env)
+    first = _consume_cancel(env, plan, run, kind='reroute', lineage_sha256='1' * 64)
+    _cancel_result(env, run, first)
+    for new_round in (False, True):
+        if new_round:
+            change(env, run, 'end', reason='Explicit synthetic round end')
+        else:
+            change(env, run, 'finish', reason='Finished synthetic wake')
+        plan = a.create_plan(cfg, study.name, spec(goal='Revised synthetic plan'))
+        a.confirm(cfg, study.name, plan['plan_id'], plan['sha256'], 'Synthetic revised confirmation')
+        if new_round:
+            a.begin(cfg, study.name, plan['plan_id'], 'Explicit synthetic next round')
+        run = a.start(cfg, study.name, plan['plan_id'], 'next-owner')
+        with pytest.raises(ValueError, match='already consumed for this Attempt'):
+            _consume_cancel(env, plan, run, ownership_sha256='2' * 64)
+        with pytest.raises(ValueError, match='original lineage'):
+            _consume_cancel(env, plan, run, 'replacement-001', kind='reroute', lineage_sha256='1' * 64)
+    next_receipt = _consume_cancel(env, plan, run, 'unrelated-001', kind='reroute', lineage_sha256='2' * 64)
+    assert not next_receipt['cancellation_authorized']
+    state = a.status(cfg, study.name)['state']
+    assert state['reroute_lineages'] == {'1' * 64: 'synthetic-001', '2' * 64: 'unrelated-001'}
+    assert state['totals']['cancel'] == 0 and state['totals']['reroute'] == 0
+
+
+def _cancel_consumer(env, plan, run, attempt_id, gate, barrier, output):
+    gate.wait(10)
+    outcome = None
+    for _ in range(3):
+        receipt = None
+        if outcome is None:
+            try:
+                receipt = _consume_cancel(env, plan, run, attempt_id)
+                outcome = 'consumed'
+            except ValueError as exc:
+                # Admission can be retried only before consumption. Every
+                # competing process sees the in-flight reservation before its
+                # owner records the synthetic response; no action is retried.
+                if 'Unresolved cancellation' not in str(exc):
+                    outcome = 'rejected'
+        barrier.wait(10)
+        if receipt is not None:
+            _cancel_result(env, run, receipt)
+        barrier.wait(10)
+    output.put(outcome)
+
+
+@pytest.mark.parametrize('attempts,accepted', [
+    (['synthetic-001', 'synthetic-002', 'synthetic-003'], 2),
+    (['synthetic-001', 'synthetic-001', 'synthetic-001'], 1),
+])
+def test_cancellation_process_races_cannot_exceed_limits(env, attempts, accepted):
+    cfg, study, _ = env
+    plan, run = running(env)
+    ctx = multiprocessing.get_context('fork')
+    gate, barrier, output = ctx.Event(), ctx.Barrier(len(attempts)), ctx.Queue()
+    processes = [ctx.Process(target=_cancel_consumer, args=(env, plan, run, item, gate, barrier, output))
+                 for item in attempts]
+    for process in processes:
+        process.start()
+    gate.set()
+    for process in processes:
+        _join(process)
+        assert process.exitcode == 0
+    assert [output.get(timeout=3) for _ in processes].count('consumed') == accepted
+    current = a.status(cfg, study.name)['state']
+    assert len(current['cancellations']) == len(current['cancellation_results']) == accepted
+
+
+def test_cancellation_unknown_is_atomic_paused_and_result_ack_is_idempotent(env):
+    cfg, study, _ = env
+    plan, run = running(env)
+    receipt = _consume_cancel(env, plan, run)
+    result = _cancel_result(env, run, receipt, outcome='unknown')
+    assert not result['cancellation_authorized']
+    state = a.status(cfg, study.name)['state']
+    assert state['paused'] and state['phase'] == 'paused'
+    before = image_tree(study)
+    repeated = _cancel_result(env, run, receipt, outcome='unknown')
+    assert repeated['duplicate'] and not repeated['cancellation_authorized']
+    assert image_tree(study) == before
+    for changes in ({'outcome': 'accepted'}, {'evidence_sha256': '0' * 64},
+                    {'consumption_sha256': '0' * 64}):
+        with pytest.raises(ValueError):
+            _cancel_result(env, run, receipt, **changes)
+    assert image_tree(study) == before
+    with pytest.raises(ValueError, match='paused'):
+        _consume_cancel(env, plan, run, 'synthetic-002')
+
+
+@pytest.mark.parametrize('ended', [False, True])
+def test_late_cancellation_result_preserves_new_owner_or_ended_round(env, ended):
+    cfg, study, clock = env
+    plan, old = running(env)
+    receipt = _consume_cancel(env, plan, old)
+    clock[0] += a.LEASE_SECONDS
+    new = a.start(cfg, study.name, plan['plan_id'], 'replacement', takeover_reason='Expired original owner')
+    with pytest.raises(ValueError, match='owner'):
+        _consume_cancel(env, plan, old, 'synthetic-002')
+    with pytest.raises(ValueError, match='original consumption'):
+        _cancel_result(env, new, receipt, outcome='unknown')
+    if ended:
+        change(env, new, 'end', reason='Explicit synthetic round end')
+    before = a.status(cfg, study.name)['state']
+    _cancel_result(env, old, receipt, outcome='unknown')
+    after = a.status(cfg, study.name)['state']
+    assert after['paused'] and after['phase'] == ('ended' if ended else 'paused')
+    for key in ('lease', 'current_round', 'current_plan', 'rounds', 'runs'):
+        assert after[key] == before[key]
+    clock[0] -= 1
+    with pytest.raises(ValueError, match='backwards'):
+        _cancel_result(env, old, receipt, outcome='unknown')
+
+
+@pytest.mark.parametrize('stage', ['consume', 'unknown'])
+def test_cancellation_durable_event_survives_failed_state_publication(env, monkeypatch, stage):
+    cfg, study, _ = env
+    plan, run = running(env)
+    receipt = _consume_cancel(env, plan, run) if stage == 'unknown' else None
+    def fail_publish(*args):
+        raise OSError('Synthetic publication crash')
+    with monkeypatch.context() as scoped:
+        scoped.setattr(disk.Store, 'publish', fail_publish)
+        with pytest.raises(OSError, match='publication crash'):
+            if stage == 'consume':
+                _consume_cancel(env, plan, run)
+            else:
+                _cancel_result(env, run, receipt, outcome='unknown')
+    journal = study / 'autonomy/journal.jsonl'
+    preserved = journal.read_bytes()
+    with pytest.raises(ValueError, match='stale'):
+        _consume_cancel(env, plan, run)
+    recovered = change(env, run, 'recover', reason='Recover intact cancellation event')
+    assert journal.read_bytes().startswith(preserved)
+    assert len(recovered['state']['cancellations']) == 1
+    assert recovered['state']['paused']
+    with pytest.raises(ValueError, match='paused|already consumed'):
+        _consume_cancel(env, plan, run)
+    if stage == 'unknown':
+        assert recovered['state']['paused']
+        assert _cancel_result(env, run, receipt, outcome='unknown')['duplicate']

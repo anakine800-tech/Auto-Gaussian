@@ -278,7 +278,8 @@ def test_exact_new_commands_and_write_transport_policy(cfg, parent, tmp_path, mo
     assert READ_OPERATIONS == frozenset({'identity', 'queues', 'nodes', 'jobs', 'root_check', 'executable',
         'metadata', 'parent_chk_metadata', 'output_exists', 'listing', 'receipt', 'output_observation',
         'completion_marker', 'session_processes', 'slurm_jobs', 'slurm_accounting', 'slurm_find',
-        'slurm_history', 'slurm_partitions', 'slurm_tools', 'storage_usage', 'parent_chk_environment'})
+        'slurm_history', 'slurm_partitions', 'slurm_tools', 'storage_usage', 'parent_chk_environment',
+        'slurm_evidence_config', 'slurm_evidence_version', 'slurm_evidence_job', 'slurm_evidence_history'})
     for command in (read, write):
         assert subprocess.run(['sh', '-n'], input=command.text, text=True).returncode == 0
     transport = SSHTransport(cfg, read_only=True)

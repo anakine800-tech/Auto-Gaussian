@@ -106,6 +106,8 @@ READ_OPERATIONS = frozenset({'identity', 'queues', 'nodes', 'jobs', 'root_check'
                             'metadata', 'parent_chk_metadata', 'parent_chk_environment', 'output_exists', 'listing', 'receipt',
                             'output_observation', 'completion_marker', 'session_processes',
                             'slurm_jobs', 'slurm_accounting', 'slurm_find', 'slurm_history',
+                            'slurm_evidence_config', 'slurm_evidence_version',
+                            'slurm_evidence_job', 'slurm_evidence_history',
                             'slurm_partitions', 'slurm_tools', 'storage_usage'})
 
 
@@ -231,19 +233,20 @@ class SSHTransport:
                         note=current.get('note'), ssh_error=error)
             journal.append(path.parent.parent, 'ssh_error', path.name, 'error', error)
 
-    def _perform(self, operation):
-        for index in range(2 if self.read_only else 1):
+    def _perform(self, operation, *, allow_retry=True):
+        retry = self.read_only and allow_retry
+        for index in range(2 if retry else 1):
             try:
                 result = operation()
             except SSHConnectionError as exc:
                 self._record_failure(str(exc))
-                if not self.read_only or index == 1:
+                if not retry or index == 1:
                     raise
             else:
                 if result.returncode == 255:
                     result.stderr = redact_stderr(result.stderr, self.cfg) + '; 密钥可能已过期，请到网页重新下载'
                     self._record_failure(result.stderr or 'SSH failed (exit 255; no stderr)')
-                if result.returncode != 255 or not self.read_only or index == 1:
+                if result.returncode != 255 or not retry or index == 1:
                     return result
             print('Read-only SSH connection failed; retrying once in 15 seconds.', file=sys.stderr)
             time.sleep(15)
@@ -263,6 +266,11 @@ class SSHTransport:
                 ['ssh', *self.options, self.cfg['ssh']['host'], '--', command.text],
                 command.timeout + self.extra_connect_seconds, command.operation, index)
 
+        # Formal autonomy evidence must retain and stop at the first SSH error;
+        # a successful retry cannot erase the uncertainty of that observation.
+        if command.operation in ('slurm_evidence_config', 'slurm_evidence_version',
+                                 'slurm_evidence_job', 'slurm_evidence_history'):
+            return self._perform(run_once, allow_retry=False)
         return self._perform(run_once)
 
     def upload(self, local, manifest, name):

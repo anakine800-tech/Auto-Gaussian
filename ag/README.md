@@ -10,7 +10,7 @@ RDKit 与 CI 固定为同一精确版本；平台包边界见上述安装步骤�
 整体架构、常用命令和 Skill 部署见[根目录 README](../README.md)；
 规则见 [AGENTS.md](../AGENTS.md)，设计见[改造方案](../docs/REDESIGN-PLAN.md)。
 
-本文计算命令描述当前手动模式；T184 的 `autonomy` 仅保存本地计划和状态。[自主运行规则](../AGENTS.md#自主运行)须待相关工具实现、敏感路径合并前验证、非研究试点及本轮显式启用全部完成；旧长期规则不提供自主权限，现有 cancel 仍须 Mac 人工点击。当前实现与后续要求见[开发手册](../docs/DEVELOPING.md#自主运行的实现边界)。
+本文计算命令以当前手动模式为主；T184 的 `autonomy` 保存本地计划和状态。[自主运行规则](../AGENTS.md#自主运行)须待相关工具实现、敏感路径合并前验证、非研究试点及本轮显式启用全部完成；旧长期规则不提供自主权限。普通手动 cancel 仍须 Mac 人工点击，T187 独立自主取消入口见下文。当前实现与后续要求见[开发手册](../docs/DEVELOPING.md#自主运行的实现边界)。
 
 ## 在新 Mac 上重建直连 SSH 配置
 
@@ -187,6 +187,47 @@ Gaussian 摘要列出片段中的 SCF 次数/末次能量、Step number 记录�
 journal、取回标记或 facts；不主动调用 `ag status`。后续 fetch/facts/证据清单不消费
 这些快照。SSH 经现有 transport 记录到脱敏 ssh-log，操作类别为 `output_observation`。
 
+T187 的 Python 接口 `snapshot.capture_for_run(...)` 复用同一固定只读捕获，另将正式快照的
+轮次、唤醒、manifest/submission 与文件哈希绑定到自主日志；普通 `ag snapshot` 行为不变。
+CLI 显式同时传 `--run <RUN> --token <TOKEN> --plan-sha256 <SHA>` 使用此捕获；
+网络期间不持本地互斥；最终本地发布前重新核对当前 owner，IO 期间过期/被接管时不发布文件。
+已在有效 owner 下发布、但随后登记失败的快照保留，不补认进其他唤醒。
+`autonomy_cancel.review_no_progress(...)` 只在本地核验连续两次不同唤醒的快照来源、顺序、
+字节与逐份模型审阅理由；只接受两次连续唤醒各自最新且在其有效运行期捕获的证据。
+跨唤醒无固定 TTL，允许计划中的 3/5 小时间隔；当前租约必须有效，暂停/恢复后须重新取得一对证据。
+它不代替科学判断，返回的 `cancellation_authorized` 始终为 false，也不授予改投资格。
+`autonomy_cancel.checkpoint_free_input(...)` 从已绑定 Attempt 的冻结 bundle 字节核验无 chk 依赖，
+复用严格 Gaussian/CP、XYZ 和约束解析。Gaussian 只接受有限的显式方法/基组和选项语法；
+Guess、IRC、读取/重启选项、未知语法、放宽输入标记或不明附件都不能取得证明。
+拒绝表示当前不能证明无依赖，不等于认定该输入确实依赖 chk；缺 `parent_chk` 或人工标签也不能代替检查。
+该接口核对原始资源及输入哈希，不授权当前资源变更或替代提交，返回的 `reroute_authorized` 始终为 false。
+`status.capture_slurm_evidence(cfg, path, transport)` 通过固定只读查询保存控制器身份/版本、客户端版本、
+调度器返回的同号重复记账及之后的控制器记录。原 `submission.json` 必须已有实际集群名；当前探针不补认旧归属。
+仅 26.05.5 的明确版本组合可进入候选格式采集，仍未完成真实支持验证；PBS、未知/混合版本或任何查询错误均拒绝。
+每次响应及哈希保存到私有 Attempt 的 `scheduler-observations/`，不写 outputs、status 或提交绑定。
+新查询首次 SSH 错误即停止，不自动重试；截断、歧义和缺字段不补成零。该接口也始终不授予改投资格。
+调用方可传 `publication`（零参数 contextmanager 工厂），在 IO/解析结束后持短锁重验 owner 再落盘；
+保护拒绝时不产生观察目录。失败响应也须经过该发布检查，现有脱敏 SSH 诊断日志保持原行为。
+内部取消消费账本独立于意图计数：每唤醒最多两次，同 Attempt 和改投原谱系不随新唤醒/轮次清零。
+UNKNOWN 结果原子暂停；接受回执不代表终止。未收到结果的消费也阻止新写动作，不因新唤醒或恢复而清除。
+
+T187 的独立无进展入口为：
+`ag cancel <ID> --run <RUN> --token <TOKEN> --plan-sha256 <SHA> --autonomous-policy <POLICY> --kind no_progress --reason '<原因>' --reviews <本地JSON>`。
+它要求已集成 T186 的实际归属、有效规则和发布保护，并重新核验两份正式快照、原始及当前 Slurm 实例；依赖缺失直接拒绝。
+无进展与改投的自主取消目前均要求 Slurm 26.05.5 的原始实例证据；这是已实现取消路径的范围，
+不限制普通提交的兼容说明。PBS 仍使用人工确认的取消，无进展判据本身不需要六小时、无 chk 或路由候选条件。
+输入 JSON 为两项审阅记录，每项含 `snapshot`、`snapshot_sha256`、`log_sha256`、`no_progress: true` 和非空 `reason`。
+取消前独占保存 request、消费和 `.cancel-claim`，只发一次精确实例命令；response 不确定时保留消费并暂停。
+迟到回执只保存原动作后果，不能修改新 owner 的普通状态。普通 `ag cancel <ID>` 仍走人工确认。
+
+`ag cancel <ID> --verify-stopped --run <RUN> --token <TOKEN> --plan-sha256 <SHA>`
+只读核验已接受取消的同实例终止，并独占保存 `autonomy-cancel-stopped.json`；不会再取消或准备后继。
+本地 accepted/cancelled、空队列或缺历史都不能替代停止证明。
+`--kind reroute` 使用同一组 owner/policy/reason 参数，但不传 `--reviews`；它核验排队六小时、从未运行的正式证据、
+无 chk 依赖及 T185 同算法更高位候选，同时检查候选当前可用的规则与预算。每个原作业谱系只消费一次。
+停止证明之后的新 Attempt 仍走 T186 的正式 prepare/submit 和全部预算核验。合并前真实验证与自主启用尚未完成；
+这些开发入口不赋予真实执行授权，缺少集成依赖时明确拒绝。
+
 ## 取回输出：fetch
 
 `ag fetch <ATTEMPT_ID> --json` 成功后自动在本地调用 `build_facts(refresh=False)`，
@@ -323,8 +364,8 @@ study 内符号链接、歧义、非法显式路径、空分析目录、收集�
 
 `ag autonomy` 在已有 study 的 `autonomy/` 内保存计划、运行租约和日志，
 只加载本地配置，不连接集群、不运行量化程序，也不修改 Attempt、facts、签字或 `study.md`。
-本模块尚未接入 `ag prepare`、`ag submit`、`ag cancel`；计划确认和资格检查都不是提交批准，
-这些记录本身不能启用自主计算。所有子命令默认输出 JSON，接受 `--json`。
+本地计划确认和资格检查都不是提交或取消批准；实际动作入口还须集成 T186 的归属与规则核验，
+取消另走上面的独立参数和证据检查。这些记录本身不能启用自主计算。所有子命令默认输出 JSON，接受 `--json`。
 
 先准备计划正文 JSON，再依次执行；尖括号内容须替换为实际值：
 

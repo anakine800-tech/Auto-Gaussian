@@ -14,6 +14,37 @@ from ag.transport import Result, SSHConnectionError, SSHTransport
 from test_core import cfg, Fake, INPUT, allow, write_config
 
 
+# Synthetic 26.05.5 --details --oneliner output, following SchedMD's
+# src/scontrol/info_job.c field order. No live cluster or research data.
+EVIDENCE_CONFIG = 'ClusterName = fixture\nSLURM_VERSION = 26.05.5\n'
+EVIDENCE_SLUID = 's0123456789ABC'
+EVIDENCE_DB_INDEX = 38390726480144748
+EVIDENCE_JOB = (
+    'JobId=123 JobName=water-001-sp SLUID=s0123456789ABC '
+    'UserId=fixture(1001) GroupId=fixture(1001) MCS_label=N/A '
+    'Priority=100 Nice=0 Account=fixture QOS=normal '
+    'JobState=PENDING Reason=Resources Dependency=(null) '
+    'Requeue=0 Restarts=0 BatchFlag=1 Reboot=0 ExitCode=0:0 DerivedExitCode=0:0 '
+    'RunTime=00:00:00 TimeLimit=01:30:00 TimeMin=N/A '
+    'SubmitTime=2026-01-01T00:00:00 EligibleTime=2026-01-01T00:00:00 '
+    'AccrueTime=2026-01-01T00:00:00 StartTime=Unknown EndTime=Unknown Deadline=N/A '
+    'SuspendTime=None SecsPreSuspend=0 LastSchedEval=2026-01-01T06:00:00 Scheduler=Main '
+    'Partition=fixture AllocNode:Sid=fixture:100 ReqNodeList=(null) ExcNodeList=(null) '
+    'NodeList= NumNodes=1 NumCPUs=8 NumTasks=1 CPUs/Task=8 ReqB:S:C:T=0:0:*:* '
+    'ReqTRES=cpu=8,mem=12G,node=1,billing=8 AllocTRES=(null) '
+    'Socks/Node=* NtasksPerN:B:S:C=0:0:*:* CoreSpec=* '
+    'MinCPUsNode=8 MinMemoryNode=12G MinTmpDiskNode=0 Features=(null) DelayBoot=00:00:00 '
+    'OverSubscribe=OK Exclusive=NONE Contiguous=0 Licenses=(null) LicensesAlloc=(null) Network=(null) '
+    'Command=job.slurm SubmitLine=sbatch --parsable job.slurm WorkDir=synthetic '
+    'StdErr=synthetic/job.slurm.err StdIn=synthetic/input StdOut=synthetic/job.slurm.out\n'
+)
+EVIDENCE_HISTORY = (
+    'fixture|123|water-001-sp|1001|38390726480144748|2026-01-01T00:00:00|Unknown|Unknown|PENDING|0|'
+    's0123456789ABC|s0123456789ABC\n'
+)
+EVIDENCE_IDENTITY = dict(job_id='123', cluster='fixture', name='water-001-sp')
+
+
 @pytest.fixture
 def multi(cfg):
     pbs = {k: deepcopy(v) for k, v in cfg.items() if k not in ('local', '_config_dir')}
@@ -89,6 +120,554 @@ def test_sbatch_parsable(text, expected):
 @pytest.mark.parametrize('text', ['Submitted batch job 123', '123;', '123;a;b', '0', '123_1', '123;bad name', '123\n456', '123;$(evil)'])
 def test_bad_sbatch_response(text):
     with pytest.raises(ValueError): slurm.parse_submission(text)
+
+
+class SubmissionProbeFake:
+    def __init__(self, cfg):
+        self.cfg, self.calls = cfg, []
+        self.responses = [Result(stdout=EVIDENCE_CONFIG), *[Result(stdout='slurm 26.05.5\n') for _ in range(4)]]
+        self.after_query = lambda: None
+
+    def run(self, command):
+        expected = [remote.slurm_evidence_config(), remote.slurm_evidence_version('scontrol'),
+                    remote.slurm_evidence_version('sacct'), remote.slurm_evidence_version('sbatch'),
+                    remote.slurm_evidence_version('scancel')]
+        assert command == expected[len(self.calls)]
+        response = self.responses[len(self.calls)]
+        self.calls.append(command)
+        self.after_query()
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+
+def test_submission_probe_returns_bound_canonical_unpublished_candidate(multi, tmp_path):
+    from ag import _autonomy_store as disk
+    path, manifest = prepare(multi, tmp_path)
+    fake = SubmissionProbeFake(config.select_cluster(multi, 'batch'))
+    before = {p.relative_to(path.parent.parent): p.read_bytes()
+              for p in path.parent.parent.rglob('*') if p.is_file()}
+    value = status.slurm_submission_probe(multi, path, fake)
+    record = value['record']
+    assert value['sha256'] == sha256(disk.encode(record)).hexdigest()
+    assert record['schema'] == 'ag-slurm-submission-probe/1'
+    assert record['binding'] == dict(attempt_id=path.name, study_id='water', cluster='batch',
+                                     scheduler='slurm', bundle_sha256=manifest['bundle_sha256'],
+                                     manifest_sha256=sha256((path / 'manifest.json').read_bytes()).hexdigest())
+    assert record['scheduler_cluster'] == 'fixture'  # Actual name differs from the local alias.
+    assert record['format_candidate'] is True
+    assert record['bound_submit_format_candidate'] is record['instance_cancel_format_candidate'] is True
+    assert record['origin_available'] is record['reroute_authorized'] is record['live_validated'] is False
+    assert 'ownership' not in json.dumps(record)
+    assert {v['parsed'] for v in record['versions'].values()} == {'26.05.5'}
+    assert record['versions']['controller']['raw'] == '26.05.5'
+    assert record['versions']['sacct']['raw'] == 'slurm 26.05.5\n'
+    assert set(record['versions']) == {'controller', 'scontrol', 'sacct'}
+    assert record['execution_versions'] == {program: dict(raw='slurm 26.05.5\n', parsed='26.05.5')
+                                             for program in ('sbatch', 'scancel')}
+    assert len(record['queries']) == len(fake.calls) == 5
+    assert record['capture_started_at'] <= record['queries'][0]['started_at']
+    previous = record['capture_started_at']
+    for entry, command, response in zip(record['queries'], fake.calls, fake.responses):
+        assert previous <= entry['started_at'] <= entry['finished_at']
+        previous = entry['finished_at']
+        assert entry['command'] == command.text and entry['operation'] == command.operation
+        assert entry['returncode'] == 0
+        for stream in ('stdout', 'stderr'):
+            assert entry[stream] == getattr(response, stream)
+            assert entry[stream + '_sha256'] == sha256(entry[stream].encode()).hexdigest()
+    assert previous <= record['capture_finished_at']
+    assert before == {p.relative_to(path.parent.parent): p.read_bytes()
+                      for p in path.parent.parent.rglob('*') if p.is_file()}
+
+
+def test_submission_probe_isolates_attempt_error_publication_from_caller_transport(multi, tmp_path):
+    class RecordingFake(SubmissionProbeFake):
+        def record_to(self, paths):
+            self.error_paths = list(paths)
+
+        def run(self, command):
+            assert self.error_paths == []
+            return super().run(command)
+
+    path, _ = prepare(multi, tmp_path)
+    fake = RecordingFake(config.select_cluster(multi, 'batch'))
+    fake.record_to([path])
+    fake.responses[0] = SSHConnectionError('synthetic timeout')
+    with pytest.raises(SSHConnectionError):
+        status.slurm_submission_probe(multi, path, fake)
+    assert fake.error_paths == [path] and len(fake.calls) == 1
+
+
+def test_submission_probe_clock_reversal_retains_the_completed_response(multi, tmp_path, monkeypatch):
+    path, _ = prepare(multi, tmp_path)
+    fake = SubmissionProbeFake(config.select_cluster(multi, 'batch'))
+    clock = iter((100, 101, 99, 102))
+    monkeypatch.setattr(status.time, 'time', lambda: next(clock))
+    with pytest.raises(ValueError, match='Clock moved backwards') as caught:
+        status.slurm_submission_probe(multi, path, fake)
+    assert len(fake.calls) == 1
+    assert caught.value.evidence['record']['queries'][0]['stdout'] == EVIDENCE_CONFIG
+
+
+@pytest.mark.parametrize('response,classification', [
+    (Result(127, stderr='env: scontrol: No such file or directory\n'), 'config_tool_missing'),
+    (Result(127, stderr="env: 'scontrol': No such file or directory\n"), 'config_tool_missing'),
+    (Result(127, stderr='scontrol: command not found\n'), 'config_tool_missing'),
+    (Result(1, stderr="scontrol: unrecognized option '--local'\n"), 'config_option_unsupported'),
+    (Result(1, stderr="scontrol: unrecognized option '--local'\n"
+                      'Try "scontrol --help" for more information\n'), 'config_option_unsupported'),
+])
+def test_submission_probe_missing_controller_tool_is_classified_without_inventing_cluster(multi, tmp_path, response, classification):
+    path, _ = prepare(multi, tmp_path)
+    fake = SubmissionProbeFake(config.select_cluster(multi, 'batch'))
+    fake.responses[0] = response
+    before = {p.relative_to(path): p.read_bytes() for p in path.rglob('*') if p.is_file()}
+    record = status.slurm_submission_probe(multi, path, fake)['record']
+    assert len(fake.calls) == 1
+    assert record['unavailable'] == classification and record['scheduler_cluster'] is None
+    assert record['format_candidate'] is record['origin_available'] is record['reroute_authorized'] is False
+    assert record['bound_submit_format_candidate'] is record['instance_cancel_format_candidate'] is False
+    assert record['live_validated'] is False
+    assert 'ordinary submission policy is unchanged' in record['reason']
+    assert record['queries'][0]['stderr'] == response.stderr
+    assert record['capture_finished_at'] >= record['queries'][0]['finished_at']
+    assert before == {p.relative_to(path): p.read_bytes() for p in path.rglob('*') if p.is_file()}
+
+
+@pytest.mark.parametrize('index,response', [
+    (0, Result(127, stderr='env: scontrol: No such file or directory\nPermission denied\n')),
+    (0, Result(127, stderr='Connection reset\nenv: scontrol: No such file or directory\n')),
+    (0, Result(127, stdout=EVIDENCE_CONFIG, stderr='scontrol: command not found\n')),
+    (0, Result(126, stderr='env: scontrol: No such file or directory\n')),
+    (0, Result(127, stderr='env: scontrol: Permission denied\n')),
+    (0, Result(1, stderr="scontrol: unrecognized option '--local'\nUnexpected identity\n")),
+    (0, Result(1, stderr="scontrol: unrecognized option '--other'\n")),
+    (0, Result(2, stderr="scontrol: unrecognized option '--local'\n")),
+    (2, Result(127, stderr='env: sacct: No such file or directory\nPermission denied\n')),
+    (2, Result(1, stderr="sacct: unrecognized option '--version'\nConnection reset\n")),
+])
+def test_submission_probe_unavailable_requires_exact_response_without_unknown_diagnostics(multi, tmp_path, index, response):
+    path, _ = prepare(multi, tmp_path)
+    fake = SubmissionProbeFake(config.select_cluster(multi, 'batch'))
+    fake.responses[index] = response
+    with pytest.raises((ValueError, OSError)) as caught:
+        status.slurm_submission_probe(multi, path, fake)
+    record = caught.value.evidence['record']
+    assert len(fake.calls) == index + 1 and record['queries'][-1]['stderr'] == response.stderr
+    assert record['format_candidate'] is False
+
+
+def test_submission_probe_unavailable_still_rechecks_concurrent_claim(multi, tmp_path):
+    path, _ = prepare(multi, tmp_path)
+    fake = SubmissionProbeFake(config.select_cluster(multi, 'batch'))
+    fake.responses[0] = Result(127, stderr='scontrol: command not found\n')
+    fake.after_query = lambda: (path / '.submit-claim').write_text('synthetic competing submit')
+    with pytest.raises(ValueError) as caught:
+        status.slurm_submission_probe(multi, path, fake)
+    assert len(fake.calls) == 1 and caught.value.evidence['record']['format_candidate'] is False
+
+
+@pytest.mark.parametrize('index,response', [
+    (0, Result(stdout=EVIDENCE_CONFIG.replace('26.05.5', '24.05.0'))),
+    (0, Result(stdout=EVIDENCE_CONFIG.replace('26.05.5', '26.05.5-vendor'))),
+    (0, Result(stdout='ClusterName = fixture\n')),
+    (1, Result(stdout='slurm 24.05.0\n')),
+    (1, Result(stdout='slurm 26.05.5-vendor\n')),
+    (2, Result(stdout='vendor client version unknown\n')),
+    (2, Result(stdout='')),
+    (2, Result(1, stderr="sacct: unrecognized option '--version'\n")),
+    (2, Result(127, stderr='env: sacct: No such file or directory\n')),
+])
+def test_submission_probe_unsupported_versions_preserve_ordinary_submission_boundary(multi, tmp_path, index, response):
+    path, _ = prepare(multi, tmp_path)
+    fake = SubmissionProbeFake(config.select_cluster(multi, 'batch'))
+    fake.responses[index] = response
+    record = status.slurm_submission_probe(multi, path, fake)['record']
+    assert len(record['queries']) == 5
+    assert record['format_candidate'] is record['origin_available'] is record['reroute_authorized'] is False
+    assert record['unavailable'] == 'evidence_version_unsupported'
+    assert 'ordinary submission policy is unchanged' in record['reason']
+    assert record['scheduler_cluster'] == 'fixture'
+    assert state.read(path)['state'] == 'prepared'
+    assert not (path / '.submit-claim').exists() and not (path / 'submission.json').exists()
+
+
+@pytest.mark.parametrize('index,expected', [
+    (0, (False, False, False)), (1, (False, False, False)), (2, (False, True, False)),
+    (3, (True, False, True)), (4, (True, True, False)),
+])
+def test_submission_probe_format_candidates_use_only_their_required_versions(multi, tmp_path, index, expected):
+    path, _ = prepare(multi, tmp_path)
+    fake = SubmissionProbeFake(config.select_cluster(multi, 'batch'))
+    fake.responses[index].stdout = fake.responses[index].stdout.replace('26.05.5', '26.05.4')
+    record = status.slurm_submission_probe(multi, path, fake)['record']
+    assert tuple(record[key] for key in ('format_candidate', 'bound_submit_format_candidate',
+                                         'instance_cancel_format_candidate')) == expected
+    assert len(fake.calls) == 5
+    assert record['origin_available'] is record['reroute_authorized'] is record['live_validated'] is False
+    assert state.read(path)['state'] == 'prepared'
+
+
+@pytest.mark.parametrize('program,index,flag,other', [
+    ('sbatch', 3, 'bound_submit_format_candidate', 'instance_cancel_format_candidate'),
+    ('scancel', 4, 'instance_cancel_format_candidate', 'bound_submit_format_candidate'),
+])
+@pytest.mark.parametrize('unsupported', ['unknown-version', 'missing-version', 'missing-tool', 'unsupported-option'])
+def test_submission_probe_execution_version_gaps_disable_only_related_candidate(
+        multi, tmp_path, program, index, flag, other, unsupported):
+    path, _ = prepare(multi, tmp_path)
+    fake = SubmissionProbeFake(config.select_cluster(multi, 'batch'))
+    response = {'unknown-version': Result(stdout='slurm 26.05.5-vendor\n'),
+                'missing-version': Result(),
+                'missing-tool': Result(127, stderr=f'env: {program}: No such file or directory\n'),
+                'unsupported-option': Result(1, stderr=f"{program}: unrecognized option '--version'\n")}[unsupported]
+    fake.responses[index] = response
+    before = {p: p.read_bytes() for p in path.rglob('*') if p.is_file()}
+    record = status.slurm_submission_probe(multi, path, fake)['record']
+    assert record['format_candidate'] is record[other] is True
+    assert record[flag] is False
+    assert record['execution_versions'][program] == dict(raw=response.stdout, parsed=None)
+    assert record['queries'][index]['stderr'] == response.stderr and len(fake.calls) == 5
+    assert record['live_validated'] is record['reroute_authorized'] is record['origin_available'] is False
+    assert 'ordinary submission policy is unchanged' in record['reason']
+    assert {p: p.read_bytes() for p in path.rglob('*') if p.is_file()} == before
+
+
+@pytest.mark.parametrize('program,index', [('sbatch', 3), ('scancel', 4)])
+@pytest.mark.parametrize('failure', ['ssh-exit', 'ssh-exception', 'mixed-diagnostic', 'other-exit', 'warning'])
+def test_submission_probe_execution_queries_do_not_downgrade_real_failures(multi, tmp_path, program, index, failure):
+    path, _ = prepare(multi, tmp_path)
+    fake = SubmissionProbeFake(config.select_cluster(multi, 'batch'))
+    fake.responses[index] = {
+        'ssh-exit': Result(255, stderr='Synthetic connection error'),
+        'ssh-exception': SSHConnectionError('Synthetic connection timeout'),
+        'mixed-diagnostic': Result(127, stderr=f'env: {program}: No such file or directory\nPermission denied\n'),
+        'other-exit': Result(1, stderr='Synthetic execution error'),
+        'warning': Result(stdout='slurm 26.05.5\n', stderr='Unexpected diagnostic'),
+    }[failure]
+    before = {p: p.read_bytes() for p in path.rglob('*') if p.is_file()}
+    with pytest.raises((ValueError, OSError)) as caught:
+        status.slurm_submission_probe(multi, path, fake)
+    record = caught.value.evidence['record']
+    assert len(fake.calls) == len(record['queries']) == index + 1
+    assert record['queries'][-1]['label'] == program + '-version'
+    assert record['format_candidate'] is record['bound_submit_format_candidate'] is record['instance_cancel_format_candidate'] is False
+    assert record['live_validated'] is record['reroute_authorized'] is record['origin_available'] is False
+    assert {p: p.read_bytes() for p in path.rglob('*') if p.is_file()} == before
+
+
+@pytest.mark.parametrize('index,response,error', [
+    (0, SSHConnectionError('synthetic timeout'), SSHConnectionError),
+    (1, Result(255, stderr='synthetic SSH failure'), OSError),
+    (2, Result(1, stderr='synthetic database error'), OSError),
+    (0, Result(stdout='SLURM_VERSION = 26.05.5\n'), ValueError),
+    (0, Result(stdout=EVIDENCE_CONFIG + 'ClusterName = other\n'), ValueError),
+    (0, Result(stdout=EVIDENCE_CONFIG.replace('fixture', 'ALL')), ValueError),
+    (0, Result(stdout=EVIDENCE_CONFIG, stderr='unexpected config diagnostic'), ValueError),
+])
+def test_submission_probe_real_errors_stop_and_carry_unpublished_evidence(multi, tmp_path, index, response, error):
+    from ag import _autonomy_store as disk
+    path, _ = prepare(multi, tmp_path)
+    fake = SubmissionProbeFake(config.select_cluster(multi, 'batch'))
+    fake.responses[index] = response
+    before = {p.relative_to(path): p.read_bytes() for p in path.rglob('*') if p.is_file()}
+    with pytest.raises(error) as caught:
+        status.slurm_submission_probe(multi, path, fake)
+    value = caught.value.evidence
+    assert value['sha256'] == sha256(disk.encode(value['record'])).hexdigest()
+    assert len(fake.calls) == len(value['record']['queries']) == index + 1
+    assert value['record']['format_candidate'] is False
+    assert value['record']['bound_submit_format_candidate'] is value['record']['instance_cancel_format_candidate'] is False
+    last = value['record']['queries'][-1]
+    if isinstance(response, Exception):
+        assert last['returncode'] is last['stdout'] is last['stderr'] is None
+        assert last['error_type'] == type(response).__name__
+    else:
+        assert last['returncode'] == response.returncode and last['stderr'] == response.stderr
+    assert before == {p.relative_to(path): p.read_bytes() for p in path.rglob('*') if p.is_file()}
+
+
+@pytest.mark.parametrize('change', ['claim', 'submission', 'state', 'manifest', 'input',
+                                    'replace_manifest', 'replace_input', 'replace_attempt',
+                                    'symlink_input', 'hardlink_input', 'configuration'])
+def test_submission_probe_rechecks_paths_frozen_bytes_and_claim_after_queries(multi, tmp_path, change):
+    path, _ = prepare(multi, tmp_path)
+    fake = SubmissionProbeFake(config.select_cluster(multi, 'batch'))
+
+    def mutate():
+        if len(fake.calls) != 5:
+            return
+        source = path / 'inputs' / 'water.gjf'
+        if change in ('claim', 'submission'):
+            (path / ('.submit-claim' if change == 'claim' else 'submission.json')).write_text('{}')
+        elif change == 'state':
+            data = json.loads((path / 'status.json').read_text())
+            data['state'] = 'submitting'
+            (path / 'status.json').write_text(json.dumps(data))
+        elif change == 'manifest':
+            with (path / 'manifest.json').open('a') as handle:
+                handle.write(' ')
+        elif change == 'input':
+            with source.open('a') as handle:
+                handle.write(' ')
+        elif change.startswith('replace_'):
+            import shutil
+            target = {'replace_manifest': path / 'manifest.json', 'replace_input': source,
+                      'replace_attempt': path}[change]
+            saved = target.with_name(target.name + '-original')
+            target.rename(saved)
+            if saved.is_dir():
+                shutil.copytree(saved, target)
+            else:
+                target.write_bytes(saved.read_bytes())
+        elif change in ('symlink_input', 'hardlink_input'):
+            saved = tmp_path / 'saved-input'
+            source.rename(saved)
+            if change == 'symlink_input':
+                source.symlink_to(saved)
+            else:
+                os.link(saved, source)
+        else:
+            multi['clusters']['batch']['partition'] = 'changed'
+
+    fake.after_query = mutate
+    with pytest.raises((ValueError, OSError)) as caught:
+        status.slurm_submission_probe(multi, path, fake)
+    assert len(fake.calls) == 5 and caught.value.evidence['record']['format_candidate'] is False
+
+
+@pytest.mark.parametrize('change', ['claim', 'submission', 'state', 'bound_job', 'identity', 'bundle'])
+def test_submission_probe_rejects_unprepared_or_corrupt_attempt_before_network(multi, tmp_path, change):
+    path, _ = prepare(multi, tmp_path)
+    fake = SubmissionProbeFake(config.select_cluster(multi, 'batch'))
+    if change in ('claim', 'submission'):
+        (path / ('.submit-claim' if change == 'claim' else 'submission.json')).write_text('{}')
+    elif change in ('state', 'bound_job'):
+        data = json.loads((path / 'status.json').read_text())
+        data.update({'state': 'submitted'} if change == 'state' else {'job_id': 'batch:123'})
+        (path / 'status.json').write_text(json.dumps(data))
+    else:
+        data = json.loads((path / 'manifest.json').read_text())
+        data['attempt_id' if change == 'identity' else 'bundle_sha256'] = 'wrong'
+        (path / 'manifest.json').write_text(json.dumps(data))
+    with pytest.raises(ValueError):
+        status.slurm_submission_probe(multi, path, fake)
+    assert fake.calls == []
+
+
+@pytest.mark.parametrize('target,link', [('manifest.json', 'hard'), ('manifest.json', 'symbolic'),
+                                        ('inputs/water.gjf', 'hard'), ('inputs/water.gjf', 'symbolic')])
+def test_submission_probe_rejects_linked_prepared_files_before_network(multi, tmp_path, target, link):
+    path, _ = prepare(multi, tmp_path)
+    fake = SubmissionProbeFake(config.select_cluster(multi, 'batch'))
+    source = path / target
+    saved = tmp_path / 'saved-file'
+    source.rename(saved)
+    if link == 'hard':
+        os.link(saved, source)
+    else:
+        source.symlink_to(saved)
+    with pytest.raises((ValueError, OSError)):
+        status.slurm_submission_probe(multi, path, fake)
+    assert fake.calls == []
+
+
+def test_submission_probe_hashes_complete_inputs_independent_of_manifest_listing_order(multi, tmp_path):
+    path, manifest = prepare(multi, tmp_path)
+    manifest['inputs'].reverse()  # T188 records the main input before its script.
+    (path / 'manifest.json').write_text(json.dumps(manifest))
+    fake = SubmissionProbeFake(config.select_cluster(multi, 'batch'))
+    record = status.slurm_submission_probe(multi, path, fake)['record']
+    assert record['format_candidate'] is True
+    assert record['binding']['bundle_sha256'] == manifest['bundle_sha256']
+
+
+@pytest.mark.parametrize('change', ['duplicate', 'wrong_size', 'bool_size', 'wrong_hash', 'missing', 'extra_field'])
+def test_submission_probe_rejects_ambiguous_or_corrupt_input_manifest(multi, tmp_path, change):
+    path, manifest = prepare(multi, tmp_path)
+    fake = SubmissionProbeFake(config.select_cluster(multi, 'batch'))
+    if change == 'duplicate':
+        manifest['inputs'].append(dict(manifest['inputs'][0]))
+    elif change == 'wrong_size':
+        manifest['inputs'][0]['size'] += 1
+    elif change == 'bool_size':
+        manifest['inputs'][0]['size'] = True
+    elif change == 'wrong_hash':
+        manifest['inputs'][0]['sha256'] = '0' * 64
+    elif change == 'missing':
+        manifest['inputs'].pop()
+    else:
+        manifest['inputs'][0]['approved'] = True
+    (path / 'manifest.json').write_text(json.dumps(manifest))
+    with pytest.raises(ValueError):
+        status.slurm_submission_probe(multi, path, fake)
+    assert fake.calls == []
+
+
+def test_evidence_config_and_client_versions_are_separate_observations():
+    text = 'Configuration data as of 2026-01-01T00:00:00\n' + EVIDENCE_CONFIG + 'Other = synthetic\n'
+    assert slurm.parse_evidence_config(text) == dict(cluster='fixture', server_version='26.05.5')
+    assert slurm.parse_evidence_version('slurm 26.05.5\n') == '26.05.5'
+    # Parsing an older version does not certify its support or authorize actions.
+    assert slurm.parse_evidence_version('slurm 24.05.0') == '24.05.0'
+    assert slurm.parse_evidence_config(EVIDENCE_CONFIG.replace('26.05.5', '24.05.0'))['server_version'] == '24.05.0'
+
+
+@pytest.mark.parametrize('text', [
+    '', 'Other = ClusterName=fixture SLURM_VERSION=26.05.5\n',
+    'ClusterName = fixture\n', EVIDENCE_CONFIG + 'ClusterName = fixture\n',
+    EVIDENCE_CONFIG + 'SLURM_VERSION = 26.05.5\n',
+    EVIDENCE_CONFIG.replace('fixture', 'all'), EVIDENCE_CONFIG.replace('fixture', 'ALL'),
+    EVIDENCE_CONFIG.replace('fixture', 'fixture,other'),
+    EVIDENCE_CONFIG.replace('26.05.5', '26.05.5rc1'),
+    EVIDENCE_CONFIG.replace('fixture', 'fixture\x00'), None,
+])
+def test_evidence_config_rejects_missing_ambiguous_or_nonlocal_identity(text):
+    with pytest.raises(ValueError):
+        slurm.parse_evidence_config(text)
+
+
+@pytest.mark.parametrize('text', ['26.05.5', 'slurm 26.05', 'slurm 26.05.5-extra',
+                                  'slurm 26.05.5\nslurm 26.05.5\n',
+                                  ' slurm 26.05.5', 'slurm 26.05.5\r\n', None])
+def test_evidence_client_version_rejects_nonexact_response(text):
+    with pytest.raises(ValueError):
+        slurm.parse_evidence_version(text)
+
+
+def test_evidence_job_preserves_restarts_and_unknown_or_estimated_times():
+    row = slurm.parse_evidence_job(EVIDENCE_JOB, **EVIDENCE_IDENTITY)
+    assert row == dict(**EVIDENCE_IDENTITY, owner='fixture', uid=1001, state='PENDING',
+                       submit='2026-01-01T00:00:00+00:00', start=None, end=None,
+                       restarts=0, sluid=EVIDENCE_SLUID)
+    changed = EVIDENCE_JOB.replace('Restarts=0', 'Restarts=2').replace(
+        'StartTime=Unknown', 'StartTime=2026-01-02T00:00:00')
+    row = slurm.parse_evidence_job(changed, **EVIDENCE_IDENTITY)
+    assert row['restarts'] == 2 and row['start'] == '2026-01-02T00:00:00+00:00'
+    assert not {'eligible', 'never_started', 'terminated', 'authorized'} & row.keys()
+
+
+def test_evidence_job_horizontal_padding_keeps_fixed_field_order():
+    padded = EVIDENCE_JOB.replace(' ', '  \t')
+    assert slurm.parse_evidence_job(padded, **EVIDENCE_IDENTITY) == slurm.parse_evidence_job(
+        EVIDENCE_JOB, **EVIDENCE_IDENTITY)
+
+
+@pytest.mark.parametrize('replacement', [
+    ('JobId=123', 'JobId=124'), ('JobName=water-001-sp', 'JobName=other'),
+    ('JobId=123', 'JobId=123 ArrayJobId=123 ArrayTaskId=1'),
+    ('JobId=123', 'JobId=123 HetJobId=123 HetJobOffset=0'),
+    ('Command=', 'FedOrigin=fixture FedViableSiblings=fixture FedActiveSiblings=fixture Command='),
+    ('SLUID=' + EVIDENCE_SLUID + ' ', ''),
+    ('SLUID=' + EVIDENCE_SLUID, 'SLUID=s0123456789AB+'),
+    ('SLUID=' + EVIDENCE_SLUID, 'SLUID=sG123456789ABC'),
+    ('SLUID=' + EVIDENCE_SLUID, 'SLUID=s0000000000000'),
+    ('Restarts=0', 'Restarts=65536'), ('Restarts=0', 'Restarts='),
+    ('UserId=fixture(1001)', 'UserId=fixture(4294967296)'),
+    ('JobState=PENDING', 'JobState=PENDING+'), ('JobState=PENDING', 'JobState=REQUEUE_FED'),
+    ('SubmitTime=2026-01-01T00:00:00', 'SubmitTime=Unknown'),
+    ('StartTime=Unknown', 'StartTime=2026-02-30T00:00:00'),
+    ('EndTime=Unknown', 'EndTime=2026-01-01T00:00:00+01:00'),
+    ('DerivedExitCode=0:0 ', ''), ('StdOut=synthetic/job.slurm.out', ''),
+])
+def test_evidence_job_rejects_bad_identity_missing_fields_and_unsupported_shapes(replacement):
+    with pytest.raises(ValueError):
+        slurm.parse_evidence_job(EVIDENCE_JOB.replace(*replacement), **EVIDENCE_IDENTITY)
+
+
+@pytest.mark.parametrize('field', ['JobId=123', 'JobName=water-001-sp', 'SLUID=' + EVIDENCE_SLUID,
+                                  'UserId=fixture(1001)', 'JobState=PENDING', 'Restarts=0',
+                                  'SubmitTime=2026-01-01T00:00:00', 'StartTime=Unknown', 'EndTime=Unknown'])
+def test_evidence_job_never_recovers_fields_from_paths_or_names(field):
+    # A real key plus a path-embedded imitation is ambiguous, not last-wins.
+    forged = EVIDENCE_JOB.replace('WorkDir=synthetic', 'WorkDir=synthetic ' + field)
+    with pytest.raises(ValueError):
+        slurm.parse_evidence_job(forged, **EVIDENCE_IDENTITY)
+    # A missing prefix key cannot be supplied by free text in the suffix.
+    moved = EVIDENCE_JOB.replace(field + ' ', '', 1).replace('WorkDir=synthetic', 'WorkDir=synthetic ' + field)
+    with pytest.raises(ValueError):
+        slurm.parse_evidence_job(moved, **EVIDENCE_IDENTITY)
+
+
+@pytest.mark.parametrize('text', ['', 'slurm_load_jobs error: Invalid job id specified\n',
+                                  EVIDENCE_JOB * 2, EVIDENCE_JOB.rstrip('\n'),
+                                  EVIDENCE_JOB.replace(' Command=', '\nCommand='),
+                                  EVIDENCE_JOB.replace('UserId=', '\x00UserId=')])
+def test_evidence_job_rejects_missing_multiple_or_incomplete_records(text):
+    with pytest.raises(ValueError):
+        slurm.parse_evidence_job(text, **EVIDENCE_IDENTITY)
+
+
+def test_evidence_history_keeps_distinct_runs_without_positive_tags():
+    # Real execution followed by requeue must survive in the parsed history.
+    previous = EVIDENCE_HISTORY.replace('|Unknown|Unknown|PENDING|0|',
+        '|2026-01-01T00:01:00|2026-01-01T00:02:00|REQUEUED|0|')
+    current = EVIDENCE_HISTORY.replace(str(EVIDENCE_DB_INDEX), str(EVIDENCE_DB_INDEX + 1)).replace('T00:00:00', 'T00:03:00').replace(
+        '|PENDING|0|', '|PENDING|1|').replace(EVIDENCE_SLUID, 's0123456789ABD')
+    rows = slurm.parse_evidence_history(previous + current + current, **EVIDENCE_IDENTITY)
+    assert len(rows) == 2
+    assert rows[0]['start'] == '2026-01-01T00:01:00+00:00'
+    assert rows[1]['restarts'] == 1 and rows[1]['start'] is None
+    assert [row['db_index'] for row in rows] == [EVIDENCE_DB_INDEX, EVIDENCE_DB_INDEX + 1]
+    assert all(row['uid'] == 1001 and not {'eligible', 'never_started', 'terminated'} & row.keys() for row in rows)
+    cancelled = EVIDENCE_HISTORY.replace('|PENDING|', '|CANCELLED by 1001|')
+    row = slurm.parse_evidence_history(cancelled, **EVIDENCE_IDENTITY)[0]
+    assert row['state'] == 'CANCELLED' and row['state_raw'] == 'CANCELLED by 1001'
+
+
+def test_evidence_history_does_not_invent_missing_original_sluid():
+    fields = EVIDENCE_HISTORY.rstrip('\n').split('|')
+    fields[-1] = 's0000000000000'
+    row = slurm.parse_evidence_history('|'.join(fields) + '\n', **EVIDENCE_IDENTITY)[0]
+    assert row['original_sluid'] is None
+    assert row['original_sluid_raw'] == 's0000000000000'
+    assert row['sluid'] == EVIDENCE_SLUID
+
+
+@pytest.mark.parametrize('index,value', [
+    (0, 'other'), (1, '124'), (1, '123_1'), (1, '123+0'), (2, 'other'),
+    (3, ''), (3, '-1'), (3, '1.0'), (3, '4294967296'),
+    (4, '0'), (4, str(2 ** 64)), (5, 'Unknown'), (5, '2026-13-01T00:00:00'),
+    (6, ''), (6, 'None'), (7, '2026-01-01T00:00:00Z'),
+    (8, 'CANCELLED+'), (8, 'REVOKED'), (8, 'never_started=true'),
+    (9, ''), (9, '-1'), (9, '65536'), (9, '00'),
+    (10, ''), (10, 's0123456789ABI'), (11, 'Unknown'),
+    (0, 'f' * 256), (2, 'n' * 200),
+])
+def test_evidence_history_rejects_ambiguous_fields(index, value):
+    fields = EVIDENCE_HISTORY.rstrip('\n').split('|')
+    fields[index] = value
+    with pytest.raises(ValueError):
+        slurm.parse_evidence_history('|'.join(fields) + '\n', **EVIDENCE_IDENTITY)
+
+
+@pytest.mark.parametrize('text', ['', '\n', EVIDENCE_HISTORY + '\n', EVIDENCE_HISTORY.replace('|1001|', '|1001||'),
+                                  EVIDENCE_HISTORY.rstrip('\n') + '|\n', 'never_started=true\n'])
+def test_evidence_history_rejects_missing_or_wrong_column_count(text):
+    with pytest.raises(ValueError):
+        slurm.parse_evidence_history(text, **EVIDENCE_IDENTITY)
+
+
+@pytest.mark.parametrize('changed', [
+    EVIDENCE_HISTORY.replace('|PENDING|', '|RUNNING|'),
+    EVIDENCE_HISTORY.replace(str(EVIDENCE_DB_INDEX), str(EVIDENCE_DB_INDEX + 1)),
+    EVIDENCE_HISTORY.replace(EVIDENCE_SLUID, 's0123456789ABD'),
+    EVIDENCE_HISTORY.replace('|1001|', '|1002|'),
+])
+def test_evidence_history_rejects_conflicting_db_index_or_sluid(changed):
+    with pytest.raises(ValueError):
+        slurm.parse_evidence_history(EVIDENCE_HISTORY + changed, **EVIDENCE_IDENTITY)
+
+
+@pytest.mark.parametrize('key,value', [('cluster', 'all'), ('cluster', 'ALL'), ('cluster', 'a,b'),
+                                      ('job_id', '123_1'), ('name', 'name JobState=PENDING')])
+def test_evidence_parsers_reject_unsafe_expected_identity(key, value):
+    identity = dict(EVIDENCE_IDENTITY, **{key: value})
+    for parser, text in ((slurm.parse_evidence_job, EVIDENCE_JOB),
+                         (slurm.parse_evidence_history, EVIDENCE_HISTORY)):
+        with pytest.raises(ValueError):
+            parser(text, **identity)
 
 
 def test_config_legacy_named_and_strict(multi, cfg):
@@ -258,6 +837,101 @@ def test_slurm_output_widths_and_history_window():
     history = shlex.split(remote.slurm_history('fixture').text)
     assert '--starttime=now-30days' in history and '--endtime=now' in history
     assert '--starttime=2026-01-01' in remote.slurm_find('fixture', 'water-001-optfreq', '2026-01-01').text
+
+
+BOUND_QUEUE_ENV = (
+    'SLURM_CLUSTERS', 'SQUEUE_ALL', 'SQUEUE_ARRAY', 'SQUEUE_SORT',
+    'SQUEUE_FEDERATION', 'SQUEUE_LOCAL', 'SQUEUE_PRIORITY', 'SQUEUE_SIB', 'SQUEUE_SIBLING',
+    'SQUEUE_FORMAT', 'SQUEUE_FORMAT2', 'SQUEUE_ACCOUNT', 'SQUEUE_NAMES',
+    'SQUEUE_LICENSES', 'SQUEUE_PARTITION', 'SQUEUE_QOS', 'SQUEUE_STATES', 'SQUEUE_USERS',
+)
+BOUND_ACCOUNTING_ENV = ('SLURM_CLUSTERS', 'SACCT_FEDERATION', 'SACCT_LOCAL', 'SACCT_FORMAT')
+ACCOUNTING_FIELDS = '--format=JobID%64,JobName%200,User%64,State%64,ExitCode%32,Elapsed%32,AllocCPUS%20'
+QUEUE_FIELDS = '%i|%.200j|%.64u|%T|%C|%M|%P'
+BOUND_READ_CASES = [
+    pytest.param(remote.slurm_jobs, ('123',), {}, 'slurm_jobs', 'squeue',
+                 "squeue -h -j 123 -r --local -o '%i|%.200j|%.64u|%T|%C|%M|%P'",
+                 ['-h', '-j', '123', '-r', '--local', '--clusters=Actual_Cluster-01', '-o', QUEUE_FIELDS],
+                 id='exact-queue-job'),
+    pytest.param(remote.slurm_jobs, (), {'user': 'fixture'}, 'slurm_jobs', 'squeue',
+                 "squeue -h -u fixture -r --local -o '%i|%.200j|%.64u|%T|%C|%M|%P'",
+                 ['-h', '--all', '-u', 'fixture', '-r', '--local', '--clusters=Actual_Cluster-01', '-o', QUEUE_FIELDS],
+                 id='same-user-all-partitions'),
+    pytest.param(remote.slurm_accounting, ('123',), {}, 'slurm_accounting', 'sacct',
+                 'sacct -X -n -P -j 123 ' + ACCOUNTING_FIELDS,
+                 ['--local', '--clusters=Actual_Cluster-01', '-X', '-n', '-P', '-j', '123', ACCOUNTING_FIELDS],
+                 id='exact-accounting-job'),
+    pytest.param(remote.slurm_find, ('fixture', 'water-001-optfreq', '2026-01-01'), {}, 'slurm_find', 'sacct',
+                 'sacct -X -n -P -u fixture --name=water-001-optfreq --starttime=2026-01-01 ' + ACCOUNTING_FIELDS,
+                 ['--local', '--clusters=Actual_Cluster-01', '-X', '-n', '-P', '-u', 'fixture',
+                  '--name=water-001-optfreq', '--starttime=2026-01-01', ACCOUNTING_FIELDS],
+                 id='unknown-name-reconciliation'),
+    pytest.param(remote.slurm_history, ('fixture',), {}, 'slurm_history', 'sacct',
+                 'sacct -X -n -P -u fixture --starttime=now-30days --endtime=now --state=CD,F,CA,TO,OOM,NF ' + ACCOUNTING_FIELDS,
+                 ['--local', '--clusters=Actual_Cluster-01', '-X', '-n', '-P', '-u', 'fixture',
+                  '--starttime=now-30days', '--endtime=now', '--state=CD,F,CA,TO,OOM,NF', ACCOUNTING_FIELDS],
+                 id='accounting-history'),
+]
+
+
+@pytest.mark.parametrize('construct,args,kwargs,operation,program,legacy,argv', BOUND_READ_CASES)
+def test_bound_scheduler_reads_preserve_legacy_bytes_and_operations(construct, args, kwargs, operation, program, legacy, argv):
+    from ag.transport import READ_OPERATIONS
+    old = construct(*args, **kwargs)
+    explicit_legacy = construct(*args, **kwargs, scheduler_cluster=None)
+    bound = construct(*args, **kwargs, scheduler_cluster='Actual_Cluster-01')
+    assert old.text == explicit_legacy.text == legacy
+    assert old == explicit_legacy
+    assert old.operation == bound.operation == operation and operation in READ_OPERATIONS
+    assert old.timeout == bound.timeout == 60
+    tokens = shlex.split(bound.text)
+    assert tokens[tokens.index(program)+1:] == argv
+    assert len([item for item in tokens if item.startswith('--clusters=')]) == 1
+    assert ('--all' in argv) == (program == 'squeue' and kwargs.get('user') == 'fixture')
+    if '--all' in argv:
+        assert argv[argv.index('-u')+1] == kwargs['user']
+
+
+@pytest.mark.parametrize('construct,args,kwargs,operation,program,legacy,argv', BOUND_READ_CASES)
+def test_bound_scheduler_reads_remove_real_filter_environment_in_local_fake(
+        tmp_path, construct, args, kwargs, operation, program, legacy, argv):
+    executable = tmp_path / program
+    names = tuple(dict.fromkeys(BOUND_QUEUE_ENV + BOUND_ACCOUNTING_ENV))
+    kept = ('LC_ALL', 'TZ', 'SLURM_TIME_FORMAT', 'SLURM_CONF', 'AG_TEST_KEEP')
+    executable.write_text('#!' + sys.executable + ' -S\nimport json, os, sys\n'
+        'print(json.dumps(dict(argv=sys.argv[1:], values={k:os.environ.get(k) for k in '
+        + repr(names + kept) + '})))\n')
+    executable.chmod(0o700)
+    environment = {name: 'synthetic-hidden-filter' for name in names}
+    environment.update(PATH=str(tmp_path) + os.pathsep + os.defpath, LC_ALL='C', TZ='Etc/GMT+8',
+                       SLURM_TIME_FORMAT='relative', SLURM_CONF='site-config-fixture', AG_TEST_KEEP='preserved')
+    command = construct(*args, **kwargs, scheduler_cluster='Actual_Cluster-01')
+    run = subprocess.run(['sh', '-c', command.text], env=environment, capture_output=True, text=True)
+    assert run.returncode == 0, run.stderr
+    observed = json.loads(run.stdout)
+    assert observed['argv'] == argv
+    removed = BOUND_QUEUE_ENV if program == 'squeue' else BOUND_ACCOUNTING_ENV
+    assert all(observed['values'][name] is None for name in removed)
+    assert all(observed['values'][name] == 'synthetic-hidden-filter' for name in set(names)-set(removed))
+    assert {key: observed['values'][key] for key in kept} == dict(
+        LC_ALL='C', TZ='UTC', SLURM_TIME_FORMAT='standard', SLURM_CONF='site-config-fixture', AG_TEST_KEEP='preserved')
+
+
+@pytest.mark.parametrize('construct,args,kwargs,operation,program,legacy,argv', BOUND_READ_CASES)
+@pytest.mark.parametrize('cluster', ['', 'all', 'ALL', 'All', '-1', 'a,b', 'a b', 'a\n',
+                                     'a;true', '$(true)', 'a/b', '*', 123, True, []])
+def test_bound_scheduler_reads_reject_nonexact_cluster(
+        construct, args, kwargs, operation, program, legacy, argv, cluster):
+    with pytest.raises(ValueError):
+        construct(*args, **kwargs, scheduler_cluster=cluster)
+
+
+@pytest.mark.parametrize('kwargs', [{}, {'job': '123', 'user': 'fixture'},
+                                  {'user': 'fixture,other'}, {'user': 'all;true'},
+                                  {'job': '123,124'}, {'job': '0'}])
+def test_bound_queue_all_never_removes_single_user_or_exact_job_requirement(kwargs):
+    with pytest.raises(ValueError):
+        remote.slurm_jobs(**kwargs, scheduler_cluster='Actual_Cluster-01')
 
 
 def test_identified_node_query_and_selector_validation():
