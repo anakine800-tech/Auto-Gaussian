@@ -1,7 +1,10 @@
 """Opt-in PBS targeting. Suggestions are local; admission always re-queries PBS."""
 from datetime import datetime, timedelta, timezone
+from contextlib import ExitStack, contextmanager
+from hashlib import sha256
 import math
 import re
+from string import Template
 
 from ag import capacity, pbs, remote
 from ag.config import RESOURCE_TIERS, scheduler_kind, select_cluster
@@ -9,6 +12,10 @@ from ag.transport import require_ok
 
 # Append the whole node without changing existing option order or the default.
 FRACTIONS = ('1/2', '1/4', '1')
+
+# Reviewed T145 guard: exact nodefile names/count, before ANY executable body.
+# A template update must be reviewed again before it can prove old placement.
+_START_GUARD_SHA256 = '1cdbba1aa1fc942d7cd8ea7537f3b758c4af8001fad507d1e66792d1e79e5a4d'
 
 
 def node_name(value):
@@ -336,7 +343,69 @@ def summary(m):
             f"{m['cores']} cores / {m['mem_gb']} GB | queue {b['queue']}\n")
 
 
-def retain_placement(path, m, job):
+@contextmanager
+def start_placement(cfg, path, m, current, job, start):
+    """Prove the *submitted bytes* executed a known guard before their receipt.
+
+    Full bundle/template equality alone is not an ordering proof. Require the
+    pinned guard at the first executable byte of that very script as well.
+    Large reads stay outside the publication lock; pinned sources are rechecked
+    inside it. The receipt has already passed status.read_receipt validation.
+    """
+    retained = (current.get('node_placement', {}).get('state') == 'verified'
+                and (job is None or (job.get('job_state') == 'C' and not job.get('exec_host'))))
+    if (start is None or retained
+            or (job is not None and (job.get('exec_host')
+                or job.get('job_state') not in ('R', 'E', 'S', 'C')))):
+        yield None, lambda: None
+        return
+    from ag import attempt, render, submission
+    from ag.facts import _publication_pin, _publication_unchanged
+    with ExitStack() as handles:
+        inputs = path / 'inputs'
+        proofs = [_publication_pin(p, handles) for p in
+                  (path.parent.parent, path.parent, path, path / 'manifest.json',
+                   path / 'submission.json', path / 'status.json')]
+        proofs.append(_publication_pin(inputs, handles, contents=True))
+        proofs.extend(_publication_pin(p, handles) for p in inputs.iterdir())
+
+        def verify():
+            for proof in proofs:
+                _publication_unchanged(proof)
+
+        if (attempt.read_manifest(path) != m or 'cluster' not in m
+                or not (path / 'submission.json').is_file()):
+            raise ValueError('Start placement requires the unchanged submitted manifest and binding')
+        job_id = submission.verified_job(path, m, current)
+        if start.get('PBS_JOBID') != job_id:
+            raise ValueError('Start placement receipt job identity mismatch')
+        files = attempt.verified_files(cfg, path, m)
+        script = files['job.pbs']
+        guard = (render.TEMPLATES / 'node-target.pbs').read_bytes()
+        if sha256(guard).hexdigest() != _START_GUARD_SHA256:
+            raise ValueError('Unknown node start guard; placement cannot be proven')
+        expected = Template(guard.decode()).substitute(
+            target_node=m['node_target']['name'], cores=m['cores']).encode()
+        # Only the reviewed shell and whole comment lines may precede the
+        # guard. A copied guard in a later command, function or here-doc fails.
+        shebang, newline, body = script.partition(b'\n')
+        if shebang != b'#!/bin/sh' or not newline or b'\x00' in script:
+            raise ValueError('Unrecognized node start script')
+        while body.startswith(b'#'):
+            _, newline, body = body.partition(b'\n')
+            if not newline:
+                break
+        if not body.startswith(expected.partition(b'\n')[2]):
+            raise ValueError('Known node start guard is not first in the submitted script')
+        verify()
+        yield dict(state='verified', source='node-guard+ag-start.json',
+                   target=m['node_target']['name'], exec_host='',
+                   job_id=submission.qualified(m, job_id), start_receipt=start,
+                   script_sha256=sha256(script).hexdigest(),
+                   bundle_sha256=m['bundle_sha256'], guard_sha256=_START_GUARD_SHA256), verify
+
+
+def retain_placement(path, m, job, *, start_evidence=None):
     from ag import state
     current = state.read(path)
     evidence = placement(m, job)
@@ -345,6 +414,8 @@ def retain_placement(path, m, job):
     previous = current.get('node_placement', {})
     if previous.get('state') == 'verified' and (job is None or (job.get('job_state') == 'C' and not job.get('exec_host'))):
         return current
+    if start_evidence is not None and not (job or {}).get('exec_host'):
+        evidence = dict(start_evidence, observed_at=evidence['observed_at'])
     result = state.write(path, current['state'], node_placement=evidence,
                          exit_status=current.get('exit_status'), note=current.get('note'))
     if evidence['state'] in ('mismatch', 'unverified'):
