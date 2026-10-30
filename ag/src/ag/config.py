@@ -109,7 +109,7 @@ def validate_routing(cfg):
     section = cfg['routing']
     if not isinstance(section, dict):
         raise ConfigError('routing must be a table')
-    orders({k: v for k, v in section.items() if k != 'studies'})
+    orders({k: v for k, v in section.items() if k not in ('studies', 'ladder')})
     studies = section.get('studies', {})
     if not isinstance(studies, dict):
         raise ConfigError('routing.studies must be a table')
@@ -119,6 +119,97 @@ def validate_routing(cfg):
         except ValueError as exc:
             raise ConfigError('Invalid routing study name') from exc
         orders(value)
+    if 'ladder' in section:
+        validate_ladder(cfg, section['ladder'])
+
+
+def validate_ladder(cfg, ladder):
+    """Reject typos or unusable resources before a cell can direct preparation.
+
+    This also runs before load_config normalizes legacy cluster tables. It must
+    not open SSH configuration, touch studies, or change the supplied table.
+    """
+    from ag.node_targeting import FRACTIONS, allowed
+    required = {'id', 'cluster', 'classes', 'tier', 'condition', 'max_placements'}
+    optional = {'nodes', 'node_fraction', 'min_free_cores', 'max_jobs'}
+    if not isinstance(ladder, list) or not ladder:
+        raise ConfigError('routing.ladder requires a nonempty ordered list of cells')
+    entries = dict(cfg.get('clusters', {'default': cfg}))
+    if cfg.get('ssh', {}).get('host') and 'default' not in entries:
+        entries['default'] = cfg
+    ids = set()
+    try:
+        for cell in ladder:
+            if (not isinstance(cell, dict) or not required <= set(cell)
+                    or set(cell) - required - optional):
+                raise ConfigError('Invalid routing.ladder cell fields')
+            cell_id = cell['id']
+            if not isinstance(cell_id, str) or not cell_id:
+                raise ConfigError('routing.ladder cell IDs must be nonempty strings')
+            if cell_id in ids:
+                raise ConfigError('routing.ladder cell IDs must be unique')
+            ids.add(cell_id)
+            name = cluster_name(cell['cluster'])
+            if name not in entries:
+                raise ConfigError('routing.ladder requires a configured cluster')
+            classes = cell['classes']
+            if (not isinstance(classes, list) or not classes
+                    or any(not isinstance(c, str) for c in classes)
+                    or set(classes) - {'main', 'small'}):
+                raise ConfigError('routing.ladder classes must contain only main/small values')
+            selected = entries[name]
+            tier = cell['tier']
+            if not isinstance(tier, str) or tier not in RESOURCE_TIERS:
+                raise ConfigError('routing.ladder requires a known resource tier')
+            resources = selected['resources']
+            resource = resources['tiers'].get(tier)
+            if (not isinstance(resource, dict) or type(resource.get('cores')) is not int
+                    or type(resources.get('max_cores')) is not int
+                    or not 1 <= resource['cores'] <= resources['max_cores']
+                    or type(resource.get('mem_gb')) is not int or resource['mem_gb'] < 1):
+                raise ConfigError('routing.ladder tier must fit the configured single-job limit')
+            condition = cell['condition']
+            if condition not in ('empty', 'free', 'jobs', 'queue'):
+                raise ConfigError('Invalid routing.ladder condition')
+            maximum = cell['max_placements']
+            if type(maximum) is not int or maximum < 1:
+                raise ConfigError('routing.ladder max_placements must be a positive integer')
+            if 'main' in classes and maximum > 2:
+                raise ConfigError('routing.ladder main-system cells place at most two jobs')
+            if condition in ('jobs', 'queue') and maximum != 1:
+                raise ConfigError('routing.ladder jobs/queue cells place at most one job')
+            if condition == 'free':
+                value = cell.get('min_free_cores')
+                if type(value) is not int or value < 0:
+                    raise ConfigError('routing.ladder min_free_cores must be a nonnegative integer')
+            elif 'min_free_cores' in cell:
+                raise ConfigError('routing.ladder min_free_cores is only valid for free cells')
+            if condition == 'jobs':
+                value = cell.get('max_jobs')
+                if type(value) is not int or value < 1:
+                    raise ConfigError('routing.ladder jobs cells require positive max_jobs')
+                if 'nodes' in cell or 'node_fraction' in cell:
+                    raise ConfigError('routing.ladder jobs cells cannot target nodes')
+            elif 'max_jobs' in cell:
+                raise ConfigError('routing.ladder max_jobs is only valid for jobs cells')
+            if 'node_targeting' in selected:
+                nodes = cell.get('nodes')
+                if (not isinstance(nodes, list) or not nodes
+                        or any(not isinstance(n, str) for n in nodes)
+                        or len(nodes) != len(set(nodes))):
+                    raise ConfigError('routing.ladder targeting requires ordered unique nodes')
+                if cell.get('node_fraction') not in FRACTIONS:
+                    raise ConfigError('routing.ladder targeting requires a supported node_fraction')
+                for node in nodes:
+                    allowed(selected, node)
+            elif 'nodes' in cell or 'node_fraction' in cell:
+                raise ConfigError('routing.ladder nodes require an enabled targeting policy')
+    except (KeyError, TypeError, AttributeError) as exc:
+        raise ConfigError('Missing or invalid routing.ladder resource configuration') from exc
+    except ValueError as exc:
+        if isinstance(exc, ConfigError):
+            raise
+        raise ConfigError('Invalid routing.ladder node policy') from exc
 
 
 def validate_approval(cfg):

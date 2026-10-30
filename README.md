@@ -119,7 +119,7 @@ Gaussian、xTB、CREST、调度器及本机 OpenSSH 需另行准备，外部软�
 同组上限不一致时摘要列出各入口数值并采用最小值，单作业仍按目标入口的 max_cores 检查。
 
 新 Attempt 准备前运行 `ag route --template gaussian --tier general --walltime 04:00:00 --study <study>`，按建议显式选择 `--cluster`；偏离建议时在 study.md 记明原因。
-建议顺序由本机可选 `[routing]` 配置：Gaussian（含 gaussian-cp、multiwfn）为 `default → newhpc → scnet`，CREST（含 xTB）为 `scnet-test → default → newhpc`。
+建议顺序由本机可选 `[routing]` 配置；V4.8 的本机配置目标是 Gaussian（含 gaussian-cp、multiwfn）按 `hpc3 → newhpc → default → scnet`，CREST（含 xTB）继续 `scnet-test → default → newhpc`。本次开发不改真实配置，代码没有内置实际节点或默认阶梯。
 仅列已配置的入口，名字不能重复；`[routing.studies."<study>"]` 可按研究覆盖某一程序族的顺序，未签字允许的入口应从该研究顺序中去掉。
 `allowed_templates` 仍逐入口生效，例如 scnet-test 只允许 CREST 时，xTB 虽使用相同顺序也会跳过该入口。
 没有配置对应程序族顺序时仍列出所有入口状态，并显示“未配置路由顺序”；空顺序不建议任何入口。
@@ -127,7 +127,7 @@ Gaussian、xTB、CREST、调度器及本机 OpenSSH 需另行准备，外部软�
 
 路由命令只读本机 `.ag-monitor/<入口>/latest.json`，不创建目录、不写文件、不运行 SSH 或调度器命令；旧单集群读取 `.ag-monitor/latest.json`，两种 default 来源并存时按未知处理。
 快照须成功且在采样间隔的三倍以内；失败、过期或缺少节点容量证据时明确显示未知。单次采样没有间隔，不能用于路由建议。
-`--tier` 仍显式必填；可选 `--walltime` 使用现有正时长解析，逐入口比较当前本机配置的 `resources.max_walltime`。
+原有建议模式仍显式要求 `--tier`；可选 `--walltime` 使用现有正时长解析，逐入口比较当前本机配置的 `resources.max_walltime`。
 等于上限允许，超限入口不能进入容量推荐或排队回退；未配置上限只表示调度器时限未知，不代表无限制。
 省略 walltime 的旧调用仍可运行，但每个入口明确显示“未核对任务时限”，不声称全部规格已匹配。
 本人占用取同一配置共享组最新的一份有效快照，不跨入口相加；总上限及可选排队/运行限额取组内最小值，单作业上限按目标入口检查。
@@ -141,6 +141,17 @@ JSON 保留已有字段；新增可选顶层 `walltime`（省略请求时为 nul
 `requested`、`maximum`（未配置时 null）、`status`（not_checked / unknown_limit / within_limit / exceeded）。
 `specification_allowed` 表示未发现规格不适用且具名入口有可选匹配项，未知仍须看原因；`capacity` 给出 fits_total、availability、采样时间、有效期、新鲜度和原因。
 这些字段只作建议，不是提交许可；已有消费者可以忽略新增字段。结论文案统一为快照下的容量/排队描述。
+
+T185 增加独立的配置阶梯与纯选格函数，接口和条件见 [CLI 路由说明](ag/README.md#提交阶梯与整节点t185)。
+`ag route --template gaussian --job-class main --study <study> --round-id <round> --run-id <run> --object-id <object> --walltime 04:00:00 --json`
+是待集成入口：当前缺少可信提交占用、真实唤醒和首次选格完整输入适配，返回阻塞且不给候选；`--job-class small` 同样处理。
+`round_id` 标识整个自主轮次，`run_id` 标识其中一次唤醒运行；半节点批次保留同一 round/run 边界。
+SCNet 类末级自主运行加排队最多 4 个、兜底自主排队最多 2 个，跨本机全部自主 study/round 合计，包含不同配置目录、studies_root 及旧轮活跃作业；非自主作业仍计入原有全部账号核数限制，不占这两项自主名额。
+T186 适配须核验全本机真实归属和共享账号去重，保留未观测及 UNKNOWN 预留；不同来源的同名 study_id/attempt_id 不能合并。
+纯选格接口必填 64 位小写 SHA-256 `study_key`，不能回退到显示名 study_id；T186 须从安全校验后的本机绝对 study 目录生成并持久绑定身份，实际适配仍待接线，纯算法不访问路径。
+跨配置共同注册与共同锁也由 T186 实现，现有配置目录内的 submit.lock 不覆盖全本机；须在共同锁内重新核验，不能用换配置、study、轮次或唤醒取得额外名额。
+不能用运行状态里的提交意向数或人工 JSON 代替真实提交证据。原 `--tier` 建议模式仍可使用，但不能充当阶梯通过凭据。
+T186 的提交前重算尚未接入；T185 也未完成非研究小分子的整节点、半节点和非指定入口真实验证。
 prepare 的文本摘要使用 manifest 保存的实际 tier 和 walltime，在所选入口不同于建议时追加提示；不重新采用入口默认档位。
 缺可读快照、无顺序或提示计算失败时静默，不使成功 prepare 失败；prepare JSON 和 manifest 不加路由字段，已有 Attempt 不迁移。
 核时摘要只显示本次最大消耗（核数 × walltime；实际以平台计费为准）；budget_core_hours 可删除，doctor 会提示。
@@ -160,7 +171,7 @@ route 对缺档入口显示“不支持该档位”，不把它列为立即运�
 未配置默认值时仍须选择 `--tier`，不会自行选 simple 或借用其他入口的值；空值、未知档位、未配置档位与超限资源拒绝。
 最终档位在节点映射和新 Attempt 编号/目录分配前解析，适用于入口允许的全部现有程序。
 `ag clusters --json` 仅在已配置时返回 `resources.default_tier`。新 manifest 保存实际档位、核数和内存，
-后续更改默认值不会改写旧 Attempt 或改变其资源绑定；`ag route` 仍要求显式 `--tier`。
+后续更改默认值不会改写旧 Attempt 或改变其资源绑定；`ag route` 的原建议模式仍要求显式 `--tier`。
 
 PBS 档位内存默认最高 **120 GB**。负责人明确授权后，可在该入口的
 `[clusters.<CLUSTER>.resources]`（旧单集群为 `[resources]`）设置
@@ -443,7 +454,9 @@ TS 必须恰好一个虚频且振动方向与反应坐标一致；只有双向 I
 ag 4.7.0 配合已正式发布的前端 [Auto-Gaussian-Frontend v4.7.0](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/releases/tag/v4.7.0) 使用；前端已合并 T158 默认档位/容量/具名节点反馈、T160 CREST 诊断展示及 T179 setuptools 84.1.0 构建工具修复。T178 后端发布 PR #372 与 T177 前端发布 PR #51 均已合并；T177 已使用实际后端发布源码完成两项配套验证，均通过、0 跳过。两仓固定发布提交见 [发布说明](CHANGELOG.md#v470)，启动方式见前端 README。T145 具名 PBS 节点能力仅对显式配置入口启用，必须明确选择节点；分组、实时复查与现场限制见 [节点说明](docs/T145-node-targeting.md)。部署与真实计算分别验收。
 
 T157 允许具名 PBS 节点已有本人/他人作业或具名排队时申请合法档位；半数/四分之一仍按注册总 slots 映射。
+T185 的 `prepare --node-fraction 1` 增加整节点，核数等于总 slots、内存为每核 2 GB，必须匹配已配置档位及单作业上限；默认仍为 `1/2`，`1/4` 和旧 bundle 字节不变。
 `ag nodes --json` 的节点和比例选项新增 `selectable` / `selectable_reason`，选项附 T156 `capacity`；occupied 状态保持原意。
+`nodes` 已列出整节点选项；`clusters` 按协调补充范围复用 `node_targeting.FRACTIONS`，依次返回 `1/2`、`1/4`、`1`，默认仍为 `1/2`。本单不扩展前端工作，不能据此声称前端已暴露整节点选项。
 总规格合法但当前资源不足可排队，分配内存未知仅作容量提示；精确身份、总规格、状态、一致性及两次提交复查仍必需。
 旧前端可继续保守禁选，T158 已提供可选性展示；不改旧 manifest、脚本或 bundle。现有现场证据覆盖空闲合法选项及节点/作业不能匹配时保持 unknown，不能据此证明占用、排队或 PBS 并行共享正例；可见性根因仍未确定。
 历史字段兼容性核对（前端提交 `e224d5a`）：结果表读取 `route`、`termination`、`energies.scf`、`energies.g`、`n_imag` 和 `frequencies_low`，这些字段未改名或删除；缺失值显示为空。

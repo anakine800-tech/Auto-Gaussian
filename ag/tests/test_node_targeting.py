@@ -1,6 +1,7 @@
 """Synthetic PBS only. Never connect to a real scheduler."""
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
+from hashlib import sha256
 import json
 from pathlib import Path
 import subprocess
@@ -52,7 +53,8 @@ def prepared(targeted):
     return cfg, attempt.find(cfg, m['attempt_id']), m
 
 
-@pytest.mark.parametrize('fraction,tier,cores,memory', [('1/2', 'general', 24, 40), ('1/4', 'mini', 12, 20)])
+@pytest.mark.parametrize('fraction,tier,cores,memory', [('1/2', 'general', 24, 40), ('1/4', 'mini', 12, 20),
+                                                       ('1', 'max', 48, 81)])
 def test_auto_cores_use_explicit_node_fraction_tier(targeted, fraction, tier, cores, memory):
     cfg, args = targeted
     source = args['input_path']
@@ -91,7 +93,8 @@ class TargetFake(Fake):
 
 
 @pytest.mark.parametrize('slots,fraction,cores', [(48,'1/2',24),(48,'1/4',12),(64,'1/2',32),
-                                                (64,'1/4',16),(96,'1/2',48),(96,'1/4',24)])
+                                                (64,'1/4',16),(96,'1/2',48),(96,'1/4',24),
+                                                (48,'1',48),(64,'1',64),(96,'1',96)])
 def test_fraction(slots, fraction, cores):
     assert nt.resource(slots, fraction) == dict(cores=cores, mem_gb=cores*2)
     assert nt.resource(slots) == nt.resource(slots, '1/2')
@@ -435,7 +438,7 @@ def test_cli_discovery_local_only_and_no_implicit_target(targeted,monkeypatch,ca
     assert cli.main(['nodes','--json'])==0
     result=json.loads(capsys.readouterr().out)
     assert result['schema']=='ag-node-targets/1' and result['valid_until']
-    assert clusters.describe(cfg)['clusters'][0]['node_targeting']==dict(default_fraction='1/2',fractions=['1/2','1/4'])
+    assert clusters.describe(cfg)['clusters'][0]['node_targeting']==dict(default_fraction='1/2',fractions=['1/2','1/4','1'])
     with pytest.raises(ValueError):attempt.prepare(cfg,**(args|dict(node_fraction='1/4')))
 
 
@@ -444,6 +447,80 @@ def test_explicit_quarter_uses_existing_tier(targeted):
     args['input_path'].write_text(args['input_path'].read_text().replace('24','12').replace('40GB','20GB'))
     m=attempt.prepare(cfg,**(args|dict(node_fraction='1/4',tier='mini')))
     assert m['node_target']['fraction']=='1/4' and m['cores']==12 and m['mem_gb']==24
+
+
+def test_whole_node_uses_exact_tier_and_existing_named_render(targeted):
+    cfg, args = targeted
+    source = args['input_path']
+    source.write_bytes(source.read_bytes().replace(b'%nprocshared=24\n%mem=40GB\n', b''))
+    m = attempt.prepare(cfg, **(args | dict(node_fraction='1', tier='max')))
+    path = attempt.find(cfg, m['attempt_id'])
+    assert m['node_target'] == dict(name='compute-a', fraction='1', slots=48, queue='batch')
+    assert m['cores'] == 48 and m['mem_gb'] == 96
+    files = attempt.verified_files(cfg, path, m)
+    assert b'#PBS -l nodes=compute-a:ppn=48\n' in files['job.pbs']
+    assert b'#PBS -l mem=96gb\n' in files['job.pbs']
+    assert b'# AG target fraction=1 slots=48\n' in files['job.pbs']
+    assert nt.placement(m, dict(job_state='R', exec_host='compute-a/0-47'))['state'] == 'verified'
+    assert nt.placement(m, dict(job_state='R', exec_host='compute-a/0-23'))['state'] == 'mismatch'
+
+
+@pytest.mark.parametrize('failure', ['max_cores', 'tier', 'memory', 'memory_unknown', 'walltime'])
+def test_whole_node_never_bypasses_resource_or_time_limits(targeted, failure):
+    cfg, args = targeted
+    source = args['input_path']
+    source.write_bytes(source.read_bytes().replace(b'%nprocshared=24\n%mem=40GB\n', b''))
+    if failure == 'max_cores':
+        cfg['resources']['max_cores'] = 44
+        assert nt.options(cfg, 48)[-1]['tier'] is None
+    elif failure == 'tier':
+        cfg['resources']['tiers']['max']['mem_gb'] = 95
+        assert nt.options(cfg, 48)[-1]['tier'] is None
+    elif failure == 'memory':
+        snapshot(cfg, nt.strict_nodes(nodes(memory='98303mb'), []))
+    elif failure == 'memory_unknown':
+        row = nt.strict_nodes(nodes(), [])[0]
+        row['mem_total_bytes'] = None
+        snapshot(cfg, [row])
+    else:
+        cfg['resources']['max_walltime'] = '00:30:00'
+    with pytest.raises(ValueError):
+        attempt.prepare(cfg, **(args | dict(node_fraction='1', tier='max')))
+    assert not list(Path(cfg['local']['studies_root']).rglob('manifest.json'))
+
+
+def test_whole_node_can_queue_on_shared_node_without_claiming_idle(targeted):
+    cfg, args = targeted
+    raw, qstat = shared_observation()
+    snapshot(cfg, nt.strict_nodes(raw, status.parse_jobs(qstat)))
+    option = nt.candidates(cfg)['nodes'][1]['options'][-1]
+    assert option['fraction'] == '1' and option['selectable']
+    assert option['capacity']['availability'] == 'queue'
+    source = args['input_path']
+    source.write_bytes(source.read_bytes().replace(b'%nprocshared=24\n%mem=40GB\n', b''))
+    m = attempt.prepare(cfg, **(args | dict(node_fraction='1', tier='max')))
+    fake = TargetFake(cfg)
+    fake.node_text, fake.qstat = raw, Result(stdout=qstat)
+    nt.fresh_check(config.select_cluster(cfg), m, fake)
+    assert fake.operations() == ['jobs', 'nodes']
+
+
+@pytest.mark.parametrize('fraction,tier,cores,digest', [
+    ('1/2', 'general', 24, 'a581cf5ab92de201bf5966fdaf7f8391931dac7e7664cb7569f46dd064ae22e9'),
+    ('1/4', 'mini', 12, '51c0165ea5e159ebe48543f291ccaba4b19991c803fca9a07a745a0ee5b5c958')])
+def test_half_quarter_render_bytes_stay_compatible(targeted, fraction, tier, cores, digest):
+    # Digests were recorded before adding whole-node support. Fixed synthetic
+    # paths keep the complete rendered script reproducible across test roots.
+    cfg, _ = targeted
+    cfg = deepcopy(cfg)
+    cfg['remote'] = dict(allowed_root='/fixture', ag_root='/fixture/ag')
+    cfg['programs']['gaussian']['g16root'] = '/fixture/programs'
+    m = dict(cluster='default', scheduler='pbs', template='gaussian', template_params={},
+             node_target=dict(name='compute-a', fraction=fraction, slots=48, queue='batch'),
+             tier=tier, cores=cores, mem_gb=cores*2, walltime='01:00:00',
+             attempt_id='001-synthetic', study_id='smoke', pbs_job_name='agsynthetic',
+             remote_dir='smoke/001-synthetic')
+    assert sha256(render.render(cfg, m, 'water.gjf').encode()).hexdigest() == digest
 
 
 def shared_observation(*, used=16, memory='16gb', owners=('fixture', 'peer'), node_state='free'):
@@ -477,7 +554,7 @@ def test_shared_candidates_prepare_and_capacity_agree(targeted, owners, used, me
     candidate = nt.candidates(cfg)['nodes'][1]
     assert candidate['status'] == 'occupied' and candidate['selectable'] is True
     assert candidate['selectable_reason']
-    assert [o['cores'] for o in candidate['options']] == [24, 12]
+    assert [o['cores'] for o in candidate['options']] == [24, 12, 48]
     option = candidate['options'][0]
     assert option['selectable'] is True and option['capacity']['availability'] == expected
     assert option['capacity'] == capacity.evaluate_node(rows[0], 24, 48, scheduler='pbs')
@@ -573,7 +650,7 @@ def test_old_targeting_cache_keeps_display_tiers_but_unknown_admission(targeted)
     snapshot(cfg, [row])
     candidate = nt.candidates(cfg)['nodes'][1]
     assert nt.idle(row)[0] == candidate['status'] == 'available'
-    assert [o['tier'] for o in candidate['options']] == ['general', 'mini']
+    assert [o['tier'] for o in candidate['options']] == ['general', 'mini', 'max']
     assert not candidate['selectable'] and 'unknown' in candidate['selectable_reason']
     for option in candidate['options']:
         assert option['capacity']['fits_total'] is None
@@ -589,10 +666,11 @@ def test_exact_memory_rejection_does_not_rewrite_legacy_display_mapping(targeted
     snapshot(cfg, nt.strict_nodes(nodes(memory='49151mb'), []))
     candidate = nt.candidates(cfg)['nodes'][1]
     assert candidate['status'] == 'available'
-    half, quarter = candidate['options']
+    half, quarter, whole = candidate['options']
     assert half['tier'] == 'general' and quarter['tier'] == 'mini'
     assert half['capacity']['fits_total'] is False and not half['selectable']
     assert quarter['selectable'] is True
+    assert not whole['selectable']
     with pytest.raises(ValueError, match='match target slots'):
         attempt.prepare(cfg, **args)
 

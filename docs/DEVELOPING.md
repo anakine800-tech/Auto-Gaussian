@@ -27,6 +27,8 @@
 - `status.py`：PBS/Slurm 观察、程序完成证据及 unknown 只读核对；保留不完整取回所需的 PBS 首次/最近不活跃观察。
 - `fetch.py`：校验输出大小和哈希，以不覆盖方式发布到本地；显式不完整取回及绑定的独占记录。
 - `monitor.py`：只读采样集群，在本地缓存最新快照和历史。
+- `route.py`：原有档位建议与 T185 纯函数 `select_ladder`；可信运行记录适配及 T186 提交核验待集成。
+- `capacity.py` / `node_targeting.py`：同节点精确容量判断与 PBS 具名资源切分、绑定及准入。
 - `doctor.py`：只读检查连接、调度器、目录和程序环境。
 - `remote.py`：全部固定远程命令、参数白名单及路径检查；独立的 incomplete_output_observation 在可进入的父目录内区分缺失与无法核实，复用 output_observation 只读操作类别。
 - `transport.py`：SSH/scp、只读传输重试、脱敏及可注入的 Transport 接口。
@@ -58,11 +60,28 @@
 prepare 先选择入口，再用 `config.resolve_tier` 解析显式档位或该入口的可选 `resources.default_tier`，之后才做节点映射、资源检查和编号/目录分配。
 省略档位且入口无默认值时明确报错；配置默认值必须是该入口已配置且合法的档位，不跨入口继承。
 全部允许模板共用此入口；manifest 仍只保存实际 tier/cores/mem，verified_files 不调用默认解析，不为旧记录补字段。
-clusters 的资源白名单仅在已配置时发布 default_tier；route 仍要求显式档位。
+clusters 的资源白名单仅在已配置时发布 default_tier；route 的原建议模式仍要求显式档位。
 Gaussian prepare 在档位与 walltime 检查后依次补缺失的 `%nprocshared`、`%mem`，并在分配序号/目录前完成输入校验。
 核数只取所选入口的最终档位，显式输入值不修正；内存仍按 R1 和 85% 上限处理。普通完整输入字节不变，CP 沿用原片段转换。
 仅实际补齐时新增可选 `auto_nprocshared` 整数或 `auto_mem_gb`，摘要注明来源；二者都不是提交授权。
 输入和 bundle 哈希绑定最终保存字节，源文件不变；verified_files 只核验，不补齐、不重写旧 manifest 或哈希，缺少可选说明的旧记录照常读取。
+
+T185 的 `node_targeting.FRACTIONS` 末尾追加 `'1'`，整节点仍走既有档位、max_cores、精确总内存与两次准入核验，
+不改变半/四分之一脚本字节或共享节点排队行为。按协调补充范围，`clusters.py` 的发现元数据复用同一 `FRACTIONS`，保留原顺序和默认 `1/2`。
+`route.select_ladder` 与 `ladder_config_identity` 供后续 prepare/提交适配共用；不得为 T186 另写一套阶梯顺序。
+函数只处理传入数据，要求 `study_key`、显示用 `study_id`、独立的 `round_id`（整个自主轮次）和 `run_id`（一次唤醒运行），输出 `ag-routing-ladder/1` 的身份、候选、原因、推荐及配置/快照/占用/唤醒证据哈希。
+T186 可信适配须从全本机记录核对真实自主归属、全部活跃本地预留及提交绑定、运行事件和首次选格完整输入；T184 的意向计数不能当实际占用。
+每条 placements 必须带 study_key、study_id 和 scheduler_job_name：核验 manifest 后 PBS 取 pbs_job_name，Slurm 取 attempt_id，用于真实调度快照身份比对。
+study_key 是必填的 64 位小写 SHA-256，T186 须按安全校验后的本机绝对 study 目录生成并持久绑定目录身份；请求、placements、wakeups、batch.request 和本地去重一致使用 key，不允许缺失时回退到显示名 study_id。同名 study/Attempt 不跨来源合并，物理作业按确切调度身份去重，矛盾归属拒绝。纯算法不访问路径；实际目录绑定及全本机适配仍待 T186。
+适配尚未完成时，`route --job-class main|small` 带 study/round/run/object/walltime 返回阻塞，不退回旧建议冒充已通过。
+SCNet 类末级运行加排队最多 4 个、兜底排队最多 2 个，按全本机全部自主 study/round 的活跃记录合计，包含不同配置目录和 studies_root、旧轮活跃作业；非自主作业仍仅参与原有全部账号核数限制。批次放置数限定同一 round/run，逐轮 Attempt 预算和每次唤醒取消上限不变。
+适配按共享账号及确切作业身份去重，未观测到的本地预留及 UNKNOWN 占用不得释放；不能核实则拒绝。T186 负责跨配置目录的共同注册与共同锁，并在共同锁内重新收集、核验和复算；现有配置目录内的 submit.lock 不够，换配置、study、round 或唤醒租约不能取得额外名额。
+`batch_inputs` 保存首次选格的完整输入，用同一算法重放全部条件，不能仅凭原始空闲快照证明批次合格。
+两份半节点位置在重放验证后，再以当前单节点剩余容量核对，避免首份读回导致第二份被误跳过，或外来占用后仍误放行。
+快照未知按实际候选排序阻断：低优先失效不阻已核实的首选，高优先未知不能被跳过；小体系复用非 queue、入口顺序、已有占用、格序的排序，以最靠前的可能占用排名比较。所有原占用、共享账号及全局额度核验保持；评估来源本身的当前节点与比例仍须核实。
+`select_ladder` 的可选 `evaluate_from` 只含 study_key/attempt_id/record_sha256，调用方先核验原 reservation；等价读取/共享别名去重后须唯一匹配原绑定且哈希一致，冲突或多个物理绑定仍拒绝，原 cell/节点/资源/配置由 T186 不可变 recommendation 绑定。不得用 `exclude_ownership` 移除来源占用；仅精确来源豁免同对象快捷拒绝，其他占用及同对象阻断保留。
+评估候选须不同 cell 且按原 main/small 排序严格更优；默认调用及哈希不变。评估结果带 `evaluation_only=True` 和 `evaluate_from`；首个组合不启用取消、停止核验、后继或改投入口，不等待 T187。后续接入评估时，薄适配独立透传参数并在普通 reservation 消费时拒绝此类结果，T187 复用同一算法后另核验立即运行、从未运行且排队六小时、无 chk、归属租约及取消消费等条件。此扩展无新 CLI 参数或警告界面，不执行真实操作。
+条件、能力过滤与真实验证缺口见 [CLI 说明](../ag/README.md#提交阶梯与整节点t185)；本单没有提交授权接线或现场验证证据。
 
 ## 自主运行的实现边界
 

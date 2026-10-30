@@ -1,7 +1,7 @@
 """Local, allowlisted cluster metadata for frontend discovery."""
 from pathlib import Path
 
-from ag import budget
+from ag import budget, node_targeting
 from ag.config import scheduler_kind, select_cluster, optional_resource_caps, RESOURCE_TIERS
 
 
@@ -26,7 +26,7 @@ def describe(cfg, *, verify_studies_root=None):
             programs_enabled=dict(gaussian=bool(programs.get('gaussian', {}).get('g16root')),
                                   xtb=xtb, crest=bool(programs.get('crest', {}).get('executable')) or xtb))
         if 'node_targeting' in selected:
-            row['node_targeting'] = dict(default_fraction='1/2', fractions=['1/2', '1/4'])
+            row['node_targeting'] = dict(default_fraction='1/2', fractions=list(node_targeting.FRACTIONS))
         if 'max_walltime' in resources:
             row['resources']['max_walltime'] = resources['max_walltime']
         if 'default_tier' in resources:

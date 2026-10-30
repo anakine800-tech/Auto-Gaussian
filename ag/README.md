@@ -12,6 +12,66 @@ RDKit 与 CI 固定为同一精确版本；平台包边界见上述安装步骤�
 
 本文计算命令描述当前手动模式；T184 的 `autonomy` 仅保存本地计划和状态。[自主运行规则](../AGENTS.md#自主运行)须待相关工具实现、敏感路径合并前验证、非研究试点及本轮显式启用全部完成；旧长期规则不提供自主权限，现有 cancel 仍须 Mac 人工点击。当前实现与后续要求见[开发手册](../docs/DEVELOPING.md#自主运行的实现边界)。
 
+## 提交阶梯与整节点（T185）
+
+旧 `ag route --template gaussian --tier general --walltime 04:00:00 --json` 继续提供本地快照建议。
+新 `--job-class main|small` 模式要求 `--study`、`--round-id`、`--run-id`、`--object-id` 和 `--walltime`，
+当前可信记录适配尚未完成而拒绝给出候选；T186 负责核对 T184 稳定接口后接通读取与 CLI，不接受人工传入“已通过”或占用 JSON。
+两种模式均不运行 SSH、不创建目录、不写文件。T186 的提交时重算尚未接入。
+
+`routing.ladder` 是按顺序排列的本机配置表，格子写明 `id`、`cluster`、`classes`（main/small）、
+`tier`、`condition`、`max_placements`；具名入口另设有序 `nodes` 和 `node_fraction`。
+`empty` 要求批次起点全空；`free` 要求 `min_free_cores` 且同一节点内存足够；
+`jobs` 要求对象已等待一次真实唤醒，且该实际集群中全本机自主作业的运行加排队少于 `max_jobs`（SCNet 类上限为 4）；
+`queue` 每节点或入口最多排一个，全本机自主排队/预留记录合计最多两个，同一实际资源的多个入口不能多占名额。
+两项上限跨本机全部自主 study/round，包含不同配置目录和 studies_root，旧轮仍活跃的作业继续计入；非自主作业不占这两项自主名额，仍计入原有全部账号核数限制。
+`round_id` 标识整个自主轮次，`run_id` 只标识一次唤醒运行；改变 study、round 或 run 均不重置上述活跃作业名额。
+每个格子在同一 round/run 批次内最多放一至两个作业，`jobs` 和 `queue` 每次最多一个。合成配置见 [配置示例](config.clusters.example.toml)。
+
+`ag.route.select_ladder` 是无 I/O 的共用选格函数。它接收配置、快照、作业类别、时限、必需的 `study_key`、显示用 `study_id`、`round_id`、`run_id` 和对象身份、
+经本地适配核验的提交/预留记录及唤醒历史，可选父集群和 `batch_inputs` 保存的首次选格完整输入，返回候选、拒绝原因及配置/证据哈希。
+输出同时保留 round/run 身份。哈希只标识输入，不能证明调用者提供的记录真实；适配必须核对 manifest、submission、声明/台账及运行事件，
+不能使用 T184 状态中仅代表意向的提交计数。当前只有纯函数与合成回归，尚无实际记录到函数的完整接线。
+T186 须从全本机记录核验真实自主归属，按共享账号及确切作业身份去重，保留尚未观测到的预留与 UNKNOWN 占用；
+证据不明不能按零处理。T186 须接通跨配置目录的共同注册与共同锁，并在共同锁内重新收集、核验记录、快照及选格结果；
+现有各配置目录的 submit.lock 不覆盖全本机，不能把先前建议缓存为提交许可。
+
+供后续接线复用的参数以现有测试为例：`snapshots` 按入口传入完整 `ag-monitor/1` 数据；
+`placements` 每项必须有 study_key、study_id、scheduler_job_name，以及 cluster、attempt_id、job_id（原始或限定号；reserved/unknown 可为空）、state（reserved/unknown/queued/running/finished）、cores、mem_gb，
+以及 round_id/run_id/object_id、cell_id、target_node/capacity_node、manifest_sha256、record_sha256。
+适配核验 manifest 后，PBS 的 scheduler_job_name 取 pbs_job_name，Slurm 取 attempt_id，再与快照比对。
+`study_key` 为必填的 64 位小写 SHA-256；T186 可信适配须按安全校验后的本机绝对 study 目录生成，并持久绑定目录身份。
+选择器请求、placements、wakeups、批次 request 与本地去重均使用此 key；study_id 仅作显示，缺 key 不回退到同名标识。
+不同 studies_root 的同名 study_id/attempt_id 不合并；物理作业仍按共享账号和确切作业身份去重，矛盾归属拒绝。
+纯算法只校验传入 key，不访问路径；真实目录绑定、共同注册和跨配置锁仍待 T186 接线。
+同批成员另带首次选择的 config_sha256、selected_at、batch_input_sha256；无自主归属的本地预留仍需计入账号额度。
+`wakeups` 每项有 study_key、study_id、round_id、run_id、object_id、started_at；waiting_since 来自该 study 对象等待事件，不能由模型自行填写。
+`batch_inputs` 以 evidence.input_sha256 为键，保存首次完整 snapshots、placements、wakeups、request 和 selected_at；
+request 包含 study_key、study_id、template、job_class、walltime、round_id、run_id、object_id、waiting_since、parent_cluster。
+这些是选择器输入，不是新增授权记录；后续适配必须从不可变文件与重放事件构造，并核对选择与 manifest 资源一致。
+
+`select_ladder(..., evaluate_from=None)` 可对已核验原 reservation 评估更优候选；可选字典只接受
+`study_key`、`attempt_id`、`record_sha256` 三项，等价读取/共享别名去重后须恰好匹配一条原绑定且哈希一致；冲突或多个物理绑定仍拒绝。
+原格子由 T186 的不可变 recommendation 填入 placement，cell、节点、资源和配置身份须一致；不能调用 `exclude_ownership` 删除原记录。
+仅这条确切来源豁免“同对象已放置”的快捷拒绝，原占用继续参与全部核数、名额和节点容量检查，其他同对象记录仍按原规则阻断。
+候选必须与来源不同 cell 且严格更优，复用 main/small 现有排序；省略参数时原行为和输入哈希不变。
+结果带 `evaluation_only=True` 及 `evaluate_from`，仅供评估；首个组合不启用取消、停止核验、后继或改投入口，不等待 T187。后续接入评估时，薄适配须独立透传该参数，普通 reservation 消费必须拒绝评估结果；T187 复用此结果，不复制选格算法。
+T187 仍须核验立即可运行、从未运行且排队至少六小时、无 chk 依赖、归属与租约、取消次数及消费等改投资格；本接口不授权取消或再提交，也不新增 CLI 参数、警告界面或真实操作。
+
+两份半节点任务通过首次选格的完整输入重放同一算法，确认批次起点满足全部选格条件，再逐次核对当前剩余容量；
+只保留一张原始快照不足以证明首次选格合格。已读回的作业不重复计入，
+未读回预留仍计入，外来占用可阻止第二份放置。快照须成功、采样间隔有效且不超过三倍间隔，未知资源不作空闲。
+逐格核验后，只有排序可能优于最佳合格候选的未知快照才阻止推荐；低优先格失效保留诊断，不阻断已核实的首选。小体系沿用非 queue、入口顺序、已占用节点、格序的排序，未知占用仅按最靠前的可能排序作比较，不作为容量证据。评估原作业自身的当前定位仍须核实。
+CPU 和精确内存必须在同一节点满足；全部本人作业、共享入口最小额度、单作业上限和时限限制继续生效。
+父 chk 候选仅限父入口，无合规空位时只能在该入口限额内排队。小体系在配置入口顺序内优先使用已有占用且有容量的节点。
+主体系仅支持 Gaussian；gaussian-cp、multiwfn 排除具名节点入口，multiwfn 仍仅支持 default PBS；CREST/xTB 沿用旧建议模式。
+
+具名 Gaussian 的 `prepare --node-fraction 1` 使用整节点，核数等于注册 slots，内存为每核 2 GB，
+仍须精确匹配档位、max_cores 与节点总规格。默认 `1/2`、可选 `1/4` 和旧脚本/bundle 字节保持不变。
+选择必须先于 prepare；prepare 后入口、节点与资源不可变，路由建议不授权提交。
+`ag nodes` 可列出整节点；`ag clusters` 比例元数据复用 `node_targeting.FRACTIONS`，依次返回 `1/2`、`1/4`、`1`，默认仍为 `1/2`。本单不扩展前端工作。
+合并前仍缺整节点、半节点、非指定入口三个独立小分子 Attempt 的批准与真实验证；离线通过不代替这些证据。
+
 ## 在新 Mac 上重建直连 SSH 配置
 
 当前传输方式是 Mac 通过专用 OpenSSH 配置直连集群。准备本机可用的 `ssh`、`scp`，

@@ -52,6 +52,25 @@ def test_legacy_single_cluster(cfg, tmp_path, monkeypatch, capsys):
         expires=None, programs_enabled=dict(gaussian=True, xtb=True, crest=True))]}
 
 
+@pytest.mark.parametrize('targeted', [False, True])
+def test_node_fraction_discovery_keeps_order_and_default(multi, tmp_path, monkeypatch, capsys, targeted):
+    if targeted:
+        multi['clusters']['default']['node_targeting'] = dict(
+            allowed_nodes=['compute-a'], denied_nodes=[], restricted_nodes=[], priority=[['compute-a']])
+    before_dirs = {p for p in tmp_path.rglob('*') if p.is_dir()}
+    code, result = query(multi, tmp_path, monkeypatch, capsys)
+    assert code == 0
+    rows = {row['name']: row for row in result['clusters']}
+    assert 'node_targeting' not in rows['batch']
+    if targeted:
+        assert rows['default']['node_targeting'] == dict(
+            default_fraction='1/2', fractions=['1/2', '1/4', '1'])
+    else:
+        assert 'node_targeting' not in rows['default']
+    assert 'compute-a' not in json.dumps(result)
+    assert {p for p in tmp_path.rglob('*') if p.is_dir()} == before_dirs
+
+
 def test_optional_default_tier_is_entry_local(multi, tmp_path, monkeypatch, capsys):
     multi['clusters']['batch']['resources'].update(default_tier='simple', private_note='private-default-marker')
     code, result = query(multi, tmp_path, monkeypatch, capsys)

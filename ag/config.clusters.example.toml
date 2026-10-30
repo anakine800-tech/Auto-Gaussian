@@ -23,9 +23,65 @@ studies_root = "<absolute local studies directory outside Git>"
 # [routing.studies."water-validation"]
 # gaussian = ["default"]
 # With all four intended entries configured, the owner's default orders are:
-# gaussian: default -> newhpc -> scnet
+# gaussian: hpc3 -> newhpc -> default -> scnet
 # crest: scnet-test -> default -> newhpc
 # No routing table means status only, with no recommendation.
+# This order is a local configuration choice, not a compiled-in fallback.
+# Unsupported template/entry combinations are still excluded.
+
+# Optional ladder: cells are evaluated in table order before prepare.
+# These names and resources are synthetic examples, not a deployment plan.
+# "empty" requires an empty single node; "free" requires at least the stated
+# free cores AND enough remaining memory on that same node. Neither guarantees
+# scheduler start time. The selected tier fixes both requested cores and memory.
+# [[routing.ladder]]
+# id = "available-default"
+# cluster = "default"
+# classes = ["main"]
+# tier = "general"
+# condition = "free"
+# min_free_cores = 22
+# max_placements = 1
+#
+# [[routing.ladder]]
+# id = "batch-after-wakeup"
+# cluster = "batch"
+# classes = ["main"]
+# tier = "complex"
+# condition = "jobs"
+# max_jobs = 4
+# max_placements = 1
+# A jobs cell also requires verified waiting across an actual wakeup. It does
+# not accept a manually supplied "waited" or "approved" flag.
+#
+# [[routing.ladder]]
+# id = "queue-default"
+# cluster = "default"
+# classes = ["main"]
+# tier = "general"
+# condition = "queue"
+# max_placements = 1
+# Fallback queues permit at most one per actual node/entry and two per run.
+# Shared login aliases do not create additional queue places or core quotas.
+#
+# For a separately configured synthetic PBS targeting entry "compute", with
+# allowed nodes "compute-a"/"compute-b" and an exact 48-core/96-GB max tier:
+# [[routing.ladder]]
+# id = "empty-compute"
+# cluster = "compute"
+# classes = ["main"]
+# tier = "max"
+# condition = "empty"
+# nodes = ["compute-a", "compute-b"]
+# node_fraction = "1/2"
+# max_placements = 2
+# Fractions are "1/2", "1/4", or "1" (whole node). Resource mapping must
+# exactly match total slots and the configured tier; max_cores still applies.
+# Small Gaussian cells use classes=["small"] and node_fraction="1/4" with
+# matching tiers. Within an entry the router prefers occupied fitting nodes.
+# Repeat queue cells in the desired fallback order; do not infer cross-cluster
+# eligibility for a parent checkpoint. T184 record integration and T186 final
+# submission checks must be validated before autonomous use.
 
 [clusters.default]
 scheduler = "pbs"
