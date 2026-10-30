@@ -1,4 +1,5 @@
 """Shared pytest hooks; child Python bootstrap has no pytest dependency."""
+import functools
 from pathlib import Path
 import sys
 import tempfile
@@ -16,6 +17,21 @@ def start_session(repo):
         _session = TestHomeSession(repo)
         atexit.register(_session.close)
         sys.path.insert(0, str(repo / 'ag/src'))
+        # Python code filenames such as <frozen genericpath> have no disk source.
+        # Stop pytest before inspect/stat; do not relax the filesystem guard or
+        # catch the original HomeAccessError while formatting its traceback.
+        from _pytest._code.code import Code
+        for name in ('path', 'fullsource'):
+            original = getattr(Code, name)
+
+            @functools.wraps(original.fget)
+            def source(code, _get=original.fget, _name=name):
+                filename = code.raw.co_filename
+                if filename.startswith('<') and filename.endswith('>'):
+                    return filename if _name == 'path' else None
+                return _get(code)
+
+            _session.guard.patch(Code, name, property(source))
 
 
 @pytest.hookimpl(tryfirst=True)

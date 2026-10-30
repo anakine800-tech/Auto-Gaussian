@@ -25,6 +25,19 @@ def inside(path, root):
     return path == root or path.startswith(root + os.sep)
 
 
+def runtime_trees():
+    runtime = sysconfig.get_paths()
+    trees = {runtime[key] for key in ('stdlib', 'platstdlib', 'purelib', 'platlib')}
+    # Conda installs dependency/standard timezone data outside site-packages.
+    # RDBASE, PYTHONTZPATH and TZDIR must not grant access to user data.
+    trees.update(str(Path(prefix) / relative)
+                 for prefix in {sys.prefix, sys.base_prefix}
+                 for relative in ('share/RDKit/Data', 'share/zoneinfo'))
+    import gettext
+    trees.add(gettext._default_localedir)  # argparse's installed translations only
+    return trees
+
+
 class HomeGuard:
     def __init__(self, homes, files=(), trees=(), repo=None, bootstrap=None):
         self.homes = tuple(map(os.path.abspath, homes))
@@ -357,13 +370,7 @@ class TestHomeSession:
             'PKG-INFO', 'SOURCES.txt', 'entry_points.txt', 'top_level.txt',
             'dependency_links.txt', 'requires.txt',
         )]
-        runtime = sysconfig.get_paths()
-        trees = {runtime[key] for key in ('stdlib', 'platstdlib', 'purelib', 'platlib')}
-        # Conda keeps RDKit's distributed descriptor data outside site-packages.
-        # Do not use an arbitrary RDBASE override to grant access to user data.
-        trees.update(str(Path(prefix) / 'share/RDKit/Data') for prefix in {sys.prefix, sys.base_prefix})
-        import gettext
-        trees.add(gettext._default_localedir)  # argparse's installed translations only
+        trees = runtime_trees()
         files += [sys.executable, os.path.realpath(sys.executable), str(Path(sys.prefix) / 'pyvenv.cfg')]
         files += [str(Path(prefix) / 'bin' / name)
                   for prefix in {sys.prefix, sys.base_prefix} for name in ('ag', 'pytest')]
