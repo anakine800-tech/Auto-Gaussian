@@ -9,6 +9,10 @@ description: 在 ag 新架构中创建、恢复和推进主族闭壳层计算研
 
 提交、补救、取消及中间判断统一按 [AGENTS 自主运行规则](../../AGENTS.md#自主运行)区分模式。当前 CLI 和下列批准操作仍是手动流程；自主模式须在全部工具、所需验证及非研究试点就绪后显式启用，旧长期规则不赋权。已启用时先核对计划、状态和唯一运行锁；暂停时禁止新 prepare/submit、补救、改投及自主取消，唯一持锁会话仍可 status/snapshot/fetch 和整理结果；结束后不再自主推进，手动接手先暂停。方法/机理变更与三类里程碑签字仍由人决定；中间继续计算判断逐条记“待人确认”，不得冒充科学接受。
 
+自主唤醒从[短卡](references/autonomous-run.md)进入，负责人确认计划时读[字段模板](references/autonomous-plan-template.md)。首个试点关闭自主取消、停止核验及取消/改投后继入口；需要这些动作时标“需要你看”，简报第一行提醒负责人在 Mac 上点击取消，本次唤醒不执行远程取消。已结束且确认失败的作业仍可在规则内新建 Attempt 补救，同对象同失败最多两次。试点不依赖 T187；Slurm 自主取消/改投移出 V4.8，PBS 留待试点后交付。
+
+命令可用性及[试点验收](references/autonomous-offline-walkthrough.md)以最终冻结组合为准。现行 main 的自主能力仅为本地计划、租约与状态记录，提交路径尚未合并，研究会话不得据 AGENTS 启动自主计算。文档、离线演练和本地计划确认均不启用真实计算或定时任务。下列固定流程继续用于开题、手动操作及按需科学审阅；其中人工取消不是试点唤醒可自动执行的步骤。
+
 新建或恢复在 `scnet` 上运行 Gaussian 的研究时，按[研究模板](references/study-md-template.md)的“计算平台与软件许可”填写负责人决定；正式作业前核对正丁烷单点全流程验证记录。
 
 准备新 Attempt 前先运行 `ag route --template <模板> --tier <档位> --walltime <HH:MM:SS> --study <study>`，按建议显式选 `--cluster`；偏离建议时在 study.md 写明原因。默认路由顺序在本机配置中明确设置：Gaussian（含 gaussian-cp、multiwfn）为 `default → newhpc → scnet`，CREST（含 xTB）为 `scnet-test → default → newhpc`，仍须满足各入口的模板许可。研究尚未签字允许某入口时，用 `[routing.studies."<study>"]` 覆盖顺序并跳过该入口；未配置路由时沿用研究已批准安排，不猜建议。命令只读本机配置与已有快照；用本次计划的 walltime 核对入口上限，省略时明确未核对，未配置上限不代表无限制。时限或单节点总规格不适用的入口不进入排队回退；容量未知须保留说明，容量足够或排队建议均不保证实际启动时间。ag 不自动改入口；prepare 的不同入口提示不拦截，已有 Attempt 不迁移，批准时仍核对原绑定与输入哈希。
