@@ -792,22 +792,25 @@ def test_standard_remedy_stable_opt_remains_unapproved(cfg, tmp_path):
         policy.check_attempt(cfg, path, rule(cfg))
 
 
-# The reviewed T188 parser already accepts these four algorithm options. Its
-# GEDIIS/NoTrust/NoIncFock/NoDIIS grammar remains a separate upstream change.
-@pytest.mark.parametrize('kind,option', [
-    ('opt', 'GDIIS'), ('opt', 'RFO'), ('scf', 'VShift=100'), ('scf', 'Damp'),
-])
+@pytest.mark.parametrize('kind,option', REMEDY_ALGORITHMS)
 def test_relaxed_standard_remedy_algorithm_stays_method_unverified(cfg, tmp_path, kind, option):
     route = remedy_algorithm_route(kind, option).replace('Tight', 'VeryTight').replace('Conver=8', 'Conver=10')
     path, value = relaxed_convergence_case(cfg, tmp_path,
         INPUT.replace('# B3LYP/6-31G(d) SP', route))
+    manifest = attempt.read_manifest(path)
+    before = (path / 'manifest.json').read_bytes()
+    files = attempt.verified_files(cfg, path, manifest)
+    assert files[attempt.program_input_name(manifest)] == INPUT.replace(
+        '# B3LYP/6-31G(d) SP', route).encode()
     checked = policy.check_attempt(cfg, path, value)
     assert checked['method_verified'] is False and checked['method'] is None
+    assert (checked['inputs'], checked['bundle_sha256']) == attempt.prepared_bundle(files)
+    assert checked['skipped_checks'] == manifest['input_validation']['skipped_checks']
+    assert (path / 'manifest.json').read_bytes() == before
+    assert not (path / '.submit-claim').exists()
 
 
-@pytest.mark.parametrize('kind,option', [
-    ('opt', 'GDIIS'), ('opt', 'RFO'), ('scf', 'VShift=100'), ('scf', 'Damp'),
-])
+@pytest.mark.parametrize('kind,option', REMEDY_ALGORITHMS)
 @pytest.mark.parametrize('weaken', ['opt', 'scf'])
 def test_relaxed_standard_remedy_algorithm_keeps_strictest_floor(cfg, tmp_path, kind, option, weaken):
     route = remedy_algorithm_route(kind, option).replace('Tight', 'VeryTight').replace('Conver=8', 'Conver=10')
@@ -824,3 +827,58 @@ def test_relaxed_standard_remedy_cannot_hide_stable_opt(cfg, tmp_path):
         INPUT.replace('# B3LYP/6-31G(d) SP', route))
     with pytest.raises(ValueError, match='Stable'):
         policy.check_attempt(cfg, path, value)
+
+
+@pytest.mark.parametrize('extra', ['IRC=(GS2,CalcFC,Forward)', 'IRC=(CalcAll,Forward)',
+                                  'Freq=HPModes', 'Freq=SaveNormalModes'])
+def test_relaxed_irc_and_frequency_options_reach_policy_unverified(cfg, tmp_path, extra):
+    route = '# HF/STO-3G SCF=(Conver=10) ' + extra
+    text = INPUT.replace('# B3LYP/6-31G(d) SP', route)
+    path, value = relaxed_convergence_case(cfg, tmp_path, text)
+    manifest = attempt.read_manifest(path)
+    files = attempt.verified_files(cfg, path, manifest)
+    assert files[attempt.program_input_name(manifest)] == text.encode()
+    checked = policy.check_attempt(cfg, path, value)
+    assert checked['method_verified'] is False and checked['method'] is None
+    assert (checked['inputs'], checked['bundle_sha256']) == attempt.prepared_bundle(files)
+    assert checked['skipped_checks'] == manifest['input_validation']['skipped_checks']
+    assert not (path / '.submit-claim').exists()
+
+
+def test_relaxed_gaussview_connectivity_combination_reaches_policy(cfg, tmp_path):
+    route = ('# B3LYP/6-31G(d) Opt=(Tight,CalcFC,ModRedundant) Freq=HPModes '
+             'Geom=Connectivity Int=UltraFine SCF=(Conver=8,NoIncFock)')
+    text = INPUT.replace('# B3LYP/6-31G(d) SP', route) + '1 2 1.0 3 1.0\n2\n3\n\nB 1 2 F\n'
+    study.init(cfg, 'smoke')
+    source = tmp_path / 'connectivity.gjf'
+    source.write_text(text)
+    manifest = attempt.prepare(cfg, study_name='smoke', template='gaussian', input_path=source,
+        tier='simple', walltime='00:30:00', label='optfreq', method_basis='Synthetic connectivity',
+        relaxed_input=True)
+    path = attempt.find(cfg, manifest['attempt_id'])
+    files = attempt.verified_files(cfg, path, manifest)
+    assert files['connectivity.gjf'] == text.encode() == source.read_bytes()
+    value = rule(cfg)
+    value['allow_relaxed'] = True
+    checked = policy.check_attempt(cfg, path, value)
+    assert checked['method_verified'] is False and checked['method'] is None
+    assert (checked['inputs'], checked['bundle_sha256']) == attempt.prepared_bundle(files)
+    assert checked['skipped_checks'] == manifest['input_validation']['skipped_checks']
+    assert attempt.read_manifest(path) == manifest
+    assert not (path / '.submit-claim').exists()
+
+
+@pytest.mark.parametrize('reader', ['ReadFC', 'RCFC'])
+def test_relaxed_force_constant_source_reaches_policy_unverified(cfg, tmp_path, reader):
+    first = INPUT.replace(' SP', ' Freq SCF=(Conver=10)')
+    second = INPUT.replace('%chk=water.chk', '%chk=child.chk').replace(
+        ' SP', f' Opt=(TS,VeryTight,{reader}) SCF=(Conver=10)')
+    text = first + '--Link1--\n%oldchk=water.chk\n' + second
+    path, value = relaxed_convergence_case(cfg, tmp_path, text)
+    manifest = attempt.read_manifest(path)
+    files = attempt.verified_files(cfg, path, manifest)
+    assert files[attempt.program_input_name(manifest)] == text.encode()
+    checked = policy.check_attempt(cfg, path, value)
+    assert checked['method_verified'] is False and checked['method'] is None
+    assert (checked['inputs'], checked['bundle_sha256']) == attempt.prepared_bundle(files)
+    assert not (path / '.submit-claim').exists()

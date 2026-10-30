@@ -179,7 +179,7 @@ studies_root = "<ABS_LOCAL_STUDIES_ROOT_OUTSIDE_GIT>"
   别名，不能把 `HostName` 的地址误填为一个未定义的别名。
 - `remote.allowed_root` 填已存在的 SDL 根目录；`remote.ag_root` 必须严格等于它加上
   `/ag`，不填末尾斜杠。实际作业目录为 `<ABS_REMOTE_SDL_ROOT>/ag/<STUDY_ID>/<ATTEMPT_ID>`。
-  远程路径不能包含空格、`..` 或符号链接，根目录需有访问和写入权限。
+  远程路径不能包含空格、父目录组件 `..` 或符号链接，根目录需有访问和写入权限。
 - `programs.gaussian.g16root` 的当前含义是**直接包含 `g16` 可执行文件的目录**。
   doctor 检查 `<ABS_GAUSSIAN_EXECUTABLE_DIRECTORY>/g16`，不是再向下一层找程序。
 - `programs.xtb.root` 下应有 `bin/xtb`、`bin/crest` 和运行时所需的 `share/xtb`。
@@ -260,9 +260,74 @@ journal、取回标记或 facts；不主动调用 `ag status`。后续 fetch/fac
 已有 facts 内容相同时保留原字节和修改时间；不同时绝不自动覆盖。请人工核对差异后才使用
 `ag facts <ATTEMPT_ID> --refresh`。journal 写入失败也只提示，请保留 JSON 输出以供核对。
 
+## 显式放宽 Gaussian 输入
+
+`ag prepare --template gaussian --relaxed-input` 选择受控放宽校验；默认仍使用原严格校验，
+旧 manifest 和 bundle 不补字段、不改字节。`gaussian-cp`、xTB、CREST 和 Multiwfn
+不接受此选项。`--method-basis` 仍必填；输入被接受不代表方法、输出解析或 profile 已支持。
+
+```sh
+ag prepare --study '<STUDY>' --template gaussian --input '<INPUT.gjf>' \
+  --relaxed-input --include-file '<BASIS.inc>' \
+  --tier '<TIER>' --walltime '00:30:00' --label relaxed \
+  --method-basis '兜底方法：非研究小分子语法验证；科学方法未核验'
+```
+
+`--include-file` 可重复，只收集明确提供的普通文件；Gaussian `@basename` 引用只能指向
+这些文件。主文件和附件均按最终字节核验、保存并绑定输入包哈希，源文件不改；不会按引用
+隐式读取任意路径。缺失附件、链接、越界文件名、引用环和危险指令会在分配 Attempt 前拒绝。
+所有 Link1 段均核对资源、文件引用和外部程序调用；放宽不允许覆盖脚本、清单或只读父 chk。
+每一段都必须显式写 `%nprocshared` 和 `%mem`；核数匹配档位，内存不超过档位的 85%。
+此路径不继承或自动补齐缺失资源。
+当前只接受主输入直接引用附件的单层 include，附件内再次出现 include 即拒绝；
+最多 32 个附件、32 个 Link1 段，冻结输入总字节数和展开后的文本各不超过 1 MiB。
+附件仅接受数据片段，不接受 Link0、route 或 Link1；每个打包附件都必须被引用。
+
+支持的受控范围包括 Gen/GenECP、SCRF=Read、NBO 附加段、TS 与 ModRedundant、Link1、
+Geom=Check/AllCheck，以及原扫描白名单之外的坐标数、步数、通配符、笛卡尔冻结、Units 和
+多种附加段。Checkpoint 几何只能引用本 Attempt 前段已声明的来源，或通过现有
+`--parent` / `--relation` / `--parent-chk` 机制绑定父 chk；缺失几何、电荷或多重度保持未知，
+不会补造。无法确认安全的文件读取、写入或语法组合仍拒绝。
+SCRF 读入段限数值 `eps`/`epsinf`，NBO 限已列入白名单的分析标志，Gen/GenECP 和
+ModRedundant 附加段接受受限的数据语法。GaussView 格式的 `Geom=Connectivity` 仅在显式坐标
+提供原子数时接受；首个附加块须按顺序逐原子列行，索引为整数、键级为有限数值。
+Check/AllCheck 与 Connectivity 的组合拒绝；连接表之后沿用既有尾段数据语法，不声称 Gen/
+ModRedundant 等完整科学分段顺序已验证。不接受任意文件读写、External、IOp 或外部 NBO 程序。
+本轮只开放 `Opt=ReadFC`、`RCFC` 两个选项，`ReadCartesianFC` 别名仍拒绝；
+已开放选项要求可追溯的同 Attempt 前段或专用父 chk 来源。
+放宽路径只证明来源、文件归属和冻结字节，不声称父文件确有适用的 Hessian，也不验收力常数的
+方法、原子映射或坐标取向；既有严格路径的父力常数取向核验保持不变。
+放宽语法还接受 Opt 的 `GEDIIS`、`NoTrust`，SCF 的 `NoIncFock`、`NoDIIS`，
+IRC 的 `GS2`、`CalcAll`，Freq 的 `HPModes`、`SaveNormalModes`；接受选项不代表科学方案已核验。
+Units、色散及 Stable/Polar/Symmetry 不再按科学选项值白名单筛选，方法仍标为未核验；普通 basename 中间的连续点不视为父目录组件。
+已知读取与资源边界仍保留：Stable/Polar 的 Restart、Polar 的 Raman/ROA（读取旧力常数）、
+DCSHG/Gamma（隐含频率读入）及 WorkerPerturbations（Linda 工作进程分配）均拒绝，包括这些选项的前缀缩写。
+这不拒绝普通 Freq=Raman；其余路径、命令、每段资源和 checkpoint 来源检查不变。
+现有父 chk 机制只接受单程序输入的父 Attempt；放宽包带有校验 sidecar，当前不能作为父来源。
+
+不可变 manifest 中的唯一放宽标记为 `input_validation`。显式放宽普通 SP 输入的最小合成示例为：
+
+```json
+{"input_validation":{"mode":"relaxed","skipped_checks":["scientific_method"],"method_verified":false}}
+```
+
+使用 Gen、Link1 等语法时，校验器按实际输入增加对应跳过项。包内 `input-validation.json` 同时绑定该标记、
+主输入名称和附件记录，随输入包哈希冻结；篡改标记、清单、附件或主输入会使提交前复核失败。
+
+准备和提交摘要逐段列出完整 route、几何来源及资源，明确标注“方法未核验”和跳过的检查，
+并展示冻结主输入、附件全文及全部输入哈希。`scan-peak` 拒绝放宽来源，即使 route 恰好可由旧解析器识别。
+thermo/profile/facts 的科学接受条件没有扩大，解析成功也不会消除放宽标记。
+旧 `--policy` 长期规则拒绝放宽 Attempt；显式绑定输入包的一次性批准和 Mac 对话框仍按原流程核验，
+失败不回退其他授权方式，具体真实验证仍须负责人逐次亲手点击。
+T186 放宽接口已接入开发代码：计划与有效规则均须允许放宽，逐段保留收敛下限、字节核验及未核验标记。
+Stable 的 relaxed 语法保持现状；自主 policy 原有的 Stable 拒绝不因本次扩展而解除。
+接口接入不启用自主运行；最终组合验证、敏感审阅、非研究试点和负责人显式启用仍须完成，
+不能只凭 `allow_relaxed` 字段获得权限。
+合并前非研究验证矩阵见 [T188](../docs/redesign-tasks/T188-relaxed-gaussian-input.md)。
+
 ## 弛豫扫描与 TS 初猜
 
-Gaussian 的 Cartesian 输入后可使用 `Opt=ModRedundant` 扫描段，B/A/D 为键长、
+默认严格校验下，Gaussian 的 Cartesian 输入后可使用 `Opt=ModRedundant` 扫描段，B/A/D 为键长、
 键角、二面角，F 冻结行照旧；不得与 TS/QST 混用。一条 S 行保持原有 1–50 步、
 摘要、facts 和 `scan-peak` 行为；xTB `$scan` 继续只允许一行（1–100 点）。
 一维行为不变的唯一例外：Gaussian 一维、二维 S 行的步长都必须含小数点，

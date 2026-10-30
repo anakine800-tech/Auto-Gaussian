@@ -3,8 +3,10 @@ from hashlib import sha256
 from datetime import datetime
 from contextlib import nullcontext
 import json
+import os
 from pathlib import Path
 import re
+import stat
 from ag import __version__, cards, crest_input, gaussian_input, journal, render, state, study
 from ag.config import (select_cluster, for_manifest, scheduler_kind, cluster_name,
                        shared_cap_summary, RESOURCE_TIERS, resolve_tier, validate_walltime)
@@ -104,6 +106,81 @@ def all_attempts(cfg, name=None):
     return result
 
 
+RELAXED_RECORD = 'input-validation.json'
+
+
+def _regular_input(path):
+    """No aliases or links may introduce an unreviewed include into a bundle."""
+    path = Path(path).absolute()
+    if '..' in path.parts:
+        raise ValueError('Relaxed inputs and includes must not use parent-directory aliases')
+    directory = None
+    try:
+        flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        directory = os.open(path.anchor, flags)
+        for component in path.parts[1:-1]:
+            child = os.open(component, flags, dir_fd=directory)
+            os.close(directory)
+            directory = child
+        fd = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+    except OSError as exc:
+        raise ValueError('Relaxed input path must contain existing regular directories and no symbolic links') from exc
+    finally:
+        if directory is not None:
+            os.close(directory)
+    with os.fdopen(fd, 'rb') as handle:
+        info = os.fstat(handle.fileno())
+        if not stat.S_ISREG(info.st_mode):
+            raise ValueError('Relaxed inputs and includes must be regular files')
+        from ag.gaussian_relaxed import MAX_BYTES
+        data = handle.read(MAX_BYTES + 1)
+        if len(data) > MAX_BYTES:
+            raise ValueError('Relaxed input or include exceeds the input size limit')
+    return data, (info.st_dev, info.st_ino)
+
+
+def _relaxed_record(name, includes, validation):
+    return json.dumps(dict(main_input=name, attachments=bundle(includes)[0],
+                           input_validation=validation), ensure_ascii=False,
+                      sort_keys=True, allow_nan=False, separators=(',', ':')).encode()
+
+
+def prepared_bundle(files):
+    """Bundle verification order shared with submission audits.
+
+    Legacy bundles keep canonical name order. A relaxed bundle binds its main
+    input in the hashed sidecar and lists it first for existing output readers.
+    The digest itself always uses canonical name order, as before.
+    """
+    records, digest = bundle(files)
+    if RELAXED_RECORD in files:
+        try:
+            record = json.loads(files[RELAXED_RECORD])
+            name = filename(record['main_input'])
+            if (set(record) != {'main_input', 'attachments', 'input_validation'}
+                    or name not in files or Path(name).suffix.lower() != '.gjf'):
+                raise ValueError('Invalid relaxed main input')
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError('Invalid frozen relaxed input record') from exc
+        records.sort(key=lambda r: (r['name'] != name, r['name']))
+    return records, digest
+
+
+def program_input_name(manifest):
+    """Program input identity from an already verified Gaussian manifest.
+
+    Relaxed manifests deliberately put this file first; includes can also have
+    .gjf suffixes, so selecting by extension alone is ambiguous. Call
+    verified_files before using this identity for an action.
+    """
+    if manifest['template'] not in ('gaussian', 'gaussian-cp'):
+        raise ValueError('Gaussian program input identity requires a Gaussian template')
+    names = [r['name'] for r in manifest['inputs'] if r['name'] not in ('job.pbs', 'job.slurm')]
+    if not names or Path(names[0]).suffix.lower() != '.gjf':
+        raise ValueError('Missing Gaussian main input identity')
+    return filename(names[0])
+
+
 def prepare(cfg, *, study_name, autonomous=None, **kwargs):
     """Serialize publication with a new round and enforce the backend writer.
 
@@ -136,7 +213,7 @@ def prepare(cfg, *, study_name, autonomous=None, **kwargs):
         raise
 
 
-def _prepare(cfg, *, study_name, template, input_path, tier=None, walltime, label, params=None, parents=None, method_basis, constraints=None, cluster='default', card=None, parent_chk=None, analysis=None, grid=None, fragments=None, transport=None, target_node=None, node_fraction=None, publication=None):
+def _prepare(cfg, *, study_name, template, input_path, tier=None, walltime, label, params=None, parents=None, method_basis, constraints=None, cluster='default', card=None, parent_chk=None, analysis=None, grid=None, fragments=None, transport=None, target_node=None, node_fraction=None, publication=None, relaxed_input=False, include_files=None):
     from ag import node_targeting
     cfg = select_cluster(cfg, cluster)
     tier = resolve_tier(cfg, tier)
@@ -150,6 +227,18 @@ def _prepare(cfg, *, study_name, template, input_path, tier=None, walltime, labe
         raise ValueError('Initialize the study first')
     study.identifier(label)
     resource = cfg['resources']['tiers'][tier]
+    if type(relaxed_input) is not bool:
+        raise ValueError('relaxed_input must be an explicit boolean')
+    if relaxed_input and template != 'gaussian':
+        raise ValueError('--relaxed-input requires the ordinary gaussian template')
+    if include_files and not relaxed_input:
+        raise ValueError('--include-file requires --relaxed-input')
+    if relaxed_input:
+        from ag.gaussian_relaxed import MAX_ATTACHMENTS
+        if include_files is not None and (not isinstance(include_files, (list, tuple))
+                                          or len(include_files) > MAX_ATTACHMENTS):
+            raise ValueError('Expected a bounded list of explicit include files')
+    includes = {}
     if template != 'multiwfn' and any(v is not None for v in (analysis, grid)):
         raise ValueError('--analysis/--grid require the multiwfn template')
     if fragments is not None and template not in ('multiwfn', 'gaussian-cp'):
@@ -164,7 +253,21 @@ def _prepare(cfg, *, study_name, template, input_path, tier=None, walltime, labe
             raise ValueError('--input is required for this template')
         source = Path(input_path)
         name = filename(source.name)
-        data = source.read_bytes()
+        if relaxed_input:
+            data, identity = _regular_input(source)
+            identities = {identity}
+            for include in include_files or []:
+                extra = Path(include)
+                extra_name = filename(extra.name)
+                if extra_name == name or extra_name in includes:
+                    raise ValueError('Duplicate include basename or main input alias')
+                raw, identity = _regular_input(extra)
+                if identity in identities:
+                    raise ValueError('Include aliases are not allowed')
+                identities.add(identity)
+                includes[extra_name] = raw
+        else:
+            data = source.read_bytes()
     params = dict(params or {})
     if constraints is not None and template not in ('crest', 'xtb'):
         raise ValueError('--constraints is only supported for the crest or xtb template')
@@ -181,7 +284,7 @@ def _prepare(cfg, *, study_name, template, input_path, tier=None, walltime, labe
     cp_fragments = None
     auto_nprocshared = None
     auto_mem = None
-    if template in ('gaussian', 'gaussian-cp'):
+    if template in ('gaussian', 'gaussian-cp') and not relaxed_input:
         data, auto_nprocshared = gaussian_input.fill_nprocshared(data, resource['cores'])
         data, auto_mem = gaussian_input.fill_memory(data, **resource)
     if template == 'multiwfn':
@@ -199,8 +302,13 @@ def _prepare(cfg, *, study_name, template, input_path, tier=None, walltime, labe
     elif template == 'gaussian':
         if source.suffix.lower() != '.gjf':
             raise ValueError('Gaussian input must have .gjf extension')
-        science = gaussian_input.validate(data.decode(), **resource, parent_chk=attachment is not None)
-        if attachment is not None:
+        if relaxed_input:
+            from ag.gaussian_relaxed import validate
+            science, validation = validate(data, **resource, attachments=includes,
+                                           parent_chk=attachment, input_name=name)
+        else:
+            science = gaussian_input.validate(data.decode(), **resource, parent_chk=attachment is not None)
+        if attachment is not None and not relaxed_input:
             from ag.parent_chk import validate_force_constant_frame
             validate_force_constant_frame(cfg, attachment, science)
     else:
@@ -307,7 +415,11 @@ def _prepare(cfg, *, study_name, template, input_path, tier=None, walltime, labe
             m['auto_mem_gb'] = auto_mem
         script = 'job.slurm' if m['scheduler'] == 'slurm' else 'job.pbs'
         files = {**program_files, script: render.render(cfg, m, name).encode()}
-        m['inputs'], m['bundle_sha256'] = bundle(files)
+        if relaxed_input:
+            m['input_validation'] = validation
+            files.update(includes)
+            files[RELAXED_RECORD] = _relaxed_record(name, includes, validation)
+        m['inputs'], m['bundle_sha256'] = (prepared_bundle(files) if relaxed_input else bundle(files))
         path = s / 'attempts' / attempt_id
         path.mkdir()
         (path / 'inputs').mkdir()
@@ -339,9 +451,33 @@ def verified_files(cfg, path, manifest):
         if p.is_symlink() or not p.is_file():
             raise ValueError('Only regular input files are allowed')
         files[filename(p.name)] = p.read_bytes()
-    records, digest = bundle(files)
+    relaxed = 'input_validation' in m or RELAXED_RECORD in files
+    if relaxed:
+        if m['template'] != 'gaussian' or 'input_validation' not in m or RELAXED_RECORD not in files:
+            raise ValueError('Missing or incompatible frozen relaxed input validation')
+        records, digest = prepared_bundle(files)
+        name = records[0]['name']
+    else:
+        records, digest = bundle(files)
     if records != m['inputs'] or digest != m['bundle_sha256']:
         raise ValueError('Input bundle differs from confirmed manifest')
+    if relaxed:
+        includes = {n: raw for n, raw in files.items() if n not in {script, name, RELAXED_RECORD}}
+        if 'parent_chk' in m:
+            from ag.parent_chk import resolve
+            resolve(cfg, m)
+        from ag.gaussian_relaxed import validate
+        science, validation = validate(files[name], **resource, attachments=includes,
+                                       parent_chk=m.get('parent_chk'), input_name=name)
+        if (files[RELAXED_RECORD] != _relaxed_record(name, includes, validation)
+                or json.dumps(m['input_validation'], sort_keys=True) != json.dumps(validation, sort_keys=True)):
+            raise ValueError('Frozen relaxed input validation differs from submitted bytes')
+        expected = dict(science, method_basis=m['science']['method_basis'])
+        if json.dumps(m['science'], sort_keys=True) != json.dumps(expected, sort_keys=True):
+            raise ValueError('Relaxed scientific summary differs from submitted input')
+        if files[script] != render.render(cfg, m, name).encode():
+            raise ValueError('Prepared script differs from current reviewed template/configuration')
+        return files
     if m['template'] == 'multiwfn':
         from ag.nci_report import verify_prepared
         name = verify_prepared(cfg, m, files)
@@ -404,7 +540,7 @@ def verified_files(cfg, path, manifest):
     return files
 
 
-def summary(cfg, m):
+def summary(cfg, m, *, files=None):
     from ag.remote import attempt_dir
     from ag.route import prepare_hint
     hint = prepare_hint(cfg, m)
@@ -424,6 +560,26 @@ def summary(cfg, m):
     if shared_text:
         destination += '\n\n' + shared_text
     geometry = f"```text\n{science['geometry']}\n```\n\n"
+    if 'input_validation' in m:
+        geometry = ('受控放宽输入；方法口径：未核验 (method_verified=false)。\n\n'
+                    'scan-peak 不可用；facts/thermo/profile 可能不支持这些语法，输入接受不构成科学验收。\n\n'
+                    '跳过检查：' + ', '.join(m['input_validation']['skipped_checks']) + '\n\n')
+        for section in science['sections']:
+            geometry += (f"Link1 section {section['index']} | Route: {section['route']}\n\n"
+                         f"Resources: {json.dumps(section['resources'], ensure_ascii=False)}\n\n"
+                         f"Geometry source: {json.dumps(section['geometry_source'], ensure_ascii=False)}\n\n"
+                         f"Charge / multiplicity: {section['charge'] if section['charge'] is not None else 'unknown'} / "
+                         f"{section['multiplicity'] if section['multiplicity'] is not None else 'unknown'}\n\n"
+                         + (f"```text\n{section['geometry']}\n```\n\n" if section['geometry'] is not None
+                            else 'Geometry: checkpoint; coordinates not present in input.\n\n'))
+        # Show all advanced sections as well as the structural preview: omitted
+        # basis/NBO/include bytes would make the method exception unreviewable.
+        if files is None:
+            files = verified_files(cfg, find(cfg, m['attempt_id']), m)
+        for record in m['inputs']:
+            name = record['name']
+            if name not in {'job.pbs', 'job.slurm', RELAXED_RECORD}:
+                geometry += f"Frozen input: {name}\n\n```text\n{files[name].decode()}\n```\n\n"
     if science.get('n_frames') and m['template'] == 'crest':
         geometry = (f"CREST mdopt ensemble: {science['n_frames']} frames; first frame preview below. "
                     "Review every frame in the hashed input XYZ before submission.\n\n" + geometry)
@@ -460,7 +616,8 @@ def summary(cfg, m):
             f"{resource_summary(cfg, m)}\n\n"
             f"{cards.label(m)}\n\nRemote directory: {attempt_dir(cfg, m)}\n\nBundle SHA-256: {m['bundle_sha256']}\n\n"
             f"Method basis: {m['science']['method_basis']}\n\nRoute: {m['science']['route']}\n\n"
-            f"Charge / multiplicity: {m['science']['charge']} / {m['science']['multiplicity']}\n\n"
+            f"Charge / multiplicity: {science['charge'] if science['charge'] is not None else 'unknown'} / "
+            f"{science['multiplicity'] if science['multiplicity'] is not None else 'unknown'}\n\n"
             f"{m['science']['stereochemistry_warning']}\n\n" + geometry + attachment_summary +
             '\n'.join(f"- {r['name']}: {r['sha256']}" for r in m['inputs']) + hint)
 

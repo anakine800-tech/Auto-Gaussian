@@ -221,6 +221,22 @@ def run(args):
         if args.gaussian_ts.resolve() == args.out.resolve():
             raise ValueError('--gaussian-ts and --out must be different new files')
     path = _attempt(args.attempt, args.study)
+    # Facts may happen to parse a relaxed scan as an older supported shape.
+    # The frozen prepare marker remains authoritative; incomplete or altered
+    # validation metadata cannot silently restore strict scan semantics.
+    manifest_path = path / 'manifest.json'
+    if manifest_path.is_symlink():
+        raise ValueError('Scan source manifest must be a regular file')
+    manifest = json.loads(manifest_path.read_text())
+    if not isinstance(manifest, dict):
+        raise ValueError('Invalid scan source manifest')
+    validation_file = path / 'inputs' / 'input-validation.json'
+    declared_validation = any(isinstance(item, dict) and item.get('name') == 'input-validation.json'
+                              for item in manifest.get('inputs', []))
+    if ('input_validation' in manifest or validation_file.exists()
+            or validation_file.is_symlink() or declared_validation):
+        raise ValueError('scan-peak is unavailable for relaxed Gaussian input; '
+                         'the frozen input validation marker requires independent scientific review')
     facts = json.loads((path / 'facts.json').read_text())
     scan = facts.get('scan')
     if not scan or scan.get('geometries') != 'scan_points.xyz':
