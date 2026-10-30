@@ -736,13 +736,13 @@ def test_ladder_config_requires_declared_fields(ladder_config, key):
 
 
 @pytest.mark.parametrize('patch', [
-    {'typo': True}, {'id': '../unsafe'}, {'id': []}, {'cluster': 'missing'},
-    {'classes': []}, {'classes': 'main'}, {'classes': ['main', 'main']},
+    {'typo': True}, {'id': ''}, {'id': []}, {'cluster': 'missing'},
+    {'classes': []}, {'classes': 'main'},
     {'classes': ['unknown']}, {'classes': [True]}, {'classes': [[]]},
     {'tier': 'unconfigured'}, {'tier': 'ultra'}, {'tier': []},
     {'condition': 'typo'}, {'max_placements': 0}, {'max_placements': 3},
     {'max_placements': True}, {'max_placements': 1.0},
-    {'min_free_cores': 21}, {'min_free_cores': True}, {'min_free_cores': None},
+    {'min_free_cores': -1}, {'min_free_cores': True}, {'min_free_cores': None},
     {'max_jobs': 4}, {'nodes': ['compute-a']}, {'node_fraction': '1/2'},
 ])
 def test_ladder_config_rejects_unsafe_cell_values(ladder_config, patch):

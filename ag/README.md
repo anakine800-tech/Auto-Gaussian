@@ -51,11 +51,11 @@ request 包含 study_key、study_id、template、job_class、walltime、round_id
 这些是选择器输入，不是新增授权记录；后续适配必须从不可变文件与重放事件构造，并核对选择与 manifest 资源一致。
 
 `select_ladder(..., evaluate_from=None)` 可对已核验原 reservation 评估更优候选；可选字典只接受
-`study_key`、`attempt_id`、`record_sha256` 三项，规范化前须恰好匹配一条原记录且哈希一致。
+`study_key`、`attempt_id`、`record_sha256` 三项，等价读取/共享别名去重后须恰好匹配一条原绑定且哈希一致；冲突或多个物理绑定仍拒绝。
 原格子由 T186 的不可变 recommendation 填入 placement，cell、节点、资源和配置身份须一致；不能调用 `exclude_ownership` 删除原记录。
 仅这条确切来源豁免“同对象已放置”的快捷拒绝，原占用继续参与全部核数、名额和节点容量检查，其他同对象记录仍按原规则阻断。
 候选必须与来源不同 cell 且严格更优，复用 main/small 现有排序；省略参数时原行为和输入哈希不变。
-结果带 `evaluation_only=True` 及 `evaluate_from`，仅供评估。T186 薄适配须独立透传该参数，普通 reservation 消费必须拒绝评估结果；T187 复用此结果，不复制选格算法。
+结果带 `evaluation_only=True` 及 `evaluate_from`，仅供评估；首个组合不启用取消、停止核验、后继或改投入口，不等待 T187。后续接入评估时，薄适配须独立透传该参数，普通 reservation 消费必须拒绝评估结果；T187 复用此结果，不复制选格算法。
 T187 仍须核验立即可运行、从未运行且排队至少六小时、无 chk 依赖、归属与租约、取消次数及消费等改投资格；本接口不授权取消或再提交，也不新增 CLI 参数、警告界面或真实操作。
 
 两份半节点任务通过首次选格的完整输入重放同一算法，确认批次起点满足全部选格条件，再逐次核对当前剩余容量；

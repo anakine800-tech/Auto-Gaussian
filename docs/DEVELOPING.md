@@ -78,8 +78,8 @@ SCNet 类末级运行加排队最多 4 个、兜底排队最多 2 个，按全�
 适配按共享账号及确切作业身份去重，未观测到的本地预留及 UNKNOWN 占用不得释放；不能核实则拒绝。T186 负责跨配置目录的共同注册与共同锁，并在共同锁内重新收集、核验和复算；现有配置目录内的 submit.lock 不够，换配置、study、round 或唤醒租约不能取得额外名额。
 `batch_inputs` 保存首次选格的完整输入，用同一算法重放全部条件，不能仅凭原始空闲快照证明批次合格。
 两份半节点位置在重放验证后，再以当前单节点剩余容量核对，避免首份读回导致第二份被误跳过，或外来占用后仍误放行。
-`select_ladder` 的可选 `evaluate_from` 只含 study_key/attempt_id/record_sha256，调用方先核验原 reservation；规范化前须唯一匹配来源且哈希一致，原 cell/节点/资源/配置由 T186 不可变 recommendation 绑定。不得用 `exclude_ownership` 移除来源占用；仅精确来源豁免同对象快捷拒绝，其他占用及同对象阻断保留。
-评估候选须不同 cell 且按原 main/small 排序严格更优；默认调用及哈希不变。评估结果带 `evaluation_only=True` 和 `evaluate_from`，T186 薄适配独立透传参数并在普通 reservation 消费时拒绝此类结果，T187 复用同一算法后另核验立即运行、从未运行且排队六小时、无 chk、归属租约及取消消费等条件。此扩展无新 CLI 参数或警告界面，不执行真实操作。
+`select_ladder` 的可选 `evaluate_from` 只含 study_key/attempt_id/record_sha256，调用方先核验原 reservation；等价读取/共享别名去重后须唯一匹配原绑定且哈希一致，冲突或多个物理绑定仍拒绝，原 cell/节点/资源/配置由 T186 不可变 recommendation 绑定。不得用 `exclude_ownership` 移除来源占用；仅精确来源豁免同对象快捷拒绝，其他占用及同对象阻断保留。
+评估候选须不同 cell 且按原 main/small 排序严格更优；默认调用及哈希不变。评估结果带 `evaluation_only=True` 和 `evaluate_from`；首个组合不启用取消、停止核验、后继或改投入口，不等待 T187。后续接入评估时，薄适配独立透传参数并在普通 reservation 消费时拒绝此类结果，T187 复用同一算法后另核验立即运行、从未运行且排队六小时、无 chk、归属租约及取消消费等条件。此扩展无新 CLI 参数或警告界面，不执行真实操作。
 条件、能力过滤与真实验证缺口见 [CLI 说明](../ag/README.md#提交阶梯与整节点t185)；本单没有提交授权接线或现场验证证据。
 
 ## 自主运行的实现边界

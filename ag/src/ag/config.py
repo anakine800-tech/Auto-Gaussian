@@ -143,7 +143,9 @@ def validate_ladder(cfg, ladder):
             if (not isinstance(cell, dict) or not required <= set(cell)
                     or set(cell) - required - optional):
                 raise ConfigError('Invalid routing.ladder cell fields')
-            cell_id = cluster_name(cell['id'])
+            cell_id = cell['id']
+            if not isinstance(cell_id, str) or not cell_id:
+                raise ConfigError('routing.ladder cell IDs must be nonempty strings')
             if cell_id in ids:
                 raise ConfigError('routing.ladder cell IDs must be unique')
             ids.add(cell_id)
@@ -153,8 +155,8 @@ def validate_ladder(cfg, ladder):
             classes = cell['classes']
             if (not isinstance(classes, list) or not classes
                     or any(not isinstance(c, str) for c in classes)
-                    or len(classes) != len(set(classes)) or set(classes) - {'main', 'small'}):
-                raise ConfigError('routing.ladder classes must be unique main/small values')
+                    or set(classes) - {'main', 'small'}):
+                raise ConfigError('routing.ladder classes must contain only main/small values')
             selected = entries[name]
             tier = cell['tier']
             if not isinstance(tier, str) or tier not in RESOURCE_TIERS:
@@ -170,14 +172,16 @@ def validate_ladder(cfg, ladder):
             if condition not in ('empty', 'free', 'jobs', 'queue'):
                 raise ConfigError('Invalid routing.ladder condition')
             maximum = cell['max_placements']
-            if type(maximum) is not int or not 1 <= maximum <= 2:
-                raise ConfigError('routing.ladder max_placements must be 1 or 2')
+            if type(maximum) is not int or maximum < 1:
+                raise ConfigError('routing.ladder max_placements must be a positive integer')
+            if 'main' in classes and maximum > 2:
+                raise ConfigError('routing.ladder main-system cells place at most two jobs')
             if condition in ('jobs', 'queue') and maximum != 1:
                 raise ConfigError('routing.ladder jobs/queue cells place at most one job')
             if condition == 'free':
                 value = cell.get('min_free_cores')
-                if type(value) is not int or value < resource['cores']:
-                    raise ConfigError('routing.ladder min_free_cores must cover the selected tier')
+                if type(value) is not int or value < 0:
+                    raise ConfigError('routing.ladder min_free_cores must be a nonnegative integer')
             elif 'min_free_cores' in cell:
                 raise ConfigError('routing.ladder min_free_cores is only valid for free cells')
             if condition == 'jobs':

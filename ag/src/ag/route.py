@@ -449,16 +449,16 @@ def select_ladder(cfg, snapshots, *, template, job_class, walltime, study_key, s
         _study_identity(record['study_key'], record['study_id'], study_names)
     # Validate every supplied wakeup even when no waiting qualification is
     # requested, so a missing locator never silently becomes a name match.
-    seen_runs = set()
+    seen_runs = {}
     for wake in wakeups:
         _study_identity(wake['study_key'], wake['study_id'], study_names)
         for field in ('round_id', 'run_id', 'object_id'):
             identifier(wake[field])
-        _timestamp(wake['started_at'])
+        start = _timestamp(wake['started_at'])
         identity = tuple(wake[k] for k in ('study_key', 'round_id', 'run_id', 'object_id'))
-        if identity in seen_runs:
-            raise ValueError('Duplicate wakeup identity')
-        seen_runs.add(identity)
+        if identity in seen_runs and seen_runs[identity] != start:
+            raise ValueError('Conflicting wakeup identity')
+        seen_runs[identity] = start
     batch_inputs = batch_inputs or {}
     cells = cfg.get('routing', {}).get('ladder')
     if not cells:
@@ -473,14 +473,13 @@ def select_ladder(cfg, snapshots, *, template, job_class, walltime, study_key, s
         if (evaluate_from['study_key'] != study_key or not isinstance(digest, str)
                 or len(digest) != 64 or any(c not in '0123456789abcdef' for c in digest)):
             raise ValueError('Invalid evaluation source identity')
-        # Check before normalization: even duplicate reads of this exact
-        # source are ambiguous for the requested one-record exemption.
-        matches = [p for p in placements if p['study_key'] == study_key
+        # Equivalent reads/aliases already collapse to one physical binding;
+        # multiple distinct bindings must never receive one source exemption.
+        matches = [p for p in records if p['study_key'] == study_key
                    and p['attempt_id'] == evaluate_from['attempt_id']]
         if len(matches) != 1:
             raise ValueError('Evaluation source must match exactly one original placement')
-        evaluation_source = next(p for p in records if p['study_key'] == study_key
-                                 and p['attempt_id'] == evaluate_from['attempt_id'])
+        evaluation_source = matches[0]
         if (evaluation_source['record_sha256'] != digest or evaluation_source.get('round_id') != round_id
                 or evaluation_source.get('object_id') != object_id or evaluation_source.get('run_id') is None
                 or evaluation_source.get('config_sha256') != config_hash):

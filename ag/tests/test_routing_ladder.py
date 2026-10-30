@@ -148,6 +148,33 @@ def observe(snaps, p, *, running=True, entry=None):
             n['state'] = 'mixed'
 
 
+@pytest.mark.parametrize('shortage', ['cpu', 'memory'])
+def test_relaxed_ladder_labels_and_thresholds_still_require_full_capacity(ladder, shortage):
+    raw, snaps = ladder
+    raw['routing']['ladder'] = [cell('free: position / ' + 'x'*70, 'default', 'max',
+        classes=['main', 'main'], condition='free', min_free_cores=0)]
+    config.validate_routing(raw)
+    assert selected(choose(ladder))
+    n = snaps['default']['cluster']['nodes'][0]
+    if shortage == 'cpu':
+        n['cores_used'] = 1
+    else:
+        n['mem_assigned_bytes'] = 1
+    assert selected(choose(ladder)) is None  # The full 44-core/88-GB request must fit.
+
+
+def test_small_four_place_batch_uses_real_remaining_capacity(ladder):
+    raw, _ = ladder
+    raw['routing']['ladder'] = [cell('quarters', tier='general', nodes=['alpha'],
+        classes=['small'], condition='free', min_free_cores=0, node_fraction='1/4', max_placements=4)]
+    config.validate_routing(raw)
+    ps = [placement(ladder, aid='quarter-'+str(i), job=str(i+1), cores=24, cid='quarters')
+          for i in range(4)]
+    choice = selected(choose(ladder, job_class='small', placements=ps[:3]))
+    assert choice and choice['capacity']['cores_available'] == 24
+    assert selected(choose(ladder, job_class='small', placements=ps)) is None
+
+
 def test_each_main_cell_can_be_selected(ladder):
     raw, _ = ladder
     all_cells = deepcopy(raw['routing']['ladder'])
@@ -295,8 +322,10 @@ def test_jobs_need_actual_waiting_event_and_count_all_active_autonomous_records(
                     cores=44, cid='batch-jobs') for i in range(4)]
     assert selected(choose(ladder, placements=ps[:3], **kw))
     assert selected(choose(ladder, placements=ps, **kw)) is None
-    with pytest.raises(ValueError, match='Duplicate wakeup'):
-        choose(ladder, wakeups=wakes+wakes, waiting_since=wait)
+    assert selected(choose(ladder, wakeups=wakes+wakes, waiting_since=wait))['cell_id'] == 'batch-jobs'
+    conflicting = dict(wakes[0], started_at=(NOW-timedelta(hours=4)).isoformat())
+    with pytest.raises(ValueError, match='Conflicting wakeup'):
+        choose(ladder, wakeups=[conflicting, *wakes], waiting_since=wait)
 
 
 def test_fallback_one_per_physical_resource_and_two_global(ladder):
@@ -899,8 +928,8 @@ def test_evaluation_requires_exact_source_reference(reevaluation, kind):
         choose(ladder, placements=records, evaluate_from=ref)
 
 
-@pytest.mark.parametrize('kind', ['exact-duplicate', 'alias-duplicate', 'conflict'])
-def test_evaluation_source_is_unique_before_alias_normalization(reevaluation, kind):
+@pytest.mark.parametrize('kind', ['exact-duplicate', 'alias-duplicate', 'conflict', 'distinct-binding'])
+def test_evaluation_source_is_unique_after_verified_alias_normalization(reevaluation, kind):
     ladder, source = reevaluation
     raw, snaps = ladder
     if kind == 'alias-duplicate':
@@ -909,10 +938,17 @@ def test_evaluation_source_is_unique_before_alias_normalization(reevaluation, ki
         snaps['pool-peer']['cluster']['name'] = 'pool-peer'
         source = evaluation_source(ladder)
         other = dict(source, cluster='pool-peer', job_id='pool-peer:1')
+    elif kind == 'distinct-binding':
+        other = dict(source, cluster='default', job_id='default:2')
     else:
         other = dict(source, **({'mem_gb': 1} if kind == 'conflict' else {}))
-    with pytest.raises(ValueError):
-        choose(ladder, placements=[source, other], evaluate_from=evaluation_reference(source))
+    if kind in ('conflict', 'distinct-binding'):
+        with pytest.raises(ValueError):
+            choose(ladder, placements=[source, other], evaluate_from=evaluation_reference(source))
+    else:
+        one = choose(ladder, placements=[source], evaluate_from=evaluation_reference(source))
+        repeated = choose(ladder, placements=[source, other], evaluate_from=evaluation_reference(source))
+        assert repeated == one
 
 
 @pytest.mark.parametrize('run,reason', [('run-a', 'object_already_placed_in_run'),
