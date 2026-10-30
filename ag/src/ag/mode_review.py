@@ -4,11 +4,12 @@ Arithmetic adapted from create_mode_review in
 archive/skills/auto-g16-ts-irc/scripts/ts_irc.py; no archive imports.
 """
 
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import ExitStack, redirect_stderr, redirect_stdout
 from hashlib import sha256
 import io
 import json
 import math
+import os
 from pathlib import Path
 import re
 import sys
@@ -16,6 +17,8 @@ import sys
 from ag import __version__
 from ag import _parse_outputs as outputs
 from ag.facts import ag_provenance, gaussian_log
+from ag.facts import (_publication_recheck, _local_review_write, _attempt_publication_sources,
+                      _publication_pin, _publication_unchanged, _publication_stage)
 from ag.study import identifier, local_path
 
 
@@ -203,10 +206,25 @@ def read_modes(block):
     return elements, coords, data.vibfreqs, data.vibdisps, orientation.lower()
 
 
-def create(attempt, study, pairs, out, mode=1, amplitude=0.3):
+def create(attempt, study, pairs, out, mode=1, amplitude=0.3, *,
+           run_id=None, token=None, plan_sha256=None):
     root = Path(study).expanduser().absolute()
     root = local_path(root, root)
     directory = local_path(root, root / 'attempts' / identifier(attempt))
+    with _local_review_write(root, run_id=run_id, token=token,
+                             plan_sha256=plan_sha256) as publication, ExitStack() as sources:
+        verify = _attempt_publication_sources(directory, sources)
+        target = Path(out).expanduser()
+        if not target.is_absolute():
+            target = root / target
+        target = local_path(root / 'analyses', target)
+        parents = [_publication_pin(p, sources) for p in
+                   (target.parent, *target.parent.parents) if p.is_relative_to(root)]
+        return _create(attempt, root, directory, pairs, target, mode, amplitude,
+                       publication, verify, parents)
+
+
+def _create(attempt, root, directory, pairs, out, mode, amplitude, publication, verify, parents):
     manifest = json.loads(local_path(root, directory / 'manifest.json').read_text())
     if manifest.get('template') != 'gaussian':
         raise ValueError('mode-review requires a Gaussian Attempt')
@@ -237,20 +255,32 @@ def create(attempt, study, pairs, out, mode=1, amplitude=0.3):
         return (f'{len(elements)}\n{comment}\n' + ''.join(
             f'{element:2s} {x: .10f} {y: .10f} {z: .10f}\n'
             for element, (x, y, z) in zip(elements, coordinates)))
-    # Reserve every output with O_EXCL before writing any payload. A collision
-    # never replaces bytes; partial newly reserved files are kept on failure.
-    from contextlib import ExitStack
+    # Payload IO and fsync precede the shared guard. Exclusive links never
+    # replace bytes; a partial set and its stages remain inspectable on failure.
+    payloads = (content, xyz(plus, '+'), xyz(minus, '-'))
+    staged = []
     with ExitStack() as stack:
-        handles = [stack.enter_context(path.open('x', encoding='utf-8')) for path in paths]
-        for handle, payload in zip(handles, (content, xyz(plus, '+'), xyz(minus, '-'))):
-            handle.write(payload)
+        prepared = [_publication_stage(target.parent, payload.encode('utf-8'), stack, staged,
+                                       prefix='.mode-review-stage-') for payload in payloads]
+        with publication() as recheck:
+            verify()
+            for proof in parents + [proof for _, proof in prepared]:
+                _publication_unchanged(proof)
+            for path in paths:
+                local_path(root / 'analyses', path)
+            _publication_recheck(recheck)
+            for (temporary, _), path in zip(prepared, paths):
+                os.link(temporary, path, follow_symlinks=False)
+    for temporary in staged:
+        temporary.unlink()
     return report
 
 
 def run(args):
     try:
         result = create(args.attempt, args.study, [pair_argument(pair) for pair in args.pair],
-                        args.out, args.mode, args.amplitude)
+                        args.out, args.mode, args.amplitude, run_id=args.run,
+                        token=args.token, plan_sha256=args.plan_sha256)
     except ImportError as exc:
         print(f'mode-review chemistry dependency unavailable: {exc}', file=sys.stderr)
         return 2
@@ -276,4 +306,7 @@ def register(subparsers):
     parser.add_argument('--amplitude', type=float, default=0.3, help='Maximum atomic Cartesian displacement in angstrom')
     parser.add_argument('--out', type=Path, required=True, help='New JSON under analyses/; relative to study')
     parser.add_argument('--json', action='store_true')
+    parser.add_argument('--run', help='Current autonomous review wake')
+    parser.add_argument('--token', help='Current owner lease token')
+    parser.add_argument('--plan-sha256', help='Confirmed plan hash')
     parser.set_defaults(func=run)

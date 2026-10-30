@@ -1,6 +1,7 @@
 """Hand-built geometries/vectors only; no real logs or research fixtures."""
 from hashlib import sha256
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -253,31 +254,31 @@ def test_output_symlink_refused(study, side):
 
 def test_each_output_is_exclusively_created(sections, study, monkeypatch):
     root, attempt = study
-    opened = []
-    original = Path.open
-    def capture(path, mode='r', *a, **kw):
-        if path.parent == root / 'analyses':
-            opened.append((path.name, mode))
-        return original(path, mode, *a, **kw)
-    monkeypatch.setattr(Path, 'open', capture)
+    linked = []
+    original = os.link
+    def capture(source, target, **kw):
+        linked.append((target.name, kw))
+        return original(source, target, **kw)
+    monkeypatch.setattr(os, 'link', capture)
     mr.create(attempt.name, root, [(1, 2)], 'analyses/check.json')
-    assert opened == [('check.json', 'x'), ('check.plus.xyz', 'x'), ('check.minus.xyz', 'x')]
+    assert linked == [(name, {'follow_symlinks': False}) for name in
+                      ('check.json', 'check.plus.xyz', 'check.minus.xyz')]
 
 
 def test_creation_race_cannot_replace_existing_bytes(sections, study, monkeypatch):
     root, attempt = study
-    original = Path.open
+    original = os.link
     target = root / 'analyses/check.plus.xyz'
-    def race(path, mode='r', *a, **kw):
-        if path == target and mode == 'x':
-            with original(target, 'x') as handle:
-                handle.write('concurrent writer')
-        return original(path, mode, *a, **kw)
-    monkeypatch.setattr(Path, 'open', race)
+    def race(source, destination, **kw):
+        if destination == target:
+            target.write_text('concurrent writer')
+        return original(source, destination, **kw)
+    monkeypatch.setattr(os, 'link', race)
     with pytest.raises(FileExistsError):
         mr.create(attempt.name, root, [(1, 2)], 'analyses/check.json')
     assert target.read_text() == 'concurrent writer'
-    assert (root / 'analyses/check.json').read_bytes() == b''
+    assert json.loads((root / 'analyses/check.json').read_bytes())['attempt'] == attempt.name
+    assert len(list((root / 'analyses').glob('.mode-review-stage-*'))) == 3
 
 
 @pytest.mark.parametrize('change', ['pair', 'frequency', 'orientation', 'program'])

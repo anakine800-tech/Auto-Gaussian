@@ -2687,7 +2687,7 @@ def test_facts_large_payload_io_finishes_before_publication(env, cfg, prepared, 
     seen = _watch_large_publication_io(monkeypatch, inside)
     result = facts.build_facts(path, refresh=mode == 'refresh', publication=publication)
     assert result['n_atoms'] == 3 and entered == [True]
-    assert ('read' in seen) == (mode != 'new')
+    assert 'read' in seen  # New candidates are read back before the short guard too.
     assert ('write' in seen) == (mode != 'same')
     if mode == 'same':
         assert target.read_bytes() == old and target.stat().st_mtime_ns == old_mtime
