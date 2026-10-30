@@ -221,9 +221,10 @@ def validate_approval(cfg):
     from ag.study import identifier
     try:
         section = cfg['approval']
-        if not isinstance(section, dict) or set(section) != {'policies'}:
-            raise ValueError('Expected approval.policies table')
-        policies = section['policies']
+        if (not isinstance(section, dict) or not section
+                or set(section) - {'policies', 'autonomous_policies'}):
+            raise ValueError('Expected approval.policies or approval.autonomous_policies table')
+        policies = section.get('policies', {})
         if not isinstance(policies, dict):
             raise ValueError('Expected approval.policies table')
         for name, policy in policies.items():
@@ -245,6 +246,9 @@ def validate_approval(cfg):
             if not isinstance(policy['quote'], str) or not policy['quote'].strip():
                 raise ValueError('Policy quote must not be empty')
             timestamp(policy['set_at'])
+        if 'autonomous_policies' in section:
+            from ag.autonomy_policy import validate_policies
+            validate_policies(section['autonomous_policies'])
     except (ValueError, TypeError, KeyError) as exc:
         raise ConfigError(f'Invalid approval configuration: {exc}') from exc
 

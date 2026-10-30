@@ -1,6 +1,7 @@
 """Immutable preparation and file-bound Attempt lookup."""
 from hashlib import sha256
 from datetime import datetime
+from contextlib import nullcontext
 import json
 from pathlib import Path
 import re
@@ -103,7 +104,39 @@ def all_attempts(cfg, name=None):
     return result
 
 
-def prepare(cfg, *, study_name, template, input_path, tier=None, walltime, label, params=None, parents=None, method_basis, constraints=None, cluster='default', card=None, parent_chk=None, analysis=None, grid=None, fragments=None, transport=None, target_node=None, node_fraction=None):
+def prepare(cfg, *, study_name, autonomous=None, **kwargs):
+    """Serialize publication with a new round and enforce the backend writer.
+
+    A durable manual writer is kept through the operation; neither the machine
+    mutex nor the study mutex spans a CREST installation query.
+    All existing callers pass through this boundary, including the frontend.
+    """
+    from ag import autonomy
+    if autonomous is None:
+        with autonomy.manual_write_guard(cfg, study_name, action='prepare'):
+            return _prepare(cfg, study_name=study_name, **kwargs)
+    from ag.submit import prepare_autonomous, WaitingForRoute, check_autonomous_retry, report_autonomous_transport
+    from ag.transport import TransportError
+    autonomous = dict(autonomous) if isinstance(autonomous, dict) else autonomous
+    try:
+        check_autonomous_retry(cfg, study_name, autonomous)
+        return prepare_autonomous(cfg, study_name=study_name, context=autonomous, options=kwargs)
+    except (WaitingForRoute, autonomy.PresubmitDeferred):
+        raise
+    except autonomy.ObjectRefused as exc:
+        autonomy.object_refused(cfg, study_name, autonomous.get('run_id'), autonomous.get('token'),
+                                autonomous.get('object_id'), str(exc))
+        raise
+    except TransportError as exc:
+        report_autonomous_transport(cfg, study_name, autonomous, exc)
+        raise
+    except (ValueError, OSError):
+        autonomy.pause_if_current_owner(cfg, study_name, autonomous.get('run_id'), autonomous.get('token'),
+            'Autonomous preparation stopped; review retained evidence')
+        raise
+
+
+def _prepare(cfg, *, study_name, template, input_path, tier=None, walltime, label, params=None, parents=None, method_basis, constraints=None, cluster='default', card=None, parent_chk=None, analysis=None, grid=None, fragments=None, transport=None, target_node=None, node_fraction=None, publication=None):
     from ag import node_targeting
     cfg = select_cluster(cfg, cluster)
     tier = resolve_tier(cfg, tier)
@@ -240,51 +273,53 @@ def prepare(cfg, *, study_name, template, input_path, tier=None, walltime, label
         # read-only executable check and never uses upload or write commands.
         checker = transport if transport is not None else SSHTransport(cfg, read_only=False)
         require_ok(checker.run(executable(crest_executable(cfg['programs']))), 'crest executable')
-    # O_EXCL reserves the numeric sequence, even with concurrent different labels.
-    for number in range(1, 1000):
-        try:
-            claim(s / 'attempts' / f'.sequence-{number:03}')
-            break
-        except FileExistsError:
-            continue
-    else:
-        raise ValueError('Study sequence exhausted')
-    attempt_id = f'{s.name}-{number:03}-{label}'
-    study.identifier(attempt_id)
-    m = dict(schema='ag-attempt/1', cluster=cluster, scheduler=scheduler_kind(cfg), attempt_id=attempt_id, study_id=s.name, label=label,
-             template=template, template_params=params, tier=tier, **resource, walltime=walltime,
-             pbs_job_name='ag' + sha256(attempt_id.encode()).hexdigest()[:12],
-             remote_dir=f'{s.name}/{attempt_id}', parents=parents, created_at=journal.now(),
-             ag_version=__version__, card=card_record, completion_receipts=True, science={**science, 'method_basis': method_basis})
-    if template == 'crest':
-        m['crest_output_set'] = 'diagnostics-v1'
-    if binding is not None:
-        m['node_target'] = binding
-    if attachment is not None:
-        m['parent_chk'] = attachment
-    if auto_nprocshared is not None:
-        m['auto_nprocshared'] = auto_nprocshared
-    if auto_mem is not None:
-        m['auto_mem_gb'] = auto_mem
-    script = 'job.slurm' if m['scheduler'] == 'slurm' else 'job.pbs'
-    files = {**(nci_files or {name: data}), script: render.render(cfg, m, name).encode()}
+    program_files = dict(nci_files or {name: data})
     if cp_fragments is not None:
-        files[name + '.fragments.csv'] = cp_fragments
+        program_files[name + '.fragments.csv'] = cp_fragments
     if constraint_data is not None:
-        files['constraints.inp'] = constraint_data
-    m['inputs'], m['bundle_sha256'] = bundle(files)
-    path = s / 'attempts' / attempt_id
-    path.mkdir()
-    (path / 'inputs').mkdir()
-    (path / 'outputs').mkdir()
-    for n, content in files.items():
-        with (path / 'inputs' / n).open('xb') as handle:
-            handle.write(content)
-    with (path / 'manifest.json').open('x') as handle:
-        json.dump(m, handle, indent=2, ensure_ascii=False)
-    state.write(path, 'prepared', initial=True)
-    journal.append(s, 'prepare', attempt_id, detail={'bundle_sha256': m['bundle_sha256']})
-    return m
+        program_files['constraints.inp'] = constraint_data
+    with publication() if publication is not None else nullcontext():
+        # O_EXCL reserves the numeric sequence, even with concurrent different labels.
+        for number in range(1, 1000):
+            try:
+                claim(s / 'attempts' / f'.sequence-{number:03}')
+                break
+            except FileExistsError:
+                continue
+        else:
+            raise ValueError('Study sequence exhausted')
+        attempt_id = f'{s.name}-{number:03}-{label}'
+        study.identifier(attempt_id)
+        m = dict(schema='ag-attempt/1', cluster=cluster, scheduler=scheduler_kind(cfg), attempt_id=attempt_id, study_id=s.name, label=label,
+                 template=template, template_params=params, tier=tier, **resource, walltime=walltime,
+                 pbs_job_name='ag' + sha256(attempt_id.encode()).hexdigest()[:12],
+                 remote_dir=f'{s.name}/{attempt_id}', parents=parents, created_at=journal.now(),
+                 ag_version=__version__, card=card_record, completion_receipts=True, science={**science, 'method_basis': method_basis})
+        if template == 'crest':
+            m['crest_output_set'] = 'diagnostics-v1'
+        if binding is not None:
+            m['node_target'] = binding
+        if attachment is not None:
+            m['parent_chk'] = attachment
+        if auto_nprocshared is not None:
+            m['auto_nprocshared'] = auto_nprocshared
+        if auto_mem is not None:
+            m['auto_mem_gb'] = auto_mem
+        script = 'job.slurm' if m['scheduler'] == 'slurm' else 'job.pbs'
+        files = {**program_files, script: render.render(cfg, m, name).encode()}
+        m['inputs'], m['bundle_sha256'] = bundle(files)
+        path = s / 'attempts' / attempt_id
+        path.mkdir()
+        (path / 'inputs').mkdir()
+        (path / 'outputs').mkdir()
+        for n, content in files.items():
+            with (path / 'inputs' / n).open('xb') as handle:
+                handle.write(content)
+        with (path / 'manifest.json').open('x') as handle:
+            json.dump(m, handle, indent=2, ensure_ascii=False)
+        state.write(path, 'prepared', initial=True)
+        journal.append(s, 'prepare', attempt_id, detail={'bundle_sha256': m['bundle_sha256']})
+        return m
 
 
 def verified_files(cfg, path, manifest):

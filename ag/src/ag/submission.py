@@ -29,7 +29,7 @@ def raw_job(manifest, value):
     return validate(value)
 
 
-def record(path, manifest, job, *, scheduler_cluster=None, authorization=None):
+def record(path, manifest, job, *, scheduler_cluster=None, authorization=None, autonomy_state=None):
     value = dict(schema='ag-submission/1', attempt_id=manifest['attempt_id'],
                  cluster=manifest.get('cluster', 'default'), job_id=qualified(manifest, job),
                  manifest_sha256=sha256((path / 'manifest.json').read_bytes()).hexdigest(),
@@ -43,9 +43,14 @@ def record(path, manifest, job, *, scheduler_cluster=None, authorization=None):
                 or summary.get('attempt_id') != value['attempt_id']
                 or summary.get('manifest_sha256') != value['manifest_sha256']
                 or not isinstance(summary.get('authorization'), dict)
-                or summary['authorization'].get('method') not in ('approval', 'policy', 'dialog')):
+                or summary['authorization'].get('method') not in ('approval', 'policy', 'dialog', 'autonomy-policy')):
             raise ValueError('Invalid archived submission authorization')
         authorization = summary['authorization']
+    if authorization is not None and authorization.get('method') == 'autonomy-policy':
+        from ag.autonomy_submission import verified_authorization
+        # Read-only scheduler recovery may bind a late reply, but cannot invent
+        # ownership or consume another authorization after UNKNOWN.
+        authorization = verified_authorization(path, authorization, verified_state=autonomy_state)
     if authorization is not None:
         value['authorization'] = authorization
     target = study.local_path(path.parent.parent, path / 'submission.json')
@@ -55,6 +60,9 @@ def record(path, manifest, job, *, scheduler_cluster=None, authorization=None):
             raise ValueError('Submission manifest identity mismatch')
         if authorization is not None and existing.get('authorization') != authorization:
             raise ValueError('Submission authorization mismatch')
+        if (existing.get('scheduler_cluster') is not None and scheduler_cluster is not None
+                and existing['scheduler_cluster'] != scheduler_cluster):
+            raise ValueError('Submission scheduler cluster mismatch')
         return existing
     # O_EXCL prevents racing writers from assigning two identities. A partial
     # record fails closed; it is never replaced or automatically repaired.

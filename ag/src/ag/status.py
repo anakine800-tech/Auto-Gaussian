@@ -1,9 +1,10 @@
 """Read-only scheduler observations and conservative unknown reconciliation."""
+from contextlib import contextmanager, nullcontext
 import re
 import json
 import time
 from datetime import datetime, timezone
-from ag import attempt, journal, remote, state, slurm, submission, budget
+from ag import attempt, journal, remote, state, slurm, submission, budget, study
 from ag.config import for_manifest, scheduler_kind
 from ag.transport import bound_transport
 from ag.transport import require_ok, TransportError
@@ -169,40 +170,131 @@ def scheduler_absent(result):
         result.stderr.strip() or result.stdout.strip(), flags=re.IGNORECASE))
 
 
-def check(cfg, path, transport):
+def _publication_scope(path, current, publication):
+    """Defer autonomous local writes until a fresh publication qualification."""
+    pending_query = publication is not None
+    pending_unknown = current['state'] == 'submitting'
+    queried_state = current['state']
+    expected = current
+    note = 'Interrupted submission; read-only reconciliation required'
+    if publication is None:
+        journal.append(path.parent.parent, 'status', path.name, 'query', queried_state)
+        if pending_unknown:
+            if state.read(path) != expected:
+                raise ValueError('Attempt state changed during observation; refresh required')
+            current = state.write(path, 'unknown', note=note)
+            expected = current
+        pending_unknown = False
+    elif pending_unknown:
+        current = {**current, 'state': 'unknown', 'note': note}
+
+    @contextmanager
+    def publish():
+        nonlocal pending_query, pending_unknown, expected
+        with publication() if publication is not None else nullcontext() as autonomy_state:
+            if state.read(path) != expected:
+                raise ValueError('Attempt state changed during observation; refresh required')
+            if pending_query:
+                journal.append(path.parent.parent, 'status', path.name, 'query', queried_state)
+                pending_query = False
+            if pending_unknown:
+                state.write(path, 'unknown', note=note)
+                pending_unknown = False
+            yield autonomy_state
+            expected = state.read(path)
+    return current, publish
+
+
+def _collect_unknown_absence(path):
+    """Request existing receipt reads only for the new autonomous workflow.
+
+    This marker grants no resolution authority: the local resolver separately
+    verifies immutable ownership, consumption and the recorded observation.
+    """
+    target = study.local_path(path.parent.parent, path / 'submission-summary.json')
+    if not target.exists():
+        return False
+    value = json.loads(target.read_text())
+    return isinstance(value, dict) and isinstance(value.get('authorization'), dict) and (
+        value['authorization'].get('method') == 'autonomy-policy')
+
+
+def _unknown_account(cfg):
+    from ag.config import ssh_identity
+    identity = ssh_identity(cfg)
+    if identity is None:
+        raise ValueError('Cannot identify UNKNOWN observation scheduler/account')
+    return identity
+
+
+def _unknown_absence(cfg, manifest, transport, matches, username, identity):
+    from ag import approval
+    if matches:
+        return None
+    if identity[2] != username:
+        raise ValueError('UNKNOWN observation scheduler/account identity differs')
+    raw = require_ok(transport.run(remote.receipt(cfg, manifest, 'ag-start.json')),
+                     'unknown start receipt observation')
+    if raw != 'absent\n':
+        return None
+    if _unknown_account(cfg) != identity:
+        raise ValueError('UNKNOWN observation scheduler/account changed during query')
+    scheduler = manifest.get('scheduler', 'pbs')
+    return dict(schema='ag-unknown-observation/1', observed_at=time.time(),
+                scheduler=scheduler, job_name=(manifest['attempt_id'] if scheduler == 'slurm'
+                                               else manifest['pbs_job_name']),
+                matches=[], start_absent=True,
+                account_sha256=approval.digest({'scheduler': scheduler, 'ssh': list(identity)}))
+
+
+def check(cfg, path, transport, *, publication=None):
     m = attempt.read_manifest(path)
     cfg = for_manifest(cfg, m)
     attempt.local_record(path, cfg['_cluster'], scheduler_kind(cfg))
     transport = bound_transport(transport, cfg)
     if m.get('scheduler') == 'slurm':
-        return check_slurm(cfg, path, transport, m)
+        return check_slurm(cfg, path, transport, m, publication=publication)
     if hasattr(transport, 'record_to'):
-        transport.record_to([path])
+        transport.record_to([path] if publication is None else [])
     m, current = attempt.read_manifest(path), state.read(path)
     if current.get('node_placement', {}).get('state') == 'mismatch':
         raise ValueError('Recorded target-node mismatch; human review required before further operations')
-    journal.append(path.parent.parent, 'status', path.name, 'query', current['state'])
-    if current['state'] == 'submitting':
-        current = state.write(path, 'unknown', note='Interrupted submission; read-only reconciliation required')
+    current, publish = _publication_scope(path, current, publication)
     if current['state'] == 'unknown':
+        collect = _collect_unknown_absence(path)
+        if collect:
+            # A failed or ambiguous later query must not leave an older
+            # negative observation available for a human resolution.
+            with publish():
+                state.write(path, 'unknown', unknown_reconciliation=None,
+                            note='Read-only UNKNOWN reconciliation in progress')
+        identity = _unknown_account(cfg) if collect else None
         username, jobs, _ = inventory(transport)
         matches = [j for j in jobs if j.get('Job_Name') == m['pbs_job_name']
                    and j.get('Job_Owner', '').split('@')[0] == username]
         if len(matches) == 1:
             job = matches[0]['job_id']
-            if 'cluster' in m:
-                submission.record(path, m, job)
-                job = submission.qualified(m, job)
-            reconciled = state.write(path, 'submitted', job_id=job, note='Read-only scheduler reconciliation')
-            if 'node_target' in m:
-                from ag.node_targeting import retain_placement
-                return retain_placement(path, m, matches[0])
-            return reconciled
+            with publish() as autonomy_state:
+                if 'cluster' in m:
+                    binding = {} if publication is None else {'autonomy_state': autonomy_state}
+                    submission.record(path, m, job, **binding)
+                    job = submission.qualified(m, job)
+                reconciled = state.write(path, 'submitted', job_id=job, note='Read-only scheduler reconciliation')
+                if 'node_target' in m:
+                    from ag.node_targeting import retain_placement
+                    return retain_placement(path, m, matches[0])
+                return reconciled
         require_ok(transport.run(remote.listing(cfg, m)), 'unknown directory inspection')
-        journal.append(path.parent.parent, 'status', path.name, 'unknown', 'No unique scheduler evidence; human review required')
-        return {**current, 'note': 'No unique scheduler evidence; remains unknown. Human review required.'}
+        evidence = _unknown_absence(cfg, m, transport, matches, username, identity) if collect else None
+        with publish():
+            journal.append(path.parent.parent, 'status', path.name, 'unknown', 'No unique scheduler evidence; human review required')
+            if collect:
+                return state.write(path, 'unknown', unknown_reconciliation=evidence,
+                                   note='No unique scheduler evidence; human review required')
+            return {**current, 'note': 'No unique scheduler evidence; remains unknown. Human review required.'}
     if current['state'] not in ('submitted', 'running', 'stalled', 'interrupted', 'awaiting_second_observation', 'finished', 'fetched', 'cancelled'):
-        return current
+        with publish():
+            return current
     job_id = submission.verified_job(path, m, current)
     start = read_receipt(cfg, m, transport, 'ag-start.json', job_id)
     end = read_receipt(cfg, m, transport, 'ag-exit.json', job_id)
@@ -220,13 +312,14 @@ def check(cfg, path, transport):
     def save_observation(target, **fields):
         # Placement also writes status.json. Defer it until every required
         # receipt/output observation (including the legacy recheck) succeeds.
-        if 'node_target' in m:
-            from ag.node_targeting import retain_placement
-            evidence_job = job
-            if job is None and (start is not None or end is not None) and current.get('node_placement', {}).get('state') != 'verified':
-                evidence_job = {'job_state': 'C'}
-            retain_placement(path, m, evidence_job)
-        return state.write(path, target, **fields)
+        with publish():
+            if 'node_target' in m:
+                from ag.node_targeting import retain_placement
+                evidence_job = job
+                if job is None and (start is not None or end is not None) and current.get('node_placement', {}).get('state') != 'verified':
+                    evidence_job = {'job_state': 'C'}
+                retain_placement(path, m, evidence_job)
+            return state.write(path, target, **fields)
     scheduler = job.get('job_state') if job else None
     details = {'scheduler_state': scheduler, 'scheduler_residue': False,
                'receipts': {'start': start, 'exit': end}, 'cput': job.get('resources_used.cput') if job else None}
@@ -362,15 +455,19 @@ def format_status(results):
     return '\n'.join(lines)
 
 
-def check_slurm(cfg, path, transport, m):
+def check_slurm(cfg, path, transport, m, *, publication=None):
     username = None
     if hasattr(transport, 'record_to'):
-        transport.record_to([path])
+        transport.record_to([path] if publication is None else [])
     current = state.read(path)
-    journal.append(path.parent.parent, 'status', path.name, 'query', current['state'])
-    if current['state'] == 'submitting':
-        current = state.write(path, 'unknown', note='Interrupted submission; read-only reconciliation required')
+    current, publish = _publication_scope(path, current, publication)
     if current['state'] == 'unknown' and not current.get('job_id'):
+        collect = _collect_unknown_absence(path)
+        if collect:
+            with publish():
+                state.write(path, 'unknown', unknown_reconciliation=None,
+                            note='Read-only UNKNOWN reconciliation in progress')
+        identity = _unknown_account(cfg) if collect else None
         username, jobs, _ = inventory(transport, cfg)
         matches = {j['job_id'] for j in jobs if j['name'] == m['attempt_id'] and j['owner'] == username}
         # Explicit start date avoids sacct's default midnight window hiding a
@@ -379,12 +476,18 @@ def check_slurm(cfg, path, transport, m):
         for row in slurm.parse_accounting(text, name=m['attempt_id'], username=username):
             matches.add(row['job_id'])
         if len(matches) != 1:
-            return state.write(path, 'unknown', note='No unique Slurm job evidence; human review required')
+            evidence = _unknown_absence(cfg, m, transport, matches, username, identity) if collect else None
+            with publish():
+                return state.write(path, 'unknown', note='No unique Slurm job evidence; human review required',
+                                   **({'unknown_reconciliation': evidence} if collect else {}))
         job = next(iter(matches))
-        submission.record(path, m, job)
-        current = state.write(path, 'submitted', job_id=submission.qualified(m, job), note='Read-only scheduler reconciliation')
+        with publish() as autonomy_state:
+            binding = {} if publication is None else {'autonomy_state': autonomy_state}
+            submission.record(path, m, job, **binding)
+            current = state.write(path, 'submitted', job_id=submission.qualified(m, job), note='Read-only scheduler reconciliation')
     if current['state'] not in ('submitted', 'running', 'unknown', 'interrupted', 'finished', 'fetched', 'cancelled'):
-        return current
+        with publish():
+            return current
     job = submission.verified_job(path, m, current)
     if username is None:
         username = require_ok(transport.run(remote.identity()), 'identity').strip()
@@ -407,24 +510,28 @@ def check_slurm(cfg, path, transport, m):
         if current['state'] in ('finished', 'fetched', 'cancelled'):
             target = current['state']
             details['scheduler_residue'] = True
-        return state.write(path, target, exit_status=current.get('exit_status'),
-                           scheduler_state=scheduler, note='Active Slurm scheduler observation', **details)
+        with publish():
+            return state.write(path, target, exit_status=current.get('exit_status'),
+                               scheduler_state=scheduler, note='Active Slurm scheduler observation', **details)
     rows = slurm.parse_accounting(require_ok(transport.run(remote.slurm_accounting(job)), 'sacct exact job'),
                                   job, name=m['attempt_id'], username=username)
     if not rows:
-        if current['state'] in ('finished', 'fetched'):
-            return state.write(path, current['state'], exit_status=current.get('exit_status'),
-                               note='Previous accounting completion evidence retained', **details)
-        return state.write(path, 'unknown', scheduler_state=None,
-                           note='Absent from squeue and sacct; human review required; never resubmit', **details)
+        with publish():
+            if current['state'] in ('finished', 'fetched', 'cancelled'):
+                return state.write(path, current['state'], exit_status=current.get('exit_status'),
+                                   note='Previous terminal status retained; no new accounting evidence', **details)
+            return state.write(path, 'unknown', scheduler_state=None,
+                               note='Absent from squeue and sacct; human review required; never resubmit', **details)
     row = rows[0]
     details.update(scheduler_state=row['state'], exit_code=row['exit_code'], exit_signal=row['exit_signal'],
                    elapsed=row['elapsed'], allocated_cpus=row['allocated_cpus'])
     # Completion is scheduler completion only, never scientific acceptance.
     if row['state'] in slurm.TERMINAL:
-        budget.settle(cfg, m, row['elapsed'], job_id=submission.qualified(m, job))
+        budget.settle(cfg, m, row['elapsed'], job_id=submission.qualified(m, job), publication=publication)
         target = 'fetched' if current['state'] == 'fetched' else 'finished'
-        return state.write(path, target, exit_status=row['exit_code'], completion_source='sacct',
-                           note='Slurm terminal state; inspect program outputs before scientific acceptance', **details)
-    return state.write(path, 'running' if row['state'] == 'RUNNING' else 'submitted',
-                       note='Accounting has no terminal state yet', **details)
+        with publish():
+            return state.write(path, target, exit_status=row['exit_code'], completion_source='sacct',
+                               note='Slurm terminal state; inspect program outputs before scientific acceptance', **details)
+    with publish():
+        return state.write(path, 'running' if row['state'] == 'RUNNING' else 'submitted',
+                           note='Accounting has no terminal state yet', **details)

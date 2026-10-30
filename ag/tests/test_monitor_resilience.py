@@ -259,7 +259,7 @@ def test_scheduler_pauses_only_failed_entry_and_resets_config(multi, cfg, monkey
     if not legacy:
         multi['clusters']['batch'] = deepcopy(multi['clusters']['default'])
     monkeypatch.setattr(monitor, 'MonitorTransport', build)
-    monkeypatch.setattr(monitor, 'login_user', lambda _: 'fixture')
+    monkeypatch.setattr(monitor, 'ssh_identity', lambda _: ('fixture', 22, 'fixture'))
     current = [active]
     monkeypatch.setattr(monitor, 'reload_config', lambda _: (current[0], None))
     def sleep(seconds):
@@ -567,7 +567,7 @@ def test_pending_request_gets_next_free_sampling_slot(multi, monkeypatch, capsys
         fake.run = run
         return fake
     monkeypatch.setattr(monitor, 'MonitorTransport', build)
-    monkeypatch.setattr(monitor, 'login_user', lambda _: 'fixture')
+    monkeypatch.setattr(monitor, 'ssh_identity', lambda _: ('fixture', 22, 'fixture'))
     monkeypatch.setattr(monitor.time, 'sleep', lambda _: (_ for _ in ()).throw(KeyboardInterrupt()))
     assert monitor.run(multi, 30) == 0
     assert calls == ['batch', 'third', 'default']
@@ -596,7 +596,7 @@ def test_retry_of_sampled_entry_gets_next_free_slot(multi, monkeypatch, capsys, 
         fake.run = run
         return fake
     monkeypatch.setattr(monitor, 'MonitorTransport', build)
-    monkeypatch.setattr(monitor, 'login_user', lambda _: 'fixture')
+    monkeypatch.setattr(monitor, 'ssh_identity', lambda _: ('fixture', 22, 'fixture'))
     monkeypatch.setattr(monitor.time, 'sleep', lambda _: (_ for _ in ()).throw(KeyboardInterrupt()))
     assert monitor.run(multi, 30) == 0
     expected = (['batch', 'default', 'batch', 'third'] if request_during == 'default'
@@ -974,7 +974,7 @@ def test_reload_discard_precedes_rebuild_and_preserves_real_history(multi, monke
             assert tracked_status(old)['reason'] == 'config_changed'
         return Fake()
     monkeypatch.setattr(monitor, 'MonitorTransport', build)
-    monkeypatch.setattr(monitor, 'login_user', lambda _: 'fixture')
+    monkeypatch.setattr(monitor, 'ssh_identity', lambda _: ('fixture', 22, 'fixture'))
     def sleep(seconds):
         clock.advance(seconds)
         if accepted:

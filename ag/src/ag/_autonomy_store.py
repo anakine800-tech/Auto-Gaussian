@@ -184,3 +184,52 @@ def locked(cfg, name, *, write=False, initialize=False):
         if fd is not None:
             os.close(fd)
         os.close(rootfd)
+
+
+@contextmanager
+def manual_writers(study_key, *, create=False):
+    """Open one study's durable manual-writer records under the machine lock.
+
+    A claim/completion pair keeps a long manual operation out of the short OS
+    mutex. Missing directories are empty only before their first registration;
+    malformed records are validated by the caller and are never repaired here.
+    """
+    import re
+    if not isinstance(study_key, str) or not re.fullmatch('[0-9a-f]{64}', study_key):
+        raise ValueError('Manual writer requires the exact study key')
+    rootfd = directory(Path.home() / '.config' / 'ag')
+    registryfd = studyfd = None
+    try:
+        if create:
+            try:
+                os.mkdir('manual-writers', 0o700, dir_fd=rootfd)
+                os.fsync(rootfd)
+            except FileExistsError:
+                pass
+        try:
+            registryfd = os.open('manual-writers', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=rootfd)
+        except FileNotFoundError:
+            if create:
+                raise
+            yield None
+            return
+        if create:
+            try:
+                os.mkdir(study_key, 0o700, dir_fd=registryfd)
+                os.fsync(registryfd)
+            except FileExistsError:
+                pass
+        try:
+            studyfd = os.open(study_key, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=registryfd)
+        except FileNotFoundError:
+            if create:
+                raise
+            yield None
+            return
+        yield Store(studyfd)
+    finally:
+        if studyfd is not None:
+            os.close(studyfd)
+        if registryfd is not None:
+            os.close(registryfd)
+        os.close(rootfd)

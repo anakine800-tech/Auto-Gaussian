@@ -70,6 +70,28 @@ def suggest(raw, template='gaussian', tier='general', **kwargs):
     return route.suggest(raw, template, tier, now=NOW, **kwargs)
 
 
+def legacy_request(**changes):
+    value = dict(template='crest', job_class='small', walltime='00:30:00', tier='general',
+                 study_key='a' * 64, study_id='water', round_id='round-current',
+                 run_id='run-current', object_id='water-a', waiting_since=None,
+                 parent_cluster=None)
+    return dict(value, **changes)
+
+
+def legacy_placement(**changes):
+    value = dict(cluster='scnet-test', study_key='b' * 64, study_id='older-study',
+                 attempt_id='older-study-001-run', scheduler_job_name='older-study-001-run',
+                 state='reserved', cores=8, mem_gb=12, job_id=None,
+                 manifest_sha256='c' * 64, record_sha256='d' * 64,
+                 run_id='older-run', round_id='older-round', object_id='older-object',
+                 target_node=None)
+    return dict(value, **changes)
+
+
+requires_ladder = pytest.mark.skipif(not hasattr(route, 'select_ladder'),
+                                     reason='Requires the reviewed T185 combination checkout')
+
+
 def row(result, name='default'):
     return next(r for r in result['clusters'] if r['name'] == name)
 
@@ -600,7 +622,7 @@ def test_route_cli_walltime_and_explicit_tier(routed, monkeypatch, capsys):
     with pytest.raises(SystemExit) as error:
         cli.main(['route', '--template', 'gaussian', '--walltime', '01:00:00'])
     assert error.value.code == 2
-    capsys.readouterr()
+    assert 'requires --tier' in capsys.readouterr().err
     original = route.suggest
     monkeypatch.setattr(route, 'suggest', lambda *a, **kw: original(*a, **kw, now=NOW))
     assert cli.main(['route', '--template', 'gaussian', '--tier', 'general',
@@ -855,3 +877,312 @@ def test_optional_ladder_does_not_change_legacy_route_or_study_orders(routed):
         classes=['main'], tier='simple', condition='empty', max_placements=2)]
     config.validate_routing(routed)
     assert suggest(routed, study='water') == before
+
+
+def test_captured_legacy_advice_never_rereads_latest_files(routed, monkeypatch):
+    captured = {name: snapshot(routed, name) for name in routed['clusters']}
+    before = deepcopy(captured)
+    expected = suggest(routed, 'crest')
+    # A later monitor update must not rewrite the evidence of an earlier choice.
+    save(routed, 'scnet-test', idle=0)
+    save(routed, 'scnet', idle=0)
+    def forbidden(*args, **kwargs):
+        pytest.fail('Captured replay must not read current monitor files')
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, 'open', forbidden)
+        replay = route.suggest(routed, 'crest', 'general', now=NOW, captured_snapshots=captured)
+    assert replay == expected
+    assert captured == before
+    # The scoped source has been reset for ordinary advice.
+    assert suggest(routed, 'crest')['recommendation']['name'] == 'default'
+
+
+@requires_ladder
+@pytest.mark.parametrize('template', ['crest', 'xtb'])
+def test_legacy_autonomous_keeps_existing_order_tier_and_replay(routed, template):
+    from ag import approval, autonomy_submission
+    snapshots = {name: snapshot(routed, name) for name in routed['clusters']}
+    request = legacy_request(template=template)
+    result = route.select_legacy(routed, snapshots, **request, placements=[], wakeups=[], now=NOW)
+    assert result['recommendation']['cluster'] == suggest(routed, template)['recommendation']['name']
+    assert result['recommendation']['tier'] == 'general'
+    assert result['recommendation']['target_node'] is None
+    original = dict(config_sha256=route.ladder_config_identity(routed), request=request,
+                    snapshots=snapshots, placements=[], wakeups=[], selected_at=NOW.isoformat())
+    assert result['evidence']['input_sha256'] == approval.digest(original)
+    selection = dict(input=original, result=result)
+    assert autonomy_submission.verify_selection(routed, selection) == result
+    damaged = deepcopy(selection)
+    damaged['result']['recommendation']['cluster'] = 'default'
+    with pytest.raises(ValueError, match='replayed'):
+        autonomy_submission.verify_selection(routed, damaged)
+
+
+@requires_ladder
+def test_legacy_autonomous_does_not_invent_fallback_after_reservation(routed):
+    snapshots = {name: snapshot(routed, name) for name in routed['clusters']}
+    assert suggest(routed, 'crest')['recommendation']['name'] == 'scnet-test'
+    held = legacy_placement(cores=80, mem_gb=100)
+    result = route.select_legacy(routed, snapshots, **legacy_request(), placements=[held], wakeups=[], now=NOW)
+    assert result['recommendation'] is None
+    assert result['reason'] == 'account_or_queue_core_limit'
+    # Other entries remain free, but selecting one here would introduce a
+    # second routing order instead of the existing suggest decision.
+    assert snapshots['default']['cluster']['nodes'][0]['cores_used'] == 0
+
+
+@requires_ladder
+@pytest.mark.parametrize('damage', ['stale', 'missing-jobs', 'unknown-memory', 'node-reservation'])
+def test_legacy_autonomous_rejects_incomplete_or_changed_capacity(routed, damage):
+    snapshots = {name: snapshot(routed, name) for name in routed['clusters']}
+    held = []
+    if damage == 'stale':
+        snapshots['scnet-test']['sampled_at'] = (NOW - timedelta(minutes=4)).isoformat()
+    elif damage == 'missing-jobs':
+        del snapshots['scnet-test']['own']['jobs']
+    elif damage == 'unknown-memory':
+        for data in snapshots.values():
+            data['cluster']['nodes'][0].update(mem_total_gb=None, mem_total_bytes=None)
+    else:
+        for name in ('scnet', 'scnet-test'):
+            routed['clusters'][name]['resources']['max_committed_cores'] = 200
+        held = [legacy_placement(cores=80, mem_gb=100)]
+    result = route.select_legacy(routed, snapshots, **legacy_request(), placements=held, wakeups=[], now=NOW)
+    assert result['recommendation'] is None
+    assert result['reason'] in ('snapshot_missing_failed_or_stale',
+        'account_or_reservation_evidence_unknown', 'legacy_recommendation_capacity_unknown',
+        'node_capacity_unknown_or_changed_by_reservation')
+
+
+@requires_ladder
+def test_legacy_autonomous_global_queue_and_root_identity(routed):
+    snapshots = {name: snapshot(routed, name, idle=0) for name in routed['clusters']}
+    queued = [legacy_placement(cluster=name, study_key=str(i + 1) * 64,
+                attempt_id=f'older-{i}', scheduler_job_name=f'older-{i}')
+              for i, name in enumerate(('default', 'newhpc'))]
+    result = route.select_legacy(routed, snapshots, **legacy_request(), placements=queued, wakeups=[], now=NOW)
+    assert result['recommendation'] is None and result['reason'] == 'global_queue_limit'
+    snapshots = {name: snapshot(routed, name) for name in routed['clusters']}
+    foreign = legacy_placement(study_id='water', round_id='round-current',
+                               object_id='water-a', run_id='run-current')
+    result = route.select_legacy(routed, snapshots, **legacy_request(), placements=[foreign], wakeups=[], now=NOW)
+    assert result['recommendation'] is not None
+    foreign['study_key'] = 'a' * 64
+    result = route.select_legacy(routed, snapshots, **legacy_request(), placements=[foreign], wakeups=[], now=NOW)
+    assert result['reason'] == 'object_already_placed_in_run'
+
+
+@requires_ladder
+@pytest.mark.parametrize('template', ['crest', 'xtb'])
+@pytest.mark.parametrize('count', [3, 4])
+def test_legacy_shared_account_job_ceiling_includes_old_unobserved_work(routed, template, count):
+    # The Gaussian ladder's account cap applies to CREST/xTB without changing
+    # their established recommendation order. No template filter may hide old
+    # Gaussian/CREST/xTB/Multiwfn consumption in the common placement registry.
+    routed['routing']['ladder'] = [dict(id='scnet-cap', cluster='scnet', tier='general',
+        classes=['main', 'small'], condition='jobs', max_jobs=4, max_placements=1)]
+    snapshots = {name: snapshot(routed, name) for name in routed['clusters']}
+    placements = [legacy_placement(cluster=('scnet' if i % 2 else 'scnet-test'),
+        study_key=str(i + 1) * 64, record_sha256=str(i + 1) * 64,
+        attempt_id=f'older-{i}', scheduler_job_name=f'older-{i}',
+        object_id=f'older-object-{i}') for i in range(count)]
+    assert route.autonomous_account_job_cap(routed, 'scnet-test') == 4
+    result = route.select_legacy(routed, snapshots, **legacy_request(template=template),
+                                placements=placements, wakeups=[], now=NOW)
+    if count == 3:
+        assert result['recommendation']['cluster'] == 'scnet-test'
+    else:
+        assert result['recommendation'] is None and result['reason'] == 'autonomous_job_limit'
+
+
+def test_trusted_route_missing_context_is_readonly(cfg, tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(route, 'load_config', lambda: cfg)
+    before = tree(tmp_path)
+    code = cli.main(['route', '--template', 'crest', '--tier', 'simple',
+                     '--job-class', 'small', '--study', 'water', '--json'])
+    assert code == 1
+    assert 'Trusted routing requires' in json.loads(capsys.readouterr().out)['error']
+    assert tree(tmp_path) == before
+
+
+@requires_ladder
+def test_trusted_route_cli_does_not_write_state_waiting_or_registry(routed, tmp_path, monkeypatch, capsys):
+    from ag import autonomy, autonomy_policy, autonomy_submission, _autonomy_store as disk
+    from test_autonomy import VERSIONS, spec
+    from test_autonomy_policy import rule
+    home = tmp_path / 'isolated-home'
+    home.mkdir()
+    monkeypatch.setattr(Path, 'home', lambda: home)
+    clock = [NOW.timestamp()]
+    monkeypatch.setattr(autonomy, 'now', lambda: clock[0])
+    monkeypatch.setattr(autonomy, 'versions', lambda: dict(VERSIONS))
+    # Synthetic SSH identities replace only local config resolution, never the
+    # actual reservation/plan/lease or route validation paths under test.
+    from hashlib import sha256
+    monkeypatch.setattr(autonomy_submission, 'account_identity',
+        lambda entry: sha256(entry['ssh']['host'].encode()).hexdigest())
+    study.init(routed, 'water')
+    autonomy.initialize(routed, 'water')
+    value = rule()
+    value.update(study_id='water', study_key=autonomy_submission.study_identity(
+        Path(routed['local']['studies_root']) / 'water')['study_key'], templates=['crest'],
+        methods={'crest': [{'parameters': {'--gfn2': ''}}]},
+        clusters={'scnet-test': dict(nodes=[], max_committed_cores=32, max_queued_cores=16, max_jobs=4)},
+        set_at=(NOW - timedelta(hours=1)).isoformat(), expires_at=(NOW + timedelta(minutes=30)).isoformat(),
+        routing_sha256=route.ladder_config_identity(routed))
+    plan = autonomy.create_plan(routed, 'water', spec(valid_until=NOW.timestamp() + 7200,
+        submission_policy={key: deepcopy(value[key]) for key in autonomy_policy.PLAN_BOUND_KEYS}))
+    autonomy.confirm(routed, 'water', plan['plan_id'], plan['sha256'], 'Synthetic plan confirmation')
+    begun = autonomy.begin(routed, 'water', plan['plan_id'], 'Synthetic round confirmation')
+    run = autonomy.start(routed, 'water', plan['plan_id'], 'synthetic-route-reader')
+    value.update(round_id=begun['state']['current_round'], plan_sha256=plan['sha256'])
+    routed['approval'] = {'autonomous_policies': {'synthetic': value}}
+    monkeypatch.setattr(route, 'load_config', lambda: routed)
+    def forbidden(*args, **kwargs):
+        pytest.fail('Trusted route CLI must stay read-only and offline')
+    monkeypatch.setattr(SSHTransport, '__init__', forbidden)
+    monkeypatch.setattr(disk.Store, 'exclusive', forbidden)
+    monkeypatch.setattr(disk.Store, 'append', forbidden)
+    monkeypatch.setattr(disk.Store, 'publish', forbidden)
+    monkeypatch.setattr(autonomy_submission, 'write_waiting', forbidden)
+    before = tree(tmp_path)
+    args = ['route', '--template', 'crest', '--tier', 'simple', '--job-class', 'small',
+        '--study', 'water', '--round-id', value['round_id'], '--run-id', run['run_id'],
+        '--object-id', 'water-a', '--walltime', '00:30:00', '--autonomous-policy', 'synthetic',
+        '--token', run['token'], '--plan-sha256', plan['sha256'], '--json']
+    assert cli.main(args) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result['schema'] == 'ag-routing-legacy/1'
+    assert result['recommendation']['cluster'] == 'scnet-test'
+    assert tree(tmp_path) == before
+    # A rejection after rule expiry is also an inspection; it must not write
+    # the automatic pause event used at a real action boundary.
+    clock[0] += 1800
+    assert cli.main(args) == 1
+    assert 'expired' in json.loads(capsys.readouterr().out)['error']
+    assert tree(tmp_path) == before
+
+
+@pytest.mark.parametrize('option,value', [
+    ('--template', 'gaussian'), ('--tier', 'simple'), ('--job-class', 'main'),
+    ('--study', 'water'), ('--walltime', '00:30:00'), ('--round-id', 'round-one'),
+    ('--run-id', 'run-one'), ('--object-id', 'water'), ('--autonomous-policy', 'bounded'),
+    ('--token', 'private-token'), ('--plan-sha256', 'a' * 64),
+])
+def test_config_identity_rejects_routing_arguments_before_loading(option, value, monkeypatch, capsys):
+    def forbidden(*args, **kwargs):
+        pytest.fail('Mixed identity requests must fail before reading configuration')
+    monkeypatch.setattr(route, 'load_config', forbidden)
+    assert cli.main(['route', '--config-identity', option, value, '--json']) == 1
+    result = json.loads(capsys.readouterr().out)
+    assert result['error'] == '--config-identity cannot be combined with routing arguments'
+
+
+@pytest.mark.parametrize('options', [[], ['--tier', 'mini']])
+def test_route_still_requires_template_outside_identity_mode(options, monkeypatch, capsys):
+    monkeypatch.setattr(route, 'load_config', lambda: pytest.fail('Invalid route must not load configuration'))
+    with pytest.raises(SystemExit) as error:
+        cli.main(['route', *options])
+    assert error.value.code == 2
+    assert 'required: --template' in capsys.readouterr().err
+
+
+@pytest.mark.parametrize('stage', ['configuration', 'identity'])
+@pytest.mark.parametrize('json_output', [False, True])
+def test_config_identity_errors_do_not_expose_private_values(monkeypatch, capsys, stage, json_output):
+    private = 'private-account private-host /private/synthetic-config-path'
+    def unavailable(*args, **kwargs):
+        raise ValueError(private)
+    monkeypatch.setattr(route, 'load_config', unavailable if stage == 'configuration' else lambda: {})
+    monkeypatch.setattr(route, 'ladder_config_identity',
+                        unavailable if stage == 'identity' else lambda cfg: pytest.fail('Must not calculate'),
+                        raising=False)
+    assert cli.main(['route', '--config-identity', *(['--json'] if json_output else [])]) == 1
+    captured = capsys.readouterr()
+    assert private not in captured.out + captured.err
+    expected = 'Cannot read routing configuration identity; check local configuration'
+    if json_output:
+        assert json.loads(captured.out) == {'error': expected, 'exit_code': 1}
+        assert not captured.err
+    else:
+        assert not captured.out and captured.err.strip() == expected
+
+
+@pytest.fixture
+def identity_configuration(cfg):
+    identity = getattr(route, 'ladder_config_identity', None)
+    if not callable(identity):
+        pytest.skip('Requires the actual reviewed T185 routing identity implementation')
+    entry = {key: deepcopy(value) for key, value in cfg.items()
+             if key not in ('local', '_config_dir')}
+    entry.update(scheduler='slurm', partition='private-partition', account='private-account')
+    entry['ssh']['host'] = 'private-host'
+    raw = dict(local=cfg['local'], _config_dir=cfg['_config_dir'],
+        clusters={'default': deepcopy(entry), 'private-cluster': deepcopy(entry)},
+        routing={'gaussian': ['default', 'private-cluster'], 'crest': ['private-cluster', 'default']})
+    path = write_config(raw)
+    return raw, path, identity
+
+
+def test_config_identity_bootstraps_without_plan_snapshots_or_side_effects(
+        identity_configuration, tmp_path, monkeypatch, capsys):
+    from ag import autonomy_submission, _autonomy_store as disk
+    raw, path, identity = identity_configuration
+    home = tmp_path / 'identity-home'
+    home.mkdir()
+    monkeypatch.setattr(Path, 'home', classmethod(lambda cls: home))
+    monkeypatch.setattr(route, 'load_config', lambda: config.load_config(path))
+    expected = identity(config.load_config(path))
+    assert 'approval' not in raw and not Path(raw['local']['studies_root']).exists()
+    def forbidden(*args, **kwargs):
+        pytest.fail('Identity discovery must not access routing, locks, monitors, transports or processes')
+    for module, name in ((SSHTransport, '__init__'), (subprocess, 'run'), (subprocess, 'Popen'),
+                         (route, '_snapshot'), (route, 'suggest'), (route, 'autonomous_selection'),
+                         (autonomy_submission, 'machine_lock'), (disk, 'locked')):
+        monkeypatch.setattr(module, name, forbidden)
+    original_open = io.open
+    def read_only(file, mode='r', *args, **kwargs):
+        if any(flag in mode for flag in ('w', 'a', 'x', '+')):
+            forbidden()
+        return original_open(file, mode, *args, **kwargs)
+    monkeypatch.setattr(io, 'open', read_only)
+    for operation in ('mkdir', 'rename', 'replace', 'unlink', 'open'):
+        monkeypatch.setattr(os, operation, forbidden)
+    before = tree(tmp_path)
+    directories = {str(item) for item in tmp_path.rglob('*') if item.is_dir()}
+    assert cli.main(['route', '--config-identity', '--json']) == 0
+    captured = capsys.readouterr()
+    assert json.loads(captured.out) == {'routing_sha256': expected} and not captured.err
+    assert cli.main(['route', '--config-identity']) == 0
+    captured = capsys.readouterr()
+    assert captured.out == 'routing_sha256: ' + expected + '\n' and not captured.err
+    assert tree(tmp_path) == before
+    assert {str(item) for item in tmp_path.rglob('*') if item.is_dir()} == directories
+    assert not (home / '.config').exists()
+
+
+@pytest.mark.parametrize('change', ['routing', 'resources', 'partition', 'capabilities', 'identity'])
+def test_config_identity_uses_actual_t185_digest_and_tracks_configuration_changes(
+        identity_configuration, monkeypatch, capsys, change):
+    raw, path, identity = identity_configuration
+    monkeypatch.setattr(route, 'load_config', lambda: config.load_config(path))
+    def query():
+        assert cli.main(['route', '--config-identity', '--json']) == 0
+        result = json.loads(capsys.readouterr().out)
+        assert result == {'routing_sha256': identity(config.load_config(path))}
+        return result['routing_sha256']
+    original = query()
+    assert query() == original
+    entry = raw['clusters']['default']
+    if change == 'routing':
+        raw['routing']['gaussian'].reverse()
+    elif change == 'resources':
+        entry['resources']['tiers']['simple']['mem_gb'] += 1
+    elif change == 'partition':
+        entry['partition'] = 'another-private-partition'
+    elif change == 'capabilities':
+        entry['allowed_templates'] = ['gaussian']
+    else:
+        entry['ssh']['host'] = 'another-private-host'
+    write_config(raw)
+    assert query() != original

@@ -17,7 +17,8 @@
 - `state.py`：允许的状态迁移和本地 status 原子更新。
 - `journal.py`：追加本地动作记录。
 - `locks.py`：提交串行锁和不可复用的独占声明。
-- `autonomy.py`：纯本地计划确认、授权轮次、唤醒租约、暂停、恢复和意图计数；提供后续动作校验接口。
+- `autonomy.py`：本地计划/轮次/租约、暂停与恢复、实际提交消费、手动写入登记及最终发布保护。
+- `autonomy_policy.py` / `autonomy_submission.py`：绑定计划的规则/方法核验、全机占用登记与提交/补救证据核对。
 - `_autonomy_store.py`：autonomy 的描述符相对文件操作、短 OS 互斥、追加日志与原子状态；不修复旧日志。
 - `confirm.py`：唯一的 macOS 人工点击确认入口。
 - `submit.py`：批次核验、确认、上传、提交及不确定结果处理。
@@ -85,13 +86,148 @@ SCNet 类末级运行加排队最多 4 个、兜底排队最多 2 个，按全�
 
 ## 自主运行的实现边界
 
-[AGENTS 自主运行规则](../AGENTS.md#自主运行)是唯一规则正文；T182 统一文档，T184 实现 `ag autonomy` 的本地计划、租约、暂停、日志和意图计数。计算入口仍是下文的手动流程：`approval.authorize` 的旧长期规则只核对 study、模板、集群、核数和 walltime；`submit.submit` 拒绝具名 PBS 的长期规则；`cancel.cancel` 仍调用 Mac 人工确认。旧 `--policy` 不能据新文档获得自主权限，autonomy 的本地记录也不能授权这些入口。
+[AGENTS 自主运行规则](../AGENTS.md#自主运行)是唯一规则正文；T182 统一文档，T184 实现 `ag autonomy` 的本地计划、租约、暂停、日志和意图计数。手动计算入口仍保留下文流程：`approval.authorize` 的旧长期规则只核对 study、模板、集群、核数和 walltime；`submit.submit` 拒绝具名 PBS 的长期规则；`cancel.cancel` 仍调用 Mac 人工确认。旧 `--policy` 不能据新文档获得自主权限，单独的 autonomy 本地记录也不能授权这些入口。T186 的独立自主参数已接入开发实现，细节与尚未完成的验证见下节。
 
-后续实现须让计划哈希及版本、有效期与计数、方法口径、节点与路由选择、唯一运行锁和状态检查在动作前实际生效，并保留逐 Attempt 摘要、授权来源、输入字节和上传后哈希核对。具名 PBS 的目标行为是仅放行有效规则中列出的节点；取消须有独立的归属与条件核验路径，不能把提交批准参数用于现有 cancel。前端运行中拒绝写操作、暂停后唯一持锁会话仍能取回整理结果，也须实际实现并验证。
+下节 T186 实现已在动作前核验计划哈希及版本、有效期与实际消费、方法口径、节点与路由选择、唯一运行锁和状态，并保留逐 Attempt 摘要、授权来源、输入字节和上传后哈希核对。具名 PBS 仅放行有效规则中列出的节点；本版关闭自主取消、取消停止证明和改投，取消来源须先显式人工解除；提交批准参数不能用于现有人工 cancel。后端观察发布保护已接入，前端运行中拒绝写操作的接入仍须由对应工单核验。
 
-放宽输入的受控例外同样以 [AGENTS](../AGENTS.md#自主运行)为准；后续实现须保存跳过检查及方法口径未核验的事实并逐次提醒，不能把可提交当作科学支持，也不能把本单文档当作启用开关。
+放宽输入的受控例外同样以 [AGENTS](../AGENTS.md#自主运行)为准；T188 组合保存跳过检查及方法口径未核验的事实，仍须逐次提醒。不能把可提交当作科学支持，也不能把本单文档当作启用开关。
 
-启动前逐项核对相关工具实现、敏感路径的合并前验证、非研究试点及本轮显式启用；缺任何一项都不能运行自主计算。本地状态工具的合成验证不代替这些证据；90% Attempt 阈值、失败分组暂停和六小时改投等完整规则仍待后续动作入口接入。开发会话的真实意外仍按 AGENTS 第 5 节立即停止；自主运行的暂停、补救和科学待确认事项按其专节，不把开发授权当运行授权。
+启动前逐项核对相关工具实现、敏感路径的合并前验证、非研究试点及本轮显式启用；缺任何一项都不能运行自主计算。本地状态工具的合成验证不代替这些证据。90% 实际提交阈值已接入；本次审阅补齐提交路径派发前 SSH 跨唤醒和对象拒绝，跨唤醒快照过期、其他全局运行条件及现场验证仍待完成。开发会话的真实意外仍按 AGENTS 第 5 节立即停止；自主运行的暂停、补救和科学待确认事项按其专节，不把开发授权当运行授权。
+
+
+### T186 绑定计划的提交接线（开发验证中，未启用）
+
+`approval.autonomous_policies.<name>` 与旧 `approval.policies.<name>` 分开。
+自主 prepare/submit 使用 `--autonomous-policy`，并同时要求 `--run`、`--token`、
+`--plan-sha256`、`--object-id`、`--job-class`；缺项或核验失败不回退聊天批准或弹框。
+旧 `--policy` 只选择手动规则，具名 PBS 的手动规则禁令保持不变。一个自主提交调用
+只处理一个 Attempt/对象；连续调用的部分成功仍由每个独立归属和真实消费核对。
+注释示例在 `ag/config.clusters.example.toml`；没有创建或启用真实规则。
+
+自主规则字段为 schema、study_id、study_key、round_id、plan_sha256、routing_sha256、
+templates、clusters、max_cores_per_job、max_walltime、max_attempts、quote、set_at、
+expires_at、methods、allow_relaxed。各 cluster 明列 nodes、max_committed_cores、
+max_queued_cores、max_jobs。`nodes=[]` 只接受未具名目标，非空只接受精确节点。
+study_key 取安全绝对 study 路径的 SHA-256，共同登记另绑定 device/inode；同名 study
+或不同配置根不能重置额度。全部字段参与规则哈希，未知/模糊字段和矛盾限额拒绝。
+
+计划可选 `spec.submission_policy` 保存 templates、clusters、max_cores_per_job、
+max_walltime、methods、routing_sha256、allow_relaxed；规则须一致或更窄，方法和
+网格来自同一完整计划记录，不跨记录拼接较宽条件。Attempt 上限和有效期复用
+`spec.attempt_limit` / `valid_until`。旧文本计划可回放，但不具备自主提交资格。
+
+首次配置使用 `ag route --config-identity --json` 取得精确 `routing_sha256`，再把它
+填入计划及规则。该入口仅调用 T185 的 `ladder_config_identity`，在任何计划、规则、
+租约或监控读取之前执行；不依赖 study，不输出账号、主机、路径或入口名称，不查询
+远端，不创建 registry、锁或 monitor 文件。只输出哈希；配置改变后须重新取得身份。
+`--template`、`--tier`、`--study`、`--walltime` 及自主上下文等选择参数不得与其混用，
+无须伪造模板/档位。缺少 T185 同一算法时明确报错，不复制算法或采用另一种摘要。
+
+普通 Gaussian 从冻结文件核对方法、基组/类型、色散、溶剂、积分网格及 Opt/Freq/SCF
+收敛下限。允许已核验的算法/循环数和输出选项变化，不把完整 route 字节相等当约束。
+CREST/xTB/Multiwfn 使用各自受支持参数，gaussian-cp 保留专用片段限制。T188 组合时，
+仅其正式 `verified_files`、主输入和不可变 input_validation 标记能启用放宽例外；
+规则和计划均须允许，保存跳过清单并标“方法口径未核验”。每个 Link1 段仍核对
+收敛下限，不能用放宽输入绕过最终 Opt/Freq 要求；这不扩大科学支持范围。
+
+提交固定按配置提交锁 → 全机登记锁 → study 状态锁核验并消费，长网络 IO 在锁外。
+全机登记位于标准本机配置根的 autonomy-studies/autonomy-reservations，独立
+`autonomy-submit.lock` 不被手动提交的长网络过程占用。全机扫描交叉核对目录登记、
+不可变 reservation、claim、摘要、submission/status、journal 以及 T184 消费；
+缺失或截断不是零，未经人工解除的 UNKNOWN 保留额度。非零自主调度响应也保持 UNKNOWN，不能只凭
+错误前缀断定从未提交；只有已记录的 dispatch 前 abort 证明未提交，且不退回历史计数。
+
+`state.submissions` 按当前 round 汇总实际消费；规则改名、换配置、计划修订和唤醒
+不清零。prepare 不消费提交次数；Attempt 上限及 90% 阈值只使用提交消费记录，
+已经消费后在 dispatch 前中止的记录保留。准备应随用随备，不预先准备整批。
+原始选择的请求、快照、placements、wakeups 和时间均持久化，再由 T185
+同一算法重算。SCNet4/兜底排队2按全机所有 study/轮次核对，手动/非 ag 作业仍计
+账号核心总数。CREST/xTB 复用旧路由顺序并叠加可信占用；不另建高斯阶梯。
+只读 route CLI 使用同一绑定上下文，拒绝时不创建等待记录或修改状态。
+
+prepare 的最终分配、远端建目录、复制父 chk、每次上传、最终 dispatch 都重新核验。
+到 90% 原子记录暂停，已消费但未 dispatch 的成员保留 abort。dispatch 之前保存
+不可逆边界；暂停不能撤回已发请求。晚到确切响应可补原作业绑定，但不恢复动作资格、
+不倒退已观察到的 running/finished/fetched 状态，也不能重新提交同一 Attempt。
+
+普通 PBS/Slurm 提交和 status/fetch 使用现行正式接口，不依赖 T187、Slurm 版本探针、
+原始实例或绑定提交构造器。旧实验 probe/reroute 归属拒绝用于新动作；UNKNOWN 仍须
+通过确切原作业证据只读找回，或按下述显式人工路径解除；不能自动释放或重提旧 Attempt。
+
+`start --observe-only` 可观察到期计划，版本/哈希/60 分钟动作及 90 分钟接管限制保留，
+禁止新 prepare/submit/resume/count。status/snapshot/fetch 的观察参数为 `--run`、
+`--token`、`--plan-sha256`。网络与解析在锁外，最终状态/快照/输出/facts/journal 发布
+在短事务内再次核对 owner。Slurm 结算先在配置锁内复核并发布预算，再单独复核并发布
+状态；两者之间失锁不回滚先前合法结算。没有自主轮次的普通手动调用保留原行为。
+
+手动 prepare/submit/fetch、独立 facts/refresh/reparse，以及会发布本地证据的
+CLI status/snapshot 使用 writer 登记，
+running 或有效 lease 时拒绝；
+paused 且无有效 lease 方可写。90 分钟接管记录原租约，旧 token 不可用。
+专属 writer flock 跨实际操作，但不长持全机/study 锁。崩溃登记通过
+`ag autonomy manual-writers --study '<STUDY>'` 查看；只有没有活动 flock 的完整登记
+能由 `release-writer --writer-id '<ID>' --quote '<逐字确认>'` 独占解除。
+这不删除旧记录、不恢复自主、不更改作业/UNKNOWN/预算，不替代人工取消确认。facts 外部 dry-run 不写 study，仍可读取预览。
+
+同对象同 canonical 失败最多两次补救，必须由前次实际消费及已结束失败证据推导；
+`--failure-class` 只是可选断言，不能省略或改名绕过。TS 正常结束但零虚频或方向不符
+由 `ag autonomy scientific-review` 保存来源绑定的理由，标待人确认；方向判断必须
+有对应 mode-review 及位移文件，代码只检查来源，不替代科学判断。完整输出及正式
+Slurm 不完整失败取回可在已实现范围内作补救来源；PBS 诊断性不完整取回不自行证明失败。
+没有退出回执的 PBS interrupted 可使用正式不完整取回所绑定的确切作业、两次相隔
+至少 300 秒的稳定非活动观察和最终核验作为来源；仅精确 ag-start 作业/时间与首张非活动观察
+时间证明已达到冻结 walltime 时归为 walltime，否则归 interrupted。
+
+资源核算与失败补救分别核验。历史手动终态不作本地在途预留；审计缺失留警告，
+账号调度器清单中的实际作业照常统计。自主归属仍严格审计；自主终态只有相邻两张
+完整、成功、新鲜监控快照都缺少确切作业号和唯一名时才释放本地资源占用；
+两张均须晚于进入终态的证据，并以 `account_sha256` 匹配归属和当前账号。
+旧快照缺少账号指纹时保留占用，不能在换账号后沿用同名入口的空清单。
+`previous.json` 保存完整前驱，失败/控制快照也轮换，不能跨过失败拼成两张成功。
+此核算结论不证明可再次提交旧 Attempt，也不解除 UNKNOWN。
+Slurm 的两次提交核数检查也按同一严格证据重新核算：只从临时 ledger 副本排除
+匹配 root/study/cluster/account/bundle 的已释放预留，实际核时账本、消费和声明不变。
+当前账号清单中的实际作业仍计核，不把资源释放当作退回核时额度。
+
+取消来源须先由负责人显式执行本地命令：
+
+```sh
+ag autonomy resolve-attempt --study '<STUDY>' --attempt '<ATTEMPT>' --quote '<负责人逐字解除原话>'
+```
+
+该命令只读取已核实的本地证据、追加人审决定及哈希。取消须有上述两张缺席快照；
+UNKNOWN 须由正式 status 成功按唯一作业名查询无匹配，并通过已有固定只读命令
+确认 ag-start 不存在，观察账号指纹须匹配不可变归属；本地账号展开在查询前后也须一致。
+观察须在实际消费后且不超过 600 秒。后一次失败或含糊观察
+会使旧负面证据失效。解除不写旧 status/claim、不退回真实消费、不自动 resume，
+也不授权提交；新 Attempt 仍须逐项核验计划、规则、owner、资源及字节。
+历史人审决定保留；后继准备还需当前同类新鲜证据，发现新作业/回执不能沿用旧缺席。
+取消后归 interrupted 的新补救受科学两次上限；UNKNOWN 人工解除不伪称从未派发。
+
+对象的补救来源不可用、科学次数耗尽、facts 冲突或 placement 变化只记录该对象
+“需要你看”；身份/哈希、配置/规则/计划/版本、UNKNOWN 和 90% 预算问题仍全局暂停。
+派发前 SSH 失败独立记录，同一唤醒同一失败不重复计数；首次禁止依赖该失败证据
+继续动作，连续两次唤醒失败才全局暂停。同对象每轮实际派发前失败上限为 2，
+达到后该分支交人，不占科学补救两次额度，也不退回实际 Attempt 总预算。
+未派发的科学补救后继保留原科学来源，不能通过 presubmit 链清零科学次数。
+
+本版不提供自主取消、停止证明或改投入口，也不接受 `--reroute-source`。
+需要这些动作时，对应分支交人处理；唯一 owner 使用现有 `ag autonomy update` 的
+`summary/pending/objects` 记录“需要你看”，保留其他对象，并在 summary 第一行提醒
+负责人在 Mac 上亲手确认取消。自主卡片不调用取消命令。已证明结束失败的新 Attempt
+补救仍按前述两次上限处理；不能把本次删减理解为删除普通失败谱系。
+
+`autonomy_submission.audit` 继续只读审计旧手动证据；`autonomy status` 本身不扫描
+全机 reservation，不能把其意图数或未做全局交叉检查的 JSON 当作提交许可。
+跨唤醒快照过期和其他全局运行条件仍按后续入口范围核对。手动 cancel 的每次本地
+声明、journal 和状态发布共用配置锁 → 全机锁 → study 锁；Mac 弹框和网络在短锁外。
+状态观察以最初读取的 status 为发布基线，拒绝慢查询覆盖后来取消/完成状态；
+取消晚到也保留更新的完成或不确定状态。验证按
+[T186 工单](redesign-tasks/T186-plan-bound-submission.md)留存：本地只跑受影响流程，
+全量交 CI，真实验证前对最终组合另跑一次；不做 AST 比对。旧含 T187 组合仅为历史证据。
+首轮审阅回应只交绑定新 head 的增量 diff、逐项答复、红绿证据及修订的未执行真实验证
+草稿，不再重复整份源码包。T188 当前放宽语法仍缺 GEDIIS/NoTrust/NoIncFock/NoDIIS；
+T186 普通输入八项已支持，不能声称八项放宽链路均完成。监督审阅、真实试点及显式启用完成前不能运行自主计算。
 
 ## 提交流程：规范顺序
 
@@ -209,10 +345,9 @@ Slurm 取回前后均只读核对 squeue 无此作业及 sacct 终态（TIMEOUT�
 
 `action_guard(...)` 的锁只包短本地动作边界，不包网络或完整运行；`check(...)` 的返回值不能缓存为授权。
 暂停由任何会话发布，仅与短操作串行，发布后的新动作检查拒绝；当前持有者仍可在原期限内观察、取回和整理。
-T184 尚未把该接口接入 prepare/submit/cancel。后续敏感工单须在实际动作边界重查，
-按不可变 Attempt 声明/绑定核对真实提交次数，并保留原提交与取消控制；本地意图计数不是执行证据。
-版本或计划哈希不符目前只拒绝本次检查，尚未自动暂停。T186 须扩展 guard，在同一次 `store.lock` 动作事务内
-追加并发布暂停后再处理后续动作；不能在 `action_guard` 内嵌套调用再次获取锁的 `pause()`。
+T186 的 submission_guard 在 prepare/submit 边界重查，并按不可变声明/归属核对实际消费；
+本地意图计数不是执行证据。可核验的版本/计划失效会在短事务中记录暂停；
+不能在 `action_guard` 内嵌套调用再次获取锁的 `pause()`。本版自主取消及改投关闭，需要时记录“需要你看”。
 验证只用临时合成 study、模拟时钟及真实本地子进程；不读取研究数据、不改共享运行环境、不连接集群。
 
 ### 远程命令

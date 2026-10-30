@@ -5,6 +5,7 @@ make the same credit available for another job. Callers serialize with the
 existing submission lock; reconciliation takes that same lock.
 """
 from datetime import date
+from contextlib import nullcontext
 import json
 import os
 from pathlib import Path
@@ -116,20 +117,23 @@ def reserve(cfg, m, ledger):
     write(cfg, ledger)
 
 
-def settle(cfg, m, elapsed=None, *, rejected=False, job_id=None):
+def settle(cfg, m, elapsed=None, *, rejected=False, job_id=None, publication=None):
     from ag.locks import submission_lock
     with submission_lock(cfg):
-        ledger = read(cfg)
-        row = ledger['attempts'].get(m['attempt_id'])
-        if row is None or row['bundle_sha256'] != m['bundle_sha256']:
-            raise ValueError('Budget reservation missing or mismatched')
-        final = dict(state='rejected' if rejected else 'settled', reserved=0,
-                     used=0 if rejected else m['cores'] * seconds(elapsed),
-                     bundle_sha256=m['bundle_sha256'], job_id=job_id)
-        if row['state'] != 'reserved' and row != final:
-            raise ValueError('Conflicting budget settlement; human reconciliation required')
-        ledger['attempts'][m['attempt_id']] = final
-        write(cfg, ledger)
+        # Recheck after waiting for the config mutex, before any local write.
+        # The optional guard takes machine -> study locks; no remote IO occurs.
+        with publication() if publication is not None else nullcontext():
+            ledger = read(cfg)
+            row = ledger['attempts'].get(m['attempt_id'])
+            if row is None or row['bundle_sha256'] != m['bundle_sha256']:
+                raise ValueError('Budget reservation missing or mismatched')
+            final = dict(state='rejected' if rejected else 'settled', reserved=0,
+                         used=0 if rejected else m['cores'] * seconds(elapsed),
+                         bundle_sha256=m['bundle_sha256'], job_id=job_id)
+            if row['state'] != 'reserved' and row != final:
+                raise ValueError('Conflicting budget settlement; human reconciliation required')
+            ledger['attempts'][m['attempt_id']] = final
+            write(cfg, ledger)
 
 
 def expiry_warning(cfg, today=None):

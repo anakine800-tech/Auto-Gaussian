@@ -266,7 +266,7 @@ def test_monitor_warns_at_effective_cap(cfg, cores, nodes, cap):
 
 
 def test_old_monitor_cache_allows_incremental_fields(cfg, monkeypatch):
-    monkeypatch.setattr(monitor, 'login_user', lambda cfg: 'fixture')
+    monkeypatch.setattr(monitor, 'ssh_identity', lambda cfg: ('fixture', 22, 'fixture'))
     cfg['resources']['max_committed_cores'] = 88
     initial = monitor.sample(cfg, MonitorFake())
     for key in ('cores_running', 'cores_queued', 'committed_cap'):

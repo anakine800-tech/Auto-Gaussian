@@ -56,7 +56,7 @@ def cfg(tmp_path):
 
 @pytest.fixture
 def identity(monkeypatch):
-    monkeypatch.setattr(monitor, 'login_user', lambda cfg: 'fixture')
+    monkeypatch.setattr(monitor, 'ssh_identity', lambda cfg: ('fixture', 22, 'fixture'))
 
 
 class Fake:
@@ -228,7 +228,8 @@ def test_atomic_latest_and_append_only_rotation(cfg, identity, monkeypatch):
     monitor.sample(cfg, Fake())
     assert (root / 'history.jsonl').read_bytes().startswith(history)
     assert len((root / 'history.jsonl').read_text().splitlines()) == 2
-    assert replacements == ['latest.json']
+    assert replacements == ['previous.json', 'latest.json']
+    assert (root / 'previous.json').read_bytes() == previous
     monkeypatch.setattr(monitor.os, 'replace', original)
     monkeypatch.setattr(monitor, 'HISTORY_BYTES', 1)
     (root / 'history.1.jsonl').write_text('old rotation\n')
@@ -237,7 +238,7 @@ def test_atomic_latest_and_append_only_rotation(cfg, identity, monkeypatch):
     assert (root / 'history.jsonl').read_bytes() == b''
     monitor.publish(root, first)
     assert len((root / 'history.1.jsonl').read_text().splitlines()) == 1
-    assert sorted(p.name for p in root.iterdir()) == ['history.1.jsonl', 'history.jsonl', 'latest.json']
+    assert sorted(p.name for p in root.iterdir()) == ['history.1.jsonl', 'history.jsonl', 'latest.json', 'previous.json']
 
 
 def test_interrupted_replace_keeps_valid_latest(cfg, identity, monkeypatch):
@@ -252,7 +253,7 @@ def test_interrupted_replace_keeps_valid_latest(cfg, identity, monkeypatch):
     assert tree(root) == before
 
 
-@pytest.mark.parametrize('name', ['.ag-monitor', 'latest.json', 'history.jsonl', 'history.1.jsonl'])
+@pytest.mark.parametrize('name', ['.ag-monitor', 'latest.json', 'previous.json', 'history.jsonl', 'history.1.jsonl'])
 def test_cache_symlink_cannot_redirect_writes_into_study(cfg, name):
     target = attempt(cfg, 'water-001-sp', '101.fixture', 'submitted')
     before = target.read_bytes()
@@ -264,6 +265,134 @@ def test_cache_symlink_cannot_redirect_writes_into_study(cfg, name):
     with pytest.raises(ValueError, match='symbolic links'):
         monitor.sample(cfg, Fake())
     assert target.read_bytes() == before
+
+
+def pair_snapshot(cfg, minute, *, ok=True):
+    value = monitor.empty_snapshot(cfg, 300)
+    value.update(sampled_at=f'2026-10-30T00:{minute:02d}:00Z', ok=ok,
+                 error=None if ok else 'Synthetic sampling failure')
+    value['last_ok_at'] = value['sampled_at'] if ok else None
+    value['own']['jobs'] = [dict(job_id='101.fixture', name='water', mine=True)]
+    return value
+
+
+def test_previous_keeps_full_failed_sample_instead_of_last_success(cfg):
+    root = monitor.cache_dir(cfg)
+    first, failed, recovered = pair_snapshot(cfg, 0), pair_snapshot(cfg, 5, ok=False), pair_snapshot(cfg, 10)
+    monitor.publish(root, first)
+    monitor.publish(root, failed)
+    failed_bytes = (root / 'latest.json').read_bytes()
+    monitor.publish(root, recovered)
+    assert (root / 'previous.json').read_bytes() == failed_bytes
+    assert json.loads(failed_bytes)['own']['jobs'] == failed['own']['jobs']
+    assert json.loads((root / 'previous.json').read_text())['ok'] is False
+    assert [json.loads(line)['ok'] for line in (root / 'history.jsonl').read_text().splitlines()] == [True, False, True]
+
+
+def test_control_tombstone_breaks_observation_pair(cfg):
+    root = monitor.cache_dir(cfg)
+    first = pair_snapshot(cfg, 0)
+    monitor.publish(root, first)
+    first_bytes = (root / 'latest.json').read_bytes()
+    monitor.mark_removed(cfg)
+    assert (root / 'previous.json').read_bytes() == first_bytes
+    assert json.loads((root / 'latest.json').read_text())['config_removed'] is True
+    assert len((root / 'history.jsonl').read_text().splitlines()) == 1
+    monitor.publish(root, pair_snapshot(cfg, 5))
+    assert json.loads((root / 'previous.json').read_text())['ok'] is False
+    monitor.publish(root, pair_snapshot(cfg, 10))
+    assert json.loads((root / 'previous.json').read_text())['sampled_at'] == '2026-10-30T00:05:00Z'
+
+
+@pytest.mark.parametrize('second_minute', [0, 5])
+def test_duplicate_or_backwards_time_breaks_next_pair(cfg, second_minute):
+    root = monitor.cache_dir(cfg)
+    monitor.publish(root, pair_snapshot(cfg, 5))
+    monitor.publish(root, pair_snapshot(cfg, second_minute))
+    monitor.publish(root, pair_snapshot(cfg, 10))
+    assert json.loads((root / 'previous.json').read_text())['ok'] is False
+    monitor.publish(root, pair_snapshot(cfg, 15))
+    assert json.loads((root / 'previous.json').read_text())['sampled_at'] == '2026-10-30T00:10:00Z'
+
+
+def test_orphan_previous_cannot_pair_with_first_new_sample(cfg):
+    root = monitor.cache_dir(cfg)
+    (root / 'previous.json').write_text(json.dumps(pair_snapshot(cfg, 0)))
+    monitor.publish(root, pair_snapshot(cfg, 5))
+    assert not (root / 'previous.json').exists()
+    monitor.publish(root, pair_snapshot(cfg, 10))
+    assert json.loads((root / 'previous.json').read_text())['sampled_at'] == '2026-10-30T00:05:00Z'
+
+
+@pytest.mark.parametrize('interrupt_recovery', [False, True])
+def test_interrupted_pair_rotation_requires_two_later_samples(cfg, monkeypatch, interrupt_recovery):
+    root = monitor.cache_dir(cfg)
+    monitor.publish(root, pair_snapshot(cfg, 0))
+    monitor.publish(root, pair_snapshot(cfg, 5))
+    latest = (root / 'latest.json').read_bytes()
+    replace = monitor.os.replace
+    def fail_latest(src, dst):
+        if Path(dst).name == 'latest.json':
+            raise OSError('Synthetic crash after previous publication')
+        replace(src, dst)
+    monkeypatch.setattr(monitor.os, 'replace', fail_latest)
+    with pytest.raises(OSError, match='Synthetic crash'):
+        monitor.publish(root, pair_snapshot(cfg, 10))
+    assert (root / 'previous.json').read_bytes() == (root / 'latest.json').read_bytes() == latest
+    assert not list(root.glob('*.tmp'))
+    if interrupt_recovery:
+        with pytest.raises(OSError, match='Synthetic crash'):
+            monitor.publish(root, pair_snapshot(cfg, 10))
+        assert json.loads((root / 'previous.json').read_text())['ok'] is False
+        assert (root / 'latest.json').read_bytes() == latest
+    monkeypatch.setattr(monitor.os, 'replace', replace)
+    monitor.publish(root, pair_snapshot(cfg, 15))
+    invalid = json.loads((root / 'previous.json').read_text())
+    assert invalid['ok'] is False and invalid['sampled_at'] == '2026-10-30T00:05:00Z'
+    monitor.publish(root, pair_snapshot(cfg, 20))
+    assert json.loads((root / 'previous.json').read_text())['sampled_at'] == '2026-10-30T00:15:00Z'
+
+
+def test_concurrent_publishers_cannot_interleave_snapshot_generations(cfg, monkeypatch):
+    import threading
+    root = monitor.cache_dir(cfg)
+    monitor.publish(root, pair_snapshot(cfg, 0))
+    previous_written, second_waiting, second_acquired, release = (threading.Event() for _ in range(4))
+    replace, flock = monitor.os.replace, monitor.fcntl.flock
+    def held_replace(src, dst):
+        replace(src, dst)
+        if threading.current_thread().name == 'first-publisher' and Path(dst).name == 'previous.json':
+            previous_written.set()
+            assert release.wait(5)
+    def tracked_flock(fd, operation):
+        if threading.current_thread().name == 'second-publisher':
+            second_waiting.set()
+        flock(fd, operation)
+        if threading.current_thread().name == 'second-publisher':
+            second_acquired.set()
+    monkeypatch.setattr(monitor.os, 'replace', held_replace)
+    monkeypatch.setattr(monitor.fcntl, 'flock', tracked_flock)
+    errors = []
+    def writer(minute):
+        try:
+            monitor.publish(root, pair_snapshot(cfg, minute))
+        except BaseException as exc:
+            errors.append(exc)
+    first = threading.Thread(target=writer, args=(5,), name='first-publisher')
+    second = threading.Thread(target=writer, args=(10,), name='second-publisher')
+    first.start()
+    assert previous_written.wait(5)
+    second.start()
+    try:
+        assert second_waiting.wait(5)
+        assert not second_acquired.is_set()
+    finally:
+        release.set()
+        first.join(5)
+        second.join(5)
+    assert not first.is_alive() and not second.is_alive() and not errors
+    assert json.loads((root / 'previous.json').read_text())['sampled_at'] == '2026-10-30T00:05:00Z'
+    assert json.loads((root / 'latest.json').read_text())['sampled_at'] == '2026-10-30T00:10:00Z'
 
 
 @pytest.mark.parametrize('value', ['29', '601', '0', '-1', '1.5', 'bad'])
@@ -311,13 +440,73 @@ def test_one_shot_exit_code(cfg, identity, monkeypatch, capsys, failed, expected
     assert json.loads(capsys.readouterr().out)['interval_seconds'] is None
 
 
-def test_local_identity_uses_ssh_config_without_remote_command(cfg, monkeypatch):
+def test_sample_binds_account_from_one_local_identity_lookup(cfg, monkeypatch):
+    from ag import approval
+    calls = []
+
     def run(argv, **kwargs):
+        calls.append(argv)
         assert argv == ['ssh', '-G', '-F', cfg['ssh']['config_file'], 'fixture']
         assert kwargs['timeout'] == 15
-        return Result(stdout='host fixture\nuser fixture\nhostname fixture\n')
+        return Result(stdout='hostname FIXTURE-ACCOUNT\nport 2201\nuser fixture\n')
+
     monkeypatch.setattr(subprocess, 'run', run)
-    assert monitor.login_user(cfg) == 'fixture'
+    fake = Fake()
+    result = monitor.sample(cfg, fake, 300)
+    assert result['ok']
+    assert result['account_sha256'] == approval.digest(
+        {'scheduler': 'pbs', 'ssh': ['fixture-account', 2201, 'fixture']})
+    assert len(calls) == 1 and len(fake.calls) == 3
+    assert result['own']['cores_in_use'] == 16
+    assert not {'hostname', 'port', 'user', 'ssh'} & result.keys()
+
+
+@pytest.mark.parametrize('changed', [
+    ('fixture-b', 22, 'fixture'), ('fixture-a', 2202, 'fixture'),
+    ('fixture-a', 22, 'other'),
+])
+def test_same_alias_account_change_is_bound_to_each_snapshot(cfg, monkeypatch, changed):
+    replies = iter([('fixture-a', 22, 'fixture'), changed])
+
+    def run(*args, **kwargs):
+        host, port, user = next(replies)
+        return Result(stdout=f'hostname {host}\nport {port}\nuser {user}\n')
+
+    monkeypatch.setattr(subprocess, 'run', run)
+    first = monitor.sample(cfg, Fake(jobs=''), 300)
+    second = monitor.sample(cfg, Fake(jobs=''), 300)
+    assert first['ok'] and second['ok']
+    assert first['own']['jobs'] == second['own']['jobs'] == []
+    assert first['account_sha256'] != second['account_sha256']
+    root = monitor.cache_dir(cfg)
+    assert json.loads((root / 'previous.json').read_text())['account_sha256'] == first['account_sha256']
+    assert json.loads((root / 'latest.json').read_text())['account_sha256'] == second['account_sha256']
+
+
+def test_failed_sample_never_relabels_retained_jobs_with_new_account(cfg, monkeypatch):
+    replies = iter(['fixture-a', 'fixture-b'])
+    monkeypatch.setattr(subprocess, 'run', lambda *a, **k: Result(
+        stdout=f'hostname {next(replies)}\nport 22\nuser fixture\n'))
+    first = monitor.sample(cfg, Fake(), 300)
+    assert first['ok'] and first['account_sha256']
+    fake = Fake()
+    fake.replies['jobs'] = Result(255)
+    failed = monitor.sample(cfg, fake, 300)
+    assert failed['ok'] is False
+    assert failed['own']['jobs'] == first['own']['jobs']
+    assert 'account_sha256' not in failed
+
+
+@pytest.mark.parametrize('text', [
+    'user fixture\n', 'hostname fixture\nuser fixture\n',
+    'hostname fixture\nport 22\nuser invalid@name\n',
+])
+def test_account_identity_requires_complete_expansion_before_remote_reads(cfg, monkeypatch, text):
+    monkeypatch.setattr(subprocess, 'run', lambda *a, **k: Result(stdout=text))
+    fake = Fake()
+    result = monitor.sample(cfg, fake, 300)
+    assert result['ok'] is False and 'account_sha256' not in result
+    assert fake.calls == []
 
 
 @pytest.mark.parametrize('reply', [Result(stdout=''), Result(stdout='user invalid name\n'),

@@ -420,7 +420,7 @@ def test_doctor_prompts_only_and_no_private_identity(shared, tmp_path, capsys, m
 @pytest.mark.parametrize('failed,old_cache', [(False, False), (True, False), (True, True)])
 def test_monitor_all_paths_shared_caps(shared, monkeypatch, failed, old_cache):
     shared['clusters']['trial']['resources']['max_committed_cores'] = 256
-    monkeypatch.setattr(monitor, 'login_user', lambda _: 'fixture')
+    monkeypatch.setattr(monitor, 'ssh_identity', lambda _: ('fixture', 22, 'fixture'))
     for name, peer in [('batch', 'trial'), ('trial', 'batch')]:
         selected = config.select_cluster(shared, name)
         fake = SlurmFake(selected)
@@ -452,7 +452,7 @@ def test_monitor_over_cap_includes_peer_reservation_without_changing_remote_fiel
 
 
 def test_failed_monitor_refreshes_changed_caps_and_membership(shared, monkeypatch):
-    monkeypatch.setattr(monitor, 'login_user', lambda _: 'fixture')
+    monkeypatch.setattr(monitor, 'ssh_identity', lambda _: ('fixture', 22, 'fixture'))
     selected = config.select_cluster(shared, 'trial')
     fake = SlurmFake(selected)
     first = monitor.sample(selected, fake)

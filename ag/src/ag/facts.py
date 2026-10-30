@@ -1,6 +1,7 @@
 """Local extraction of reported facts; scientific acceptance belongs to the reviewer."""
 
 from hashlib import sha256
+from contextlib import ExitStack, nullcontext
 from datetime import datetime, timezone
 import difflib
 import fcntl
@@ -48,20 +49,6 @@ def gaussian_log(attempt_dir):
     if len(logs) != 1:
         raise ValueError(f'{attempt_dir.name}: expected one Gaussian output log, found {len(logs)}')
     return logs[0]
-
-
-def _write_geometry(path, geometry):
-    """Reuse identical bytes, never replace a previously reviewed geometry."""
-    content = geometry.encode('utf-8')
-    try:
-        with path.open('xb') as handle:
-            handle.write(content)
-    except FileExistsError:
-        if path.is_symlink() or not path.is_file():
-            raise ValueError(f'{path.name} 必须是普通文件，不能是符号链接') from None
-        if path.read_bytes() != content:
-            raise ValueError(f'{path.name} 与当前日志解析结果不一致，需人工核对') from None
-
 
 
 def parse_counterpoise(log):
@@ -356,7 +343,49 @@ def _parsed_result(facts):
     return facts
 
 
-def build_facts(attempt_dir, *, refresh=False):
+def _publication_identity(info):
+    return (info.st_dev, info.st_ino, info.st_mode, info.st_nlink,
+            info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+
+def _publication_read(path, handles):
+    """Read before the shared guard; pin the inode for its final metadata check."""
+    try:
+        info = path.stat(follow_symlinks=False)
+    except FileNotFoundError:
+        return None, (path, None, None)
+    if not stat.S_ISREG(info.st_mode):
+        raise ValueError(f'{path.name} 必须是普通文件，不能是符号链接')
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    handle = handles.enter_context(os.fdopen(fd, 'rb'))
+    proof = (path, handle, _publication_identity(os.fstat(fd)))
+    data = handle.read()
+    _publication_unchanged(proof)
+    return data, proof
+
+
+def _publication_unchanged(proof):
+    path, handle, identity = proof
+    if handle is None:
+        if os.path.lexists(path):
+            raise ValueError(f'{path.name} 在发布前已变化，拒绝写入')
+    elif (_publication_identity(os.fstat(handle.fileno())) != identity
+          or _publication_identity(path.stat(follow_symlinks=False)) != identity):
+        raise ValueError(f'{path.name} 在发布前已变化，拒绝写入')
+
+
+def _publication_stage(directory, content, handles, staged):
+    fd, name = tempfile.mkstemp(prefix='.facts-stage-', dir=directory)
+    path = Path(name)
+    staged.append(path)
+    handle = handles.enter_context(os.fdopen(fd, 'w+b'))
+    handle.write(content)
+    handle.flush()
+    os.fsync(fd)
+    return path, (path, handle, _publication_identity(os.fstat(fd)))
+
+
+def build_facts(attempt_dir, *, refresh=False, publication=None):
     """The ag facts write entry point; preserve exact old bytes before refresh."""
     directory = Path(attempt_dir)
     facts, geometries = parse_facts(directory)
@@ -367,78 +396,89 @@ def build_facts(attempt_dir, *, refresh=False):
     fd = os.open(directory / '.facts.lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
     with os.fdopen(fd, 'rb') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        old = _existing_bytes(target)
-        previous = None
-        same = False
-        if old is not None:
-            try:
-                previous = json.loads(old)
-                if isinstance(previous, dict):
-                    # A code upgrade alone must not invalidate signed evidence.
-                    # Canonical JSON preserves number/bool types while ignoring
-                    # formatting, key order and parser provenance metadata.
-                    canonical = lambda value: json.dumps(
-                        {key: item for key, item in value.items() if key != 'ag_provenance'},
-                        sort_keys=True, ensure_ascii=False, allow_nan=False)
-                    same = canonical(previous) == canonical(facts)
-            except (ValueError, UnicodeDecodeError):
-                pass  # Invalid old bytes still require explicit, archived refresh.
-        if old is not None and not same and not refresh:
-            diff = ''.join(difflib.unified_diff(
-                old.decode('utf-8', errors='replace').splitlines(keepends=True),
-                content.decode('utf-8').splitlines(keepends=True),
-                fromfile='facts.json (existing)', tofile='facts.json (parsed)'))
-            raise FactsConflictError(_difference_summary(previous, facts)
-                             + 'facts.json 内容不同，拒绝写入；人工确认差异后使用 --refresh。\n'
-                             + f'旧 SHA-256: {sha256(old).hexdigest()}\n'
-                             f'新 SHA-256: {sha256(content).hexdigest()}\n' + diff)
-        # Validate all existing geometries before creating any new evidence.
-        for name, geometry in geometries.items():
-            existing = _existing_bytes(directory / name)
-            if existing is not None and existing != geometry.encode('utf-8'):
-                if name in {'mdopt.xyz', 'scan_points.xyz'}:
-                    raise ValueError(f'{name} differs from current parsed output; manual review required')
-                raise ValueError(f'{name} 与当前日志解析结果不一致，需人工核对')
-        for name, geometry in geometries.items():
-            _write_geometry(directory / name, geometry)
-        if same:
-            # Report the retained version, including its original/missing provenance.
-            return _parsed_result(previous)  # Keep bytes, mtime and the review fingerprint unchanged.
-        if old is None:
-            with target.open('xb') as handle:
-                handle.write(content)
-                handle.flush()
-                os.fsync(handle.fileno())
-            return _parsed_result(facts)
-        archive = directory / f'facts.{sha256(old).hexdigest()[:12]}.json'
-        archived = _existing_bytes(archive)
-        if archived is None:
-            with archive.open('xb') as handle:
-                handle.write(old)
-                handle.flush()
-                os.fsync(handle.fileno())
-        elif archived != old:
-            raise ValueError(f'{archive.name} 内容不匹配，拒绝覆盖旧版')
-        # Make the backup durable before atomically publishing the new facts.
-        directory_fd = os.open(directory, os.O_RDONLY)
+        staged, complete = [], False
         try:
-            os.fsync(directory_fd)
-            fd, temporary = tempfile.mkstemp(prefix='.facts-', dir=directory)
-            try:
-                with os.fdopen(fd, 'wb') as handle:
-                    handle.write(content)
-                    handle.flush()
-                    os.fsync(handle.fileno())
-                if _existing_bytes(target) != old:
-                    raise ValueError('facts.json 在刷新期间已变化，拒绝写入')
-                os.replace(temporary, target)
-                os.fsync(directory_fd)
-            finally:
-                if os.path.exists(temporary):
-                    os.unlink(temporary)  # Only an unpublished temporary, never an old version.
+            with ExitStack() as handles:
+                old, target_proof = _publication_read(target, handles)
+                previous = None
+                same = False
+                if old is not None:
+                    try:
+                        previous = json.loads(old)
+                        if isinstance(previous, dict):
+                            # A code upgrade alone must not invalidate signed evidence.
+                            canonical = lambda value: json.dumps(
+                                {key: item for key, item in value.items() if key != 'ag_provenance'},
+                                sort_keys=True, ensure_ascii=False, allow_nan=False)
+                            same = canonical(previous) == canonical(facts)
+                    except (ValueError, UnicodeDecodeError):
+                        pass  # Invalid old bytes still need an explicit archived refresh.
+                if old is not None and not same and not refresh:
+                    diff = ''.join(difflib.unified_diff(
+                        old.decode('utf-8', errors='replace').splitlines(keepends=True),
+                        content.decode('utf-8').splitlines(keepends=True),
+                        fromfile='facts.json (existing)', tofile='facts.json (parsed)'))
+                    raise FactsConflictError(_difference_summary(previous, facts)
+                                     + 'facts.json 内容不同，拒绝写入；人工确认差异后使用 --refresh。\n'
+                                     + f'旧 SHA-256: {sha256(old).hexdigest()}\n'
+                                     f'新 SHA-256: {sha256(content).hexdigest()}\n' + diff)
+                proofs, geometries_to_publish = [target_proof], []
+                for name, geometry in geometries.items():
+                    destination = directory / name
+                    existing, proof = _publication_read(destination, handles)
+                    proofs.append(proof)
+                    data = geometry.encode('utf-8')
+                    if existing is not None and existing != data:
+                        if name in {'mdopt.xyz', 'scan_points.xyz'}:
+                            raise ValueError(f'{name} differs from current parsed output; manual review required')
+                        raise ValueError(f'{name} 与当前日志解析结果不一致，需人工核对')
+                    if existing is None:
+                        temporary, proof = _publication_stage(directory, data, handles, staged)
+                        proofs.append(proof)
+                        geometries_to_publish.append((temporary, destination))
+                replacement = archive = archive_stage = None
+                if not same:
+                    replacement, proof = _publication_stage(directory, content, handles, staged)
+                    proofs.append(proof)
+                    if old is not None:
+                        archive = directory / f'facts.{sha256(old).hexdigest()[:12]}.json'
+                        archived, proof = _publication_read(archive, handles)
+                        proofs.append(proof)
+                        if archived is None:
+                            archive_stage, proof = _publication_stage(directory, old, handles, staged)
+                            proofs.append(proof)
+                        elif archived != old:
+                            raise ValueError(f'{archive.name} 内容不匹配，拒绝覆盖旧版')
+                # All reads, comparisons, hashing and payload writes are done.
+                # Only pinned-inode checks and publication hold shared locks.
+                with (publication or nullcontext)():
+                    for proof in proofs:
+                        _publication_unchanged(proof)
+                    for temporary, destination in geometries_to_publish:
+                        os.link(temporary, destination, follow_symlinks=False)
+                    directory_fd = os.open(directory, os.O_RDONLY | os.O_NOFOLLOW)
+                    try:
+                        if replacement is not None:
+                            if old is None:
+                                os.link(replacement, target, follow_symlinks=False)
+                            else:
+                                if archive_stage is not None:
+                                    os.link(archive_stage, archive, follow_symlinks=False)
+                                # Persist the backup before replacing signed facts.
+                                os.fsync(directory_fd)
+                                _publication_unchanged(target_proof)
+                                os.replace(replacement, target)
+                        os.fsync(directory_fd)
+                    finally:
+                        os.close(directory_fd)
+                complete = True
         finally:
-            os.close(directory_fd)
-    return _parsed_result(facts)
+            # Preserve unpublished stages after autonomous refusal/failure;
+            # ordinary calls retain their historical temporary-file cleanup.
+            if complete or publication is None:
+                for temporary in staged:
+                    temporary.unlink(missing_ok=True)
+    return _parsed_result(previous if same else facts)
 
 
 def _json_bytes(value):
@@ -636,8 +676,32 @@ def _run(args):
         if (args.dry_run or args.out is not None) and not args.reparse:
             raise ValueError('--dry-run and --out require --reparse')
         directory = resolve_attempt(args.attempt, args.study, strict=args.reparse)
-        facts = (reparse_facts(directory, dry_run=args.dry_run, out=args.out) if args.reparse else
-                 build_facts(directory, refresh=args.refresh))
+        writer = nullcontext()
+        if not (args.reparse and args.dry_run):
+            from ag import autonomy, study
+            directory = Path(directory).absolute()
+            autonomous_roots = [parent for parent in (directory, *directory.parents)
+                                if os.path.lexists(parent / 'autonomy')]
+            root = directory.parent.parent
+            if directory.parent.name == 'attempts':
+                try:
+                    study.identifier(root.name)
+                    study.identifier(directory.name)
+                except ValueError:
+                    if autonomous_roots:
+                        raise ValueError('Facts in an autonomous study require a canonical Attempt path') from None
+                    # Old standalone/legacy directories retain their old path rules.
+                else:
+                    if any(parent != root for parent in autonomous_roots):
+                        raise ValueError('Facts path does not belong to its autonomous study')
+                    local_cfg = {'local': {'studies_root': str(root.parent)}}
+                    writer = autonomy.manual_write_guard(local_cfg, root.name,
+                                                         action='facts', attempt_ids=[directory.name])
+            elif autonomous_roots:
+                raise ValueError('Facts in an autonomous study require a canonical Attempt path')
+        with writer:
+            facts = (reparse_facts(directory, dry_run=args.dry_run, out=args.out) if args.reparse else
+                     build_facts(directory, refresh=args.refresh))
         print(json.dumps(facts, indent=2, ensure_ascii=False, allow_nan=False))
         return 0
     except CrestParseIncomplete as exc:

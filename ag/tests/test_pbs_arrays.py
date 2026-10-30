@@ -158,7 +158,7 @@ def test_own_array_blocks_doctor(cfg):
 
 @pytest.mark.parametrize('owner', ['other', 'fixture'])
 def test_monitor_sample_with_arrays(cfg, monkeypatch, owner):
-    monkeypatch.setattr(monitor, 'login_user', lambda cfg: 'fixture')
+    monkeypatch.setattr(monitor, 'ssh_identity', lambda cfg: ('fixture', 22, 'fixture'))
     raw = job() + array_job(owner=owner) + array_job('9100[1].fixture', owner=owner, state_='R')
     fake = MonitorFake(jobs=raw, nodes=node(jobs='0/101.fixture,1/9100[1].fixture'))
     result = monitor.sample(cfg, fake)

@@ -302,7 +302,7 @@ def test_timezone_trust_applied_before_sort_and_truncation(cfg):
 
 
 def test_timezone_snapshot_initial_failure_reload_and_recovery(cfg, monkeypatch):
-    monkeypatch.setattr(monitor, 'login_user', lambda _: 'userA')
+    monkeypatch.setattr(monitor, 'ssh_identity', lambda _: ('fixture', 22, 'userA'))
     fake = PBSFake(jobs=row(901).replace('start_time = synthetic-time',
                                         'start_time = Sat Oct 24 09:12:00 2026'))
     original = fake.replies['jobs']
@@ -366,7 +366,7 @@ def test_pbs_node_memory_and_distinct_job_count(cfg):
 @pytest.mark.parametrize('failure', [Result(255, stderr='fixture failure'), SSHConnectionError('fixture timeout'),
                                    Result(stdout='node-a\n    state = free\n')])
 def test_pbs_hardware_failure_is_partial(cfg, monkeypatch, failure):
-    monkeypatch.setattr(monitor, 'login_user', lambda _: 'userA')
+    monkeypatch.setattr(monitor, 'ssh_identity', lambda _: ('fixture', 22, 'userA'))
     fake = PBSFake(jobs=row(901))
     fake.replies['nodes'] = failure
     result = monitor.sample(cfg, fake)
@@ -444,7 +444,7 @@ def test_no_partition_never_queries_cluster(multi):
 @pytest.mark.parametrize('failure', ['query', 'parse', 'timeout'])
 def test_slurm_hardware_failure_does_not_hide_jobs(multi, monkeypatch, part, failure):
     entry = config.select_cluster(multi, 'batch')
-    monkeypatch.setattr(monitor, 'login_user', lambda _: 'userA')
+    monkeypatch.setattr(monitor, 'ssh_identity', lambda _: ('fixture', 22, 'userA'))
     fake = PartitionFake(entry)
     failures = dict(query=Result(1, stderr=entry['ssh']['host'] + ' unavailable'),
                     parse=Result(stdout='unknown'),
@@ -479,7 +479,7 @@ def test_allocmem_failure_preserves_heterogeneous_memory_warning(multi):
                                    Result(stdout='invalid'), SSHConnectionError('batch-fixture timeout')])
 def test_partition_job_failure_keeps_fresh_own_jobs(multi, monkeypatch, failure):
     entry = config.select_cluster(multi, 'batch')
-    monkeypatch.setattr(monitor, 'login_user', lambda _: 'userA')
+    monkeypatch.setattr(monitor, 'ssh_identity', lambda _: ('fixture', 22, 'userA'))
     fake = PartitionFake(entry)
     monitor.sample(entry, fake)
     fake.partition_jobs = failure
@@ -500,7 +500,7 @@ def test_partition_job_failure_keeps_fresh_own_jobs(multi, monkeypatch, failure)
 
 def test_own_job_failure_still_retains_last_success(multi, monkeypatch):
     entry = config.select_cluster(multi, 'batch')
-    monkeypatch.setattr(monitor, 'login_user', lambda _: 'userA')
+    monkeypatch.setattr(monitor, 'ssh_identity', lambda _: ('fixture', 22, 'userA'))
     fake = PartitionFake(entry)
     before = monitor.sample(entry, fake)
     fake.calls.clear()
@@ -588,7 +588,7 @@ def test_display_order_success_failure_config_and_legacy(cfg, monkeypatch, order
     loaded = config.load_config(path)
     assert loaded['display_order'] == order
     cfg['display_order'] = order
-    monkeypatch.setattr(monitor, 'login_user', lambda _: 'userA')
+    monkeypatch.setattr(monitor, 'ssh_identity', lambda _: ('fixture', 22, 'userA'))
     fake = PBSFake(jobs=row(901))
     assert monitor.sample(cfg, fake)['cluster']['display_order'] == order
     fake.replies['jobs'] = Result(1)
@@ -606,7 +606,7 @@ def test_bad_display_order(cfg, value):
 
 
 def test_history_contains_counts_only(cfg, monkeypatch):
-    monkeypatch.setattr(monitor, 'login_user', lambda _: 'userA')
+    monkeypatch.setattr(monitor, 'ssh_identity', lambda _: ('fixture', 22, 'userA'))
     monitor.sample(cfg, PBSFake(jobs=row(901) + row(902, 'userB')))
     text = (monitor.cache_dir(cfg) / 'history.jsonl').read_text()
     assert all(private not in text for private in ('userA', 'userB', '902.fixture', 'node-a', 'water'))
@@ -651,7 +651,7 @@ def test_entry_cadence_and_no_overlapping_rounds(multi, monkeypatch, capsys, slo
 def test_sample_duration_measures_collection(cfg, monkeypatch):
     tick = [0.0]
     monkeypatch.setattr(monitor.time, 'monotonic', lambda: tick[0])
-    monkeypatch.setattr(monitor, 'login_user', lambda _: 'userA')
+    monkeypatch.setattr(monitor, 'ssh_identity', lambda _: ('fixture', 22, 'userA'))
     fake = PBSFake(jobs=row(901))
     original = fake.run
     def run(command):

@@ -10,7 +10,7 @@ RDKit 与 CI 固定为同一精确版本；平台包边界见上述安装步骤�
 整体架构、常用命令和 Skill 部署见[根目录 README](../README.md)；
 规则见 [AGENTS.md](../AGENTS.md)，设计见[改造方案](../docs/REDESIGN-PLAN.md)。
 
-本文计算命令描述当前手动模式；T184 的 `autonomy` 仅保存本地计划和状态。[自主运行规则](../AGENTS.md#自主运行)须待相关工具实现、敏感路径合并前验证、非研究试点及本轮显式启用全部完成；旧长期规则不提供自主权限，现有 cancel 仍须 Mac 人工点击。当前实现与后续要求见[开发手册](../docs/DEVELOPING.md#自主运行的实现边界)。
+本文计算命令描述当前手动模式；`autonomy` 保存本地计划、状态及实际提交消费，T186 已接入开发中的自主 prepare/submit/route 与最终本地发布保护，组合及真实验证尚未完成。[自主运行规则](../AGENTS.md#自主运行)须待相关工具实现、敏感路径合并前验证、非研究试点及本轮显式启用全部完成；旧长期规则不提供自主权限，现有 cancel 仍须 Mac 人工点击。当前实现与后续要求见[开发手册](../docs/DEVELOPING.md#自主运行的实现边界)。
 
 ## 提交阶梯与整节点（T185）
 
@@ -382,11 +382,23 @@ study 内符号链接、歧义、非法显式路径、空分析目录、收集�
 ## 本地自主运行记录：autonomy
 
 `ag autonomy` 在已有 study 的 `autonomy/` 内保存计划、运行租约和日志，
-只加载本地配置，不连接集群、不运行量化程序，也不修改 Attempt、facts、签字或 `study.md`。
-本模块尚未接入 `ag prepare`、`ag submit`、`ag cancel`；计划确认和资格检查都不是提交批准，
-这些记录本身不能启用自主计算。所有子命令默认输出 JSON，接受 `--json`。
+只加载本地配置，不连接集群或运行量化程序；`scientific-review` 另在原 Attempt
+保存待人确认的来源记录，不改 facts、签字或 `study.md`。T186 已接入开发中的
+自主 prepare/submit 和已结束失败的有界补救；自主取消、改投关闭，取消来源须先由负责人显式解除。计划确认和资格检查本身不能启用
+自主计算。所有子命令默认输出 JSON，接受 `--json`。
 
-先准备计划正文 JSON，再依次执行；尖括号内容须替换为实际值：
+组合 T185 后，可在创建计划前读取当前本地路由配置身份：
+
+```sh
+ag route --config-identity --json
+```
+
+返回的 `routing_sha256` 用于计划 `submission_policy.routing_sha256` 和自主规则的
+同名字段。该入口不要求已有 study、计划、规则或租约，只读本地配置，不查询集群、
+不创建登记或监控文件，也不赋予动作资格；只能与 `--json` 搭配，不能混用路由选择参数。
+未组合 T185 的同一身份算法时明确拒绝，不改用原始 TOML 文件哈希。
+
+再准备计划正文 JSON，依次执行；尖括号内容须替换为实际值：
 
 ```sh
 ag autonomy init --study '<STUDY>'
@@ -419,8 +431,9 @@ ag autonomy status --study '<STUDY>'
 | `mechanism_scope` | 非空机理范围文本 |
 | `system_rules` | 只含 `main`、`small` 的对象，两项均为非空判定规则文本 |
 | `estimated_hours` | 正的有限数，耗时预估（小时） |
-| `attempt_limit` | 正整数，当前授权轮次的本地 Attempt 意图上限 |
+| `attempt_limit` | 正整数，本轮实际提交次数上限；旧本地意图预检也复用此值，实际 prepare 不消费次数 |
 | `valid_until` | 晚于创建时间的 Unix 时间戳（UTC 秒） |
+| `submission_policy` | 可选的结构化提交边界；实际自主提交必需，具体字段见下述开发手册 |
 
 保存的 `versions` 包含 `ag_version`、完整 `git_commit`、`dirty` 和实际安装的
 `rdkit`、`goodvibes` 版本。创建计划要求 ag 源码检出干净、提交可核验且两项依赖版本可读，
@@ -481,11 +494,28 @@ ag autonomy count --study '<STUDY>' --run '<RUN_ID>' --token '<TOKEN>' --kind re
 
 `kind` 为 `attempt`、`remedy`、`cancel` 或 `reroute`。同一请求 ID 在同次唤醒以相同内容重试仅返回确认，不重复计数；
 改内容或改运行复用请求 ID 会拒绝。`totals` 保留全部历史，`rounds` 保留逐轮计数，`runs` 保留逐次唤醒计数。
-`attempt_limit` 按当前授权轮次计数限制新增 `attempt` 意图和 `prepare` 资格；`finish`、再次唤醒、接管或修订计划均不重置本轮消耗。
+`attempt_limit` 限制新增 `attempt` 意图及旧本地 `check --for-action prepare` 预检；
+实际 prepare/submit 不用这些意图数作提交预算，而核验真实消费及不可变归属。
+`finish`、再次唤醒、接管或修订计划均不重置本轮消耗。
 只有显式 `end` 后重新 `begin` 才开始新的轮次预算，旧轮次和全历史累计仍保留。
-`submit` 检查不据计数拒绝已计数的最后一个 Attempt。
-真实提交数仍须由后续集成核对不可变声明和绑定；JSON 明示 `submission_counts_verified: false`，
-不能把人工增加计数当作实际提交或取消的证据。
+`autonomy check --for-action submit` 的旧意图预检不据意图计数拒绝已计数的最后一个 Attempt；
+实际自主提交仍执行真实消费预算及 90% 暂停核验。
+实际自主消费保存在 `state.submissions`，由提交入口与不可变归属、声明及绑定交叉核对。
+本命令不运行全机审计，JSON 仍明示 `submission_counts_verified: false`；
+不能把人工增加意图计数或本地状态显示当作实际提交或取消许可。
+
+本版提交不依赖 T187。已证实结束失败的作业可在同一计划内新建 Attempt 补救，
+同对象同失败最多两次；仍运行、未经人工解除的 UNKNOWN 和取消来源不能作为普通失败补救。
+负责人可用 `ag autonomy resolve-attempt --study '<STUDY>' --attempt '<ATTEMPT>' --quote '<原话>'`
+基于已核实的本地新鲜证据显式解除取消/UNKNOWN；不改旧声明、不退回预算、不自动恢复运行，
+后续仍只能准备新 Attempt 并重新通过完整授权与资源核验。
+自主取消、取消停止证明、改投入口关闭，`--reroute-source` 不再提供。
+需要取消或改投时，唯一 owner 用上述 `update` 保存“需要你看”和原因，保留其他分支，
+summary 第一行提醒负责人在 Mac 上亲手确认取消；自主会话不执行取消命令。
+旧 `count/check` 的取消/改投意图只供历史记录，不能赋予执行权限。
+对象拒绝只记录对应分支“需要你看”；派发前失败每对象每轮最多 2 次，独立于科学补救额度，
+实际 Attempt 消费不清零。第一次派发前 SSH 失败停止依赖动作，连续两次唤醒失败才全局暂停。
+具体接口和验证边界见[开发手册](../docs/DEVELOPING.md#自主运行的实现边界)。
 
 文件均位于 study 的 `autonomy/`：`plan-<PLAN_ID>.json` 为不可变计划；`journal.jsonl` 为追加事件；
 `state.json` 是含 `seq`、`journal_sha256`、`state` 的原子快照；`store.lock` 是不删除、不更换的短操作 OS 互斥文件。
@@ -511,8 +541,9 @@ ag autonomy start --study '<STUDY>' --plan '<PLAN_ID>' --owner '<NEW_SESSION_ID>
 只能包住短本地声明或决定，不能包住网络操作或完整运行，也不能嵌套调用其他 autonomy API（会再次获取锁）。
 `check(...)` / CLI `check` 只表示检查当时的结果，
 不能缓存为以后提交的许可证；后续入口须在各动作边界重新检查，并独立满足现有提交、取消及证据要求。
-当前版本或计划哈希不符会拒绝本次检查，但尚未自动发布暂停。T186 接入时须扩展 guard，
-在同一次 `store.lock` 动作事务内追加并发布暂停后，才处理后续动作；不能在持锁的 `action_guard` 内嵌套调用 `pause()`。
+T186 的 submission_guard 在可核验的版本/计划失效时原子记录暂停；不得在持锁的
+`action_guard` 内嵌套调用 `pause()`。实际字段、提交/观察参数和 writer 恢复步骤见
+[开发手册](../docs/DEVELOPING.md#t186-绑定计划的提交接线开发验证中未启用)。
 
 ## 本地开发与验证
 
