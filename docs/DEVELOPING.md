@@ -307,7 +307,10 @@ prepare/submit 每个现有动作边界重读缓存，local_outage 拒绝所有�
 计数影响仅为该 run 观测过 relay_outage 后的 SSH 连续暂停豁免，恢复后也保留本 wake
 豁免；不撤销已暂停状态。真实 presubmit 失败明细与每对象每轮两次上限保留，
 同 wake 对象仍不可重试。链路检查本身不消费 Attempt/科学补救次数；已消费后遭链路
-阻断不退回次数或声明，派发后 UNKNOWN 仍暂停。未观测 running 不据此改状态，
+阻断不退回次数或声明，派发后 UNKNOWN 仍暂停。消费前 `LinkDeferred` 只等待；消费后
+同一拒绝记为 `failure_kind=link` 的真实 failed_presubmit，计入每对象每轮两次上限并禁止
+同 wake 新建后继，不能按 object 拒绝排除计数。link 不是科学失败类别，也不伪造 SSH
+实测；科学补救原来源沿不可变链保留，未派发中止不占科学补救额度。未观测 running 不据此改状态，
 普通 fetch 与父 chk 专用复制均不改。本单只做合成回归，不启用自主运行或证明现场通过。
 
 本版不提供自主取消、停止证明或改投入口，也不接受 `--reroute-source`。

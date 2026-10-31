@@ -44,7 +44,11 @@ class ObjectRefused(ValueError):
 
 
 class PresubmitDeferred(ValueError):
-    """A failed SSH observation cannot be retried in the same wake."""
+    """A presubmit failure or unavailable route must wait without retrying work."""
+
+
+class LinkDeferred(PresubmitDeferred):
+    """Cache evidence blocks a route; after consumption this is a real presubmit failure."""
 
 
 def now():
@@ -216,8 +220,8 @@ def check_presubmit_retry(state, object_id):
     if len(failures) >= 2:
         raise ObjectRefused('Object already has two actual presubmit failures; 需要你看')
     run_id = (state.get('lease') or {}).get('run_id')
-    if any(run == run_id and kind == 'ssh' for (run, _), kind in failures.items()):
-        raise PresubmitDeferred('SSH failed for this object in this wake; wait for the next wake')
+    if any(run == run_id and kind in ('ssh', 'link') for (run, _), kind in failures.items()):
+        raise PresubmitDeferred('Transport or link failed for this object in this wake; wait for the next wake')
 
 
 def _record_ssh_wake(state, run_id, at):
@@ -513,7 +517,7 @@ def apply(previous, event):
             if set(data) not in (fields, fields | {'failure_kind'}):
                 raise ValueError('Invalid submission boundary failure event')
             kind = data.get('failure_kind')
-            if 'failure_kind' in data and kind not in ('ssh', 'object', 'global'):
+            if 'failure_kind' in data and kind not in ('ssh', 'link', 'object', 'global'):
                 raise ValueError('Invalid submission failure kind')
             saved = state.get('submissions', {}).get(data['attempt_id'])
             if (saved is None or saved['ownership_sha256'] != data['ownership_sha256']
@@ -943,10 +947,10 @@ class _SubmissionGuard:
                 dict(run_id=self._run_id, token_sha256=self._token_hash, versions=current_versions,
                      plan_sha256=self._plan_sha256, report=report), apply)
         if report['status'] == 'local_outage':
-            raise PresubmitDeferred('All monitor entries failed; defer new actions until fresh evidence')
+            raise LinkDeferred('All monitor entries failed; defer new actions until fresh evidence')
         target = next((row for row in report['entries'] if row['name'] == cluster), None)
         if target is not None and target['relay_group'] is not None and target['status'] != 'success':
-            raise PresubmitDeferred('Relay entry has no current successful monitor evidence; defer this route')
+            raise LinkDeferred('Relay entry has no current successful monitor evidence; defer this route')
         return report
 
     def consume(self, record):

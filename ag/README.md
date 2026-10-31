@@ -852,3 +852,8 @@ ag autonomy link-recheck --study <STUDY> --run <RUN> --token <TOKEN> --plan-sha2
 不睡眠、不触发网络探测、不重试任何 Attempt。等待方式与逐次核对见自主运行卡片。
 全机 SSH 连续暂停计数豁免仅限观测过 relay_outage 的 wake，实际失败明细和对象上限不清零；
 派发后不确定仍是 UNKNOWN。快照未知不等于恢复，前端只展示后端结果。
+
+消费前的 `LinkDeferred` 仅等待，不分配新 Attempt 或消费；已经消费后在建目录、上传或
+派发边界遇到相同拒绝，则保存 `failed_presubmit` 和 `failure_kind=link`，计入既有对象每轮
+两次上限，并阻止同 wake 缓存恢复后新建后继。下一 wake 仍须所有前提通过，只能新建 Attempt；
+两次耗尽即交人。该记录不伪造 SSH 实测、不占科学补救名额，不退回原声明与真实消费。

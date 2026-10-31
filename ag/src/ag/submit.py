@@ -800,7 +800,8 @@ def _submit(cfg, ids, transport, *, approval_id=None, policy_name=None, autonomo
                 note = str(exc) if isinstance(exc, (ValueError, TransportError, UnknownSubmission)) else 'Submission interrupted'
                 if autonomous_run is not None:
                     from ag import autonomy
-                    kind = ('ssh' if isinstance(exc, TransportError) else
+                    kind = ('link' if isinstance(exc, autonomy.LinkDeferred) else
+                            'ssh' if isinstance(exc, TransportError) else
                             'object' if isinstance(exc, (autonomy.ObjectRefused, autonomy.PresubmitDeferred)) else 'global')
                     autonomous_run.failed(target, note, failure_kind=kind)
                 else:

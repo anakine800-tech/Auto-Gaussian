@@ -180,3 +180,31 @@ def test_relay_is_blocked_while_independent_entry_can_keep_its_route(env):
     state = a.status(cfg, root.name)['state']
     assert not state['paused']
     assert not state.get('submissions')
+
+
+@pytest.mark.parametrize('kind', ['link', 'ssh'])
+@pytest.mark.parametrize('dispatched', [False, True])
+def test_exempt_wake_keeps_consumed_failure_cap_and_unknown_pause(env, kind, dispatched):
+    from ag.autonomy_submission import machine_lock
+    from test_autonomy import consumed_record, consume
+    plan, run = start(env)
+    cfg, root, _ = env
+    record = consumed_record(plan, run)
+    consume(env, plan, run, record)
+    if dispatched:
+        with machine_lock(), a.submission_guard(cfg, root.name, run['run_id'], run['token'],
+                                               plan_sha256=plan['sha256']) as guard:
+            guard.dispatch_started(record['attempt_id'])
+    with machine_lock():
+        result = a.boundary_failure(cfg, root.name, record['attempt_id'], record['ownership_sha256'],
+            run_id=run['run_id'], token=run['token'], dispatched=dispatched,
+            reason='unknown' if dispatched else 'failed_presubmit', failure_kind=kind)
+    state = result['state']
+    assert state['paused'] == dispatched
+    assert state['runs'][run['run_id']]['ssh_pause_exempt']
+    assert not state['runs'][run['run_id']].get('ssh_failed')
+    assert len(state['submissions']) == 1
+    if not dispatched:
+        assert len(a._presubmit_failures(state, record['object_id'])) == 1
+        with pytest.raises(a.PresubmitDeferred, match='next wake'):
+            a.check_presubmit_retry(state, record['object_id'])

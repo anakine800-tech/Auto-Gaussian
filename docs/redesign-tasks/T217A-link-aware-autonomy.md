@@ -40,3 +40,12 @@
 - T216 变基只在自主子命令注册发生冲突，保留 audit-reservations 并追加 link-recheck；相关组合 85 项通过。
 - 首轮发现 CLI 配置调用兼容失败，改为保留 local-only 和最小入口元数据后回归通过；失败原始证据保留在本机交付区。另一次 pytest 临时目录清理警告不影响 exit 0，未据此访问或清理真实数据。
 - 负责人本单已授权 AGENTS.md 冲突规则的最小同步；本 PR 仅追加链路中断例外，不启用自主运行。
+
+## 协调审阅修正
+
+协调发现初版已消费后的链路拒绝误分类为 object，可绕过对象 presubmit 两次和同 wake 上限。
+修正为 LinkDeferred / failure_kind=link：消费前仅等待，消费后真实 failed_presubmit 纳入既有
+对象上限及下一 wake 约束，实际消费/声明保留，科学补救名额不消耗。保留初版 CI，修正另跑
+消费后、上传后及 dispatch 前翻转的完整后继测试和新 head CI。UNKNOWN 语义不改。
+修正定向：自治计数/SSH/UNKNOWN 34 项通过，完整 driver 翻转和后继约束 5 项通过；
+后者每个已消费场景完整核对两个失败 Attempt、三个 wake、同 wake 缓存恢复拒绝及两次后交人。
