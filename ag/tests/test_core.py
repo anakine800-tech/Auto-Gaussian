@@ -270,7 +270,7 @@ def test_unknown_reconcile_read_only(cfg, prepared):
     state.write(p, 'submitting'); state.write(p, 'unknown')
     fake = Fake(cfg)
     assert status.check(cfg, p, fake)['state'] == 'unknown'
-    assert set(fake.operations()) <= {'identity', 'jobs', 'listing'}
+    assert set(fake.operations()) <= {'identity', 'jobs', 'listing', 'receipt'}
     fake.qstat = Result(stdout=job_text(m))
     assert status.check(cfg, p, fake)['state'] == 'submitted'
     assert state.read(p)['job_id'] == 'default:123.fixture'
@@ -495,7 +495,7 @@ def test_crash_in_submitting_reconciles_only_read_only(cfg, prepared):
     claim(p / '.submit-claim'); state.write(p, 'submitting')
     fake = Fake(cfg)
     assert status.check(cfg, p, fake)['state'] == 'unknown'
-    assert set(fake.operations()) <= {'identity', 'jobs', 'listing'}
+    assert set(fake.operations()) <= {'identity', 'jobs', 'listing', 'receipt'}
 
 
 def test_scheduler_completion_alone_is_not_program_receipt(cfg, prepared):

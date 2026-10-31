@@ -92,7 +92,7 @@ def inventory(transport, cfg=None):
     return username, jobs, occupied(jobs, username)
 
 
-def read_receipt(cfg, manifest, transport, name, job_id):
+def read_receipt(cfg, manifest, transport, name, job_id=None):
     raw = require_ok(transport.run(remote.receipt(cfg, manifest, name)), 'completion receipt')
     if raw == 'absent\n':
         return None
@@ -108,10 +108,19 @@ def read_receipt(cfg, manifest, transport, name, job_id):
         return result
 
     try:
+        if job_id is None and not raw.isascii():
+            raise ValueError('Invalid start receipt bytes')
         value = json.loads(raw, object_pairs_hook=pairs)
         key = 'started_at' if name == 'ag-start.json' else 'finished_at'
+        job_key = 'job_id' if manifest.get('scheduler') == 'slurm' else 'PBS_JOBID'
+        validate = remote.slurm_job_id if job_key == 'job_id' else remote.job_id
+        recorded_job = validate(value[job_key])
+        if not recorded_job.isascii():
+            raise ValueError('Invalid receipt job ID bytes')
+        if job_id is None and (name != 'ag-start.json' or set(value) != {key, job_key}):
+            raise ValueError('Start recovery requires unambiguous scheduler receipt fields')
         stamp = datetime.fromisoformat(value[key].replace('Z', '+00:00'))
-        if stamp.tzinfo is None or value['job_id' if manifest.get('scheduler') == 'slurm' else 'PBS_JOBID'] != job_id:
+        if stamp.tzinfo is None or (job_id is not None and recorded_job != job_id):
             raise ValueError('Receipt time/job identity mismatch')
         if name == 'ag-exit.json' and (type(value['returncode']) is not int or not 0 <= value['returncode'] <= 255):
             raise ValueError('Invalid program return code')
@@ -189,11 +198,13 @@ def _publication_scope(path, current, publication):
         current = {**current, 'state': 'unknown', 'note': note}
 
     @contextmanager
-    def publish():
+    def publish(verify=None):
         nonlocal pending_query, pending_unknown, expected
         with publication() if publication is not None else nullcontext() as autonomy_state:
             if state.read(path) != expected:
                 raise ValueError('Attempt state changed during observation; refresh required')
+            if verify is not None:
+                verify()
             if pending_query:
                 journal.append(path.parent.parent, 'status', path.name, 'query', queried_state)
                 pending_query = False
@@ -227,15 +238,13 @@ def _unknown_account(cfg):
     return identity
 
 
-def _unknown_absence(cfg, manifest, transport, matches, username, identity):
+def _unknown_absence(cfg, manifest, matches, username, identity, start):
     from ag import approval
     if matches:
         return None
     if identity[2] != username:
         raise ValueError('UNKNOWN observation scheduler/account identity differs')
-    raw = require_ok(transport.run(remote.receipt(cfg, manifest, 'ag-start.json')),
-                     'unknown start receipt observation')
-    if raw != 'absent\n':
+    if start is not None:
         return None
     if _unknown_account(cfg) != identity:
         raise ValueError('UNKNOWN observation scheduler/account changed during query')
@@ -285,13 +294,39 @@ def check(cfg, path, transport, *, publication=None):
                     return retain_placement(path, m, matches[0])
                 return reconciled
         require_ok(transport.run(remote.listing(cfg, m)), 'unknown directory inspection')
-        evidence = _unknown_absence(cfg, m, transport, matches, username, identity) if collect else None
-        with publish():
-            journal.append(path.parent.parent, 'status', path.name, 'unknown', 'No unique scheduler evidence; human review required')
-            if collect:
-                return state.write(path, 'unknown', unknown_reconciliation=evidence,
-                                   note='No unique scheduler evidence; human review required')
-            return {**current, 'note': 'No unique scheduler evidence; remains unknown. Human review required.'}
+        start = read_receipt(cfg, m, transport, 'ag-start.json') if not matches else None
+        if start is not None:
+            identity = identity or _unknown_account(cfg)
+            candidate = start['PBS_JOBID']
+            # A vanished inventory row is expected. A contradictory exact row
+            # is not: it must never be replaced by the receipt's provenance.
+            result = transport.run(remote.jobs(candidate))
+            if not result.returncode:
+                exact = parse_jobs(result.stdout)
+                if (len(exact) != 1 or exact[0]['job_id'] != candidate
+                        or exact[0].get('Job_Name') != m['pbs_job_name']
+                        or exact[0].get('Job_Owner', '').split('@')[0] != username
+                        or exact[0].get('queue') not in (None, cfg['scheduler']['queue'])):
+                    raise ValueError('Start receipt exact-job identity/entry mismatch')
+            elif not scheduler_absent(result):
+                require_ok(result, 'start receipt exact qstat')
+            with submission.start_receipt_binding(cfg, path, m, start, username, identity) as (source, verify):
+                if read_receipt(cfg, m, transport, 'ag-start.json') != start:
+                    raise ValueError('Start receipt changed during reconciliation')
+                with publish(verify) as autonomy_state:
+                    binding = {} if publication is None else {'autonomy_state': autonomy_state}
+                    submission.record(path, m, candidate, **binding)
+                    current = state.write(path, 'submitted', job_id=submission.qualified(m, candidate),
+                                          note='Read-only start receipt reconciliation',
+                                          start_reconciliation=source, unknown_reconciliation=None)
+        else:
+            evidence = _unknown_absence(cfg, m, matches, username, identity, start) if collect else None
+            with publish():
+                journal.append(path.parent.parent, 'status', path.name, 'unknown', 'No unique scheduler evidence; human review required')
+                if collect:
+                    return state.write(path, 'unknown', unknown_reconciliation=evidence,
+                                       note='No unique scheduler evidence; human review required')
+                return {**current, 'note': 'No unique scheduler evidence; remains unknown. Human review required.'}
     if current['state'] not in ('submitted', 'running', 'stalled', 'interrupted', 'awaiting_second_observation', 'finished', 'fetched', 'cancelled'):
         with publish():
             return current
@@ -458,6 +493,15 @@ def format_status(results):
     return '\n'.join(lines)
 
 
+def _slurm_exact_queue(transport, job):
+    result = transport.run(remote.slurm_jobs(job))
+    # Supported missing-job diagnostic is absence, never completion. SSH
+    # failure and every other error still fail closed before any binding.
+    if result.returncode and result.returncode != 255 and 'Invalid job id specified' in result.stderr:
+        return []
+    return slurm.parse_queue(require_ok(result, 'squeue exact job'))
+
+
 def check_slurm(cfg, path, transport, m, *, publication=None):
     username = None
     if hasattr(transport, 'record_to'):
@@ -478,16 +522,36 @@ def check_slurm(cfg, path, transport, m, *, publication=None):
         text = require_ok(transport.run(remote.slurm_find(username, m['attempt_id'], m['created_at'][:10])), 'sacct name reconciliation')
         for row in slurm.parse_accounting(text, name=m['attempt_id'], username=username):
             matches.add(row['job_id'])
-        if len(matches) != 1:
-            evidence = _unknown_absence(cfg, m, transport, matches, username, identity) if collect else None
+        start = read_receipt(cfg, m, transport, 'ag-start.json') if not matches else None
+        if start is not None:
+            identity = identity or _unknown_account(cfg)
+            candidate = start['job_id']
+            exact = _slurm_exact_queue(transport, candidate)
+            if (len(exact) > 1 or any(j['job_id'] != candidate or j['name'] != m['attempt_id']
+                    or j['owner'] != username or j['partition'] != cfg['partition'] for j in exact)):
+                raise ValueError('Start receipt exact-job identity/entry mismatch')
+            slurm.parse_accounting(require_ok(transport.run(remote.slurm_accounting(candidate)), 'start receipt exact sacct'),
+                                   candidate, name=m['attempt_id'], username=username)
+            with submission.start_receipt_binding(cfg, path, m, start, username, identity) as (source, verify):
+                if read_receipt(cfg, m, transport, 'ag-start.json') != start:
+                    raise ValueError('Start receipt changed during reconciliation')
+                with publish(verify) as autonomy_state:
+                    binding = {} if publication is None else {'autonomy_state': autonomy_state}
+                    submission.record(path, m, candidate, **binding)
+                    current = state.write(path, 'submitted', job_id=submission.qualified(m, candidate),
+                                          note='Read-only start receipt reconciliation',
+                                          start_reconciliation=source, unknown_reconciliation=None)
+        elif len(matches) != 1:
+            evidence = _unknown_absence(cfg, m, matches, username, identity, start) if collect else None
             with publish():
                 return state.write(path, 'unknown', note='No unique Slurm job evidence; human review required',
                                    **({'unknown_reconciliation': evidence} if collect else {}))
-        job = next(iter(matches))
-        with publish() as autonomy_state:
-            binding = {} if publication is None else {'autonomy_state': autonomy_state}
-            submission.record(path, m, job, **binding)
-            current = state.write(path, 'submitted', job_id=submission.qualified(m, job), note='Read-only scheduler reconciliation')
+        else:
+            job = next(iter(matches))
+            with publish() as autonomy_state:
+                binding = {} if publication is None else {'autonomy_state': autonomy_state}
+                submission.record(path, m, job, **binding)
+                current = state.write(path, 'submitted', job_id=submission.qualified(m, job), note='Read-only scheduler reconciliation')
     if current['state'] not in ('submitted', 'running', 'unknown', 'interrupted', 'finished', 'fetched', 'cancelled'):
         with publish():
             return current
@@ -495,13 +559,7 @@ def check_slurm(cfg, path, transport, m, *, publication=None):
     if username is None:
         username = require_ok(transport.run(remote.identity()), 'identity').strip()
         remote.slurm_token(username)
-    result = transport.run(remote.slurm_jobs(job))
-    # Some versions return an explicit invalid-job diagnostic after purging;
-    # it only triggers accounting lookup, never an inference of completion.
-    if result.returncode and result.returncode != 255 and 'Invalid job id specified' in result.stderr:
-        active = []
-    else:
-        active = slurm.parse_queue(require_ok(result, 'squeue exact job'))
+    active = _slurm_exact_queue(transport, job)
     if len(active) > 1 or any(j['job_id'] != job or j['name'] != m['attempt_id']
                               or j['owner'] != username for j in active):
         raise ValueError('squeue exact-job identity mismatch')
@@ -523,8 +581,8 @@ def check_slurm(cfg, path, transport, m, *, publication=None):
             if current['state'] in ('finished', 'fetched', 'cancelled'):
                 return state.write(path, current['state'], exit_status=current.get('exit_status'),
                                    note='Previous terminal status retained; no new accounting evidence', **details)
-            return state.write(path, 'unknown', scheduler_state=None,
-                               note='Absent from squeue and sacct; human review required; never resubmit', **details)
+            return state.write(path, current['state'], scheduler_state=None,
+                               note='Job not observed in squeue or sacct; previous state retained; never resubmit', **details)
     row = rows[0]
     details.update(scheduler_state=row['state'], exit_code=row['exit_code'], exit_signal=row['exit_signal'],
                    elapsed=row['elapsed'], allocated_cpus=row['allocated_cpus'])

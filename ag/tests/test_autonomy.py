@@ -1121,9 +1121,13 @@ def test_new_unknown_observation_invalidates_previous_absence(cfg, prepared, mon
                     return Result(stdout='{"PBS_JOBID":"123.fixture","started_at":"2026-10-30T00:00:00Z"}')
                 return original(command)
             fake.run = run
+            # This fixture only requests absence collection; it has neither a
+            # real claim nor immutable authorization for receipt recovery.
+            with pytest.raises((ValueError, OSError)):
+                status.check(cfg, path, fake)
         else:
             fake.qstat = Result(stdout=job_text(manifest) + job_text(manifest).replace('123.fixture', '124.fixture'))
-        assert status.check(cfg, path, fake)['state'] == 'unknown'
+            assert status.check(cfg, path, fake)['state'] == 'unknown'
     assert state.read(path)['unknown_reconciliation'] is None
 
 

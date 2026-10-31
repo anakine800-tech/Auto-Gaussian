@@ -227,6 +227,17 @@ doctor 通过只说明上述环境检查通过；它不验证科学方法、真�
 当前只读传输对 SSH 连接失败/超时最多间隔 15 秒重试一次；这不允许重提作业，
 真实环境意外仍须按 [AGENTS.md](../AGENTS.md) 停下来报告。
 
+## UNKNOWN 只读恢复：status
+
+`ag status` 按唯一作业名查不到记录时，可使用同 Attempt 目录的 `ag-start.json`
+晚到绑定合法作业号，再进入原状态判断。恢复核对冻结输入/脚本、入口和远程目录、
+原 claim/授权及已有绑定；精确调度记录如有矛盾就拒绝。无作业也无开始回执仍保持 UNKNOWN，
+等负责人按原 `resolve-attempt` 处理；不重传、不重提，也不使用 Torque 不支持的 `qstat -x`。
+
+这项证据标为 `frozen-submission+ag-start.json`：回执只含时间和号码，账号、作业名和入口
+依据冻结来源及当前身份核验，自主另核原 reservation 账号，不冒充独立历史调度记录。
+已绑定 Slurm 作业暂时不见于 squeue/sacct 时保留原状态并标未观测，不因缺观测新建 UNKNOWN。
+
 ## 运行中日志快照：snapshot
 
 `ag snapshot <ATTEMPT_ID> [--study <study>] [--max-bytes 20000000] [--json]`
