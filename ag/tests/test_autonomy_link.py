@@ -140,6 +140,69 @@ def test_nonrelay_failures_still_pause_on_two_wakes_and_other_stops_remain(env):
         a.check(cfg, root.name, current['run_id'], current['token'], action='submit', plan_sha256=plan['sha256'])
 
 
+@pytest.mark.parametrize('exempt_count', [1, 3])
+def test_ssh_streak_spans_exempt_wakes_without_counting_them_as_success(env, exempt_count):
+    cfg, root, clock = env
+    snapshots(env, relay=True)
+    plan = ready(env)
+    first = a.start(cfg, root.name, plan['plan_id'], 'first-ordinary-owner')
+    assert not failure(env, plan, first, 'water-first')['state']['paused']
+    change(env, first, 'finish', reason='First ordinary SSH failure')
+
+    for index in range(exempt_count):
+        clock[0] += 10
+        snapshots(env)
+        exempt = a.start(cfg, root.name, plan['plan_id'], f'exempt-owner-{index}')
+        result = failure(env, plan, exempt, f'water-exempt-{index}')
+        assert result['state']['runs'][exempt['run_id']]['ssh_pause_exempt']
+        assert result['state']['runs'][exempt['run_id']]['ssh_failed_exempt']
+        assert not result['state']['paused']
+        change(env, exempt, 'finish', reason='Exempt relay outage does not prove success')
+
+    clock[0] += 10
+    snapshots(env, relay=True)
+    last = a.start(cfg, root.name, plan['plan_id'], 'last-ordinary-owner')
+    result = failure(env, plan, last, 'water-last')
+    assert result['state']['paused']
+    replay = a.status(cfg, root.name)['state']
+    assert replay['paused'] and replay['phase'] == 'paused'
+    assert len(replay['presubmit_failures']) == exempt_count + 2
+    assert not replay.get('submissions') and replay['totals']['attempt'] == 0
+
+
+def test_ssh_streak_resets_only_after_nonexempt_successful_wake(env):
+    cfg, root, clock = env
+    snapshots(env, relay=True)
+    plan = ready(env)
+    first = a.start(cfg, root.name, plan['plan_id'], 'first-ordinary-owner')
+    assert not failure(env, plan, first, 'water-first')['state']['paused']
+    change(env, first, 'finish', reason='First ordinary SSH failure')
+
+    clock[0] += 10
+    snapshots(env)
+    exempt = a.start(cfg, root.name, plan['plan_id'], 'exempt-owner')
+    result = failure(env, plan, exempt, 'water-exempt')
+    assert result['state']['runs'][exempt['run_id']]['ssh_pause_exempt']
+    assert not result['state']['paused']
+    change(env, exempt, 'finish', reason='Exempt relay outage')
+
+    clock[0] += 10
+    snapshots(env, relay=True)
+    success = a.start(cfg, root.name, plan['plan_id'], 'successful-ordinary-owner')
+    assert not success['state']['runs'][success['run_id']].get('ssh_pause_exempt')
+    change(env, success, 'finish', reason='Ordinary wake completed without SSH failure')
+
+    clock[0] += 10
+    snapshots(env, relay=True)
+    last = a.start(cfg, root.name, plan['plan_id'], 'last-ordinary-owner')
+    result = failure(env, plan, last, 'water-last')
+    assert not result['state']['paused']
+    replay = a.status(cfg, root.name)['state']
+    assert not replay['paused'] and replay['phase'] == 'running'
+    assert len(replay['presubmit_failures']) == 3
+    assert not replay.get('submissions') and replay['totals']['attempt'] == 0
+
+
 def test_recheck_requires_current_owner_plan_and_versions(env, monkeypatch):
     plan, run = start(env)
     cfg, root, clock = env

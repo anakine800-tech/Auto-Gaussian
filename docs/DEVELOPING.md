@@ -305,7 +305,10 @@ prepare/submit 每个现有动作边界重读缓存，local_outage 拒绝所有�
 显式 relay_group 纳入配置路由哈希，未配置的旧哈希不变。
 
 计数影响仅为该 run 观测过 relay_outage 后的 SSH 连续暂停豁免，恢复后也保留本 wake
-豁免；不撤销已暂停状态。真实 presubmit 失败明细与每对象每轮两次上限保留，
+豁免；不撤销已暂停状态。同一 round 内 SSH 连续性向前查找最近一次非豁免 wake，
+跳过全部 ssh_pause_exempt：A 失败 → B 豁免 → C 失败时暂停；
+A 失败 → B 豁免 → C 成功 → D 失败时不暂停，成功的非豁免 wake 打断连续失败。
+真实 presubmit 失败明细与每对象每轮两次上限保留，
 同 wake 对象仍不可重试。链路检查本身不消费 Attempt/科学补救次数；已消费后遭链路
 阻断不退回次数或声明，派发后 UNKNOWN 仍暂停。消费前 `LinkDeferred` 只等待；消费后
 同一拒绝记为 `failure_kind=link` 的真实 failed_presubmit，计入每对象每轮两次上限并禁止

@@ -240,8 +240,10 @@ def _record_ssh_wake(state, run_id, at):
     # even when timestamps tie. UUID sorting would invent a different history.
     wakes = [key for key, value in state['runs'].items() if value['round_id'] == run['round_id']]
     position = wakes.index(run_id)
-    previous = state['runs'][wakes[position - 1]] if position else {}
-    if previous.get('ssh_failed') and not previous.get('ssh_pause_exempt', False):
+    # Exempt wakes are neutral; the nearest non-exempt wake determines continuity.
+    previous = next((state['runs'][key] for key in reversed(wakes[:position])
+                     if not state['runs'][key].get('ssh_pause_exempt', False)), {})
+    if previous.get('ssh_failed'):
         state['paused'] = True
         if state['phase'] != 'ended':
             state['phase'] = 'paused'
