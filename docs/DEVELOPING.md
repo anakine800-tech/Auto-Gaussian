@@ -284,6 +284,32 @@ UNKNOWN 须由正式 status 成功按唯一作业名查询无匹配，并通过�
 达到后该分支交人，不占科学补救两次额度，也不退回实际 Attempt 总预算。
 未派发的科学补救后继保留原科学来源，不能通过 presubmit 链清零科学次数。
 
+T217A 在每次 `autonomy start` 记录本机 monitor 的链路分类，各入口可配置 `relay_group`，
+未配置为独立入口；本地配置读取只保留分类所需元数据，不要求远端凭据或构造 Transport。
+`link_health` 只消费最近缓存，保留三倍采样间隔的新鲜度；缺失/损坏/过期为 unknown，
+失败样本里的旧 last_ok_at 不构成恢复。全部 relay 失败且至少一个独立入口成功为
+relay_outage，全部入口失败为 local_outage；这是规则分类，不证明物理故障根因。
+`ag clusters --json` 顶层增量返回当前本地缓存的同一分类，不选 study、不采样、不建目录；
+服务器页使用此字段，原 clusters 列表兼容。
+start、动作边界分类变化及 `autonomy link-recheck` 追加日志；只读 status 返回最近已记录
+`link_health` 和 `link_recheck`，年龄为判定时年龄，旧日志没有这两个可选字段。
+
+补检查设置为本机 `autonomy.link_recheck_interval_minutes`（默认 30）和
+`link_recheck_max_attempts`（默认 2，范围 0–2），取得 run 时冻结；CLI 立即返回、没有
+后台睡眠或一次性自动化。卡片在同次唤醒内可中断等待，复读已授权 watch 的新缓存。
+每次复测检查 owner、计划哈希、版本与原 60 分钟截止；next_at 必须严格早于截止，
+默认间隔通常只能做一次。两次是上限，unknown 不补造恢复或继续安排不足证据的复测。
+prepare/submit 每个现有动作边界重读缓存，local_outage 拒绝所有目标，relay 目标无
+当前成功证据则 `PresubmitDeferred`；不删除路由候选、不改变顺序或放宽共享账号核算。
+原本首选独立 SCNet 类 CREST 仍可按旧路由继续，不能由 relay 故障改投。
+显式 relay_group 纳入配置路由哈希，未配置的旧哈希不变。
+
+计数影响仅为该 run 观测过 relay_outage 后的 SSH 连续暂停豁免，恢复后也保留本 wake
+豁免；不撤销已暂停状态。真实 presubmit 失败明细与每对象每轮两次上限保留，
+同 wake 对象仍不可重试。链路检查本身不消费 Attempt/科学补救次数；已消费后遭链路
+阻断不退回次数或声明，派发后 UNKNOWN 仍暂停。未观测 running 不据此改状态，
+普通 fetch 与父 chk 专用复制均不改。本单只做合成回归，不启用自主运行或证明现场通过。
+
 本版不提供自主取消、停止证明或改投入口，也不接受 `--reroute-source`。
 需要这些动作时，对应分支交人处理；唯一 owner 使用现有 `ag autonomy update` 的
 `summary/pending/objects` 记录“需要你看”，保留其他对象，并在 summary 第一行提醒

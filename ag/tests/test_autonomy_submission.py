@@ -1235,8 +1235,10 @@ def t186_driver_factory(cfg, tmp_path, monkeypatch):
     def load(path=None, **kwargs):
         return deepcopy(configurations[str(Path(path).absolute())])
     monkeypatch.setattr(config, 'load_config', load)
-    def create(name):
+    def create(name, *, relay_group=None):
         local = deepcopy(cfg)
+        if relay_group is not None:
+            local['relay_group'] = relay_group
         root = tmp_path / name
         root.mkdir()
         directory = root / 'config'
@@ -1268,10 +1270,13 @@ def t186_driver_factory(cfg, tmp_path, monkeypatch):
         run = autonomy.start(local, 'smoke', plan['plan_id'], 'fixture-session')
         policy.update(round_id=begun['state']['current_round'], plan_sha256=plan['sha256'])
         local['approval'] = {'autonomous_policies': {'bounded': policy}}
-        snapshot = dict(schema='ag-monitor/1', ok=True,
+        snapshot = dict(schema='ag-monitor/1', ok=True, error=None, warnings=[],
             sampled_at=datetime.fromtimestamp(at[0], timezone.utc).isoformat(), interval_seconds=60,
-            own=dict(cores_in_use=0, cores_running=0, cores_queued=0, jobs=[]),
+            last_ok_at=datetime.fromtimestamp(at[0], timezone.utc).isoformat(),
+            own=dict(cores_in_use=0, core_cap=local['resources']['max_cores'],
+                     cores_running=0, cores_queued=0, jobs=[]),
             cluster=dict(name='default', scheduler='pbs', job_summary=dict(others_queued_jobs=0),
+                cores_total=44, cores_used=0, queues=[],
                 nodes=[dict(name='fixture-node', cores_total=44, cores_used=0, cores_idle=44, cores_other=0,
                     mem_total_bytes=120 * 1024**3, mem_assigned_bytes=0, jobs=0, state='free',
                     capacity_cpu_consistent=True, targeting_consistent=True, targeting_reserved=False)]))
@@ -1306,6 +1311,61 @@ def test_driver_claim_dispatch_and_late_binding(t186_driver):
     with pytest.raises(ValueError):
         submit.submit(cfg, [path.name], fake, autonomous=context)
     assert fake.operations().count('submit') == 1
+
+
+@pytest.mark.parametrize('operation', ['prepare', 'submit'])
+def test_driver_link_failure_blocks_before_claim_or_remote_io(t186_driver_factory, operation):
+    from ag import attempt, autonomy
+    cfg, path, manifest, context, _, _ = t186_driver_factory('link-refused', relay_group='bridge')
+    cache = Path(cfg['local']['studies_root']) / '.ag-monitor' / 'latest.json'
+    sample = json.loads(cache.read_text())
+    sample.update(ok=False, error='Synthetic link failure')
+    cache.write_text(json.dumps(sample))
+    before = sorted(item.name for item in path.parent.iterdir())
+    fake = Fake(cfg)
+    with pytest.raises(autonomy.PresubmitDeferred):
+        if operation == 'submit':
+            submit.submit(cfg, [path.name], fake, autonomous=context)
+        else:
+            attempt.prepare(cfg, study_name='smoke', template='gaussian',
+                input_path=Path(cfg['local']['studies_root']).parent / 'water.gjf',
+                tier='simple', walltime='00:30:00', label='link-wait',
+                method_basis='Synthetic fixture', autonomous=context, transport=fake)
+    current = autonomy.status(cfg, 'smoke')['state']
+    assert not current['paused'] and not current.get('submissions')
+    assert not current.get('presubmit_failures')
+    assert not (path / '.submit-claim').exists()
+    assert state.read(path)['state'] == 'prepared'
+    assert sorted(item.name for item in path.parent.iterdir()) == before
+    assert fake.operations() == []
+
+
+def test_driver_link_failure_during_upload_retains_consumption_without_dispatch(t186_driver_factory):
+    from ag import autonomy
+    cfg, path, _, context, _, _ = t186_driver_factory('link-upload', relay_group='bridge')
+    cache = Path(cfg['local']['studies_root']) / '.ag-monitor' / 'latest.json'
+    class LoseLink(Fake):
+        def upload(self, local, manifest, name):
+            super().upload(local, manifest, name)
+            sample = json.loads(cache.read_text())
+            sample.update(ok=False, error='Synthetic link failure')
+            cache.write_text(json.dumps(sample))
+    fake = LoseLink(cfg)
+    with pytest.raises(autonomy.PresubmitDeferred):
+        submit.submit(cfg, [path.name], fake, autonomous=context)
+    current = autonomy.status(cfg, 'smoke')['state']
+    consumed = current['submissions'][path.name]
+    assert not current['paused']
+    assert len(current['submissions']) == 1
+    assert consumed['aborted_before_dispatch'] is not None
+    assert consumed['dispatch_started'] is None
+    assert (path / '.submit-claim').exists()
+    assert state.read(path)['state'] == 'failed_presubmit'
+    assert fake.operations().count('upload') == 1
+    assert 'submit' not in fake.operations()
+    with pytest.raises(ValueError, match='already consumed'):
+        submit.submit(cfg, [path.name], fake, autonomous=context)
+    assert fake.operations().count('upload') == 1
 
 
 def test_driver_pause_during_upload_stops_before_next_remote_effect(t186_driver):

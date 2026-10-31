@@ -60,9 +60,11 @@ def load_config(path=None, *, local_only=False):
         cfg['_config_path'] = str(path.absolute())
         validate_approval(cfg)
         validate_routing(cfg)
+        link_recheck_settings(cfg)
         if local_only:
-            # review is local: cluster credentials and scheduler settings are not prerequisites.
-            return dict(local=cfg['local'], _config_dir=cfg['_config_dir'])
+            # Local autonomy reads only cache placement and dependency labels;
+            # credentials, program paths and scheduler access remain optional.
+            return local_monitor_config(cfg)
         if 'clusters' in cfg:
             if not isinstance(cfg['clusters'], dict) or not cfg['clusters']:
                 raise ConfigError('Expected nonempty clusters table')
@@ -70,7 +72,7 @@ def load_config(path=None, *, local_only=False):
                 if 'default' in cfg['clusters']:
                     raise ConfigError('Legacy configuration and clusters.default are ambiguous')
                 cfg['clusters']['default'] = {key: cfg[key] for key in ('ssh', 'remote', 'scheduler', 'programs', 'resources')}
-                for key in ('allowed_templates', 'display_name', 'display_order', 'scheduler_timezone', 'monitor_interval_seconds', 'node_targeting'):
+                for key in ('allowed_templates', 'display_name', 'display_order', 'scheduler_timezone', 'monitor_interval_seconds', 'node_targeting', 'relay_group'):
                     if key in cfg:
                         cfg['clusters']['default'][key] = cfg[key]
             for name, cluster in cfg['clusters'].items():
@@ -87,6 +89,51 @@ def cluster_name(value):
     if not isinstance(value, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}', value):
         raise ConfigError('Invalid cluster name')
     return value
+
+
+def link_recheck_settings(cfg):
+    """Local wake settings; retries stay within the existing run deadline."""
+    defaults = dict(link_recheck_interval_minutes=30, link_recheck_max_attempts=2)
+    section = cfg.get('autonomy', {})
+    if not isinstance(section, dict) or set(section) - set(defaults):
+        raise ConfigError('Unsupported autonomy configuration field')
+    settings = dict(defaults, **section)
+    interval = settings['link_recheck_interval_minutes']
+    maximum = settings['link_recheck_max_attempts']
+    if type(interval) is not int or interval < 1:
+        raise ConfigError('autonomy.link_recheck_interval_minutes must be a positive integer')
+    if type(maximum) is not int or not 0 <= maximum <= 2:
+        raise ConfigError('autonomy.link_recheck_max_attempts must be an integer from 0 to 2')
+    return settings
+
+
+def local_monitor_config(cfg):
+    """Strip connection details while retaining all configured cache entries."""
+    result = dict(local=cfg['local'], _config_dir=cfg['_config_dir'])
+    if 'autonomy' in cfg:
+        result['autonomy'] = dict(cfg['autonomy'])
+
+    def metadata(entry):
+        if not isinstance(entry, dict):
+            raise ConfigError('Expected cluster table')
+        value = dict(scheduler=scheduler_kind(entry))
+        if 'relay_group' in entry:
+            value['relay_group'] = cluster_name(entry['relay_group'])
+        return value
+
+    if 'clusters' in cfg:
+        entries = cfg['clusters']
+        if not isinstance(entries, dict) or not entries:
+            raise ConfigError('Expected nonempty clusters table')
+        result['clusters'] = {cluster_name(name): metadata(entry) for name, entry in entries.items()}
+        if cfg.get('ssh', {}).get('host'):
+            if 'default' in entries:
+                raise ConfigError('Legacy configuration and clusters.default are ambiguous')
+            result['clusters']['default'] = metadata(cfg)
+    else:
+        # Keep the legacy root cache layout rather than inventing a named one.
+        result.update(metadata(cfg))
+    return result
 
 
 def validate_routing(cfg):
@@ -299,6 +346,11 @@ def validate_walltime(cfg, value):
 
 
 def validate_cluster(cfg):
+    if 'relay_group' in cfg:
+        try:
+            cluster_name(cfg['relay_group'])
+        except ConfigError as exc:
+            raise ConfigError('relay_group must be a nonempty local identifier') from exc
     if 'connect_timeout_seconds' in cfg.get('ssh', {}):
         value = cfg['ssh']['connect_timeout_seconds']
         if type(value) is not int or not 15 <= value <= 60:
@@ -409,7 +461,7 @@ def validate_cluster(cfg):
         for key in ('partition', 'account', 'qos'):
             if key in cfg and (not isinstance(cfg[key], str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]*', cfg[key])):
                 raise ConfigError(f'Invalid Slurm {key}')
-        allowed = {'scheduler', 'ssh', 'remote', 'programs', 'resources', 'partition', 'account', 'qos', 'expires', 'allowed_templates', 'display_name', 'display_order', 'monitor_interval_seconds'}
+        allowed = {'scheduler', 'ssh', 'remote', 'programs', 'resources', 'partition', 'account', 'qos', 'expires', 'allowed_templates', 'display_name', 'display_order', 'monitor_interval_seconds', 'relay_group'}
         if set(cfg) - allowed:
             raise ConfigError('Unsupported Slurm configuration field')
     if 'expires' in cfg:
@@ -459,6 +511,8 @@ def select_cluster(cfg, name='default'):
             selected['_config_path'] = cfg['_config_path']
         if 'approval' in cfg:
             selected['approval'] = cfg['approval']
+        if 'autonomy' in cfg:
+            selected['autonomy'] = cfg['autonomy']
         selected['_cluster_entries'] = cfg['clusters']
     else:
         if name != 'default':

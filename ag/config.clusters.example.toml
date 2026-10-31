@@ -50,6 +50,12 @@
 python = "<absolute local Python executable>"
 studies_root = "<absolute local studies directory outside Git>"
 
+# Optional same-wake link checks; defaults shown. These do not enable autonomy.
+# Checks never extend the existing 60-minute run deadline; the count is a cap.
+# [autonomy]
+# link_recheck_interval_minutes = 30  # positive integer
+# link_recheck_max_attempts = 2       # 0..2; zero disables extra checks
+
 # Optional advice only. Names must already exist in this configuration.
 # This synthetic example uses the entries defined below.
 # [routing]
@@ -121,6 +127,9 @@ studies_root = "<absolute local studies directory outside Git>"
 [clusters.default]
 scheduler = "pbs"
 queue = "<PBS queue>"
+# Optional local dependency label; omit for entries independent of the relay.
+# Use a neutral identifier, not a machine name, account, host or path.
+# relay_group = "relay-a"
 # A Gaussian-only entry may set allowed_templates = ["gaussian"] here
 # (also supports gaussian-cp), then omit the programs.xtb table below.
 # Keep only the templates with real installations; never invent software paths.

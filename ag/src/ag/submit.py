@@ -207,6 +207,8 @@ class AutonomousSubmission:
         self.rule_sha256 = digest
         verified = autonomy_policy.check_attempt(cfg, self.path, policy)
         manifest = attempt.read_manifest(self.path)
+        guard.check_link(cfg, cluster=manifest['cluster'])
+        snapshot = guard.snapshot
         excluded = self.path.name if consumed else None
         if 'reroute_source' in manifest:
             raise ValueError('需要你看，请在 Mac 上人工确认取消；自主改投及取消后继未启用')
@@ -423,6 +425,7 @@ def prepare_autonomous(cfg, *, study_name, context, options):
         current = autonomous_configuration(cfg)
         autonomy.check_presubmit_retry(guard.snapshot, c['object_id'])
         policy, digest = bound_policy(current, guard.snapshot, c)
+        guard.check_link(current)
         selection = route.autonomous_selection(current, guard.snapshot, c,
             template=options['template'], walltime=options['walltime'],
             requested_tier=options.get('tier'), parent_cluster=parent_cluster)
@@ -436,6 +439,7 @@ def prepare_autonomous(cfg, *, study_name, context, options):
             raise WaitingForRoute('No currently eligible routing cell: ' + selection['result']['reason'])
         if options['template'] not in policy['templates'] or choice['cluster'] not in policy['clusters']:
             raise ValueError('Selected template/cluster is outside the confirmed policy')
+        guard.check_link(current, cluster=choice['cluster'])
     # Parsing and CREST's fixed read-only install check run outside both local
     # mutexes. Publication recaptures authorization instead of reusing this read.
     values = dict(options, cluster=choice['cluster'], tier=choice['tier'],
@@ -449,6 +453,7 @@ def prepare_autonomous(cfg, *, study_name, context, options):
             fresh_policy, fresh_digest = bound_policy(fresh, guard.snapshot, c)
             if fresh_digest != digest or fresh != current:
                 raise ValueError('Configuration or rule changed during preparation')
+            guard.check_link(fresh, cluster=choice['cluster'])
             selected = route.autonomous_selection(fresh, guard.snapshot, c,
                 template=values['template'], walltime=values['walltime'],
                 requested_tier=values['tier'], parent_cluster=parent_cluster)['result']['recommendation']

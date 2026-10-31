@@ -341,6 +341,10 @@ def ladder_config_identity(cfg):
                             partition=entry.get('partition'),
                             node_targeting=entry.get('node_targeting'),
                             capabilities={t: _enabled(entry, t) for t in TEMPLATES})
+        if 'relay_group' in entry:
+            # This changes action eligibility; bind explicit groups while
+            # preserving the identities of configurations without the option.
+            entries[name]['relay_group'] = entry['relay_group']
     return _digest(dict(routing=cfg.get('routing'), entries=entries))
 
 
