@@ -190,7 +190,7 @@ def test_unknown_reconciliation_never_binds_array(cfg, prepared, owner, state_):
         assert status.check(cfg, path, fake)['state'] == 'unknown'
     assert state.read(path)['state'] == 'unknown'
     assert not (path / 'submission.json').exists()
-    assert set(fake.operations()) <= {'identity', 'jobs', 'listing'}
+    assert set(fake.operations()) <= {'identity', 'jobs', 'listing', 'receipt'}
 
 
 def test_unknown_reconciliation_still_finds_ordinary_job_among_other_arrays(cfg, prepared):
