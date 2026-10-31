@@ -407,6 +407,85 @@ def _read_file(path):
     return data
 
 
+class _ReservationAudit:
+    """Collect local failures without turning partial enumeration into success."""
+    def __init__(self):
+        self.records = []
+        self.coverage_errors = []
+        self.reads = []
+
+    @contextmanager
+    def check(self, source, path=None, *, coverage=False, **fields):
+        row = dict(source=source, study_id=None, attempt_id=None, cluster=None,
+                   tier=None, cores=None, mem_gb=None, state=None,
+                   classification='verified', reasons=[], warnings=[])
+        row.update(fields)
+        if path is not None:
+            row['location'] = str(path)
+        self.records.append(row)
+        try:
+            with _capture_reads() as reads:
+                self.reads.append((source, path, reads))
+                metadata_error = None
+                if source == 'attempt':
+                    row.update(study_id=path.parent.parent.name, attempt_id=path.name)
+                    try:
+                        reads.directory(path)
+                    except (OSError, ValueError) as exc:
+                        metadata_error = exc
+                    # Display only fields actually readable; the shared checks
+                    # below, not these best-effort labels, decide classification.
+                    for filename, names in (('manifest.json', ('cluster', 'tier', 'cores', 'mem_gb')),
+                                            ('status.json', ('state',))):
+                        try:
+                            raw = _read_file(path / filename)
+                        except FileNotFoundError:
+                            continue  # Historical terminal records may lack metadata.
+                        except (OSError, ValueError) as exc:
+                            metadata_error = exc
+                            continue
+                        try:
+                            value = _json(raw)
+                            if isinstance(value, dict):
+                                for name in names:
+                                    item = value.get(name)
+                                    if item is None or type(item) in (str, int, float, bool):
+                                        row[name] = item
+                        except (ValueError, TypeError):
+                            pass
+                yield row
+                if metadata_error is not None:
+                    raise metadata_error
+        except (OSError, ValueError, KeyError, TypeError, AttributeError, OverflowError) as exc:
+            row['classification'] = 'refused'
+            row['reasons'].append(str(exc))
+            if coverage:
+                self.coverage_errors.append(dict(source=source, location=row.get('location'), reason=str(exc)))
+
+
+@contextmanager
+def _reservation_check(diagnostic, source, path=None, **fields):
+    if diagnostic is None:
+        yield {}
+    else:
+        with diagnostic.check(source, path, **fields) as row:
+            yield row
+
+
+def _remember_absence(path):
+    """Observe the nearest existing parent of an absent registry/directory."""
+    captured = _CAPTURE_READS.get()
+    if captured is None:
+        return
+    for parent in Path(path).parents:
+        try:
+            captured.directory(parent)
+        except FileNotFoundError:
+            continue
+        _require(not os.path.lexists(path), 'Absent evidence appeared during enumeration')
+        return
+
+
 def _entries(cfg):
     from ag.config import select_cluster
     if '_cluster_entries' in cfg:
@@ -463,26 +542,36 @@ def _register_study(path):
             _require(existing == raw, 'Registered study location or directory identity changed')
 
 
-def _registered_studies():
+def _registered_studies(diagnostic=None):
     result = {}
-    with ExitStack() as stack:
-        try:
-            store = stack.enter_context(_registry('autonomy-studies'))
-        except FileNotFoundError:
-            return result
-        for name in os.listdir(store.fd):
-            raw = _read_file(Path.home() / '.config/ag/autonomy-studies' / name)
-            value = _json(raw)
-            _fields(value, {'schema', 'study_path', 'study_key', 'study_device', 'study_inode'},
-                    'registered study location')
-            _require(isinstance(value['study_path'], str) and Path(value['study_path']).is_absolute(),
-                     'Invalid registered study path')
-            identity = study_identity(value['study_path'])
-            _require(value['schema'] == 'ag-autonomy-study-location/1'
-                     and name == identity['study_key'] + '.json' and raw == disk.encode(value)
-                     and all(type(value.get(k)) is type(v) and value[k] == v for k, v in identity.items()),
-                     'Registered study was moved, copied or replaced')
-            result[identity['study_key']] = Path(value['study_path'])
+    location = Path.home() / '.config/ag/autonomy-studies'
+    with _reservation_check(diagnostic, 'study_registry', location, coverage=True):
+        with ExitStack() as stack:
+            try:
+                store = stack.enter_context(_registry('autonomy-studies'))
+            except FileNotFoundError:
+                if diagnostic is not None:
+                    _remember_absence(location)
+                return result
+            if diagnostic is not None:
+                _CAPTURE_READS.get().directory(location)
+            for name in sorted(os.listdir(store.fd)):
+                with _reservation_check(diagnostic, 'study_registration', location / name, coverage=True) as row:
+                    raw = _read_file(location / name)
+                    value = _json(raw)
+                    if isinstance(value, dict) and isinstance(value.get('study_path'), str):
+                        row['study_id'] = Path(value['study_path']).name
+                    _fields(value, {'schema', 'study_path', 'study_key', 'study_device', 'study_inode'},
+                            'registered study location')
+                    _require(isinstance(value['study_path'], str) and Path(value['study_path']).is_absolute(),
+                             'Invalid registered study path')
+                    identity = study_identity(value['study_path'])
+                    _require(value['schema'] == 'ag-autonomy-study-location/1'
+                             and name == identity['study_key'] + '.json' and raw == disk.encode(value)
+                             and all(type(value.get(k)) is type(v) and value[k] == v for k, v in identity.items()),
+                             'Registered study was moved, copied or replaced')
+                    result[identity['study_key']] = Path(value['study_path'])
+                    row['study_id'] = Path(value['study_path']).name
     return result
 
 
@@ -672,64 +761,116 @@ def _record_path(record):
     return path
 
 
-def _read_global_records():
+def _record_location(record):
+    # Only records already validated by _read_global_records reach this helper.
+    # Keep location construction separate from later per-record identity IO.
+    return Path(record['studies_root']) / record['study_id'] / 'attempts' / record['attempt_id']
+
+
+def _read_global_records(diagnostic=None):
     records = []
-    with ExitStack() as stack:
-        try:
-            store = stack.enter_context(_registry('autonomy-reservations'))
-        except FileNotFoundError:
-            # Absence is accepted only after the reverse scan below proves
-            # that no study claims a consumed autonomous Attempt.
-            return []
-        else:
+    location = Path.home() / '.config/ag/autonomy-reservations'
+    with _reservation_check(diagnostic, 'reservation_registry', location, coverage=True):
+        with ExitStack() as stack:
+            try:
+                store = stack.enter_context(_registry('autonomy-reservations'))
+            except FileNotFoundError:
+                # The reverse scan must still prove no consumed ownership.
+                if diagnostic is not None:
+                    _remember_absence(location)
+                return records
+            if diagnostic is not None:
+                _CAPTURE_READS.get().directory(location)
             for name in sorted(os.listdir(store.fd)):
-                raw = _read_file(Path.home() / '.config/ag/autonomy-reservations' / name)
-                value = _json(raw)
-                _fields(value, _RECORD_KEYS, 'reservation record')
-                _context(value)
-                _require(value['schema'] == RESERVATION_SCHEMA and name == _filename(_record_path(value)),
-                         'Reservation filename/schema mismatch')
-                _require(raw == disk.encode(value), 'Reservation encoding was changed')
-                for key in ('account_sha256', 'manifest_sha256', 'bundle_sha256'):
-                    _require(_hash(value[key]), 'Invalid reservation evidence hash')
-                records.append(dict(record=value, sha256=sha256(raw).hexdigest(), filename=name))
+                with _reservation_check(diagnostic, 'reservation', location / name, coverage=True) as row:
+                    raw = _read_file(location / name)
+                    value = _json(raw)
+                    if isinstance(value, dict):
+                        for key in ('study_id', 'attempt_id'):
+                            if isinstance(value.get(key), str):
+                                row[key] = value[key]
+                        choice = value.get('selection', {})
+                        if isinstance(choice, dict):
+                            choice = choice.get('result', {})
+                        if isinstance(choice, dict):
+                            choice = choice.get('recommendation', {})
+                        if isinstance(choice, dict):
+                            for key in ('cluster', 'tier', 'cores', 'mem_gb'):
+                                if type(choice.get(key)) in (str, int, float):
+                                    row[key] = choice[key]
+                    _fields(value, _RECORD_KEYS, 'reservation record')
+                    _context(value)
+                    _require(value['schema'] == RESERVATION_SCHEMA and name == _filename(_record_path(value)),
+                             'Reservation filename/schema mismatch')
+                    _require(raw == disk.encode(value), 'Reservation encoding was changed')
+                    for key in ('account_sha256', 'manifest_sha256', 'bundle_sha256'):
+                        _require(_hash(value[key]), 'Invalid reservation evidence hash')
+                    records.append(dict(record=value, sha256=sha256(raw).hexdigest(), filename=name))
+                    row.update(study_id=value['study_id'], attempt_id=value['attempt_id'])
     return records
 
 
-def _study_paths(root):
+def _study_paths(root, diagnostic=None):
     """Enumerate one studies root without following directory redirects."""
     root = Path(root).absolute()
-    try:
-        fd = disk.directory(root)
-    except FileNotFoundError:
-        return []
     result = []
-    try:
-        for name in os.listdir(fd):
-            if name.startswith('.'):
-                continue
-            info = os.stat(name, dir_fd=fd, follow_symlinks=False)
-            _require(not stat.S_ISLNK(info.st_mode), 'Redirected study directory')
-            if not stat.S_ISDIR(info.st_mode):
-                continue
-            child = root / name
-            if (child / 'attempts').exists() or (child / 'autonomy').exists():
-                study.identifier(name)
-                directory = disk.directory(child)
-                os.close(directory)
-                result.append(child)
-    finally:
-        os.close(fd)
+    with _reservation_check(diagnostic, 'studies_root', root, coverage=True):
+        try:
+            fd = disk.directory(root)
+        except FileNotFoundError:
+            if diagnostic is not None:
+                raise ValueError('Configured or registered studies root is missing')
+            return result
+        try:
+            if diagnostic is not None:
+                _CAPTURE_READS.get().directory(root)
+            for name in sorted(os.listdir(fd)):
+                if name.startswith('.'):
+                    continue
+                child = root / name
+                with _reservation_check(diagnostic, 'study_directory', child, coverage=True):
+                    info = os.stat(name, dir_fd=fd, follow_symlinks=False)
+                    _require(not stat.S_ISLNK(info.st_mode), 'Redirected study directory')
+                    if not stat.S_ISDIR(info.st_mode):
+                        continue
+                    if diagnostic is not None:
+                        _CAPTURE_READS.get().directory(child)
+                    if os.path.lexists(child / 'attempts') or os.path.lexists(child / 'autonomy'):
+                        study.identifier(name)
+                        directory = disk.directory(child)
+                        os.close(directory)
+                        result.append(child)
+        finally:
+            os.close(fd)
     return result
 
 
-def _load_state(path, supplied):
+def _load_state(path, supplied, *, readonly=False):
     from ag import autonomy
     key = str(path.absolute())
     if key in supplied:
         return supplied[key]
-    if not (path / 'autonomy').exists():
+    if readonly:
+        _CAPTURE_READS.get().directory(path)
+    if not os.path.lexists(path / 'autonomy'):
         return None
+    if readonly:
+        # No mutex is acquired, created or written by diagnostics. Replay and
+        # snapshot checks stay identical; tracked reads detect replacement.
+        location = path / 'autonomy'
+        _CAPTURE_READS.get().directory(location)
+        # Match the existing persistent mutex's integrity checks without
+        # acquiring it. A missing/broken lock is not a healthy ownership store.
+        _read_file(location / 'store.lock')
+        fd = disk.directory(location)
+        class ReadStore(disk.Store):
+            def read(self, name):
+                return _read_file(location / name)
+        try:
+            snapshot, _ = autonomy.load(ReadStore(fd))
+        finally:
+            os.close(fd)
+        return snapshot['state']
     cfg = {'local': {'studies_root': str(path.parent)}}
     with disk.locked(cfg, path.name) as store:
         snapshot, _ = autonomy.load(store)
@@ -929,6 +1070,73 @@ def _placement_state(path, manifest, report, *, current=None, absence=None):
     if local in ('running', 'stalled'):
         return 'running'
     return 'queued' if report['job_id'] else 'reserved'
+
+
+def _manual_unconsumed_accounting(path):
+    """Exclude unclaimed prepared manual records without requiring new journals.
+
+    This is resource accounting only. Global registration and the reverse
+    consumption check must run first; no autonomous ownership is inferred.
+    Capture directory identities as well as files so replacement or newly
+    appearing submission evidence cannot turn an uncertain claim into zero.
+    """
+    if _CAPTURE_READS.get() is None:
+        with _capture_reads():
+            return _manual_unconsumed_accounting(path)
+    captured = _CAPTURE_READS.get()
+    captured.directory(path)
+    captured.directory(path.parent.parent)
+    current = _json(_read_file(path / 'status.json'))
+    _require(isinstance(current, dict) and current.get('state') in state.TRANSITIONS,
+             'Invalid manual status record')
+    if current['state'] != 'prepared' or os.path.lexists(path / '.submit-claim'):
+        return None
+    _require(current.get('job_id') is None
+             and not os.path.lexists(path / 'submission.json')
+             and not os.path.lexists(path / 'submission-summary.json'),
+             'Unclaimed prepared Attempt contradicts submission evidence')
+    _require(not _has_cancellation(path)
+             and not os.path.lexists(path / _SCIENTIFIC_REVIEW),
+             'Unclaimed prepared Attempt has disabled autonomous or cancellation evidence')
+    manifest = _json(_read_file(path / 'manifest.json'))
+    declared = manifest.get('inputs') if isinstance(manifest, dict) else None
+    _require(isinstance(declared, list) and bool(declared)
+             and all(isinstance(item, dict) and set(item) == {'name', 'size', 'sha256'}
+                     and isinstance(item['name'], str) and type(item['size']) is int
+                     and item['size'] >= 0 and _hash(item['sha256']) for item in declared),
+             'Invalid input file manifest')
+    _, manifest = _manifest_bytes(path)
+    _require(type(manifest.get('cores')) is int and manifest['cores'] > 0,
+             'Invalid Attempt cores')
+    study.identifier(manifest['attempt_id'])
+    study.identifier(manifest['study_id'])
+    cluster_name(manifest.get('cluster', 'default'))
+    _require(manifest.get('scheduler', 'pbs') in ('pbs', 'slurm'), 'Invalid Attempt scheduler')
+    _reject_disabled_evidence(path, manifest)
+    journal_path = path.parent.parent / 'journal.jsonl'
+    damaged_journal = False
+    if os.path.lexists(journal_path):
+        for line in _read_file(journal_path).splitlines():
+            try:
+                event = _json(line)
+            except ValueError:
+                damaged_journal = True
+                continue
+            if not isinstance(event, dict):
+                damaged_journal = True
+                continue
+            if event.get('attempt_id') != path.name:
+                continue
+            _require(event.get('action') != 'submit_authorization'
+                     and not (event.get('action') == 'state' and event.get('result') != 'prepared'),
+                     'Unclaimed prepared Attempt contradicts journal submission evidence')
+    warning = dict(kind='manual_unconsumed_excluded',
+                   study_key=study_identity(path.parent.parent)['study_key'],
+                   study_id=path.parent.parent.name, attempt_id=path.name,
+                   state='prepared', reason='Unclaimed prepared manual Attempt; historical journal is not an authorization audit')
+    if damaged_journal:
+        warning['journal_warning'] = 'Historical journal contains unparseable or non-object entries; exclusion uses hard submission evidence'
+    return warning
 
 
 def _manual_terminal_accounting(path):
@@ -1643,112 +1851,218 @@ def remedy_evidence(cfg, verified_state, object_id, *, exclude_attempt=None):
                 status_sha256=status_hash, outputs=outputs, completion=completion)
 
 
-def read_reservations(cfg, *, states=None):
-    """Cross-check both sides of all local ownership before returning placements.
+def _manual_accounting(cfg, target, entries):
+    """Shared one-Attempt manual classification; never changes historical files."""
+    from ag.config import scheduler_kind
+    directory = disk.directory(target)
+    os.close(directory)
+    path, name = target.parent.parent, target.name
+    root = path.parent
+    warning = _manual_terminal_accounting(target)
+    if warning is not None:
+        return None, warning
+    warning = _manual_unconsumed_accounting(target)
+    if warning is not None:
+        return None, warning
+    unverified_manual = False
+    try:
+        report = audit(target)
+    except ValueError:
+        current = _json(_read_file(target / 'status.json'))
+        _require(current.get('state') in ('submitted', 'running', 'stalled',
+                 'awaiting_second_observation', 'unknown'),
+                 'Unverified manual reservation has no nonterminal status')
+        # Missing historical authorization must retain usage, but
+        # an autonomous origin must never become a manual fallback.
+        for filename in ('submission-summary.json', 'submission.json'):
+            if os.path.lexists(target / filename):
+                value = _json(_read_file(target / filename))
+                authorization = value.get('authorization') if isinstance(value, dict) else None
+                _require(not isinstance(authorization, dict)
+                         or authorization.get('method') != 'autonomy-policy',
+                         'Autonomous summary is missing its global reservation')
+        for line in _read_file(path / 'journal.jsonl').splitlines():
+            event = _json(line)
+            detail = event.get('detail')
+            _require(not (event.get('attempt_id') == name
+                     and event.get('action') == 'submit_authorization'
+                     and isinstance(detail, dict) and detail.get('method') == 'autonomy-policy'),
+                     'Autonomous authorization is missing its global reservation')
+        report = dict(classification='reserved', state=current['state'], job_id=None)
+        unverified_manual = True
+    if report['classification'] == 'unconsumed':
+        return None, None
+    raw, manifest = _manifest_bytes(target)
+    _require(root == Path(cfg['local']['studies_root']).absolute(),
+             'Unmapped historical manual reservation requires reconciliation')
+    cluster = manifest.get('cluster', 'default')
+    _require(cluster in entries, 'Manual reservation cluster is not configured')
+    if unverified_manual:
+        _require(type(manifest['cores']) is int and manifest['cores'] > 0
+                 and type(manifest['mem_gb']) in (int, float)
+                 and math.isfinite(manifest['mem_gb']) and manifest['mem_gb'] > 0
+                 and manifest.get('scheduler', 'pbs') == scheduler_kind(entries[cluster]),
+                 'Unverified manual reservation resources or scheduler are invalid')
+        report['evidence_sha256'] = {'manifest.json': sha256(raw).hexdigest()}
+        warning = dict(kind='manual_unverified_reserved',
+            study_key=study_identity(path)['study_key'], study_id=manifest['study_id'],
+            attempt_id=name, state=report['state'], cores=manifest['cores'])
+    raw_job = submission.raw_job(manifest, report['job_id']) if report['job_id'] else None
+    placement_state = 'reserved' if unverified_manual else _placement_state(target, manifest, report)
+    placement = dict(study_id=manifest['study_id'], study_key=study_identity(path)['study_key'], attempt_id=name, cluster=cluster,
+        scheduler_job_name=manifest['attempt_id'] if manifest.get('scheduler') == 'slurm' else manifest['pbs_job_name'],
+        state=placement_state, cores=manifest['cores'], mem_gb=manifest['mem_gb'], job_id=raw_job,
+        manifest_sha256=sha256(raw).hexdigest(), record_sha256=approval.digest(report['evidence_sha256']),
+        target_node=manifest.get('node_target', {}).get('name'), round_id=None, run_id=None)
+    return placement, warning
 
-    Caller holds machine_lock. states maps absolute study directories to raw,
-    verified T184 state already held under the caller's study lock. No dict
-    supplied from a CLI/LLM may enter that argument. UNKNOWN/undispatched claims
-    remain reserved; a missing or truncated side is an error, never zero.
+
+def _owned_accounting(cfg, saved, current, identities):
+    record, digest = saved['record'], saved['sha256']
+    path = _record_path(record)
+    raw, manifest = _manifest_bytes(path)
+    _require(sha256(raw).hexdigest() == record['manifest_sha256'] and manifest['inputs'] == record['inputs'],
+             'Reservation manifest/input hashes changed')
+    consumed = _check_consumption(record, digest, current)
+    report = _owned_audit(path, record, digest)
+    _require(report['job_id'] is None or consumed.get('dispatch_started') is not None,
+             'Scheduler binding has no recorded dispatch boundary')
+    aborted = consumed.get('aborted_before_dispatch')
+    if aborted is not None:
+        _require(consumed.get('dispatch_started') is None and report['job_id'] is None
+                 and report['state'] in ('prepared', 'submitting', 'failed_presubmit'),
+                 'Aborted reservation contradicts scheduler binding or dispatch')
+        saved['outcome'] = 'aborted_before_dispatch'
+        return None, None
+    aliases = [name for name, identity in identities.items() if identity == record['account_sha256']]
+    _require(bool(aliases), 'Active reservation account is not mapped by current configuration')
+    name = manifest.get('cluster', 'default')
+    name = name if name in aliases else sorted(aliases)[0]
+    original = record['selection']['input']
+    request = original['request']
+    choice = record['selection']['result']['recommendation']
+    _require(isinstance(choice, dict), 'Reservation lost its selected position')
+    expected = dict(study_id=record['study_id'], study_key=record['study_key'], round_id=record['round_id'], run_id=record['run_id'],
+                    object_id=record['object_id'], template=manifest['template'], walltime=manifest['walltime'])
+    _require(all(request.get(k) == v for k, v in expected.items()), 'Reservation selection ownership changed')
+    bound_job = submission.raw_job(manifest, report['job_id']) if report['job_id'] else None
+    absence = _terminal_absence(cfg, manifest, report, account_sha256=record['account_sha256'],
+                                cluster=name, since=consumed['at'])
+    resolution = _manual_resolution(current, path, digest)
+    resolved = False
+    raw_status = _read_file(path / 'status.json') if resolution is not None else None
+    kind = _resolution_kind(path, report, _json(raw_status), current) if raw_status is not None else None
+    if resolution is not None and resolution['kind'] == kind:
+        from ag.autonomy import ObjectRefused
+        try:
+            _resolution_observation(cfg, record, manifest, report, consumed, raw_status, kind)
+        except ObjectRefused:
+            pass  # Lost negative evidence retains the reservation.
+        else:
+            resolved = True
+    placement_state = ('finished' if resolved else
+        _placement_state(path, manifest, report, current=current, absence=absence))
+    placement = dict(study_id=record['study_id'], study_key=record['study_key'], attempt_id=record['attempt_id'], cluster=name,
+        scheduler_job_name=manifest['attempt_id'] if manifest.get('scheduler') == 'slurm' else manifest['pbs_job_name'],
+        state=placement_state, cores=manifest['cores'], mem_gb=manifest['mem_gb'], job_id=bound_job,
+        manifest_sha256=record['manifest_sha256'], record_sha256=digest,
+        round_id=record['round_id'], run_id=record['run_id'], object_id=record['object_id'],
+        cell_id=choice['cell_id'], capacity_node=choice['capacity_node'], target_node=choice.get('target_node'),
+        config_sha256=record['routing_sha256'], selected_at=original['selected_at'],
+        batch_input_sha256=choice['batch_input_sha256'])
+    saved['outcome'] = 'retained'
+    return placement, original
+
+
+def read_reservations(cfg, *, states=None):
+    """Fail-closed accounting under the caller's machine and study locks.
+
+    states contains only verified state held by the caller, never CLI input.
+    Diagnostic reports are deliberately not accepted as action evidence.
     """
-    records = _read_global_records()
-    registered = _registered_studies()
-    for saved in records:
-        record = saved['record']
-        _require(registered.get(record['study_key']) == _record_path(record).parent.parent,
-                 'Reservation is missing its global study registration')
+    return _scan_reservations(cfg, states=states)
+
+
+def _scan_reservations(cfg, *, states=None, diagnostic=None):
+    records = _read_global_records(diagnostic)
+    registered = _registered_studies(diagnostic)
     supplied = {str(Path(key).absolute()): value for key, value in (states or {}).items()}
-    roots = {Path(cfg['local']['studies_root']).absolute()}
+    roots = {Path(cfg['local']['studies_root']).absolute()} if cfg is not None else set()
     roots.update(Path(item['record']['studies_root']) for item in records)
     roots.update(path.parent for path in registered.values())
-    studies = {path for root in roots for path in _study_paths(root)}
-    studies.update(_record_path(item['record']).parent.parent for item in records)
-    current_states = {str(path): _load_state(path, supplied) for path in studies}
-    by_path = {str(_record_path(item['record'])): item for item in records}
-    _require(len(by_path) == len(records), 'Duplicate reservation path')
-    # Reverse check catches deletion of a global record, including a wholly
-    # missing registry, while never reconstructing consumed counts from intent.
+    studies = {path for root in sorted(roots) for path in _study_paths(root, diagnostic)}
+    studies.update(registered.values())
+    studies.update(_record_location(item['record']).parent.parent for item in records)
+    current_states, invalid_studies = {}, set()
+    for path in sorted(studies):
+        invalid_studies.add(path)
+        with _reservation_check(diagnostic, 'study_state', path, coverage=True) as row:
+            current_states[str(path)] = (_load_state(path, supplied, readonly=True)
+                                        if diagnostic is not None else _load_state(path, supplied))
+            row['study_id'] = path.name
+        if row.get('classification') != 'refused':
+            invalid_studies.remove(path)
+    by_path = {}
+    for saved in records:
+        path = _record_location(saved['record'])
+        with _reservation_check(diagnostic, 'reservation_identity', path) as row:
+            _record_path(saved['record'])
+            _require(str(path) not in by_path, 'Duplicate reservation path')
+            by_path[str(path)] = saved
+            _require(registered.get(saved['record']['study_key']) == path.parent.parent,
+                     'Reservation is missing its global study registration')
+            row.update(study_id=path.parent.parent.name, attempt_id=path.name)
+    invalid_consumption = set()
+    # Reverse-check every consumed Attempt even if another record is broken.
     for path, current in current_states.items():
         for attempt_id, item in (current or {}).get('submissions', {}).items():
             target = str(Path(path) / 'attempts' / attempt_id)
-            _require(target in by_path and by_path[target]['sha256'] == item.get('ownership_sha256'),
-                     'Consumed Attempt is missing its global reservation')
-    entries = _entries(cfg)
-    identities = {name: account_identity(entry) for name, entry in entries.items()}
-    from ag.config import cluster_identity, scheduler_kind
-    grouped = {}
-    for name, identity in identities.items():
-        explicit = cluster_identity(entries[name])
-        _require(identity not in grouped or grouped[identity] == explicit,
-                 'Equivalent accounts use unmerged cluster identities; use one verified SSH identity')
-        grouped[identity] = explicit
+            invalid_consumption.add(target)
+            with _reservation_check(diagnostic, 'consumption', Path(target)) as row:
+                _require(target in by_path and by_path[target]['sha256'] == item.get('ownership_sha256'),
+                         'Consumed Attempt is missing its global reservation')
+                row.update(study_id=Path(path).name, attempt_id=attempt_id)
+                invalid_consumption.remove(target)
+    entries, identities, grouped = {}, {}, {}
+    with _reservation_check(diagnostic, 'configuration', coverage=True):
+        _require(cfg is not None, 'Local configuration is unavailable')
+        entries = _entries(cfg)
+    from ag.config import cluster_identity
+    for name, entry in entries.items():
+        with _reservation_check(diagnostic, 'account', cluster=name) as row:
+            identity = account_identity(entry)  # Local ssh -G only; no connection.
+            explicit = cluster_identity(entry)
+            _require(identity not in grouped or grouped[identity] == explicit,
+                     'Equivalent accounts use unmerged cluster identities; use one verified SSH identity')
+            grouped[identity] = explicit
+            identities[name] = identity
     placements, batch_inputs, warnings = [], {}, []
     for saved in records:
-        record, digest = saved['record'], saved['sha256']
-        path = _record_path(record)
-        raw, manifest = _manifest_bytes(path)
-        _require(sha256(raw).hexdigest() == record['manifest_sha256'] and manifest['inputs'] == record['inputs'],
-                 'Reservation manifest/input hashes changed')
-        consumed = _check_consumption(record, digest, current_states.get(str(path.parent.parent)))
-        report = _owned_audit(path, record, digest)
-        _require(report['job_id'] is None or consumed.get('dispatch_started') is not None,
-                 'Scheduler binding has no recorded dispatch boundary')
-        aborted = consumed.get('aborted_before_dispatch')
-        if aborted is not None:
-            _require(consumed.get('dispatch_started') is None and report['job_id'] is None
-                     and report['state'] in ('prepared', 'submitting', 'failed_presubmit'),
-                     'Aborted reservation contradicts scheduler binding or dispatch')
-            saved['outcome'] = 'aborted_before_dispatch'
-            continue
-        aliases = [name for name, identity in identities.items() if identity == record['account_sha256']]
-        _require(bool(aliases), 'Active reservation account is not mapped by current configuration')
-        name = manifest.get('cluster', 'default')
-        name = name if name in aliases else sorted(aliases)[0]
-        original = record['selection']['input']
-        request = original['request']
-        choice = record['selection']['result']['recommendation']
-        _require(isinstance(choice, dict), 'Reservation lost its selected position')
-        expected = dict(study_id=record['study_id'], study_key=record['study_key'], round_id=record['round_id'], run_id=record['run_id'],
-                        object_id=record['object_id'], template=manifest['template'], walltime=manifest['walltime'])
-        _require(all(request.get(k) == v for k, v in expected.items()), 'Reservation selection ownership changed')
-        bound_job = submission.raw_job(manifest, report['job_id']) if report['job_id'] else None
-        current = current_states.get(str(path.parent.parent))
-        absence = _terminal_absence(cfg, manifest, report, account_sha256=record['account_sha256'],
-                                    cluster=name, since=consumed['at'])
-        resolution = _manual_resolution(current, path, digest)
-        resolved = False
-        raw_status = _read_file(path / 'status.json') if resolution is not None else None
-        kind = _resolution_kind(path, report, _json(raw_status), current) if raw_status is not None else None
-        if resolution is not None and resolution['kind'] == kind:
-            from ag.autonomy import ObjectRefused
-            try:
-                _resolution_observation(cfg, record, manifest, report, consumed, raw_status, kind)
-            except ObjectRefused:
-                pass  # Lost negative evidence retains the reservation.
-            else:
-                resolved = True
-        placement_state = ('finished' if resolved else
-            _placement_state(path, manifest, report, current=current, absence=absence))
-        placement = dict(study_id=record['study_id'], study_key=record['study_key'], attempt_id=record['attempt_id'], cluster=name,
-            scheduler_job_name=manifest['attempt_id'] if manifest.get('scheduler') == 'slurm' else manifest['pbs_job_name'],
-            state=placement_state, cores=manifest['cores'], mem_gb=manifest['mem_gb'], job_id=bound_job,
-            manifest_sha256=record['manifest_sha256'], record_sha256=digest,
-            round_id=record['round_id'], run_id=record['run_id'], object_id=record['object_id'],
-            cell_id=choice['cell_id'], capacity_node=choice['capacity_node'], target_node=choice.get('target_node'),
-            config_sha256=record['routing_sha256'], selected_at=original['selected_at'],
-            batch_input_sha256=choice['batch_input_sha256'])
-        placements.append(placement)
-        key = record['selection']['result']['evidence']['input_sha256']
-        _require(key not in batch_inputs or batch_inputs[key] == original, 'Conflicting original batch inputs')
-        batch_inputs[key] = deepcopy(original)
-        saved['outcome'] = 'retained'
-    # Manual local reservations count towards cores, never autonomous job caps.
-    for root in roots:
-        for path in _study_paths(root):
-            attempts = path / 'attempts'
+        record = saved['record']
+        path = _record_location(record)
+        with _reservation_check(diagnostic, 'attempt', path) as row:
+            _require(registered.get(record['study_key']) == path.parent.parent,
+                     'Reservation is missing its global study registration')
+            _require(path.parent.parent not in invalid_studies, 'Study ownership state could not be verified')
+            _require(str(path) not in invalid_consumption, 'Consumption ownership could not be verified')
+            placement, original = _owned_accounting(cfg, saved, current_states.get(str(path.parent.parent)), identities)
+            if placement is not None:
+                key = record['selection']['result']['evidence']['input_sha256']
+                _require(key not in batch_inputs or batch_inputs[key] == original, 'Conflicting original batch inputs')
+                batch_inputs[key] = deepcopy(original)
+                placements.append(placement)
+            row['classification'] = saved['outcome']
+            row['accounting_state'] = placement['state'] if placement is not None else None
+    # Manual jobs count towards cores, never autonomous job caps. The exact
+    # same single-record classifier is used by diagnostics and submission.
+    for path in sorted(studies):
+        attempts = path / 'attempts'
+        with _reservation_check(diagnostic, 'attempts_directory', attempts, coverage=True):
             fd = disk.directory(attempts)
             try:
-                names = os.listdir(fd)
+                if diagnostic is not None:
+                    _CAPTURE_READS.get().directory(attempts)
+                names = sorted(os.listdir(fd))
             finally:
                 os.close(fd)
             for name in names:
@@ -1757,63 +2071,48 @@ def read_reservations(cfg, *, states=None):
                 target = attempts / name
                 if str(target) in by_path:
                     continue
-                directory = disk.directory(target)
-                os.close(directory)
-                warning = _manual_terminal_accounting(target)
-                if warning is not None:
-                    warnings.append(warning)
-                    continue
-                unverified_manual = False
-                try:
-                    report = audit(target)
-                except ValueError:
-                    current = _json(_read_file(target / 'status.json'))
-                    _require(current.get('state') in ('submitted', 'running', 'stalled',
-                             'awaiting_second_observation', 'unknown'),
-                             'Unverified manual reservation has no nonterminal status')
-                    # Missing historical authorization must retain usage, but
-                    # an autonomous origin must never become a manual fallback.
-                    for filename in ('submission-summary.json', 'submission.json'):
-                        if os.path.lexists(target / filename):
-                            value = _json(_read_file(target / filename))
-                            authorization = value.get('authorization') if isinstance(value, dict) else None
-                            _require(not isinstance(authorization, dict)
-                                     or authorization.get('method') != 'autonomy-policy',
-                                     'Autonomous summary is missing its global reservation')
-                    for line in _read_file(path / 'journal.jsonl').splitlines():
-                        event = _json(line)
-                        detail = event.get('detail')
-                        _require(not (event.get('attempt_id') == name
-                                 and event.get('action') == 'submit_authorization'
-                                 and isinstance(detail, dict) and detail.get('method') == 'autonomy-policy'),
-                                 'Autonomous authorization is missing its global reservation')
-                    report = dict(classification='reserved', state=current['state'], job_id=None)
-                    unverified_manual = True
-                if report['classification'] == 'unconsumed':
-                    continue
-                raw, manifest = _manifest_bytes(target)
-                _require(root == Path(cfg['local']['studies_root']).absolute(),
-                         'Unmapped historical manual reservation requires reconciliation')
-                cluster = manifest.get('cluster', 'default')
-                _require(cluster in entries, 'Manual reservation cluster is not configured')
-                if unverified_manual:
-                    _require(type(manifest['cores']) is int and manifest['cores'] > 0
-                             and type(manifest['mem_gb']) in (int, float)
-                             and math.isfinite(manifest['mem_gb']) and manifest['mem_gb'] > 0
-                             and manifest.get('scheduler', 'pbs') == scheduler_kind(entries[cluster]),
-                             'Unverified manual reservation resources or scheduler are invalid')
-                    report['evidence_sha256'] = {'manifest.json': sha256(raw).hexdigest()}
-                    warnings.append(dict(kind='manual_unverified_reserved',
-                        study_key=study_identity(path)['study_key'], study_id=manifest['study_id'],
-                        attempt_id=name, state=report['state'], cores=manifest['cores']))
-                raw_job = submission.raw_job(manifest, report['job_id']) if report['job_id'] else None
-                placement_state = 'reserved' if unverified_manual else _placement_state(target, manifest, report)
-                placements.append(dict(study_id=manifest['study_id'], study_key=study_identity(path)['study_key'], attempt_id=name, cluster=cluster,
-                    scheduler_job_name=manifest['attempt_id'] if manifest.get('scheduler') == 'slurm' else manifest['pbs_job_name'],
-                    state=placement_state, cores=manifest['cores'], mem_gb=manifest['mem_gb'], job_id=raw_job,
-                    manifest_sha256=sha256(raw).hexdigest(), record_sha256=approval.digest(report['evidence_sha256']),
-                    target_node=manifest.get('node_target', {}).get('name'), round_id=None, run_id=None))
+                with _reservation_check(diagnostic, 'attempt', target) as row:
+                    _require(path not in invalid_studies, 'Study ownership state could not be verified')
+                    _require(str(target) not in invalid_consumption, 'Consumed Attempt is missing its global reservation')
+                    placement, warning = _manual_accounting(cfg, target, entries)
+                    if warning is not None:
+                        warnings.append(warning)
+                        if diagnostic is not None:
+                            row['warnings'].append(warning)
+                    if placement is not None:
+                        placements.append(placement)
+                    row['classification'] = warning['kind'] if warning else ('retained' if placement else 'unconsumed')
+                    row['accounting_state'] = placement['state'] if placement else None
     return dict(records=records, placements=placements, batch_inputs=batch_inputs, warnings=warnings)
+
+
+def audit_reservations(cfg, *, configuration_error=None):
+    """Read-only whole-machine report; never a reservation or submission permit.
+
+    No machine/study mutex or persistent record is opened for writing. Only
+    local ssh -G expansion is used, exactly as in submission accounting.
+    """
+    diagnostic = _ReservationAudit()
+    if configuration_error:
+        with diagnostic.check('configuration_input', coverage=True):
+            raise ValueError(configuration_error)
+    with diagnostic.check('scan', coverage=True):
+        _scan_reservations(cfg, diagnostic=diagnostic)
+    # Keep every earlier row, but reject an observation changed later in the
+    # scan. This is optimistic verification, not a lock or action guarantee.
+    for source, location, reads in list(diagnostic.reads):
+        try:
+            reads.verify()
+        except (OSError, ValueError) as exc:
+            with diagnostic.check('consistency', location, coverage=True) as row:
+                row['observed_source'] = source
+                raise ValueError(str(exc)) from exc
+    failed = [row for row in diagnostic.records if row['classification'] == 'refused']
+    return dict(schema='ag-reservation-audit/1', ok=not failed,
+                coverage=dict(complete=not diagnostic.coverage_errors, errors=diagnostic.coverage_errors),
+                records=diagnostic.records, failed_count=len(failed),
+                warning_count=sum(len(row['warnings']) for row in diagnostic.records),
+                action_permitted=False)
 
 
 def write_waiting(cfg, study_id, selection, *, batch_inputs=None):

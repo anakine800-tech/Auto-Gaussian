@@ -330,6 +330,19 @@ def register(subparsers):
 
 
 def main(argv=None):
+    command = list(sys.argv[1:] if argv is None else argv)
+    if command[:2] == ['autonomy', 'audit-reservations']:
+        # Use python -B at process startup too: package/CLI import precedes main.
+        previous = sys.dont_write_bytecode
+        sys.dont_write_bytecode = True
+        try:
+            parser = argparse.ArgumentParser(prog='ag')
+            from ag.autonomy import register as register_autonomy
+            register_autonomy(parser.add_subparsers(dest='command', required=True))
+            args = parser.parse_args(command)
+            return args.func(args)
+        finally:
+            sys.dont_write_bytecode = previous
     parser = argparse.ArgumentParser(prog='ag')
     parser.add_argument('--version', action='version', version=__version__)
     subparsers = parser.add_subparsers(dest='command')
