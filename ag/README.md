@@ -1,23 +1,25 @@
 # Auto-Gaussian CLI
 
 `ag/` 是独立 Python 项目，负责安全的作业生命周期和确定性本地工具。
-当前候选版本为 **4.7.1（发布准备）**，配套前端同号；版本与范围见 [CHANGELOG](../CHANGELOG.md#v471发布准备)。
-**自主运行尚未启用**：T184 仅提供本地记录，研究会话不得据此尝试自主提交、取消或改投。普通人工工作流保持；发布准备不代表已发布或部署。
+当前候选版本为 **4.8.0（发布准备）**，配套前端同号；4.7.1 内容并入、不单独发布，范围见 [CHANGELOG](../CHANGELOG.md#v480发布准备)。
+已合并自主提交等能力不等于已取得本轮启用授权，也不替代科学验收。**自主取消、改投均未启用**，需要时提醒负责人在 Mac 上手动取消；SCNet 自主取消/改投不在本版，PBS 相关能力后续处理。PBS 看不到他人作业不视为空闲，T214 后续；未知容量不放行。
+T185/T186/T188 先合并后真实验证的流程偏离，以及调整后的发版条件已满足，见上述说明。本轮 T198 已取消，由统一真实验证及监督方确认替代，该条件已满足，AGENTS 历史规则原文保留。本轮仅由协调方部署开发机，配置完全不改、研究机不动；本工单不启动服务或连接集群。
 按[根目录安装步骤](../README.md#安装)为当前 worktree 创建独立 `.venv`，
 从仓库根目录在 Python 3.11+ 环境运行 `python -m pip install -e 'ag[test,chem]' 'rdkit==2026.3.3'`，
 然后用 `ag --version` 和 `ag --help` 检查安装。
+运行需同提交完整源码中的 `ag/templates/` 与 `skills-next/`；wheel/sdist 不是独立完整部署包。
 RDKit 与 CI 固定为同一精确版本；平台包边界见上述安装步骤，固定版本不保证跨硬件数值逐位一致。
 整体架构、常用命令和 Skill 部署见[根目录 README](../README.md)；
 规则见 [AGENTS.md](../AGENTS.md)，设计见[改造方案](../docs/REDESIGN-PLAN.md)。
 
-本文计算命令描述当前手动模式；`autonomy` 保存本地计划、状态及实际提交消费，T186 已接入开发中的自主 prepare/submit/route 与最终本地发布保护，组合及真实验证尚未完成。[自主运行规则](../AGENTS.md#自主运行)须待相关工具实现、敏感路径合并前验证、非研究试点及本轮显式启用全部完成；旧长期规则不提供自主权限，现有 cancel 仍须 Mac 人工点击。当前实现与后续要求见[开发手册](../docs/DEVELOPING.md#自主运行的实现边界)。
+本文普通计算命令描述手动模式；`autonomy` 保存本地计划、状态及实际提交消费，T186 已接入自主 prepare/submit/route 与最终本地发布保护。本轮真实验证与监督确认状态以上述 4.8.0 发布说明为准；按[自主运行规则](../AGENTS.md#自主运行)核验本轮计划和有效规则，旧长期规则不提供自主权限，现有 cancel 仍须 Mac 人工点击。实现机制见[开发手册](../docs/DEVELOPING.md#自主运行的实现边界)，开发期验证待办不替代本轮发布交接。
 
 ## 提交阶梯与整节点（T185）
 
 旧 `ag route --template gaussian --tier general --walltime 04:00:00 --json` 继续提供本地快照建议。
 新 `--job-class main|small` 模式要求 `--study`、`--round-id`、`--run-id`、`--object-id` 和 `--walltime`，
-当前可信记录适配尚未完成而拒绝给出候选；T186 负责核对 T184 稳定接口后接通读取与 CLI，不接受人工传入“已通过”或占用 JSON。
-两种模式均不运行 SSH、不创建目录、不写文件。T186 的提交时重算尚未接入。
+T186 已接通可信记录读取与 CLI，须核对有效绑定上下文，不接受人工传入“已通过”或占用 JSON。
+两种模式均不运行 SSH、不创建目录、不写文件；T186 已接入提交时重算，路由建议不能代替动作时核验。
 
 `routing.ladder` 是按顺序排列的本机配置表，格子写明 `id`、`cluster`、`classes`（main/small）、
 `tier`、`condition`、`max_placements`；具名入口另设有序 `nodes` 和 `node_fraction`。
@@ -31,24 +33,24 @@ RDKit 与 CI 固定为同一精确版本；平台包边界见上述安装步骤�
 `ag.route.select_ladder` 是无 I/O 的共用选格函数。它接收配置、快照、作业类别、时限、必需的 `study_key`、显示用 `study_id`、`round_id`、`run_id` 和对象身份、
 经本地适配核验的提交/预留记录及唤醒历史，可选父集群和 `batch_inputs` 保存的首次选格完整输入，返回候选、拒绝原因及配置/证据哈希。
 输出同时保留 round/run 身份。哈希只标识输入，不能证明调用者提供的记录真实；适配必须核对 manifest、submission、声明/台账及运行事件，
-不能使用 T184 状态中仅代表意向的提交计数。当前只有纯函数与合成回归，尚无实际记录到函数的完整接线。
-T186 须从全本机记录核验真实自主归属，按共享账号及确切作业身份去重，保留尚未观测到的预留与 UNKNOWN 占用；
-证据不明不能按零处理。T186 须接通跨配置目录的共同注册与共同锁，并在共同锁内重新收集、核验记录、快照及选格结果；
+不能使用 T184 状态中仅代表意向的提交计数；T186 已将实际记录接入该函数。
+T186 从全本机记录核验真实自主归属，按共享账号及确切作业身份去重，保留尚未观测到的预留与 UNKNOWN 占用；
+证据不明不能按零处理。T186 已接通跨配置目录的共同注册与共同锁，并在共同锁内重新收集、核验记录、快照及选格结果；
 现有各配置目录的 submit.lock 不覆盖全本机，不能把先前建议缓存为提交许可。
 
-供后续接线复用的参数以现有测试为例：`snapshots` 按入口传入完整 `ag-monitor/1` 数据；
+共用选格参数以现有测试为例：`snapshots` 按入口传入完整 `ag-monitor/1` 数据；
 `placements` 每项必须有 study_key、study_id、scheduler_job_name，以及 cluster、attempt_id、job_id（原始或限定号；reserved/unknown 可为空）、state（reserved/unknown/queued/running/finished）、cores、mem_gb，
 以及 round_id/run_id/object_id、cell_id、target_node/capacity_node、manifest_sha256、record_sha256。
 适配核验 manifest 后，PBS 的 scheduler_job_name 取 pbs_job_name，Slurm 取 attempt_id，再与快照比对。
 `study_key` 为必填的 64 位小写 SHA-256；T186 可信适配须按安全校验后的本机绝对 study 目录生成，并持久绑定目录身份。
 选择器请求、placements、wakeups、批次 request 与本地去重均使用此 key；study_id 仅作显示，缺 key 不回退到同名标识。
 不同 studies_root 的同名 study_id/attempt_id 不合并；物理作业仍按共享账号和确切作业身份去重，矛盾归属拒绝。
-纯算法只校验传入 key，不访问路径；真实目录绑定、共同注册和跨配置锁仍待 T186 接线。
+纯算法只校验传入 key，不访问路径；真实目录绑定、共同注册和跨配置锁由已合并 T186 适配负责。
 同批成员另带首次选择的 config_sha256、selected_at、batch_input_sha256；无自主归属的本地预留仍需计入账号额度。
 `wakeups` 每项有 study_key、study_id、round_id、run_id、object_id、started_at；waiting_since 来自该 study 对象等待事件，不能由模型自行填写。
 `batch_inputs` 以 evidence.input_sha256 为键，保存首次完整 snapshots、placements、wakeups、request 和 selected_at；
 request 包含 study_key、study_id、template、job_class、walltime、round_id、run_id、object_id、waiting_since、parent_cluster。
-这些是选择器输入，不是新增授权记录；后续适配必须从不可变文件与重放事件构造，并核对选择与 manifest 资源一致。
+这些是选择器输入，不是新增授权记录；T186 适配从不可变文件与重放事件构造，并核对选择与 manifest 资源一致。
 
 `select_ladder(..., evaluate_from=None)` 可对已核验原 reservation 评估更优候选；可选字典只接受
 `study_key`、`attempt_id`、`record_sha256` 三项，等价读取/共享别名去重后须恰好匹配一条原绑定且哈希一致；冲突或多个物理绑定仍拒绝。
@@ -70,7 +72,7 @@ CPU 和精确内存必须在同一节点满足；全部本人作业、共享入�
 仍须精确匹配档位、max_cores 与节点总规格。默认 `1/2`、可选 `1/4` 和旧脚本/bundle 字节保持不变。
 选择必须先于 prepare；prepare 后入口、节点与资源不可变，路由建议不授权提交。
 `ag nodes` 可列出整节点；`ag clusters` 比例元数据复用 `node_targeting.FRACTIONS`，依次返回 `1/2`、`1/4`、`1`，默认仍为 `1/2`。本单不扩展前端工作。
-合并前仍缺整节点、半节点、非指定入口三个独立小分子 Attempt 的批准与真实验证；离线通过不代替这些证据。
+T185 开发期记录的验证待办与本轮先合并后验证的流程偏离分别保留；4.8.0 的真实验证及监督确认状态见[发布说明](../CHANGELOG.md#v480发布准备)，离线通过不代替现场证据。
 
 ## 在新 Mac 上重建直连 SSH 配置
 
