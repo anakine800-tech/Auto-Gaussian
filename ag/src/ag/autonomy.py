@@ -44,7 +44,11 @@ class ObjectRefused(ValueError):
 
 
 class PresubmitDeferred(ValueError):
-    """A failed SSH observation cannot be retried in the same wake."""
+    """A presubmit failure or unavailable route must wait without retrying work."""
+
+
+class LinkDeferred(PresubmitDeferred):
+    """Cache evidence blocks a route; after consumption this is a real presubmit failure."""
 
 
 def now():
@@ -216,12 +220,15 @@ def check_presubmit_retry(state, object_id):
     if len(failures) >= 2:
         raise ObjectRefused('Object already has two actual presubmit failures; 需要你看')
     run_id = (state.get('lease') or {}).get('run_id')
-    if any(run == run_id and kind == 'ssh' for (run, _), kind in failures.items()):
-        raise PresubmitDeferred('SSH failed for this object in this wake; wait for the next wake')
+    if any(run == run_id and kind in ('ssh', 'link') for (run, _), kind in failures.items()):
+        raise PresubmitDeferred('Transport or link failed for this object in this wake; wait for the next wake')
 
 
 def _record_ssh_wake(state, run_id, at):
     run = state['runs'][run_id]
+    if run.get('ssh_pause_exempt', False):
+        run['ssh_failed_exempt'] = True
+        return
     run['ssh_failed'] = True
     lease = state['lease']
     # A delayed old owner may retain its own evidence, but cannot turn it into
@@ -233,10 +240,42 @@ def _record_ssh_wake(state, run_id, at):
     # even when timestamps tie. UUID sorting would invent a different history.
     wakes = [key for key, value in state['runs'].items() if value['round_id'] == run['round_id']]
     position = wakes.index(run_id)
-    if position and state['runs'][wakes[position - 1]].get('ssh_failed'):
+    # Exempt wakes are neutral; the nearest non-exempt wake determines continuity.
+    previous = next((state['runs'][key] for key in reversed(wakes[:position])
+                     if not state['runs'][key].get('ssh_pause_exempt', False)), {})
+    if previous.get('ssh_failed'):
         state['paused'] = True
         if state['phase'] != 'ended':
             state['phase'] = 'paused'
+
+
+def _link_recheck_view(run, *, run_until):
+    settings = run.get('link_recheck')
+    if settings is None:
+        return None
+    result = dict(settings, next_at=None, reason='not_needed')
+    if run['link_health']['status'] not in ('relay_outage', 'local_outage'):
+        return result
+    due = settings['last_checked_at'] + settings['interval_minutes'] * 60
+    if settings['attempts'] >= settings['max_attempts']:
+        result['reason'] = 'exhausted'
+    elif due >= run_until:
+        result['reason'] = 'lease_deadline'
+    else:
+        result.update(next_at=due, reason='scheduled')
+    return result
+
+
+def _apply_link_health(run, report, at):
+    from ag import link_health
+    link_health.validate(report)
+    if report['observed_at'] != at:
+        raise ValueError('Link health observation time differs from its event')
+    run['link_health'] = deepcopy(report)
+    if report['status'] == 'relay_outage':
+        # This wake stays exempt even after recovery. Real object failure and
+        # submission consumption records remain unchanged; no pause is undone.
+        run['ssh_pause_exempt'] = True
 
 
 def _submission_record(state, data, at):
@@ -387,11 +426,39 @@ def apply(previous, event):
             if observe_only:
                 state['lease']['observe_only'] = True
                 state['runs'][run_id]['observe_only'] = True
+            if 'link_health' in data:
+                settings = data['link_recheck']
+                from ag.config import link_recheck_settings
+                expected = link_recheck_settings({'autonomy': settings})
+                if settings != expected:
+                    raise ValueError('Invalid link recheck settings')
+                run = state['runs'][run_id]
+                _apply_link_health(run, data['link_health'], at)
+                run['link_recheck'] = dict(interval_minutes=settings['link_recheck_interval_minutes'],
+                    max_attempts=settings['link_recheck_max_attempts'], attempts=0, last_checked_at=at)
             plans = state['rounds'][state['current_round']]['plan_ids']
             if data['plan_id'] not in plans:
                 plans.append(data['plan_id'])
             state['current_plan'] = data['plan_id']
             state['phase'] = 'paused' if state['paused'] else 'running'
+        elif op in ('link_observation', 'link_recheck'):
+            if set(data) != {'run_id', 'token_sha256', 'versions', 'plan_sha256', 'report'}:
+                raise ValueError('Invalid link observation event')
+            eligible(state, data['run_id'], data['token_sha256'], data['versions'], at,
+                     'organize', data['plan_sha256'])
+            run = state['runs'][data['run_id']]
+            if 'link_recheck' not in run:
+                raise ValueError('This wake predates link checks; start a new wake')
+            if op == 'link_recheck':
+                schedule = _link_recheck_view(run, run_until=state['lease']['run_until'])
+                if schedule['next_at'] is None or at < schedule['next_at']:
+                    raise ValueError('Link recheck is not due or has reached its bound')
+                run['link_recheck']['attempts'] += 1
+                run['link_recheck']['last_checked_at'] = at
+            elif (run['link_health']['status'] not in ('relay_outage', 'local_outage')
+                  and data['report']['status'] in ('relay_outage', 'local_outage')):
+                run['link_recheck']['last_checked_at'] = at
+            _apply_link_health(run, data['report'], at)
         elif op == 'pause':
             text(data['reason'], 'Pause reason')
             state['paused'] = True
@@ -452,7 +519,7 @@ def apply(previous, event):
             if set(data) not in (fields, fields | {'failure_kind'}):
                 raise ValueError('Invalid submission boundary failure event')
             kind = data.get('failure_kind')
-            if 'failure_kind' in data and kind not in ('ssh', 'object', 'global'):
+            if 'failure_kind' in data and kind not in ('ssh', 'link', 'object', 'global'):
                 raise ValueError('Invalid submission failure kind')
             saved = state.get('submissions', {}).get(data['attempt_id'])
             if (saved is None or saved['ownership_sha256'] != data['ownership_sha256']
@@ -621,6 +688,15 @@ def public(snapshot):
     plan = state['plans'].get(state['current_plan'])
     state['plan_sha256'] = plan['sha256'] if plan else None
     state['versions'] = plan['body']['versions'] if plan else None
+    if state['runs']:
+        run_id = state['lease']['run_id'] if state['lease'] else next(reversed(state['runs']))
+        run = state['runs'][run_id]
+        if 'link_health' in run:
+            result['link_health'] = deepcopy(run['link_health'])
+            result['link_recheck'] = _link_recheck_view(run, run_until=run['started_at'] + RUN_SECONDS)
+            result['link_recheck'].update(run_id=run_id, run_until=run['started_at'] + RUN_SECONDS)
+            if not state['lease'] or now() >= state['lease']['run_until']:
+                result['link_recheck'].update(next_at=None, reason='no_active_lease')
     result['submission_counts_verified'] = False
     result['integration'] = 'local state only; actual submission counts require immutable ownership audit'
     return result
@@ -689,9 +765,35 @@ def _start(cfg, name, plan_id, owner_name, *, takeover_reason, recover, observe_
                     recovered_stale_state=stale)
         if observe_only:
             data['observe_only'] = True
-        result = public(store.commit(snapshot, 'start', now(), data, apply))
+        from ag import link_health
+        from ag.config import link_recheck_settings
+        at = now()
+        data.update(link_health=link_health.read(cfg, now=at), link_recheck=link_recheck_settings(cfg))
+        result = public(store.commit(snapshot, 'start', at, data, apply))
         result.update(run_id=run_id, token=token)
         return result
+
+
+def link_recheck(cfg, name, run_id, token, *, plan_sha256):
+    """One due local-cache retest, with no sleeping, new lease or remote call.
+
+    The card waits interruptibly while the already-authorized monitor samples.
+    Rechecking an old/missing sample never fabricates recovery.
+    """
+    from ag import link_health
+    with disk.locked(cfg, name, write=True) as store:
+        snapshot, _ = load(store)
+        at, current_versions = now(), versions()
+        token_hash = sha256(token.encode()).hexdigest()
+        eligible(snapshot['state'], run_id, token_hash, current_versions, at, 'organize', plan_sha256)
+        run = snapshot['state']['runs'][run_id]
+        schedule = _link_recheck_view(run, run_until=snapshot['state']['lease']['run_until'])
+        if schedule is None or schedule['next_at'] is None or at < schedule['next_at']:
+            return dict(public(snapshot), rechecked=False)
+        report = link_health.read(cfg, now=at)
+        data = dict(run_id=run_id, token_sha256=token_hash, versions=current_versions,
+                    plan_sha256=plan_sha256, report=report)
+        return dict(public(store.commit(snapshot, 'link_recheck', at, data, apply)), rechecked=True)
 
 
 def pause(cfg, name, reason):
@@ -830,6 +932,28 @@ class _SubmissionGuard:
         """Recheck after local validation, immediately before its side effect."""
         self._recheck(action)
         return self.snapshot
+
+    def check_link(self, cfg, *, cluster=None):
+        """Use current cache evidence at an existing action boundary, never route around it."""
+        from ag import link_health
+        at, current_versions = self._recheck('submit')
+        report = link_health.read(cfg, now=at)
+        run = self._snapshot['state']['runs'][self._run_id]
+        # Persist changes, not every unchanged action-boundary age. The latest
+        # precise ages are still returned by start and the bounded recheck.
+        if ('link_recheck' in run and
+                (run['link_health']['status'] != report['status']
+                 or [(r['name'], r['relay_group'], r['status']) for r in run['link_health']['entries']]
+                 != [(r['name'], r['relay_group'], r['status']) for r in report['entries']])):
+            self._snapshot = self._store.commit(self._snapshot, 'link_observation', at,
+                dict(run_id=self._run_id, token_sha256=self._token_hash, versions=current_versions,
+                     plan_sha256=self._plan_sha256, report=report), apply)
+        if report['status'] == 'local_outage':
+            raise LinkDeferred('All monitor entries failed; defer new actions until fresh evidence')
+        target = next((row for row in report['entries'] if row['name'] == cluster), None)
+        if target is not None and target['relay_group'] is not None and target['status'] != 'success':
+            raise LinkDeferred('Relay entry has no current successful monitor evidence; defer this route')
+        return report
 
     def consume(self, record):
         at, current_versions = self._recheck('submit')
@@ -1346,6 +1470,8 @@ def run(args):
     elif op == 'start':
         result = start(cfg, name, args.plan, args.owner, takeover_reason=args.takeover_reason,
                        recover=args.recover, observe_only=args.observe_only)
+    elif op == 'link-recheck':
+        result = link_recheck(cfg, name, args.run, args.token, plan_sha256=args.plan_sha256)
     elif op == 'pause':
         result = pause(cfg, name, args.reason)
     elif op == 'status':
@@ -1406,7 +1532,7 @@ def register(subparsers):
     audit = children.add_parser('audit-reservations', help='Read-only full local reservation health check; never authorizes actions')
     audit.set_defaults(func=_run_reservation_audit)
     audit.add_argument('--json', action='store_true', help='JSON output (also the default)')
-    for op in ('init', 'plan', 'confirm', 'begin', 'start', 'pause', 'resume', 'finish', 'end', 'update', 'count', 'recover', 'status', 'check', 'manual-writers', 'release-writer', 'resolve-attempt', 'scientific-review', 'publish-study'):
+    for op in ('init', 'plan', 'confirm', 'begin', 'start', 'pause', 'resume', 'finish', 'end', 'update', 'count', 'recover', 'status', 'check', 'manual-writers', 'release-writer', 'resolve-attempt', 'scientific-review', 'publish-study', 'link-recheck'):
         child = children.add_parser(op)
         child.set_defaults(func=run)
         child.add_argument('--study', required=True)
@@ -1440,7 +1566,7 @@ def register(subparsers):
             child.add_argument('--outcome', choices=('ts_zero_imaginary', 'ts_wrong_mode'), required=True)
             child.add_argument('--reason', required=True, help='Scientific reasoning, pending human confirmation')
             child.add_argument('--mode-review', help='Existing source-bound mode review report; required for wrong direction')
-        if op == 'publish-study':
+        if op in ('publish-study', 'link-recheck'):
             child.add_argument('--run', required=True)
             child.add_argument('--token', required=True)
             child.add_argument('--plan-sha256', required=True)

@@ -1,7 +1,7 @@
 """Local, allowlisted cluster metadata for frontend discovery."""
 from pathlib import Path
 
-from ag import budget, node_targeting
+from ag import budget, node_targeting, link_health
 from ag.config import scheduler_kind, select_cluster, optional_resource_caps, RESOURCE_TIERS
 
 
@@ -34,10 +34,12 @@ def describe(cfg, *, verify_studies_root=None):
         summary = budget.public_summary(selected)
         if 'display_name' in selected:
             row['display_name'] = selected['display_name']
+        if 'relay_group' in selected:
+            row['relay_group'] = selected['relay_group']
         if summary is not None:
             row['budget'] = summary
         rows.append(row)
-    result = dict(clusters=rows)
+    result = dict(clusters=rows, link_health=link_health.read(cfg))
     if verify_studies_root is not None:
         try:
             result['studies_root_matches'] = (

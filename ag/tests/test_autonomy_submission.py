@@ -1235,8 +1235,10 @@ def t186_driver_factory(cfg, tmp_path, monkeypatch):
     def load(path=None, **kwargs):
         return deepcopy(configurations[str(Path(path).absolute())])
     monkeypatch.setattr(config, 'load_config', load)
-    def create(name):
+    def create(name, *, relay_group=None):
         local = deepcopy(cfg)
+        if relay_group is not None:
+            local['relay_group'] = relay_group
         root = tmp_path / name
         root.mkdir()
         directory = root / 'config'
@@ -1268,10 +1270,13 @@ def t186_driver_factory(cfg, tmp_path, monkeypatch):
         run = autonomy.start(local, 'smoke', plan['plan_id'], 'fixture-session')
         policy.update(round_id=begun['state']['current_round'], plan_sha256=plan['sha256'])
         local['approval'] = {'autonomous_policies': {'bounded': policy}}
-        snapshot = dict(schema='ag-monitor/1', ok=True,
+        snapshot = dict(schema='ag-monitor/1', ok=True, error=None, warnings=[],
             sampled_at=datetime.fromtimestamp(at[0], timezone.utc).isoformat(), interval_seconds=60,
-            own=dict(cores_in_use=0, cores_running=0, cores_queued=0, jobs=[]),
+            last_ok_at=datetime.fromtimestamp(at[0], timezone.utc).isoformat(),
+            own=dict(cores_in_use=0, core_cap=local['resources']['max_cores'],
+                     cores_running=0, cores_queued=0, jobs=[]),
             cluster=dict(name='default', scheduler='pbs', job_summary=dict(others_queued_jobs=0),
+                cores_total=44, cores_used=0, queues=[],
                 nodes=[dict(name='fixture-node', cores_total=44, cores_used=0, cores_idle=44, cores_other=0,
                     mem_total_bytes=120 * 1024**3, mem_assigned_bytes=0, jobs=0, state='free',
                     capacity_cpu_consistent=True, targeting_consistent=True, targeting_reserved=False)]))
@@ -1306,6 +1311,133 @@ def test_driver_claim_dispatch_and_late_binding(t186_driver):
     with pytest.raises(ValueError):
         submit.submit(cfg, [path.name], fake, autonomous=context)
     assert fake.operations().count('submit') == 1
+
+
+@pytest.mark.parametrize('operation', ['prepare', 'submit'])
+def test_driver_link_failure_blocks_before_claim_or_remote_io(t186_driver_factory, operation):
+    from ag import attempt, autonomy
+    cfg, path, manifest, context, _, _ = t186_driver_factory('link-refused', relay_group='bridge')
+    cache = Path(cfg['local']['studies_root']) / '.ag-monitor' / 'latest.json'
+    sample = json.loads(cache.read_text())
+    sample.update(ok=False, error='Synthetic link failure')
+    cache.write_text(json.dumps(sample))
+    before = sorted(item.name for item in path.parent.iterdir())
+    fake = Fake(cfg)
+    with pytest.raises(autonomy.PresubmitDeferred):
+        if operation == 'submit':
+            submit.submit(cfg, [path.name], fake, autonomous=context)
+        else:
+            attempt.prepare(cfg, study_name='smoke', template='gaussian',
+                input_path=Path(cfg['local']['studies_root']).parent / 'water.gjf',
+                tier='simple', walltime='00:30:00', label='link-wait',
+                method_basis='Synthetic fixture', autonomous=context, transport=fake)
+    current = autonomy.status(cfg, 'smoke')['state']
+    assert not current['paused'] and not current.get('submissions')
+    assert not current.get('presubmit_failures')
+    assert not (path / '.submit-claim').exists()
+    assert state.read(path)['state'] == 'prepared'
+    assert sorted(item.name for item in path.parent.iterdir()) == before
+    assert fake.operations() == []
+
+
+@pytest.mark.parametrize('boundary', ['post-consume', 'upload', 'pre-dispatch'])
+def test_driver_consumed_link_failures_obey_object_and_wake_limits(t186_driver_factory, boundary):
+    from datetime import datetime, timezone
+    from ag import attempt, autonomy
+    cfg, path, manifest, context, at, _ = t186_driver_factory('link-boundaries', relay_group='bridge')
+    cache = Path(cfg['local']['studies_root']) / '.ag-monitor' / 'latest.json'
+
+    def link(success):
+        sample = json.loads(cache.read_text())
+        stamp = datetime.fromtimestamp(at[0], timezone.utc).isoformat()
+        sample.update(ok=success, error=None if success else 'Synthetic link failure', sampled_at=stamp)
+        if success:
+            sample['last_ok_at'] = stamp
+        cache.write_text(json.dumps(sample))
+
+    def prepare(label):
+        return attempt.prepare(cfg, study_name='smoke', template='gaussian',
+            input_path=Path(cfg['local']['studies_root']).parent / 'water.gjf',
+            tier='simple', walltime='00:30:00', label=label,
+            method_basis='Synthetic fixture', autonomous=context)
+
+    def next_wake():
+        closed = autonomy.change(cfg, 'smoke', 'finish', context['run_id'], context['token'],
+                                 reason='Synthetic link wake completed')
+        at[0] += 1
+        link(True)
+        run = autonomy.start(cfg, 'smoke', closed['state']['current_plan'], 'synthetic-next-owner')
+        context.update(run_id=run['run_id'], token=run['token'])
+
+    class LoseLink(Fake):
+        def run(self, command):
+            result = super().run(command)
+            if (path / '.submit-claim').exists() and (
+                    boundary == 'post-consume' and command.operation == 'jobs'
+                    or boundary == 'pre-dispatch' and command.operation == 'identity'):
+                link(False)
+            return result
+
+        def upload(self, local, manifest, name):
+            super().upload(local, manifest, name)
+            if boundary == 'upload':
+                link(False)
+
+    claims, fakes = {}, []
+    for index in range(2):
+        if index:
+            next_wake()
+            manifest = prepare('one-new-attempt')
+            path = attempt.find(cfg, manifest['attempt_id'])
+        fake = LoseLink(cfg)
+        fakes.append(fake)
+        with pytest.raises(autonomy.PresubmitDeferred):
+            submit.submit(cfg, [path.name], fake, autonomous=context)
+        current = autonomy.status(cfg, 'smoke')['state']
+        consumed = current['submissions'][path.name]
+        assert not current['paused']
+        assert len(current['submissions']) == index + 1
+        assert consumed['boundary_failure']['failure_kind'] == 'link'
+        assert consumed['failure_class'] == (None if index == 0 else 'presubmit')
+        assert consumed['aborted_before_dispatch'] is not None
+        assert consumed['dispatch_started'] is None
+        assert state.read(path)['state'] == 'failed_presubmit'
+        claims[path] = (path / '.submit-claim').read_bytes()
+        assert len(autonomy._presubmit_failures(current, context['object_id'])) == index + 1
+        assert current['totals']['remedy'] == 0
+        assert not current['runs'][context['run_id']].get('ssh_failed')
+        assert not current['runs'][context['run_id']].get('ssh_failed_exempt')
+        assert fake.operations().count('upload') == (
+            0 if boundary == 'post-consume' else 1 if boundary == 'upload' else len(manifest['inputs']))
+        assert 'submit' not in fake.operations()
+        if boundary == 'post-consume':
+            assert 'create_attempt' not in fake.operations()
+
+        # Fresh recovery cannot turn the same wake into another prepare or
+        # resend an already claimed Attempt. Neither rejection spends again.
+        link(True)
+        before = sorted(item.name for item in path.parent.iterdir())
+        operations = fake.operations()
+        refusal = autonomy.PresubmitDeferred if index == 0 else autonomy.ObjectRefused
+        with pytest.raises(refusal):
+            prepare('same-wake-rejected')
+        with pytest.raises(refusal):
+            submit.submit(cfg, [path.name], fake, autonomous=context)
+        assert sorted(item.name for item in path.parent.iterdir()) == before
+        assert fake.operations() == operations
+
+    next_wake()
+    before = sorted(item.name for item in path.parent.iterdir())
+    with pytest.raises(autonomy.ObjectRefused, match='two actual presubmit failures'):
+        prepare('third-attempt-rejected')
+    current = autonomy.status(cfg, 'smoke')['state']
+    assert not current['paused']
+    assert len(current['submissions']) == 2
+    assert len(autonomy._presubmit_failures(current, context['object_id'])) == 2
+    assert current['totals']['remedy'] == 0
+    assert sorted(item.name for item in path.parent.iterdir()) == before
+    assert all((old / '.submit-claim').read_bytes() == saved for old, saved in claims.items())
+    assert all('submit' not in fake.operations() for fake in fakes)
 
 
 def test_driver_pause_during_upload_stops_before_next_remote_effect(t186_driver):

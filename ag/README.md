@@ -823,3 +823,37 @@ Gaussian 父 Attempt 的 chk，作业内 formchk，fchk 留远程。片段 2–4
 `ag fetch <Attempt> --no-facts` 后用 `ag nci-report <Attempt> --out analyses/<new>.json`，
 输出原子/原子对贡献、片段汇总、版本与输入输出哈希；不代表相互作用能量分解。
 配置、命令示例、格点与文件大小、完整输出名单和 JSON 字段见 [ag-nci/1](../docs/ag-nci-1.md)。
+
+### 链路检查与同次唤醒补检查（T217A）
+
+本机入口可选 `relay_group = "relay"`，未配置表示独立入口。只读 `ag clusters --json`
+顶层增量返回当前 `link_health`，不依赖 study、不采样、不建目录，适合服务器页展示。`autonomy start` 自动读取最近
+monitor 缓存；`autonomy status --study <STUDY> --json` 顶层可选 `link_health` 返回
+`status`、`observed_at` 和 `entries`（入口 name、relay_group、sampled_at、age_seconds、
+interval_seconds、status、reason）。分类为 healthy/relay_outage/local_outage/cluster_failure/unknown，
+单入口为 success/failed/unknown。年龄对应判定时间；无字段的历史记录不推定正常。
+该接口只读本地状态，不接触服务器，不代表动作获准。
+
+全部 relay 失败且至少一个独立入口成功判链路中断，全部入口失败按本机断网处理；
+缺失、损坏及三倍采样间隔之外为未知，不能沿用失败快照的旧成功值。
+链路中断阻止 relay prepare/submit，原本独立的 CREST 路由可继续，不因故障改投。
+所有资源、方法、版本、租约、暂停、单次提交与 UNKNOWN 规则保留。
+
+本机 `[autonomy]` 设置 `link_recheck_interval_minutes = 30`、`link_recheck_max_attempts = 2`
+（次数可为 0–2）。`link_recheck` 返回 attempts、max_attempts、interval_minutes、last_checked_at、
+next_at、reason、run_id、run_until。没有 next_at 就不继续等；默认第二次到 60 分钟截止，
+因此通常只能做一次。到期不延长租约，不创建一次性/周期自动化。
+
+```sh
+ag autonomy link-recheck --study <STUDY> --run <RUN> --token <TOKEN> --plan-sha256 <SHA256> --json
+```
+
+此命令立即返回，只在已到 next_at 且原 owner 仍有效时消费一次补检查并读取现有 monitor 缓存；
+不睡眠、不触发网络探测、不重试任何 Attempt。等待方式与逐次核对见自主运行卡片。
+全机 SSH 连续暂停计数豁免仅限观测过 relay_outage 的 wake，实际失败明细和对象上限不清零；
+派发后不确定仍是 UNKNOWN。快照未知不等于恢复，前端只展示后端结果。
+
+消费前的 `LinkDeferred` 仅等待，不分配新 Attempt 或消费；已经消费后在建目录、上传或
+派发边界遇到相同拒绝，则保存 `failed_presubmit` 和 `failure_kind=link`，计入既有对象每轮
+两次上限，并阻止同 wake 缓存恢复后新建后继。下一 wake 仍须所有前提通过，只能新建 Attempt；
+两次耗尽即交人。该记录不伪造 SSH 实测、不占科学补救名额，不退回原声明与真实消费。

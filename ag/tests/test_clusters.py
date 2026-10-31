@@ -46,10 +46,12 @@ def seed_budget(raw, *, used=5400):
 def test_legacy_single_cluster(cfg, tmp_path, monkeypatch, capsys):
     code, result = query(cfg, tmp_path, monkeypatch, capsys)
     assert code == 0
-    assert result == {'clusters': [dict(
+    assert set(result) == {'clusters', 'link_health'}
+    assert result['link_health']['status'] == 'unknown'
+    assert result['clusters'] == [dict(
         name='default', scheduler='pbs', is_default=True,
         resources=dict(max_cores=44, max_committed_cores=44, tiers=cfg['resources']['tiers']),
-        expires=None, programs_enabled=dict(gaussian=True, xtb=True, crest=True))]}
+        expires=None, programs_enabled=dict(gaussian=True, xtb=True, crest=True))]
 
 
 @pytest.mark.parametrize('targeted', [False, True])
@@ -98,10 +100,12 @@ def test_verify_studies_root(cfg, tmp_path, monkeypatch, capsys, mode, expected)
         else:
             cfg['local']['studies_root'] = str(alias)
     code, baseline = query(cfg, tmp_path, monkeypatch, capsys)
-    assert code == 0 and set(baseline) == {'clusters'}
+    assert code == 0 and set(baseline) == {'clusters', 'link_health'}
     code, result = query(cfg, tmp_path, monkeypatch, capsys, '--verify-studies-root', str(supplied))
     assert code == 0
-    assert result == dict(baseline, studies_root_matches=expected)
+    assert set(result) == {'clusters', 'link_health', 'studies_root_matches'}
+    assert result['clusters'] == baseline['clusters']
+    assert result['link_health']['status'] == baseline['link_health']['status'] == 'unknown'
     assert result['studies_root_matches'] is expected
     for path in (str(tmp_path), str(supplied), cfg['local']['studies_root']):
         assert path not in json.dumps(result)
@@ -130,7 +134,7 @@ def test_dual_clusters_allowlist_and_budget(multi, tmp_path, monkeypatch, capsys
     batch['programs']['gaussian'].update(modules=[private[4]], module_init=str(tmp_path / private[4]))
     seed_budget(multi)
     code, result = query(multi, tmp_path, monkeypatch, capsys)
-    assert code == 0 and set(result) == {'clusters'}
+    assert code == 0 and set(result) == {'clusters', 'link_health'}
     assert [r['name'] for r in result['clusters']] == ['batch', 'default']
     for row in result['clusters']:
         expected = {'name', 'scheduler', 'is_default', 'resources', 'expires', 'programs_enabled'}
