@@ -378,7 +378,7 @@ def test_legacy_second_output_failure_keeps_status(cfg, prepared, monkeypatch, t
         path, manifest = prepared
         manifest['node_target'] = {'name': 'node-a', 'fraction': '1/2', 'slots': 16, 'queue': 'batch'}
         (path / 'manifest.json').write_text(json.dumps(manifest))
-        monkeypatch.setattr('ag.node_targeting.retain_placement', lambda *args: None)
+        monkeypatch.setattr('ag.node_targeting.retain_placement', lambda *args, **kwargs: None)
     path, manifest, fake = submitted(prepared, cfg, legacy=True)
     fake.job = Result(153)
     fake.marker = 'present\n'

@@ -312,13 +312,16 @@ def check(cfg, path, transport, *, publication=None):
     def save_observation(target, **fields):
         # Placement also writes status.json. Defer it until every required
         # receipt/output observation (including the legacy recheck) succeeds.
-        with publish():
+        from ag.node_targeting import retain_placement, start_placement
+        proof = (start_placement(cfg, path, m, current, job, start)
+                 if 'node_target' in m else nullcontext((None, lambda: None)))
+        with proof as (start_evidence, verify), publish():
+            verify()
             if 'node_target' in m:
-                from ag.node_targeting import retain_placement
                 evidence_job = job
                 if job is None and (start is not None or end is not None) and current.get('node_placement', {}).get('state') != 'verified':
                     evidence_job = {'job_state': 'C'}
-                retain_placement(path, m, evidence_job)
+                retain_placement(path, m, evidence_job, start_evidence=start_evidence)
             return state.write(path, target, **fields)
     scheduler = job.get('job_state') if job else None
     details = {'scheduler_state': scheduler, 'scheduler_residue': False,

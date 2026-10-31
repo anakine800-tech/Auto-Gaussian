@@ -369,6 +369,21 @@ Slurm 台账在远程写入前预留核数 × walltime，按结束证据结算�
 unknown 经唯一、匹配的作业证据可回到已知状态；找不到或歧义时保持 unknown，交给人决定。
 手动模式对 failed_presubmit 或计算失败提出新 Attempt，经人确认；已启用自主模式只按 [AGENTS](../AGENTS.md#自主运行)判断是否允许有界补救。哈希不符、状态损坏或 UNKNOWN 不按普通失败补救；任何模式都不删除声明、不重用目录、不重提原 Attempt。
 PBS 有退出回执时可 finished 并取回，即使队列仍显示 R（调度器残留）；清理只走确认后的 cancel。
+T215 补齐具名 PBS 短作业缺少 exec_host 的放置证据：仅本次合法 ag-start.json
+绑定确切作业号、实际 submission.json 与 manifest/status 一致，且 `verified_files`
+核对整个冻结输入包及完整脚本字节后，才可采用 `node-guard+ag-start.json` 来源。
+另以固定 SHA-256 识别已审阅的 node-target.pbs，并要求该完整 guard 位于冻结脚本
+精确 shebang/注释头之后的首个可执行位置；当前 renderer 的实际顺序是节点 guard、
+通用 guard、程序体，开始回执只在后续 ag_run 中写入。不凭片段包含或新版模板存在
+推断旧作业受保护；无 guard、未知 guard、不同脚本/输入字节均拒绝。
+该来源保留空 exec_host，另记确切作业号、脚本/bundle/guard 哈希和解析后的开始回执；
+这是已知执行顺序形成的派生证据，回执本身不含 bundle 哈希或签名。
+仅缺定位的 R/E/S/C 或已消失记录可以使用，排队记录不升级放置证据，明确 exec_host
+不匹配仍拒绝；旧 verified 证据在原有清理场景下原样保留。
+输入及绑定读取在共享锁外完成，复用本地来源描述符/元数据固定与最终核验，随后在
+既有 status 发布围栏内写入；失去 owner 或来源变化不发布。这不改变完成判据、
+UNKNOWN、授权、资源、取消或自主启用条件。真实验证按 [T215](redesign-tasks/T215-node-start-receipt-placement.md)
+本次明确安排由协调方执行，离线通过不能视为现场通过。
 旧 PBS 无回执时：完成标记 + 两次输出稳定；队列仍有 R/C 记录时还需会话进程证据，读取标记后再复核输出。
 Slurm 从 squeue 消失仅触发 sacct 核对；终态中非零退出/信号以及 FAILED、TIMEOUT 等都不是科学成功。
 
