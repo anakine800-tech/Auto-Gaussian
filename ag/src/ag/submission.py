@@ -4,10 +4,95 @@ A mutable status file or same-number job on another cluster must never retarget
 cancellation. Legacy PBS Attempts retain their original status-only handling.
 """
 from hashlib import sha256
+from contextlib import contextmanager, ExitStack
+from copy import deepcopy
 import json
 import os
+from pathlib import Path
 from ag import remote, study
 from ag.config import cluster_name
+
+
+@contextmanager
+def start_receipt_binding(cfg, path, manifest, transport, receipt, username, identity):
+    """Recover from the frozen submission's receipt, not invented history.
+
+    The controlled Attempt directory and reviewed submitted script establish
+    provenance. The receipt itself contains no owner/name/queue attestation.
+    Keep all local source checks before the existing publication's own writes.
+    """
+    from ag import approval, attempt, autonomy_submission
+    from ag.config import ssh_identity
+    from ag.facts import _publication_pin, _publication_unchanged
+    scheduler = manifest.get('scheduler')
+    if scheduler not in ('pbs', 'slurm') or not manifest.get('completion_receipts'):
+        raise ValueError('Start recovery requires a frozen receipt-producing submission')
+    if identity is None or identity[2] != username:
+        raise ValueError('Start recovery scheduler/account identity differs')
+    job = receipt['job_id' if scheduler == 'slurm' else 'PBS_JOBID']
+    qualified_job = qualified(manifest, job)
+    frozen_cfg = deepcopy(cfg)
+    with ExitStack() as handles:
+        inputs = path / 'inputs'
+        proofs = [_publication_pin(p, handles) for p in (
+            path.parent.parent, path.parent, path, path / 'manifest.json',
+            path / 'status.json', path / '.submit-claim',
+            path / 'submission-summary.json', path / 'submission.json',
+            path.parent.parent / 'journal.jsonl')]
+        proofs.append(_publication_pin(inputs, handles, contents=True))
+        proofs.extend(_publication_pin(p, handles) for p in inputs.iterdir())
+        if attempt.read_manifest(path) != manifest:
+            raise ValueError('Start recovery manifest changed')
+        files = attempt.verified_files(cfg, path, manifest)
+        summary = autonomy_submission._json((path / 'submission-summary.json').read_bytes())
+        if not isinstance(summary, dict) or not isinstance(summary.get('authorization'), dict):
+            raise ValueError('Invalid archived start recovery authorization')
+        authorization = summary['authorization']
+        account = approval.digest({'scheduler': scheduler, 'ssh': list(identity)})
+        if authorization.get('method') == 'autonomy-policy':
+            registry = Path.home() / '.config/ag/autonomy-reservations'
+            proofs.extend(_publication_pin(p, handles) for p in (
+                registry, registry / autonomy_submission._filename(path)))
+            verified_authorization = autonomy_submission.verified_authorization
+            verified_authorization(path, authorization)
+            # Exact immutable reservation only; do not scan other studies.
+            record, digest = autonomy_submission._scientific_reservation(path)
+            if (digest != authorization['ownership_sha256']
+                    or record['account_sha256'] != account):
+                raise ValueError('Start recovery differs from reserved scheduler/account')
+        else:
+            report = autonomy_submission.audit(path)
+            if report['outcome'] not in ('unresolved', 'submitted'):
+                raise ValueError('Start recovery requires a consumed submission')
+        _, current, existing_job = attempt.local_record(path, manifest['cluster'], scheduler)
+        if current['state'] not in ('submitting', 'unknown'):
+            raise ValueError('Start recovery requires an uncertain submission')
+        if existing_job is not None and existing_job != job:
+            raise ValueError('Start receipt conflicts with existing submission binding')
+        # Manual submission has no immutable per-upload success receipt. Read
+        # the exact frozen input names at the bound endpoint again; a local
+        # bundle check alone must not be described as remote byte verification.
+        from ag.submit import metadata
+        for name, data in files.items():
+            if metadata(transport, cfg, manifest, name) != (len(data), sha256(data).hexdigest()):
+                raise ValueError('Remote input differs from frozen start recovery bytes')
+
+        def verify():
+            if cfg != frozen_cfg or ssh_identity(cfg) != identity:
+                raise ValueError('Start recovery scheduler/account changed during query')
+            for proof in proofs:
+                _publication_unchanged(proof)
+
+        verify()
+        yield dict(source='frozen-submission+ag-start.json',
+                   job_id=qualified_job, cluster=manifest['cluster'], scheduler=scheduler,
+                   bundle_sha256=manifest['bundle_sha256'],
+                   script_sha256=sha256(files['job.slurm' if scheduler == 'slurm' else 'job.pbs']).hexdigest(),
+                   account_sha256=account,
+                   account_source=('immutable-reservation' if authorization.get('method') == 'autonomy-policy'
+                                   else 'current-ssh-identity'),
+                   remote_input_verification='size+sha256',
+                   started_at=receipt['started_at']), verify
 
 
 def qualified(manifest, job):

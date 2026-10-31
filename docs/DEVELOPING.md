@@ -428,7 +428,19 @@ Slurm 台账在远程写入前预留核数 × walltime，按结束证据结算�
 | failed_presubmit | 确定未提交成功，如提交前失败或 PBS 明确拒绝；该 Attempt 已消耗，不能再提交。 |
 | unknown | 提交/状态证据不确定；仅只读核对，不能把无记录当作未运行。 |
 
-unknown 经唯一、匹配的作业证据可回到已知状态；找不到或歧义时保持 unknown，交给人决定。
+unknown 经唯一、匹配的作业证据可回到已知状态。唯一名查询没有匹配时，T217B 可从
+同 Attempt 的固定开始回执取得严格 PBS/Slurm 作业号，按冻结提交来源晚到绑定后继续原状态判断；
+多个匹配不使用回执消解歧义。无作业且无回执仍 unknown，交给人按原 resolve-attempt 决定。
+恢复复用完整 bundle/脚本与入口配置核验、claim/摘要/授权/journal 审计、一次性 submission，
+并用现有固定 metadata 接口逐项复核该目录中冻结输入的大小/SHA-256；本地核验不冒充远端核验。
+该分步读取是当前远端字节观察，不是不可变的历史上传回执或跨文件原子快照。
+有精确调度记录时交叉核对号码、账号、完整作业名及已有队列字段；矛盾拒绝。
+开始回执只有时间和作业号，入口依据是受控目录及冻结提交来源，不是独立历史调度记录。
+`start_reconciliation.source` 标记 `frozen-submission+ag-start.json`；账号来源区分
+手动的当前 SSH 身份与自主不可变 reservation，不虚构回执 owner/name/queue。
+本地来源固定描述符，绑定前在原发布围栏核对文件未变、原状态及 owner/租约；不重传、不重提，
+Torque 不调用 qstat -x。已绑定 Slurm 作业暂时不见于 squeue/sacct 时保留原状态并标未观测，
+不能据此推断完成或释放 UNKNOWN。已有终态保留原完成证据。
 手动模式对 failed_presubmit 或计算失败提出新 Attempt，经人确认；已启用自主模式只按 [AGENTS](../AGENTS.md#自主运行)判断是否允许有界补救。哈希不符、状态损坏或 UNKNOWN 不按普通失败补救；任何模式都不删除声明、不重用目录、不重提原 Attempt。
 PBS 有退出回执时可 finished 并取回，即使队列仍显示 R（调度器残留）；清理只走确认后的 cancel。
 T215 补齐具名 PBS 短作业缺少 exec_host 的放置证据：仅本次合法 ag-start.json

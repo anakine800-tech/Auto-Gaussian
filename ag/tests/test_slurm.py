@@ -147,10 +147,10 @@ def test_terminal_from_accounting(multi, tmp_path, monkeypatch, terminal):
     assert fake.operations() == ['identity', 'slurm_jobs', 'slurm_accounting']
 
 
-def test_no_queue_or_accounting_is_unknown(multi, tmp_path, monkeypatch):
+def test_no_queue_or_accounting_retains_bound_state(multi, tmp_path, monkeypatch):
     p, _, fake = submitted(multi, tmp_path, monkeypatch)
     fake.accounting = Result()
-    assert status.check(multi, p, fake)['state'] == 'unknown'
+    assert status.check(multi, p, fake)['state'] == 'submitted'
     assert state.read(p)['job_id'] == 'batch:123'
     with pytest.raises(ValueError): submit.submit(multi, [p.name], fake)
     fake.accounting = Result(stdout='123|water-001-sp|fixture|COMPLETED|0:0|00:01:00|8\n')
