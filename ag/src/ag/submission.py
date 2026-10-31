@@ -14,7 +14,7 @@ from ag.config import cluster_name
 
 
 @contextmanager
-def start_receipt_binding(cfg, path, manifest, receipt, username, identity):
+def start_receipt_binding(cfg, path, manifest, transport, receipt, username, identity):
     """Recover from the frozen submission's receipt, not invented history.
 
     The controlled Attempt directory and reviewed submitted script establish
@@ -69,6 +69,13 @@ def start_receipt_binding(cfg, path, manifest, receipt, username, identity):
             raise ValueError('Start recovery requires an uncertain submission')
         if existing_job is not None and existing_job != job:
             raise ValueError('Start receipt conflicts with existing submission binding')
+        # Manual submission has no immutable per-upload success receipt. Read
+        # the exact frozen input names at the bound endpoint again; a local
+        # bundle check alone must not be described as remote byte verification.
+        from ag.submit import metadata
+        for name, data in files.items():
+            if metadata(transport, cfg, manifest, name) != (len(data), sha256(data).hexdigest()):
+                raise ValueError('Remote input differs from frozen start recovery bytes')
 
         def verify():
             if cfg != frozen_cfg or ssh_identity(cfg) != identity:
@@ -84,6 +91,7 @@ def start_receipt_binding(cfg, path, manifest, receipt, username, identity):
                    account_sha256=account,
                    account_source=('immutable-reservation' if authorization.get('method') == 'autonomy-policy'
                                    else 'current-ssh-identity'),
+                   remote_input_verification='size+sha256',
                    started_at=receipt['started_at']), verify
 
 

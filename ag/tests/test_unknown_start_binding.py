@@ -6,8 +6,8 @@ import os
 
 import pytest
 
-from ag import autonomy, config, confirm, state, status, submission, submit
-from ag.transport import Result
+from ag import autonomy, config, confirm, remote, state, status, submission, submit
+from ag.transport import Result, TransportError
 from test_approval import autonomous_driver_factory, policy, record
 from test_core import cfg, prepared, Fake, job_text
 
@@ -68,6 +68,12 @@ def assert_read_only_since(fake, first):
     assert fake.operations().count('submit') == 1
 
 
+def assert_frozen_metadata_since(fake, first, cfg, manifest):
+    observed = [command for command in fake.calls[first:] if command.operation == 'metadata']
+    expected = {remote.metadata(cfg, manifest, item['name']) for item in manifest['inputs']}
+    assert len(observed) == len(expected) and set(observed) == expected
+
+
 @pytest.mark.parametrize('mode', ['approval', 'policy', 'dialog'])
 @pytest.mark.parametrize('finished', [False, True])
 def test_manual_lost_reply_binds_start_once_and_continues_status(lost_manual, mode, finished):
@@ -83,6 +89,8 @@ def test_manual_lost_reply_binds_start_once_and_continues_status(lost_manual, mo
     assert result['state'] == ('finished' if finished else 'awaiting_second_observation')
     assert result['job_id'] == 'default:123.fixture'
     assert result['start_reconciliation']['source'] == 'frozen-submission+ag-start.json'
+    assert result['start_reconciliation']['remote_input_verification'] == 'size+sha256'
+    assert_frozen_metadata_since(fake, first, cfg, manifest)
     binding = (path / 'submission.json').read_bytes()
     assert json.loads(binding)['authorization'] == authorization
     assert set(fake.files) == {member['name'] for member in manifest['inputs']}
@@ -376,6 +384,8 @@ def test_autonomous_start_recovery_preserves_actual_consumption(autonomous_drive
     assert result['job_id'] == 'default:123.fixture'
     assert result['start_reconciliation']['source'] == 'frozen-submission+ag-start.json'
     assert result['start_reconciliation']['account_source'] == 'immutable-reservation'
+    assert result['start_reconciliation']['remote_input_verification'] == 'size+sha256'
+    assert_frozen_metadata_since(fake, first, cfg, manifest)
     assert json.loads((path / 'submission.json').read_text())['authorization'] == authorization
     after = autonomy.status(cfg, 'smoke')['state']
     assert after['submissions'] == consumed and after['phase'] == before['phase']
@@ -401,6 +411,93 @@ def test_autonomous_start_recovery_requires_original_reserved_account(autonomous
     with pytest.raises(ValueError):
         status.check(cfg, path, fake, publication=publication)
 
+    assert state.read(path)['state'] == 'unknown'
+    assert not (path / 'submission.json').exists()
+    assert frozen(path) == original
+    assert_read_only_since(fake, first)
+
+
+@pytest.mark.parametrize('name', ['water.gjf', 'job.pbs'])
+@pytest.mark.parametrize('change', ['hash', 'size'])
+def test_start_recovery_refuses_changed_remote_frozen_input(lost_manual, name, change):
+    cfg, path, _, fake = lost_manual()
+    original = frozen(path)
+    data = fake.files[name]
+    fake.files[name] = (b'!' + data[1:]) if change == 'hash' else data + b'\n'
+    assert fake.files[name] != data
+    if change == 'hash':
+        assert len(fake.files[name]) == len(data)
+    first = len(fake.calls)
+
+    with pytest.raises(ValueError):
+        status.check(cfg, path, fake)
+
+    assert state.read(path)['state'] == 'unknown'
+    assert not (path / 'submission.json').exists()
+    assert frozen(path) == original
+    assert_read_only_since(fake, first)
+
+
+@pytest.mark.parametrize('name', ['water.gjf', 'job.pbs'])
+@pytest.mark.parametrize('failure', ['query-error', 'missing-line', 'invalid-size', 'invalid-hash', 'wrong-name'])
+def test_start_recovery_refuses_unverified_remote_metadata(lost_manual, name, failure):
+    cfg, path, manifest, fake = lost_manual()
+    original = frozen(path)
+    command_to_corrupt = remote.metadata(cfg, manifest, name)
+    run = fake.run
+    first = len(fake.calls)
+
+    def corrupted_metadata(command):
+        result = run(command)
+        if command != command_to_corrupt:
+            return result
+        if failure == 'query-error':
+            return Result(255, '', 'Synthetic metadata connection failure')
+        size, digest_line = result.stdout.splitlines()
+        if failure == 'missing-line':
+            return Result(stdout=size + '\n')
+        if failure == 'invalid-size':
+            return Result(stdout='unknown\n' + digest_line + '\n')
+        digest, reported_name = digest_line.split('  ', 1)
+        if failure == 'invalid-hash':
+            digest = 'not-a-sha256'
+        else:
+            reported_name += '.different'
+        return Result(stdout=size + '\n' + digest + '  ' + reported_name + '\n')
+
+    fake.run = corrupted_metadata
+    with pytest.raises((ValueError, TransportError)):
+        status.check(cfg, path, fake)
+
+    assert command_to_corrupt in fake.calls[first:]
+    assert state.read(path)['state'] == 'unknown'
+    assert not (path / 'submission.json').exists()
+    assert frozen(path) == original
+    assert_read_only_since(fake, first)
+
+
+def test_start_recovery_refuses_local_source_change_during_remote_metadata(lost_manual):
+    cfg, path, _, fake = lost_manual()
+    original = frozen(path)
+    run = fake.run
+    first = len(fake.calls)
+    changed = []
+
+    def late_metadata(command):
+        result = run(command)
+        if command.operation == 'metadata' and not changed:
+            source = path / 'inputs/job.pbs'
+            previous = source.stat()
+            source.write_bytes(source.read_bytes())
+            os.utime(source, ns=(previous.st_atime_ns, previous.st_mtime_ns))
+            changed.append(True)
+        return result
+
+    fake.run = late_metadata
+    with pytest.raises(ValueError):
+        status.check(cfg, path, fake)
+
+    assert changed == [True]
     assert state.read(path)['state'] == 'unknown'
     assert not (path / 'submission.json').exists()
     assert frozen(path) == original

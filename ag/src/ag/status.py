@@ -310,7 +310,7 @@ def check(cfg, path, transport, *, publication=None):
                     raise ValueError('Start receipt exact-job identity/entry mismatch')
             elif not scheduler_absent(result):
                 require_ok(result, 'start receipt exact qstat')
-            with submission.start_receipt_binding(cfg, path, m, start, username, identity) as (source, verify):
+            with submission.start_receipt_binding(cfg, path, m, transport, start, username, identity) as (source, verify):
                 if read_receipt(cfg, m, transport, 'ag-start.json') != start:
                     raise ValueError('Start receipt changed during reconciliation')
                 with publish(verify) as autonomy_state:
@@ -532,7 +532,7 @@ def check_slurm(cfg, path, transport, m, *, publication=None):
                 raise ValueError('Start receipt exact-job identity/entry mismatch')
             slurm.parse_accounting(require_ok(transport.run(remote.slurm_accounting(candidate)), 'start receipt exact sacct'),
                                    candidate, name=m['attempt_id'], username=username)
-            with submission.start_receipt_binding(cfg, path, m, start, username, identity) as (source, verify):
+            with submission.start_receipt_binding(cfg, path, m, transport, start, username, identity) as (source, verify):
                 if read_receipt(cfg, m, transport, 'ag-start.json') != start:
                     raise ValueError('Start receipt changed during reconciliation')
                 with publish(verify) as autonomy_state:
