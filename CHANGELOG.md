@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- License changed from MIT to All Rights Reserved (Copyright (c) 2026 Deli Sun). Versions up to and including v4.8.0 remain under the MIT License.
+
 <a id="v480发布准备"></a>
 
 ## v4.8.0

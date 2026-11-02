@@ -664,8 +664,6 @@ python scripts/scan_public.py --staged
 - **v4.5.1**：T127 监控退避、暂停、手动重试、Torque 内存及拒绝零新增文件；新增运维文档，配合前端 v4.5.1。[发布说明](CHANGELOG.md#v451)
 - **v4.5.0**：T108 facts 语义、T109 等价映射、T111 提交批准、T112 自动内存与配置重读、T114/T123/T124 监控与时区、T117 路由建议、T119 采用登记、T116 公开扫描和 T125 TS 初猜审计；配合前端 v4.5.0，详见 [CHANGELOG.md](CHANGELOG.md#v450)。
 
-许可：[MIT](LICENSE)。
-
 
 ### Counterpoise 诊断（T105）
 
@@ -675,3 +673,12 @@ G16 A.03 实测拒绝 CP 与 SCRF 同用，因此在 prepare 阶段拒绝 SCRF�
 `--solvent-sp <complex_id> --solvent-fragment-sp 1:<fragment_id> --solvent-fragment-sp 2:<fragment_id>` 可接入已有 SMD 单点，输出相互作用能及加气相 BSSE 的近似值。
 缺溶剂片段能量时明确记未知，不用气相值替代；CP 不进入 thermo/profile。
 见 [报告格式与验证边界](docs/ag-cp-1.md) 和 [counterpoise 卡](skills-next/auto-g16-recipes/cards/counterpoise.md)。
+
+## 许可
+
+Copyright (c) 2026 Deli Sun. All rights reserved.
+
+本仓库公开可见，仅供查看和评估。未经版权人事先书面许可，不授予使用、复制、
+修改、分发或销售本软件的任何权限。详见 [LICENSE](LICENSE)。
+
+v4.8.0 及之前的版本已按 MIT 许可证发布。

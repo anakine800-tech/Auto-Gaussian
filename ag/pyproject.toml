@@ -7,6 +7,8 @@ name = "ag"
 version = "4.8.0"
 description = "Auto-Gaussian command-line tools"
 requires-python = ">=3.11"
+license = {text = "Proprietary"}
+classifiers = ["License :: Other/Proprietary License"]
 
 [project.scripts]
 ag = "ag.cli:main"
