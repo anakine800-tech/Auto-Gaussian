@@ -1,0 +1,32 @@
+{
+  "doi": "10.1002/ejoc.201801243",
+  "location": "Scheme 3; Scheme 4; Table 1; Computational Details, pp. 338-341",
+  "template_evidence": "published_coordinates_pending_method_and_bidirectional_irc_validation",
+  "template": {
+    "id": "B-trans-outward",
+    "reactant": "[C:5](=[O:6])([OH:7])[C@H:1]1[C@H:2]([C:8]#[CH:9])[CH:3]=[CH:4]1",
+    "product": "[C:5](=[O:6])([OH:7])/[CH:1]=[CH:4]/[CH:3]=[CH:2]/[C:8]#[CH:9]"
+  },
+  "pairs": [
+    {
+      "id": "B-C",
+      "reactant": "[C:5](=[O:6])([OH:7])[C@H:1]1[C@H:2]([CH:8]=[CH2:9])[CH:3]=[CH:4]1",
+      "product": "[C:5](=[O:6])([OH:7])/[CH:1]=[CH:4]/[CH:3]=[CH:2]/[CH:8]=[CH2:9]"
+    },
+    {
+      "id": "B-D",
+      "reactant": "[C:5](=[O:6])([OH:7])[C@H:1]1[C@H:2]([c:8]2[cH:9][cH:10][cH:11][cH:12][cH:13]2)[CH:3]=[CH:4]1",
+      "product": "[C:5](=[O:6])([OH:7])/[CH:1]=[CH:4]/[CH:3]=[CH:2]/[c:8]2[cH:9][cH:10][cH:11][cH:12][cH:13]2"
+    },
+    {
+      "id": "B-E",
+      "reactant": "[C:5](=[O:6])([OH:7])[C@H:1]1[C@H:2]([N:8]=[N+:9]=[N-:10])[CH:3]=[CH:4]1",
+      "product": "[C:5](=[O:6])([OH:7])/[CH:1]=[CH:4]/[CH:3]=[CH:2]/[N:8]=[N+:9]=[N-:10]"
+    },
+    {
+      "id": "B-F",
+      "reactant": "[C:5](=[O:6])([OH:7])[C@H:1]1[C@H:2]([O:8][CH3:9])[CH:3]=[CH:4]1",
+      "product": "[C:5](=[O:6])([OH:7])/[CH:1]=[CH:4]/[CH:3]=[CH:2]/[O:8][CH3:9]"
+    }
+  ]
+}
