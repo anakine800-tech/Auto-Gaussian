@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,6 +7,7 @@ name = "ag"
 version = "4.8.0"
 description = "Auto-Gaussian command-line tools"
 requires-python = ">=3.11"
+license = "LicenseRef-Proprietary"
 
 [project.scripts]
 ag = "ag.cli:main"
