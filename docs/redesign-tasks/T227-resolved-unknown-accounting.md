@@ -9,6 +9,7 @@
 ## 允许改动的路径
 
 - ag/src/ag/autonomy_submission.py、ag/src/ag/autonomy.py、ag/src/ag/route.py：人工核清后只读核算的延续、失效及调用边界。
+- ag/src/ag/submit.py 及相应的 ag/tests/ 实时复查回归：正式缓存仍显示缺席而实时调度清单已出现可能匹配的本账号作业时，原未知预留必须恢复计占。沿用已有实时清单，不增加调度命令，注意与 T226 的正向去重整合。
 - ag/tests/test_autonomy_submission.py、ag/tests/test_autonomy.py、ag/tests/test_route.py、ag/tests/test_t216_reservation_audit.py、ag/tests/test_t216_audit_cli.py：合成时间线、账本与命令回归。
 - docs/DEVELOPING.md、ag/README.md：会重新计占的条件及人工核清边界。
 - `docs/redesign-tasks/T227-resolved-unknown-accounting.md`：本单及实施、验证摘要。

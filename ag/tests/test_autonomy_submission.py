@@ -1065,6 +1065,9 @@ def test_resolved_unknown_rotating_absences_release_only_accounting(actual_unkno
         ledger = budget.ledger_path(entry)
         original = ledger.read_bytes()
         assert submit._autonomous_unobserved_cores(cfg, entry, []) == 0
+        live_job = dict(job_id='912', name=path.name[:-2] + '+', state='PENDING',
+                        cores=8, owner='synthetic-user')
+        assert submit._autonomous_unobserved_cores(cfg, entry, [live_job]) == 8
         assert ledger.read_bytes() == original
 
     monkeypatch.setattr(config, 'load_config', lambda: cfg)
@@ -1407,7 +1410,7 @@ def t186_driver_factory(cfg, tmp_path, monkeypatch):
     def load(path=None, **kwargs):
         return deepcopy(configurations[str(Path(path).absolute())])
     monkeypatch.setattr(config, 'load_config', load)
-    def create(name, *, relay_group=None):
+    def create(name, *, relay_group=None, label='optfreq'):
         local = deepcopy(cfg)
         if relay_group is not None:
             local['relay_group'] = relay_group
@@ -1429,7 +1432,7 @@ def t186_driver_factory(cfg, tmp_path, monkeypatch):
         source = root / 'water.gjf'
         source.write_text(INPUT.replace('# B3LYP/6-31G(d) SP', ROUTE))
         manifest = attempt.prepare(local, study_name='smoke', template='gaussian', input_path=source,
-            tier='simple', walltime='00:30:00', label='optfreq', method_basis='Synthetic fixture')
+            tier='simple', walltime='00:30:00', label=label, method_basis='Synthetic fixture')
         path = attempt.find(local, manifest['attempt_id'])
         policy = rule(local)
         policy['routing_sha256'] = route.ladder_config_identity(local)
@@ -1669,6 +1672,44 @@ def test_driver_fresh_inventory_enforces_stricter_policy(t186_driver):
     with pytest.raises(ValueError, match='autonomous limit'):
         submit.submit(cfg, [path.name], fake, autonomous=context)
     assert not {'create_attempt', 'upload', 'submit'} & set(fake.operations())
+    assert not (path / '.submit-claim').exists()
+
+
+@pytest.mark.parametrize('name_form', ['exact', 'truncated', 'unrelated', 'other_owner'])
+def test_resolved_unknown_live_pbs_inventory_restores_hold_before_claim(t186_driver_factory, name_form):
+    from datetime import datetime, timezone
+    from ag import autonomy, config, monitor
+    old_cfg, old_path, old_manifest, old_context, clock, _ = t186_driver_factory('source')
+    lost = Fake(old_cfg)
+    lost.qsub = Result(255, '', 'Synthetic lost reply')
+    with pytest.raises(submit.UnknownSubmission):
+        submit.submit(old_cfg, [old_path.name], lost, autonomous=old_context)
+    account = autonomy_submission.account_identity(config.select_cluster(old_cfg))
+    name = old_manifest['pbs_job_name']
+    state.write(old_path, 'unknown', unknown_reconciliation=dict(schema='ag-unknown-observation/1',
+        scheduler='pbs', observed_at=clock[0], job_name=name, matches=[], start_absent=True, account_sha256=account))
+    autonomy.resolve_attempt(old_cfg, 'smoke', old_path.name, 'Synthetic confirmed absence')
+    cfg, path, _, context, _, policy = t186_driver_factory('candidate', label='second')
+    policy['clusters']['default'].update(max_committed_cores=16, max_queued_cores=16)
+    cache = monitor.cache_dir(cfg)
+    sample = json.loads((cache / 'latest.json').read_text())
+    sample['cluster'].update(jobs=[], jobs_omitted=0)
+    for delta in (601, 60):
+        clock[0] += delta
+        stamp = datetime.fromtimestamp(clock[0], timezone.utc).isoformat()
+        monitor.publish(cache, dict(sample, account_sha256=account, sampled_at=stamp, last_ok_at=stamp))
+    assert autonomy_submission.read_reservations(cfg)['placements'][0]['state'] == 'finished'
+    live = Fake(cfg)
+    name = {'truncated': name[:-3] + '+', 'unrelated': 'unrelated-job'}.get(name_form, name)
+    owner = 'other' if name_form == 'other_owner' else 'fixture'
+    live.qstat = Result(stdout=f'Job Id: 77.fixture\n    Job_Name = {name}\n'
+        f'    Job_Owner = {owner}@fixture\n    job_state = Q\n    Resource_List.nodes = 1:ppn=8\n')
+    if name_form in ('unrelated', 'other_owner'):
+        assert submit.submit(cfg, [path.name], live, autonomous=context)[0]['state'] == 'submitted'
+        return
+    with pytest.raises(ValueError, match='limit'):
+        submit.submit(cfg, [path.name], live, autonomous=context)
+    assert 'create_attempt' not in live.operations() and 'submit' not in live.operations()
     assert not (path / '.submit-claim').exists()
 
 

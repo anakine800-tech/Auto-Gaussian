@@ -42,19 +42,21 @@ def autonomous_transaction(cfg):
 
 def _autonomous_unobserved_cores(root_cfg, selected, jobs, *, exclude=None):
     """Project verified resource releases without forgiving any core-hour debt."""
-    from ag import autonomy_submission
+    from ag import autonomy_submission, route
     from ag.config import shared_clusters
     with autonomous_transaction(root_cfg):
         # Re-audit on both inventory checks. A prior finished placement is not
         # enough: its negative observation may have expired or changed accounts.
         usage = autonomy_submission.read_reservations(root_cfg)
         ledgers = deepcopy(budget.shared_ledgers(selected))
-        finished = {item['record_sha256'] for item in usage['placements'] if item['state'] == 'finished'}
+        peers = shared_clusters(selected)
+        placements = route.retain_live_unknowns(usage['placements'], peers, [job.get('name') for job in jobs])
+        finished = {item['record_sha256'] for item in placements if item['state'] == 'finished'}
         owned = {Path(item['record']['studies_root']) / item['record']['study_id'] / 'attempts' /
                  item['record']['attempt_id']: item for item in usage['records']}
         manual = {(item['study_key'], item['attempt_id']): item['state'] for item in usage['warnings']
                   if item['kind'] == 'manual_terminal_excluded'}
-        for name, entry in shared_clusters(selected).items():
+        for name, entry in peers.items():
             for aid, row in list(ledgers[name]['attempts'].items()):
                 if row['state'] != 'reserved':
                     continue
@@ -221,11 +223,21 @@ class AutonomousSubmission:
         if self.requested_failure_class is not None and self.requested_failure_class != actual_failure:
             raise ValueError('Claimed remedy class differs from verified failure evidence')
         self.context['failure_class'] = actual_failure
+        selected = select_cluster(cfg, manifest['cluster'])
+        peers = shared_clusters(selected)
+        live_inventory = None
+        if self.live is not None:
+            username, jobs = self.live
+            is_slurm = scheduler_kind(selected) == 'slurm'
+            own_jobs = [job for job in jobs
+                        if (job['owner'] if is_slurm else job['Job_Owner'].split('@')[0]) == username]
+            observed = {job['job_id']: job for job in own_jobs}
+            live_inventory = (peers, [row.get('name' if is_slurm else 'Job_Name') for row in own_jobs])
         selection = route.autonomous_selection(cfg, snapshot, self.context,
             template=manifest['template'], walltime=manifest['walltime'],
             requested_tier=manifest['tier'],
             parent_cluster=manifest.get('parent_chk', {}).get('cluster'),
-            exclude_ownership=self.reservation['sha256'] if consumed else None)
+            exclude_ownership=self.reservation['sha256'] if consumed else None, live_inventory=live_inventory)
         try:
             choice = match_selection(manifest, selection)
         except WaitingForRoute as exc:
@@ -252,11 +264,10 @@ class AutonomousSubmission:
                     or existing['dispatch_started'] is not None):
                 raise ValueError('Autonomous Attempt is not an undispatched owned reservation')
             records = [v for v in records if v['attempt_id'] != self.path.name]
-        selected = select_cluster(cfg, manifest['cluster'])
         placements = selection['input']['placements']
         usage = route._ladder_usage(cfg, manifest['cluster'], selection['input']['snapshots'],
                                     placements, datetime.fromtimestamp(autonomy.now(), timezone.utc))
-        occupancy = [dict(clusters=list(shared_clusters(selected)),
+        occupancy = [dict(clusters=list(peers),
             committed_cores=usage['committed'], queued_cores=usage['queued'],
             jobs=sum(p.get('run_id') is not None for p in usage['active']),
             requested_cores=manifest['cores'], requested_jobs=1)]
@@ -264,24 +275,26 @@ class AutonomousSubmission:
         if account_job_cap is not None and occupancy[0]['jobs'] + 1 > account_job_cap:
             raise ValueError('Bound routing shared-account autonomous job limit exceeded')
         if self.live is not None:
-            username, jobs = self.live
-            is_slurm = scheduler_kind(selected) == 'slurm'
             running, queued = (slurm.core_breakdown(jobs, username) if is_slurm
                                else status.core_breakdown(jobs, username))
-            observed = {job['job_id']: job for job in jobs
-                        if (job['owner'] if is_slurm else job['Job_Owner'].split('@')[0]) == username}
-            relevant = [p for p in placements if p['cluster'] in shared_clusters(selected)]
+            relevant = [p for p in placements if p['cluster'] in peers]
             for p in relevant:
                 if p['job_id'] in observed:
                     row = observed[p['job_id']]
                     if row.get('name' if is_slurm else 'Job_Name') != p['scheduler_job_name']:
                         raise ValueError('Live scheduler job disagrees with immutable ownership')
-            pending = [p for p in relevant if p['job_id'] not in observed and p['state'] != 'finished']
+            pending = [p for p in relevant if p['job_id'] not in observed
+                       and (p['state'] != 'finished' or p in usage['active'] and 'unknown_release' in p)]
             held = sum(p['cores'] for p in pending)
             # Use both sources conservatively. A newer live inventory cannot
             # weaken a stricter policy cap merely because monitor lags behind.
             occupancy[0]['committed_cores'] = max(occupancy[0]['committed_cores'], running + queued + held)
             occupancy[0]['queued_cores'] = max(occupancy[0]['queued_cores'], queued + held)
+            if any('live_conflicting_resolution' in p or 'unknown_release' in p for p in pending):
+                queue_cap = optional_resource_caps(selected).get('max_queued_cores')
+                if (running + queued + held + manifest['cores'] > committed_cap(selected)
+                        or queue_cap is not None and queued + held + manifest['cores'] > queue_cap):
+                    raise ValueError('Live account core limit exceeded with an unbound UNKNOWN reservation')
         autonomy_policy.check_budget(policy, plan_spec=snapshot['plans'][snapshot['current_plan']]['body']['spec'],
             round_attempts=len(records), requested_attempts=1, occupancy=occupancy)
         bound_policy(cfg, guard.snapshot, self.context)

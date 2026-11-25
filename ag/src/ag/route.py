@@ -64,7 +64,7 @@ def _snapshot(cfg, name, now):
 
 
 def autonomous_selection(cfg, state, context, *, template, walltime,
-                         parent_cluster=None, exclude_ownership=None, requested_tier=None):
+                         parent_cluster=None, exclude_ownership=None, requested_tier=None, live_inventory=None):
     """Capture local evidence and invoke the reviewed ladder, under caller locks.
 
     There is no JSON-input escape hatch. The original monitor bytes, verified
@@ -80,6 +80,9 @@ def autonomous_selection(cfg, state, context, *, template, walltime,
     evidence = autonomy_submission.read_reservations(cfg, states={scope: state})
     placements = [p for p in evidence['placements']
                   if p['record_sha256'] != exclude_ownership]
+    if live_inventory is not None:
+        peers, names = live_inventory
+        placements = retain_live_unknowns(placements, peers, names)
     placements = _placement_records(cfg, placements)
     snapshots = {}
     root = Path(cfg['local']['studies_root']) / '.ag-monitor'
@@ -459,6 +462,26 @@ def _is_running(job):
     return job.get('state') in ('R', 'E', 'RUNNING', 'COMPLETING')
 
 
+def _possible_unknown_name(expected, name):
+    # A queue display may preserve only a prefix, sometimes with a truncation marker.
+    if not isinstance(name, str) or name != name.strip():
+        return True
+    prefix = name.rstrip('+.*~…')
+    return not prefix or expected.startswith(prefix)
+
+
+def retain_live_unknowns(placements, peers, names):
+    """A live account row can invalidate an absence but cannot bind an unbound Attempt."""
+    result = []
+    for placement in placements:
+        if ('unknown_release' in placement and placement['cluster'] in peers
+                and any(_possible_unknown_name(placement['scheduler_job_name'], name) for name in names)):
+            placement = dict(placement, state='unknown')
+            placement['live_conflicting_resolution'] = placement.pop('unknown_release')['resolution_sha256']
+        result.append(placement)
+    return result
+
+
 def _unknown_name_absent(cfg, entry, data, expected_name, account):
     """An unbound UNKNOWN can only be excluded from a complete account inventory."""
     if (data.get('account_sha256') != account or data.get('last_ok_at') != data['sampled_at']
@@ -472,11 +495,8 @@ def _unknown_name_absent(cfg, entry, data, expected_name, account):
         return False
     running = queued = 0
     for row in rows.values():
-        # Queue displays can preserve only a prefix, sometimes with a truncation marker.
-        name = row['name']
-        prefix = name.rstrip('+.*~…')
         cores = row.get('cores')
-        if (not prefix.strip() or name != name.strip() or expected_name.startswith(prefix)
+        if (_possible_unknown_name(expected_name, row['name'])
                 or row.get('mine') is not True or type(cores) is not int or cores < 1):
             return False
         if _is_running(row):
