@@ -60,6 +60,14 @@ def jobs(job=None):
     return Command('jobs', 'qstat -f' + (' ' + quote(job_id(job)) if job else ''))
 
 
+def pbs_own_jobs():
+    """Fixed selector for this login only. Envelope also detects incomplete output."""
+    return Command('jobs', 'ag_user=$(id -un) && '
+                   'case "$ag_user" in ""|-*|*[!A-Za-z0-9_.-]*) exit 1;; esac && '
+                   'printf "AG_OWNER %s\\n" "$ag_user" && qselect -u "$ag_user" && '
+                   'printf "AG_END\\n"')
+
+
 def root_check(cfg):
     root = cfg['remote']['allowed_root']
     ag = cfg['remote']['ag_root']

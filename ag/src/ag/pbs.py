@@ -1,5 +1,6 @@
 """PBS node parsing for monitoring displays."""
 import re
+from collections import Counter
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation, localcontext
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -7,33 +8,53 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from ag.remote import job_id as validate_job_id
 
 
-def slot_count(value):
-    """Count comma-separated slots, rejecting overlapping slot identifiers."""
+def _slot_ranges(value):
+    """Canonical disjoint ranges; keep PBS slot multiplicities without expansion."""
     intervals = []
-    total = 0
     for part in value.split(','):
+        weight = 1
         if re.fullmatch(r'\d+', part):
             start = end = int(part)
-            count = 1
         elif re.fullmatch(r'\d+-\d+', part):
             start, end = map(int, part.split('-'))
             if end < start:
                 raise ValueError('Unrecognized scheduler CPU slot')
-            count = end - start + 1
         elif re.fullmatch(r'\d+\*[1-9]\d*', part):
-            start, count = map(int, part.split('*'))
+            start, weight = map(int, part.split('*'))
             end = start  # Multiplicity applies to this slot, not a range.
         else:
             raise ValueError('Unrecognized scheduler CPU slot')
-        intervals.append((start, end))
-        total += count
-    intervals.sort()
-    if any(right[0] <= left[1] for left, right in zip(intervals, intervals[1:])):
-        raise ValueError('Overlapping scheduler CPU slots')
-    return total
+        intervals.append((start, end, weight))
+    merged = []
+    for start, end, weight in sorted(intervals):
+        if merged and start <= merged[-1][1]:
+            raise ValueError('Overlapping scheduler CPU slots')
+        if merged and start == merged[-1][1] + 1 and weight == merged[-1][2]:
+            start = merged.pop()[0]
+        merged.append((start, end, weight))
+    return merged
 
 
-def parse_nodes(text, jobs, *, notes=None):
+def slot_count(value):
+    return sum((end - start + 1) * weight for start, end, weight in _slot_ranges(value))
+
+
+def _slot_map(by_job, total):
+    """Detect overlap across rows/jobs as well as within each job's allocation."""
+    if not by_job:
+        return {}
+    all_slots = ','.join(part for parts in by_job.values() for part in parts)
+    if _slot_ranges(all_slots)[-1][1] >= total:
+        raise ValueError('Scheduler CPU slot outside node capacity')
+    return {job: _slot_ranges(','.join(parts)) for job, parts in by_job.items()}
+
+
+def ordinary_server_job(job_id, server):
+    number, sep, suffix = job_id.partition('.')
+    return bool(sep and suffix == server and re.fullmatch(r'0|[1-9][0-9]*', number))
+
+
+def parse_nodes(text, jobs, *, notes=None, targeting=False, queue_server=None, account_user=None):
     records, current, key = [], None, None
     record_names = set()
     for line in text.splitlines():
@@ -54,10 +75,20 @@ def parse_nodes(text, jobs, *, notes=None):
             current[key] += line.strip()
         else:
             raise ValueError('Unrecognized pbsnodes output')
-    allocated, node_jobs, job_nodes = {}, {}, {}
+    allocated, exec_slots, job_nodes = {}, {}, {}
+    named_requests = set()
     exec_names = set()
     unlocated_jobs = False
     by_job = {job['job_id']: job for job in jobs if 'job_id' in job}
+    own_ids = {key for key, job in by_job.items() if account_user is not None
+               and job.get('Job_Owner', '').partition('@')[0] == account_user}
+    def sequence(job_id):
+        return job_id.partition('.')[0].partition('[')[0].lstrip('0') or '0'
+    own_numbers = {sequence(job_id) for job_id in own_ids}
+    ambiguous_numbers = {sequence(job_id) for job_id in by_job if queue_server is not None
+                         and not ordinary_server_job(job_id, queue_server)}
+    own_slots_consistent = True
+    ambiguous_jobs = len(by_job) != len(jobs)
     for job in jobs:
         # Even completed rows can reveal a competing domain name; they still
         # contribute no CPU allocation or node job membership.
@@ -65,7 +96,16 @@ def parse_nodes(text, jobs, *, notes=None):
                           filter(None, job.get('exec_host', '').split('+')))
         if job.get('job_state') == 'C':
             continue
-        hosts = list(filter(None, job.get('exec_host', '').split('+')))
+        if targeting:
+            if (job.get('job_state') not in ('Q', 'H', 'W', 'T', 'R', 'E', 'S')
+                    or not re.fullmatch(r'[A-Za-z0-9_.-]+(?:@[^@\s]+)?', job.get('Job_Owner', ''))):
+                ambiguous_jobs = True
+            for chunk in job.get('Resource_List.nodes', '').split('+'):
+                named_requests.add(chunk.partition(':')[0])
+        parts = job['exec_host'].split('+') if job.get('exec_host') else []
+        if '' in parts:
+            unlocated_jobs = True
+        hosts = list(filter(None, parts))
         if job.get('job_state') in ('R', 'E', 'S') and not hosts:
             unlocated_jobs = True
         for host in hosts:
@@ -74,8 +114,10 @@ def parse_nodes(text, jobs, *, notes=None):
                 raise ValueError('Unrecognized exec_host allocation')
             if name not in record_names:
                 unlocated_jobs = True
+                if job.get('job_id') in own_ids:
+                    own_slots_consistent = False
             allocated[name] = allocated.get(name, 0) + slot_count(slot)
-            node_jobs.setdefault(name, set()).add(job.get('job_id'))
+            exec_slots.setdefault(name, {}).setdefault(job.get('job_id'), []).append(slot)
             job_nodes.setdefault(job.get('job_id'), set()).add(name)
     # Only the Torque memory cross-node check may equate a short name and an
     # FQDN. Keep CPU allocations, job sets and targeting identities exact.
@@ -94,7 +136,9 @@ def parse_nodes(text, jobs, *, notes=None):
         if not cores.isdigit() or not record.get('state'):
             raise ValueError('Node lacks CPU capacity or state')
         used = allocated.get(record['name'], 0)
-        job_ids = set(node_jobs.get(record['name'], ()))
+        visible = exec_slots.get(record['name'], {})
+        job_ids = set(visible)
+        listed = {}
         if 'jobs' in record:
             used = 0
             slots = []
@@ -108,7 +152,9 @@ def parse_nodes(text, jobs, *, notes=None):
                     if not re.fullmatch(r'\d+\[\d+\](?:\.[A-Za-z0-9][A-Za-z0-9_.-]*)?', job_id):
                         validate_job_id(job_id)
                     job_ids.add(job_id)
-                    used += slot_count(','.join(slots))
+                    allocation = ','.join(slots)
+                    used += slot_count(allocation)
+                    listed.setdefault(job_id, []).append(allocation)
                     slots = []
             if slots:
                 raise ValueError('Unrecognized node allocation')
@@ -118,15 +164,51 @@ def parse_nodes(text, jobs, *, notes=None):
         record['_cores_used'] = used
         # Preserve display precedence, but do not advertise room when the
         # exact-name node/jobs/assigned-CPU observations disagree.
-        cpu_consistent = (not unlocated_jobs and 0 <= used <= int(cores)
-                          and used == allocated.get(record['name'], 0)
-                          and job_ids == set(node_jobs.get(record['name'], ())))
+        cpu_consistent = not unlocated_jobs and 0 <= used <= int(cores)
+        issue = None
+        if targeting and ambiguous_jobs:
+            issue = 'ambiguous_jobs'
+        try:
+            placed = _slot_map(visible, int(cores))
+            if 'jobs' in record:
+                reported = _slot_map(listed, int(cores))
+                if any(placed.get(job) != reported.get(job)
+                       for job in own_ids & (placed.keys() | reported.keys())):
+                    own_slots_consistent = False
+                # A visible job placed elsewhere (including a completed row)
+                # contradicts this node; only a genuinely absent ID is unseen.
+                if (any(reported.get(job) != slots for job, slots in placed.items())
+                        or (reported.keys() & by_job.keys()) != placed.keys()):
+                    cpu_consistent = False
+                elif reported.keys() - by_job.keys() and issue is None:
+                    issue = 'unseen_node_jobs'
+        except ValueError:
+            cpu_consistent = False
         for field, expected in (('resources_available.ncpus', int(cores)),
                                 ('resources_assigned.ncpus', used)):
             if field in record:
                 value = record[field]
                 cpu_consistent &= value.isdigit() and int(value) == expected
-        record['_capacity_cpu_consistent'] = cpu_consistent
+        if targeting and record['state'] in ('job-busy', 'job-exclusive') and not used:
+            cpu_consistent = False
+        if targeting and queue_server is not None:
+            # The account query below returns full ordinary IDs from one PBS
+            # server. An abbreviated ID or array must never disappear by alias.
+            if any(not ordinary_server_job(job, queue_server) or sequence(job) in ambiguous_numbers
+                   for job in job_ids):
+                issue = 'ambiguous_jobs'
+            if any(job not in own_ids and sequence(job) in own_numbers for job in job_ids):
+                own_slots_consistent = False
+        if not cpu_consistent:
+            issue = 'conflicting_allocation'
+            if own_ids & (job_ids | visible.keys()):
+                own_slots_consistent = False
+        # On a named node the exact slot map can establish physical usage
+        # even though an unseen job's ownership still prevents admission.
+        record['_capacity_cpu_consistent'] = cpu_consistent and (targeting or issue != 'unseen_node_jobs')
+        if targeting:
+            record['_targeting'] = dict(targeting_consistent=issue is None,
+                                        targeting_reserved=record['name'] in named_requests, targeting_issue=issue)
     for record in records:
         status = dict(part.strip().split('=', 1) for part in record.get('status', '').split(',')
                       if '=' in part)
@@ -165,8 +247,37 @@ def parse_nodes(text, jobs, *, notes=None):
                           mem_assigned_gb=assigned,
                           capacity_cpu_consistent=record['_capacity_cpu_consistent'],
                           mem_total_bytes=total_bytes, mem_assigned_bytes=assigned_bytes,
-                          jobs=len(record['_job_ids']) if 'jobs' in record else None))
+                          jobs=len(record['_job_ids']) if targeting or 'jobs' in record else None,
+                          **({'own_slots_consistent': own_slots_consistent} if account_user is not None else {}),
+                          **record.get('_targeting', {})))
     return nodes
+
+
+def job_table_issue(nodes, queues, jobs):
+    """Compare visible rows to independent PBS queue and placement observations."""
+    if not isinstance(nodes, list) or not nodes or not isinstance(queues, list) or not queues:
+        return 'PBS node or queue totals are missing'
+    if any(not isinstance(n, dict) or n.get('targeting_consistent') is not True for n in nodes):
+        return 'PBS node allocations and visible job details could not be reconciled'
+    if not isinstance(jobs, list) or any(not isinstance(j, dict) for j in jobs):
+        return 'PBS job details are missing'
+    counts = Counter((j.get('queue'), j.get('state')) for j in jobs)
+    totals = Counter(j.get('queue') for j in jobs)
+    names = set()
+    for queue in queues:
+        if not isinstance(queue, dict):
+            return 'PBS queue totals are missing'
+        name = queue.get('name')
+        if not isinstance(name, str) or name in names:
+            return 'PBS queue identity is ambiguous'
+        names.add(name)
+        for key, visible in (('running', counts[name, 'R']), ('queued', counts[name, 'Q']),
+                             ('total', totals[name])):
+            if type(queue.get(key)) is not int or queue[key] != visible:
+                return 'PBS queue totals and visible job details could not be reconciled'
+    if totals.keys() - names:
+        return 'PBS jobs reference an unobserved queue'
+    return None
 
 
 def memory_bytes(value):

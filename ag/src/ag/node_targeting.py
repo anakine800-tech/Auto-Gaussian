@@ -2,12 +2,14 @@
 from datetime import datetime, timedelta, timezone
 from contextlib import ExitStack, contextmanager
 from hashlib import sha256
+from pathlib import Path
 import math
 import re
 from string import Template
 
 from ag import capacity, pbs, remote
-from ag.config import RESOURCE_TIERS, scheduler_kind, select_cluster
+from ag.config import (RESOURCE_TIERS, committed_cap, optional_resource_caps, scheduler_kind,
+                       select_cluster, shared_clusters)
 from ag.transport import require_ok
 
 # Append the whole node without changing existing option order or the default.
@@ -30,7 +32,7 @@ def validate_policy(cfg):
         return
     p = cfg['node_targeting']
     if (scheduler_kind(cfg) != 'pbs' or not isinstance(p, dict)
-            or set(p) != {'allowed_nodes', 'denied_nodes', 'priority', 'restricted_nodes'}):
+            or set(p) - {'occupied_policy'} != {'allowed_nodes', 'denied_nodes', 'priority', 'restricted_nodes'}):
         raise ValueError('node_targeting requires PBS and explicit allow/deny/priority/restriction lists')
     for key in ('allowed_nodes', 'denied_nodes', 'restricted_nodes'):
         values = p[key]
@@ -44,6 +46,21 @@ def validate_policy(cfg):
         raise ValueError('Node priorities must cover the allowlist exactly once')
     if not set(p['restricted_nodes']) <= set(p['allowed_nodes']):
         raise ValueError('Restricted nodes must be in the allowlist')
+    if 'occupied_policy' in p:
+        site = p['occupied_policy']
+        queue = cfg.get('queue') if cfg.get('scheduler') == 'pbs' else cfg['scheduler']['queue']
+        if (not isinstance(site, dict) or set(site) != {'server', 'queue', 'queue_nodes', 'empty_only'}
+                or not isinstance(site['server'], str)
+                or not re.fullmatch(r'[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*', site['server'])
+                or site['queue'] != queue):
+            raise ValueError('Occupied-node policy must bind a PBS server and the configured queue')
+        for key in ('queue_nodes', 'empty_only'):
+            names = site[key]
+            if (not isinstance(names, list) or any(node_name(n) != n for n in names)
+                    or len(names) != len(set(names)) or not set(names) <= set(p['allowed_nodes'])):
+                raise ValueError('Invalid occupied-node policy list')
+        if set(site['queue_nodes']) & set(site['empty_only']):
+            raise ValueError('Conflicting occupied-node policy')
 
 
 def allowed(cfg, name):
@@ -80,77 +97,184 @@ def options(cfg, slots):
     return result
 
 
-def strict_nodes(text, jobs):
-    """Cross-check both scheduler views; contradictory/missing facts fail closed.
+def account_servers(cfg):
+    """An opted-in entry requires the same owner proof on every peer entry."""
+    if (not cfg or scheduler_kind(cfg) != 'pbs' or not any(
+            'occupied_policy' in entry.get('node_targeting', {})
+            for entry in [cfg, *cfg.get('_cluster_entries', {}).values()])):
+        return set()
+    return {p['server'] for entry in shared_clusters(cfg).values()
+            if (p := entry.get('node_targeting', {}).get('occupied_policy'))}
 
-    This is deliberately stricter than display parsing. It is not an atomic
-    reservation: another scheduler client may change state after these reads.
-    """
-    rows = pbs.parse_nodes(text, jobs)
-    names = [r['name'] for r in rows]
-    if len(names) != len(set(names)):
-        raise ValueError('Ambiguous duplicate PBS node identity')
-    derived = pbs.parse_nodes(text, [])
-    blocks = {}
-    name, key = None, None
-    for line in text.splitlines():
-        if line and not line[0].isspace():
-            name, key = line.strip(), None
-            blocks[name] = {}
-        elif name and ' = ' in line:
-            k, v = line.strip().split(' = ', 1)
-            blocks[name][k] = v
-            key = k
-        elif name and key and line.strip():
-            blocks[name][key] += line.strip()
-    allocations = {n: 0 for n in names}
-    jobsets = {n: set() for n in names}
-    ambiguous = len({j['job_id'] for j in jobs}) != len(jobs)
-    reserved = set()
-    for j in jobs:
-        if j.get('job_state') == 'C':
+
+def strict_nodes(text, jobs, queue_server=None, account_user=None):
+    return pbs.parse_nodes(text, jobs, targeting=True, queue_server=queue_server, account_user=account_user)
+
+
+def _own_cores(response, jobs, username, server):
+    from ag.status import core_breakdown
+    lines = response.splitlines()
+    if (not isinstance(username, str) or len(lines) < 2
+            or lines[0] != f'AG_OWNER {username}' or lines[-1] != 'AG_END'
+            or not re.fullmatch(r'[A-Za-z0-9_.][A-Za-z0-9_.-]*', username)):
+        raise ValueError('Incomplete PBS login-account job list or mismatched login')
+    ids = lines[1:-1]
+    if len(set(ids)) != len(ids) or any(not pbs.ordinary_server_job(job, server) for job in ids):
+        raise ValueError('PBS login-account IDs are ambiguous, truncated or include an array')
+    running, queued = core_breakdown(jobs, username)  # also validates owner/state and rejects own arrays
+    detail_rows = [j for j in jobs if j['Job_Owner'].partition('@')[0] == username]
+    details = {j['job_id']: j for j in detail_rows}
+    if (len(details) != len(detail_rows) or any(not pbs.ordinary_server_job(job, server) for job in details)
+            or any(j['job_id'] in details and j['Job_Owner'].partition('@')[0] != username for j in jobs)):
+        raise ValueError('PBS login-account job identity is ambiguous')
+    own = {job: row for job, row in details.items() if row['job_state'] != 'C'}
+    if not own.keys() <= set(ids) <= details.keys():
+        raise ValueError('PBS login-account job list differs from visible owner details')
+    return own, running, queued, [row.get('Job_Name') for row in detail_rows]
+
+
+def _check_own_allocations(jobs, username, rows):
+    from ag.status import occupied
+    for row in jobs:
+        if row.get('Job_Owner', '').partition('@')[0] != username or row.get('job_state') == 'C':
             continue
-        if j.get('job_state') not in ('Q', 'H', 'W', 'T', 'R', 'E', 'S'):
-            ambiguous = True
-        hosts = j.get('exec_host', '')
-        if j.get('job_state') in ('R', 'E', 'S') and not hosts:
-            ambiguous = True
-        for host in filter(None, hosts.split('+')):
-            n, sep, slot = host.partition('/')
-            if not sep or n not in allocations:
-                ambiguous = True
+        hosts = row.get('exec_host', '')
+        if row['job_state'] not in ('R', 'E', 'S', 'Q', 'H', 'W', 'T'):
+            raise ValueError('PBS login-account job state is ambiguous')
+        if not hosts and row['job_state'] not in ('R', 'E', 'S'):
+            continue
+        slots = {}
+        for host in hosts.split('+'):
+            node, sep, part = host.partition('/')
+            if not sep or not node:
+                raise ValueError('PBS login-account allocation lacks exact execution slots')
+            slots.setdefault(node, []).append(part)
+        allocated = sum(pbs.slot_count(','.join(parts)) for parts in slots.values())
+        if allocated != occupied([row], username):
+            raise ValueError('PBS login-account requested cores and allocated slots disagree')
+    if not rows or any(row.get('own_slots_consistent') is not True for row in rows):
+        raise ValueError('PBS login-account node allocation could not be reconciled')
+
+
+def _unobserved_cores(cfg, own, username, claimed, live_names):
+    from ag import autonomy_submission as records, config, route, status
+    identity = config.ssh_identity(cfg)
+    if identity is None or identity[2] != username:
+        raise ValueError('Local and PBS login-account identities differ')
+    # The normal submission writer already has its configuration lock.
+    # This short local scan must never hold the machine mutex across PBS I/O.
+    source = (dict(clusters=cfg['_cluster_entries'], local=cfg['local'], _config_dir=cfg['_config_dir'])
+              if '_cluster_entries' in cfg else cfg)
+    peers = shared_clusters(cfg)
+    with records.machine_lock(create=False):
+        local = records.read_pbs_reservations(source)['placements']
+        held = 0
+        mapped = []
+        for item in local:
+            if not item.get('unmapped_manual_account'):
+                mapped.append(item)
+            elif item['state'] != 'finished':
+                # Historical manual manifests bind an entry label, not its SSH
+                # account. Never release a hold on a same-number/name guess.
+                if item['job_id'] is not None and item['job_id'] in own:
+                    raise ValueError('Foreign manual reservation has an ambiguous PBS account binding')
+                held += item['cores']
+        placements = route._placement_records(source, mapped)
+        for item in route.retain_live_unknowns(placements, peers, live_names):
+            if item['cluster'] not in peers:
                 continue
-            allocations[n] += pbs.slot_count(slot)
-            jobsets[n].add(j['job_id'])
-        # Keep named requests as display evidence, not exclusive reservations.
-        for chunk in j.get('Resource_List.nodes', '').split('+'):
-            n = chunk.split(':')[0]
-            if n in allocations:
-                reserved.add(n)
-    for row, raw in zip(rows, derived):
-        n, attrs = row['name'], blocks[row['name']]
-        count = allocations[n]
-        consistent = not ambiguous
-        if 'np' in attrs and 'resources_available.ncpus' in attrs:
-            consistent &= attrs['np'] == attrs['resources_available.ncpus']
-        if 'jobs' in attrs:
-            reported_ids = set(re.findall(r'/([^,\s]+)', attrs['jobs']))
-            consistent &= (raw['cores_used'] == count and raw['jobs'] == len(jobsets[n])
-                           and reported_ids == jobsets[n])
-        if 'resources_assigned.ncpus' in attrs:
-            consistent &= attrs['resources_assigned.ncpus'] == str(count)
-        consistent &= 0 <= count <= row['cores_total']
-        row.update(targeting_consistent=consistent, cores_used=max(row['cores_used'], count),
-                   jobs=max(row['jobs'] or 0, len(jobsets[n])), targeting_reserved=n in reserved)
-    return rows
+            job = own.get(item['job_id'])
+            if job is not None:
+                if (job.get('Job_Name') != item['scheduler_job_name']
+                        or status.occupied([job], username) != item['cores']):
+                    raise ValueError('PBS job and local reservation identities disagree')
+                continue
+            if item['state'] == 'finished':
+                continue
+            if (claimed is not None and item['attempt_id'] == claimed['attempt_id']
+                    and item['cluster'] == claimed['cluster'] and item['state'] == 'reserved'
+                    and item['job_id'] is None):
+                path = Path(cfg['local']['studies_root']) / claimed['study_id']
+                if item['study_key'] == records.study_identity(path)['study_key']:
+                    raw, frozen = records._manifest_bytes(path / 'attempts' / item['attempt_id'])
+                    if frozen != claimed or item['manifest_sha256'] != sha256(raw).hexdigest():
+                        raise ValueError('Current PBS reservation differs from the confirmed Attempt')
+                    continue  # The caller adds its own already-claimed request once.
+            held += item['cores']
+    return held
+
+
+def observe_occupied_account(cfg, rows, jobs, username, transport, claimed=None):
+    servers = account_servers(cfg)
+    if not servers:
+        result = {}
+        if username is not None:
+            try:
+                _check_own_allocations(jobs, username, rows)
+            except ValueError as exc:
+                result['occupied_queue_error'] = str(exc)
+                for row in rows:
+                    row.update(result)
+        return result
+    response = transport.run(remote.pbs_own_jobs())
+    if response.returncode == 255:
+        require_ok(response, 'PBS login-account query')
+    try:
+        if response.returncode or response.stderr:
+            raise ValueError('PBS login-account query unavailable')
+        if len(servers) != 1:
+            raise ValueError('Conflicting PBS server identities for shared login account')
+        server, = servers
+        own, running, queued, live_names = _own_cores(response.stdout, jobs, username, server)
+        _check_own_allocations(jobs, username, rows)
+        try:
+            held = _unobserved_cores(cfg, own, username, claimed, live_names)
+        except (ValueError, OSError) as exc:
+            raise ValueError('Shared-account local reservations could not be verified') from exc
+        result = dict(occupied_queue_account=dict(server=server, committed=running + queued + held,
+                                                  queued=queued + held))
+    except ValueError as exc:
+        result = dict(occupied_queue_error=str(exc))
+    for row in rows:
+        row.update(result)
+    return result
+
+
+def account_refusal(cfg, row, cores):
+    if row.get('occupied_queue_error'):
+        return row['occupied_queue_error']
+    servers = account_servers(cfg)
+    if not servers:
+        return None
+    proof = row.get('occupied_queue_account')
+    if (not isinstance(proof, dict) or servers != {proof.get('server')}
+            or any(type(proof.get(k)) is not int or proof[k] < 0 for k in ('committed', 'queued'))
+            or proof['queued'] > proof['committed']):
+        return 'Complete PBS login-account usage is unverified'
+    if cores > cfg['resources']['max_cores'] or proof['committed'] + cores > committed_cap(cfg):
+        return 'PBS shared-account core limit exceeded'
+    cap = optional_resource_caps(cfg).get('max_queued_cores')
+    if cap is not None and proof['queued'] + cores > cap:
+        return 'PBS shared-account queued core limit exceeded'
+    return None
+
+
+def _evidence_reason(row):
+    if row.get('targeting_issue') == 'unseen_node_jobs':
+        return 'pbsnodes lists allocated jobs absent from qstat; their ownership is unknown'
+    if row.get('targeting_issue') == 'ambiguous_jobs':
+        return 'PBS job identity, owner or state is ambiguous'
+    return 'Node and job evidence is missing or contradictory'
 
 
 def idle(row):
-    """Legacy display classification, not submission eligibility."""
-    if (row.get('targeting_consistent') is not True
+    """Display observed occupation separately from eligibility to submit."""
+    if row.get('targeting_issue') == 'unseen_node_jobs':
+        return 'occupied', 'pbsnodes reports allocations whose job details are not visible'
+    if (row.get('targeting_consistent') is not True or row.get('targeting_issue') is not None
             or any(type(row.get(k)) is not int or row[k] < 0 for k in ('cores_used', 'jobs'))
             or type(row.get('targeting_reserved')) is not bool):
-        return 'unknown', 'Node and job evidence is missing or contradictory'
+        return 'unknown', _evidence_reason(row)
     if row.get('state') != 'free' or row.get('cores_used') != 0 or row.get('jobs') != 0 or row.get('targeting_reserved'):
         return 'occupied', 'Node has allocations, queued named requests, or is not free'
     if row.get('mem_assigned_gb') not in (None, 0):
@@ -162,17 +286,35 @@ def idle(row):
     return 'available', 'Snapshot candidate only; explicit choice and fresh admission required'
 
 
-def admission(row, cores, mem_gb):
+def admission(row, cores, mem_gb, cfg=None):
     """Keep binding evidence mandatory; current allocation only advises timing."""
     assessment = capacity.evaluate_node(row, cores, mem_gb, scheduler='pbs')
     reason = None
-    if (row.get('targeting_consistent') is not True
-            or any(type(row.get(k)) is not int or row[k] < 0 for k in ('cores_used', 'jobs'))
-            or type(row.get('targeting_reserved')) is not bool):
-        reason = 'Node and job evidence is missing or contradictory'
+    site = cfg.get('node_targeting', {}).get('occupied_policy', {}) if cfg else {}
+    unseen = row.get('targeting_issue') == 'unseen_node_jobs'
+    counts_valid = all(type(row.get(k)) is int and row[k] >= 0 for k in ('cores_used', 'jobs'))
+    if not counts_valid or type(row.get('targeting_reserved')) is not bool:
+        reason = _evidence_reason(row)
+    elif (row.get('name') in site.get('empty_only', [])
+          and (row.get('state') != 'free' or row['jobs'] or row['cores_used'] or row['targeting_reserved'])):
+        reason = 'Site policy permits submission only to an empty node'
+    elif unseen:
+        if (row.get('targeting_consistent') is not False or row.get('capacity_cpu_consistent') is not True
+                or not row['cores_used'] or not row['jobs']):
+            reason = 'PBS allocation evidence is contradictory'
+    elif row.get('targeting_consistent') is not True or row.get('targeting_issue') is not None:
+        reason = _evidence_reason(row)
+    elif (row['jobs'] or row['cores_used']) and 'targeting_issue' not in row:
+        reason = 'Older snapshot lacks exact PBS job owner and slot checks'
+    if not reason and unseen and row.get('name') not in site.get('queue_nodes', []):
+        reason = _evidence_reason(row) + '; site permission to queue on this occupied node is unverified'
+    if not reason:
+        reason = account_refusal(cfg, row, cores)
+    if reason:
+        return dict(selectable=False, selectable_reason=reason, capacity=assessment)
     # Same supported PBS states as T156. Unknown availability alone cannot
     # distinguish an offline node from missing assigned-memory information.
-    elif row.get('state') not in ('free', 'job-busy', 'job-exclusive'):
+    if row.get('state') not in ('free', 'job-busy', 'job-exclusive'):
         reason = 'Node state is unavailable or unsupported'
     elif assessment['fits_total'] is not True:
         reason = 'Target capacity is unknown, inconsistent or insufficient'
@@ -191,8 +333,10 @@ def admission(row, cores, mem_gb):
             # Preserve the old idle-memory contradiction even when exact
             # assigned bytes are unavailable (e.g. fractional-byte requests).
             reason = 'Assigned memory contradicts node allocation evidence'
+    eligible = ('Site permits queueing; login-account usage and reservations verified'
+                if unseen else 'Total specs fit a named request; PBS decides queueing and placement')
     return dict(selectable=reason is None,
-                selectable_reason=reason or 'Total specs fit; sharing or queueing allowed; fresh admission required',
+                selectable_reason=reason or eligible,
                 capacity=assessment)
 
 
@@ -227,7 +371,7 @@ def candidates(cfg, cluster='default', *, now=None):
         else:
             status, reason = idle(row)
         for o in opts:
-            o.update(admission(row, o['cores'], o['mem_gb']))
+            o.update(admission(row, o['cores'], o['mem_gb'], selected))
             # Keep the legacy display mapping. Exact/unknown capacity is
             # expressed by selectable, never relabelled as a missing tier.
             if row.get('mem_total_gb') is None or row['mem_total_gb'] < o['mem_gb']:
@@ -265,10 +409,11 @@ def prepare(cfg, cluster, template, tier, target, fraction):
     row = next(r for r in rows if r['name'] == target)
     if not row['selectable']:
         raise ValueError('Target node is unavailable: ' + row['selectable_reason'])
-    option = next((o for o in row['options'] if o['fraction'] == fraction and o['tier'] == tier
-                   and o['selectable']), None)
-    if option is None:
+    option = next((o for o in row['options'] if o['fraction'] == fraction and o['tier'] == tier), None)
+    if option is None or (not option['selectable'] and option['capacity']['fits_total'] is not True):
         raise ValueError('Selected tier must match target slots, fraction and memory')
+    if not option['selectable']:
+        raise ValueError('Target node is unavailable: ' + option['selectable_reason'])
     return dict(name=target, fraction=fraction, slots=option['cores'] * int(fraction[-1]),
                 queue=selected['scheduler']['queue'])
 
@@ -290,21 +435,28 @@ def validate_binding(cfg, m):
         raise ValueError('Bound node resources differ from the configured tier')
 
 
-def fresh_check(cfg, m, transport):
+def fresh_check(cfg, m, transport, username=None, claimed=False):
     from ag.status import parse_jobs
     validate_binding(cfg, m)
-    if 'node_target' not in m:
+    servers = account_servers(cfg)
+    if 'node_target' not in m and not servers:
         return
     jobs = parse_jobs(require_ok(transport.run(remote.jobs()), 'target qstat'))
     text = require_ok(transport.run(remote.nodes()), 'target pbsnodes')
-    rows = strict_nodes(text, jobs)
+    rows = strict_nodes(text, jobs, next(iter(servers), None), username)
+    account = observe_occupied_account(cfg, rows, jobs, username, transport, m if claimed else None)
+    if 'node_target' not in m:
+        refusal = account_refusal(cfg, account, m['cores'])
+        if refusal:
+            raise ValueError(refusal)
+        return
     matches = [r for r in rows if r['name'] == m['node_target']['name']]
     if len(matches) != 1:
         raise ValueError('Target node missing or ambiguous')
     row = matches[0]
     if row['cores_total'] != m['node_target']['slots']:
         raise ValueError('Target capacity changed or insufficient; stop')
-    decision = admission(row, m['cores'], m['mem_gb'])
+    decision = admission(row, m['cores'], m['mem_gb'], cfg)
     if not decision['selectable']:
         raise ValueError('Target node unavailable: ' + decision['selectable_reason'] + '; stop')
 

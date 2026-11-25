@@ -122,6 +122,7 @@ def test_target_candidate_optional_selectability(routed, monkeypatch, status_, s
     routed['clusters']['default']['node_targeting'] = dict(
         allowed_nodes=['compute-a'], denied_nodes=[], restricted_nodes=[], priority=[['compute-a']])
     data = snapshot(routed, 'default')
+    data['cluster']['job_table_complete'] = True
     data['cluster']['nodes'][0]['name'] = 'compute-a'
     save(routed, 'default', data)
     option = dict(tier='general')
@@ -397,6 +398,7 @@ def test_cli_read_only_and_allowlisted_output(routed, tmp_path, monkeypatch, cap
     if targeted:
         from ag import node_targeting  # Load before forbidding filesystem operations.
         entry = routed['clusters']['default']
+        data['cluster']['job_table_complete'] = True
         entry['node_targeting'] = dict(allowed_nodes=['node-a'], denied_nodes=[],
                                        restricted_nodes=[], priority=[['node-a']])
         entry['resources']['tiers']['general'] = dict(cores=24, mem_gb=48)
@@ -649,7 +651,8 @@ def targeted_routed(routed):
                                     restricted_nodes=[], priority=[['node-a'], ['node-b']])
     data = snapshot(routed, 'default')
     node = data['cluster']['nodes'][0]
-    node.update(cores_total=48, cores_used=4, mem_total_gb=128, mem_total_bytes=128 * 1024**3,
+    data['cluster']['job_table_complete'] = True
+    node.update(targeting_issue=None, cores_total=48, cores_used=4, mem_total_gb=128, mem_total_bytes=128 * 1024**3,
                 mem_assigned_gb=8, mem_assigned_bytes=8 * 1024**3, jobs=1,
                 targeting_consistent=True, targeting_reserved=False)
     data['cluster']['nodes'].append(dict(node, name='node-b', cores_used=0, jobs=0,
@@ -1360,3 +1363,28 @@ def test_config_identity_uses_actual_t185_digest_and_tracks_configuration_change
         entry['ssh']['host'] = 'another-private-host'
     write_config(raw)
     assert query() != original
+
+
+@pytest.mark.parametrize('visibility', [False, None])
+def test_hidden_or_legacy_job_table_never_recommends_immediate_named_route(targeted_routed, visibility):
+    routed, data = targeted_routed
+    cluster = data['cluster']
+    if visibility is None:
+        del cluster['job_table_complete']
+    else:
+        cluster['job_table_complete'] = False
+    cluster['nodes'][0].update(targeting_consistent=False, targeting_issue='unseen_node_jobs',
+                               capacity_cpu_consistent=True, mem_assigned_bytes=None)
+    # Keep the historically misleading zero from the visible jobs list.
+    assert cluster['job_summary']['others_queued_jobs'] == 0
+    save(routed, 'default', data)
+    result = suggest(routed)
+    entry = row(result)
+    occupied, empty = entry['node_candidates']['nodes']
+    assert not occupied['selectable'] and empty['selectable']
+    assert 'absent from qstat' in occupied['selectable_reason']
+    assert entry['capacity']['availability'] == 'enough'  # physical room on the empty node
+    assert result['recommendation']['needs_queue']
+    assert any('他人排队数量未知' in s for s in entry['reasons'])
+    routed['clusters']['default']['node_targeting']['restricted_nodes'] = [empty['name']]
+    assert suggest(routed)['recommendation'] is None

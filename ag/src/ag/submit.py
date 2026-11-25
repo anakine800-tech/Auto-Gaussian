@@ -509,6 +509,14 @@ def capacity(cfg):
     return committed_cap(cfg)
 
 
+def _fresh_target_check(cfg, manifest, transport, username, *, claimed):
+    phase = 'after upload, before qsub' if claimed else 'after confirmation'
+    try:
+        node_targeting.fresh_check(cfg, manifest, transport, username, claimed)
+    except ValueError as exc:
+        raise ValueError(f'PBS target check {phase}: {exc}') from exc
+
+
 def preflight(cfg, ids):
     """Reject changed hard limits before constructing or recording a transport."""
     if not ids or len(ids) != len(set(ids)):
@@ -674,7 +682,7 @@ def _submit(cfg, ids, transport, *, approval_id=None, policy_name=None, autonomo
                 raise ValueError('Inputs changed during confirmation')
         # Re-query after human confirmation, before authorization/Claim consumption.
         for _, m, _ in prepared:
-            node_targeting.fresh_check(cfg, m, transport)
+            _fresh_target_check(cfg, m, transport, username, claimed=False)
         if autonomous_run is None:
             approval.consume(cfg, prepared, authorization)
         results = []
@@ -769,7 +777,7 @@ def _submit(cfg, ids, transport, *, approval_id=None, policy_name=None, autonomo
                         if (size, digest) != (len(data), sha256(data).hexdigest()):
                             raise ValueError('Uploaded file hash mismatch; stop')
                 # Upload can take time: do not admit using the earlier observation.
-                node_targeting.fresh_check(cfg, m, transport)
+                _fresh_target_check(cfg, m, transport, username, claimed=True)
                 dispatch_command = remote.slurm_submit(cfg, m) if is_slurm else remote.submit(cfg, m)
                 if autonomous_run is not None:
                     live_user, live_jobs, _ = status.inventory(transport, cfg)

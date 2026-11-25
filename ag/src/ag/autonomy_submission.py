@@ -1936,7 +1936,7 @@ def remedy_evidence(cfg, verified_state, object_id, *, exclude_attempt=None):
                 status_sha256=status_hash, outputs=outputs, completion=completion)
 
 
-def _manual_accounting(cfg, target, entries):
+def _manual_accounting(cfg, target, entries, *, pbs_account=False):
     """Shared one-Attempt manual classification; never changes historical files."""
     from ag.config import scheduler_kind
     directory = disk.directory(target)
@@ -1978,15 +1978,19 @@ def _manual_accounting(cfg, target, entries):
     if report['classification'] == 'unconsumed':
         return None, None
     raw, manifest = _manifest_bytes(target)
-    _require(root == Path(cfg['local']['studies_root']).absolute(),
+    foreign = root != Path(cfg['local']['studies_root']).absolute()
+    _require(not foreign or pbs_account,
              'Unmapped historical manual reservation requires reconciliation')
     cluster = manifest.get('cluster', 'default')
-    _require(cluster in entries, 'Manual reservation cluster is not configured')
+    scheduler = manifest.get('scheduler', 'pbs')
+    if foreign and scheduler == 'slurm':
+        return None, None
+    _require(scheduler == 'pbs' if foreign else cluster in entries, 'Manual reservation cluster is not configured')
     if unverified_manual:
         _require(type(manifest['cores']) is int and manifest['cores'] > 0
                  and type(manifest['mem_gb']) in (int, float)
                  and math.isfinite(manifest['mem_gb']) and manifest['mem_gb'] > 0
-                 and manifest.get('scheduler', 'pbs') == scheduler_kind(entries[cluster]),
+                 and (foreign or scheduler == scheduler_kind(entries[cluster])),
                  'Unverified manual reservation resources or scheduler are invalid')
         report['evidence_sha256'] = {'manifest.json': sha256(raw).hexdigest()}
         warning = dict(kind='manual_unverified_reserved',
@@ -1999,6 +2003,8 @@ def _manual_accounting(cfg, target, entries):
         state=placement_state, cores=manifest['cores'], mem_gb=manifest['mem_gb'], job_id=raw_job,
         manifest_sha256=sha256(raw).hexdigest(), record_sha256=approval.digest(report['evidence_sha256']),
         target_node=manifest.get('node_target', {}).get('name'), round_id=None, run_id=None)
+    if foreign:
+        placement['unmapped_manual_account'] = True
     return placement, warning
 
 
@@ -2081,15 +2087,60 @@ def read_reservations(cfg, *, states=None):
     return _scan_reservations(cfg, states=states)
 
 
-def _scan_reservations(cfg, *, states=None, diagnostic=None):
+def read_pbs_reservations(cfg):
+    """Include manual studies from other roots, under the caller's machine lock.
+
+    A writer's completion closes the operation. Only the Attempt audit can
+    release its cores. An old manual claim may have no action or Attempt list.
+    """
+    from ag.autonomy import _manual_writer_records
+    studies = set()
+    with ExitStack() as stack:
+        try:
+            registry = stack.enter_context(_registry('manual-writers'))
+        except FileNotFoundError:
+            registry = None
+        for key in sorted(os.listdir(registry.fd)) if registry is not None else ():
+            with disk.manual_writers(key) as writers:
+                _require(writers is not None, 'Manual writer registration disappeared')
+                first = next((n for n in sorted(os.listdir(writers.fd)) if n.endswith('.claim.json')), None)
+                _require(first is not None, 'Manual study registration has no claim')
+                seed = disk.decode(writers.read(first))
+                _require(isinstance(seed, dict) and isinstance(seed.get('study_path'), str),
+                         'Missing manual study location')
+                path = Path(seed['study_path'])
+                _require(path.is_absolute() and '..' not in path.parts, 'Invalid manual study location')
+                study.identifier(path.name)
+                identity = study_identity(path)
+                _require(identity['study_key'] == key, 'Manual study location does not match its registry key')
+                writers_here = _manual_writer_records(writers, path, identity)
+                os.close(disk.directory(path / 'attempts'))
+                for row in writers_here.values():
+                    claim = row['claim']
+                    if claim.get('action') == 'submit':
+                        _require(bool(claim['attempt_ids']), 'Manual submit has no Attempt identities')
+                        for aid in claim['attempt_ids']:
+                            fd = disk.directory(path / 'attempts' / aid)
+                            os.close(fd)
+                studies.add(path)
+    return _scan_reservations(cfg, manual_studies=studies)
+
+
+def _scan_reservations(cfg, *, states=None, diagnostic=None, manual_studies=None):
     records = _read_global_records(diagnostic)
     registered = _registered_studies(diagnostic)
     supplied = {str(Path(key).absolute()): value for key, value in (states or {}).items()}
     roots = {Path(cfg['local']['studies_root']).absolute()} if cfg is not None else set()
     roots.update(Path(item['record']['studies_root']) for item in records)
     roots.update(path.parent for path in registered.values())
+    if manual_studies is not None:
+        # A verified newer sibling locates the root of pre-registry manual
+        # Attempts. Use the same no-follow enumeration as the configured root.
+        roots.update(path.parent for path in manual_studies)
     studies = {path for root in sorted(roots) for path in _study_paths(root, diagnostic)}
     studies.update(registered.values())
+    if manual_studies is not None:
+        studies.update(manual_studies)
     studies.update(_record_location(item['record']).parent.parent for item in records)
     current_states, invalid_studies = {}, set()
     for path in sorted(studies):
@@ -2175,7 +2226,7 @@ def _scan_reservations(cfg, *, states=None, diagnostic=None):
                 with _reservation_check(diagnostic, 'attempt', target) as row:
                     _require(path not in invalid_studies, 'Study ownership state could not be verified')
                     _require(str(target) not in invalid_consumption, 'Consumed Attempt is missing its global reservation')
-                    placement, warning = _manual_accounting(cfg, target, entries)
+                    placement, warning = _manual_accounting(cfg, target, entries, pbs_account=manual_studies is not None)
                     if warning is not None:
                         warnings.append(warning)
                         if diagnostic is not None:
@@ -2186,10 +2237,12 @@ def _scan_reservations(cfg, *, states=None, diagnostic=None):
                     row['accounting_state'] = placement['state'] if placement else None
     if unbound_releases:
         # Different studies (or roots) can generate the same scheduler name on one account.
-        names = Counter((identities[p['cluster']], p['scheduler_job_name']) for p in placements)
+        names = Counter((identities[p['cluster']], p['scheduler_job_name']) for p in placements
+                        if not p.get('unmapped_manual_account'))
+        unmapped_names = {p['scheduler_job_name'] for p in placements if p.get('unmapped_manual_account')}
         for placement, row in unbound_releases:
             key = (identities[placement['cluster']], placement['scheduler_job_name'])
-            if names[key] != 1:
+            if names[key] != 1 or placement['scheduler_job_name'] in unmapped_names:
                 del placement['unknown_release']
                 placement['state'] = row['accounting_state'] = 'unknown'
     return dict(records=records, placements=placements, batch_inputs=batch_inputs, warnings=warnings)

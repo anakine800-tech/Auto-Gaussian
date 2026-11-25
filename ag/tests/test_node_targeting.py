@@ -228,12 +228,12 @@ def test_snapshot_fail_closed(targeted, change, status_):
 
 
 def test_node_job_conflicts_and_pending_competitor():
-    jobs = [dict(job_id='7.fixture',job_state='R',exec_host='compute-a/0')]
+    jobs = [dict(job_id='7.fixture', Job_Owner='peer@fixture', job_state='R', exec_host='compute-a/0')]
     for raw in (nodes(extra='    jobs = 0/8.fixture\n'), nodes(extra='    resources_assigned.ncpus = 0\n')):
         assert nt.idle(nt.strict_nodes(raw,jobs)[0])[0] == 'unknown'
     assert nt.idle(nt.strict_nodes(nodes(), jobs)[0])[0] == 'occupied'
     assert nt.idle(nt.strict_nodes(nodes(), [dict(job_id='8.fixture',job_state='R')])[0])[0] == 'unknown'
-    queued = [dict(job_id='9.fixture',job_state='Q',**{'Resource_List.nodes':'compute-a:ppn=24'})]
+    queued = [dict(job_id='9.fixture', Job_Owner='peer@fixture', job_state='Q', **{'Resource_List.nodes':'compute-a:ppn=24'})]
     assert nt.idle(nt.strict_nodes(nodes(),queued)[0])[0] == 'occupied'
     with pytest.raises(ValueError,match='duplicate'):
         nt.strict_nodes(nodes()+nodes(),[])
@@ -247,7 +247,7 @@ def test_target_changes_during_dialog_preserve_approval_claim_manifest(targeted,
         fake.node_text = nodes(extra='    jobs = 0/9.fixture\n')
         return True
     monkeypatch.setattr(confirm,'confirm',change)
-    with pytest.raises(ValueError,match='contradictory'):
+    with pytest.raises(ValueError, match='after confirmation.*absent from qstat'):
         submit.submit(cfg,[m['attempt_id']],fake)
     for p,data in before.items():
         assert (path/p).read_bytes() == data
@@ -801,3 +801,563 @@ def test_explicit_approval_still_binds_and_consumes_once_for_sharing(targeted):
     binding = json.loads((path/'submission.json').read_text())
     assert binding['authorization']['method'] == 'approval'
     assert fake.operations().count('nodes') == 2 and fake.operations().count('submit') == 1
+
+
+def test_hidden_occupation_across_nodes_preserves_independent_empty_target(targeted):
+    cfg, args = targeted
+    names = ['maple', 'ash', 'elm', 'willow']
+    cfg['node_targeting'] = dict(allowed_nodes=names, denied_nodes=[], restricted_nodes=[],
+                                 priority=[names])
+    raw = ''.join(nodes(extra=extra).replace('compute-a', name) for name, extra in zip(names, [
+        '    jobs = 0-23/301.fixture\n', '    jobs = 0-47/302.fixture\n',
+        '    jobs = 0-15/303.fixture\n', '']))
+    qstat = ('Job Id: 303.fixture\n    Job_Owner = fixture@fixture\n    job_state = R\n'
+             '    exec_host = elm/0-15\n    Resource_List.mem = 32gb\n')
+    rows = nt.strict_nodes(raw, status.parse_jobs(qstat))
+    snapshot(cfg, rows)
+    candidates = nt.candidates(cfg)['nodes']
+    assert [r['cores_used'] for r in rows] == [24, 48, 16, 0]
+    assert [r['mem_assigned_bytes'] for r in rows] == [None, None, 32 * 1024**3, 0]
+    assert [r['selectable'] for r in candidates] == [False, False, True, True]
+    for candidate in candidates[:2]:
+        assert candidate['status'] == 'occupied'
+        reason = candidate['selectable_reason']
+        assert 'absent from qstat' in reason and 'ownership' in reason
+        option = candidate['options'][0]['capacity']
+        assert option['fits_total'] and option['availability'] == 'unknown'
+        with pytest.raises(ValueError, match='absent from qstat'):
+            attempt.prepare(cfg, **(args | dict(target_node=candidate['name'])))
+    assert not list(Path(cfg['local']['studies_root']).rglob('manifest.json'))
+    assert attempt.prepare(cfg, **(args | dict(target_node='willow')))['node_target']['name'] == 'willow'
+
+
+@pytest.mark.parametrize('listed,hosts,owner,issue', [
+    ('4-7/301.fixture', 'maple/7+maple/4-6', 'peer@fixture', None),
+    ('4-7/301.fixture', 'maple/0-3', 'peer@fixture', 'conflicting_allocation'),
+    ('4-5/301.fixture,4-5/301.fixture', 'maple/4-7', 'peer@fixture', 'conflicting_allocation'),
+    ('4-7/301.fixture', 'maple/4-5+maple/4-5', 'peer@fixture', 'conflicting_allocation'),
+    ('48/301.fixture', 'maple/48', 'peer@fixture', 'conflicting_allocation'),
+    ('4-7/301.fixture', 'maple/4-7', '', 'ambiguous_jobs'),
+    ('4-7/301.fixture', 'maple/4-7', '@fixture', 'ambiguous_jobs'),
+    ('4-7/301.fixture,7/302.fixture', 'maple/4-7', 'peer@fixture', 'conflicting_allocation'),
+    ('4-7/301.fixture,8/302.fixture', 'maple/4-7', 'peer@fixture', 'unseen_node_jobs'),
+])
+def test_per_job_slot_ownership_even_at_equal_counts(listed, hosts, owner, issue):
+    raw = nodes(extra=f'    jobs = {listed}\n').replace('compute-a', 'maple')
+    jobs = [dict(job_id='301.fixture', job_state='R', exec_host=hosts, Job_Owner=owner,
+                 **{'Resource_List.mem': '16gb'})]
+    node = nt.strict_nodes(raw, jobs)[0]
+    assert node['targeting_issue'] == issue
+    decision = nt.admission(node, 24, 48)
+    assert decision['selectable'] is (issue is None)
+    assert decision['capacity']['availability'] == ('enough' if issue is None else 'unknown')
+
+
+def test_occupied_cache_without_per_job_checks_needs_new_observation(targeted):
+    cfg, args = targeted
+    raw, qstat = shared_observation()
+    row = nt.strict_nodes(raw, status.parse_jobs(qstat))[0]
+    del row['targeting_issue']
+    snapshot(cfg, [row])
+    assert not nt.candidates(cfg)['nodes'][1]['selectable']
+    assert capacity.assess(cfg, 'default', 'general')['availability'] == 'unknown'
+    with pytest.raises(ValueError, match='Older snapshot'):
+        attempt.prepare(cfg, **args)
+
+
+def test_job_disappears_from_detail_after_upload_does_not_dispatch(targeted, monkeypatch):
+    cfg, path, manifest = prepared(targeted)
+    fake = TargetFake(cfg)
+    fake.node_text, detail = shared_observation(owners=('peer', 'peer'))
+    fake.qstat = Result(stdout=detail)
+    original_upload = fake.upload
+    def upload(*args):
+        original_upload(*args)
+        fake.qstat = Result()
+    fake.upload = upload
+    monkeypatch.setattr(confirm, 'confirm', lambda _: True)
+    with pytest.raises(ValueError, match='after upload, before qsub.*ownership is unknown'):
+        submit.submit(cfg, [manifest['attempt_id']], fake)
+    assert (path/'.submit-claim').exists() and not (path/'submission.json').exists()
+    assert state.read(path)['state'] == 'failed_presubmit'
+    assert fake.operations().count('nodes') == 2 and 'submit' not in fake.operations()
+
+@pytest.mark.parametrize('assigned,expected', [(None, 'unknown'), ('8gb', 'enough'), ('120gb', 'queue')])
+def test_explicit_node_memory_is_independent_of_missing_owner(assigned, expected):
+    raw = nodes(extra='    jobs = 0-7/312.fixture\n')
+    if assigned is not None:
+        raw += f'    resources_assigned.mem = {assigned}\n'
+    node = nt.strict_nodes(raw, [])[0]
+    decision = nt.admission(node, 24, 48)
+    assert node['cores_used'] == 8 and not decision['selectable']
+    assert decision['capacity']['fits_total'] and decision['capacity']['availability'] == expected
+
+
+def queue_site(cfg):
+    cfg['node_targeting']['occupied_policy'] = dict(
+        server='fixture', queue='batch', queue_nodes=['compute-a'], empty_only=['compute-b'])
+
+
+class OwnListFake(TargetFake):
+    def __init__(self, cfg):
+        super().__init__(cfg)
+        self.node_text = nodes(extra='    jobs = 0-3/833.fixture,4-11/834.fixture\n')
+        self.qstat = Result(stdout='Job Id: 833.fixture\n    Job_Owner = fixture@fixture\n'
+                            '    Job_Name = synthetic\n    job_state = R\n    queue = batch\n'
+                            '    Resource_List.nodes = compute-a:ppn=4\n    exec_host = compute-a/0-3\n')
+        self.account = Result(stdout='AG_OWNER fixture\n833.fixture\nAG_END\n')
+
+    def run(self, command):
+        from ag import remote
+        if command == remote.pbs_own_jobs():
+            self.calls.append(command)
+            return self.account
+        if command == remote.queues():
+            self.calls.append(command)
+            return Result(stdout='Queue Tot Que Run\nbatch 3 1 2\n')
+        return super().run(command)
+
+
+def test_site_permitted_queue_with_restricted_details_full_submission(targeted, monkeypatch):
+    from ag import autonomy_submission, remote, route
+    cfg, args = targeted
+    queue_site(cfg)
+    cfg['resources']['max_committed_cores'] = 28
+    # Existing machine registry, no real SSH or account settings.
+    with autonomy_submission.machine_lock():
+        pass
+    monkeypatch.setattr(config, 'ssh_identity', lambda _: ('fixture', 22, 'fixture'))
+    fake = OwnListFake(cfg)
+    sample = monitor.observation(cfg, fake, 'fixture')
+    assert sample['cluster']['job_summary']['others_queued_jobs'] is None
+    snapshot(cfg, sample['cluster']['nodes'])
+    cached = Path(cfg['local']['studies_root']) / '.ag-monitor/latest.json'
+    data = json.loads(cached.read_text())
+    data.update(sample)
+    cached.write_text(json.dumps(data))
+    cfg['routing'] = dict(gaussian=['default'])
+    option = nt.candidates(cfg)['nodes'][1]['options'][0]
+    assert option['selectable'] and option['capacity']['availability'] == 'unknown'
+    suggestion = route.suggest(cfg, 'gaussian', 'general')
+    assert suggestion['recommendation']['needs_queue']
+    assert suggestion['clusters'][0]['specification_allowed']
+    m = attempt.prepare(cfg, **args)
+    fake.job = Result(stdout=f"Job Id: 123.fixture\n    Job_Name = {m['pbs_job_name']}\n    job_state = Q\n")
+    monkeypatch.setattr(confirm, 'confirm', lambda _: True)
+    submit.submit(cfg, [m['attempt_id']], fake)
+    assert fake.calls.count(remote.pbs_own_jobs()) == 3  # sample and both fresh checks
+    assert fake.operations().count('submit') == 1 and 'cancel' not in fake.operations()
+    path = attempt.find(cfg, m['attempt_id'])
+    assert state.read(path)['state'] == 'submitted' and state.read(path)['node_placement']['state'] == 'pending'
+    assert attempt.verified_files(cfg, path, m)
+
+
+@pytest.mark.parametrize('reply', [
+    Result(1, '', 'unavailable'), Result(stdout=''), Result(stdout='AG_OWNER another\nAG_END\n'),
+    Result(stdout='AG_OWNER fixture\n833.fixture\n'), Result(stdout='AG_OWNER fixture\nAG_END\n'),
+    Result(stdout='AG_OWNER fixture\n833.fixture\n833.fixture\nAG_END\n'),
+    Result(stdout='AG_OWNER fixture\n833.fixture\n834.fixture\nAG_END\n'),
+    Result(stdout='AG_OWNER fixture\n833[]\nAG_END\n'),
+    Result(stdout='AG_OWNER fixture\n833.fixt\nAG_END\n'),
+])
+def test_partial_failed_or_conflicting_owner_proof_blocks_hidden_queue(targeted, reply):
+    cfg, args = targeted
+    queue_site(cfg)
+    fake = OwnListFake(cfg)
+    fake.account = reply
+    rows = monitor.observation(cfg, fake, 'fixture')['cluster']['nodes']
+    snapshot(cfg, rows)
+    assert not nt.candidates(cfg)['nodes'][1]['selectable']
+    with pytest.raises(ValueError, match='login-account'):
+        attempt.prepare(cfg, **args)
+
+
+def test_fixed_pbs_selector_uses_only_actual_login(tmp_path):
+    from ag import remote
+    from ag.transport import READ_OPERATIONS
+    cmd = remote.pbs_own_jobs()
+    assert cmd.operation == 'jobs' and cmd.operation in READ_OPERATIONS
+    assert cmd.text == ('ag_user=$(id -un) && case "$ag_user" in ""|-*|*[!A-Za-z0-9_.-]*) exit 1;; esac && '
+                        'printf "AG_OWNER %s\\n" "$ag_user" && qselect -u "$ag_user" && printf "AG_END\\n"')
+    with pytest.raises(TypeError):
+        remote.pbs_own_jobs('another')
+    script = tmp_path / 'qselect'
+    script.write_text('#!/bin/sh\ntest "$#" -eq 2 && test "$1" = -u && test "$2" = "$(id -un)"\n')
+    script.chmod(0o700)
+    result = subprocess.run(['/bin/sh', '-c', cmd.text], capture_output=True, text=True,
+                            env={'PATH': f'{tmp_path}:/usr/bin:/bin'})
+    assert result.returncode == 0 and result.stdout.splitlines()[-1] == 'AG_END'
+
+
+@pytest.mark.parametrize('bad', ['queue', 'server', 'duplicate', 'unknown', 'overlap'])
+def test_occupied_site_policy_requires_exact_queue_and_nodes(targeted, bad):
+    cfg, _ = targeted
+    queue_site(cfg)
+    site = cfg['node_targeting']['occupied_policy']
+    site.update(dict(queue=dict(queue='other'), server=dict(server='bad..suffix'),
+                     duplicate=dict(queue_nodes=['compute-a']*2), unknown=dict(empty_only=['elsewhere']),
+                     overlap=dict(empty_only=['compute-a']))[bad])
+    with pytest.raises(ValueError, match='policy'):
+        nt.validate_policy(cfg)
+
+
+def test_named_config_normalizes_queue_for_occupied_policy(targeted):
+    cfg, _ = targeted
+    queue_site(cfg)
+    cfg.update(scheduler='pbs', queue='batch')
+    config.validate_cluster(cfg)
+    assert cfg['scheduler'] == dict(queue='batch')
+
+
+@pytest.mark.parametrize('bad', ['abbreviated', 'array', 'other-server', 'same-sequence'])
+def test_unseen_ids_cannot_be_aliases_or_arrays(targeted, bad):
+    cfg, _ = targeted
+    queue_site(cfg)
+    fake = OwnListFake(cfg)
+    fake.node_text = fake.node_text.replace('834.fixture', {
+        'abbreviated':'834', 'array':'834[2].fixture', 'other-server':'834.another',
+        'same-sequence':'833.another'}[bad])
+    rows = monitor.observation(cfg, fake, 'fixture')['cluster']['nodes']
+    assert rows[0]['targeting_issue'] == 'ambiguous_jobs'
+    assert not nt.admission(rows[0], 24, 48, cfg)['selectable']
+
+
+def test_site_empty_only_still_offers_empty_allowed_node(targeted, monkeypatch):
+    from ag import autonomy_submission
+    cfg, _ = targeted
+    queue_site(cfg)
+    with autonomy_submission.machine_lock():
+        pass
+    monkeypatch.setattr(config, 'ssh_identity', lambda _: ('fixture', 22, 'fixture'))
+    fake = OwnListFake(cfg)
+    fake.node_text += (nodes(extra='    jobs = 0-1/835.fixture\n').replace('compute-a', 'compute-b')
+                       + nodes().replace('compute-a', 'compute-c'))
+    snapshot(cfg, monitor.observation(cfg, fake, 'fixture')['cluster']['nodes'])
+    restricted, _, empty = nt.candidates(cfg)['nodes'][:3]
+    assert not restricted['selectable'] and 'empty node' in restricted['selectable_reason']
+    assert empty['selectable']
+
+
+@pytest.mark.parametrize('when', ['confirmation', 'upload'])
+def test_own_job_appearing_during_submission_rechecks_shared_caps(targeted, monkeypatch, when):
+    from ag import remote
+    cfg, path, m = prepared(targeted)
+    queue_site(cfg)
+    monkeypatch.setattr(config, 'ssh_identity', lambda _: ('fixture', 22, 'fixture'))
+    cfg['resources']['max_queued_cores'] = 24
+    fake = OwnListFake(cfg)
+    def add_waiter():
+        fake.qstat = Result(stdout=fake.qstat.stdout +
+            'Job Id: 835.fixture\n    Job_Owner = fixture@fixture\n    job_state = H\n'
+            '    Job_Name = synthetic\n    Resource_List.nodes = 1:ppn=1\n')
+        fake.account = Result(stdout='AG_OWNER fixture\n833.fixture\n835.fixture\nAG_END\n')
+    def confirm_request(_):
+        if when == 'confirmation':
+            add_waiter()
+        return True
+    original_upload = fake.upload
+    def upload(*args):
+        original_upload(*args)
+        if when == 'upload' and '835.fixture' not in fake.account.stdout:
+            add_waiter()
+    fake.upload = upload
+    monkeypatch.setattr(confirm, 'confirm', confirm_request)
+    with pytest.raises(ValueError, match='queued core limit exceeded'):
+        submit.submit(cfg, [m['attempt_id']], fake)
+    assert fake.calls.count(remote.pbs_own_jobs()) == (2 if when == 'upload' else 1)
+    assert ('upload' in fake.operations()) is (when == 'upload')
+    assert (path/'.submit-claim').exists() is (when == 'upload')
+    assert 'submit' not in fake.operations()
+
+
+def test_hidden_queue_counts_other_entry_unobserved_reservation(targeted, monkeypatch):
+    from ag import remote
+    cfg, args = targeted
+    # Create a real local synthetic binding under a second entry, on the same
+    # account. Hold it even when both scheduler queries omit that job.
+    entry = {k: deepcopy(v) for k, v in cfg.items() if k not in ('local', '_config_dir')}
+    del entry['node_targeting']
+    combined = dict(local=cfg['local'], _config_dir=cfg['_config_dir'], clusters=dict(
+        default=entry, peer=deepcopy(entry)))
+    app = args | dict(cluster='peer', target_node=None)
+    peer = attempt.prepare(combined, **app)
+    monkeypatch.setattr(confirm, 'confirm', lambda _: True)
+    submit.submit(combined, [peer['attempt_id']], Fake(combined))
+    entry['node_targeting'] = policy()
+    queue_site(entry)
+    combined['clusters']['peer']['resources']['max_committed_cores'] = 48
+    selected = config.select_cluster(combined)
+    monkeypatch.setattr(config, 'ssh_identity', lambda _: ('fixture', 22, 'fixture'))
+    fake = OwnListFake(selected)
+    result = monitor.observation(selected, fake, 'fixture')
+    occupied = result['cluster']['nodes'][0]
+    assert occupied['occupied_queue_account']['committed'] == 4 + 24
+    assert occupied['occupied_queue_account']['queued'] == 24
+    assert fake.calls.count(remote.pbs_own_jobs()) == 1
+    assert not nt.admission(occupied, 24, 48, selected)['selectable']
+    assert nt.admission(occupied, 12, 24, selected)['selectable']
+
+
+@pytest.mark.parametrize('issue', ['missing-detail', 'requested-vs-allocated', 'another-node'])
+@pytest.mark.parametrize('phase', ['prepare', 'confirmation', 'upload'])
+def test_account_conflicts_reject_even_empty_target(targeted, monkeypatch, issue, phase):
+    from ag import autonomy_submission
+    cfg, args = targeted
+    queue_site(cfg)
+    with autonomy_submission.machine_lock():
+        pass
+    monkeypatch.setattr(config, 'ssh_identity', lambda _: ('fixture', 22, 'fixture'))
+    cfg['resources']['max_committed_cores'] = 28
+    fake = OwnListFake(cfg)
+    fake.node_text += nodes().replace('compute-a', 'compute-b')
+    args = args | dict(target_node='compute-b')
+    def conflict():
+        if issue == 'missing-detail':
+            fake.account = Result(stdout='AG_OWNER fixture\n833.fixture\n834.fixture\nAG_END\n')
+        elif issue == 'requested-vs-allocated':
+            fake.node_text = fake.node_text.replace('0-3/833.fixture,4-11', '0-15/833.fixture,16-23')
+            fake.qstat = Result(stdout=fake.qstat.stdout.replace('compute-a/0-3', 'compute-a/0-15'))
+        else:
+            fake.node_text += nodes(extra='    jobs = 0-7/833.fixture\n').replace('compute-a', 'compute-c')
+    if phase == 'prepare':
+        conflict()
+    snapshot(cfg, monitor.observation(cfg, fake, 'fixture')['cluster']['nodes'])
+    if phase == 'prepare':
+        with pytest.raises(ValueError, match='login-account'):
+            attempt.prepare(cfg, **args)
+    else:
+        manifest = attempt.prepare(cfg, **args)
+        def clicked(_):
+            if phase == 'confirmation':
+                conflict()
+            return True
+        monkeypatch.setattr(confirm, 'confirm', clicked)
+        upload = fake.upload
+        def transfer(*args):
+            upload(*args)
+            if phase == 'upload' and fake.operations().count('upload') == 1:
+                conflict()
+        fake.upload = transfer
+        stage = 'after confirmation' if phase == 'confirmation' else 'after upload, before qsub'
+        with pytest.raises(ValueError, match=stage + '.*login-account'):
+            submit.submit(cfg, [manifest['attempt_id']], fake)
+        path = attempt.find(cfg, manifest['attempt_id'])
+        assert state.read(path)['state'] == ('prepared' if phase == 'confirmation' else 'failed_presubmit')
+        assert (path / '.submit-claim').exists() is (phase == 'upload')
+    assert fake.operations().count('submit') == 0
+
+
+def test_peer_completed_array_outside_target_does_not_block_queue(targeted, monkeypatch):
+    from ag import autonomy_submission
+    cfg, args = targeted
+    queue_site(cfg)
+    with autonomy_submission.machine_lock():
+        pass
+    monkeypatch.setattr(config, 'ssh_identity', lambda _: ('fixture', 22, 'fixture'))
+    fake = OwnListFake(cfg)
+    fake.qstat = Result(stdout=fake.qstat.stdout +
+        'Job Id: 999[5].fixture\n    Job_Owner = peer@fixture\n    Job_Name = old\n    job_state = C\n')
+    snapshot(cfg, monitor.observation(cfg, fake, 'fixture')['cluster']['nodes'])
+    manifest = attempt.prepare(cfg, **args)
+    fake.job = Result(stdout=f"Job Id: 123.fixture\n    Job_Name = {manifest['pbs_job_name']}\n    job_state = Q\n")
+    monkeypatch.setattr(confirm, 'confirm', lambda _: True)
+    submit.submit(cfg, [manifest['attempt_id']], fake)
+    assert fake.operations().count('submit') == 1
+    fake.node_text = fake.node_text.replace('834.fixture', '999[5].fixture')
+    assert not nt.admission(monitor.observation(cfg, fake, 'fixture')['cluster']['nodes'][0], 24, 48, cfg)['selectable']
+    fake.qstat = Result(stdout=fake.qstat.stdout.replace('peer@fixture', 'fixture@fixture'))
+    with pytest.raises(ValueError, match='数组'):
+        monitor.observation(cfg, fake, 'fixture')
+
+
+@pytest.mark.parametrize('phase', ['prepare', 'confirmation', 'upload'])
+def test_closed_manual_writer_in_other_root_retains_accepted_cores(targeted, monkeypatch, tmp_path, phase):
+    cfg, args = targeted
+    queue_site(cfg)
+    cfg['resources']['max_committed_cores'] = 48
+    monkeypatch.setattr(config, 'ssh_identity', lambda _: ('fixture', 22, 'fixture'))
+    other = deepcopy(cfg)
+    del other['node_targeting']
+    other['local']['studies_root'] = str(tmp_path / 'other-studies')
+    other['_config_dir'] = str(tmp_path / 'other-config')
+    Path(other['_config_dir']).mkdir()
+    study.init(other, 'peer-study')
+    peer = attempt.prepare(other, **(args | dict(study_name='peer-study', target_node=None)))
+    fake = OwnListFake(cfg)
+    def observe():
+        row, = monitor.observation(cfg, fake, 'fixture')['cluster']['nodes']
+        snapshot(cfg, [row])
+        return row
+    # A closed prepare writer has no consumed submission.
+    row = observe()
+    assert row['occupied_queue_account']['committed'] == 4 and nt.admission(row, 24, 48, cfg)['selectable']
+    def accept_peer():
+        otherfake = Fake(other)
+        otherfake.qsub = Result(stdout='567.fixture\n')
+        with monkeypatch.context() as patch:
+            patch.setattr(confirm, 'confirm', lambda _: True)
+            submit.submit(other, [peer['attempt_id']], otherfake)
+        assert otherfake.operations().count('submit') == 1
+        assert state.read(attempt.find(other, peer['attempt_id']))['state'] == 'submitted'
+    if phase == 'prepare':
+        accept_peer()
+        row = observe()
+        assert row['occupied_queue_account']['committed'] == 28
+        assert nt.admission(row, 12, 24, cfg)['selectable']
+        with pytest.raises(ValueError, match='core limit exceeded'):
+            attempt.prepare(cfg, **args)
+    else:
+        manifest = attempt.prepare(cfg, **args)
+        def clicked(_):
+            if phase == 'confirmation':
+                accept_peer()
+            return True
+        monkeypatch.setattr(confirm, 'confirm', clicked)
+        upload = fake.upload
+        def transfer(*args):
+            upload(*args)
+            if phase == 'upload' and fake.operations().count('upload') == 1:
+                accept_peer()
+        fake.upload = transfer
+        stage = 'after confirmation' if phase == 'confirmation' else 'after upload, before qsub'
+        with pytest.raises(ValueError, match=stage + '.*core limit exceeded'):
+            submit.submit(cfg, [manifest['attempt_id']], fake)
+        path = attempt.find(cfg, manifest['attempt_id'])
+        assert state.read(path)['state'] == ('prepared' if phase == 'confirmation' else 'failed_presubmit')
+        assert (path / '.submit-claim').exists() is (phase == 'upload')
+    assert fake.operations().count('submit') == 0
+
+
+def test_visible_allocation_conflict_on_different_node_without_site_policy(targeted):
+    cfg, args = targeted
+    fake = OwnListFake(cfg)
+    fake.node_text += nodes().replace('compute-a', 'compute-b')
+    fake.qstat = Result(stdout=fake.qstat.stdout.replace('ppn=4', 'ppn=1'))
+    snapshot(cfg, monitor.observation(cfg, fake, 'fixture')['cluster']['nodes'])
+    with pytest.raises(ValueError, match='allocated slots disagree'):
+        attempt.prepare(cfg, **(args | dict(target_node='compute-b')))
+    assert fake.operations().count('submit') == 0
+
+
+def test_generic_peer_cannot_bypass_own_inventory_conflict(targeted, monkeypatch):
+    cfg, args = targeted
+    queue_site(cfg)
+    entry = {k: deepcopy(v) for k, v in cfg.items() if k not in ('local', '_config_dir')}
+    peer = {k: deepcopy(v) for k, v in entry.items() if k != 'node_targeting'}
+    combined = dict(local=cfg['local'], _config_dir=cfg['_config_dir'], clusters=dict(default=entry, peer=peer))
+    m = attempt.prepare(combined, **(args | dict(cluster='peer', target_node=None)))
+    selected = config.select_cluster(combined, 'peer')
+    fake = OwnListFake(selected)
+    fake.account = Result(stdout='AG_OWNER fixture\n833.fixture\n834.fixture\nAG_END\n')
+    monkeypatch.setattr(confirm, 'confirm', lambda _: True)
+    with pytest.raises(ValueError, match='after confirmation.*login-account'):
+        submit.submit(combined, [m['attempt_id']], fake)
+    assert fake.operations().count('submit') == 0
+
+
+@pytest.mark.parametrize('case', ['over-cap', 'at-cap', 'redirected-sibling', 'wrong-registered-root'])
+def test_known_manual_root_includes_pre_registry_siblings(targeted, monkeypatch, tmp_path, case):
+    from contextlib import nullcontext
+    from ag import autonomy, autonomy_submission as records
+    cfg, args = targeted
+    queue_site(cfg)
+    monkeypatch.setattr(config, 'ssh_identity', lambda _: ('fixture', 22, 'fixture'))
+    monkeypatch.setattr(confirm, 'confirm', lambda _: True)
+    cfg['resources']['max_committed_cores'] = 52 if case == 'at-cap' else 48
+    other = deepcopy(cfg)
+    del other['node_targeting']
+    root = tmp_path / 'other-studies'
+    other['local']['studies_root'] = str(root)
+    other['_config_dir'] = str(tmp_path / 'other-config')
+    Path(other['_config_dir']).mkdir()
+    study.init(other, 'registered')
+    with autonomy.manual_write_guard(other, 'registered', action='prepare'):
+        pass
+    # Reproduce the durable pre-registry layout with the real Attempt, claim,
+    # summary and scheduler binding. No writer record existed on that version.
+    study.init(other, 'older')
+    with monkeypatch.context() as legacy:
+        legacy.setattr(autonomy, 'manual_write_guard', lambda *args, **kwargs: nullcontext())
+        m = attempt.prepare(other, **(args | dict(study_name='older', target_node=None)))
+        accepted = Fake(other)
+        accepted.qsub = Result(stdout='567.fixture\n')
+        submit.submit(other, [m['attempt_id']], accepted)
+    path = attempt.find(other, m['attempt_id'])
+    assert records.audit(path)['job_id'] == 'default:567.fixture'
+    writers = Path.home() / '.config/ag/manual-writers'
+    assert not (writers / records.study_identity(root / 'older')['study_key']).exists()
+    if case == 'redirected-sibling':
+        (root / 'redirect').symlink_to(tmp_path, target_is_directory=True)
+    elif case == 'wrong-registered-root':
+        location = writers / records.study_identity(root / 'registered')['study_key']
+        claim_path, = location.glob('*.claim.json')
+        claim = json.loads(claim_path.read_bytes())
+        claim['study_path'] = str(root / 'older')
+        claim_path.write_bytes(records.disk.encode(claim))
+    fake = OwnListFake(cfg)
+    fake.node_text += nodes().replace('compute-a', 'compute-b')
+    rows = monitor.observation(cfg, fake, 'fixture')['cluster']['nodes']
+    snapshot(cfg, rows)
+    requested = args | dict(target_node='compute-b')
+    if case in ('redirected-sibling', 'wrong-registered-root'):
+        with pytest.raises(ValueError, match='reservations could not be verified'):
+            attempt.prepare(cfg, **requested)
+    else:
+        assert rows[1]['occupied_queue_account']['committed'] == 28
+        if case == 'at-cap':
+            target = attempt.prepare(cfg, **requested)
+            fake.job = Result(stdout=f"Job Id: 123.fixture\n    Job_Name = {target['pbs_job_name']}\n    job_state = Q\n")
+            submit.submit(cfg, [target['attempt_id']], fake)
+            assert state.read(attempt.find(cfg, target['attempt_id']))['node_placement']['state'] == 'pending'
+        else:
+            with pytest.raises(ValueError, match='shared-account core limit exceeded'):
+                attempt.prepare(cfg, **requested)
+    assert fake.operations().count('submit') == (1 if case == 'at-cap' else 0)
+
+
+@pytest.mark.parametrize('phase', ['prepare', 'confirmation', 'upload', 'empty', 'queue-permitted'])
+def test_empty_only_honors_existing_named_waiter(targeted, monkeypatch, phase):
+    from ag import autonomy_submission
+    cfg, args = targeted
+    queue_site(cfg)
+    with autonomy_submission.machine_lock():
+        pass
+    monkeypatch.setattr(config, 'ssh_identity', lambda _: ('fixture', 22, 'fixture'))
+    fake = OwnListFake(cfg)
+    fake.node_text += nodes().replace('compute-a', 'compute-b')
+    name = 'compute-a' if phase == 'queue-permitted' else 'compute-b'
+    def enqueue():
+        fake.qstat = Result(stdout=fake.qstat.stdout + 'Job Id: 893.fixture\n    Job_Owner = peer@fixture\n'
+            f'    Job_Name = waiting\n    job_state = Q\n    Resource_List.nodes = {name}:ppn=12\n    queue = batch\n')
+    if phase in ('prepare', 'queue-permitted'):
+        enqueue()
+    snapshot(cfg, monitor.observation(cfg, fake, 'fixture')['cluster']['nodes'])
+    candidate = next(n for n in nt.candidates(cfg)['nodes'] if n['name'] == name)
+    assert candidate['selectable'] is (phase != 'prepare')
+    if phase == 'prepare':
+        assert candidate['status'] == 'occupied'
+        with pytest.raises(ValueError, match='only to an empty node'):
+            attempt.prepare(cfg, **(args | dict(target_node=name)))
+    else:
+        m = attempt.prepare(cfg, **(args | dict(target_node=name)))
+        fake.job = Result(stdout=f"Job Id: 123.fixture\n    Job_Name = {m['pbs_job_name']}\n    job_state = Q\n")
+        def click(_):
+            if phase == 'confirmation':
+                enqueue()
+            return True
+        monkeypatch.setattr(confirm, 'confirm', click)
+        upload = fake.upload
+        def transfer(*args):
+            upload(*args)
+            if phase == 'upload' and fake.operations().count('upload') == 1:
+                enqueue()
+        fake.upload = transfer
+        if phase in ('confirmation', 'upload'):
+            stage = 'after confirmation' if phase == 'confirmation' else 'after upload, before qsub'
+            with pytest.raises(ValueError, match=stage + '.*only to an empty node'):
+                submit.submit(cfg, [m['attempt_id']], fake)
+            path = attempt.find(cfg, m['attempt_id'])
+            assert state.read(path)['state'] == ('prepared' if phase == 'confirmation' else 'failed_presubmit')
+        else:
+            submit.submit(cfg, [m['attempt_id']], fake)
+    assert fake.operations().count('submit') == (1 if phase in ('empty', 'queue-permitted') else 0)

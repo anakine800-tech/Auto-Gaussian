@@ -28,13 +28,13 @@ def node(name, total=96, used=0, memory=None):
                 cores_other=0, mem_total_gb=memory, mem_assigned_gb=used*2,
                 mem_total_bytes=memory*GIB, mem_assigned_bytes=used*2*GIB,
                 jobs=int(used > 0), state='free', capacity_cpu_consistent=True,
-                targeting_consistent=True, targeting_reserved=False)
+                targeting_consistent=True, targeting_issue=None, targeting_reserved=False)
 
 
 def snapshot(name, nodes, scheduler='pbs'):
     return dict(schema='ag-monitor/1', ok=True, sampled_at=NOW.isoformat(), interval_seconds=60,
                 own=dict(cores_in_use=0, cores_running=0, cores_queued=0, jobs=[]),
-                cluster=dict(name=name, scheduler=scheduler, nodes=nodes,
+                cluster=dict(name=name, scheduler=scheduler, nodes=nodes, job_table_complete=True,
                              job_summary=dict(others_queued_jobs=0)))
 
 
