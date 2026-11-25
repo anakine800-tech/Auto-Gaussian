@@ -5,8 +5,8 @@ import pytest
 from ag.gaussian_input import counterpoise_fragments
 from ag.nci_report import fragments_csv
 
-WATER = ('O 0 0 0\nH 0.9572 0 0\nH -0.239987 0.927297 0\n'
-         'O 2.9 0 0\nH 3.485882 0.75695 0\nH 3.485882 -0.75695 0')
+WATER = ('O 0.0 0.0 0.0\nH 0.9572 0.0 0.0\nH -0.239987 0.927297 0.0\n'
+         'O 2.9 0.0 0.0\nH 3.485882 0.75695 0.0\nH 3.485882 -0.75695 0.0')
 HEADER = 'fragment,atoms,charge,multiplicity\n'
 CSV = HEADER + 'water-a,1-3,0,1\nwater-b,4-6,0,1\n'
 
@@ -99,7 +99,7 @@ def test_solvent_geometry_pairing_accepts_only_rigid_matching_geometry():
     with pytest.raises(ValueError, match='RMSD.*exceeds 0.001'):
         paired_geometry(WATER, WATER.replace('0.9572', '1.1'))
     with pytest.raises(ValueError, match='element sequence differs'):
-        paired_geometry(WATER, WATER.replace('O 0 0 0', 'N 0 0 0'))
+        paired_geometry(WATER, WATER.replace('O 0.0 0.0 0.0', 'N 0.0 0.0 0.0'))
     with pytest.raises(ValueError, match='element sequence differs'):
         paired_geometry(WATER, '\n'.join(WATER.splitlines()[1:]))
 
@@ -136,9 +136,9 @@ from test_core import cfg, Fake, allow
 from test_slurm import multi
 
 ROUTE = '# M062X/6-31+G(d,p) SP Counterpoise=2'
-NH4_WATER = ('N 0 0 0\nH .59 .59 .59\nH .59 -.59 -.59\n'
+NH4_WATER = ('N 0.0 0.0 0.0\nH .59 .59 .59\nH .59 -.59 -.59\n'
              'H -.59 .59 -.59\nH -.59 -.59 .59\n'
-             'O 3.2 0 0\nH 3.785882 .75695 0\nH 3.785882 -.75695 0')
+             'O 3.2 0.0 0.0\nH 3.785882 .75695 0.0\nH 3.785882 -.75695 0.0')
 NH4_CSV = HEADER + 'ammonium,1-5,1,1\nwater,6-8,0,1\n'
 
 
@@ -524,7 +524,7 @@ def test_fragment_sources_fail_closed(cfg, tmp_path, change, error):
     geometry = '\n'.join(reference.splitlines()[:3])
     route = ROUTE.replace(' Counterpoise=2', ' SCRF=(SMD,Solvent=DiChloroEthane)')
     if change == 'geometry': geometry = geometry.replace('0.9572', '1.1')
-    if change == 'extra_atom': geometry += '\nHe 8 0 0'
+    if change == 'extra_atom': geometry += '\nHe 8.0 0.0 0.0'
     if change == 'swapped': geometry = '\n'.join([*geometry.splitlines()[:1], *geometry.splitlines()[1:][::-1]])
     if change == 'method': route = route.replace('6-31+G(d,p)', 'def2TZVP')
     if change == 'basis_type': route += ' 5D'
@@ -598,8 +598,8 @@ def test_fragment_input_cannot_hide_ghost_or_external_basis_in_valid_bundle(cfg,
     f = fs[0]
     source = f / 'inputs/water.gjf'
     text = source.read_text()
-    if change == 'ghost': text = text.replace('O 0 0 0', 'Bq 0 0 0')
-    if change == 'fragment_label': text = text.replace('O 0 0 0', 'O(Fragment=1) 0 0 0')
+    if change == 'ghost': text = text.replace('O 0.0 0.0 0.0', 'Bq 0.0 0.0 0.0')
+    if change == 'fragment_label': text = text.replace('O 0.0 0.0 0.0', 'O(Fragment=1) 0.0 0.0 0.0')
     if change == 'external_basis': text += '@custom.gbs\n'
     source.write_text(text)
     path = f / 'manifest.json'
@@ -628,7 +628,7 @@ def test_fragment_mode_requires_smd_complex_and_ordinary_fragment_template(cfg, 
 def test_fragment_mirror_and_rigid_motion_with_noncontiguous_atom_mapping(cfg, tmp_path):
     # Two separated synthetic CHBrClF molecules; fragment 1 is chiral and its
     # atom numbers interleave with fragment 2. No identity/permutation search.
-    a = ['C 0 0 0', 'F .8 .8 .8', 'Cl 1 -1 -1', 'Br -1 1 -1', 'H -.6 -.6 .6']
+    a = ['C 0.0 0.0 0.0', 'F .8 .8 .8', 'Cl 1.0 -1.0 -1.0', 'Br -1.0 1.0 -1.0', 'H -.6 -.6 .6']
     b = [f'{s} {float(x)+10} {y} {z}' for s, x, y, z in (row.split() for row in a)]
     geometry = '\n'.join(row for pair in zip(a, b) for row in pair)
     csv = HEADER + 'a,"1,3,5,7,9",0,1\nb,"2,4,6,8,10",0,1\n'

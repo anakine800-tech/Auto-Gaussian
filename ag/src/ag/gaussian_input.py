@@ -15,6 +15,7 @@ ELEMENTS = ('H He Li Be B C N O F Ne Na Mg Al Si P S Cl Ar K Ca Sc Ti V Cr Mn Fe
             'Fr Ra Ac Th Pa U Np Pu Am Cm Bk Cf Es Fm Md No Lr Rf Db Sg Bh Hs Mt Ds Rg Cn Nh Fl Mc Lv Ts Og').split()
 ATOMIC_NUMBERS = {symbol: number for number, symbol in enumerate(ELEMENTS, 1)}
 NUMBER = r'[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?'
+FORCE_CONSTANT_READER = re.compile(r'\b(?:rcfc|readfc|readcartesianfc)\b', re.I)
 
 
 def render_input(route, title: str | Sequence[str], sections):
@@ -62,6 +63,12 @@ def render_input(route, title: str | Sequence[str], sections):
     return body
 
 
+def _route_tokens(route):
+    """Keep parenthesized options together, even when they contain spaces."""
+    body = re.sub(r'^\s*#[pnt]?\s*', '', route, flags=re.I)
+    return re.findall(r'(?:[^()\s]+|\([^()]*\))+', body)
+
+
 def ts_route_check(route):
     """Reject scan/freeze carry-over and force constants lacking a parent chk.
 
@@ -69,7 +76,7 @@ def ts_route_check(route):
     Whole words include common spellings of the scan/freeze input readers.
     """
     words = set(re.findall(r'\b[A-Za-z][A-Za-z0-9]*\b', route.lower()))
-    parent = words & {'rcfc', 'readfc', 'readcartesianfc'}
+    parent = set(FORCE_CONSTANT_READER.findall(route.lower()))
     if parent:
         raise ValueError(', '.join(sorted(parent)) +
                          ' requires prepare --parent-chk and the parent chk orientation checks')
@@ -88,7 +95,7 @@ def ts_route_check(route):
         raise ValueError('TS draft requires Opt=TS or Opt=(TS,...)')
 
 
-def cartesian(rows, *, first_line, prefix=''):
+def cartesian(rows, *, first_line, prefix='', require_real=False):
     """Reject invalid atoms/coordinates before they waste a queued calculation.
 
     Return canonical identities for comparison/counting, preserving input bytes.
@@ -109,8 +116,29 @@ def cartesian(rows, *, first_line, prefix=''):
                              'Dummy atoms (Bq/X) and isotope/atom-label syntax are unsupported')
         if not all(re.fullmatch(NUMBER, value) and math.isfinite(float(value)) for value in xyz):
             raise ValueError(where + 'Expected finite Cartesian coordinates')
+        if require_real:
+            for axis, value in zip('xyz', xyz):
+                if re.fullmatch(r'[+-]?\d+', value):
+                    raise ValueError(where + f'bare integer {axis} coordinate {value!r}; write {value}.0 '
+                                     'in the source and prepare a new Attempt')
         symbols.append(symbol)
     return symbols
+
+
+def validate_connectivity(block, atom_count):
+    """Validate one GaussView row per explicit atom, including isolated atoms."""
+    rows = block.splitlines()
+    if len(rows) != atom_count:
+        raise ValueError('Connectivity requires one row per atom, then a blank line before other data')
+    for index, row in enumerate(rows, 1):
+        fields = row.split()
+        if not fields or not re.fullmatch(r'[0-9]+', fields[0]) or int(fields[0]) != index or len(fields) % 2 != 1:
+            raise ValueError('Connectivity requires ordered integer atom rows and neighbor/bond-order pairs')
+        for neighbor, order in zip(fields[1::2], fields[2::2]):
+            if not re.fullmatch(r'[0-9]+', neighbor) or not 1 <= int(neighbor) <= atom_count:
+                raise ValueError('Connectivity neighbor index must identify an explicit atom')
+            if not re.fullmatch(NUMBER, order) or not math.isfinite(float(order)):
+                raise ValueError('Connectivity bond order must be a finite number')
 
 
 def check_electrons(symbols, charge, multiplicity, *, location):
@@ -139,7 +167,7 @@ def _qst_mode(route):
     return mode.upper()
 
 
-def _qst_structures(sections, mode, section_lines):
+def _qst_structures(sections, mode, section_lines, *, require_real):
     count = int(mode[-1])
     if len(sections) != 1 + 2 * count:
         raise ValueError(f'{mode} requires exactly {count} title + charge/multiplicity + coordinate groups')
@@ -152,7 +180,7 @@ def _qst_structures(sections, mode, section_lines):
         line = section_lines[2 + 2 * i]
         if not title.strip() or not match or int(match[2]) < 1 or len(rows) < 2:
             raise ValueError(prefix + f'line {line}: expected title, charge/multiplicity and coordinates')
-        symbols = cartesian(rows[1:], first_line=line + 1, prefix=prefix)
+        symbols = cartesian(rows[1:], first_line=line + 1, prefix=prefix, require_real=require_real)
         check_electrons(symbols, int(match[1]), int(match[2]), location=prefix + f'line {line}')
         structure = dict(title=title.strip(), charge=int(match[1]), multiplicity=int(match[2]),
                          geometry='\n'.join(rows[1:]), n_atoms=len(symbols), elements=symbols)
@@ -224,7 +252,13 @@ def fill_memory(data, cores, mem_gb):
     return b''.join(lines), memory
 
 
-def validate(text, cores, mem_gb, *, parent_chk=False):
+def validate(text, cores, mem_gb, *, parent_chk=False, require_real_coordinates=False, added_link0_lines=0,
+             claimed_input=False):
+    """Check real coordinates when preparing or admitting a strict Gaussian input.
+
+    added_link0_lines maps diagnostics back to the source (zero for frozen bytes).
+    Historical readers and other formats use their existing coordinate grammar.
+    """
     lines = text.splitlines()
     link = {}
     index = 0
@@ -254,7 +288,8 @@ def validate(text, cores, mem_gb, *, parent_chk=False):
         if link.get('chk') == link['oldchk']:
             raise ValueError('%chk and %oldchk must use different filenames')
         if not parent_chk or link['oldchk'] != 'parent.chk':
-            raise ValueError('%oldchk requires a declared parent chk attachment named parent.chk')
+            raise ValueError('%oldchk requires a declared parent chk attachment named parent.chk '
+                             '(prepare --parent-chk)')
         if 'chk' not in link:
             raise ValueError('%oldchk requires a distinct explicit %chk')
     if parent_chk and link.get('oldchk') != 'parent.chk':
@@ -262,6 +297,7 @@ def validate(text, cores, mem_gb, *, parent_chk=False):
     untrimmed = '\n'.join(lines[index:])
     rest = untrimmed.strip()
     first_line = index + 1 + untrimmed[:len(untrimmed) - len(untrimmed.lstrip())].count('\n')
+    first_line -= added_link0_lines
     sections = re.split(r'\n\s*\n', rest)
     section_lines = [first_line] + [first_line + rest[:match.end()].count('\n')
                                     for match in re.finditer(r'\n\s*\n', rest)]
@@ -271,16 +307,38 @@ def validate(text, cores, mem_gb, *, parent_chk=False):
     # External launches and file inclusion can bypass reviewed program templates.
     if re.search(r'\bexternal\b|\binclude\b|@', text, re.I) or '--link1--' in text.lower():
         raise ValueError('External programs, includes and Link1 are unsupported')
-    for option in re.finditer(r'\bgeom(?:etry)?\s*(?:=\s*)?(\([^()]*\)|[A-Za-z]+)', route, re.I):
-        if re.search(r'\b(?:check|checkpoint|allcheck)\b', option[1], re.I):
+    geom_options = re.findall(r'\bgeom(?:etry)?\s*(?:=\s*)?(\([^()]*\)|[A-Za-z]+)', route, re.I)
+    for option in geom_options:
+        if re.search(r'\b(?:check|checkpoint|allcheck)\b', option, re.I):
             raise ValueError('Geom=Check/AllCheck is unsupported; provide explicit coordinates')
+    connectivity = any(re.search(r'\bconnectivity\b', option, re.I) for option in geom_options)
     mode = _qst_mode(route)
     opt_options = [word.lower() for option in re.finditer(
         r'\bopt\b\s*(?:=\s*)?(\([^()]*\)|[A-Za-z0-9]+)', route, re.I)
         for word in re.findall(r'\b[A-Za-z][A-Za-z0-9]*\b', option[1])]
     modredundant = 'modredundant' in opt_options
+    tail = sections[3:]
+    # Pre-T223 strict bundles could have no table, including QST groups or
+    # just a normal ModRedundant block. Recheck these layouts by their original
+    # grammar only when examining an already consumed Attempt.
+    if claimed_input and (mode or not tail or (modredundant and len(tail) == 1)):
+        connectivity = False
+    if connectivity:
+        # Only a top-level geometry keyword declares the block; a substring
+        # or an option embedded in another keyword must not consume any data.
+        compact = re.sub(r'\s*=\s*', '=', route)
+        declared = any(re.fullmatch(r'geom(?:etry)?(?:=connectivity|=?\(\s*connectivity\s*\))',
+                                    token, re.I) for token in _route_tokens(compact))
+        if len(geom_options) != 1 or not declared:
+            raise ValueError('Strict Connectivity requires Geom=Connectivity as the sole geometry option')
+        # Consuming the table must not satisfy a different Gaussian input reader.
+        if re.search(r'\b(?:gen|genecp|extrabasis|pseudo|nboread)\b|'
+                     r'\bscrf\s*=?\s*(?:read\b|\([^()]*\bread\b)', route, re.I):
+            raise ValueError('Strict Connectivity does not support general basis or additional readers')
     if mode:
-        structures = _qst_structures(sections, mode, section_lines)
+        if connectivity:
+            raise ValueError('Strict Connectivity is unsupported with QST2/QST3')
+        structures = _qst_structures(sections, mode, section_lines, require_real=require_real_coordinates)
         first = structures[0]
         return dict(charge=first['charge'], multiplicity=first['multiplicity'], route=route,
                     geometry=first['geometry'], n_atoms=first['n_atoms'], qst_mode=mode,
@@ -292,17 +350,24 @@ def validate(text, cores, mem_gb, *, parent_chk=False):
     match = re.fullmatch(r'\s*(-?\d+)\s+(\d+)\s*', geom[0])
     if not match or int(match[2]) < 1 or len(geom) < 2:
         raise ValueError(f'line {section_lines[2]}: Invalid charge/multiplicity or missing coordinates')
-    symbols = cartesian(geom[1:], first_line=section_lines[2] + 1)
+    symbols = cartesian(geom[1:], first_line=section_lines[2] + 1, require_real=require_real_coordinates)
     check_electrons(symbols, int(match[1]), int(match[2]), location=f'line {section_lines[2]}')
     scan_data = {}
-    if len(sections) > 3:
-        if not modredundant or 'ts' in opt_options or len(sections) != 4:
+    if connectivity:
+        if not tail:
+            raise ValueError('Geom=Connectivity requires a connectivity table after the coordinates')
+        validate_connectivity(tail[0], len(symbols))
+        tail = tail[1:]
+        if modredundant and not tail:
+            raise ValueError('Opt=ModRedundant requires a block after the Connectivity table')
+    if tail:
+        if not modredundant or 'ts' in opt_options or len(tail) != 1:
             raise ValueError('Additional section requires non-TS Opt=ModRedundant and exactly one block')
         # Avoid displaying an angstrom scan range for non-angstrom input.
         if re.search(r'\bunits?\b', route, re.I):
             raise ValueError('ModRedundant summaries require default angstrom units; omit Units')
         from ag._scan import modredundant as parse_modredundant
-        scan_data = parse_modredundant(sections[3], '\n'.join(geom[1:]))
+        scan_data = parse_modredundant(tail[0], '\n'.join(geom[1:]))
     return dict(charge=int(match[1]), multiplicity=int(match[2]), route=route,
                 geometry='\n'.join(geom[1:]), n_atoms=len(geom) - 1, **scan_data,
                 stereochemistry_warning='Review stereochemistry against the source structure.')
@@ -404,7 +469,7 @@ def counterpoise_route(route):
     compact = re.sub(r'\(\s*', '(', compact)
     compact = re.sub(r'\s*\)', ')', compact)
     method = protocol(compact, 1)
-    tokens = re.findall(r'(?:[^()\s]+|\([^()]*\))+', re.sub(r'^\s*#[pnt]?\s*', '', compact, flags=re.I))
+    tokens = _route_tokens(compact)
     # The whitelist prevents a second task (e.g. Force/Polar), geometry changes,
     # checkpoint guesses or hidden route options from becoming a CP SP.
     allowed = {'sp', 'counterpoise=2', 'nosymm', '5d', '6d', '7f', '10f'}

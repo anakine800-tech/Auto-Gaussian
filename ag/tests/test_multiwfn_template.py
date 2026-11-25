@@ -149,7 +149,10 @@ def test_home_and_spaces_quoted(nci_cfg,tmp_path):
 
 def synthetic_parent(nci_cfg,tmp_path,monkeypatch):
     from ag import facts
-    xyz=XYZ.splitlines()[2:]
+    xyz = []
+    for row in XYZ.splitlines()[2:]:
+        atom, *coords = row.split()
+        xyz.append(atom + ' ' + ' '.join(str(float(value)) for value in coords))
     source=tmp_path/'parent.gjf'
     source.write_text('%nprocshared=4\n%mem=2GB\n%chk=dimer.chk\n# HF/STO-3G Opt Freq\n\nSynthetic\n\n0 1\n'+'\n'.join(xyz)+'\n\n')
     m=attempt.prepare(nci_cfg,study_name='smoke',template='gaussian',input_path=source,tier='mini',

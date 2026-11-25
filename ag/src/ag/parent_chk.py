@@ -4,6 +4,7 @@ import math
 import re
 from ag import attempt, remote, state, submission
 from ag.config import for_manifest
+from ag.gaussian_input import FORCE_CONSTANT_READER
 
 
 def _parent(cfg, parent_id, source_name):
@@ -56,9 +57,12 @@ def declare(cfg, study, template, parents, value):
 
 
 def validate_force_constant_frame(cfg, attachment, science):
-    """L3: a rotated equivalent structure does not match the stored Hessian frame."""
-    if not re.search(r'\b(?:rcfc|readfc|readcartesianfc)\b', science['route'], re.I):
+    """An external Hessian needs a bound parent and matching fixed-row coordinates."""
+    reader = FORCE_CONSTANT_READER.search(science['route'])
+    if not reader:
         return
+    if attachment is None:
+        raise ValueError(f'{reader[0]} requires prepare --parent-chk with --parent and %oldchk=parent.chk')
     from ag.geometry import read_xyz, finite_number
     from cclib.parser.utils import PeriodicTable
 

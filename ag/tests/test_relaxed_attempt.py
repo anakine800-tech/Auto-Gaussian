@@ -7,7 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from ag import attempt, confirm, remote, state, study, submit
+from ag import attempt, confirm, gaussian_input, remote, state, study, submit
+from ag.locks import claim
 from test_core import cfg, prepared, Fake, INPUT
 from test_parent_chk import parent, CheckpointFake
 
@@ -80,7 +81,7 @@ def test_w7_positive_prepare_verify_and_fake_submit(cfg, tmp_path, monkeypatch, 
     assert feature in manifest['input_validation']['skipped_checks']
     verified = attempt.verified_files(cfg, path, manifest)
     assert verified['water.gjf'] == text.encode()
-    assert manifest['science']['geometry'] == 'O 0 0 0\nH 0 0 1\nH 0 1 0'
+    assert manifest['science']['geometry'] == 'O 0.0 0.0 0.0\nH 0.0 0.0 1.0\nH 0.0 1.0 0.0'
     shown = []
     monkeypatch.setattr(confirm, 'confirm', lambda summary: shown.append(summary) or True)
     fake = Fake(cfg)
@@ -497,3 +498,132 @@ def test_ancestor_replaced_after_parent_pin_never_reads_substitute(tmp_path, mon
     assert raced == [True]
     assert (tmp_path / 'retained-original/nested' / source.name).read_bytes() == original
     assert source.read_bytes() == substituted
+
+
+# Explicit water + a separated helium atom. Keep formatting visible in the
+# byte-level checks, including the one-index rows and the final empty line.
+CONNECTIVITY_INPUT = INPUT.replace(' SP', ' SP Geom=Connectivity').rstrip() + '\nHe 4.0 4.0 4.0\n\n'
+CONNECTIVITY_TABLE = ' 1  2 1.0  3 1.0\n 2\n 3\n 4\n\n'
+
+
+@pytest.mark.parametrize('scan', [False, True], ids=['table', 'table-then-scan'])
+def test_strict_connectivity_frozen_prepare_and_method(cfg, tmp_path, scan):
+    from ag import autonomy_policy
+    from test_autonomy_policy import ROUTE, rule
+
+    route = ROUTE.replace('Opt=Tight', 'Opt=(Tight,ModRedundant)') if scan else ROUTE
+    text = CONNECTIVITY_INPUT.replace('# B3LYP/6-31G(d) SP', route) + CONNECTIVITY_TABLE
+    if scan:
+        text += 'B 1 2 S 3 0.04\n\n'
+    text = text.replace('\n', '\r\n')
+    path, manifest = prepare(cfg, tmp_path, text=text, relaxed=False)
+    files = attempt.verified_files(cfg, path, manifest)
+    assert files['water.gjf'] == (tmp_path / 'water.gjf').read_bytes() == text.encode()
+    assert set(files) == {'water.gjf', 'job.pbs'}
+    assert 'input_validation' not in manifest
+    assert manifest['science']['n_atoms'] == 4
+    if scan:
+        assert manifest['science']['scan']['expected_points'] == 4
+    checked = autonomy_policy.check_attempt(cfg, path, rule(cfg))
+    assert checked['method_verified'] is True
+    assert (checked['inputs'], checked['bundle_sha256']) == (manifest['inputs'], manifest['bundle_sha256'])
+
+
+@pytest.mark.parametrize('table', [
+    '', '1\n2\n3', '1\n2\n2\n4', '1\n3\n2\n4', '1 5 1.0\n2\n3\n4',
+    '1 0 1.0\n2\n3\n4', '1 2\n2\n3\n4', '1 2.5 1.0\n2\n3\n4',
+    '1 2 NaN\n2\n3\n4', '1 2 Inf\n2\n3\n4', '1 2 1e999\n2\n3\n4',
+])
+def test_strict_bad_connectivity_fails_before_allocation(cfg, tmp_path, table):
+    with pytest.raises(ValueError, match='Connectivity'):
+        prepare(cfg, tmp_path, text=CONNECTIVITY_INPUT + table, relaxed=False)
+    assert not list((tmp_path / 'studies/smoke/attempts').iterdir())
+
+
+@pytest.mark.parametrize('keyword,tail,error', [
+    ('SP', CONNECTIVITY_TABLE, 'Additional section'),
+    ('SP GeomConnectivity', CONNECTIVITY_TABLE, 'sole geometry option'),
+    ('SP SCRF=( Geom=Connectivity )', CONNECTIVITY_TABLE, 'sole geometry option'),
+    ('SP Geom=Connectivity', CONNECTIVITY_TABLE + 'B 1 2 F', 'Additional section'),
+    ('SP Geom=Connectivity', CONNECTIVITY_TABLE + '--Link1--\n' + INPUT, 'Link1'),
+    ('SP Geom=(Check,Connectivity)', CONNECTIVITY_TABLE, 'Geom=Check'),
+    ('Opt=QST2 Geom=Connectivity', '', 'QST'),
+    ('Opt=ModRedundant Geom=Connectivity', CONNECTIVITY_TABLE, 'ModRedundant'),
+    ('Opt=ModRedundant Geom=Connectivity', 'B 1 2 F\n\n' + CONNECTIVITY_TABLE, 'Connectivity'),
+    ('Opt=(TS,ModRedundant) Geom=Connectivity', CONNECTIVITY_TABLE + 'B 1 2 F', 'non-TS'),
+    ('Opt=ModRedundant Geom=Connectivity Units=Bohr', CONNECTIVITY_TABLE + 'B 1 2 F', 'angstrom'),
+    ('Opt=ModRedundant Geom=Connectivity', CONNECTIVITY_TABLE + 'B 1 2 F\n\n4', 'exactly one'),
+])
+def test_strict_connectivity_rejects_unsupported_combinations(keyword, tail, error):
+    text = CONNECTIVITY_INPUT.replace('SP Geom=Connectivity', keyword) + tail
+    with pytest.raises(ValueError, match=error):
+        gaussian_input.validate(text, 8, 12)
+
+
+@pytest.mark.parametrize('basis_tail', ['', 'O H He 0\nSTO-3G\n****\n'])
+def test_strict_connectivity_cannot_stand_in_for_general_basis(basis_tail):
+    text = CONNECTIVITY_INPUT.replace('6-31G(d)', 'Gen') + CONNECTIVITY_TABLE + basis_tail
+    with pytest.raises(ValueError, match='general basis'):
+        gaussian_input.validate(text, 8, 12)
+
+
+def test_frozen_strict_recheck_requires_declared_connectivity(cfg, tmp_path):
+    path, manifest = prepare(cfg, tmp_path, text=CONNECTIVITY_INPUT + CONNECTIVITY_TABLE, relaxed=False)
+    # Model an old strict bundle that passed with its table missing. Its
+    # hashes are consistent, so verification reaches the current parser.
+    (path / 'inputs/water.gjf').write_bytes(CONNECTIVITY_INPUT.encode())
+    files = {p.name: p.read_bytes() for p in (path / 'inputs').iterdir()}
+    manifest['inputs'], manifest['bundle_sha256'] = attempt.bundle(files)
+    write_manifest(path, manifest)
+    with pytest.raises(ValueError, match='Connectivity'):
+        attempt.verified_files(cfg, path, manifest)
+
+    # A process may have written the permanent claim before advancing state.
+    claim(path / '.submit-claim')
+    assert state.read(path)['state'] == 'prepared'
+    assert attempt.verified_files(cfg, path, manifest) == files
+    fake = Fake(cfg)
+    with pytest.raises(ValueError, match='consumed or not prepared'):
+        submit.submit(cfg, [path.name], fake)
+    assert not fake.calls
+
+
+@pytest.mark.parametrize('damage', [None, 'remote-input'])
+def test_claimed_legacy_connectivity_recovers_late_start(cfg, tmp_path, monkeypatch, damage):
+    from ag import config, status
+    from ag.transport import Result
+    from test_unknown_start_binding import StartFake, assert_read_only_since, frozen
+
+    # Build the old-format fixture using the pre-T223 interpretation of this
+    # route: explicit geometry with no additional data, original route retained.
+    old_science = gaussian_input.validate(CONNECTIVITY_INPUT.replace(' Geom=Connectivity', ''), 8, 12)
+    old_science['route'] += ' Geom=Connectivity'
+    monkeypatch.setattr(config, 'ssh_identity', lambda _: ('fixture', 22, 'fixture'))
+    with monkeypatch.context() as historical:
+        historical.setattr(gaussian_input, 'validate', lambda *a, **kw: old_science.copy())
+        historical.setattr(confirm, 'confirm', lambda _: True)
+        path, manifest = prepare(cfg, tmp_path, text=CONNECTIVITY_INPUT, relaxed=False)
+        fake = StartFake(cfg, manifest)
+        fake.qsub = Result(255, '', 'Synthetic lost response')
+        with pytest.raises(submit.UnknownSubmission):
+            submit.submit(cfg, [path.name], fake)
+
+    assert state.read(path)['state'] == 'unknown'
+    original = frozen(path)
+    first = len(fake.calls)
+    if damage:
+        fake.files['water.gjf'] += b'\n'
+        with pytest.raises(ValueError, match='Remote input differs'):
+            status.check(cfg, path, fake)
+        assert state.read(path)['state'] == 'unknown'
+        assert not (path / 'submission.json').exists()
+    else:
+        fake.end = dict(PBS_JOBID=fake.start['PBS_JOBID'], returncode=0, finished_at=manifest['created_at'])
+        result = status.check(cfg, path, fake)
+        assert result['state'] == 'finished'
+        assert result['start_reconciliation']['bundle_sha256'] == manifest['bundle_sha256']
+        assert result['start_reconciliation']['remote_input_verification'] == 'size+sha256'
+    with pytest.raises(ValueError, match='consumed or not prepared'):
+        submit.submit(cfg, [path.name], fake)
+    assert frozen(path) == original
+    assert_read_only_since(fake, first)
