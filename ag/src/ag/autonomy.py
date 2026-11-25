@@ -1127,7 +1127,7 @@ def manual_write_guard(cfg, name, *, action=None, attempt_ids=None):
     An individual claim lock distinguishes concurrent legacy manual work from a
     crashed writer; an abandoned or damaged claim is never silently cleared.
     """
-    from ag.autonomy_submission import machine_lock, study_identity
+    from ag.autonomy_submission import machine_lock, study_identity, _publish_study_record
     if action is not None:
         if attempt_ids is None:
             attempt_ids = []
@@ -1170,7 +1170,7 @@ def manual_write_guard(cfg, name, *, action=None, attempt_ids=None):
                                      attempt_ids=list(attempt_ids or []))
                     raw = disk.encode(claim)
                     filename = writer_id + '.claim.json'
-                    writers.exclusive(filename, raw)
+                    _publish_study_record(writers, filename, raw, root, identity)
                     writerfd = writers.open(filename, os.O_RDONLY)
                     fcntl.flock(writerfd, fcntl.LOCK_EX | fcntl.LOCK_NB)
                     # A failed journal/state publish leaves the claim unfinished.
@@ -1217,8 +1217,16 @@ def _manual_action(action, attempt_ids):
         study.identifier(value)
 
 
-def _manual_writer_records(store, root, identity, *, allow_stale=False):
+def _writer_directory_matches(claim, raw, root, identity, pbs_dirs):
+    if pbs_dirs is not None:
+        source = pbs_dirs.writer_path(identity, claim['writer_id'] + '.claim.json')
+        return pbs_dirs.matches(root, claim, raw, source)
+    return all(type(claim[key]) is type(value) and claim[key] == value for key, value in identity.items())
+
+
+def _manual_writer_records(store, root, identity, *, allow_stale=False, pbs_dirs=None):
     """Validate immutable claims and their outcomes; caller holds the machine lock."""
+    from ag.autonomy_submission import _read_file
     if store is None:
         return {}
     records = {}
@@ -1226,7 +1234,7 @@ def _manual_writer_records(store, root, identity, *, allow_stale=False):
         match = re.fullmatch(r'([0-9a-f]{32})\.(claim|complete|release)\.json', filename)
         if not match:
             raise ValueError('Unknown manual writer evidence; preserve files for inspection')
-        raw = store.read(filename)
+        raw = (_read_file(pbs_dirs.writer_path(identity, filename)) if pbs_dirs is not None else store.read(filename))
         value = disk.decode(raw)
         if not isinstance(value, dict) or disk.encode(value) != raw:
             raise ValueError('Damaged manual writer evidence; preserve files for inspection')
@@ -1244,7 +1252,7 @@ def _manual_writer_records(store, root, identity, *, allow_stale=False):
             fields |= {'action', 'attempt_ids'}
         if (not claim or set(claim) != fields
                 or claim['schema'] not in ('ag-manual-writer/1', 'ag-manual-writer/2') or claim['study_path'] != str(root)
-                or any(type(claim[key]) is not type(value) or claim[key] != value for key, value in identity.items())):
+                or not _writer_directory_matches(claim, row['raw'], root, identity, pbs_dirs)):
             raise ValueError('Manual writer study binding changed or claim is missing')
         if claim['schema'] == 'ag-manual-writer/2':
             _manual_action(claim['action'], claim['attempt_ids'])
