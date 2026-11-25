@@ -14,6 +14,7 @@ from ag.transport import require_ok
 
 # Append the whole node without changing existing option order or the default.
 FRACTIONS = ('1/2', '1/4', '1')
+_EMPTY_QUEUE_UNKNOWN = 'Site requires an empty node; target queue waiting requests could not be excluded'
 
 # Reviewed T145 guard: exact nodefile names/count, before ANY executable body.
 # A template update must be reviewed again before it can prove old placement.
@@ -277,6 +278,8 @@ def idle(row):
         return 'unknown', _evidence_reason(row)
     if row.get('state') != 'free' or row.get('cores_used') != 0 or row.get('jobs') != 0 or row.get('targeting_reserved'):
         return 'occupied', 'Node has allocations, queued named requests, or is not free'
+    if 'empty_only_waiters_checked' in row and row['empty_only_waiters_checked'] is None:
+        return 'unknown', _EMPTY_QUEUE_UNKNOWN
     if row.get('mem_assigned_gb') not in (None, 0):
         return 'unknown', 'Assigned memory contradicts idle node evidence'
     total = row.get('mem_total_gb')
@@ -310,6 +313,9 @@ def admission(row, cores, mem_gb, cfg=None):
         reason = _evidence_reason(row) + '; site permission to queue on this occupied node is unverified'
     if not reason:
         reason = account_refusal(cfg, row, cores)
+    if (not reason and row.get('name') in site.get('empty_only', [])
+            and row.get('empty_only_waiters_checked') != site['queue']):
+        reason = _EMPTY_QUEUE_UNKNOWN
     if reason:
         return dict(selectable=False, selectable_reason=reason, capacity=assessment)
     # Same supported PBS states as T156. Unknown availability alone cannot
@@ -370,6 +376,10 @@ def candidates(cfg, cluster='default', *, now=None):
             status, reason = 'stale', 'Monitor snapshot is unavailable, failed or stale'
         else:
             status, reason = idle(row)
+            site = policy.get('occupied_policy', {})
+            if (status == 'available' and name in site.get('empty_only', [])
+                    and row.get('empty_only_waiters_checked') != site['queue']):
+                status, reason = 'unknown', _EMPTY_QUEUE_UNKNOWN
         for o in opts:
             o.update(admission(row, o['cores'], o['mem_gb'], selected))
             # Keep the legacy display mapping. Exact/unknown capacity is
@@ -456,6 +466,13 @@ def fresh_check(cfg, m, transport, username=None, claimed=False):
     row = matches[0]
     if row['cores_total'] != m['node_target']['slots']:
         raise ValueError('Target capacity changed or insufficient; stop')
+    site = cfg['node_targeting'].get('occupied_policy', {})
+    if row['name'] in site.get('empty_only', []):
+        from ag.monitor import parse_queues
+        result = transport.run(remote.queues())
+        queues = parse_queues(require_ok(result, 'target qstat queues'),
+                              include_total=True, include_waiting=True)
+        pbs.observe_empty_queue(site, [row], queues if not result.stderr else [], jobs)
     decision = admission(row, m['cores'], m['mem_gb'], cfg)
     if not decision['selectable']:
         raise ValueError('Target node unavailable: ' + decision['selectable_reason'] + '; stop')

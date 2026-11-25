@@ -2207,6 +2207,7 @@ def _scan_reservations(cfg, *, states=None, diagnostic=None, manual_studies=None
             row['accounting_state'] = placement['state'] if placement is not None else None
     # Manual jobs count towards cores, never autonomous job caps. The exact
     # same single-record classifier is used by diagnostics and submission.
+    manual_options = {'pbs_account': True} if manual_studies is not None else {}
     for path in sorted(studies):
         attempts = path / 'attempts'
         with _reservation_check(diagnostic, 'attempts_directory', attempts, coverage=True):
@@ -2226,7 +2227,7 @@ def _scan_reservations(cfg, *, states=None, diagnostic=None, manual_studies=None
                 with _reservation_check(diagnostic, 'attempt', target) as row:
                     _require(path not in invalid_studies, 'Study ownership state could not be verified')
                     _require(str(target) not in invalid_consumption, 'Consumed Attempt is missing its global reservation')
-                    placement, warning = _manual_accounting(cfg, target, entries, pbs_account=manual_studies is not None)
+                    placement, warning = _manual_accounting(cfg, target, entries, **manual_options)
                     if warning is not None:
                         warnings.append(warning)
                         if diagnostic is not None:

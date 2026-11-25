@@ -906,6 +906,7 @@ class OwnListFake(TargetFake):
                             '    Job_Name = synthetic\n    job_state = R\n    queue = batch\n'
                             '    Resource_List.nodes = compute-a:ppn=4\n    exec_host = compute-a/0-3\n')
         self.account = Result(stdout='AG_OWNER fixture\n833.fixture\nAG_END\n')
+        self.queue_text = 'Queue Tot Que Run\nbatch 3 1 2\n'
 
     def run(self, command):
         from ag import remote
@@ -914,7 +915,7 @@ class OwnListFake(TargetFake):
             return self.account
         if command == remote.queues():
             self.calls.append(command)
-            return Result(stdout='Queue Tot Que Run\nbatch 3 1 2\n')
+            return Result(stdout=self.queue_text)
         return super().run(command)
 
 
@@ -946,6 +947,7 @@ def test_site_permitted_queue_with_restricted_details_full_submission(targeted, 
     monkeypatch.setattr(confirm, 'confirm', lambda _: True)
     submit.submit(cfg, [m['attempt_id']], fake)
     assert fake.calls.count(remote.pbs_own_jobs()) == 3  # sample and both fresh checks
+    assert fake.calls.count(remote.queues()) == 1  # queue-permitted target needs no empty-queue proof
     assert fake.operations().count('submit') == 1 and 'cancel' not in fake.operations()
     path = attempt.find(cfg, m['attempt_id'])
     assert state.read(path)['state'] == 'submitted' and state.read(path)['node_placement']['state'] == 'pending'
@@ -1109,6 +1111,7 @@ def test_account_conflicts_reject_even_empty_target(targeted, monkeypatch, issue
     monkeypatch.setattr(config, 'ssh_identity', lambda _: ('fixture', 22, 'fixture'))
     cfg['resources']['max_committed_cores'] = 28
     fake = OwnListFake(cfg)
+    fake.queue_text = 'Queue Tot Que Run\nbatch 2 0 2\n'
     fake.node_text += nodes().replace('compute-a', 'compute-b')
     args = args | dict(target_node='compute-b')
     def conflict():
@@ -1295,6 +1298,7 @@ def test_known_manual_root_includes_pre_registry_siblings(targeted, monkeypatch,
         claim['study_path'] = str(root / 'older')
         claim_path.write_bytes(records.disk.encode(claim))
     fake = OwnListFake(cfg)
+    fake.queue_text = 'Queue Tot Que Run\nbatch 2 0 2\n'
     fake.node_text += nodes().replace('compute-a', 'compute-b')
     rows = monitor.observation(cfg, fake, 'fixture')['cluster']['nodes']
     snapshot(cfg, rows)
@@ -1324,9 +1328,11 @@ def test_empty_only_honors_existing_named_waiter(targeted, monkeypatch, phase):
         pass
     monkeypatch.setattr(config, 'ssh_identity', lambda _: ('fixture', 22, 'fixture'))
     fake = OwnListFake(cfg)
+    fake.queue_text = 'Queue Tot Que Run\nbatch 2 0 2\n'
     fake.node_text += nodes().replace('compute-a', 'compute-b')
     name = 'compute-a' if phase == 'queue-permitted' else 'compute-b'
     def enqueue():
+        fake.queue_text = 'Queue Tot Que Run\nbatch 3 1 2\n'
         fake.qstat = Result(stdout=fake.qstat.stdout + 'Job Id: 893.fixture\n    Job_Owner = peer@fixture\n'
             f'    Job_Name = waiting\n    job_state = Q\n    Resource_List.nodes = {name}:ppn=12\n    queue = batch\n')
     if phase in ('prepare', 'queue-permitted'):
@@ -1361,3 +1367,101 @@ def test_empty_only_honors_existing_named_waiter(targeted, monkeypatch, phase):
         else:
             submit.submit(cfg, [m['attempt_id']], fake)
     assert fake.operations().count('submit') == (1 if phase in ('empty', 'queue-permitted') else 0)
+
+
+@pytest.mark.parametrize('phase', ['prepare', 'confirmation', 'upload', 'elsewhere', 'other-queue'])
+def test_empty_only_rechecks_visibility_of_target_queue_waiters(targeted, monkeypatch, phase):
+    from ag import autonomy_submission, remote
+    cfg, args = targeted
+    queue_site(cfg)
+    with autonomy_submission.machine_lock():
+        pass
+    monkeypatch.setattr(config, 'ssh_identity', lambda _: ('fixture', 22, 'fixture'))
+    fake = OwnListFake(cfg)
+    fake.node_text += nodes().replace('compute-a', 'compute-b')
+    hidden = fake.queue_text
+    if phase != 'prepare':
+        fake.queue_text = 'Queue Tot Que Run\nbatch 2 0 2\n'
+    if phase == 'elsewhere':
+        fake.queue_text = hidden
+        fake.qstat = Result(stdout=fake.qstat.stdout + 'Job Id: 893.fixture\n    Job_Owner = peer@fixture\n'
+            '    job_state = Q\n    Resource_List.nodes = compute-a:ppn=12\n    queue = batch\n')
+    if phase == 'other-queue':
+        fake.queue_text += 'alternate 1 1 0\n'
+    rows = monitor.observation(cfg, fake, 'fixture')['cluster']['nodes']
+    snapshot(cfg, rows)
+    requested = args | dict(target_node='compute-b')
+    target = nt.candidates(cfg)['nodes'][0]
+    assert target['options'][0]['capacity']['availability'] == 'enough'
+    if phase == 'prepare':
+        assert target['status'] == 'unknown' and not target['selectable']
+        with pytest.raises(ValueError, match='queue waiting requests'):
+            attempt.prepare(cfg, **requested)
+    else:
+        assert target['status'] == 'available' and target['selectable']
+        m = attempt.prepare(cfg, **requested)
+        fake.job = Result(stdout=f"Job Id: 123.fixture\n    Job_Name = {m['pbs_job_name']}\n    job_state = Q\n")
+        def click(_):
+            if phase == 'confirmation':
+                fake.queue_text = hidden
+            return True
+        monkeypatch.setattr(confirm, 'confirm', click)
+        upload = fake.upload
+        def transfer(*args):
+            upload(*args)
+            if phase == 'upload':
+                fake.queue_text = hidden
+        fake.upload = transfer
+        if phase in ('confirmation', 'upload'):
+            stage = 'after confirmation' if phase == 'confirmation' else 'after upload, before qsub'
+            with pytest.raises(ValueError, match=stage + '.*queue waiting requests'):
+                submit.submit(cfg, [m['attempt_id']], fake)
+            path = attempt.find(cfg, m['attempt_id'])
+            assert state.read(path)['state'] == ('prepared' if phase == 'confirmation' else 'failed_presubmit')
+            assert (path / '.submit-claim').exists() is (phase == 'upload')
+        else:
+            submit.submit(cfg, [m['attempt_id']], fake)
+        assert fake.calls.count(remote.queues()) == (2 if phase == 'confirmation' else 3)
+    assert fake.operations().count('submit') == (1 if phase in ('elsewhere', 'other-queue') else 0)
+
+
+@pytest.mark.parametrize('queue_text,requests,proved', [
+    ('batch 3 0 2 1 0 0 0', [], False),
+    ('batch 3 0 2 1 0 0 0', [('H', 'compute-a:ppn=2')], True),
+    ('batch 3 0 2 0 0 0 1', [], True),  # Hidden exiting job, no waiters.
+    ('batch 3 0 2 0 0 0 0', [], False),  # Contradictory total.
+    ('batch 3 1 2 0 0 0 0', [('Q', '')], False),
+    ('batch 3 1 2 0 0 0 0', [('Q', 'compute-b.example:ppn=2')], False),
+    ('batch 3 1 2 0 0 0 0', [('Q', '1:feature:ppn=2')], False),
+    ('another 0 0 0 0 0 0 0', [], False),
+])
+def test_empty_only_queue_state_and_request_evidence(queue_text, requests, proved):
+    from ag import pbs
+    site = dict(queue='batch', server='fixture', empty_only=['compute-b'])
+    jobs = [dict(job_id='8.fixture', queue='batch', job_state=state, **{'Resource_List.nodes': request})
+            for state, request in requests]
+    row = dict(name='compute-b')
+    queues = monitor.parse_queues('Queue Tot Que Run Hld Wat Trn Ext\n' + queue_text,
+                                  include_total=True, include_waiting=True)
+    pbs.observe_empty_queue(site, [row], queues, jobs)
+    assert (row['empty_only_waiters_checked'] == 'batch') is proved
+
+
+@pytest.mark.parametrize('alternate', ['neednodes', 'host', 'select'])
+def test_empty_only_waiting_job_has_competing_resource_identity(alternate):
+    from ag import pbs
+    row = dict(name='compute-b')
+    job = dict(job_id='8.fixture', queue='batch', job_state='Q',
+               **{'Resource_List.nodes': 'compute-a:ppn=2', 'Resource_List.' + alternate: 'compute-b'})
+    pbs.observe_empty_queue(dict(queue='batch', server='fixture', empty_only=['compute-b']),
+                            [row], [dict(name='batch', running=0, queued=1, total=1)], [job])
+    assert row['empty_only_waiters_checked'] is None
+
+
+def test_ambiguous_queue_columns_leave_empty_only_waiting_unverified():
+    from ag import pbs
+    row = dict(name='compute-b')
+    queues = monitor.parse_queues('Queue Tot Que Run Que\nbatch 0 0 0 1',
+                                  include_total=True, include_waiting=True)
+    pbs.observe_empty_queue(dict(queue='batch', server='fixture', empty_only=['compute-b']), [row], queues, [])
+    assert row['empty_only_waiters_checked'] is None

@@ -51,7 +51,7 @@ def watch_seconds(value):
     return seconds
 
 
-def parse_queues(text, *, include_total=False):
+def parse_queues(text, *, include_total=False, include_waiting=False):
     rows, header = [], None
     for line in text.splitlines():
         fields = line.split()
@@ -71,6 +71,12 @@ def parse_queues(text, *, include_total=False):
         if include_total and 'Tot' in header:
             total = fields[header.index('Tot')]
             row['total'] = int(total) if total.isdigit() else None
+        if include_waiting:
+            counts = {state: fields[header.index(key)] for key, state in
+                      (('Hld', 'H'), ('Wat', 'W'), ('Trn', 'T'), ('Ext', 'E')) if key in header}
+            row['state_counts'] = {state: int(value) if value.isdigit() else None for state, value in counts.items()}
+            if len(header) != len(set(header)):
+                row['total'] = None  # Ambiguous columns cannot prove a physically empty node is admissible.
         rows.append(row)
     return rows
 
@@ -92,8 +98,13 @@ def observation(cfg, transport, username, *, storage_state=None, sampled_at=None
     from ag.node_targeting import account_servers, observe_occupied_account
     servers = account_servers(cfg)
     named = 'node_targeting' in cfg or bool(servers)
-    queues = parse_queues(require_ok(transport.run(remote.queues()), 'qstat queues'), include_total=named)
+    site = cfg.get('node_targeting', {}).get('occupied_policy', {})
+    queue_result = transport.run(remote.queues())
+    queues = parse_queues(require_ok(queue_result, 'qstat queues'),
+                          include_total=named, include_waiting=bool(site.get('empty_only')))
     nodes, hardware = pbs_hardware(cfg, transport, jobs, account_user=username if named else None)
+    if site.get('empty_only'):
+        pbs.observe_empty_queue(site, nodes, queues if not queue_result.stderr else [], jobs)
     account = observe_occupied_account(cfg, nodes, jobs, username, transport) if named else {}
     attempts = local_attempts(Path(cfg['local']['studies_root']), cfg.get('_cluster', 'default'), 'pbs')
     by_job = {}

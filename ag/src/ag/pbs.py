@@ -253,6 +253,53 @@ def parse_nodes(text, jobs, *, notes=None, targeting=False, queue_server=None, a
     return nodes
 
 
+def observe_empty_queue(site, nodes, queues, jobs):
+    """Prove only the named queue's waiting requests; hidden runners may be elsewhere."""
+    queue = site['queue']
+    targets = [row for row in nodes if row['name'] in site['empty_only']]
+    for row in targets:
+        row['empty_only_waiters_checked'] = None
+    matches = [q for q in queues if q['name'] == queue]
+    if len(matches) != 1:
+        return
+    summary = matches[0]
+    visible = [j for j in jobs if j.get('queue') == queue and j.get('job_state') != 'C']
+    if len({j['job_id'] for j in visible}) != len(visible):
+        return
+    states = Counter(j.get('job_state') for j in visible)
+    if (states.keys() - set('RQHWTSE') or states['Q'] != summary['queued']
+            or states['R'] > summary['running']):
+        return
+    reported = summary.get('state_counts', {})
+    if None in reported.values() or any(states[s] != reported[s] for s in ('H', 'W', 'T') if s in reported):
+        return
+    exiting = reported.get('E', states['E'])
+    accounted = summary['running'] + exiting + sum(states[s] for s in 'QHWTS')
+    if states['E'] > exiting or ('total' in summary and summary['total'] != accounted):
+        return  # Unclassified non-running jobs could include a hidden named waiter.
+    if 'total' not in summary and not {'H', 'W', 'T'} <= reported.keys():
+        return
+
+    named = set()
+    for job in visible:
+        if job['job_state'] not in ('Q', 'H', 'W', 'T'):
+            continue
+        request = job.get('Resource_List.nodes', '')
+        if (not ordinary_server_job(job['job_id'], site['server'])
+                or job.get('Resource_List.neednodes', request) != request
+                or any(k in job for k in ('Resource_List.select', 'Resource_List.host'))):
+            return
+        for chunk in request.split('+'):
+            match = re.fullmatch(r'([1-9][0-9]*|[A-Za-z][A-Za-z0-9_.-]*)(?::ppn=[1-9][0-9]*)?', chunk)
+            if not match:
+                return
+            if not match[1].isdigit():
+                named.add(match[1])
+    for row in targets:
+        if not any(n.partition('.')[0] == row['name'].partition('.')[0] for n in named):
+            row['empty_only_waiters_checked'] = queue
+
+
 def job_table_issue(nodes, queues, jobs):
     """Compare visible rows to independent PBS queue and placement observations."""
     if not isinstance(nodes, list) or not nodes or not isinstance(queues, list) or not queues:
