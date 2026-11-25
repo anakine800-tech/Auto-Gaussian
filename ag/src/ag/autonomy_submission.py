@@ -354,13 +354,18 @@ class _EvidenceReads:
         if path.name == 'journal.jsonl' and data is not None:
             self.journals[path] = data
 
-    def directory(self, path):
+    def directory(self, path, opened_fd=None):
         path = Path(path).absolute()
-        fd = disk.directory(path)
-        try:
-            identity = _fingerprint(os.fstat(fd))
-        finally:
-            os.close(fd)
+        if opened_fd is None:
+            fd = disk.directory(path)
+            try:
+                identity = _fingerprint(os.fstat(fd))
+            finally:
+                os.close(fd)
+        else:
+            # listdir must describe this opened directory. Reopening the name
+            # here could certify a replacement while we enumerate the old fd.
+            identity = _fingerprint(os.fstat(opened_fd))
         _require(self.directories.get(path, identity) == identity, 'Evidence directory changed during reading')
         self.directories[path] = identity
 
@@ -626,7 +631,7 @@ def _registered_studies(diagnostic=None, *, pbs_dirs=None):
                     _remember_absence(location)
                 return result
             if diagnostic is not None or pbs_dirs is not None:
-                _CAPTURE_READS.get().directory(location)
+                _CAPTURE_READS.get().directory(location, store.fd)
             for name in sorted(os.listdir(store.fd)):
                 with _reservation_check(diagnostic, 'study_registration', location / name, coverage=True) as row:
                     raw = _read_file(location / name)
@@ -748,7 +753,7 @@ def _manifest_bytes(path):
     try:
         captured = _CAPTURE_READS.get()
         if captured is not None:
-            captured.directory(inputs)
+            captured.directory(inputs, fd)
         files = {name: _read_file(inputs / name) for name in os.listdir(fd)}
     finally:
         os.close(fd)
@@ -851,7 +856,7 @@ def _read_global_records(diagnostic=None, *, pbs_dirs=None):
                     _remember_absence(location)
                 return records
             if diagnostic is not None or pbs_dirs is not None:
-                _CAPTURE_READS.get().directory(location)
+                _CAPTURE_READS.get().directory(location, store.fd)
             for name in sorted(os.listdir(store.fd)):
                 with _reservation_check(diagnostic, 'reservation', location / name, coverage=True) as row:
                     raw = _read_file(location / name)
@@ -897,7 +902,7 @@ def _study_paths(root, diagnostic=None, *, pbs=False):
             return result
         try:
             if diagnostic is not None or pbs:
-                _CAPTURE_READS.get().directory(root)
+                _CAPTURE_READS.get().directory(root, fd)
             for name in sorted(os.listdir(fd)):
                 if name.startswith('.'):
                     continue
@@ -2182,11 +2187,11 @@ def _read_pbs_account(cfg, reads):
             _remember_absence(writer_root)
             registry = None
         else:
-            reads.directory(writer_root)
+            reads.directory(writer_root, registry.fd)
         for key in sorted(os.listdir(registry.fd)) if registry is not None else ():
             with disk.manual_writers(key) as writers:
                 _require(writers is not None, 'Manual writer registration disappeared')
-                reads.directory(writer_root / key)
+                reads.directory(writer_root / key, writers.fd)
                 first = next((n for n in sorted(os.listdir(writers.fd)) if n.endswith('.claim.json')), None)
                 _require(first is not None, 'Manual study registration has no claim')
                 seed = disk.decode(writers.read(first))
@@ -2306,7 +2311,7 @@ def _scan_reservations(cfg, *, states=None, diagnostic=None, manual_studies=None
             fd = disk.directory(attempts)
             try:
                 if diagnostic is not None or pbs_dirs is not None:
-                    _CAPTURE_READS.get().directory(attempts)
+                    _CAPTURE_READS.get().directory(attempts, fd)
                 names = sorted(os.listdir(fd))
             finally:
                 os.close(fd)

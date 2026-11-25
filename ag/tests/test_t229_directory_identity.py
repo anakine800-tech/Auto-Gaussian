@@ -141,3 +141,21 @@ def test_legacy_originals_are_not_endorsed_later(cfg, mounts):
     devices[root] = 1
     with pytest.raises(ValueError, match='binding changed'):
         records.read_pbs_reservations(cfg)
+
+
+def test_rechecks_directory_used_for_registry_enumeration(cfg, prepared, selector, monkeypatch):
+    registry = Path.home() / '.config/ag/manual-writers'
+    complete = registry.with_name('original-registry')
+    registry.rename(complete)
+    registry.mkdir()
+    read_directory = records._EvidenceReads.directory
+
+    def replace(self, path, *args):
+        if path == registry and complete.exists():
+            registry.rename(registry.with_name('old-registry'))
+            complete.rename(registry)
+        return read_directory(self, path, *args)
+
+    monkeypatch.setattr(records._EvidenceReads, 'directory', replace)
+    with pytest.raises(ValueError, match='directory changed'):
+        records.read_pbs_reservations(cfg)
