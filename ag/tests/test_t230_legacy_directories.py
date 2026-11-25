@@ -203,3 +203,43 @@ def test_index_reads_more_files_than_descriptor_limit(tmp_path, monkeypatch):
         finally:
             resource.setrlimit(resource.RLIMIT_NOFILE, original)
     assert len(result) == len(files)
+
+
+@pytest.mark.skipif(sys.platform != 'darwin', reason='Darwin local index management')
+def test_long_discovery_releases_the_machine_mutex_and_final_accounting_holds_it(cfg, historical, monkeypatch):
+    import fcntl
+    root, index, _, _, _ = historical
+    checks = set()
+    query = legacy.LegacyDirectories._events
+    def check_lock(self, *args):
+        lock = Path.home() / '.config/ag/autonomy-submit.lock'
+        with lock.open('rb+') as peer:
+            if self.collect:
+                fcntl.flock(peer, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fcntl.flock(peer, fcntl.LOCK_UN)
+                checks.add('discovery free')
+            else:
+                with pytest.raises(BlockingIOError):
+                    fcntl.flock(peer, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                checks.add('indexed scan locked')
+        return query(self, *args)
+    monkeypatch.setattr(legacy.LegacyDirectories, '_events', check_lock)
+    assert not pbs_legacy_index.derive(cfg)['installed']
+    assert checks == {'discovery free', 'indexed scan locked'} and not index.exists()
+
+
+@pytest.mark.skipif(sys.platform != 'darwin', reason='Darwin local index management')
+def test_change_before_machine_lock_refuses_index_publication(cfg, historical, monkeypatch):
+    from contextlib import contextmanager
+    root, index, _, _, _ = historical
+    digest = pbs_legacy_index.derive(cfg)['sha256']
+    lock = accounting.machine_lock
+    @contextmanager
+    def peer_completed_before_acquisition(*args, **kwargs):
+        (root.parent / 'another-study').mkdir()
+        with lock(*args, **kwargs):
+            yield
+    monkeypatch.setattr(accounting, 'machine_lock', peer_completed_before_acquisition)
+    with pytest.raises(ValueError, match='directory changed'):
+        pbs_legacy_index.derive(cfg, install=digest)
+    assert not index.exists()

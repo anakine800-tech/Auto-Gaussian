@@ -24,7 +24,7 @@ def _hash(raw):
 
 
 class LegacyDirectories:
-    def __init__(self, reads, *, collect=False):
+    def __init__(self, reads, *, collect=False, index_bytes=None):
         from ag.autonomy_submission import _json, _read_file
         self.reads = reads
         self.by_study = {}
@@ -37,12 +37,13 @@ class LegacyDirectories:
             self.lookup = {}
             self.system = _DarwinEvents()
             return
-        index = Path.home() / '.config/ag/pbs-legacy-event-index.json'
-        try:
-            raw = _read_file(index)
-        except FileNotFoundError:
-            return
-        data = _json(raw)
+        if index_bytes is None:
+            index = Path.home() / '.config/ag/pbs-legacy-event-index.json'
+            try:
+                index_bytes = _read_file(index)
+            except FileNotFoundError:
+                return
+        data = _json(index_bytes)
         _require(isinstance(data, dict) and set(data) == {'schema', 'events'}
                  and data['schema'] == 'ag-pbs-directory-event-index/1' and isinstance(data['events'], dict))
         for key, ids in data['events'].items():

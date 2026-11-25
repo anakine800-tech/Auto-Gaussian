@@ -2183,13 +2183,13 @@ def read_pbs_reservations(cfg):
         return _read_pbs_account(cfg, reads)
 
 
-def _read_pbs_account(cfg, reads, *, collect_event_index=False):
+def _read_pbs_account(cfg, reads, *, event_index=None):
     from ag.autonomy import _manual_writer_records
     studies = set()
     pbs_dirs = _PbsDirectories()
-    if collect_event_index:
+    if event_index is not None:
         from ag._pbs_legacy_directories import LegacyDirectories
-        pbs_dirs.legacy = LegacyDirectories(reads, collect=True)
+        pbs_dirs.legacy = LegacyDirectories(reads, index_bytes=event_index)
     writer_root = Path.home() / '.config/ag/manual-writers'
     with ExitStack() as stack:
         try:
@@ -2225,8 +2225,6 @@ def _read_pbs_account(cfg, reads, *, collect_event_index=False):
                 studies.add(path)
     result = _scan_reservations(cfg, manual_studies=studies, pbs_dirs=pbs_dirs)
     pbs_dirs.verify()
-    if collect_event_index:
-        return result, pbs_dirs.legacy.lookup
     return result
 
 
