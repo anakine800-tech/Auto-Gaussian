@@ -228,18 +228,7 @@ def _tail(text, options, atom_count):
         # Gaussian orders Connectivity before ModRedundant and Gen. Consume the
         # complete first block so permissive basis data cannot mask malformed rows.
         blocks = re.split(r'\n\s*\n', text.strip(), maxsplit=1)
-        rows = blocks[0].splitlines()
-        if len(rows) != atom_count:
-            raise ValueError('Connectivity requires one row per atom, then a blank line before other data')
-        for index, row in enumerate(rows, 1):
-            fields = row.split()
-            if not fields or not re.fullmatch(r'[0-9]+', fields[0]) or int(fields[0]) != index or len(fields) % 2 != 1:
-                raise ValueError('Connectivity requires ordered integer atom rows and neighbor/bond-order pairs')
-            for neighbor, order in zip(fields[1::2], fields[2::2]):
-                if not re.fullmatch(r'[0-9]+', neighbor) or not 1 <= int(neighbor) <= atom_count:
-                    raise ValueError('Connectivity neighbor index must identify an explicit atom')
-                if not re.fullmatch(_NUMBER, order) or not math.isfinite(float(order)):
-                    raise ValueError('Connectivity bond order must be a finite number')
+        gaussian_input.validate_connectivity(blocks[0], atom_count)
         text = blocks[1] if len(blocks) > 1 else ''
     if not text.strip():
         return

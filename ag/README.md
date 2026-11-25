@@ -284,6 +284,39 @@ journal、取回标记或 facts；不主动调用 `ag status`。后续 fetch/fac
 
 旧 Attempt 若尚未创建永久提交声明，手动和自主提交都会先复核其冻结输入。有裸整数时，会在确认和访问集群前报告冻结文件中的行号。请在源文件副本中修正坐标，再用 `ag prepare` 创建新的 Attempt。已声明的历史包仍可按原字节核对、恢复回执及读取旧结果。
 
+## 严格校验 GaussView 连接表
+
+普通单段 Gaussian 输入的 route 声明 `Geom=Connectivity` 时，在显式 Cartesian 坐标后留一空行，
+再按坐标顺序从 1 到原子总数逐行列出连接。每行先写原子编号，后面可写多对“邻居编号 键级”。
+邻居编号须落在坐标范围内，键级须为有限数值。仅含本原子编号的行也有效，包括孤立原子。
+例如，水分子按 O、H、H 排列时可写为：
+
+```text
+1 2 1.0 3 1.0
+2
+3
+```
+
+严格模式可以在连接表后隔一空行接原有非 TS 的 `Opt=ModRedundant` 段，沿用原扫描与冻结坐标判据。
+连接表须显式声明，声明后缺表即拒绝。QST 多结构、checkpoint 几何、通用基组段和 Link1 超出这条严格路径的范围。
+已写齐资源的输入按原字节冻结。表的校验仅覆盖行序、编号和键级的数值语法，化学成键仍需审阅。
+旧版严格输入可能已声明连接表却缺表。若 Attempt 已有永久提交声明，
+迟到回执等只读核对按当时支持的输入格式复核，仍须核对原冻结字节、脚本及科学摘要。
+仍待提交的旧包在提交前按当前语法复验，缺表即拒绝。
+
+## 严格 Gaussian 输入读取父力常数
+
+在默认的单段 Gaussian 输入中，Opt 或 IRC 使用 `ReadFC`、`RCFC` 或
+`ReadCartesianFC` 时，prepare 须声明父 Attempt、关系和父输入的确切 chk 文件名，
+例如 `--parent <父Attempt> --relation opt_from --parent-chk <父Attempt>:water.chk`。
+子输入写 `%oldchk=parent.chk` 并另写 `%chk=child.chk`。只指定输出 chk 或只记录父子关系时，
+prepare 会在分配 Attempt 编号前拒绝。
+
+父子须属于同一 study、同一集群。请从父作业的 `final_input.xyz` 取坐标；
+已有 NoSymm 规则也允许使用 `final.xyz`。prepare 和新提交前均按原子顺序和输入取向
+逐行比较，每个原子的距离上限为 0.0001 Å。历史记录可继续复核，旧的 prepared Attempt
+发起提交时也须通过来源和取向检查。chk 内是否存有目标 Hessian、其方法是否适合本步，仍需科学审阅。
+
 ## 显式放宽 Gaussian 输入
 
 `ag prepare --template gaussian --relaxed-input` 选择受控放宽校验；默认仍使用原严格校验，
