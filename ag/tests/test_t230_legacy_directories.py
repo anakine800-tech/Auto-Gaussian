@@ -10,8 +10,9 @@ import pytest
 
 from ag import _pbs_legacy_directories as legacy, autonomy, autonomy_submission as accounting, config, study
 from ag import _autonomy_store as disk
-from ag import attempt, pbs_legacy_index
-from test_core import cfg, INPUT
+from ag import attempt, pbs_legacy_index, snapshot, state
+from test_core import cfg, INPUT, seed_submission
+from test_snapshot import Fake as SnapshotTransport
 
 
 @pytest.fixture
@@ -35,14 +36,16 @@ def historical(cfg, monkeypatch, tmp_path):
                            input_path=source, tier='simple', walltime='00:30:00', label='sp')
     aid = data['attempt_id']
     target = attempt.find(cfg, aid)
-    folder = target / 'snapshots' / 'test-example'
-    later = folder.with_name('later-example')
-    for snapshot in (folder, later):
+    state.write(target, 'submitting')
+    seed_submission(target)
+    state.write(target, 'running')
+    folders = []
+    for _ in range(2):
         with autonomy.manual_write_guard(cfg, root.name, action='snapshot', attempt_ids=[aid]):
-            snapshot.mkdir(parents=True)
-            (snapshot / 'capture.txt').write_bytes(b'synthetic output')
-            (snapshot / 'snapshot.json').write_bytes(disk.encode(dict(
-                attempt_id=aid, file='capture.txt', sha256=sha256(b'synthetic output').hexdigest())))
+            receipt = snapshot.capture(cfg, target, SnapshotTransport(b'synthetic output'))
+            folders.append(target / receipt['snapshot'])
+    folder, later = folders
+    state.write(target, 'finished')
     claims = sorted((Path.home() / '.config/ag/manual-writers').rglob('*.claim.json'),
                     key=lambda p: json.loads(p.read_bytes())['started_at'])
     bucket = claims[0].parent
@@ -82,7 +85,8 @@ def historical(cfg, monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize('case', ['valid', 'absent', 'foreign-event', 'lost-snapshot', 'conflicting-bytes', 'foreign-volume',
-                                  'changed-parent-entry', 'hand-entered-device', 'split-window', 'overlap'])
+                                  'changed-parent-entry', 'hand-entered-device', 'split-window', 'overlap',
+                                  'cropped-bad-original', 'post-close-metadata'])
 def test_index_never_supplies_directory_identity(cfg, historical, monkeypatch, case):
     root, index, observed, hints, folder = historical
     value = dict(schema='ag-pbs-directory-event-index/1', events=hints)
@@ -91,7 +95,7 @@ def test_index_never_supplies_directory_identity(cfg, historical, monkeypatch, c
     elif case == 'lost-snapshot':
         observed.pop(folder / 'snapshot.json')
     elif case == 'split-window':
-        target = folder.with_name('later-example') / 'snapshot.json'
+        target = max(folder.parent.iterdir()) / 'snapshot.json'
         observed[target] = [(44, 0x1000)]
         hints[sha256(os.fsencode(target)).hexdigest()] = [44]
     elif case == 'overlap':
@@ -99,7 +103,13 @@ def test_index_never_supplies_directory_identity(cfg, historical, monkeypatch, c
         observed[source] = [(41, 0x100)]
         hints[sha256(os.fsencode(source)).hexdigest()] = [41]
     elif case == 'conflicting-bytes':
-        (folder / 'capture.txt').write_bytes(b'changed')
+        (folder / json.loads((folder / 'snapshot.json').read_bytes())['file']).write_bytes(b'changed')
+    elif case == 'cropped-bad-original':
+        (folder / json.loads((folder / 'snapshot.json').read_bytes())['file']).write_bytes(b'changed')
+        hints.pop(sha256(os.fsencode(folder / 'snapshot.json')).hexdigest())
+    elif case == 'post-close-metadata':
+        meta = folder / 'snapshot.json'
+        meta.write_bytes(meta.read_bytes())
     elif case == 'changed-parent-entry':
         monkeypatch.setattr(legacy._study_directory, '_attributes', lambda *a: (1, 2, 9, 4, 5))
     elif case == 'hand-entered-device':

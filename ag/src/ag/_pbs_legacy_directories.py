@@ -4,6 +4,7 @@ The optional local index contains event numbers as lookup hints. No facts, devic
 translations, resource totals or approval decisions can be supplied by it.
 """
 from contextlib import ExitStack
+from datetime import datetime, timezone
 from hashlib import sha256
 import os
 from pathlib import Path
@@ -63,11 +64,6 @@ class LegacyDirectories:
         accepted = self.by_study[group]
         return accepted.get(source) == (_hash(raw), record['study_device'])
 
-    def _has(self, path):
-        if self.collect:
-            return os.path.lexists(path)
-        return _hash(os.fsencode(path)) in self.lookup
-
     def _historical_time(self, path, event, stamp):
         # FSEvents dates bound archive segments; event order is always the
         # actual per-device ID. A recently rewritten artifact cannot date its
@@ -117,8 +113,7 @@ class LegacyDirectories:
             _require(dev == self.stream_volume[0])
             for path in set(paths):
                 ids = self.lookup.get(_hash(os.fsencode(path)))
-                if ids is None and not self.collect:
-                    continue
+                _require(self.collect or ids is not None)
                 with ExitStack() as opened:
                     if path == scope:
                         fd = watch
@@ -237,22 +232,30 @@ class LegacyDirectories:
                      and completion['finished_at'] >= claim['started_at'])
             machine_files.extend([source, complete])
             original[source] = (_hash(raw), claim['study_device'])
+            pairs.append((source, complete, claim, completion))
+        latest_original_close = max((r[3]['finished_at'] for r in pairs), default=0)
+        operations = []
+        for source, complete, claim, completion in pairs:
             targets = []
             if claim.get('action') == 'submit':
                 for aid in claim['attempt_ids']:
                     sub = path / 'attempts' / study.identifier(aid) / 'submission.json'
-                    if self._has(sub):
+                    if os.path.lexists(sub):
                         submission = _json(self._read_original(sub))
                         auth = submission['authorization']
                         if auth.get('method') == 'approval':
                             approval_id = study.identifier(auth['approval_id'])
                             used = path / 'approvals' / (approval_id + '.used')
-                            if self._has(used):
-                                targets.append((sub, used, aid))
-                                objects.extend([sub, used])
+                            self._submission(path, sub, used, aid)
+                            targets.append((sub, used, aid))
+                            objects.extend([sub, used])
             if claim.get('action') == 'snapshot':
                 for aid in claim['attempt_ids']:
                     snapshots = path / 'attempts' / study.identifier(aid) / 'snapshots'
+                    if not os.path.lexists(snapshots):
+                        from ag.autonomy_submission import _remember_absence
+                        _remember_absence(snapshots)
+                        continue
                     fd = disk.directory(snapshots)
                     try:
                         self.reads.directory(snapshots, fd)
@@ -262,19 +265,25 @@ class LegacyDirectories:
                     for name in names:
                         folder = snapshots / name
                         meta = folder / 'snapshot.json'
-                        if self._has(folder) and self._has(meta):
-                            targets.append((folder, meta, aid))
-                            objects.extend([folder, meta])
-            pairs.append((source, complete, claim, targets))
+                        if name.startswith('.') and not os.path.lexists(meta):
+                            continue  # Atomic staging is outside the published snapshot collection.
+                        captured = self._snapshot(folder, meta, aid)
+                        if captured > latest_original_close:
+                            continue  # This verified snapshot postdates the entire old cohort.
+                        targets.append((folder, meta, aid))
+                        objects.extend([folder, meta])
+            operations.append((source, complete, claim, completion, targets))
         owned = path / 'autonomy/state.json'
-        if self._has(owned):
+        globals_here, global_events = self._globals(machine, live, old_device)
+        bound_ownership = any(source.parent.name == 'autonomy-reservations' for source in globals_here)
+        if bound_ownership:
             objects.extend([path / 'journal.jsonl', path / 'study.md', path / 'autonomy/journal.jsonl', owned])
         evidence = self._events(path, objects)
         birth = self._one(evidence, path, 0x100)
-        _require(parent_birth < birth)
+        _require(parent_birth < birth and all(birth < event for event in global_events))
         writes = self._events(bucket, machine_files)
         deadlines, status_tied, attributed = [], False, set()
-        for source, complete, claim, targets in pairs:
+        for source, complete, claim, completion, targets in operations:
             lo, hi = self._one(writes, source, 0x100), self._one(writes, complete, 0x100)
             _require(birth < lo < hi)
             self._historical_time(source, lo, source.stat().st_ctime)
@@ -289,19 +298,29 @@ class LegacyDirectories:
                     left, right = self._one(evidence, first, 0x800), self._one(evidence, second, 0x1000)
                 # The same Attempt can have successive snapshots. A writer may
                 # also finish before dispatch, leaving no in-window product.
+                start = int(claim['started_at'] * 10**9)
+                end = int(completion['finished_at'] * 10**9)
                 if not (lo < left < hi or lo < right < hi):
+                    produced = (int(datetime.fromisoformat(_json(self._read_original(second))['created_at']).timestamp() * 10**9)
+                                if claim['action'] == 'snapshot' else first.stat().st_ctime_ns)
+                    _require(not start <= produced <= end)
                     continue
                 _require(lo < left < right < hi and aid not in members and first not in attributed)
                 members.add(aid)
                 attributed.add(first)
+                _require(start <= source.stat().st_ctime_ns <= end)
                 if claim['action'] == 'submit':
-                    self._submission(path, first, second, aid)
+                    created = [first, second]
+                    inputs = [first.parent / 'manifest.json', second.with_suffix('.json')]
                 else:
-                    self._snapshot(first, second, aid)
-                _require(claim['started_at'] <= source.stat().st_ctime <= _json(self._read_original(complete))['finished_at'])
-                deadlines.append(int(claim['started_at'] * 10**9))
-        globals_here = self._globals(machine, live, old_device, birth)
-        if self._has(owned):
+                    metadata = _json(self._read_original(second))
+                    created = [first, second, first / metadata['file']]
+                    inputs = [first.parent.parent / 'manifest.json', first.parent.parent / 'submission.json']
+                    _require(start <= int(datetime.fromisoformat(metadata['created_at']).timestamp() * 10**9) <= end)
+                _require(all(start <= item.stat().st_ctime_ns <= end for item in created)
+                         and all(item.stat().st_ctime_ns <= end for item in inputs))
+                deadlines.append(start)
+        if bound_ownership:
             _require(status_tied and globals_here)
             deadlines.append(self._published(path, evidence, globals_here))
         _require(deadlines and leaf.st_ctime_ns <= max(deadlines))
@@ -324,16 +343,31 @@ class LegacyDirectories:
                          for row in permitted['attempts']))
 
     def _snapshot(self, folder, metadata, aid):
+        from ag import remote, submission
         from ag.autonomy_submission import _json
         meta = _json(self._read_original(metadata))
-        filename = meta['file']
-        _require(isinstance(filename, str) and Path(filename).name == filename
-                 and filename not in ('', '.', '..') and meta['attempt_id'] == aid
-                 and meta['sha256'] == _hash(self._read_original(folder / filename)))
+        target = folder.parent.parent
+        raw_manifest = self._read_original(target / 'manifest.json')
+        manifest = _json(raw_manifest)
+        binding = _json(self._read_original(target / 'submission.json'))
+        _require(meta['schema'] == 'ag-log-snapshot/1'
+                 and meta['attempt_id'] == binding['attempt_id'] == manifest['attempt_id'] == aid
+                 and binding['manifest_sha256'] == _hash(raw_manifest)
+                 and meta['cluster'] == binding['cluster'] == manifest.get('cluster', 'default')
+                 and meta['job_id'] == submission.raw_job(manifest, binding['job_id'])
+                 and meta['file'] == remote.output_names(manifest)[0])
+        at = datetime.fromisoformat(meta['created_at'])
+        _require(at.utcoffset() is not None and at.astimezone(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ') == folder.name)
+        payload = self._read_original(folder / meta['file'])
+        size, limit = meta['remote_size'], meta['max_bytes']
+        _require(type(size) is int and size >= 0 and type(limit) is int and limit > 0
+                 and type(meta['read_bytes']) is int and len(payload) == meta['read_bytes'] == min(size, limit)
+                 and meta['truncated'] is (size > limit) and meta['sha256'] == _hash(payload))
+        return at.timestamp()
 
-    def _globals(self, machine, live, old_device, birth):
+    def _globals(self, machine, live, old_device):
         from ag.autonomy_submission import _json, _read_file
-        result = {}
+        result, global_events = {}, []
         for name in ('autonomy-studies', 'autonomy-reservations'):
             scope = machine / name
             try:
@@ -360,9 +394,9 @@ class LegacyDirectories:
             events = self._events(scope, members)
             for source in members:
                 event = self._one(events, source, 0x100)
-                _require(birth < event)
+                global_events.append(event)
                 self._historical_time(source, event, source.stat().st_ctime)
-        return result
+        return result, global_events
 
     def _published(self, path, evidence, globals_here):
         from ag import autonomy
