@@ -215,3 +215,24 @@ def test_local_account_expansion_is_only_permitted_process(cfg, prepared, monkey
     result = accounting.audit_reservations(cfg)
     assert result['ok'], result
     assert len(calls) == 1
+
+
+def test_unmapped_copy_of_bound_historical_attempt_blocks_strict_and_audit(cfg, prepared, selector, tmp_path):
+    from ag import state, submission
+    from ag.locks import claim
+    path, manifest = prepared
+    claim(path / '.submit-claim')
+    state.write(path, 'submitting')
+    submission.record(path, manifest, '123.fixture')
+    state.write(path, 'submitted', job_id='default:123.fixture')
+    other = tmp_path / 'other-root' / manifest['study_id']
+    shutil.copytree(path.parent.parent, other)
+    accounting._register_study(other)
+    before = snapshot(other)
+    with pytest.raises(ValueError, match='Unmapped historical manual reservation'):
+        accounting.read_reservations(cfg)
+    result = accounting.audit_reservations(cfg)
+    assert not result['ok'] and not result['action_permitted']
+    assert any(row['classification'] == 'refused' and 'Unmapped historical manual' in ' '.join(row['reasons'])
+               for row in result['records'] if row['source'] == 'attempt')
+    assert snapshot(other) == before
