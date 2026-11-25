@@ -1039,14 +1039,15 @@ def _monitor_absence(cfg, manifest, job_id, account_sha256, name, since, *, late
             value = _json(raw)
             interval = value['interval_seconds']
             at = approval.timestamp(value['sampled_at']).timestamp()
-            if latest_only and at < since:
-                # A more recent formal status already reconciled this older inventory.
-                return dict(samples=[], fresh_until=since + 600)
+            if latest_only and math.floor(at) < math.floor(since):
+                # Monitor records whole seconds. Never skip a possibly later same-second job.
+                return dict(cluster=name, samples=[dict(sampled_at=value['sampled_at'],
+                            snapshot_sha256=approval.digest(value))], fresh_until=since + 600)
             _require(value['schema'] == 'ag-monitor/1' and value['ok'] is True
                      and not value.get('error') and not value.get('config_removed')
                      and not value.get('config_warning')
                      and type(interval) is int and 30 <= interval <= 600
-                     and 0 <= now - at <= 3 * interval and at >= since,
+                     and 0 <= now - at <= 3 * interval and (latest_only or at >= since),
                      'Monitor absence sample is not fresh and successful')
             _require(value['cluster'].get('name', name) == name
                      and value['cluster']['scheduler'] == scheduler
@@ -1276,6 +1277,9 @@ def _negative_unknown(cfg, record, manifest, report, consumed, current):
 def _unknown_accounting(cfg, path, record, manifest, report, consumed, resolution, raw, aliases):
     """Only accounting may extend a replayable human decision past the status TTL."""
     from ag import autonomy
+    if Path(cfg['local']['studies_root']).absolute() != Path(record['studies_root']):
+        # A different cache root cannot replay the owner's current inventory.
+        return None
     evidence = _negative_unknown(cfg, record, manifest, report, consumed, _json(raw))
     now = autonomy.now()
     observed = evidence['observed_at']
@@ -1302,8 +1306,7 @@ def _unknown_accounting(cfg, path, record, manifest, report, consumed, resolutio
                                 observed if fresh else resolution['at'], latest_only=fresh)
         if pair is None:
             return None
-        if pair['samples']:
-            observations.append(pair)
+        observations.append(pair)
     deadlines = [pair['fresh_until'] for pair in observations]
     if fresh:
         deadlines.append(observed + 600)

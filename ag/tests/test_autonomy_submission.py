@@ -1162,6 +1162,80 @@ def test_resolved_unknown_same_account_alias_and_conflicting_readback(actual_unk
     assert audit['ok'] and row['accounting_state'] == 'unknown'
 
 
+@pytest.mark.parametrize('first_peer', ['failed', 'incomplete', 'one_success'])
+def test_resolved_unknown_peer_appears_between_accounting_and_route(actual_unknown_resolution, first_peer):
+    from datetime import datetime, timezone
+    from ag import autonomy, config, monitor, route
+    cfg, path, _, saved, clock, negative = actual_unknown_resolution
+    autonomy.resolve_attempt(cfg, 'smoke', path.name, 'Synthetic human resolution')
+    root = dict(cfg, clusters={name: dict(cfg) for name in ('default', 'other')})
+    primary, peer = [config.select_cluster(root, name) for name in ('default', 'other')]
+    clock[0] = negative['observed_at'] + 661
+    unknown_monitor_sample(primary, saved, clock[0] - 60)
+    latest = unknown_monitor_sample(primary, saved, clock[0])
+    records = route._placement_records(root, autonomy_submission.read_reservations(root)['placements'])
+    views = {'default': latest, 'other': None}
+    def usage():
+        return route._ladder_usage(root, 'default', views, records, datetime.fromtimestamp(clock[0], timezone.utc))
+    assert records[0]['state'] == 'finished' and usage()['committed'] == 0
+    clock[0] += 1
+    stamp = datetime.fromtimestamp(clock[0], timezone.utc).isoformat()
+    sample = dict(latest, sampled_at=stamp, last_ok_at=stamp)
+    if first_peer == 'failed':
+        sample.update(ok=False, error='Synthetic monitor failure')
+    elif first_peer == 'incomplete':
+        sample['own'] = {'jobs': []}
+    cache = monitor.cache_dir(peer)
+    monitor.publish(cache, sample, record_history=False)
+    views['other'] = json.loads((cache / 'latest.json').read_bytes())
+    assert autonomy_submission.read_reservations(root)['placements'][0]['state'] == 'unknown'
+    assert usage()['committed'] == usage()['queued'] == 8
+
+
+def test_resolved_unknown_duplicate_cluster_job_cannot_hide_matching_name(actual_unknown_resolution):
+    from ag import autonomy, monitor
+    cfg, path, manifest, saved, clock, negative = actual_unknown_resolution
+    autonomy.resolve_attempt(cfg, 'smoke', path.name, 'Synthetic human resolution')
+    clock[0] = negative['observed_at'] + 661
+    unknown_monitor_sample(cfg, saved, clock[0] - 60)
+    latest = unknown_monitor_sample(cfg, saved, clock[0], names=['different'])
+    job, = latest['own']['jobs']
+    latest['cluster']['jobs'] = [dict(job, name=manifest['pbs_job_name']), job]
+    (monitor.cache_dir(cfg) / 'latest.json').write_text(json.dumps(latest))
+    placement, = autonomy_submission.read_reservations(cfg)['placements']
+    assert placement['state'] == 'unknown' and placement['cores'] == 8
+
+
+def test_resolved_unknown_other_root_cannot_mask_owner_readback(actual_unknown_resolution, tmp_path):
+    from ag import autonomy
+    cfg, path, manifest, saved, clock, negative = actual_unknown_resolution
+    autonomy.resolve_attempt(cfg, 'smoke', path.name, 'Synthetic human resolution')
+    other = deepcopy(cfg)
+    other['local']['studies_root'] = str(tmp_path / 'second-root')
+    Path(other['local']['studies_root']).mkdir()
+    clock[0] = negative['observed_at'] + 661
+    unknown_monitor_sample(other, saved, clock[0] - 60)
+    unknown_monitor_sample(other, saved, clock[0] - 1)
+    unknown_monitor_sample(cfg, saved, clock[0] - 60)
+    unknown_monitor_sample(cfg, saved, clock[0], names=[manifest['pbs_job_name']])
+    for root in (cfg, other):
+        placement, = autonomy_submission.read_reservations(root)['placements']
+        assert placement['state'] == 'unknown' and placement['cores'] == 8
+
+
+def test_resolved_unknown_same_second_positive_after_formal_status(actual_unknown_resolution):
+    from ag import autonomy
+    cfg, path, manifest, saved, clock, negative = actual_unknown_resolution
+    second = int(negative['observed_at'])
+    clock[0] = second + 0.55
+    state.write(path, 'unknown', unknown_reconciliation=dict(negative, observed_at=clock[0]))
+    autonomy.resolve_attempt(cfg, 'smoke', path.name, 'Synthetic human resolution')
+    clock[0] = second + 0.91
+    unknown_monitor_sample(cfg, saved, second, names=[manifest['pbs_job_name']])
+    placement, = autonomy_submission.read_reservations(cfg)['placements']
+    assert placement['state'] == 'unknown' and placement['cores'] == 8
+
+
 def test_resolved_unknown_duplicate_local_name_across_studies(actual_unknown_resolution, selector, tmp_path):
     from ag import attempt, autonomy, study
     cfg, path, manifest, saved, clock, negative = actual_unknown_resolution
@@ -1410,7 +1484,7 @@ def t186_driver_factory(cfg, tmp_path, monkeypatch):
     def load(path=None, **kwargs):
         return deepcopy(configurations[str(Path(path).absolute())])
     monkeypatch.setattr(config, 'load_config', load)
-    def create(name, *, relay_group=None, label='optfreq'):
+    def create(name, *, relay_group=None, studies_root=None, study_id='smoke'):
         local = deepcopy(cfg)
         if relay_group is not None:
             local['relay_group'] = relay_group
@@ -1419,7 +1493,7 @@ def t186_driver_factory(cfg, tmp_path, monkeypatch):
         directory = root / 'config'
         directory.mkdir()
         local['_config_dir'] = str(directory)
-        local['local']['studies_root'] = str(root / 'studies')
+        local['local']['studies_root'] = studies_root or str(root / 'studies')
         local['resources'].update(max_committed_cores=128, max_walltime='12:00:00')
         local['routing'] = dict(gaussian=['default'], crest=['default'], ladder=[
             dict(id='small-default', cluster='default', tier='simple', classes=['main', 'small'],
@@ -1428,21 +1502,22 @@ def t186_driver_factory(cfg, tmp_path, monkeypatch):
         config_path.write_text('Synthetic config parsed by a fixed local test loader\n')
         local['_config_path'] = str(config_path)
         configurations[str(config_path)] = local
-        study.init(local, 'smoke')
+        study.init(local, study_id)
         source = root / 'water.gjf'
         source.write_text(INPUT.replace('# B3LYP/6-31G(d) SP', ROUTE))
-        manifest = attempt.prepare(local, study_name='smoke', template='gaussian', input_path=source,
-            tier='simple', walltime='00:30:00', label=label, method_basis='Synthetic fixture')
+        manifest = attempt.prepare(local, study_name=study_id, template='gaussian', input_path=source,
+            tier='simple', walltime='00:30:00', label='optfreq', method_basis='Synthetic fixture')
         path = attempt.find(local, manifest['attempt_id'])
         policy = rule(local)
+        policy.update(study_id=study_id, study_key=autonomy_submission.study_identity(path.parent.parent)['study_key'])
         policy['routing_sha256'] = route.ladder_config_identity(local)
         policy['clusters']['default'].update(max_committed_cores=128, max_queued_cores=128, max_jobs=4)
         bounds = {key: deepcopy(policy[key]) for key in autonomy_policy.PLAN_BOUND_KEYS}
-        autonomy.initialize(local, 'smoke')
-        plan = autonomy.create_plan(local, 'smoke', spec(valid_until=at[0] + 86400, submission_policy=bounds))
-        autonomy.confirm(local, 'smoke', plan['plan_id'], plan['sha256'], 'Synthetic plan confirmation')
-        begun = autonomy.begin(local, 'smoke', plan['plan_id'], 'Synthetic round confirmation')
-        run = autonomy.start(local, 'smoke', plan['plan_id'], 'fixture-session')
+        autonomy.initialize(local, study_id)
+        plan = autonomy.create_plan(local, study_id, spec(valid_until=at[0] + 86400, submission_policy=bounds))
+        autonomy.confirm(local, study_id, plan['plan_id'], plan['sha256'], 'Synthetic plan confirmation')
+        begun = autonomy.begin(local, study_id, plan['plan_id'], 'Synthetic round confirmation')
+        run = autonomy.start(local, study_id, plan['plan_id'], 'fixture-session')
         policy.update(round_id=begun['state']['current_round'], plan_sha256=plan['sha256'])
         local['approval'] = {'autonomous_policies': {'bounded': policy}}
         snapshot = dict(schema='ag-monitor/1', ok=True, error=None, warnings=[],
@@ -1456,7 +1531,7 @@ def t186_driver_factory(cfg, tmp_path, monkeypatch):
                     mem_total_bytes=120 * 1024**3, mem_assigned_bytes=0, jobs=0, state='free',
                     capacity_cpu_consistent=True, targeting_consistent=True, targeting_reserved=False)]))
         cache = Path(local['local']['studies_root']) / '.ag-monitor'
-        cache.mkdir()
+        cache.mkdir(exist_ok=True)
         (cache / 'latest.json').write_text(json.dumps(snapshot))
         context = dict(policy_name='bounded', run_id=run['run_id'], token=run['token'],
                        plan_sha256=plan['sha256'], object_id='water', job_class='small')
@@ -1689,7 +1764,8 @@ def test_resolved_unknown_live_pbs_inventory_restores_hold_before_claim(t186_dri
     state.write(old_path, 'unknown', unknown_reconciliation=dict(schema='ag-unknown-observation/1',
         scheduler='pbs', observed_at=clock[0], job_name=name, matches=[], start_absent=True, account_sha256=account))
     autonomy.resolve_attempt(old_cfg, 'smoke', old_path.name, 'Synthetic confirmed absence')
-    cfg, path, _, context, _, policy = t186_driver_factory('candidate', label='second')
+    cfg, path, _, context, _, policy = t186_driver_factory(
+        'candidate', studies_root=old_cfg['local']['studies_root'], study_id='candidate')
     policy['clusters']['default'].update(max_committed_cores=16, max_queued_cores=16)
     cache = monitor.cache_dir(cfg)
     sample = json.loads((cache / 'latest.json').read_text())

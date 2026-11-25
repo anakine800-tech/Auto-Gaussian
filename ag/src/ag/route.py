@@ -100,7 +100,10 @@ def autonomous_selection(cfg, state, context, *, template, walltime,
                 os.close(fd)
             if len(raw) > 2 * 1024 * 1024:
                 raise ValueError('Oversize monitor snapshot')
-            snapshots[cluster] = disk.decode(raw)
+            value = disk.decode(raw)
+            if value is None:
+                raise ValueError('Published monitor snapshot is null')
+            snapshots[cluster] = value
         except FileNotFoundError:
             snapshots[cluster] = None
     # Waiting is established by a saved no-placement decision, never by a
@@ -504,19 +507,33 @@ def _unknown_name_absent(cfg, entry, data, expected_name, account):
         else:
             queued += cores
     published = {row['job_id']: row for row in data['own']['jobs']}
-    visible = {row['job_id']: row for row in data['cluster']['jobs'] if row['mine']}
+    visible = {}
+    identities = set()
+    for row in data['cluster']['jobs']:
+        job = row['job_id']
+        if not isinstance(job, str) or type(row['mine']) is not bool:
+            return False
+        raw = job.rsplit(':', 1)[-1]
+        if not raw or raw in identities:
+            return False
+        identities.add(raw)
+        if row['mine']:
+            visible[job] = row
     omitted = data['cluster']['jobs_omitted']
     return (_count(omitted) and all(published.get(key) == row for key, row in visible.items())
             and (omitted or published.keys() == visible.keys())
             and running == own['cores_running'] and queued == own['cores_queued'])
 
 
-def _unknown_release_current(cfg, release, snapshots, choices, now, expected_name):
+def _unknown_release_current(cfg, release, snapshots, peers, choices, now, expected_name):
     if now.timestamp() > release['fresh_until']:
         return False
     # Selection captures latest.json after reading reservations. A rotated
     # pair needs a new accounting read, even if its new latest is also empty.
-    for observation in release['observations']:
+    observations = release['observations']
+    if {peer for peer in peers if snapshots.get(peer) is not None} != {o['cluster'] for o in observations}:
+        return False
+    for observation in observations:
         name = observation['cluster']
         if _digest(snapshots.get(name)) != observation['samples'][-1]['snapshot_sha256']:
             return False
@@ -552,7 +569,7 @@ def _ladder_usage(cfg, name, snapshots, placements, now):
             continue
         if p['state'] == 'finished' and p['job_id'] not in observed:
             release = p.get('unknown_release')
-            if release is None or _unknown_release_current(cfg, release, snapshots, choices, now, p['scheduler_job_name']):
+            if release is None or _unknown_release_current(cfg, release, snapshots, peers, choices, now, p['scheduler_job_name']):
                 continue
         active.append(p)
     for p in active:
