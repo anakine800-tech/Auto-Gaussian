@@ -88,7 +88,7 @@ def ts_route_check(route):
         raise ValueError('TS draft requires Opt=TS or Opt=(TS,...)')
 
 
-def cartesian(rows, *, first_line, prefix=''):
+def cartesian(rows, *, first_line, prefix='', require_real=False):
     """Reject invalid atoms/coordinates before they waste a queued calculation.
 
     Return canonical identities for comparison/counting, preserving input bytes.
@@ -109,6 +109,11 @@ def cartesian(rows, *, first_line, prefix=''):
                              'Dummy atoms (Bq/X) and isotope/atom-label syntax are unsupported')
         if not all(re.fullmatch(NUMBER, value) and math.isfinite(float(value)) for value in xyz):
             raise ValueError(where + 'Expected finite Cartesian coordinates')
+        if require_real:
+            for axis, value in zip('xyz', xyz):
+                if re.fullmatch(r'[+-]?\d+', value):
+                    raise ValueError(where + f'bare integer {axis} coordinate {value!r}; write {value}.0 '
+                                     'in the source and prepare a new Attempt')
         symbols.append(symbol)
     return symbols
 
@@ -139,7 +144,7 @@ def _qst_mode(route):
     return mode.upper()
 
 
-def _qst_structures(sections, mode, section_lines):
+def _qst_structures(sections, mode, section_lines, *, require_real):
     count = int(mode[-1])
     if len(sections) != 1 + 2 * count:
         raise ValueError(f'{mode} requires exactly {count} title + charge/multiplicity + coordinate groups')
@@ -152,7 +157,7 @@ def _qst_structures(sections, mode, section_lines):
         line = section_lines[2 + 2 * i]
         if not title.strip() or not match or int(match[2]) < 1 or len(rows) < 2:
             raise ValueError(prefix + f'line {line}: expected title, charge/multiplicity and coordinates')
-        symbols = cartesian(rows[1:], first_line=line + 1, prefix=prefix)
+        symbols = cartesian(rows[1:], first_line=line + 1, prefix=prefix, require_real=require_real)
         check_electrons(symbols, int(match[1]), int(match[2]), location=prefix + f'line {line}')
         structure = dict(title=title.strip(), charge=int(match[1]), multiplicity=int(match[2]),
                          geometry='\n'.join(rows[1:]), n_atoms=len(symbols), elements=symbols)
@@ -224,7 +229,12 @@ def fill_memory(data, cores, mem_gb):
     return b''.join(lines), memory
 
 
-def validate(text, cores, mem_gb, *, parent_chk=False):
+def validate(text, cores, mem_gb, *, parent_chk=False, require_real_coordinates=False, added_link0_lines=0):
+    """Check real coordinates when preparing or admitting a strict Gaussian input.
+
+    added_link0_lines maps diagnostics back to the source (zero for frozen bytes).
+    Historical readers and other formats use their existing coordinate grammar.
+    """
     lines = text.splitlines()
     link = {}
     index = 0
@@ -262,6 +272,7 @@ def validate(text, cores, mem_gb, *, parent_chk=False):
     untrimmed = '\n'.join(lines[index:])
     rest = untrimmed.strip()
     first_line = index + 1 + untrimmed[:len(untrimmed) - len(untrimmed.lstrip())].count('\n')
+    first_line -= added_link0_lines
     sections = re.split(r'\n\s*\n', rest)
     section_lines = [first_line] + [first_line + rest[:match.end()].count('\n')
                                     for match in re.finditer(r'\n\s*\n', rest)]
@@ -280,7 +291,7 @@ def validate(text, cores, mem_gb, *, parent_chk=False):
         for word in re.findall(r'\b[A-Za-z][A-Za-z0-9]*\b', option[1])]
     modredundant = 'modredundant' in opt_options
     if mode:
-        structures = _qst_structures(sections, mode, section_lines)
+        structures = _qst_structures(sections, mode, section_lines, require_real=require_real_coordinates)
         first = structures[0]
         return dict(charge=first['charge'], multiplicity=first['multiplicity'], route=route,
                     geometry=first['geometry'], n_atoms=first['n_atoms'], qst_mode=mode,
@@ -292,7 +303,7 @@ def validate(text, cores, mem_gb, *, parent_chk=False):
     match = re.fullmatch(r'\s*(-?\d+)\s+(\d+)\s*', geom[0])
     if not match or int(match[2]) < 1 or len(geom) < 2:
         raise ValueError(f'line {section_lines[2]}: Invalid charge/multiplicity or missing coordinates')
-    symbols = cartesian(geom[1:], first_line=section_lines[2] + 1)
+    symbols = cartesian(geom[1:], first_line=section_lines[2] + 1, require_real=require_real_coordinates)
     check_electrons(symbols, int(match[1]), int(match[2]), location=f'line {section_lines[2]}')
     scan_data = {}
     if len(sections) > 3:

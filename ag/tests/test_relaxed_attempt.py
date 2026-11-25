@@ -80,7 +80,7 @@ def test_w7_positive_prepare_verify_and_fake_submit(cfg, tmp_path, monkeypatch, 
     assert feature in manifest['input_validation']['skipped_checks']
     verified = attempt.verified_files(cfg, path, manifest)
     assert verified['water.gjf'] == text.encode()
-    assert manifest['science']['geometry'] == 'O 0 0 0\nH 0 0 1\nH 0 1 0'
+    assert manifest['science']['geometry'] == 'O 0.0 0.0 0.0\nH 0.0 0.0 1.0\nH 0.0 1.0 0.0'
     shown = []
     monkeypatch.setattr(confirm, 'confirm', lambda summary: shown.append(summary) or True)
     fake = Fake(cfg)

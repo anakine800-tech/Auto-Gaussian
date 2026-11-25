@@ -40,7 +40,7 @@ def targeted(cfg, tmp_path):
     study.init(cfg, 'target-demo')
     snapshot(cfg)
     source = tmp_path / 'water.gjf'
-    source.write_text('%nprocshared=24\n%mem=40GB\n# HF/STO-3G SP\n\nSynthetic water\n\n0 1\nO 0 0 0\nH 0 0 1\nH 0 1 0\n\n')
+    source.write_text('%nprocshared=24\n%mem=40GB\n# HF/STO-3G SP\n\nSynthetic water\n\n0 1\nO 0.0 0.0 0.0\nH 0.0 0.0 1.0\nH 0.0 1.0 0.0\n\n')
     args = dict(study_name='target-demo', template='gaussian', input_path=source,
                 tier='general', walltime='01:00:00', label='target', method_basis='Synthetic fallback',
                 target_node='compute-a')

@@ -146,7 +146,7 @@ def test_attachment_input_must_use_distinct_explicit_chk(text):
 def test_supported_reuse_routes(route):
     parsed = gaussian_input.validate('%oldchk=parent.chk\n' + INPUT.replace(' SP', ' ' + route),
                                      8, 12, parent_chk=True)
-    assert parsed['geometry'] == 'O 0 0 0\nH 0 0 1\nH 0 1 0'
+    assert parsed['geometry'] == 'O 0.0 0.0 0.0\nH 0.0 0.0 1.0\nH 0.0 1.0 0.0'
 
 
 def test_parent_input_is_bound_by_manifest(cfg, parent, tmp_path):
