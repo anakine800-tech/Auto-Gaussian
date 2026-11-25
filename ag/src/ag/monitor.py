@@ -51,7 +51,7 @@ def watch_seconds(value):
     return seconds
 
 
-def parse_queues(text):
+def parse_queues(text, *, include_total=False, include_waiting=False):
     rows, header = [], None
     for line in text.splitlines():
         fields = line.split()
@@ -67,7 +67,17 @@ def parse_queues(text):
         running, queued = fields[header.index('Run')], fields[header.index('Que')]
         if not running.isdigit() or not queued.isdigit():
             raise ValueError('Invalid queue counts')
-        rows.append(dict(name=fields[0], running=int(running), queued=int(queued)))
+        row = dict(name=fields[0], running=int(running), queued=int(queued))
+        if include_total and 'Tot' in header:
+            total = fields[header.index('Tot')]
+            row['total'] = int(total) if total.isdigit() else None
+        if include_waiting:
+            counts = {state: fields[header.index(key)] for key, state in
+                      (('Hld', 'H'), ('Wat', 'W'), ('Trn', 'T'), ('Ext', 'E')) if key in header}
+            row['state_counts'] = {state: int(value) if value.isdigit() else None for state, value in counts.items()}
+            if len(header) != len(set(header)):
+                row['total'] = None  # Ambiguous columns cannot prove a physically empty node is admissible.
+        rows.append(row)
     return rows
 
 
@@ -85,8 +95,17 @@ def observation(cfg, transport, username, *, storage_state=None, sampled_at=None
     jobs = status.parse_jobs(require_ok(transport.run(remote.jobs()), 'qstat jobs'))
     # Use submit's exact all-user validation and non-C reservation accounting.
     used = status.occupied(jobs, username)
-    queues = parse_queues(require_ok(transport.run(remote.queues()), 'qstat queues'))
-    nodes, hardware = pbs_hardware(cfg, transport, jobs)
+    from ag.node_targeting import account_servers, observe_occupied_account
+    servers = account_servers(cfg)
+    named = 'node_targeting' in cfg or bool(servers)
+    site = cfg.get('node_targeting', {}).get('occupied_policy', {})
+    queue_result = transport.run(remote.queues())
+    queues = parse_queues(require_ok(queue_result, 'qstat queues'),
+                          include_total=named, include_waiting=bool(site.get('empty_only')))
+    nodes, hardware = pbs_hardware(cfg, transport, jobs, account_user=username if named else None)
+    if site.get('empty_only'):
+        pbs.observe_empty_queue(site, nodes, queues if pbs.query_stderr_ok(queue_result) else [], jobs)
+    account = observe_occupied_account(cfg, nodes, jobs, username, transport) if named else {}
     attempts = local_attempts(Path(cfg['local']['studies_root']), cfg.get('_cluster', 'default'), 'pbs')
     by_job = {}
     for item in attempts:
@@ -137,6 +156,9 @@ def observation(cfg, transport, username, *, storage_state=None, sampled_at=None
     own = [row for row in all_jobs if row['mine']]
     scheduler = {job['job_id']: job for job in jobs}
     warnings = []
+    queue_notice = site.get('empty_only') and queue_result.stderr and pbs.query_stderr_ok(queue_result)
+    if account.get('occupied_queue_notice') or queue_notice:
+        warnings.append(dict(kind='ssh-kex-notice', job_id=None, study=None, attempt=None, detail=pbs.KEX_NOTICE_DETAIL))
     if timezone_mismatch:
         warnings.append(dict(kind='timezone-mismatch', job_id=None, study=None, attempt=None,
                              detail='开始时间与采样时间或已用 walltime 不一致，可能配置了错误的调度器时区；本轮依赖该时区的开始/提交时间及直接异常的开始时间已置为未知，清空开始时间的耗时退回 walltime，缺失时为未知'))
@@ -160,13 +182,16 @@ def observation(cfg, transport, username, *, storage_state=None, sampled_at=None
         for row in all_jobs + warnings:
             if row.get('job_id'):
                 row['job_id'] = cfg['_cluster'] + ':' + row['job_id']
+    summary_error = pbs.job_table_issue(nodes, queues, all_jobs) if named else None
     return dict(own=dict(cores_in_use=used, core_cap=cap, jobs=own,
                          cores_running=running, cores_queued=queued, committed_cap=total_cap,
-                         **memory_totals(own), **shared_fields(cfg)),
+                         **memory_totals(own), **shared_fields(cfg), **account),
                 cluster=dict(nodes=nodes, queues=queues, hardware=hardware, scheduler='pbs',
                              cores_total=hardware['cores_total'], cores_used=hardware['cores_allocated'],
                              jobs=all_jobs[:500], jobs_omitted=max(0, len(all_jobs) - 500),
-                             job_summary=job_summary(all_jobs), job_summary_error=None, display_order=cfg.get('display_order'),
+                             job_summary=empty_summary() if summary_error else job_summary(all_jobs),
+                             job_summary_error=summary_error, display_order=cfg.get('display_order'),
+                             **({'job_table_complete': summary_error is None} if named else {}),
                              scheduler_timezone=scheduler_timezone),
                 warnings=warnings)
 
@@ -1102,15 +1127,15 @@ def known_sum(values):
     return None if any(value is None for value in values) else round(sum(values), 1)
 
 
-def pbs_hardware(cfg, transport, jobs):
+def pbs_hardware(cfg, transport, jobs, *, account_user=None):
     try:
         hardware = empty_hardware('pbsnodes')
         raw = require_ok(transport.run(remote.nodes()), 'pbsnodes')
         nodes = parse_nodes(raw, jobs, notes=hardware['notes'])
-        if 'node_targeting' in cfg:
-            from ag.node_targeting import strict_nodes
+        if 'node_targeting' in cfg or account_user is not None:
+            from ag.node_targeting import account_servers, strict_nodes
             try:
-                nodes = strict_nodes(raw, jobs)
+                nodes = strict_nodes(raw, jobs, next(iter(account_servers(cfg)), None), account_user)
             except ValueError:
                 # Ambiguous targeting evidence must not erase the read-only view.
                 for node in nodes:

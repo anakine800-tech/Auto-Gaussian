@@ -660,3 +660,28 @@ def test_sample_duration_measures_collection(cfg, monkeypatch):
     fake.run = run
     result = monitor.sample(cfg, fake, 30)
     assert result['sample_duration_ms'] == 750
+
+
+@pytest.mark.parametrize('case', ['complete', 'hidden-node-job', 'hidden-queued', 'hidden-held'])
+def test_named_pbs_job_summary_needs_independent_queue_and_node_agreement(cfg, case):
+    cfg['node_targeting'] = dict(allowed_nodes=['maple'], denied_nodes=[],
+                                 restricted_nodes=[], priority=[['maple']])
+    visible = job('811.fixture', owner='fixture', cores='1:ppn=4',
+                  extra='    exec_host = maple/0-3\n')
+    running = 1 + (case == 'hidden-node-job')
+    queued = int(case == 'hidden-queued')
+    held = int(case == 'hidden-held')
+    listed = '0-3/811.fixture' + (',4-9/812.fixture' if case == 'hidden-node-job' else '')
+    rows = f'maple\n    state = free\n    np = 32\n    jobs = {listed}\n    status = physmem=64gb\n'
+    queues = (f'Queue Tot Que Run Hld\n'
+              f'batch {running + queued + held} {queued} {running} {held}\n')
+    fake = PBSFake(jobs=visible, queues=queues, nodes=rows)
+    result = monitor.observation(cfg, fake, 'fixture')
+    cluster = result['cluster']
+    assert fake.calls == ['qstat -f', 'qstat -Q', 'pbsnodes -a']
+    assert result['own']['cores_in_use'] == 4
+    assert len(cluster['jobs']) == 1 and cluster['jobs_omitted'] == 0
+    assert cluster['job_table_complete'] is (case == 'complete')
+    assert cluster['job_summary']['others_queued_jobs'] == (0 if case == 'complete' else None)
+    assert bool(cluster['job_summary_error']) is (case != 'complete')
+    assert cluster['nodes'][0]['targeting_consistent'] is (case != 'hidden-node-job')

@@ -138,10 +138,15 @@ def _own(snapshot):
 
 
 def _personal(selected, snapshots, cores):
+    from ag.node_targeting import account_refusal
     peers = shared_clusters(selected)
     candidates = [(snapshots[n]['sampled_at'], n, _own(snapshots[n])) for n in peers]
     candidates = [row for row in candidates if row[2] is not None]
     reasons = []
+    snapshot = snapshots[selected.get('_cluster', 'default')]
+    refusal = account_refusal(selected, snapshot['data'].get('own', {}) if snapshot['fresh'] else {}, cores)
+    if refusal:
+        reasons.append(refusal)
     if cores > selected['resources']['max_cores']:
         reasons.append('本人上限：超过单作业上限')
     if not candidates:
@@ -192,6 +197,16 @@ def _enabled(selected, template):
                 and bool(programs.get('multiwfn')))
     xtb = bool(programs.get('xtb', {}).get('root'))
     return xtb or (template == 'crest' and bool(programs.get('crest', {}).get('executable')))
+
+
+def _others_queued(selected, cluster):
+    # Older named-PBS snapshots counted only visible rows, even when the
+    # separate queue totals included hidden jobs. They cannot certify zero.
+    from ag.node_targeting import account_servers
+    if ('node_targeting' in selected or account_servers(selected)) and cluster.get('job_table_complete') is not True:
+        return None
+    summary = cluster.get('job_summary')
+    return summary.get('others_queued_jobs') if isinstance(summary, dict) else None
 
 
 def suggest(cfg, template, tier, study=None, *, walltime=None, now=None, captured_snapshots=None):
@@ -253,8 +268,7 @@ def _suggest(cfg, template, tier, study=None, *, walltime=None, now=None):
                 reasons.append(UNKNOWN)
             else:
                 data = snapshot['data']
-                summary = data['cluster'].get('job_summary')
-                others = summary.get('others_queued_jobs') if isinstance(summary, dict) else None
+                others = _others_queued(selected, data['cluster'])
                 if not _count(others):
                     reasons.append(f'{UNKNOWN}：他人排队数量未知')
                 elif others:
@@ -270,6 +284,11 @@ def _suggest(cfg, template, tier, study=None, *, walltime=None, now=None):
                            for o in n['options'] if o['tier'] == tier and o.get('selectable', True)]
                 if template != 'gaussian' or not matches:
                     row['specification_allowed'] = False
+                    remaining = selected['node_targeting'].get('occupied_policy', {}).get('remaining_nodes', [])
+                    if template == 'gaussian' and remaining:
+                        reasons.extend(f"{n['name']}: {o['selectable_reason']}" for n in targets['nodes']
+                                       if n['name'] in remaining for o in n['options']
+                                       if o['cores'] == cores and o['mem_gb'] == memory and not o['selectable'])
                     capacity.update(availability='unknown', fits_total=None,
                                     reasons=['没有满足此档位的具名节点候选'])
                 else:
@@ -542,7 +561,9 @@ def _unknown_release_current(cfg, release, snapshots, peers, choices, now, expec
 
 
 def _ladder_usage(cfg, name, snapshots, placements, now):
-    peers = shared_clusters(select_cluster(cfg, name))
+    from ag.node_targeting import account_refusal, account_servers
+    selected = select_cluster(cfg, name)
+    peers = shared_clusters(selected)
     choices = []
     for peer in peers:
         data = snapshots.get(peer)
@@ -577,9 +598,17 @@ def _ladder_usage(cfg, name, snapshots, placements, now):
         if row is not None and row['name'] != p['scheduler_job_name']:
             raise ValueError('Scheduler and local submission identity disagree')
     unseen = [p for p in active if p['job_id'] not in observed]
-    return dict(source=source, committed=own['cores_in_use'] + sum(p['cores'] for p in unseen),
-                queued=own['cores_queued'] + sum(p['cores'] for p in unseen),
-                active=active, observed=observed)
+    held = sum(p['cores'] for p in unseen)
+    committed, queued = own['cores_in_use'] + held, own['cores_queued'] + held
+    if account_servers(selected):
+        cached = snapshots[name]['own']
+        refusal = account_refusal(selected, cached, 0)
+        if refusal:
+            raise ValueError(refusal)
+        proof = cached['occupied_queue_account']
+        committed = max(committed, proof['committed'])
+        queued = max(queued, proof['queued'])
+    return dict(source=source, committed=committed, queued=queued, active=active, observed=observed)
 
 
 def select_ladder(cfg, snapshots, *, template, job_class, walltime, study_key, study_id, round_id, run_id, object_id,
@@ -807,8 +836,10 @@ def select_ladder(cfg, snapshots, *, template, job_class, walltime, study_key, s
                 try:
                     if resource(original.get('cores_total'), cell['node_fraction']) != requested:
                         raise ValueError('Tier does not match fraction')
-                    if not admission(original, cores, memory)['selectable']:
-                        raise ValueError('Node not admissible')
+                    decision = admission(original, cores, memory, selected)
+                    if not decision['selectable']:
+                        row['reasons'].append('node_not_admissible')
+                        row['notes'].append(decision['selectable_reason'])
                 except (KeyError, ValueError):
                     row['reasons'].append('node_fraction_or_total_specs')
             # A queued/unobserved unbound job may land on any node. Reserve on
@@ -844,7 +875,7 @@ def select_ladder(cfg, snapshots, *, template, job_class, walltime, study_key, s
             if condition in ('empty', 'free'):
                 if check['availability'] != 'enough':
                     row['reasons'].append('insufficient_current_capacity')
-                others = data['cluster'].get('job_summary', {}).get('others_queued_jobs')
+                others = _others_queued(selected, data['cluster'])
                 if not _count(others) or others:
                     row['reasons'].append('other_queue_unknown_or_waiting')
                 if condition == 'free' and check.get('cores_available', -1) < cell['min_free_cores']:

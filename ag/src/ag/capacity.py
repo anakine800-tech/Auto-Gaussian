@@ -15,14 +15,16 @@ def _memory(value):
     return type(value) in (int, float) and math.isfinite(value) and value >= 0
 
 
-def evaluate_node(node, cores, mem_gb, *, scheduler, partition=None):
+def evaluate_node(node, cores, mem_gb, *, scheduler, partition=None, require_reported_slots=False):
     """Assess one identified node, using scheduler allocation, never RSS."""
     result = dict(name=node.get('name'), fits_total=None, availability='unknown', reasons=[],
                   cpu_source=node.get('cpu_source') or ('pbsnodes/exec_host' if scheduler == 'pbs' else None),
                   memory_source=node.get('memory_source') or
                   ('PBS available/assigned memory or Torque job requests' if scheduler == 'pbs' else None))
     reasons = result['reasons']
-    if (node.get('capacity_error') or node.get('targeting_consistent') is False
+    unseen = (scheduler == 'pbs' and node.get('targeting_issue') == 'unseen_node_jobs'
+              and node.get('targeting_consistent') is False)
+    if (node.get('capacity_error') or (node.get('targeting_consistent') is False and not unseen)
             or (scheduler == 'slurm' and node.get('partition') != partition)):
         reasons.append('节点身份或观测相互矛盾')
         return result
@@ -30,6 +32,12 @@ def evaluate_node(node, cores, mem_gb, *, scheduler, partition=None):
     memory, assigned = node.get('mem_total_gb'), node.get('mem_assigned_gb')
     memory_unit, valid_memory = 1, _memory
     if scheduler == 'pbs':
+        # The routing ladder projects local reservations onto cores_used.
+        # Only the original scheduler job count describes observed occupation.
+        if (node.get('targeting_consistent') is True and node.get('jobs')
+                and 'targeting_issue' not in node):
+            reasons.append('旧快照缺少占用作业归属和核位核验')
+            return result
         if node.get('capacity_cpu_consistent') is not True:
             reasons.append('PBS核数观测矛盾或旧快照缺少容量一致性信息')
             return result
@@ -46,12 +54,20 @@ def evaluate_node(node, cores, mem_gb, *, scheduler, partition=None):
         result.update(availability='not_applicable')
         reasons.append('请求超过单节点总核数或总内存')
         return result
+    if unseen:
+        result['cpu_source'] = 'pbsnodes jobs'
+        reasons.append('核位来自节点表，具名申请另需核验入口策略和完整本人额度')
     state = node.get('state')
     states = ('free', 'job-busy', 'job-exclusive') if scheduler == 'pbs' else (
         'idle', 'mixed', 'allocated', 'completing')
     if state not in states or (scheduler == 'slurm' and node.get('partition_state') != 'up'):
         reasons.append('节点或分区状态不允许确认当前容量')
         return result
+    if require_reported_slots and used and not unseen and node.get('node_slot_count_reported') is not True:
+        reasons.append('Remaining CPU slots cannot be verified from visible jobs alone')
+        return result
+    if scheduler == 'pbs' and _count(used) and used <= total:
+        result['cores_available'] = total - used
     if not (_count(used) and used <= total and valid_memory(assigned) and assigned <= memory):
         reasons.append('节点已分配核数或内存未知或无效')
         return result
@@ -122,6 +138,7 @@ def assess(cfg, cluster, tier, target_node=None, *, now=None):
         else:
             unique[name] = node
     policy = selected.get('node_targeting')
+    remaining_nodes = (policy or {}).get('occupied_policy', {}).get('remaining_nodes', [])
     for name, node in unique.items():
         if target_node is not None and name != target_node:
             continue
@@ -129,7 +146,8 @@ def assess(cfg, cluster, tier, target_node=None, *, now=None):
                        or name in policy['restricted_nodes']):
             continue
         result['nodes'].append(evaluate_node(node, request['cores'], request['mem_gb'],
-                                             scheduler=scheduler, partition=selected.get('partition')))
+                                             scheduler=scheduler, partition=selected.get('partition'),
+                                             require_reported_slots=name in remaining_nodes))
     rows = result['nodes']
     if not rows:
         result['reasons'] = ['目标节点没有精确观测或没有符合入口配置的节点']
