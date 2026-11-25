@@ -509,6 +509,33 @@ def capacity(cfg):
     return committed_cap(cfg)
 
 
+def _pbs_confirmation_usage(cfg, jobs, username, running, queued, requested, cap, queue_cap):
+    """The pre-dialog inventory has visible job details, but no independent owner list yet."""
+    own = [j for j in jobs if j['Job_Owner'].partition('@')[0] == username]
+    active = {j['job_id']: j for j in own if j['job_state'] != 'C'}
+    held = None
+    ids = {j['job_id'] for j in own}
+    if sum(j['job_id'] in ids for j in jobs) == len(ids):
+        try:
+            held = node_targeting._unobserved_cores(cfg, active, username, None, [j.get('Job_Name') for j in own])
+        except (ValueError, OSError):
+            pass  # An incomplete local audit can supply neither a zero hold nor a maximum.
+    observed = running + queued
+    text = f'\n已观测本人作业 {observed} 核（运行 {running}、排队 {queued}）。'
+    if held is None:
+        text += f'\n未回显预留尚待核验。本次申请 {requested} 核，按可见作业与本次申请小计 {observed + requested}'
+    else:
+        text += (f'\n本机核算的未回显预留 {held} 核，本次申请 {requested} 核。'
+                 f'\n按已观测作业、未回显预留与本次申请小计 {observed + held + requested}')
+    text += f' / 上限 {cap} 核。完整账号占用尚待核验。'
+    if queue_cap is not None:
+        text += '\n按已知证据，排队及本次申请'
+        if held is not None:
+            text += '（含未回显预留）'
+        text += f'小计 {queued + (held or 0) + requested} / 排队上限 {queue_cap} 核。'
+    return text
+
+
 def _fresh_target_check(cfg, manifest, transport, username, *, claimed):
     phase = 'after upload, before qsub' if claimed else 'after confirmation'
     try:
@@ -657,11 +684,15 @@ def _submit(cfg, ids, transport, *, approval_id=None, policy_name=None, autonomo
                 text += '\n' + attempt.summary(cfg, m, files=files)
             if path.name in attachments:
                 text += '\n' + path.name + ' | ' + parent_chk.summary(m['parent_chk'], attachments[path.name][1])
-        text += (f'\n当前占用 {used} 核（运行 {running}、排队 {queued}；按集群上本人全部作业统计，含其他电脑和非 ag 提交的作业），'
-                 f'\n提交后合计 {used + requested} / 上限 {cap} 核。'
-                 f'\nag 不限制运行中的核数：集群空闲时，排队作业可能同时运行，最多 {used + requested} 核。')
+        pbs_account_summary = not is_slurm and ('node_target' in prepared[0][1] or node_targeting.account_servers(cfg))
+        if pbs_account_summary:
+            text += _pbs_confirmation_usage(cfg, jobs, username, running, queued, requested, cap, queue_cap)
+        else:
+            text += (f'\n当前占用 {used} 核（运行 {running}、排队 {queued}；按集群上本人全部作业统计，含其他电脑和非 ag 提交的作业），'
+                     f'\n提交后合计 {used + requested} / 上限 {cap} 核。'
+                     f'\nag 不限制运行中的核数：集群空闲时，排队作业可能同时运行，最多 {used + requested} 核。')
         text += f'\n单作业上限 {cfg["resources"]["max_cores"]} 核。'
-        if queue_cap is not None:
+        if queue_cap is not None and not pbs_account_summary:
             text += f'\n当前排队 {queued} / 排队上限 {queue_cap} 核。'
             text += f'\n提交后排队及未观测预留最多 {queued + requested} / 排队上限 {queue_cap} 核（同集群入口共享）。'
         if 'scheduler_max_running_cores' in limits:

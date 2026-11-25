@@ -1258,7 +1258,7 @@ def test_generic_peer_cannot_bypass_own_inventory_conflict(targeted, monkeypatch
     assert fake.operations().count('submit') == 0
 
 
-@pytest.mark.parametrize('case', ['over-cap', 'at-cap', 'redirected-sibling', 'wrong-registered-root'])
+@pytest.mark.parametrize('case', ['over-cap', 'at-cap', 'unverifiable-at-dialog', 'redirected-sibling', 'wrong-registered-root'])
 def test_known_manual_root_includes_pre_registry_siblings(targeted, monkeypatch, tmp_path, case):
     from contextlib import nullcontext
     from ag import autonomy, autonomy_submission as records
@@ -1266,7 +1266,8 @@ def test_known_manual_root_includes_pre_registry_siblings(targeted, monkeypatch,
     queue_site(cfg)
     monkeypatch.setattr(config, 'ssh_identity', lambda _: ('fixture', 22, 'fixture'))
     monkeypatch.setattr(confirm, 'confirm', lambda _: True)
-    cfg['resources']['max_committed_cores'] = 52 if case == 'at-cap' else 48
+    cfg['resources']['max_committed_cores'] = 52 if case in ('at-cap', 'unverifiable-at-dialog') else 48
+    cfg['resources']['max_queued_cores'] = 48
     other = deepcopy(cfg)
     del other['node_targeting']
     root = tmp_path / 'other-studies'
@@ -1308,11 +1309,27 @@ def test_known_manual_root_includes_pre_registry_siblings(targeted, monkeypatch,
             attempt.prepare(cfg, **requested)
     else:
         assert rows[1]['occupied_queue_account']['committed'] == 28
-        if case == 'at-cap':
+        if case in ('at-cap', 'unverifiable-at-dialog'):
             target = attempt.prepare(cfg, **requested)
             fake.job = Result(stdout=f"Job Id: 123.fixture\n    Job_Name = {target['pbs_job_name']}\n    job_state = Q\n")
-            submit.submit(cfg, [target['attempt_id']], fake)
-            assert state.read(attempt.find(cfg, target['attempt_id']))['node_placement']['state'] == 'pending'
+            dialogs = []
+            monkeypatch.setattr(confirm, 'confirm', lambda text: dialogs.append(text) or True)
+            if case == 'at-cap':
+                submit.submit(cfg, [target['attempt_id']], fake)
+                assert state.read(attempt.find(cfg, target['attempt_id']))['node_placement']['state'] == 'pending'
+            else:
+                (root / 'redirect').symlink_to(tmp_path, target_is_directory=True)
+                with pytest.raises(ValueError, match='after confirmation.*reservations could not be verified'):
+                    submit.submit(cfg, [target['attempt_id']], fake)
+            text, = dialogs
+            assert '已观测本人作业 4 核（运行 4、排队 0）' in text and '本次申请 24 核' in text
+            assert '提交后合计 28' not in text and '最多 28 核' not in text
+            if case == 'at-cap':
+                assert '未回显预留 24 核' in text and '小计 52 / 上限 52 核' in text
+                assert '小计 48 / 排队上限 48 核' in text
+            else:
+                assert '未回显预留尚待核验' in text and '小计 28 / 上限 52 核' in text
+                assert '完整账号占用尚待核验' in text and '未回显预留 0 核' not in text
         else:
             with pytest.raises(ValueError, match='shared-account core limit exceeded'):
                 attempt.prepare(cfg, **requested)

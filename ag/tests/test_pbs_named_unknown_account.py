@@ -59,7 +59,7 @@ def test_live_unknown_against_named_pbs_fresh_check(actual_unknown_resolution, m
     study.init(cfg, 'candidate')
     snapshot(cfg, node_targeting.strict_nodes(nodes(), []))
     candidate_input = tmp_path / 'candidate.gjf'
-    candidate_input.write_text('%nprocshared=24\n%mem=40GB\n# HF/STO-3G SP\n\nSynthetic water\n\n0 1\nO 0 0 0\nH 0 0 1\nH 0 1 0\n\n')
+    candidate_input.write_text('%nprocshared=24\n%mem=40GB\n# HF/STO-3G SP\n\nSynthetic water\n\n0 1\nO 0.0 0.0 0.0\nH 0.0 0.0 1.0\nH 0.0 1.0 0.0\n\n')
     m = attempt.prepare(cfg, study_name='candidate', template='gaussian', input_path=candidate_input,
         target_node='compute-a', tier='general', label='named', walltime='00:10:00', method_basis='Synthetic')
     queue_site(cfg)
