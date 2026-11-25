@@ -15,6 +15,7 @@ ELEMENTS = ('H He Li Be B C N O F Ne Na Mg Al Si P S Cl Ar K Ca Sc Ti V Cr Mn Fe
             'Fr Ra Ac Th Pa U Np Pu Am Cm Bk Cf Es Fm Md No Lr Rf Db Sg Bh Hs Mt Ds Rg Cn Nh Fl Mc Lv Ts Og').split()
 ATOMIC_NUMBERS = {symbol: number for number, symbol in enumerate(ELEMENTS, 1)}
 NUMBER = r'[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?'
+FORCE_CONSTANT_READER = re.compile(r'\b(?:rcfc|readfc|readcartesianfc)\b', re.I)
 
 
 def render_input(route, title: str | Sequence[str], sections):
@@ -75,7 +76,7 @@ def ts_route_check(route):
     Whole words include common spellings of the scan/freeze input readers.
     """
     words = set(re.findall(r'\b[A-Za-z][A-Za-z0-9]*\b', route.lower()))
-    parent = words & {'rcfc', 'readfc', 'readcartesianfc'}
+    parent = set(FORCE_CONSTANT_READER.findall(route.lower()))
     if parent:
         raise ValueError(', '.join(sorted(parent)) +
                          ' requires prepare --parent-chk and the parent chk orientation checks')
@@ -287,7 +288,8 @@ def validate(text, cores, mem_gb, *, parent_chk=False, require_real_coordinates=
         if link.get('chk') == link['oldchk']:
             raise ValueError('%chk and %oldchk must use different filenames')
         if not parent_chk or link['oldchk'] != 'parent.chk':
-            raise ValueError('%oldchk requires a declared parent chk attachment named parent.chk')
+            raise ValueError('%oldchk requires a declared parent chk attachment named parent.chk '
+                             '(prepare --parent-chk)')
         if 'chk' not in link:
             raise ValueError('%oldchk requires a distinct explicit %chk')
     if parent_chk and link.get('oldchk') != 'parent.chk':
