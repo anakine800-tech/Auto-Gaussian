@@ -65,3 +65,16 @@ H -0.24 0.92 0
 2. 子输入 child.gjf 使用同样的资源行及 0 1，写 %oldchk=parent.chk 与 %chk=child.chk、route `# HF/STO-3G Opt=ReadFC NoSymm`，按原序照录父 final_input.xyz 原子行。执行一次 `ag prepare --study <study> --cluster <cluster> --template gaussian --tier mini --walltime 00:10:00 --label child --method-basis '兜底方法：水分子流程验证' --input child.gjf --parent <parent> --relation opt_from --parent-chk <parent>:water.chk`。留存子输入及 bundle 的 SHA-256、父子 ID、父输入与 final_input.xyz 的哈希。
 3. 核对确认摘要中的父 chk 名、大小与哈希及子 bundle 后执行一次人工确认的 `ag submit <child>`（摘要在此命令的点击前显示）。用 `ag status <child>` 观察至结束，`ag fetch <child>` 一次。比对既有复制 journal 中已核验的源/目标大小及 SHA-256，核对两份 manifest 与授权字节，审阅子日志是否确有读取所声明力常数并正常结束；若日志未能证实读取，应保留该证据缺口。
 4. 入口、资源、来源、坐标、哈希任一不符，或出现 SSH 错误、UNKNOWN、作业异常时立即停止并保留现场。每个 Attempt 最多提交一次，保留所有父子文件和提交声明。以上为待执行步骤，现场验证与监督对齐由监督对话协调。
+
+## 既有本地非研究材料
+
+在实现提交 `6426cd66` 只读复核监督指定的一对原始父子记录。子 Attempt 为 prepared，尚无永久提交声明。原始父子 bundle 逐文件大小和 SHA-256 与清单相符；用绑定入口复算父声明、解析父提交绑定，对冻结子输入运行严格取向检查，均通过。子 Attempt 的完整 verified_files 也通过当前配置和模板重验。核验前后逐项比较父子输入、manifest、status、提交记录及取向文件，字节、修改时间和声明状态一致。
+
+这份本地证据覆盖已有数据的读取与新提交前的本地资格检查。该子 Attempt 没有提交；受审版本上的远程父 chk 元数据复查、专用复制及子作业的实际力常数读取仍待上述合并前验证。
+
+## 测试与提交检查
+
+- 定向运行父 chk、取向、历史报告、严格输入、放宽 Attempt 与自主 policy 六个测试文件，954 项通过。
+- 首轮全量的安装入口测试因 HOME 隔离器阻止访问另一检出的 CLI 启动目录而失败，其余 8910 项通过、26 项跳过。在临时虚拟环境中离线安装本分支的 CLI，原隔离规则持续启用；该入口单测和完整重跑均通过。
+- 推送前在工作树根目录运行 `PYTHONPATH=ag/src python -m pytest ag/tests skills-next -q -rs`，8911 项通过、26 项跳过，耗时 46 分 38 秒。25 项依赖 GNU stat、Linux procfs 或 O_PATH 等平台行为，1 项需要显式启用私有日志。
+- 六个交付文件已精确暂存并通过含本机私有词表的扫描、暂存 diff 格式检查和提交身份核对。剩余验收为受审版本上的远程父子实际执行及与另两单的集成复审。
