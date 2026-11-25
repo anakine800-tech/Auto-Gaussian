@@ -304,6 +304,19 @@ journal、取回标记或 facts；不主动调用 `ag status`。后续 fetch/fac
 迟到回执等只读核对按当时支持的输入格式复核，仍须核对原冻结字节、脚本及科学摘要。
 仍待提交的旧包在提交前按当前语法复验，缺表即拒绝。
 
+## 严格 Gaussian 输入读取父力常数
+
+在默认的单段 Gaussian 输入中，Opt 或 IRC 使用 `ReadFC`、`RCFC` 或
+`ReadCartesianFC` 时，prepare 须声明父 Attempt、关系和父输入的确切 chk 文件名，
+例如 `--parent <父Attempt> --relation opt_from --parent-chk <父Attempt>:water.chk`。
+子输入写 `%oldchk=parent.chk` 并另写 `%chk=child.chk`。只指定输出 chk 或只记录父子关系时，
+prepare 会在分配 Attempt 编号前拒绝。
+
+父子须属于同一 study、同一集群。请从父作业的 `final_input.xyz` 取坐标；
+已有 NoSymm 规则也允许使用 `final.xyz`。prepare 和新提交前均按原子顺序和输入取向
+逐行比较，每个原子的距离上限为 0.0001 Å。历史记录可继续复核，旧的 prepared Attempt
+发起提交时也须通过来源和取向检查。chk 内是否存有目标 Hessian、其方法是否适合本步，仍需科学审阅。
+
 ## 显式放宽 Gaussian 输入
 
 `ag prepare --template gaussian --relaxed-input` 选择受控放宽校验；默认仍使用原严格校验，

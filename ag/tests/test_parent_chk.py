@@ -123,6 +123,76 @@ def test_parent_relationship_required(cfg, parent, tmp_path):
         child(cfg, tmp_path, parent, parents=[])
 
 
+@pytest.mark.parametrize(('route', 'link0'), [
+    ('Opt=ReadFC', ''),
+    ('Opt=(TS,rCfC) Freq', '%chk=fresh.chk\n'),
+    ('IRC = (\n ReadCartesianFC,Forward)', '%chk=fresh.chk\n'),
+    ('irc=rcfc', '%oldchk=parent.chk\n%chk=fresh.chk\n'),
+])
+def test_strict_prepare_requires_bound_force_constants(cfg, parent, tmp_path, route, link0):
+    directory, _ = parent
+    source = tmp_path / 'child.gjf'
+    source.write_text(INPUT.replace('%chk=water.chk\n', link0).replace(' SP', ' ' + route))
+    before = set(directory.parent.iterdir())
+    with pytest.raises(ValueError, match='--parent-chk'):
+        attempt.prepare(cfg, method_basis='Synthetic fallback', study_name='smoke', template='gaussian',
+                        input_path=source, tier='simple', walltime='00:05:00', label='child',
+                        parents=[dict(attempt_id=directory.name, relation='irc_from')])
+    assert set(directory.parent.iterdir()) == before
+
+
+def test_new_force_constants_and_title_do_not_require_parent(cfg, prepared, tmp_path):
+    source = tmp_path / 'fresh.gjf'
+    source.write_text(INPUT.replace(' SP', ' Opt=(CalcFC,RecalcFC=5)')
+                      .replace('Water smoke', 'ReadFC RCFC ReadCartesianFC'))
+    m = attempt.prepare(cfg, method_basis='Synthetic fallback', study_name='smoke', template='gaussian',
+                        input_path=source, tier='simple', walltime='00:05:00', label='fresh')
+    files = attempt.verified_files(cfg, attempt.find(cfg, m['attempt_id']), m)
+    assert files[source.name] == source.read_bytes()
+
+
+def test_legacy_unbound_reader_is_reviewable_but_cannot_submit(cfg, parent, tmp_path):
+    from ag import parent_chk_report
+    from ag.locks import claim
+
+    path, m = child(cfg, tmp_path, parent)
+    # Model a pre-fix bundle where only the output %chk and lineage were recorded.
+    del m['parent_chk']
+    source = path / 'inputs/child.gjf'
+    source.write_text(source.read_text().removeprefix('%oldchk=parent.chk\n'))
+    files = {p.name: p.read_bytes() for p in source.parent.iterdir()}
+    m['inputs'], m['bundle_sha256'] = attempt.bundle(files)
+    (path / 'manifest.json').write_text(json.dumps(m))
+    original = {p: p.read_bytes() for d in (path, parent[0]) for p in d.rglob('*') if p.is_file()}
+
+    report = parent_chk_report.create(parent[0].name, path.parent.parent, 'analyses/review.json', path.name)
+    assert report['checkpoint']['binding']['status'] == 'missing'
+    assert report['checkpoint']['internal_force_constants'] == 'unverified'
+    fake = Fake(cfg)
+    with pytest.raises(ValueError, match='--parent-chk'):
+        submit.submit(cfg, [path.name], fake)
+    assert fake.calls == [] and not (path / '.submit-claim').exists()
+    assert all(p.read_bytes() == raw for p, raw in original.items())
+
+    # An already consumed submission may still need its frozen bytes for status recovery.
+    claim(path / '.submit-claim')
+    state.write(path, 'submitting')
+    assert attempt.verified_files(cfg, path, m) == files
+    with pytest.raises(ValueError, match='already consumed'):
+        submit.submit(cfg, [path.name], fake)
+    assert fake.calls == []
+
+
+def test_frozen_reader_rechecks_parent_orientation_before_submission(cfg, parent, tmp_path):
+    path, _ = child(cfg, tmp_path, parent)
+    frame = parent[0] / 'final_input.xyz'
+    frame.write_text(frame.read_text().replace('H 0 0 1', 'H 1 0 0'))
+    fake = Fake(cfg)
+    with pytest.raises(ValueError, match='final_input.xyz'):
+        submit.submit(cfg, [path.name], fake)
+    assert fake.calls == [] and not (path / '.submit-claim').exists()
+
+
 @pytest.mark.parametrize('route', ['geom=check', 'geom=allcheck', 'Geom=(Check)',
                                  'Geometry = (AllCheck,NoCrowd)', 'geom(checkpoint)'])
 def test_explicit_geometry_cannot_be_overridden(route):
