@@ -560,6 +560,7 @@ class _PbsDirectories:
     """Persistent identities are accepted only by the PBS accounting reader."""
     def __init__(self):
         self.observed = {}
+        self.legacy = None
 
     def identity(self, path):
         path = Path(path)
@@ -589,7 +590,14 @@ class _PbsDirectories:
         finally:
             os.close(parent)
         if matches is None:
-            return record['study_device'] == live['study_device']
+            if record['study_device'] == live['study_device']:
+                return True
+            if not live.get('apfs_directory_sha256'):
+                return False
+            if self.legacy is None:
+                from ag._pbs_legacy_directories import LegacyDirectories
+                self.legacy = LegacyDirectories(_CAPTURE_READS.get())
+            return self.legacy.matches(Path(path), record, raw, source, live)
         return matches
 
     def verify(self):
@@ -2175,10 +2183,13 @@ def read_pbs_reservations(cfg):
         return _read_pbs_account(cfg, reads)
 
 
-def _read_pbs_account(cfg, reads):
+def _read_pbs_account(cfg, reads, *, collect_event_index=False):
     from ag.autonomy import _manual_writer_records
     studies = set()
     pbs_dirs = _PbsDirectories()
+    if collect_event_index:
+        from ag._pbs_legacy_directories import LegacyDirectories
+        pbs_dirs.legacy = LegacyDirectories(reads, collect=True)
     writer_root = Path.home() / '.config/ag/manual-writers'
     with ExitStack() as stack:
         try:
@@ -2214,6 +2225,8 @@ def _read_pbs_account(cfg, reads):
                 studies.add(path)
     result = _scan_reservations(cfg, manual_studies=studies, pbs_dirs=pbs_dirs)
     pbs_dirs.verify()
+    if collect_event_index:
+        return result, pbs_dirs.legacy.lookup
     return result
 
 
