@@ -541,9 +541,10 @@ def verified_files(cfg, path, manifest):
         if 'parent_chk' in m:
             from ag.parent_chk import resolve
             resolve(cfg, m)
-        # Receipt recovery verifies already claimed bytes under the historical grammar.
+        # A permanent claim closes dispatch; both historical input checks use that same boundary.
+        claimed_input = has_submission_claim(path)
         science = gaussian_input.validate(files[name].decode(), **resource, parent_chk='parent_chk' in m,
-                                          require_real_coordinates=not has_submission_claim(path))
+                                          require_real_coordinates=not claimed_input, claimed_input=claimed_input)
         if any(m['science'].get(k) != v for k, v in science.items()):
             raise ValueError('Scientific summary differs from submitted input')
     return files
