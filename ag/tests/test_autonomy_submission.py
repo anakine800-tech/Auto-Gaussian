@@ -895,11 +895,14 @@ def test_slurm_cancelled_accounting_still_requires_explicit_resolution_before_ne
 
 
 @pytest.fixture
-def actual_unknown_resolution(cfg, prepared, selector, monkeypatch):
+def actual_unknown_resolution(cfg, selector, monkeypatch, request):
     from ag import autonomy
     from ag.locks import claim
     from test_autonomy import VERSIONS, spec
-    path, manifest = prepared
+    scheduler = getattr(request, 'param', 'pbs')
+    if scheduler == 'slurm':
+        cfg.update(scheduler='slurm', partition='fixture')
+    path, manifest = request.getfixturevalue('prepared')
     clock = [1000.0]
     monkeypatch.setattr(autonomy, 'now', lambda: clock[0])
     monkeypatch.setattr(autonomy, 'versions', lambda: deepcopy(VERSIONS))
@@ -920,8 +923,8 @@ def actual_unknown_resolution(cfg, prepared, selector, monkeypatch):
         guard.dispatch_started(path.name)
     state.write(path, 'submitting')
     clock[0] += 1
-    negative = dict(schema='ag-unknown-observation/1', observed_at=clock[0], scheduler='pbs',
-                    job_name=manifest['pbs_job_name'], matches=[], start_absent=True,
+    negative = dict(schema='ag-unknown-observation/1', observed_at=clock[0], scheduler=scheduler,
+                    job_name=path.name if scheduler == 'slurm' else manifest['pbs_job_name'], matches=[], start_absent=True,
                     account_sha256=saved['record']['account_sha256'])
     state.write(path, 'unknown', unknown_reconciliation=negative)
     autonomy.pause(cfg, 'smoke', 'Synthetic unknown submission')
@@ -1004,6 +1007,284 @@ def test_human_resolution_rechecks_metadata_time_and_exact_consumption(actual_un
     with pytest.raises(ValueError):
         autonomy_submission.verify_resolution_evidence(cfg, current, prepared)
     assert not autonomy.status(cfg, 'smoke')['state'].get('manual_resolutions')
+
+
+def unknown_monitor_sample(cfg, saved, at, *, names=()):
+    from datetime import datetime, timezone
+    from ag import monitor
+    snapshot = monitor.empty_snapshot(cfg, interval=60)
+    stamp = datetime.fromtimestamp(at, timezone.utc).isoformat()
+    snapshot.update(ok=True, error=None, sampled_at=stamp, last_ok_at=stamp,
+                    account_sha256=saved['record']['account_sha256'])
+    slurm = snapshot['cluster']['scheduler'] == 'slurm'
+    suffix = '' if slurm else '.fixture'
+    jobs = [dict(job_id=f'default:{index}{suffix}', name=name, state='PENDING' if slurm else 'Q', cores=8, mine=True)
+            for index, name in enumerate(names, 1)]
+    snapshot['own'].update(cores_running=0, cores_queued=len(jobs) * 8,
+                           cores_in_use=len(jobs) * 8, jobs=jobs)
+    snapshot['cluster']['jobs'] = jobs
+    monitor.publish(monitor.cache_dir(cfg), snapshot)
+    return snapshot
+
+
+@pytest.mark.parametrize('actual_unknown_resolution', ['pbs', 'slurm'], indirect=True)
+def test_resolved_unknown_rotating_absences_release_only_accounting(actual_unknown_resolution, monkeypatch, capsys):
+    from datetime import datetime, timezone
+    from ag import autonomy, budget, cli, config, route
+    cfg, path, manifest, saved, clock, negative = actual_unknown_resolution
+    current = autonomy.resolve_attempt(cfg, 'smoke', path.name, 'Synthetic human resolution')['state']
+    before = tree(path.parent.parent)
+    clock[0] = negative['observed_at'] + 600
+    assert autonomy_submission.read_reservations(cfg)['placements'][0]['state'] == 'finished'
+    clock[0] += 1
+    unknown_monitor_sample(cfg, saved, clock[0])
+    assert autonomy_submission.read_reservations(cfg)['placements'][0]['state'] == 'unknown'
+    clock[0] += 60
+    latest = unknown_monitor_sample(cfg, saved, clock[0], names=['unrelated-job'])
+    placements = autonomy_submission.read_reservations(cfg)['placements']
+    assert len(placements) == 1 and placements[0]['state'] == 'finished'
+    assert placements[0]['job_id'] is None
+    records = route._placement_records(cfg, placements)
+    usage = route._ladder_usage(cfg, 'default', {'default': latest}, records,
+                                datetime.fromtimestamp(clock[0], timezone.utc))
+    assert usage['committed'] == usage['queued'] == 8
+    # A different latest captured by the route must not reuse the old pair.
+    changed = deepcopy(latest)
+    changed['sample_duration_ms'] += 1
+    after_rotation = route._ladder_usage(cfg, 'default', {'default': changed}, records,
+                                         datetime.fromtimestamp(clock[0], timezone.utc))
+    assert after_rotation['committed'] == after_rotation['queued'] == 16
+    assert after_rotation['active'] == records
+    unsupported = deepcopy(placements)
+    del unsupported[0]['unknown_release']
+    with pytest.raises(ValueError, match='bound scheduler job'):
+        route._placement_records(cfg, unsupported)
+    if manifest['scheduler'] == 'slurm':
+        entry = config.select_cluster(cfg)
+        budget.reserve(entry, manifest, dict(cluster='default', attempts={}))
+        ledger = budget.ledger_path(entry)
+        original = ledger.read_bytes()
+        assert submit._autonomous_unobserved_cores(cfg, entry, []) == 0
+        live_job = dict(job_id='912', name=path.name[:-2] + '+', state='PENDING',
+                        cores=8, owner='synthetic-user')
+        assert submit._autonomous_unobserved_cores(cfg, entry, [live_job]) == 8
+        assert ledger.read_bytes() == original
+
+    monkeypatch.setattr(config, 'load_config', lambda: cfg)
+    assert cli.main(['autonomy', 'audit-reservations', '--json']) == 0
+    report = json.loads(capsys.readouterr().out)
+    row, = [row for row in report['records'] if row['source'] == 'attempt']
+    assert (row['state'], row['accounting_state']) == ('unknown', 'finished')
+    assert report['action_permitted'] is False
+    with pytest.raises(autonomy.ObjectRefused):
+        autonomy_submission.prepare_resolution_evidence(cfg, current, path.name)
+    with pytest.raises(autonomy.ObjectRefused):
+        autonomy_submission.prepare_remedy_evidence(cfg, current, 'water')
+    assert current['phase'] == 'paused' and len(current['submissions']) == 1
+    assert tree(path.parent.parent) == before
+
+
+@pytest.mark.parametrize('damage', ['no_resolution', 'old_pair', 'duplicate', 'missing', 'stale',
+    'future', 'corrupt', 'wrong_account', 'latest_name', 'previous_prefix', 'prefix_marker',
+    'blank_name', 'incomplete_own', 'rotation', 'cleared_status', 'different_old_status',
+    'start_receipt', 'binding'])
+def test_resolved_unknown_keeps_occupancy_when_evidence_breaks(actual_unknown_resolution, monkeypatch, damage):
+    from ag import autonomy, monitor
+    cfg, path, manifest, saved, clock, negative = actual_unknown_resolution
+    if damage == 'old_pair':
+        clock[0] += 599
+    if damage != 'no_resolution':
+        current = autonomy.resolve_attempt(cfg, 'smoke', path.name, 'Synthetic human resolution')['state']
+    clock[0] = negative['observed_at'] + 661
+    name = manifest['pbs_job_name']
+    listed = {'previous_prefix': [name[:-3]], 'prefix_marker': [name[:-3] + '+']}
+    first = unknown_monitor_sample(cfg, saved, clock[0] - (120 if damage == 'old_pair' else 60),
+                                   names=listed.get(damage, []))
+    latest_names = {'latest_name': [name], 'blank_name': ['']}
+    unknown_monitor_sample(cfg, saved, clock[0], names=latest_names.get(damage, []))
+    cache = monitor.cache_dir(cfg)
+    previous, latest = cache / 'previous.json', cache / 'latest.json'
+    if damage == 'duplicate':
+        previous.write_bytes(latest.read_bytes())
+    elif damage == 'stale':
+        clock[0] += 121
+    elif damage == 'future':
+        clock[0] -= 1
+    elif damage == 'missing':
+        previous.unlink()
+    elif damage == 'corrupt':
+        latest.write_text('{')
+    elif damage == 'wrong_account':
+        previous.write_text(json.dumps(dict(first, account_sha256='d' * 64)))
+    elif damage == 'incomplete_own':
+        first['own']['cores_in_use'] = 8
+        previous.write_text(json.dumps(first))
+    elif damage == 'rotation':
+        read = autonomy_submission._read_file
+        def rotate(target):
+            raw = read(target)
+            if target == previous:
+                latest.unlink()
+                latest.write_bytes(raw)
+            return raw
+        monkeypatch.setattr(autonomy_submission, '_read_file', rotate)
+    elif damage == 'cleared_status':
+        state.write(path, 'unknown', unknown_reconciliation=None)
+    elif damage == 'different_old_status':
+        state.write(path, 'unknown', unknown_reconciliation=dict(negative, observed_at=negative['observed_at'] + 1))
+    elif damage == 'start_receipt':
+        state.write(path, 'unknown', receipts={'start': {'PBS_JOBID': '111.fixture'}})
+    elif damage == 'binding':
+        submission.record(path, manifest, '123.fixture', authorization=saved['authorization'], autonomy_state=current)
+        state.write(path, 'submitted', job_id='default:123.fixture')
+    placement, = autonomy_submission.read_reservations(cfg)['placements']
+    assert placement['state'] == ('queued' if damage == 'binding' else 'unknown')
+    assert placement['cores'] == 8
+
+
+def test_resolved_unknown_same_account_alias_and_conflicting_readback(actual_unknown_resolution):
+    from ag import autonomy, config
+    cfg, path, manifest, saved, clock, negative = actual_unknown_resolution
+    autonomy.resolve_attempt(cfg, 'smoke', path.name, 'Synthetic human resolution')
+    root = dict(cfg, clusters={name: dict(cfg) for name in ('default', 'other')})
+    alternate = config.select_cluster(root, 'other')
+    clock[0] = negative['observed_at'] + 661
+    unknown_monitor_sample(alternate, saved, clock[0] - 60)
+    unknown_monitor_sample(alternate, saved, clock[0])
+    assert autonomy_submission.read_reservations(root)['placements'][0]['state'] == 'finished'
+
+    # A newer observation through the original entry sees a possible job.
+    clock[0] += 1
+    unknown_monitor_sample(config.select_cluster(root), saved, clock[0], names=[manifest['pbs_job_name']])
+    assert autonomy_submission.read_reservations(root)['placements'][0]['state'] == 'unknown'
+    audit = autonomy_submission.audit_reservations(root)
+    row, = [row for row in audit['records'] if row['source'] == 'attempt']
+    assert audit['ok'] and row['accounting_state'] == 'unknown'
+
+
+@pytest.mark.parametrize('first_peer', ['failed', 'incomplete', 'one_success'])
+def test_resolved_unknown_peer_appears_between_accounting_and_route(actual_unknown_resolution, first_peer):
+    from datetime import datetime, timezone
+    from ag import autonomy, config, monitor, route
+    cfg, path, _, saved, clock, negative = actual_unknown_resolution
+    autonomy.resolve_attempt(cfg, 'smoke', path.name, 'Synthetic human resolution')
+    root = dict(cfg, clusters={name: dict(cfg) for name in ('default', 'other')})
+    primary, peer = [config.select_cluster(root, name) for name in ('default', 'other')]
+    clock[0] = negative['observed_at'] + 661
+    unknown_monitor_sample(primary, saved, clock[0] - 60)
+    latest = unknown_monitor_sample(primary, saved, clock[0])
+    records = route._placement_records(root, autonomy_submission.read_reservations(root)['placements'])
+    views = {'default': latest, 'other': None}
+    def usage():
+        return route._ladder_usage(root, 'default', views, records, datetime.fromtimestamp(clock[0], timezone.utc))
+    assert records[0]['state'] == 'finished' and usage()['committed'] == 0
+    clock[0] += 1
+    stamp = datetime.fromtimestamp(clock[0], timezone.utc).isoformat()
+    sample = dict(latest, sampled_at=stamp, last_ok_at=stamp)
+    if first_peer == 'failed':
+        sample.update(ok=False, error='Synthetic monitor failure')
+    elif first_peer == 'incomplete':
+        sample['own'] = {'jobs': []}
+    cache = monitor.cache_dir(peer)
+    monitor.publish(cache, sample, record_history=False)
+    views['other'] = json.loads((cache / 'latest.json').read_bytes())
+    assert autonomy_submission.read_reservations(root)['placements'][0]['state'] == 'unknown'
+    assert usage()['committed'] == usage()['queued'] == 8
+
+
+def test_resolved_unknown_duplicate_cluster_job_cannot_hide_matching_name(actual_unknown_resolution):
+    from ag import autonomy, monitor
+    cfg, path, manifest, saved, clock, negative = actual_unknown_resolution
+    autonomy.resolve_attempt(cfg, 'smoke', path.name, 'Synthetic human resolution')
+    clock[0] = negative['observed_at'] + 661
+    unknown_monitor_sample(cfg, saved, clock[0] - 60)
+    latest = unknown_monitor_sample(cfg, saved, clock[0], names=['different'])
+    job, = latest['own']['jobs']
+    latest['cluster']['jobs'] = [dict(job, name=manifest['pbs_job_name']), job]
+    (monitor.cache_dir(cfg) / 'latest.json').write_text(json.dumps(latest))
+    placement, = autonomy_submission.read_reservations(cfg)['placements']
+    assert placement['state'] == 'unknown' and placement['cores'] == 8
+
+
+def test_resolved_unknown_other_root_cannot_mask_owner_readback(actual_unknown_resolution, tmp_path):
+    from ag import autonomy
+    cfg, path, manifest, saved, clock, negative = actual_unknown_resolution
+    autonomy.resolve_attempt(cfg, 'smoke', path.name, 'Synthetic human resolution')
+    other = deepcopy(cfg)
+    other['local']['studies_root'] = str(tmp_path / 'second-root')
+    Path(other['local']['studies_root']).mkdir()
+    clock[0] = negative['observed_at'] + 661
+    unknown_monitor_sample(other, saved, clock[0] - 60)
+    unknown_monitor_sample(other, saved, clock[0] - 1)
+    unknown_monitor_sample(cfg, saved, clock[0] - 60)
+    unknown_monitor_sample(cfg, saved, clock[0], names=[manifest['pbs_job_name']])
+    for root in (cfg, other):
+        placement, = autonomy_submission.read_reservations(root)['placements']
+        assert placement['state'] == 'unknown' and placement['cores'] == 8
+
+
+def test_resolved_unknown_same_second_positive_after_formal_status(actual_unknown_resolution):
+    from ag import autonomy
+    cfg, path, manifest, saved, clock, negative = actual_unknown_resolution
+    second = int(negative['observed_at'])
+    clock[0] = second + 0.55
+    state.write(path, 'unknown', unknown_reconciliation=dict(negative, observed_at=clock[0]))
+    autonomy.resolve_attempt(cfg, 'smoke', path.name, 'Synthetic human resolution')
+    clock[0] = second + 0.91
+    unknown_monitor_sample(cfg, saved, second, names=[manifest['pbs_job_name']])
+    placement, = autonomy_submission.read_reservations(cfg)['placements']
+    assert placement['state'] == 'unknown' and placement['cores'] == 8
+
+
+@pytest.mark.parametrize('appearance', ['latest', 'previous', 'absent'])
+def test_resolved_unknown_monitor_during_status_receipt_check(actual_unknown_resolution, monkeypatch, appearance):
+    from types import SimpleNamespace
+    from ag import autonomy, status
+    cfg, path, manifest, saved, clock, _ = actual_unknown_resolution
+    autonomy.resolve_attempt(cfg, 'smoke', path.name, 'Synthetic human resolution')
+    clock[0] = 1010.0
+    class Interleaved(Fake):
+        def run(self, command):
+            if command.operation == 'identity':
+                return Result(stdout='synthetic-user\n')
+            if command.operation == 'jobs':
+                assert clock[0] == 1010.0
+            if command.operation == 'receipt':
+                clock[0] = 1011.30
+                names = [] if appearance == 'absent' else [manifest['pbs_job_name']]
+                unknown_monitor_sample(cfg, saved, 1011, names=names)
+                if appearance == 'previous':
+                    unknown_monitor_sample(cfg, saved, 1012)
+                clock[0] = 1012.55
+            return super().run(command)
+    monkeypatch.setattr(status, 'time', SimpleNamespace(time=lambda: clock[0]))
+    updated = status.check(cfg, path, Interleaved(cfg))
+    assert updated['unknown_reconciliation']['observed_at'] == 1012.55
+    placement, = autonomy_submission.read_reservations(cfg)['placements']
+    audit = autonomy_submission.audit_reservations(cfg)
+    row, = [r for r in audit['records'] if r['source'] == 'attempt']
+    expected = 'finished' if appearance == 'absent' else 'unknown'
+    assert placement['state'] == row['accounting_state'] == expected
+    assert placement['cores'] == 8
+
+
+def test_resolved_unknown_duplicate_local_name_across_studies(actual_unknown_resolution, selector, tmp_path):
+    from ag import attempt, autonomy, study
+    cfg, path, manifest, saved, clock, negative = actual_unknown_resolution
+    autonomy.resolve_attempt(cfg, 'smoke', path.name, 'Synthetic human resolution')
+    other = deepcopy(cfg)
+    other['local']['studies_root'] = str(tmp_path / 'other-studies')
+    study.init(other, 'smoke')
+    peer = attempt.prepare(other, study_name='smoke', template='gaussian', input_path=tmp_path / 'water.gjf',
+                           tier='simple', walltime='00:30:00', label='sp', method_basis='Synthetic method')
+    peer_path = attempt.find(other, peer['attempt_id'])
+    assert peer['pbs_job_name'] == manifest['pbs_job_name'] and peer_path != path
+    _, peer_state = install_owned(other, peer_path, selector[0])
+    clock[0] = negative['observed_at'] + 661
+    unknown_monitor_sample(cfg, saved, clock[0] - 60)
+    unknown_monitor_sample(cfg, saved, clock[0])
+    result = autonomy_submission.read_reservations(cfg, states=supplied(peer_path, peer_state))
+    assert sorted(item['state'] for item in result['placements']) == ['reserved', 'unknown']
 
 
 @pytest.mark.parametrize('start_at,log_at,first_at,expected', [
@@ -1235,7 +1516,7 @@ def t186_driver_factory(cfg, tmp_path, monkeypatch):
     def load(path=None, **kwargs):
         return deepcopy(configurations[str(Path(path).absolute())])
     monkeypatch.setattr(config, 'load_config', load)
-    def create(name, *, relay_group=None):
+    def create(name, *, relay_group=None, studies_root=None, study_id='smoke'):
         local = deepcopy(cfg)
         if relay_group is not None:
             local['relay_group'] = relay_group
@@ -1244,7 +1525,7 @@ def t186_driver_factory(cfg, tmp_path, monkeypatch):
         directory = root / 'config'
         directory.mkdir()
         local['_config_dir'] = str(directory)
-        local['local']['studies_root'] = str(root / 'studies')
+        local['local']['studies_root'] = studies_root or str(root / 'studies')
         local['resources'].update(max_committed_cores=128, max_walltime='12:00:00')
         local['routing'] = dict(gaussian=['default'], crest=['default'], ladder=[
             dict(id='small-default', cluster='default', tier='simple', classes=['main', 'small'],
@@ -1253,21 +1534,22 @@ def t186_driver_factory(cfg, tmp_path, monkeypatch):
         config_path.write_text('Synthetic config parsed by a fixed local test loader\n')
         local['_config_path'] = str(config_path)
         configurations[str(config_path)] = local
-        study.init(local, 'smoke')
+        study.init(local, study_id)
         source = root / 'water.gjf'
         source.write_text(INPUT.replace('# B3LYP/6-31G(d) SP', ROUTE))
-        manifest = attempt.prepare(local, study_name='smoke', template='gaussian', input_path=source,
+        manifest = attempt.prepare(local, study_name=study_id, template='gaussian', input_path=source,
             tier='simple', walltime='00:30:00', label='optfreq', method_basis='Synthetic fixture')
         path = attempt.find(local, manifest['attempt_id'])
         policy = rule(local)
+        policy.update(study_id=study_id, study_key=autonomy_submission.study_identity(path.parent.parent)['study_key'])
         policy['routing_sha256'] = route.ladder_config_identity(local)
         policy['clusters']['default'].update(max_committed_cores=128, max_queued_cores=128, max_jobs=4)
         bounds = {key: deepcopy(policy[key]) for key in autonomy_policy.PLAN_BOUND_KEYS}
-        autonomy.initialize(local, 'smoke')
-        plan = autonomy.create_plan(local, 'smoke', spec(valid_until=at[0] + 86400, submission_policy=bounds))
-        autonomy.confirm(local, 'smoke', plan['plan_id'], plan['sha256'], 'Synthetic plan confirmation')
-        begun = autonomy.begin(local, 'smoke', plan['plan_id'], 'Synthetic round confirmation')
-        run = autonomy.start(local, 'smoke', plan['plan_id'], 'fixture-session')
+        autonomy.initialize(local, study_id)
+        plan = autonomy.create_plan(local, study_id, spec(valid_until=at[0] + 86400, submission_policy=bounds))
+        autonomy.confirm(local, study_id, plan['plan_id'], plan['sha256'], 'Synthetic plan confirmation')
+        begun = autonomy.begin(local, study_id, plan['plan_id'], 'Synthetic round confirmation')
+        run = autonomy.start(local, study_id, plan['plan_id'], 'fixture-session')
         policy.update(round_id=begun['state']['current_round'], plan_sha256=plan['sha256'])
         local['approval'] = {'autonomous_policies': {'bounded': policy}}
         snapshot = dict(schema='ag-monitor/1', ok=True, error=None, warnings=[],
@@ -1281,7 +1563,7 @@ def t186_driver_factory(cfg, tmp_path, monkeypatch):
                     mem_total_bytes=120 * 1024**3, mem_assigned_bytes=0, jobs=0, state='free',
                     capacity_cpu_consistent=True, targeting_consistent=True, targeting_reserved=False)]))
         cache = Path(local['local']['studies_root']) / '.ag-monitor'
-        cache.mkdir()
+        cache.mkdir(exist_ok=True)
         (cache / 'latest.json').write_text(json.dumps(snapshot))
         context = dict(policy_name='bounded', run_id=run['run_id'], token=run['token'],
                        plan_sha256=plan['sha256'], object_id='water', job_class='small')
@@ -1497,6 +1779,45 @@ def test_driver_fresh_inventory_enforces_stricter_policy(t186_driver):
     with pytest.raises(ValueError, match='autonomous limit'):
         submit.submit(cfg, [path.name], fake, autonomous=context)
     assert not {'create_attempt', 'upload', 'submit'} & set(fake.operations())
+    assert not (path / '.submit-claim').exists()
+
+
+@pytest.mark.parametrize('name_form', ['exact', 'truncated', 'unrelated', 'other_owner'])
+def test_resolved_unknown_live_pbs_inventory_restores_hold_before_claim(t186_driver_factory, name_form):
+    from datetime import datetime, timezone
+    from ag import autonomy, config, monitor
+    old_cfg, old_path, old_manifest, old_context, clock, _ = t186_driver_factory('source')
+    lost = Fake(old_cfg)
+    lost.qsub = Result(255, '', 'Synthetic lost reply')
+    with pytest.raises(submit.UnknownSubmission):
+        submit.submit(old_cfg, [old_path.name], lost, autonomous=old_context)
+    account = autonomy_submission.account_identity(config.select_cluster(old_cfg))
+    name = old_manifest['pbs_job_name']
+    state.write(old_path, 'unknown', unknown_reconciliation=dict(schema='ag-unknown-observation/1',
+        scheduler='pbs', observed_at=clock[0], job_name=name, matches=[], start_absent=True, account_sha256=account))
+    autonomy.resolve_attempt(old_cfg, 'smoke', old_path.name, 'Synthetic confirmed absence')
+    cfg, path, _, context, _, policy = t186_driver_factory(
+        'candidate', studies_root=old_cfg['local']['studies_root'], study_id='candidate')
+    policy['clusters']['default'].update(max_committed_cores=16, max_queued_cores=16)
+    cache = monitor.cache_dir(cfg)
+    sample = json.loads((cache / 'latest.json').read_text())
+    sample['cluster'].update(jobs=[], jobs_omitted=0)
+    for delta in (601, 60):
+        clock[0] += delta
+        stamp = datetime.fromtimestamp(clock[0], timezone.utc).isoformat()
+        monitor.publish(cache, dict(sample, account_sha256=account, sampled_at=stamp, last_ok_at=stamp))
+    assert autonomy_submission.read_reservations(cfg)['placements'][0]['state'] == 'finished'
+    live = Fake(cfg)
+    name = {'truncated': name[:-3] + '+', 'unrelated': 'unrelated-job'}.get(name_form, name)
+    owner = 'other' if name_form == 'other_owner' else 'fixture'
+    live.qstat = Result(stdout=f'Job Id: 77.fixture\n    Job_Name = {name}\n'
+        f'    Job_Owner = {owner}@fixture\n    job_state = Q\n    Resource_List.nodes = 1:ppn=8\n')
+    if name_form in ('unrelated', 'other_owner'):
+        assert submit.submit(cfg, [path.name], live, autonomous=context)[0]['state'] == 'submitted'
+        return
+    with pytest.raises(ValueError, match='limit'):
+        submit.submit(cfg, [path.name], live, autonomous=context)
+    assert 'create_attempt' not in live.operations() and 'submit' not in live.operations()
     assert not (path / '.submit-claim').exists()
 
 

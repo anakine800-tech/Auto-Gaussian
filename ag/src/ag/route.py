@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from contextvars import ContextVar
 from copy import deepcopy
 import json
+import math
 from pathlib import Path
 
 from ag.config import (load_config, select_cluster, scheduler_kind, shared_clusters,
@@ -63,7 +64,7 @@ def _snapshot(cfg, name, now):
 
 
 def autonomous_selection(cfg, state, context, *, template, walltime,
-                         parent_cluster=None, exclude_ownership=None, requested_tier=None):
+                         parent_cluster=None, exclude_ownership=None, requested_tier=None, live_inventory=None):
     """Capture local evidence and invoke the reviewed ladder, under caller locks.
 
     There is no JSON-input escape hatch. The original monitor bytes, verified
@@ -79,6 +80,9 @@ def autonomous_selection(cfg, state, context, *, template, walltime,
     evidence = autonomy_submission.read_reservations(cfg, states={scope: state})
     placements = [p for p in evidence['placements']
                   if p['record_sha256'] != exclude_ownership]
+    if live_inventory is not None:
+        peers, names = live_inventory
+        placements = retain_live_unknowns(placements, peers, names)
     placements = _placement_records(cfg, placements)
     snapshots = {}
     root = Path(cfg['local']['studies_root']) / '.ag-monitor'
@@ -96,7 +100,10 @@ def autonomous_selection(cfg, state, context, *, template, walltime,
                 os.close(fd)
             if len(raw) > 2 * 1024 * 1024:
                 raise ValueError('Oversize monitor snapshot')
-            snapshots[cluster] = disk.decode(raw)
+            value = disk.decode(raw)
+            if value is None:
+                raise ValueError('Published monitor snapshot is null')
+            snapshots[cluster] = value
         except FileNotFoundError:
             snapshots[cluster] = None
     # Waiting is established by a saved no-placement decision, never by a
@@ -395,6 +402,15 @@ def _placement_records(cfg, placements):
         if job is not None:
             manifest = dict(cluster=item['cluster'], scheduler=scheduler_kind(entry))
             job = raw_job(manifest, job if ':' in job else qualified(manifest, job))
+        elif item['state'] == 'finished' and item.get('unknown_release') is not None:
+            release = item['unknown_release']
+            if (item['run_id'] is None or not isinstance(release, dict)
+                    or any(not isinstance(release.get(k), str) or len(release[k]) != 64
+                           or any(c not in '0123456789abcdef' for c in release[k])
+                           for k in ('resolution_sha256', 'account_sha256'))
+                    or type(release.get('fresh_until')) not in (int, float)
+                    or not math.isfinite(release['fresh_until'])):
+                raise ValueError('Invalid unbound UNKNOWN accounting evidence')
         elif item['state'] not in ('reserved', 'unknown'):
             raise ValueError('Submitted placement needs a bound scheduler job')
         for field in ('manifest_sha256', 'record_sha256'):
@@ -449,6 +465,82 @@ def _is_running(job):
     return job.get('state') in ('R', 'E', 'RUNNING', 'COMPLETING')
 
 
+def _possible_unknown_name(expected, name):
+    # A queue display may preserve only a prefix, sometimes with a truncation marker.
+    if not isinstance(name, str) or name != name.strip():
+        return True
+    prefix = name.rstrip('+.*~…')
+    return not prefix or expected.startswith(prefix)
+
+
+def retain_live_unknowns(placements, peers, names):
+    """A live account row can invalidate an absence but cannot bind an unbound Attempt."""
+    result = []
+    for placement in placements:
+        if ('unknown_release' in placement and placement['cluster'] in peers
+                and any(_possible_unknown_name(placement['scheduler_job_name'], name) for name in names)):
+            placement = dict(placement, state='unknown')
+            placement['live_conflicting_resolution'] = placement.pop('unknown_release')['resolution_sha256']
+        result.append(placement)
+    return result
+
+
+def _unknown_name_absent(cfg, entry, data, expected_name, account):
+    """An unbound UNKNOWN can only be excluded from a complete account inventory."""
+    if (data.get('account_sha256') != account or data.get('last_ok_at') != data['sampled_at']
+            or data.get('config_warning') or data.get('config_removed')):
+        return False
+    own = _own(dict(fresh=True, data=data))
+    if own is None or data['own'].get('jobs_omitted', 0):
+        return False
+    rows = _observed_jobs(cfg, entry, data)
+    if len(rows) != len(data['own']['jobs']):
+        return False
+    running = queued = 0
+    for row in rows.values():
+        cores = row.get('cores')
+        if (_possible_unknown_name(expected_name, row['name'])
+                or row.get('mine') is not True or type(cores) is not int or cores < 1):
+            return False
+        if _is_running(row):
+            running += cores
+        else:
+            queued += cores
+    published = {row['job_id']: row for row in data['own']['jobs']}
+    visible = {}
+    identities = set()
+    for row in data['cluster']['jobs']:
+        job = row['job_id']
+        if not isinstance(job, str) or type(row['mine']) is not bool:
+            return False
+        raw = job.rsplit(':', 1)[-1]
+        if not raw or raw in identities:
+            return False
+        identities.add(raw)
+        if row['mine']:
+            visible[job] = row
+    omitted = data['cluster']['jobs_omitted']
+    return (_count(omitted) and all(published.get(key) == row for key, row in visible.items())
+            and (omitted or published.keys() == visible.keys())
+            and running == own['cores_running'] and queued == own['cores_queued'])
+
+
+def _unknown_release_current(cfg, release, snapshots, peers, choices, now, expected_name):
+    if now.timestamp() > release['fresh_until']:
+        return False
+    # Selection captures latest.json after reading reservations. A rotated
+    # pair needs a new accounting read, even if its new latest is also empty.
+    observations = release['observations']
+    if {peer for peer in peers if snapshots.get(peer) is not None} != {o['cluster'] for o in observations}:
+        return False
+    for observation in observations:
+        name = observation['cluster']
+        if _digest(snapshots.get(name)) != observation['samples'][-1]['snapshot_sha256']:
+            return False
+    return all(_unknown_name_absent(cfg, peer, snapshots[peer], expected_name, release['account_sha256'])
+               for _, peer, _ in choices)
+
+
 def _ladder_usage(cfg, name, snapshots, placements, now):
     peers = shared_clusters(select_cluster(cfg, name))
     choices = []
@@ -471,8 +563,15 @@ def _ladder_usage(cfg, name, snapshots, placements, now):
     if any(signature(peer, counts) != signature(source, own)
            for at, peer, counts in choices if at == stamp):
         raise ValueError('Conflicting same-time shared account snapshots')
-    active = [p for p in placements if p['cluster'] in peers
-              and (p['state'] != 'finished' or p['job_id'] in observed)]
+    active = []
+    for p in placements:
+        if p['cluster'] not in peers:
+            continue
+        if p['state'] == 'finished' and p['job_id'] not in observed:
+            release = p.get('unknown_release')
+            if release is None or _unknown_release_current(cfg, release, snapshots, peers, choices, now, p['scheduler_job_name']):
+                continue
+        active.append(p)
     for p in active:
         row = observed.get(p['job_id'])
         if row is not None and row['name'] != p['scheduler_job_name']:
@@ -626,7 +725,7 @@ def select_ladder(cfg, snapshots, *, template, job_class, walltime, study_key, s
             observed = usage['observed'].get(p['job_id'])
             if observed is not None:
                 item['state'] = 'running' if _is_running(observed) else 'queued'
-            elif p['state'] != 'finished':
+            elif p in usage['active']:
                 # Missing readback cannot prove that a bound or UNKNOWN
                 # submission has finished, nor release its possible queue slot.
                 item['state'] = 'reserved'

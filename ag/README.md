@@ -631,6 +631,12 @@ ag autonomy count --study '<STUDY>' --run '<RUN_ID>' --token '<TOKEN>' --kind re
 负责人可用 `ag autonomy resolve-attempt --study '<STUDY>' --attempt '<ATTEMPT>' --quote '<原话>'`
 基于已核实的本地新鲜证据显式解除取消/UNKNOWN；不改旧声明、不退回预算、不自动恢复运行，
 后续仍只能准备新 Attempt 并重新通过完整授权与资源核验。
+人工核清的未绑定 UNKNOWN 超过 600 秒后，若还能核对当时的 status、无启动回执或绑定，
+且同账号连续两张新鲜正式快照都能排除该作业，仍可释放本地在途额度。
+作业名有歧义、出现新作业或回执、快照过期/缺失或证据变化时重新计占。
+提交复查在已有实时清单中看到本账号同名或疑似截断的作业时，会同时计入该作业和旧预留。
+`autonomy audit-reservations` 可同时查看生命周期的 `state` 和额度用的 `accounting_state`。
+核时账本和实际消费继续保留，后继来源仍需新鲜正式 status。
 自主取消、取消停止证明、改投入口关闭，`--reroute-source` 不再提供。
 需要取消或改投时，唯一 owner 用上述 `update` 保存“需要你看”和原因，保留其他分支，
 summary 第一行提醒负责人在 Mac 上亲手确认取消；自主会话不执行取消命令。
