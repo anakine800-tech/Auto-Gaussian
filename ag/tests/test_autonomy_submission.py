@@ -1236,6 +1236,38 @@ def test_resolved_unknown_same_second_positive_after_formal_status(actual_unknow
     assert placement['state'] == 'unknown' and placement['cores'] == 8
 
 
+@pytest.mark.parametrize('appearance', ['latest', 'previous', 'absent'])
+def test_resolved_unknown_monitor_during_status_receipt_check(actual_unknown_resolution, monkeypatch, appearance):
+    from types import SimpleNamespace
+    from ag import autonomy, status
+    cfg, path, manifest, saved, clock, _ = actual_unknown_resolution
+    autonomy.resolve_attempt(cfg, 'smoke', path.name, 'Synthetic human resolution')
+    clock[0] = 1010.0
+    class Interleaved(Fake):
+        def run(self, command):
+            if command.operation == 'identity':
+                return Result(stdout='synthetic-user\n')
+            if command.operation == 'jobs':
+                assert clock[0] == 1010.0
+            if command.operation == 'receipt':
+                clock[0] = 1011.30
+                names = [] if appearance == 'absent' else [manifest['pbs_job_name']]
+                unknown_monitor_sample(cfg, saved, 1011, names=names)
+                if appearance == 'previous':
+                    unknown_monitor_sample(cfg, saved, 1012)
+                clock[0] = 1012.55
+            return super().run(command)
+    monkeypatch.setattr(status, 'time', SimpleNamespace(time=lambda: clock[0]))
+    updated = status.check(cfg, path, Interleaved(cfg))
+    assert updated['unknown_reconciliation']['observed_at'] == 1012.55
+    placement, = autonomy_submission.read_reservations(cfg)['placements']
+    audit = autonomy_submission.audit_reservations(cfg)
+    row, = [r for r in audit['records'] if r['source'] == 'attempt']
+    expected = 'finished' if appearance == 'absent' else 'unknown'
+    assert placement['state'] == row['accounting_state'] == expected
+    assert placement['cores'] == 8
+
+
 def test_resolved_unknown_duplicate_local_name_across_studies(actual_unknown_resolution, selector, tmp_path):
     from ag import attempt, autonomy, study
     cfg, path, manifest, saved, clock, negative = actual_unknown_resolution

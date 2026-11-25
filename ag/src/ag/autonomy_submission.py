@@ -1019,12 +1019,16 @@ def _monitor_folder(cfg, name, *, unbound=False):
     return named if 'clusters' in cfg else legacy
 
 
-def _monitor_absence(cfg, manifest, job_id, account_sha256, name, since, *, latest_only=False):
+def _monitor_absence(cfg, manifest, job_id, account_sha256, name, since, *, status_deadline=None):
     """Read adjacent monitor generations, checking their metadata across the entire read."""
     from ag import autonomy, route
     try:
         folder = _monitor_folder(cfg, name, unbound=job_id is None)
-        paths = [folder / f for f in (('latest.json',) if latest_only else ('previous.json', 'latest.json'))]
+        previous, latest = folder / 'previous.json', folder / 'latest.json'
+        paths = [previous, latest]
+        if status_deadline is not None and not os.path.lexists(previous):
+            _remember_absence(previous)
+            paths = [latest]
         entry = _entries(cfg)[name]
         _require(account_identity(entry) == account_sha256,
                  'Monitor entry no longer belongs to the reservation account')
@@ -1034,27 +1038,25 @@ def _monitor_absence(cfg, manifest, job_id, account_sha256, name, since, *, late
         scheduler = manifest.get('scheduler', 'pbs')
         expected_job = submission.raw_job(manifest, job_id) if job_id is not None else None
         expected_name = manifest['attempt_id'] if scheduler == 'slurm' else manifest['pbs_job_name']
-        now, samples, times = autonomy.now(), [], []
+        now, samples, times, deadlines = autonomy.now(), [], [], []
         for raw in raws:
             value = _json(raw)
             interval = value['interval_seconds']
             at = approval.timestamp(value['sampled_at']).timestamp()
-            if latest_only and math.floor(at) < math.floor(since):
-                # Monitor records whole seconds. Never skip a possibly later same-second job.
-                return dict(cluster=name, samples=[dict(sampled_at=value['sampled_at'],
-                            snapshot_sha256=approval.digest(value))], fresh_until=since + 600)
+            # Formal status timestamps completion, not the earlier scheduler query.
+            # While status itself is fresh, every cached generation can veto it.
             _require(value['schema'] == 'ag-monitor/1' and value['ok'] is True
                      and not value.get('error') and not value.get('config_removed')
                      and not value.get('config_warning')
                      and type(interval) is int and 30 <= interval <= 600
-                     and 0 <= now - at <= 3 * interval and (latest_only or at >= since),
+                     and at <= now and (status_deadline is not None or since <= at and now - at <= 3 * interval),
                      'Monitor absence sample is not fresh and successful')
             _require(value['cluster'].get('name', name) == name
                      and value['cluster']['scheduler'] == scheduler
                      and value.get('account_sha256') == account_sha256
                      and isinstance(value['own']['jobs'], list), 'Monitor account snapshot differs')
             if expected_job is None:
-                _require((latest_only or at > since)
+                _require((status_deadline is not None or at > since)
                          and route._unknown_name_absent(entry, name, value, expected_name, account_sha256),
                          'Monitor cannot exclude the unbound job')
             else:
@@ -1072,13 +1074,15 @@ def _monitor_absence(cfg, manifest, job_id, account_sha256, name, since, *, late
                     _require(identity != expected_job and job['name'] != expected_name,
                              'Bound job remains in the account snapshot')
             times.append(at)
+            deadlines.append(at + 3 * interval)
             samples.append(dict(sampled_at=value['sampled_at'], sha256=sha256(raw).hexdigest()))
             if expected_job is None:
                 samples[-1]['snapshot_sha256'] = approval.digest(value)
-        _require(latest_only or times[0] < times[1], 'Monitor samples are not strictly consecutive in time')
-        return dict(source='monitor-absence' if latest_only else 'two-monitor-absences', cluster=name, scheduler=scheduler,
+        _require(len(times) == 1 or times[0] < times[1], 'Monitor samples are not strictly consecutive in time')
+        return dict(source='status-with-monitor-check' if status_deadline is not None else 'two-monitor-absences',
+                    cluster=name, scheduler=scheduler,
                     account_sha256=account_sha256, job_id=job_id, samples=samples,
-                    fresh_until=min(at + 3 * _json(raw)['interval_seconds'] for at, raw in zip(times, raws)))
+                    fresh_until=status_deadline if status_deadline is not None else min(deadlines))
     except (OSError, ValueError, KeyError, TypeError, AttributeError, OverflowError):
         return None
 
@@ -1302,8 +1306,8 @@ def _unknown_accounting(cfg, path, record, manifest, report, consumed, resolutio
         if not any(os.path.lexists(folder / f) for f in ('previous.json', 'latest.json')):
             _remember_absence(folder / 'latest.json')
             continue
-        pair = _monitor_absence(cfg, manifest, None, account, alias,
-                                observed if fresh else resolution['at'], latest_only=fresh)
+        pair = _monitor_absence(cfg, manifest, None, account, alias, resolution['at'],
+                                status_deadline=observed + 600 if fresh else None)
         if pair is None:
             return None
         observations.append(pair)
