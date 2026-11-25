@@ -176,6 +176,10 @@ def test_legacy_unbound_reader_is_reviewable_but_cannot_submit(cfg, parent, tmp_
 
     # An already consumed submission may still need its frozen bytes for status recovery.
     claim(path / '.submit-claim')
+    # A crash between claiming and publishing "submitting" leaves this combination.
+    assert attempt.verified_files(cfg, path, m) == files
+    with pytest.raises(ValueError, match='already consumed'):
+        submit.submit(cfg, [path.name], fake)
     state.write(path, 'submitting')
     assert attempt.verified_files(cfg, path, m) == files
     with pytest.raises(ValueError, match='already consumed'):
