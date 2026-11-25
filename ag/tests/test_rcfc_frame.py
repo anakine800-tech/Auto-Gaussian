@@ -9,9 +9,9 @@ from ag._parse_outputs import gaussian_orientation
 from test_core import INPUT, cfg
 
 
-INITIAL = 'O 0 0 0\nH 0 0 1\nH 0 1 0'
-INPUT_FRAME = 'O 0 0 0\nH 0 0 0.95\nH 0.92 0.2 0'
-STANDARD_FRAME = 'O 0 0 0\nH 0 0 0.95\nH -0.2 0.92 0'
+INITIAL = 'O 0.0 0.0 0.0\nH 0.0 0.0 1.0\nH 0.0 1.0 0.0'
+INPUT_FRAME = 'O 0.0 0.0 0.0\nH 0.0 0.0 0.95\nH 0.92 0.2 0.0'
+STANDARD_FRAME = 'O 0.0 0.0 0.0\nH 0.0 0.0 0.95\nH -0.2 0.92 0.0'
 
 
 def orientation(kind, geometry):
@@ -149,7 +149,7 @@ def test_nosymm_either_frame(cfg, tmp_path, input_only, filename):
 @pytest.mark.parametrize('delta,allowed', [(0.000099, True), (0.0001, True), (0.000101, False)])
 def test_fixed_row_tolerance(cfg, tmp_path, delta, allowed):
     path, _ = make_parent(cfg, tmp_path)
-    changed = INPUT_FRAME.replace('O 0 0 0', f'O {delta} 0 0')
+    changed = INPUT_FRAME.replace('O 0.0 0.0 0.0', f'O {delta} 0.0 0.0')
     if allowed:
         prepare_child(cfg, tmp_path, path, changed)
     else:
@@ -158,10 +158,10 @@ def test_fixed_row_tolerance(cfg, tmp_path, delta, allowed):
 
 
 @pytest.mark.parametrize('geometry', [
-    'H 0 0 0.95\nO 0 0 0\nH 0.92 0.2 0',
-    'O 0 0 0\nH 0.92 0.2 0\nH 0 0 0.95',
-    INPUT_FRAME + '\nH 1 1 1', 'O 0 0 0\nH 0 0 0.95',
-    INPUT_FRAME.replace('O 0 0 0', 'O 1e999 0 0'),
+    'H 0.0 0.0 0.95\nO 0.0 0.0 0.0\nH 0.92 0.2 0.0',
+    'O 0.0 0.0 0.0\nH 0.92 0.2 0.0\nH 0.0 0.0 0.95',
+    INPUT_FRAME + '\nH 1.0 1.0 1.0', 'O 0.0 0.0 0.0\nH 0.0 0.0 0.95',
+    INPUT_FRAME.replace('O 0.0 0.0 0.0', 'O 1e999 0.0 0.0'),
 ])
 def test_atom_mapping_and_finite_coordinates(cfg, tmp_path, geometry):
     path, _ = make_parent(cfg, tmp_path)

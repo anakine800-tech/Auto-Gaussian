@@ -13,7 +13,7 @@ from ag.geometry import Frame, HARTREE_TO_KCAL, read_xyz, xyz_text
 from ag.scan_peak import select_peak
 from test_core import cfg, INPUT
 
-GEOMETRY = 'O 0 0 0\nO 1.45 0 0\nH -0.4 0.8 0\nH 1.85 0 0.8'
+GEOMETRY = 'O 0.0 0.0 0.0\nO 1.45 0.0 0.0\nH -0.4 0.8 0.0\nH 1.85 0.0 0.8'
 GJF = '%nprocshared=8\n%mem=10GB\n# HF/STO-3G opt=modredundant\n\nperoxide\n\n0 1\n' + GEOMETRY + '\n\n'
 XCONTROL = '$constrain\ndistance: 1, 2, auto\nangle: 3, 1, 2, auto\n$end\n$scan\n1: 1.45,2.05,7\n$end\n'
 
@@ -433,7 +433,7 @@ def test_xtb_fetch_declares_termination_evidence(scan, scheduler):
     assert remote.output_names(manifest) == expected
 
 # T75: deterministic 2D grid mapping; energies are a synthetic saddle, not chemistry.
-GRID_GEOMETRY = 'O 0 0 0\nO 1.4 0 0\nH 0 1 0\nH 1.4 0 1'
+GRID_GEOMETRY = 'O 0.0 0.0 0.0\nO 1.4 0.0 0.0\nH 0.0 1.0 0.0\nH 1.4 0.0 1.0'
 GRID_LINES = 'B 1 2 S 2 .2\nB 1 3 S 2 .2'
 
 

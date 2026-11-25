@@ -1360,3 +1360,133 @@ def test_config_identity_uses_actual_t185_digest_and_tracks_configuration_change
         entry['ssh']['host'] = 'another-private-host'
     write_config(raw)
     assert query() != original
+
+
+@pytest.mark.parametrize('generation,observation,total', [
+    ('start_receipt', 'same_entry', 8), ('start_receipt', 'alias', 8),
+    ('status_only', 'same_entry', 16), ('status_only', 'no_qtime', 16),
+    ('submission', 'same_entry', 16), ('submission', 'no_qtime', 16),
+    ('submission', 'retargeted', 16), ('submission', 'alias', 16),
+    ('submission', 'conflicting_default', 16), ('submission', 'conflicting_peer', 16),
+    ('submission', 'unseen', 8), ('submission', 'w120', 24), ('submission', 'excess_allocation', 24),
+])
+def test_historical_manual_reservation_evidence(routed, tmp_path, monkeypatch, generation, observation, total):
+    from ag import autonomy, autonomy_submission, journal, state, submission
+    from ag.locks import claim
+    from test_autonomy_submission import recovered_manual_receipt
+    from test_core import job_text
+    from test_monitor import Fake as MonitorFake
+
+    dispatch_day = datetime.now(timezone.utc).replace(microsecond=0)
+    clock = [dispatch_day - timedelta(seconds=20)]
+    monkeypatch.setattr(journal, 'now', lambda: clock[0].isoformat())
+    identity = lambda entry: (entry['ssh']['host'], 22, 'fixture')
+    monkeypatch.setattr(config, 'ssh_identity', identity)
+    monkeypatch.setattr(monitor, 'ssh_identity', identity)
+    routed['clusters']['peer'] = deepcopy(routed['clusters']['default'])
+    study.init(routed, 'water')
+    source = tmp_path / 'water.gjf'
+    source.write_text(INPUT)
+    manifest = attempt.prepare(routed, study_name='water', template='gaussian', input_path=source,
+                               tier='simple', walltime='00:30:00', label='old', method_basis='Synthetic water')
+    path = attempt.find(routed, manifest['attempt_id'])
+    job = '123.fixture'
+    if generation == 'start_receipt':
+        recovered_manual_receipt(routed, path, manifest, dispatch=dispatch_day - timedelta(seconds=10),
+                                 started=dispatch_day - timedelta(seconds=3), verified=dispatch_day - timedelta(seconds=2),
+                                 monkeypatch=monkeypatch)
+    else:
+        # Replay the two early binding formats. The task card also records a
+        # byte-preserving replay using both original historical writers.
+        if generation == 'status_only':
+            del manifest['cluster'], manifest['scheduler']
+            (path / 'manifest.json').write_text(json.dumps(manifest))
+        claim(path / '.submit-claim')
+        clock[0] = dispatch_day - timedelta(seconds=10)
+        state.write(path, 'submitting')
+        if generation == 'submission':
+            submission.record(path, manifest, job)
+        clock[0] = dispatch_day - timedelta(seconds=3)
+        state.write(path, 'submitted', job_id=job if generation == 'status_only' else 'default:' + job)
+    before = tree(path.parent.parent)
+    if observation == 'retargeted':
+        original = autonomy_submission.account_identity(config.select_cluster(routed, 'default'))
+        for name in ('default', 'peer'):
+            routed['clusters'][name]['ssh']['host'] = 'synthetic-replacement'
+        assert autonomy_submission.account_identity(config.select_cluster(routed, 'default')) != original
+    jobs = job_text(manifest) + '    exec_host = node-a/0-7\n'
+    if observation != 'no_qtime':
+        jobs += f'    qtime = {(dispatch_day - timedelta(seconds=5)).isoformat()}\n'
+    if observation == 'unseen':
+        jobs = ''
+    if observation in ('w120', 'excess_allocation'):
+        slots = '0-5' if observation == 'w120' else '0-9'
+        jobs += job_text().replace(job, '124.fixture') + f'    exec_host = node-a/{slots}\n'
+    entry = 'peer' if observation == 'alias' else 'default'
+    selected = config.select_cluster(routed, entry)
+    sample = monitor.sample(selected, MonitorFake(jobs=jobs), 60)
+    assert sample['ok']
+    at = datetime.fromisoformat(sample['sampled_at'])
+    monkeypatch.setattr(autonomy, 'now', at.timestamp)
+    if observation in ('w120', 'excess_allocation'):
+        assert sample['own']['cores_in_use'] == 16
+        assert sorted(r['cores'] for r in sample['own']['jobs']) == ([6, 8] if observation == 'w120' else [8, 10])
+    if observation.startswith('conflicting_'):
+        for name in ('default', 'peer'):
+            view = deepcopy(sample)
+            view['cluster']['name'] = name
+            row, = view['own']['jobs']
+            row.update(job_id=name + ':' + job, study=None, attempt=None)
+            if name == observation.removeprefix('conflicting_'):
+                row.update(study='other', attempt='other-001-old')
+            save(routed, name, view)
+    selection = route.autonomous_selection(routed, dict(current_round='round-one'),
+        dict(study_id='water', run_id='run-one', job_class='small', object_id='next'),
+        template='crest', walltime='00:30:00', requested_tier='simple')['input']
+    usage = route._ladder_usage(routed, 'default', selection['snapshots'], selection['placements'], at)
+    verified = generation == 'start_receipt'
+    assert usage['committed'] == total and usage['queued'] == (0 if verified else 8)
+    audit = autonomy_submission.audit_reservations(routed)
+    row, = [r for r in audit['records'] if r['source'] == 'attempt' and r['attempt_id'] == path.name]
+    assert audit['ok'] and not audit['action_permitted']
+    assert row['classification'] == ('retained' if verified else 'manual_unverified_reserved')
+    assert tree(path.parent.parent) == before
+
+
+def test_historical_slurm_cache_cannot_supply_generation(routed, tmp_path, monkeypatch):
+    from ag import autonomy, autonomy_submission, budget, state, submission
+    from ag.locks import claim
+    from ag.transport import Result
+    from test_slurm import SlurmFake, prepare
+
+    def identity(entry):
+        return entry['ssh']['host'], 22, 'fixture'
+    monkeypatch.setattr(config, 'ssh_identity', identity)
+    monkeypatch.setattr(monitor, 'ssh_identity', identity)
+    path, manifest = prepare(routed, tmp_path, cluster='scnet')
+    selected = config.select_cluster(routed, 'scnet')
+    budget.reserve(selected, manifest, budget.read(selected))
+    claim(path / '.submit-claim')
+    state.write(path, 'submitting')
+    submission.record(path, manifest, '123', scheduler_cluster='synthetic')
+    state.write(path, 'submitted', job_id='scnet:123')
+    fake = SlurmFake(selected)
+    fake.queue = Result(stdout=f"123|{path.name}|fixture|RUNNING|8|00:04|synthetic\n")
+    data = monitor.sample(selected, fake, 60)
+    assert data['ok'] and data['own']['jobs'][0]['qtime'] is None
+    at = datetime.fromisoformat(data['sampled_at'])
+    monkeypatch.setattr(autonomy, 'now', at.timestamp)
+    before = tree(path.parent.parent)
+    for queued in (None, state.read(path)['updated_at']):
+        # A damaged non-null cache value cannot identify an original Slurm submission.
+        data['own']['jobs'][0]['qtime'] = queued
+        save(routed, 'scnet', data)
+        original = route.autonomous_selection(routed, dict(current_round='round-one'),
+            dict(study_id=manifest['study_id'], run_id='run-one', job_class='small', object_id='next'),
+            template='crest', walltime='00:30:00', requested_tier='simple')['input']
+        usage = route._ladder_usage(routed, 'scnet', original['snapshots'], original['placements'], at)
+        assert (usage['committed'], usage['queued']) == (16, 8)
+        audit = autonomy_submission.audit_reservations(routed)
+        row, = [r for r in audit['records'] if r['source'] == 'attempt' and r['attempt_id'] == path.name]
+        assert audit['ok'] and row['classification'] == 'manual_unverified_reserved'
+    assert tree(path.parent.parent) == before

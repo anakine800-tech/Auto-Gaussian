@@ -140,7 +140,7 @@ def test_prepare_and_facts_cli(cfg, tmp_path, capsys, keyword):
     ('%chk=water.chk', '%oldchk=parent.chk\n%chk=water.chk', 'parent chk attachment'),
     ('%nprocshared=8', '%nprocshared=22', 'resource tier'),
     ('%mem=10GB', '%mem=12GB', '85%'),
-    ('O 0 0 0', 'O 0 0', 'Cartesian'),
+    ('O 0.0 0.0 0.0', 'O 0 0', 'Cartesian'),
     ('0 1', '0 0', 'multiplicity'),
     ('Water smoke', '@other.gjf', 'includes'),
     ('Water smoke', '--Link1--', 'Link1'),

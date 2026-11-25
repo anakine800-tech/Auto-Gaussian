@@ -2867,3 +2867,72 @@ def test_actual_mode_report_feeds_scientific_review(scientific_review_case, monk
     evidence = json.loads((path / result['record']).read_bytes())
     assert evidence['mode_review']['path'] == 'analyses/actual-mode.json'
     assert set(evidence['mode_review']['geometries']) == {'plus', 'minus'}
+
+
+def recovered_manual_receipt(cfg, path, manifest, *, dispatch, started, verified, monkeypatch):
+    """Generate the saved account proof through real submission + read-only recovery."""
+    from ag import config, journal, status
+    from test_unknown_start_binding import StartFake
+    selected = config.select_cluster(cfg, manifest['cluster'])
+    fake = StartFake(selected, manifest)
+    fake.qsub = Result(255, '', 'Synthetic lost reply')
+    fake.start['started_at'] = started.isoformat()
+    with monkeypatch.context() as clock:
+        clock.setattr(journal, 'now', lambda: dispatch.isoformat())
+        with pytest.raises(submit.UnknownSubmission):
+            submit.submit(cfg, [path.name], fake, approval_id=authorized(cfg, path))
+        clock.setattr(journal, 'now', lambda: verified.isoformat())
+        result = status.check(selected, path, fake)
+    assert result['start_reconciliation']['account_sha256'] == autonomy_submission.account_identity(selected)
+    assert fake.operations().count('submit') == 1
+    assert (path / 'submission-summary.json').is_file()
+
+
+@pytest.mark.parametrize('live_time', ['absolute', 'absent', 'timezone_conflict'])
+def test_legacy_manual_reservation_blocks_at_live_recheck(t186_driver, monkeypatch, live_time):
+    from datetime import datetime, timezone
+    from ag import attempt, journal, monitor, study
+    from ag.locks import claim
+    from test_core import job_text
+    cfg, target, _, context, at, policy = t186_driver
+    policy['clusters']['default'].update(max_committed_cores=16, max_queued_cores=16)
+    old = at[0] - (8 * 3600 if live_time == 'timezone_conflict' else 0)
+    clock = [old - 20]
+    monkeypatch.setattr(journal, 'now', lambda: datetime.fromtimestamp(clock[0], timezone.utc).isoformat())
+    study.init(cfg, 'historical')
+    root = Path(cfg['local']['studies_root'])
+    manifest = attempt.prepare(cfg, study_name='historical', template='gaussian',
+        input_path=root.parent / 'water.gjf', tier='simple', walltime='00:30:00',
+        label='old', method_basis='Synthetic historical record')
+    path = attempt.find(cfg, manifest['attempt_id'])
+    claim(path / '.submit-claim')
+    clock[0] = old - 10
+    state.write(path, 'submitting')
+    submission.record(path, manifest, '123.fixture')
+    clock[0] = old - 3
+    state.write(path, 'submitted', job_id='default:123.fixture')
+    clock[0] = at[0]
+    row = job_text(manifest) + '    exec_host = node-a/0-7\n'
+    if live_time == 'absolute':
+        row += f'    qtime = {int(old - 5)}\n'
+    elif live_time == 'timezone_conflict':
+        cfg['scheduler_timezone'] = 'Asia/Shanghai'
+        def server_clock(seconds):
+            return datetime.fromtimestamp(at[0] - seconds, timezone.utc).strftime('%a %b %d %H:%M:%S %Y')
+        row += (f'    qtime = {server_clock(5)}\n    start_time = {server_clock(4)}\n'
+                '    resources_used.walltime = 00:00:04\n')
+    fake = Fake(cfg)
+    fake.qstat = Result(stdout=row)
+    if live_time == 'timezone_conflict':
+        sample = monitor.observation(cfg, fake, 'fixture', sampled_at=datetime.fromtimestamp(at[0], timezone.utc))
+        assert sample['own']['jobs'][0]['qtime'] is None
+        assert any(w['kind'] == 'timezone-mismatch' for w in sample['warnings'])
+    before = tree(path)
+    with pytest.raises(ValueError, match='autonomous limit'):
+        submit.submit(cfg, [target.name], fake, autonomous=context)
+    assert fake.operations().count('submit') == 0
+    assert not (target / '.submit-claim').exists()
+    entries = autonomy_submission.read_reservations(cfg)['placements']
+    entry, = [p for p in entries if p['attempt_id'] == path.name]
+    assert (entry['job_id'], entry['state'], entry['cores']) == (None, 'reserved', 8)
+    assert tree(path) == before
