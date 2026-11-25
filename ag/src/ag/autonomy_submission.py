@@ -18,7 +18,7 @@ from pathlib import Path
 import re
 import stat
 
-from ag import approval, attempt, state, study, submission
+from ag import approval, attempt, state, study, submission, _study_directory
 from ag import _autonomy_store as disk
 from ag.config import cluster_name
 
@@ -354,13 +354,18 @@ class _EvidenceReads:
         if path.name == 'journal.jsonl' and data is not None:
             self.journals[path] = data
 
-    def directory(self, path):
+    def directory(self, path, opened_fd=None):
         path = Path(path).absolute()
-        fd = disk.directory(path)
-        try:
-            identity = _fingerprint(os.fstat(fd))
-        finally:
-            os.close(fd)
+        if opened_fd is None:
+            fd = disk.directory(path)
+            try:
+                identity = _fingerprint(os.fstat(fd))
+            finally:
+                os.close(fd)
+        else:
+            # listdir must describe this opened directory. Reopening the name
+            # here could certify a replacement while we enumerate the old fd.
+            identity = _fingerprint(os.fstat(opened_fd))
         _require(self.directories.get(path, identity) == identity, 'Evidence directory changed during reading')
         self.directories[path] = identity
 
@@ -510,11 +515,17 @@ def _filename(path):
     return path.name + '-' + sha256(str(path).encode()).hexdigest() + '.json'
 
 
-def study_identity(path):
+def study_identity(path, *, apfs=False):
     """Bind lexical safe location and directory identity; never follow a link."""
     path = Path(path).absolute()
-    fd = disk.directory(path)
-    try:
+    with ExitStack() as stack:
+        if apfs:
+            parent = disk.directory(path.parent)
+            stack.callback(os.close, parent)
+            fd = os.open(path.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+        else:
+            fd = disk.directory(path)
+        stack.callback(os.close, fd)
         info = os.fstat(fd)
         captured = _CAPTURE_READS.get()
         if captured is not None:
@@ -522,10 +533,75 @@ def study_identity(path):
             _require(captured.identities.get(path, identity) == identity,
                      'Study directory changed during evidence reading')
             captured.identities[path] = identity
-        return dict(study_key=sha256(str(path).encode()).hexdigest(),
-                    study_device=info.st_dev, study_inode=info.st_ino)
-    finally:
-        os.close(fd)
+        result = dict(study_key=sha256(str(path).encode()).hexdigest(),
+                      study_device=info.st_dev, study_inode=info.st_ino)
+        if apfs:
+            # The registered leaf locates pre-registry siblings in this exact
+            # parent. Moving only the leaf into a replacement root loses them.
+            leaf = _study_directory.apfs_object_digest(fd, info.st_ino)
+            root = _study_directory.apfs_object_digest(parent, os.fstat(parent).st_ino)
+            if leaf is not None and root is not None:
+                result['apfs_directory_sha256'] = sha256(bytes.fromhex(root + leaf)).hexdigest()
+        return result
+
+
+def _publish_study_record(store, name, raw, path, identity):
+    """Bind persistent evidence on the original inode during exclusive creation."""
+    current = study_identity(path, apfs=True)
+    fingerprint = current.pop('apfs_directory_sha256', None)
+    _require(current == identity, 'Study directory changed during registration')
+    if fingerprint is None:
+        store.exclusive(name, raw)
+    else:
+        store.exclusive(name, raw, before_sync=lambda fd: _study_directory.bind_new(fd, raw, fingerprint))
+
+
+class _PbsDirectories:
+    """Persistent identities are accepted only by the PBS accounting reader."""
+    def __init__(self):
+        self.observed = {}
+
+    def identity(self, path):
+        path = Path(path)
+        if path not in self.observed:
+            self.observed[path] = study_identity(path, apfs=True)
+        return self.observed[path]
+
+    def writer_path(self, identity, name):
+        return Path.home() / '.config/ag/manual-writers' / identity['study_key'] / name
+
+    def matches(self, path, record, raw, source):
+        live = self.identity(path)
+        for key in ('study_key', 'study_inode', 'study_device'):
+            if type(record[key]) is not type(live[key]):
+                return False
+        if record['study_key'] != live['study_key'] or record['study_inode'] != live['study_inode']:
+            return False
+        parent = disk.directory(source.parent)
+        try:
+            fd = disk.Store(parent).open(source.name, os.O_RDONLY)
+            try:
+                before = _fingerprint(os.fstat(fd))
+                matches = _study_directory.matches_binding(fd, raw, live.get('apfs_directory_sha256'))
+                _CAPTURE_READS.get().remember(source, before, _fingerprint(os.fstat(fd)))
+            finally:
+                os.close(fd)
+        finally:
+            os.close(parent)
+        if matches is None:
+            return record['study_device'] == live['study_device']
+        return matches
+
+    def verify(self):
+        for path, previous in self.observed.items():
+            _require(study_identity(path, apfs=True) == previous,
+                     'PBS study directory changed during account verification')
+
+
+def _registration_matches(path, record, raw, pbs_dirs, source):
+    if pbs_dirs is not None:
+        return pbs_dirs.matches(path, record, raw, source)
+    return all(type(record.get(k)) is type(v) and record[k] == v for k, v in study_identity(path).items())
 
 
 def _register_study(path):
@@ -538,12 +614,12 @@ def _register_study(path):
         try:
             existing = store.read(filename)
         except FileNotFoundError:
-            store.exclusive(filename, raw)
+            _publish_study_record(store, filename, raw, path, identity)
         else:
             _require(existing == raw, 'Registered study location or directory identity changed')
 
 
-def _registered_studies(diagnostic=None):
+def _registered_studies(diagnostic=None, *, pbs_dirs=None):
     result = {}
     location = Path.home() / '.config/ag/autonomy-studies'
     with _reservation_check(diagnostic, 'study_registry', location, coverage=True):
@@ -551,11 +627,11 @@ def _registered_studies(diagnostic=None):
             try:
                 store = stack.enter_context(_registry('autonomy-studies'))
             except FileNotFoundError:
-                if diagnostic is not None:
+                if diagnostic is not None or pbs_dirs is not None:
                     _remember_absence(location)
                 return result
-            if diagnostic is not None:
-                _CAPTURE_READS.get().directory(location)
+            if diagnostic is not None or pbs_dirs is not None:
+                _CAPTURE_READS.get().directory(location, store.fd)
             for name in sorted(os.listdir(store.fd)):
                 with _reservation_check(diagnostic, 'study_registration', location / name, coverage=True) as row:
                     raw = _read_file(location / name)
@@ -566,12 +642,12 @@ def _registered_studies(diagnostic=None):
                             'registered study location')
                     _require(isinstance(value['study_path'], str) and Path(value['study_path']).is_absolute(),
                              'Invalid registered study path')
-                    identity = study_identity(value['study_path'])
+                    path = Path(value['study_path'])
                     _require(value['schema'] == 'ag-autonomy-study-location/1'
-                             and name == identity['study_key'] + '.json' and raw == disk.encode(value)
-                             and all(type(value.get(k)) is type(v) and value[k] == v for k, v in identity.items()),
+                             and _hash(value['study_key']) and name == value['study_key'] + '.json' and raw == disk.encode(value)
+                             and _registration_matches(path, value, raw, pbs_dirs, location / name),
                              'Registered study was moved, copied or replaced')
-                    result[identity['study_key']] = Path(value['study_path'])
+                    result[value['study_key']] = path
                     row['study_id'] = Path(value['study_path']).name
     return result
 
@@ -677,7 +753,7 @@ def _manifest_bytes(path):
     try:
         captured = _CAPTURE_READS.get()
         if captured is not None:
-            captured.directory(inputs)
+            captured.directory(inputs, fd)
         files = {name: _read_file(inputs / name) for name in os.listdir(fd)}
     finally:
         os.close(fd)
@@ -743,12 +819,12 @@ def write_reservation(cfg, path, record, *, batch_inputs=None, verified_state, v
         validate_consume(consume(value, digest))
     _register_study(path.parent.parent)
     with _registry('autonomy-reservations', create=True) as store:
-        store.exclusive(filename, data)
+        _publish_study_record(store, filename, data, path.parent.parent, identity)
     return dict(record=value, sha256=digest, filename=filename,
                 consume=consume(value, digest), authorization=authorization(value, digest))
 
 
-def _record_path(record):
+def _record_path(record, *, pbs_dirs=None, raw=None, source=None):
     for key in ('studies_root', 'config_path'):
         value = record[key]
         _require(isinstance(value, str) and Path(value).is_absolute() and '..' not in Path(value).parts,
@@ -756,8 +832,7 @@ def _record_path(record):
     study.identifier(record['study_id'])
     study.identifier(record['attempt_id'])
     path = Path(record['studies_root']) / record['study_id'] / 'attempts' / record['attempt_id']
-    identity = study_identity(path.parent.parent)
-    _require(all(type(record.get(key)) is type(value) and record[key] == value for key, value in identity.items()),
+    _require(_registration_matches(path.parent.parent, record, raw, pbs_dirs, source),
              'Study directory was moved, copied or replaced')
     return path
 
@@ -768,7 +843,7 @@ def _record_location(record):
     return Path(record['studies_root']) / record['study_id'] / 'attempts' / record['attempt_id']
 
 
-def _read_global_records(diagnostic=None):
+def _read_global_records(diagnostic=None, *, pbs_dirs=None):
     records = []
     location = Path.home() / '.config/ag/autonomy-reservations'
     with _reservation_check(diagnostic, 'reservation_registry', location, coverage=True):
@@ -777,11 +852,11 @@ def _read_global_records(diagnostic=None):
                 store = stack.enter_context(_registry('autonomy-reservations'))
             except FileNotFoundError:
                 # The reverse scan must still prove no consumed ownership.
-                if diagnostic is not None:
+                if diagnostic is not None or pbs_dirs is not None:
                     _remember_absence(location)
                 return records
-            if diagnostic is not None:
-                _CAPTURE_READS.get().directory(location)
+            if diagnostic is not None or pbs_dirs is not None:
+                _CAPTURE_READS.get().directory(location, store.fd)
             for name in sorted(os.listdir(store.fd)):
                 with _reservation_check(diagnostic, 'reservation', location / name, coverage=True) as row:
                     raw = _read_file(location / name)
@@ -801,7 +876,8 @@ def _read_global_records(diagnostic=None):
                                     row[key] = choice[key]
                     _fields(value, _RECORD_KEYS, 'reservation record')
                     _context(value)
-                    _require(value['schema'] == RESERVATION_SCHEMA and name == _filename(_record_path(value)),
+                    path = _record_path(value, pbs_dirs=pbs_dirs, raw=raw, source=location / name)
+                    _require(value['schema'] == RESERVATION_SCHEMA and name == _filename(path),
                              'Reservation filename/schema mismatch')
                     _require(raw == disk.encode(value), 'Reservation encoding was changed')
                     for key in ('account_sha256', 'manifest_sha256', 'bundle_sha256'):
@@ -811,7 +887,7 @@ def _read_global_records(diagnostic=None):
     return records
 
 
-def _study_paths(root, diagnostic=None):
+def _study_paths(root, diagnostic=None, *, pbs=False):
     """Enumerate one studies root without following directory redirects."""
     root = Path(root).absolute()
     result = []
@@ -821,10 +897,12 @@ def _study_paths(root, diagnostic=None):
         except FileNotFoundError:
             if diagnostic is not None:
                 raise ValueError('Configured or registered studies root is missing')
+            if pbs:
+                _remember_absence(root)
             return result
         try:
-            if diagnostic is not None:
-                _CAPTURE_READS.get().directory(root)
+            if diagnostic is not None or pbs:
+                _CAPTURE_READS.get().directory(root, fd)
             for name in sorted(os.listdir(fd)):
                 if name.startswith('.'):
                     continue
@@ -834,7 +912,7 @@ def _study_paths(root, diagnostic=None):
                     _require(not stat.S_ISLNK(info.st_mode), 'Redirected study directory')
                     if not stat.S_ISDIR(info.st_mode):
                         continue
-                    if diagnostic is not None:
+                    if diagnostic is not None or pbs:
                         _CAPTURE_READS.get().directory(child)
                     if os.path.lexists(child / 'attempts') or os.path.lexists(child / 'autonomy'):
                         study.identifier(name)
@@ -2008,9 +2086,9 @@ def _manual_accounting(cfg, target, entries, *, pbs_account=False):
     return placement, warning
 
 
-def _owned_accounting(cfg, saved, current, identities):
+def _owned_accounting(cfg, saved, current, identities, *, pbs_path=None):
     record, digest = saved['record'], saved['sha256']
-    path = _record_path(record)
+    path = _record_path(record) if pbs_path is None else pbs_path
     raw, manifest = _manifest_bytes(path)
     _require(sha256(raw).hexdigest() == record['manifest_sha256'] and manifest['inputs'] == record['inputs'],
              'Reservation manifest/input hashes changed')
@@ -2093,16 +2171,27 @@ def read_pbs_reservations(cfg):
     A writer's completion closes the operation. Only the Attempt audit can
     release its cores. An old manual claim may have no action or Attempt list.
     """
+    with _capture_reads() as reads:
+        return _read_pbs_account(cfg, reads)
+
+
+def _read_pbs_account(cfg, reads):
     from ag.autonomy import _manual_writer_records
     studies = set()
+    pbs_dirs = _PbsDirectories()
+    writer_root = Path.home() / '.config/ag/manual-writers'
     with ExitStack() as stack:
         try:
             registry = stack.enter_context(_registry('manual-writers'))
         except FileNotFoundError:
+            _remember_absence(writer_root)
             registry = None
+        else:
+            reads.directory(writer_root, registry.fd)
         for key in sorted(os.listdir(registry.fd)) if registry is not None else ():
             with disk.manual_writers(key) as writers:
                 _require(writers is not None, 'Manual writer registration disappeared')
+                reads.directory(writer_root / key, writers.fd)
                 first = next((n for n in sorted(os.listdir(writers.fd)) if n.endswith('.claim.json')), None)
                 _require(first is not None, 'Manual study registration has no claim')
                 seed = disk.decode(writers.read(first))
@@ -2113,7 +2202,7 @@ def read_pbs_reservations(cfg):
                 study.identifier(path.name)
                 identity = study_identity(path)
                 _require(identity['study_key'] == key, 'Manual study location does not match its registry key')
-                writers_here = _manual_writer_records(writers, path, identity)
+                writers_here = _manual_writer_records(writers, path, identity, pbs_dirs=pbs_dirs)
                 os.close(disk.directory(path / 'attempts'))
                 for row in writers_here.values():
                     claim = row['claim']
@@ -2123,12 +2212,14 @@ def read_pbs_reservations(cfg):
                             fd = disk.directory(path / 'attempts' / aid)
                             os.close(fd)
                 studies.add(path)
-    return _scan_reservations(cfg, manual_studies=studies)
+    result = _scan_reservations(cfg, manual_studies=studies, pbs_dirs=pbs_dirs)
+    pbs_dirs.verify()
+    return result
 
 
-def _scan_reservations(cfg, *, states=None, diagnostic=None, manual_studies=None):
-    records = _read_global_records(diagnostic)
-    registered = _registered_studies(diagnostic)
+def _scan_reservations(cfg, *, states=None, diagnostic=None, manual_studies=None, pbs_dirs=None):
+    records = _read_global_records(diagnostic, pbs_dirs=pbs_dirs)
+    registered = _registered_studies(diagnostic, pbs_dirs=pbs_dirs)
     supplied = {str(Path(key).absolute()): value for key, value in (states or {}).items()}
     roots = {Path(cfg['local']['studies_root']).absolute()} if cfg is not None else set()
     roots.update(Path(item['record']['studies_root']) for item in records)
@@ -2137,17 +2228,19 @@ def _scan_reservations(cfg, *, states=None, diagnostic=None, manual_studies=None
         # A verified newer sibling locates the root of pre-registry manual
         # Attempts. Use the same no-follow enumeration as the configured root.
         roots.update(path.parent for path in manual_studies)
-    studies = {path for root in sorted(roots) for path in _study_paths(root, diagnostic)}
+    studies = {path for root in sorted(roots) for path in _study_paths(root, diagnostic, pbs=pbs_dirs is not None)}
     studies.update(registered.values())
     if manual_studies is not None:
         studies.update(manual_studies)
     studies.update(_record_location(item['record']).parent.parent for item in records)
     current_states, invalid_studies = {}, set()
     for path in sorted(studies):
+        if pbs_dirs is not None:
+            pbs_dirs.identity(path)
         invalid_studies.add(path)
         with _reservation_check(diagnostic, 'study_state', path, coverage=True) as row:
             current_states[str(path)] = (_load_state(path, supplied, readonly=True)
-                                        if diagnostic is not None else _load_state(path, supplied))
+                                        if diagnostic is not None or pbs_dirs is not None else _load_state(path, supplied))
             row['study_id'] = path.name
         if row.get('classification') != 'refused':
             invalid_studies.remove(path)
@@ -2155,7 +2248,8 @@ def _scan_reservations(cfg, *, states=None, diagnostic=None, manual_studies=None
     for saved in records:
         path = _record_location(saved['record'])
         with _reservation_check(diagnostic, 'reservation_identity', path) as row:
-            _record_path(saved['record'])
+            if pbs_dirs is None:
+                _record_path(saved['record'])
             _require(str(path) not in by_path, 'Duplicate reservation path')
             by_path[str(path)] = saved
             _require(registered.get(saved['record']['study_key']) == path.parent.parent,
@@ -2193,9 +2287,12 @@ def _scan_reservations(cfg, *, states=None, diagnostic=None, manual_studies=None
         with _reservation_check(diagnostic, 'attempt', path) as row:
             _require(registered.get(record['study_key']) == path.parent.parent,
                      'Reservation is missing its global study registration')
+            if pbs_dirs is not None:
+                _CAPTURE_READS.get().directory(path)
             _require(path.parent.parent not in invalid_studies, 'Study ownership state could not be verified')
             _require(str(path) not in invalid_consumption, 'Consumption ownership could not be verified')
-            placement, original = _owned_accounting(cfg, saved, current_states.get(str(path.parent.parent)), identities)
+            placement, original = _owned_accounting(cfg, saved, current_states.get(str(path.parent.parent)),
+                                                    identities, pbs_path=path if pbs_dirs is not None else None)
             if placement is not None:
                 key = record['selection']['result']['evidence']['input_sha256']
                 _require(key not in batch_inputs or batch_inputs[key] == original, 'Conflicting original batch inputs')
@@ -2213,8 +2310,8 @@ def _scan_reservations(cfg, *, states=None, diagnostic=None, manual_studies=None
         with _reservation_check(diagnostic, 'attempts_directory', attempts, coverage=True):
             fd = disk.directory(attempts)
             try:
-                if diagnostic is not None:
-                    _CAPTURE_READS.get().directory(attempts)
+                if diagnostic is not None or pbs_dirs is not None:
+                    _CAPTURE_READS.get().directory(attempts, fd)
                 names = sorted(os.listdir(fd))
             finally:
                 os.close(fd)
@@ -2225,6 +2322,8 @@ def _scan_reservations(cfg, *, states=None, diagnostic=None, manual_studies=None
                 if str(target) in by_path:
                     continue
                 with _reservation_check(diagnostic, 'attempt', target) as row:
+                    if pbs_dirs is not None:
+                        _CAPTURE_READS.get().directory(target)
                     _require(path not in invalid_studies, 'Study ownership state could not be verified')
                     _require(str(target) not in invalid_consumption, 'Consumed Attempt is missing its global reservation')
                     placement, warning = _manual_accounting(cfg, target, entries, **manual_options)

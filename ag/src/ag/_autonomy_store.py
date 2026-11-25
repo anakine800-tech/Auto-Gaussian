@@ -79,10 +79,12 @@ class Store:
         with os.fdopen(self.open(name, os.O_RDONLY), 'rb') as handle:
             return handle.read()
 
-    def exclusive(self, name, data):
+    def exclusive(self, name, data, *, before_sync=None):
         with os.fdopen(self.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL), 'wb') as handle:
             handle.write(data)
             handle.flush()
+            if before_sync is not None:
+                before_sync(handle.fileno())
             os.fsync(handle.fileno())
         os.fsync(self.fd)
 

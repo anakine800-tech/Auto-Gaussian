@@ -1258,7 +1258,8 @@ def test_generic_peer_cannot_bypass_own_inventory_conflict(targeted, monkeypatch
     assert fake.operations().count('submit') == 0
 
 
-@pytest.mark.parametrize('case', ['over-cap', 'at-cap', 'unverifiable-at-dialog', 'redirected-sibling', 'wrong-registered-root'])
+@pytest.mark.parametrize('case', ['over-cap', 'at-cap', 'unverifiable-at-dialog', 'redirected-sibling', 'wrong-registered-root',
+                                  'remount-at-cap', 'remount-confirmation', 'remount-upload', 'remount-parent'])
 def test_known_manual_root_includes_pre_registry_siblings(targeted, monkeypatch, tmp_path, case):
     from contextlib import nullcontext
     from ag import autonomy, autonomy_submission as records
@@ -1266,7 +1267,8 @@ def test_known_manual_root_includes_pre_registry_siblings(targeted, monkeypatch,
     queue_site(cfg)
     monkeypatch.setattr(config, 'ssh_identity', lambda _: ('fixture', 22, 'fixture'))
     monkeypatch.setattr(confirm, 'confirm', lambda _: True)
-    cfg['resources']['max_committed_cores'] = 52 if case in ('at-cap', 'unverifiable-at-dialog') else 48
+    remount = case.startswith('remount-')
+    cfg['resources']['max_committed_cores'] = 52 if remount or case in ('at-cap', 'unverifiable-at-dialog') else 48
     cfg['resources']['max_queued_cores'] = 48
     other = deepcopy(cfg)
     del other['node_targeting']
@@ -1275,6 +1277,10 @@ def test_known_manual_root_includes_pre_registry_siblings(targeted, monkeypatch,
     other['_config_dir'] = str(tmp_path / 'other-config')
     Path(other['_config_dir']).mkdir()
     study.init(other, 'registered')
+    stable = ['a' * 64]
+    if remount:
+        foreign_inode = (root / 'registered').stat().st_ino
+        monkeypatch.setattr(records._study_directory, 'apfs_object_digest', lambda fd, ino: stable[0] if ino == foreign_inode else f'{ino:064x}')
     with autonomy.manual_write_guard(other, 'registered', action='prepare'):
         pass
     # Reproduce the durable pre-registry layout with the real Attempt, claim,
@@ -1290,6 +1296,20 @@ def test_known_manual_root_includes_pre_registry_siblings(targeted, monkeypatch,
     assert records.audit(path)['job_id'] == 'default:567.fixture'
     writers = Path.home() / '.config/ag/manual-writers'
     assert not (writers / records.study_identity(root / 'older')['study_key']).exists()
+    if remount:
+        actual = records.study_identity
+        def current(path, *, apfs=False):
+            identity = actual(path, apfs=apfs)
+            if Path(path) == root / 'registered':
+                identity['study_device'] += 1
+            return identity
+        monkeypatch.setattr(records, 'study_identity', current)
+    if case == 'remount-parent':
+        previous = root.with_name('previous-root')
+        root.rename(previous)
+        root.mkdir()
+        (previous / 'registered').rename(root / 'registered')
+        assert records.audit(previous / 'older' / 'attempts' / m['attempt_id'])['retained_cores'] == 24
     if case == 'redirected-sibling':
         (root / 'redirect').symlink_to(tmp_path, target_is_directory=True)
     elif case == 'wrong-registered-root':
@@ -1304,17 +1324,32 @@ def test_known_manual_root_includes_pre_registry_siblings(targeted, monkeypatch,
     rows = monitor.observation(cfg, fake, 'fixture')['cluster']['nodes']
     snapshot(cfg, rows)
     requested = args | dict(target_node='compute-b')
-    if case in ('redirected-sibling', 'wrong-registered-root'):
+    if case in ('redirected-sibling', 'wrong-registered-root', 'remount-parent'):
         with pytest.raises(ValueError, match='reservations could not be verified'):
             attempt.prepare(cfg, **requested)
     else:
         assert rows[1]['occupied_queue_account']['committed'] == 28
-        if case in ('at-cap', 'unverifiable-at-dialog'):
+        if remount or case in ('at-cap', 'unverifiable-at-dialog'):
             target = attempt.prepare(cfg, **requested)
             fake.job = Result(stdout=f"Job Id: 123.fixture\n    Job_Name = {target['pbs_job_name']}\n    job_state = Q\n")
             dialogs = []
-            monkeypatch.setattr(confirm, 'confirm', lambda text: dialogs.append(text) or True)
-            if case == 'at-cap':
+            def click(text):
+                dialogs.append(text)
+                if case == 'remount-confirmation':
+                    stable[0] = 'b' * 64
+                return True
+            monkeypatch.setattr(confirm, 'confirm', click)
+            if case == 'remount-upload':
+                upload = fake.upload
+                def transfer(*args):
+                    upload(*args)
+                    stable[0] = 'b' * 64
+                fake.upload = transfer
+            if case in ('remount-confirmation', 'remount-upload'):
+                stage = 'after confirmation' if case == 'remount-confirmation' else 'after upload, before qsub'
+                with pytest.raises(ValueError, match=stage + '.*reservations could not be verified'):
+                    submit.submit(cfg, [target['attempt_id']], fake)
+            elif case in ('at-cap', 'remount-at-cap'):
                 submit.submit(cfg, [target['attempt_id']], fake)
                 assert state.read(attempt.find(cfg, target['attempt_id']))['node_placement']['state'] == 'pending'
             else:
@@ -1324,7 +1359,7 @@ def test_known_manual_root_includes_pre_registry_siblings(targeted, monkeypatch,
             text, = dialogs
             assert '已观测本人作业 4 核（运行 4、排队 0）' in text and '本次申请 24 核' in text
             assert '提交后合计 28' not in text and '最多 28 核' not in text
-            if case == 'at-cap':
+            if remount or case == 'at-cap':
                 assert '未回显预留 24 核' in text and '小计 52 / 上限 52 核' in text
                 assert '小计 48 / 排队上限 48 核' in text
             else:
@@ -1333,7 +1368,7 @@ def test_known_manual_root_includes_pre_registry_siblings(targeted, monkeypatch,
         else:
             with pytest.raises(ValueError, match='shared-account core limit exceeded'):
                 attempt.prepare(cfg, **requested)
-    assert fake.operations().count('submit') == (1 if case == 'at-cap' else 0)
+    assert fake.operations().count('submit') == (1 if case in ('at-cap', 'remount-at-cap') else 0)
 
 
 @pytest.mark.parametrize('phase', ['prepare', 'confirmation', 'upload', 'empty', 'queue-permitted'])
