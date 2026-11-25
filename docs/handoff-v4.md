@@ -1,10 +1,23 @@
 # 当前开发与运维交接
 
-核查日期：2026-10-29；当前后端正式发布 tag v4.7.0 为 `d2e6308e5f15964c363549d98e16239806650eb1`。
+## v4.8.0 发布交接
+
+2026-10-31 后端与配套前端同号正式发布。两仓的 `v4.8.0` tag 分别指向以下提交。发布 PR 和版本 CI 见 [v4.8.0 发布说明](../CHANGELOG.md#v480)。
+
+| 发布来源 | 固定提交 |
+| --- | --- |
+| [后端 Release](https://github.com/anakine800-tech/Auto-Gaussian/releases/tag/v4.8.0) | `568c45c2b605b62a750465a26ba0296be4ae7cba` |
+| [前端 Release](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/releases/tag/v4.8.0) | `f5730a1a04dcd05210663be0f849214f88a9fc64` |
+
+发布当天仅部署开发机，五入口 doctor、monitor 和前端页面均有验收记录。11 月 1 日负责人确认研究机已部署。研究机的现场检查和研究首轮是否运行，由研究主会话记录。见 [v4.8.0 部署记录](OPERATIONS.md#v480-published)。
+
+## v4.7.0 发布交接
+
+以下为 2026-10-29 的历史记录。当时后端正式发布 tag v4.7.0 为 `d2e6308e5f15964c363549d98e16239806650eb1`。
 两仓同号正式 Release 已发布，T178/T177 发布 PR 均已合并，最终 HEAD 独立审阅、CI 与两项实际后端配套验证通过，配套 0 跳过；本机开发环境已部署两 tag，研究机未部署。
 已合并的 21 个后端 PR 完整清单、行为和覆盖边界见 [CHANGELOG v4.7.0](../CHANGELOG.md#v470)。
 
-| 当前能力 | 依据与边界 |
+| 当时的能力 | 依据与边界 |
 | --- | --- |
 | 默认档位、walltime、单节点容量与具名 PBS 排队 | T154–T157 已合并。快照建议不保证启动；节点/作业不能匹配保持 unknown，可见性根因未确定，共享/排队正例未全部实测。 |
 | CREST 诊断 | T159 已合并。旧普通 PBS/Slurm 正式取回兼容要求已满足；新输出集合、mdopt、不完整取回和真实错误的额外现场范围仍披露未覆盖，不伪造自然故障。 |
@@ -20,9 +33,7 @@
 合并提交 `8ceda045b1aa007c9dba882f287b11b4df12b840`；setuptools 固定为 84.1.0，前端运行代码与产品版本未改。
 上述 `fa48ab1a` 只表示此前部署/功能基线，不是当前前端 main。T177 已整合 T179；后端依赖不随本单更改。
 
-## v4.7.0 发布交接
-
-| 项目 | 当前状态 |
+| 项目 | 发布当日状态 |
 | --- | --- |
 | 后端 T176 | [#371](https://github.com/anakine800-tech/Auto-Gaussian/pull/371) 合并为 `7dba69194e0093dca955b98d9220653f8dd7e038`；最终 head `e722d9887e288015ebd4630afa4ee9c1a1e485b7` 两路独立终审及五项 CI 通过，Linux 后端 6385 passed / 2 skipped、Skills 527 passed；真实非研究水包的格式/数值和公开副本审阅通过 |
 | 后端 T178 | [#372](https://github.com/anakine800-tech/Auto-Gaussian/pull/372) 已合并；最终 HEAD 独立审阅与 CI 通过，[T178](redesign-tasks/T178-release-v4.7.0-backend.md)保留发布前验证记录 |
@@ -32,7 +43,7 @@
 
 本次 T180 仅收尾此既有交接页的发布状态；发布 tag 及其内的准备阶段文字、T178 等历史任务均保留，不以本次文档提交替换发布目标。上方旧部署记录仅作历史，未扩大现有验证或科学适用边界。
 
-当前入口：[T178 工单](redesign-tasks/T178-release-v4.7.0-backend.md)、[开发与验证](DEVELOPING.md)、
+当时的交接见 [T178 工单](redesign-tasks/T178-release-v4.7.0-backend.md)、[开发与验证](DEVELOPING.md)、
 [部署目标与授权适用表](OPERATIONS.md#部署目标与授权适用表)、[文档索引](README.md)。
 开发机采用已审阅合并提交的长期部署策略仍待负责人确认；单次已执行更新不等于长期策略获批。
 
