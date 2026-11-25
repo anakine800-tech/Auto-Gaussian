@@ -8,6 +8,14 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from ag.remote import job_id as validate_job_id
 
 
+KEX_NOTICE_DETAIL = 'OpenSSH reported a non-post-quantum key exchange during the PBS query'
+
+
+def query_stderr_ok(result):
+    """Only an exact notice identified before SSH redaction may accompany a successful query."""
+    return result.returncode == 0 and (not result.stderr or getattr(result, 'openssh_kex_notice', False) is True)
+
+
 def _slot_ranges(value):
     """Canonical disjoint ranges; keep PBS slot multiplicities without expansion."""
     intervals = []
@@ -208,6 +216,7 @@ def parse_nodes(text, jobs, *, notes=None, targeting=False, queue_server=None, a
         record['_capacity_cpu_consistent'] = cpu_consistent and (targeting or issue != 'unseen_node_jobs')
         if targeting:
             record['_targeting'] = dict(targeting_consistent=issue is None,
+                                        node_slot_count_reported='jobs' in record or 'resources_assigned.ncpus' in record,
                                         targeting_reserved=record['name'] in named_requests, targeting_issue=issue)
     for record in records:
         status = dict(part.strip().split('=', 1) for part in record.get('status', '').split(',')
@@ -217,9 +226,11 @@ def parse_nodes(text, jobs, *, notes=None, targeting=False, queue_server=None, a
         assigned = memory_gb(record.get('resources_assigned.mem'))
         total_bytes = memory_bytes(total_raw)
         assigned_bytes = memory_bytes(record.get('resources_assigned.mem'))
+        known_bytes = None
         # Only Torque's status fallback uses job requests. PBS Pro keeps its
         # explicit assigned-memory field, including unknown/missing values.
-        if 'status' in record and 'resources_assigned.mem' not in record:
+        torque_requests = 'status' in record and 'resources_assigned.mem' not in record
+        if torque_requests or (targeting and assigned_bytes is None):
             values, byte_values, reasons = [], [], set()
             for job_id in record['_job_ids']:
                 job = by_job.get(job_id)
@@ -237,9 +248,12 @@ def parse_nodes(text, jobs, *, notes=None, targeting=False, queue_server=None, a
                     else:
                         values.append(value)
                         byte_values.append(memory_bytes(job.get('Resource_List.mem')))
-            assigned = None if reasons else round(sum(values), 1)
-            assigned_bytes = (None if reasons or None in byte_values else sum(byte_values))
-            if notes is not None:
+            if torque_requests:
+                assigned = None if reasons else round(sum(values), 1)
+                assigned_bytes = (None if reasons or None in byte_values else sum(byte_values))
+            if targeting and assigned_bytes is None:
+                known_bytes = sum(n for n in byte_values if n is not None)
+            if torque_requests and notes is not None:
                 notes.extend(reason for reason in sorted(reasons) if reason not in notes)
         nodes.append(dict(name=record['name'], state=record['state'],
                           cores_total=int(record.get('np', record.get('resources_available.ncpus', ''))),
@@ -247,6 +261,7 @@ def parse_nodes(text, jobs, *, notes=None, targeting=False, queue_server=None, a
                           mem_assigned_gb=assigned,
                           capacity_cpu_consistent=record['_capacity_cpu_consistent'],
                           mem_total_bytes=total_bytes, mem_assigned_bytes=assigned_bytes,
+                          **({'mem_assigned_min_bytes': known_bytes} if known_bytes is not None else {}),
                           jobs=len(record['_job_ids']) if targeting or 'jobs' in record else None,
                           **({'own_slots_consistent': own_slots_consistent} if account_user is not None else {}),
                           **record.get('_targeting', {})))

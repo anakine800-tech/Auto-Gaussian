@@ -5,6 +5,7 @@ from hashlib import sha256
 from pathlib import Path
 import math
 import re
+import sys
 from string import Template
 
 from ag import capacity, pbs, remote
@@ -50,18 +51,20 @@ def validate_policy(cfg):
     if 'occupied_policy' in p:
         site = p['occupied_policy']
         queue = cfg.get('queue') if cfg.get('scheduler') == 'pbs' else cfg['scheduler']['queue']
-        if (not isinstance(site, dict) or set(site) != {'server', 'queue', 'queue_nodes', 'empty_only'}
+        if (not isinstance(site, dict) or set(site) - {'remaining_nodes'} != {'server', 'queue', 'queue_nodes', 'empty_only'}
                 or not isinstance(site['server'], str)
                 or not re.fullmatch(r'[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*', site['server'])
                 or site['queue'] != queue):
             raise ValueError('Occupied-node policy must bind a PBS server and the configured queue')
-        for key in ('queue_nodes', 'empty_only'):
-            names = site[key]
+        classified = set()
+        for key in ('queue_nodes', 'empty_only', 'remaining_nodes'):
+            names = site.get(key, [])
             if (not isinstance(names, list) or any(node_name(n) != n for n in names)
                     or len(names) != len(set(names)) or not set(names) <= set(p['allowed_nodes'])):
                 raise ValueError('Invalid occupied-node policy list')
-        if set(site['queue_nodes']) & set(site['empty_only']):
-            raise ValueError('Conflicting occupied-node policy')
+            if classified.intersection(names):
+                raise ValueError('Conflicting occupied-node policy')
+            classified.update(names)
 
 
 def allowed(cfg, name):
@@ -220,13 +223,15 @@ def observe_occupied_account(cfg, rows, jobs, username, transport, claimed=None)
     response = transport.run(remote.pbs_own_jobs())
     if response.returncode == 255:
         require_ok(response, 'PBS login-account query')
+    notice = False
     try:
-        if response.returncode or response.stderr:
+        if not pbs.query_stderr_ok(response):
             raise ValueError('PBS login-account query unavailable')
         if len(servers) != 1:
             raise ValueError('Conflicting PBS server identities for shared login account')
         server, = servers
         own, running, queued, live_names = _own_cores(response.stdout, jobs, username, server)
+        notice = bool(response.stderr)
         _check_own_allocations(jobs, username, rows)
         try:
             held = _unobserved_cores(cfg, own, username, claimed, live_names)
@@ -236,6 +241,8 @@ def observe_occupied_account(cfg, rows, jobs, username, transport, claimed=None)
                                                   queued=queued + held))
     except ValueError as exc:
         result = dict(occupied_queue_error=str(exc))
+    if notice:
+        result['occupied_queue_notice'] = pbs.KEX_NOTICE_DETAIL
     for row in rows:
         row.update(result)
     return result
@@ -290,14 +297,17 @@ def idle(row):
 
 
 def admission(row, cores, mem_gb, cfg=None):
-    """Keep binding evidence mandatory; current allocation only advises timing."""
-    assessment = capacity.evaluate_node(row, cores, mem_gb, scheduler='pbs')
+    """Apply the configured named-node rule using the original request size."""
     reason = None
     site = cfg.get('node_targeting', {}).get('occupied_policy', {}) if cfg else {}
+    remaining = row.get('name') in site.get('remaining_nodes', [])
+    assessment = capacity.evaluate_node(row, cores, mem_gb, scheduler='pbs', require_reported_slots=remaining)
     unseen = row.get('targeting_issue') == 'unseen_node_jobs'
     counts_valid = all(type(row.get(k)) is int and row[k] >= 0 for k in ('cores_used', 'jobs'))
     if not counts_valid or type(row.get('targeting_reserved')) is not bool:
         reason = _evidence_reason(row)
+    elif remaining and (row['jobs'] > row['cores_used'] or (row['cores_used'] and not row['jobs'])):
+        reason = 'PBS job count contradicts allocated CPU slots'
     elif (row.get('name') in site.get('empty_only', [])
           and (row.get('state') != 'free' or row['jobs'] or row['cores_used'] or row['targeting_reserved'])):
         reason = 'Site policy permits submission only to an empty node'
@@ -309,7 +319,7 @@ def admission(row, cores, mem_gb, cfg=None):
         reason = _evidence_reason(row)
     elif (row['jobs'] or row['cores_used']) and 'targeting_issue' not in row:
         reason = 'Older snapshot lacks exact PBS job owner and slot checks'
-    if not reason and unseen and row.get('name') not in site.get('queue_nodes', []):
+    if not reason and unseen and not remaining and row.get('name') not in site.get('queue_nodes', []):
         reason = _evidence_reason(row) + '; site permission to queue on this occupied node is unverified'
     if not reason:
         reason = account_refusal(cfg, row, cores)
@@ -322,10 +332,16 @@ def admission(row, cores, mem_gb, cfg=None):
     # distinguish an offline node from missing assigned-memory information.
     if row.get('state') not in ('free', 'job-busy', 'job-exclusive'):
         reason = 'Node state is unavailable or unsupported'
+    elif remaining and row.get('capacity_cpu_consistent') is not True:
+        reason = 'Remaining CPU slots cannot be verified'
     elif assessment['fits_total'] is not True:
-        reason = 'Target capacity is unknown, inconsistent or insufficient'
+        reason = '; '.join(assessment['reasons']) if remaining else 'Target capacity is unknown, inconsistent or insufficient'
     elif row['cores_used'] > row['cores_total']:
         reason = 'Node CPU allocation contradicts its total capacity'
+    elif remaining and 'cores_available' not in assessment:
+        reason = '; '.join(assessment['reasons'])
+    elif remaining and assessment['cores_available'] < cores:
+        reason = f"Only {assessment['cores_available']} CPU slots remain on this node; request requires {cores}"
     else:
         assigned = row.get('mem_assigned_bytes')
         # Unknown assigned memory is advisory. Known contradictory allocation
@@ -339,8 +355,24 @@ def admission(row, cores, mem_gb, cfg=None):
             # Preserve the old idle-memory contradiction even when exact
             # assigned bytes are unavailable (e.g. fractional-byte requests).
             reason = 'Assigned memory contradicts node allocation evidence'
+        elif remaining:
+            # On an empty node no running allocation can contribute a lower
+            # bound. Occupied snapshots must explicitly attest even a zero.
+            known = assigned
+            if known is None:
+                known = row.get('mem_assigned_min_bytes', None if row['cores_used'] else 0)
+            if known is None:
+                reason = 'Occupied snapshot lacks the checked memory lower bound; refresh the monitor'
+            elif type(known) is not int or not 0 <= known <= row['mem_total_bytes']:
+                reason = 'Assigned memory contradicts node allocation evidence'
+            elif row['mem_total_bytes'] - known < mem_gb * 1024**3:
+                reason = (f"Insufficient remaining memory on this node for the requested {mem_gb} GiB; "
+                          f"at most {row['mem_total_bytes'] - known} bytes remain")
     eligible = ('Site permits queueing; login-account usage and reservations verified'
                 if unseen else 'Total specs fit a named request; PBS decides queueing and placement')
+    if remaining and not reason:
+        memory = 'current available memory unknown' if row.get('mem_assigned_bytes') is None else 'remaining memory fits'
+        eligible = f"Local policy allows request: {assessment['cores_available']} CPU slots remain; {memory}; PBS decides placement"
     return dict(selectable=reason is None,
                 selectable_reason=reason or eligible,
                 capacity=assessment)
@@ -417,10 +449,10 @@ def prepare(cfg, cluster, template, tier, target, fraction):
     fraction = fraction or '1/2'
     rows = candidates(cfg, cluster)['nodes']
     row = next(r for r in rows if r['name'] == target)
+    option = next((o for o in row['options'] if o['fraction'] == fraction), None)
     if not row['selectable']:
-        raise ValueError('Target node is unavailable: ' + row['selectable_reason'])
-    option = next((o for o in row['options'] if o['fraction'] == fraction and o['tier'] == tier), None)
-    if option is None or (not option['selectable'] and option['capacity']['fits_total'] is not True):
+        raise ValueError('Target node is unavailable: ' + (option or row)['selectable_reason'])
+    if option is None or option['tier'] != tier or (not option['selectable'] and option['capacity']['fits_total'] is not True):
         raise ValueError('Selected tier must match target slots, fraction and memory')
     if not option['selectable']:
         raise ValueError('Target node is unavailable: ' + option['selectable_reason'])
@@ -455,6 +487,8 @@ def fresh_check(cfg, m, transport, username=None, claimed=False):
     text = require_ok(transport.run(remote.nodes()), 'target pbsnodes')
     rows = strict_nodes(text, jobs, next(iter(servers), None), username)
     account = observe_occupied_account(cfg, rows, jobs, username, transport, m if claimed else None)
+    if account.get('occupied_queue_notice'):
+        print(account['occupied_queue_notice'], file=sys.stderr)
     if 'node_target' not in m:
         refusal = account_refusal(cfg, account, m['cores'])
         if refusal:
@@ -472,7 +506,10 @@ def fresh_check(cfg, m, transport, username=None, claimed=False):
         result = transport.run(remote.queues())
         queues = parse_queues(require_ok(result, 'target qstat queues'),
                               include_total=True, include_waiting=True)
-        pbs.observe_empty_queue(site, [row], queues if not result.stderr else [], jobs)
+        queue_ok = pbs.query_stderr_ok(result)
+        pbs.observe_empty_queue(site, [row], queues if queue_ok else [], jobs)
+        if queue_ok and result.stderr and not account.get('occupied_queue_notice'):
+            print(pbs.KEX_NOTICE_DETAIL, file=sys.stderr)
     decision = admission(row, m['cores'], m['mem_gb'], cfg)
     if not decision['selectable']:
         raise ValueError('Target node unavailable: ' + decision['selectable_reason'] + '; stop')

@@ -15,7 +15,7 @@ def _memory(value):
     return type(value) in (int, float) and math.isfinite(value) and value >= 0
 
 
-def evaluate_node(node, cores, mem_gb, *, scheduler, partition=None):
+def evaluate_node(node, cores, mem_gb, *, scheduler, partition=None, require_reported_slots=False):
     """Assess one identified node, using scheduler allocation, never RSS."""
     result = dict(name=node.get('name'), fits_total=None, availability='unknown', reasons=[],
                   cpu_source=node.get('cpu_source') or ('pbsnodes/exec_host' if scheduler == 'pbs' else None),
@@ -56,13 +56,18 @@ def evaluate_node(node, cores, mem_gb, *, scheduler, partition=None):
         return result
     if unseen:
         result['cpu_source'] = 'pbsnodes jobs'
-        reasons.append('核位来自节点表，具名排队另需本站策略和完整本人额度')
+        reasons.append('核位来自节点表，具名申请另需核验入口策略和完整本人额度')
     state = node.get('state')
     states = ('free', 'job-busy', 'job-exclusive') if scheduler == 'pbs' else (
         'idle', 'mixed', 'allocated', 'completing')
     if state not in states or (scheduler == 'slurm' and node.get('partition_state') != 'up'):
         reasons.append('节点或分区状态不允许确认当前容量')
         return result
+    if require_reported_slots and used and not unseen and node.get('node_slot_count_reported') is not True:
+        reasons.append('Remaining CPU slots cannot be verified from visible jobs alone')
+        return result
+    if scheduler == 'pbs' and _count(used) and used <= total:
+        result['cores_available'] = total - used
     if not (_count(used) and used <= total and valid_memory(assigned) and assigned <= memory):
         reasons.append('节点已分配核数或内存未知或无效')
         return result
@@ -133,6 +138,7 @@ def assess(cfg, cluster, tier, target_node=None, *, now=None):
         else:
             unique[name] = node
     policy = selected.get('node_targeting')
+    remaining_nodes = (policy or {}).get('occupied_policy', {}).get('remaining_nodes', [])
     for name, node in unique.items():
         if target_node is not None and name != target_node:
             continue
@@ -140,7 +146,8 @@ def assess(cfg, cluster, tier, target_node=None, *, now=None):
                        or name in policy['restricted_nodes']):
             continue
         result['nodes'].append(evaluate_node(node, request['cores'], request['mem_gb'],
-                                             scheduler=scheduler, partition=selected.get('partition')))
+                                             scheduler=scheduler, partition=selected.get('partition'),
+                                             require_reported_slots=name in remaining_nodes))
     rows = result['nodes']
     if not rows:
         result['reasons'] = ['目标节点没有精确观测或没有符合入口配置的节点']

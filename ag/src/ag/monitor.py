@@ -104,7 +104,7 @@ def observation(cfg, transport, username, *, storage_state=None, sampled_at=None
                           include_total=named, include_waiting=bool(site.get('empty_only')))
     nodes, hardware = pbs_hardware(cfg, transport, jobs, account_user=username if named else None)
     if site.get('empty_only'):
-        pbs.observe_empty_queue(site, nodes, queues if not queue_result.stderr else [], jobs)
+        pbs.observe_empty_queue(site, nodes, queues if pbs.query_stderr_ok(queue_result) else [], jobs)
     account = observe_occupied_account(cfg, nodes, jobs, username, transport) if named else {}
     attempts = local_attempts(Path(cfg['local']['studies_root']), cfg.get('_cluster', 'default'), 'pbs')
     by_job = {}
@@ -156,6 +156,9 @@ def observation(cfg, transport, username, *, storage_state=None, sampled_at=None
     own = [row for row in all_jobs if row['mine']]
     scheduler = {job['job_id']: job for job in jobs}
     warnings = []
+    queue_notice = site.get('empty_only') and queue_result.stderr and pbs.query_stderr_ok(queue_result)
+    if account.get('occupied_queue_notice') or queue_notice:
+        warnings.append(dict(kind='ssh-kex-notice', job_id=None, study=None, attempt=None, detail=pbs.KEX_NOTICE_DETAIL))
     if timezone_mismatch:
         warnings.append(dict(kind='timezone-mismatch', job_id=None, study=None, attempt=None,
                              detail='开始时间与采样时间或已用 walltime 不一致，可能配置了错误的调度器时区；本轮依赖该时区的开始/提交时间及直接异常的开始时间已置为未知，清空开始时间的耗时退回 walltime，缺失时为未知'))

@@ -284,6 +284,11 @@ def _suggest(cfg, template, tier, study=None, *, walltime=None, now=None):
                            for o in n['options'] if o['tier'] == tier and o.get('selectable', True)]
                 if template != 'gaussian' or not matches:
                     row['specification_allowed'] = False
+                    remaining = selected['node_targeting'].get('occupied_policy', {}).get('remaining_nodes', [])
+                    if template == 'gaussian' and remaining:
+                        reasons.extend(f"{n['name']}: {o['selectable_reason']}" for n in targets['nodes']
+                                       if n['name'] in remaining for o in n['options']
+                                       if o['cores'] == cores and o['mem_gb'] == memory and not o['selectable'])
                     capacity.update(availability='unknown', fits_total=None,
                                     reasons=['没有满足此档位的具名节点候选'])
                 else:

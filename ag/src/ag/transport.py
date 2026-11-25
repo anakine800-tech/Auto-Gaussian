@@ -22,12 +22,25 @@ from ag import remote
 DOWNLOAD_STALL_SECONDS = 60
 DOWNLOAD_HARD_LIMIT_SECONDS = 24 * 60 * 60
 
+_OPENSSH_KEX_NOTICE = ('** WARNING: connection is not using a post-quantum key exchange algorithm.\n'
+                       '** This session may be vulnerable to "store now, decrypt later" attacks.\n'
+                       '** The server may need to be upgraded. See https://openssh.com/pq.html')
+
 
 @dataclass
 class Result:
     returncode: int = 0
     stdout: str = ''
     stderr: str = ''
+
+    def __post_init__(self):
+        exact = self.returncode == 0 and self.stderr in (_OPENSSH_KEX_NOTICE, _OPENSSH_KEX_NOTICE + '\n')
+        self._kex_notice_stderr = self.stderr if exact else None
+
+    @property
+    def openssh_kex_notice(self):
+        """True only for the complete OpenSSH notice in the original successful response."""
+        return self.returncode == 0 and self._kex_notice_stderr is not None and self.stderr == self._kex_notice_stderr
 
 
 class Transport(Protocol):
@@ -191,7 +204,14 @@ class SSHTransport:
             raise TransportError('Could not start SSH/scp locally') from exc
         if observe_stderr is not None:
             observe_stderr(p.stderr if p.returncode else '')
-        return Result(p.returncode, p.stdout, redact_stderr(p.stderr, self.cfg))
+        # Classify before URL/path redaction and truncation destroy the distinction
+        # between the fixed OpenSSH notice and unexpected scheduler diagnostics.
+        result = Result(p.returncode, p.stdout, p.stderr)
+        exact_notice = result.openssh_kex_notice
+        result.stderr = redact_stderr(p.stderr, self.cfg)
+        if exact_notice:
+            result._kex_notice_stderr = result.stderr
+        return result
 
     def _logged_execute(self, argv, timeout, operation, attempt):
         # Keep both existing hooks intact: incomplete fetch overrides _perform
