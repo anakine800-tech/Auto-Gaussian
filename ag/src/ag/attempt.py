@@ -307,7 +307,9 @@ def _prepare(cfg, *, study_name, template, input_path, tier=None, walltime, labe
             science, validation = validate(data, **resource, attachments=includes,
                                            parent_chk=attachment, input_name=name)
         else:
-            science = gaussian_input.validate(data.decode(), **resource, parent_chk=attachment is not None)
+            added_lines = int(auto_nprocshared is not None) + int(auto_mem is not None)
+            science = gaussian_input.validate(data.decode(), **resource, parent_chk=attachment is not None,
+                                              require_real_coordinates=True, added_link0_lines=added_lines)
         if attachment is not None and not relaxed_input:
             from ag.parent_chk import validate_force_constant_frame
             validate_force_constant_frame(cfg, attachment, science)
@@ -434,6 +436,11 @@ def _prepare(cfg, *, study_name, template, input_path, tier=None, walltime, labe
         return m
 
 
+def has_submission_claim(path):
+    """An existing permanent claim precludes any new dispatch of this Attempt."""
+    return study.local_path(path.parent.parent, path / '.submit-claim').is_file()
+
+
 def verified_files(cfg, path, manifest):
     m = manifest
     cfg = for_manifest(cfg, m)
@@ -534,7 +541,9 @@ def verified_files(cfg, path, manifest):
         if 'parent_chk' in m:
             from ag.parent_chk import resolve
             resolve(cfg, m)
-        science = gaussian_input.validate(files[name].decode(), **resource, parent_chk='parent_chk' in m)
+        # Receipt recovery verifies already claimed bytes under the historical grammar.
+        science = gaussian_input.validate(files[name].decode(), **resource, parent_chk='parent_chk' in m,
+                                          require_real_coordinates=not has_submission_claim(path))
         if any(m['science'].get(k) != v for k, v in science.items()):
             raise ValueError('Scientific summary differs from submitted input')
     return files

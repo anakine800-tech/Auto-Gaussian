@@ -13,7 +13,7 @@ from ag import submission
 from ag.locks import claim
 from ag.transport import Result, SSHTransport, TransportError
 
-INPUT = '%nprocshared=8\n%mem=10GB\n%chk=water.chk\n# B3LYP/6-31G(d) SP\n\nWater smoke\n\n0 1\nO 0 0 0\nH 0 0 1\nH 0 1 0\n\n'
+INPUT = '%nprocshared=8\n%mem=10GB\n%chk=water.chk\n# B3LYP/6-31G(d) SP\n\nWater smoke\n\n0 1\nO 0.0 0.0 0.0\nH 0.0 0.0 1.0\nH 0.0 1.0 0.0\n\n'
 
 
 @pytest.fixture
@@ -145,7 +145,7 @@ def test_invalid_gaussian(key, value):
 
 
 @pytest.mark.parametrize('text', [INPUT.replace('# B3LYP', 'B3LYP'), INPUT.replace('0 1', '0 0'),
-    INPUT.replace('O 0 0 0', 'O nan 0 0'), INPUT + '--Link1--\n', INPUT.replace(' SP', ' External=evil'),
+    INPUT.replace('O 0.0 0.0 0.0', 'O nan 0 0'), INPUT + '--Link1--\n', INPUT.replace(' SP', ' External=evil'),
     '%oldchk=parent.chk\n' + INPUT, INPUT + '@file\n'])
 def test_unsafe_gaussian(text):
     with pytest.raises(ValueError):

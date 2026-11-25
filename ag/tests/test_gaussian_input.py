@@ -12,7 +12,7 @@ from test_core import INPUT, cfg, prepared
 from test_parent_chk import parent
 
 
-WATER = 'O 0 0 0\nH 0 0 1\nH 0 1 0'
+WATER = 'O 0.0 0.0 0.0\nH 0.0 0.0 1.0\nH 0.0 1.0 0.0'
 
 
 def qst(mode=2, *, route=None, blocks=None):
@@ -153,12 +153,12 @@ def test_wrong_group_count(mode, count):
     ('-2 1', WATER, 'charge'), ('0 3', WATER, 'multiplicity'),
     ('0 0', WATER, 'charge/multiplicity'),
     ('0 1', '', 'coordinates'),
-    ('0 1', WATER.replace('O 0', 'O nan'), 'finite Cartesian'),
-    ('0 1', WATER.replace('O 0', 'O inf'), 'finite Cartesian'),
-    ('0 1', WATER.replace('O 0', 'O 1e999'), 'finite Cartesian'),
-    ('0 1', WATER.replace('O 0', 'O 0 0'), 'finite Cartesian'),
-    ('0 1', WATER.replace('O 0', 'O(Fragment=1) 0'), 'atom-label syntax'),
-    ('0 1', WATER.replace('O 0', 'X 0'), 'real element'),
+    ('0 1', WATER.replace('O 0.0', 'O nan'), 'finite Cartesian'),
+    ('0 1', WATER.replace('O 0.0', 'O inf'), 'finite Cartesian'),
+    ('0 1', WATER.replace('O 0.0', 'O 1e999'), 'finite Cartesian'),
+    ('0 1', WATER.replace('O 0.0', 'O 0 0'), 'finite Cartesian'),
+    ('0 1', WATER.replace('O 0.0', 'O(Fragment=1) 0'), 'atom-label syntax'),
+    ('0 1', WATER.replace('O 0.0', 'X 0'), 'real element'),
 ])
 def test_malformed_or_mismatched_group(position, state, geometry, error):
     blocks = [('Water', '0 1', WATER)] * 3
@@ -284,7 +284,7 @@ def test_single_structure_return_format_unchanged(route):
 
 
 @pytest.mark.parametrize('text', [INPUT + 'Extra section\n', INPUT.replace('0 1', '+0 1'),
-    INPUT.replace('O 0 0 0', 'O 0 0'), INPUT.replace('0 1', '0 0')])
+    INPUT.replace('O 0.0 0.0 0.0', 'O 0 0'), INPUT.replace('0 1', '0 0')])
 def test_single_structure_rejections_unchanged(text):
     with pytest.raises(ValueError):
         validate(text)
@@ -311,7 +311,7 @@ BAD_ATOMS = [
 @pytest.mark.parametrize('atom,error', BAD_ATOMS)
 @pytest.mark.parametrize('ending', ['\n', '\r\n'])
 def test_invalid_single_atoms_report_original_line(atom, error, ending):
-    text = INPUT.replace('O 0 0 0', atom).replace('\n', ending)
+    text = INPUT.replace('O 0.0 0.0 0.0', atom).replace('\n', ending)
     with pytest.raises(ValueError, match=f'line 9: .*{error}'):
         validate(text)
 
@@ -357,7 +357,7 @@ def test_real_elements_and_atomic_numbers_across_periodic_table(number, symbol):
 @pytest.mark.parametrize('atom,error', BAD_ATOMS)
 def test_every_qst_structure_checks_atoms_with_absolute_lines(mode, position, atom, error):
     blocks = [(f'Water {i}\nmultiline title', '0 1', WATER) for i in range(mode)]
-    blocks[position] = (f'Water {position}\nmultiline title', '0 1', WATER.replace('O 0 0 0', atom))
+    blocks[position] = (f'Water {position}\nmultiline title', '0 1', WATER.replace('O 0.0 0.0 0.0', atom))
     text = qst(mode, blocks=blocks).replace('\n\n', '\n \n\n').replace('\n', '\r\n')
     line = text.splitlines().index(atom) + 1
     with pytest.raises(ValueError, match=f'QST{mode} group {position + 1}: line {line}: .*{error}'):
@@ -386,7 +386,7 @@ def test_prepare_invalid_geometry_allocates_nothing(cfg, tmp_path, template, ato
     attempts = Path(cfg['local']['studies_root']) / 'smoke' / 'attempts'
     params = {'--mdopt': ''} if template == 'mdopt' else {}
     program = 'crest' if template == 'mdopt' else template
-    geometry = WATER.replace('O 0 0 0', atom)
+    geometry = WATER.replace('O 0.0 0.0 0.0', atom)
     source = tmp_path / ('water.gjf' if template == 'gaussian' else 'water.xyz')
     contents = (INPUT.replace(WATER, geometry) if template == 'gaussian'
                 else '3\nSynthetic water\n' + geometry + '\n')
@@ -405,12 +405,13 @@ def test_prepare_invalid_geometry_allocates_nothing(cfg, tmp_path, template, ato
 def test_valid_xyz_summary_and_input_bytes_unchanged(cfg, tmp_path, template):
     study.init(cfg, 'smoke')
     source = tmp_path / 'water.xyz'
-    data = ('3\r\nSynthetic water\r\n' + WATER.replace('\n', '\r\n') + '\r\n').encode()
+    xyz_geometry = 'O 0 0 0\nH 0 0 1\nH 0 1 0'
+    data = ('3\r\nSynthetic water\r\n' + xyz_geometry.replace('\n', '\r\n') + '\r\n').encode()
     source.write_bytes(data)
     manifest = attempt.prepare(cfg, study_name='smoke', template=template, input_path=source,
                                tier='simple', walltime='00:05:00', label='valid',
                                method_basis='兜底方法：合成测试')
-    assert manifest['science'] == dict(charge=0, multiplicity=1, route='', geometry=WATER, n_atoms=3,
+    assert manifest['science'] == dict(charge=0, multiplicity=1, route='', geometry=xyz_geometry, n_atoms=3,
         stereochemistry_warning='Review stereochemistry against the source structure.',
         method_basis='兜底方法：合成测试')
     path = attempt.find(cfg, manifest['attempt_id'])
@@ -434,9 +435,9 @@ def test_prepare_spin_mismatch_allocates_nothing(cfg, tmp_path, template):
 def test_legacy_invalid_prepared_input_is_only_rechecked_when_verifying(cfg, tmp_path, monkeypatch):
     study.init(cfg, 'smoke')
     source = tmp_path / 'water.gjf'
-    source.write_text(INPUT.replace('O 0 0 0', 'O 1e999 0 0'))
+    source.write_text(INPUT.replace('O 0.0 0.0 0.0', 'O 1e999 0 0'))
     previous_science = validate(INPUT)
-    previous_science['geometry'] = WATER.replace('O 0 0 0', 'O 1e999 0 0')
+    previous_science['geometry'] = WATER.replace('O 0.0 0.0 0.0', 'O 1e999 0 0')
     # Emulate the old permissive parser only while creating a legacy fixture.
     with monkeypatch.context() as patch:
         patch.setattr(gaussian_input, 'validate', lambda *args, **kwargs: previous_science)

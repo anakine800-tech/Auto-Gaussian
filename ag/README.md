@@ -276,6 +276,14 @@ journal、取回标记或 facts；不主动调用 `ag status`。后续 fetch/fac
 已有 facts 内容相同时保留原字节和修改时间；不同时绝不自动覆盖。请人工核对差异后才使用
 `ag facts <ATTEMPT_ID> --refresh`。journal 写入失败也只提示，请保留 JSON 输出以供核对。
 
+## 严格 Gaussian 输入的坐标写法
+
+`ag prepare --template gaussian` 要求每个显式分子结构的 x、y、z 坐标写成实数，包括 QST2 和 QST3 的每一组。
+例如，原子序数为 8 的氧原子可以写成 `8 0.0 -1.0 +2.0`。也可使用 `.5`、`1.`、`1e-3` 或 `+2E0`。
+裸整数坐标会在分配 Attempt 编号前报错，提示源文件行号、坐标轴和保留数值的改写示例。荷电、多重度、原子序数和扫描索引仍使用整数。
+
+旧 Attempt 若尚未创建永久提交声明，手动和自主提交都会先复核其冻结输入。有裸整数时，会在确认和访问集群前报告冻结文件中的行号。请在源文件副本中修正坐标，再用 `ag prepare` 创建新的 Attempt。已声明的历史包仍可按原字节核对、恢复回执及读取旧结果。
+
 ## 显式放宽 Gaussian 输入
 
 `ag prepare --template gaussian --relaxed-input` 选择受控放宽校验；默认仍使用原严格校验，
