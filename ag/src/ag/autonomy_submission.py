@@ -4,11 +4,12 @@ Manual audit remains read-only. Autonomous reservations require both the
 immutable global record and verified study consumption; neither a mutable
 lifecycle label nor a selector receipt alone proves an action is authorized.
 """
-from hashlib import sha256
-from contextlib import contextmanager, ExitStack
+from collections import Counter
+from contextlib import contextmanager, ExitStack, nullcontext
 from contextvars import ContextVar
 from copy import deepcopy
 from datetime import datetime, timezone
+from hashlib import sha256
 import fcntl
 import json
 import math
@@ -989,38 +990,58 @@ def _has_cancellation(path, current=None):
 
 
 def _terminal_absence(cfg, manifest, report, *, account_sha256, cluster=None, since=0):
-    """Two consecutive, fresh complete monitor samples for resource accounting.
-
-    This is neither a cancellation receipt nor permission to retry UNKNOWN.
-    Stable metadata across both reads rejects an in-progress cache rotation.
-    """
-    from ag import autonomy
     if report['state'] not in ('finished', 'fetched', 'cancelled', 'interrupted') or not report['job_id']:
         return None
     if report.get('terminal_since') is None:
         return None
-    since = max(since, report['terminal_since'])
-    name = cluster or manifest.get('cluster', 'default')
+    return _monitor_absence(cfg, manifest, report['job_id'], account_sha256,
+                            cluster or manifest.get('cluster', 'default'), max(since, report['terminal_since']))
+
+
+def _monitor_folder(cfg, name, *, unbound=False):
     root = Path(cfg['local']['studies_root']) / '.ag-monitor'
     named, legacy = root / name, root
-    folder = named if 'clusters' in cfg or name != 'default' else legacy
-    paths = [folder / 'previous.json', folder / 'latest.json']
+    if name != 'default':
+        return named
+    if unbound:
+        present = []
+        for directory in (named, legacy):
+            if any(os.path.lexists(directory / f) for f in ('latest.json', 'previous.json')):
+                present.append(directory)
+            else:
+                _remember_absence(directory / 'latest.json')
+        _require(len(present) <= 1, 'Ambiguous monitor snapshots')
+        if present:
+            return present[0]
+    else:
+        _require(not ((named / 'latest.json').exists() and (legacy / 'latest.json').exists()),
+                 'Ambiguous monitor snapshots')
+    return named if 'clusters' in cfg else legacy
+
+
+def _monitor_absence(cfg, manifest, job_id, account_sha256, name, since, *, latest_only=False):
+    """Read adjacent monitor generations, checking their metadata across the entire read."""
+    from ag import autonomy, route
     try:
-        _require(account_identity(_entries(cfg)[name]) == account_sha256,
+        folder = _monitor_folder(cfg, name, unbound=job_id is None)
+        paths = [folder / f for f in (('latest.json',) if latest_only else ('previous.json', 'latest.json'))]
+        entry = _entries(cfg)[name]
+        _require(account_identity(entry) == account_sha256,
                  'Monitor entry no longer belongs to the reservation account')
-        _require(not (name == 'default' and (named / 'latest.json').exists()
-                      and (legacy / 'latest.json').exists()), 'Ambiguous monitor snapshots')
         before = [_file_metadata(path) for path in paths]
         raws = [_read_file(path) for path in paths]
         _require(before == [_file_metadata(path) for path in paths], 'Monitor pair changed during reading')
         scheduler = manifest.get('scheduler', 'pbs')
-        expected_job = submission.raw_job(manifest, report['job_id'])
+        expected_job = submission.raw_job(manifest, job_id) if job_id is not None else None
         expected_name = manifest['attempt_id'] if scheduler == 'slurm' else manifest['pbs_job_name']
         now, samples, times = autonomy.now(), [], []
         for raw in raws:
             value = _json(raw)
             interval = value['interval_seconds']
             at = approval.timestamp(value['sampled_at']).timestamp()
+            if latest_only and at < since:
+                # A more recent formal status already reconciled this older inventory.
+                return dict(samples=[], fresh_until=since + 600)
             _require(value['schema'] == 'ag-monitor/1' and value['ok'] is True
                      and not value.get('error') and not value.get('config_removed')
                      and not value.get('config_warning')
@@ -1031,26 +1052,33 @@ def _terminal_absence(cfg, manifest, report, *, account_sha256, cluster=None, si
                      and value['cluster']['scheduler'] == scheduler
                      and value.get('account_sha256') == account_sha256
                      and isinstance(value['own']['jobs'], list), 'Monitor account snapshot differs')
-            for job in value['own']['jobs']:
-                identity = job['job_id']
-                _require(isinstance(identity, str) and isinstance(job['name'], str),
-                         'Monitor job identity missing')
-                if ':' in identity:
-                    alias, identity = identity.split(':', 1)
-                    _require(alias == name, 'Monitor job belongs to another entry')
-                elif name != 'default' or scheduler != 'pbs':
-                    raise ValueError('Monitor job identity is not qualified')
-                from ag import remote
-                (remote.slurm_job_id if scheduler == 'slurm' else remote.job_id)(identity)
-                _require(identity != expected_job and job['name'] != expected_name,
-                         'Bound job remains in the account snapshot')
+            if expected_job is None:
+                _require((latest_only or at > since)
+                         and route._unknown_name_absent(entry, name, value, expected_name, account_sha256),
+                         'Monitor cannot exclude the unbound job')
+            else:
+                for job in value['own']['jobs']:
+                    identity = job['job_id']
+                    _require(isinstance(identity, str) and isinstance(job['name'], str),
+                             'Monitor job identity missing')
+                    if ':' in identity:
+                        alias, identity = identity.split(':', 1)
+                        _require(alias == name, 'Monitor job belongs to another entry')
+                    elif name != 'default' or scheduler != 'pbs':
+                        raise ValueError('Monitor job identity is not qualified')
+                    from ag import remote
+                    (remote.slurm_job_id if scheduler == 'slurm' else remote.job_id)(identity)
+                    _require(identity != expected_job and job['name'] != expected_name,
+                             'Bound job remains in the account snapshot')
             times.append(at)
             samples.append(dict(sampled_at=value['sampled_at'], sha256=sha256(raw).hexdigest()))
-        _require(times[0] < times[1], 'Monitor samples are not strictly consecutive in time')
-        return dict(source='two-monitor-absences', cluster=name, scheduler=scheduler,
-                    account_sha256=account_sha256, job_id=report['job_id'], samples=samples,
+            if expected_job is None:
+                samples[-1]['snapshot_sha256'] = approval.digest(value)
+        _require(latest_only or times[0] < times[1], 'Monitor samples are not strictly consecutive in time')
+        return dict(source='monitor-absence' if latest_only else 'two-monitor-absences', cluster=name, scheduler=scheduler,
+                    account_sha256=account_sha256, job_id=job_id, samples=samples,
                     fresh_until=min(at + 3 * _json(raw)['interval_seconds'] for at, raw in zip(times, raws)))
-    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, OverflowError):
         return None
 
 
@@ -1213,6 +1241,13 @@ def _resolution_observation(cfg, record, manifest, report, consumed, raw, kind):
             account_sha256=record['account_sha256'], cluster=name if name in aliases else aliases[0], since=consumed['at'])
         _object_require(evidence is not None, 'Cancelled resolution requires two fresh absent monitor samples')
         return evidence, evidence['fresh_until']
+    evidence = _negative_unknown(cfg, record, manifest, report, consumed, current)
+    at = evidence['observed_at']
+    _object_require(0 <= autonomy.now() - at <= 600, 'UNKNOWN observation is stale or from the future')
+    return evidence, at + 600
+
+
+def _negative_unknown(cfg, record, manifest, report, consumed, current):
     evidence = current.get('unknown_reconciliation')
     _object_require(isinstance(evidence, dict), 'UNKNOWN resolution requires a formal read-only observation')
     _object_require('account_sha256' in evidence, 'UNKNOWN observation needs fresh account-bound status evidence')
@@ -1228,11 +1263,54 @@ def _resolution_observation(cfg, record, manifest, report, consumed, raw, kind):
              and evidence['job_name'] == expected_name,
              'UNKNOWN observation identity mismatch')
     _object_require(report['job_id'] is None, 'UNKNOWN now has an exact scheduler binding')
-    _object_require(evidence['matches'] == [] and evidence['start_absent'] is True,
+    receipts = current.get('receipts', {})
+    _object_require(current['state'] == 'unknown' and current.get('job_id') is None
+                    and current.get('start_reconciliation') is None
+                    and isinstance(receipts, dict) and all(v is None for v in receipts.values())
+                    and evidence['matches'] == [] and evidence['start_absent'] is True,
                     'UNKNOWN still has scheduler or start-receipt evidence')
     _require(type(at) in (int, float) and math.isfinite(at) and at >= consumed['at'], 'UNKNOWN observation time is invalid')
-    _object_require(0 <= autonomy.now() - at <= 600, 'UNKNOWN observation is stale or from the future')
-    return evidence, at + 600
+    return evidence
+
+
+def _unknown_accounting(cfg, path, record, manifest, report, consumed, resolution, raw, aliases):
+    """Only accounting may extend a replayable human decision past the status TTL."""
+    from ag import autonomy
+    evidence = _negative_unknown(cfg, record, manifest, report, consumed, _json(raw))
+    now = autonomy.now()
+    observed = evidence['observed_at']
+    if observed > now or resolution['at'] > now:
+        return None
+    original_observation = approval.digest(evidence) == resolution['evidence_sha256']
+    if observed <= resolution['at'] and not original_observation:
+        return None
+    fresh = now - observed <= 600
+    if not fresh and not (original_observation and observed <= resolution['at'] <= observed + 600
+                          and sha256(raw).hexdigest() == resolution['status_sha256']):
+        return None
+    if os.path.lexists(path / 'submission.json'):
+        return None
+    _remember_absence(path / 'submission.json')
+    account = record['account_sha256']
+    observations = []
+    for alias in sorted(aliases):
+        folder = _monitor_folder(cfg, alias, unbound=True)
+        if not any(os.path.lexists(folder / f) for f in ('previous.json', 'latest.json')):
+            _remember_absence(folder / 'latest.json')
+            continue
+        pair = _monitor_absence(cfg, manifest, None, account, alias,
+                                observed if fresh else resolution['at'], latest_only=fresh)
+        if pair is None:
+            return None
+        if pair['samples']:
+            observations.append(pair)
+    deadlines = [pair['fresh_until'] for pair in observations]
+    if fresh:
+        deadlines.append(observed + 600)
+    if not deadlines:
+        return None
+    return dict(resolution_sha256=approval.digest(resolution), account_sha256=account,
+                fresh_until=min(deadlines), observations=observations)
 
 
 def prepare_resolution_evidence(cfg, verified_state, attempt_id):
@@ -1950,9 +2028,20 @@ def _owned_accounting(cfg, saved, current, identities):
                                 cluster=name, since=consumed['at'])
     resolution = _manual_resolution(current, path, digest)
     resolved = False
+    unknown_release = None
     raw_status = _read_file(path / 'status.json') if resolution is not None else None
     kind = _resolution_kind(path, report, _json(raw_status), current) if raw_status is not None else None
-    if resolution is not None and resolution['kind'] == kind:
+    if kind == 'unknown' and resolution['kind'] == kind:
+        try:
+            with _capture_reads() if _CAPTURE_READS.get() is None else nullcontext():
+                status_now = _read_file(path / 'status.json')
+                if status_now == raw_status:
+                    unknown_release = _unknown_accounting(
+                        cfg, path, record, manifest, report, consumed, resolution, status_now, aliases)
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            unknown_release = None  # Includes a rotation detected on leaving the read scope.
+        resolved = unknown_release is not None
+    elif resolution is not None and resolution['kind'] == kind:
         from ag.autonomy import ObjectRefused
         try:
             _resolution_observation(cfg, record, manifest, report, consumed, raw_status, kind)
@@ -1971,6 +2060,8 @@ def _owned_accounting(cfg, saved, current, identities):
         config_sha256=record['routing_sha256'], selected_at=original['selected_at'],
         batch_input_sha256=choice['batch_input_sha256'])
     saved['outcome'] = 'retained'
+    if unknown_release is not None:
+        placement['unknown_release'] = unknown_release
     return placement, original
 
 
@@ -2037,6 +2128,7 @@ def _scan_reservations(cfg, *, states=None, diagnostic=None):
             grouped[identity] = explicit
             identities[name] = identity
     placements, batch_inputs, warnings = [], {}, []
+    unbound_releases = []
     for saved in records:
         record = saved['record']
         path = _record_location(record)
@@ -2051,6 +2143,8 @@ def _scan_reservations(cfg, *, states=None, diagnostic=None):
                 _require(key not in batch_inputs or batch_inputs[key] == original, 'Conflicting original batch inputs')
                 batch_inputs[key] = deepcopy(original)
                 placements.append(placement)
+                if 'unknown_release' in placement:
+                    unbound_releases.append((placement, row))
             row['classification'] = saved['outcome']
             row['accounting_state'] = placement['state'] if placement is not None else None
     # Manual jobs count towards cores, never autonomous job caps. The exact
@@ -2083,6 +2177,14 @@ def _scan_reservations(cfg, *, states=None, diagnostic=None):
                         placements.append(placement)
                     row['classification'] = warning['kind'] if warning else ('retained' if placement else 'unconsumed')
                     row['accounting_state'] = placement['state'] if placement else None
+    if unbound_releases:
+        # Different studies (or roots) can generate the same scheduler name on one account.
+        names = Counter((identities[p['cluster']], p['scheduler_job_name']) for p in placements)
+        for placement, row in unbound_releases:
+            key = (identities[placement['cluster']], placement['scheduler_job_name'])
+            if names[key] != 1:
+                del placement['unknown_release']
+                placement['state'] = row['accounting_state'] = 'unknown'
     return dict(records=records, placements=placements, batch_inputs=batch_inputs, warnings=warnings)
 
 
