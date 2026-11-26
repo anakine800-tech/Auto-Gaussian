@@ -1,8 +1,8 @@
-# Auto-Gaussian v4.8.1
+# Auto-Gaussian v4.8.2
 
 Auto-Gaussian 是人在回路中的计算化学助手。LLM 按 Skills 规划研究，人签字和确认，`ag` 负责安全把关与确定性计算。
 
-**后端 v4.8.1 配套前端 v4.8.1。** 本版在提交前检查普通严格 Gaussian 输入的显式坐标、连接表和力常数来源。具名 PBS 节点可按本机策略接受共享申请，逐一核对单节点剩余核位、原申请、账号额度和本地预留。许可、兼容范围及实投记录见 [v4.8.1 发布说明](CHANGELOG.md#v481)。
+**后端 v4.8.2 配套前端 v4.8.2。** 临时研究副本可在独立目录导出振动模式；具名 PBS 入口遇到历史预留无法核验时，可在本机查到登记来源、所需父研究目录和缺失证据。[v4.8.2 发布说明](CHANGELOG.md#v482)
 
 2026-10-31，前后端 v4.8.0 同号发布并在开发机完成验收。11 月 1 日，负责人确认研究机已部署 v4.8.0。该版的自主提交验证与两台机器的部署记录按日期保留。[v4.8.0 发布说明](CHANGELOG.md#v480) · [部署记录](docs/OPERATIONS.md#v480-published)
 
@@ -60,7 +60,7 @@ ag：作业生命周期 + 日志解析、热化学、构象去重、关系图与
 
 ## 安装
 
-v4.8.1 从完整源码检出安装。使用同一提交的 `ag/templates/` 和 `skills-next/` 提供程序模板与任务卡片。wheel 和 sdist 仅包含 Python 项目。
+从后端 `v4.8.2` tag 的完整源码检出或源码归档安装。使用同一提交的 `ag/templates/` 和 `skills-next/` 提供程序模板与任务卡片。wheel 和 sdist 仅包含 Python 项目。
 
 使用 Python 3.11 或更新版本的 `chem` conda 环境；RDKit 用于结构与几何工具。
 **每个 worktree 单独创建 `.venv`**，避免多个 editable 安装争用同一个 `ag` 入口。
@@ -230,6 +230,7 @@ Multiwfn 为可选程序：只有使用 `multiwfn` 模板时才需配置 `progra
 | `ag cancel '<ATTEMPT_ID>'` | 人点击 Mac 确认后取消确切作业 |
 | `ag list --study '<STUDY_ID>' --json` | 列出本地 Attempt |
 | `ag doctor --cluster '<CLUSTER>' --json` | 只读检查连接、调度器和程序环境 |
+| `python -B -m ag.cli autonomy audit-reservations --cluster '<ENTRY>' --json` | 在后端环境中只读核对该 PBS 入口所需的本地预留。证据不足时返回非零，继续阻塞；详细排查见 [CLI 说明](ag/README.md#临时验收和-pbs-预留排查) |
 | `ag monitor --watch 30` | 前台只读采样并保存监控快照；PBS 每 30 秒、Slurm 至少 60 秒，Ctrl-C 退出 |
 | `ag facts '<ATTEMPT_ID>' --study '<STUDY_ID>' [--refresh] --json` | 解析日志、几何、频率、扫描、IRC 和波函数稳定性事实；显式刷新保留旧证据 |
 | `ag thermo '<ATTEMPT_A>' '<ATTEMPT_B>' --study '<STUDY_ID>' --json` | GoodVibes qRRHO 与所选构象集合的布居 |
@@ -240,7 +241,8 @@ Multiwfn 为可选程序：只有使用 `multiwfn` 模板时才需配置 `progra
 | `ag irc-compare --ts '<TS>' --forward '<FORWARD>' --reverse '<REVERSE>' --reactant '<REACTANT>' --product '<PRODUCT>' --out '<NEW_REPORT_JSON>' --json` | 双向 IRC 端点与参考结构的映射比较 |
 | `ag topology '<ATTEMPT_ID>' --study '<STUDY_ID>' --out '<NEW_REPORT_JSON>' --json` | 比较提交与最终结构，报告成键、质子及立体差异；TS 用 `--pair i-j` 仅报告距离，同时生成 Markdown 摘要 |
 | `ag fragments '<ATTEMPT_OR_XYZ>' --study '<STUDY_DIR>' --out 'analyses/<NEW_REPORT>.json' --json` | 按共价半径识别片段，报告编号映射、分子式和跨片段不确定接触，独占导出 JSON、Markdown 与各片段 XYZ；单片段仅报告，电荷与多重度由人确认 |
-| `ag mode-review '<ATTEMPT>' --study '<STUDY_DIR>' --pair 1-2 --mode 1 --amplitude 0.3 --out analyses/mode-review.json --json` | 导出正常频率段的正负位移 XYZ、目标对距离变化与全对排名；编号从 1 开始，振幅为最大原子位移 Å，输出必须新建，方向由人判断 |
+| `ag mode-review '<ATTEMPT>' --study '<STUDY_DIR>' --pair 1-2 --mode 1 --amplitude 0.3 --out analyses/mode-review.json --json` | 正式研究在 `analyses/` 导出正常频率段的正负位移 XYZ、目标对距离变化与全对排名；编号从 1 开始，振幅为最大原子位移 Å，输出必须新建，方向由人判断 |
+| `ag mode-review '<ATTEMPT>' --study '<STUDY_COPY>' --pair 1-2 --offline --json` | 在临时副本上导出相同的模式证据，结果中的 `offline_review` 指向本次独立目录，来源研究只读 |
 | `ag parent-chk-report '<PARENT_ATTEMPT>' --study '<STUDY_DIR>' --child '<CHILD_ATTEMPT>' --out analyses/parent-check.json` | 汇总本地父频率段、固定行坐标与历史 chk 关联；内部力常数仍未核验，见 [报告说明](docs/parent-chk-report.md) |
 | `ag profile '<PROFILE_JSON>' --json` | 组装已审阅物种的自由能曲线、焓熵分项、Eyring 换算、按产物汇总的选择性、σ 报告及适用时的能量跨度 |
 | `ag review init '<ATTEMPT_ID>' [--card '<CARD>']` / `ag review check '<ATTEMPT_ID>'` | 创建审阅骨架、核对判据及事实快照；旧 manifest 可在审阅时补指定卡片 |
@@ -453,7 +455,7 @@ TS 必须恰好一个虚频且振动方向与反应坐标一致；只有双向 I
 
 ## 前端
 
-ag 4.8.1 配套使用同号前端。启动步骤见[前端 v4.8.1 README](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/blob/v4.8.1/README.md#run-locally)，发布来源见[前端 v4.8.1 Release](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/releases/tag/v4.8.1) 和[后端版本说明](CHANGELOG.md#v481)。
+ag 4.8.2 配套使用同号前端。启动步骤见[前端 v4.8.2 README](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/blob/v4.8.2/README.md#run-locally)，发布来源见[前端 v4.8.2 Release](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/releases/tag/v4.8.2) 和[后端版本说明](CHANGELOG.md#v482)。
 
 2026-10-29 的 v4.7.0 配套记录包含前端 T158 默认档位/容量/具名节点反馈、T160 CREST 诊断展示及 T179 setuptools 84.1.0 构建工具修复。后端 T178 #372、前端 T177 #51 已合并，当时两项实际后端配套验证均通过、0 跳过。见 [v4.7.0 发布说明](CHANGELOG.md#v470)。
 
@@ -655,6 +657,8 @@ python scripts/scan_public.py --staged
 - **v4.3.0**：开题核验与准备、定向复合物构建和分组枚举、TS 立体标签、逐方向 IRC 审阅与路径哈希、运行日志快照、共振等价、Multiwfn IGM / IGMH 与 NCI 报告，以及 thermo / profile、输入和 route 解析修复；配合前端 v4.3.0，详见 [CHANGELOG.md](CHANGELOG.md#v430)。
 
 - **v4.4.0**：T101 共享队列核数与核时提示、T102 按进展取回与取消后取回、T105 气相 Counterpoise 诊断、T106 可配置 PBS/排队上限与独立 CREST 路径；配合前端 v4.4.0，详见 [CHANGELOG.md](CHANGELOG.md#v440)。
+
+- **v4.8.2** 新增独立的离线模式导出与按 PBS 入口排查本地预留的只读诊断。[发布说明](CHANGELOG.md#v482)
 
 - **v4.8.1** 包含严格 Gaussian 输入检查、PBS 共享节点申请与预留核算修正。[发布说明](CHANGELOG.md#v481)
 - **v4.8.0（2026-10-31 已发布）** 收入原 4.7.1 候选内容，支持按绑定计划提交、路由阶梯、放宽输入与本地证据整理。[发布说明](CHANGELOG.md#v480)
