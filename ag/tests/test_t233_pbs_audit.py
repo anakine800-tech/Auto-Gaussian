@@ -226,3 +226,14 @@ def test_named_entry_shares_verified_peer_jobs_once_and_excludes_other_accounts(
     assert job['attempt_id'] == manifest['attempt_id'] and job['cores'] == manifest['cores']
     other = inspect_pbs('other')
     assert other['ok'] and other['pbs']['local_placements'] == []
+
+
+def test_peer_resolution_rotation_cannot_attribute_a_different_account_to_the_group(cfg, prepared, monkeypatch, inspect_pbs):
+    entry = {key: val for key, val in cfg.items() if key not in ('local', '_config_dir')}
+    cfg['clusters'] = {'default': entry, 'peer': deepcopy(entry)}
+    monkeypatch.setattr(config, 'ssh_identity',
+                        lambda e: ('fixture', 22, 'first' if e['_cluster'] == 'default' else 'second'))
+    forbid_writes_and_locks(monkeypatch)
+    result = inspect_pbs()
+    assert not result['ok'] and result['pbs']['local_placements'] is None
+    assert any('account identity changed' in r['reason'] for r in result['coverage']['errors'])

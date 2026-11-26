@@ -2417,7 +2417,7 @@ def _audit_pbs_account(cfg, report, diagnostic):
     with diagnostic.check('pbs_account', cluster=report['cluster'], coverage=True):
         report['account_sha256'] = account_identity(selected)
     result = _read_pbs_account(cfg, _CAPTURE_READS.get(), diagnostic=diagnostic)
-    _require(report.get('account_sha256') == result['verified_accounts'][report['cluster']],
+    _require(all(result['verified_accounts'][name] == report.get('account_sha256') for name in peers),
              'Configured PBS account identity changed during the reservation audit')
     mapped = []
     unverified = []
