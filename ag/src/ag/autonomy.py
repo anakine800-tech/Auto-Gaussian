@@ -1224,8 +1224,8 @@ def _writer_directory_matches(claim, raw, root, identity, pbs_dirs):
     return all(type(claim[key]) is type(value) and claim[key] == value for key, value in identity.items())
 
 
-def _manual_writer_records(store, root, identity, *, allow_stale=False, pbs_dirs=None):
-    """Validate immutable claims and their outcomes; caller holds the machine lock."""
+def _manual_writer_records(store, root, identity, *, allow_stale=False, pbs_dirs=None, diagnostic_only=False):
+    """Validate writer evidence. The lock-free diagnostic refuses every unfinished writer."""
     from ag.autonomy_submission import _read_file
     if store is None:
         return {}
@@ -1276,6 +1276,8 @@ def _manual_writer_records(store, root, identity, *, allow_stale=False, pbs_dirs
                 raise ValueError('Manual writer release does not match its claim')
             text(release['quote'], 'Verbatim human writer release confirmation')
             row['state'] = 'released'
+        elif diagnostic_only:
+            raise ValueError('Manual writer has no completion or release; read-only audit cannot establish lock ownership')
         else:
             fd = store.open(writer_id + '.claim.json', os.O_RDONLY)
             try:
@@ -1529,7 +1531,8 @@ def _run_reservation_audit(args):
     except (ValueError, OSError, KeyError):
         cfg = None
         configuration_error = 'Cannot read complete local configuration; configured studies coverage is unknown'
-    result = audit_reservations(cfg, configuration_error=configuration_error)
+    options = {'pbs_cluster': args.cluster} if args.cluster is not None else {}
+    result = audit_reservations(cfg, configuration_error=configuration_error, **options)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0 if result['ok'] else 1
 
@@ -1539,6 +1542,7 @@ def register(subparsers):
     children = p.add_subparsers(dest='action', required=True)
     audit = children.add_parser('audit-reservations', help='Read-only full local reservation health check; never authorizes actions')
     audit.set_defaults(func=_run_reservation_audit)
+    audit.add_argument('--cluster', help='Check the strict local reservation inputs for this configured PBS entry')
     audit.add_argument('--json', action='store_true', help='JSON output (also the default)')
     for op in ('init', 'plan', 'confirm', 'begin', 'start', 'pause', 'resume', 'finish', 'end', 'update', 'count', 'recover', 'status', 'check', 'manual-writers', 'release-writer', 'resolve-attempt', 'scientific-review', 'publish-study', 'link-recheck'):
         child = children.add_parser(op)
