@@ -60,7 +60,7 @@ ag：作业生命周期 + 日志解析、热化学、构象去重、关系图与
 
 ## 安装
 
-正式安装从后端 `v4.8.2` tag 的完整 Git 检出执行，保留同一提交的 `ag/templates/` 和 `skills-next/`。按下方步骤以 editable 方式安装。自主计划会从实际导入的源码核验 Git 提交及代码是否干净。Release 源码归档可用于检查文件、构建和离线测试，解压文件缺少用于该核验的 Git 元数据。wheel 和 sdist 仅包含 Python 项目。
+正式安装从后端 `v4.8.2` tag 的完整 Git 检出执行，保留同一提交的 `ag/templates/` 和 `skills-next/`。按下方步骤以 editable 方式安装。自主计划会从实际导入的源码核验 Git 提交及代码是否干净。运行仓库测试套件也须使用保留 Git 元数据的完整检出。Release 源码归档可用于查看源码和构建 Python 包。wheel 和 sdist 仅包含 Python 项目。
 
 使用 Python 3.11 或更新版本的 `chem` conda 环境；RDKit 用于结构与几何工具。
 **每个 worktree 单独创建 `.venv`**，避免多个 editable 安装争用同一个 `ag` 入口。
