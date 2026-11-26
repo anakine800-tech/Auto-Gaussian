@@ -28,7 +28,7 @@
 - `status.py`：PBS/Slurm 观察、程序完成证据及 unknown 只读核对；保留不完整取回所需的 PBS 首次/最近不活跃观察。
 - `fetch.py`：校验输出大小和哈希，以不覆盖方式发布到本地；显式不完整取回及绑定的独占记录。
 - `monitor.py`：只读采样集群，在本地缓存最新快照和历史。
-- `route.py`：原有档位建议与 T185 纯函数 `select_ladder`；可信运行记录适配及 T186 提交核验待集成。
+- `route.py`：档位建议、T185 阶梯选择和 T186 绑定计划的路由入口，共用正式预留与快照。
 - `capacity.py` / `node_targeting.py`：同节点精确容量判断与 PBS 具名资源切分、绑定及准入。
 - `doctor.py`：只读检查连接、调度器、目录和程序环境。
 - `remote.py`：全部固定远程命令、参数白名单及路径检查；独立的 incomplete_output_observation 在可进入的父目录内区分缺失与无法核实，复用 output_observation 只读操作类别。
@@ -45,7 +45,7 @@
 - `review.py`：生成审阅骨架，检查判据完整性及 facts 是否过期。
 - `_review_manifest.py`：签字前独占生成 study 证据清单，绑定文件字节与 ag 提交号。
 - `facts.py`：本地 facts/final.xyz 输出入口，仅提取事实。
-- `mode_review.py`：基于正常结束的频率段导出正负模式位移、指定原子对距离及全对排名，方向由人审阅。
+- `mode_review.py`：从正常结束的频率段导出位移与原子对距离。正式研究用 `--out` 写入 analyses；`_offline_mode_review.py` 为 `--offline` 独立登记产物。振动方向由人审阅。
 - `_parse_outputs.py`：Gaussian/cclib、xTB、CREST 输出解析。
 - `_irc.py`：Gaussian IRC 方向、路径点和完成事实提取。
 - `geometry.py`：XYZ、显式能量单位、成键/立体标识及 RMSD 共用工具。
@@ -70,12 +70,12 @@ clusters 的资源白名单仅在已配置时发布 default_tier；route 的原�
 
 T185 的 `node_targeting.FRACTIONS` 末尾追加 `'1'`，整节点仍走既有档位、max_cores、精确总内存与两次准入核验，
 不改变半/四分之一脚本字节或共享节点排队行为。按协调补充范围，`clusters.py` 的发现元数据复用同一 `FRACTIONS`，保留原顺序和默认 `1/2`。
-`route.select_ladder` 与 `ladder_config_identity` 供后续 prepare/提交适配共用；不得为 T186 另写一套阶梯顺序。
+`route.select_ladder` 与 `ladder_config_identity` 供 prepare 和提交核验共用。
 函数只处理传入数据，要求 `study_key`、显示用 `study_id`、独立的 `round_id`（整个自主轮次）和 `run_id`（一次唤醒运行），输出 `ag-routing-ladder/1` 的身份、候选、原因、推荐及配置/快照/占用/唤醒证据哈希。
 T186 可信适配须从全本机记录核对真实自主归属、全部活跃本地预留及提交绑定、运行事件和首次选格完整输入；T184 的意向计数不能当实际占用。
 每条 placements 必须带 study_key、study_id 和 scheduler_job_name：核验 manifest 后 PBS 取 pbs_job_name，Slurm 取 attempt_id，用于真实调度快照身份比对。
-study_key 是必填的 64 位小写 SHA-256，T186 须按安全校验后的本机绝对 study 目录生成并持久绑定目录身份；请求、placements、wakeups、batch.request 和本地去重一致使用 key，不允许缺失时回退到显示名 study_id。同名 study/Attempt 不跨来源合并，物理作业按确切调度身份去重，矛盾归属拒绝。纯算法不访问路径；实际目录绑定及全本机适配仍待 T186。
-适配尚未完成时，`route --job-class main|small` 带 study/round/run/object/walltime 返回阻塞，不退回旧建议冒充已通过。
+study_key 是必填的 64 位小写 SHA-256，T186 须按安全校验后的本机绝对 study 目录生成并持久绑定目录身份；请求、placements、wakeups、batch.request 和本地去重一致使用 key，不允许缺失时回退到显示名 study_id。同名 study/Attempt 不跨来源合并，物理作业按确切调度身份去重，矛盾归属拒绝。纯算法不访问路径；T186 负责实际目录绑定及全本机适配。
+`route --job-class main|small` 还需本轮计划与持有者参数，核验失败时报告阻塞。[路由用法](../ag/README.md#提交阶梯与整节点t185)
 SCNet 类末级运行加排队最多 4 个、兜底排队最多 2 个，按全本机全部自主 study/round 的活跃记录合计，包含不同配置目录和 studies_root、旧轮活跃作业；非自主作业仍仅参与原有全部账号核数限制。批次放置数限定同一 round/run，逐轮 Attempt 预算和每次唤醒取消上限不变。
 适配按共享账号及确切作业身份去重，未观测到的本地预留及 UNKNOWN 占用不得释放；不能核实则拒绝。T186 负责跨配置目录的共同注册与共同锁，并在共同锁内重新收集、核验和复算；现有配置目录内的 submit.lock 不够，换配置、study、round 或唤醒租约不能取得额外名额。
 `batch_inputs` 保存首次选格的完整输入，用同一算法重放全部条件，不能仅凭原始空闲快照证明批次合格。
@@ -83,7 +83,7 @@ SCNet 类末级运行加排队最多 4 个、兜底排队最多 2 个，按全�
 快照未知按实际候选排序阻断：低优先失效不阻已核实的首选，高优先未知不能被跳过；小体系复用非 queue、入口顺序、已有占用、格序的排序，以最靠前的可能占用排名比较。所有原占用、共享账号及全局额度核验保持；评估来源本身的当前节点与比例仍须核实。
 `select_ladder` 的可选 `evaluate_from` 只含 study_key/attempt_id/record_sha256，调用方先核验原 reservation；等价读取/共享别名去重后须唯一匹配原绑定且哈希一致，冲突或多个物理绑定仍拒绝，原 cell/节点/资源/配置由 T186 不可变 recommendation 绑定。不得用 `exclude_ownership` 移除来源占用；仅精确来源豁免同对象快捷拒绝，其他占用及同对象阻断保留。
 评估候选须不同 cell 且按原 main/small 排序严格更优；默认调用及哈希不变。评估结果带 `evaluation_only=True` 和 `evaluate_from`；首个组合不启用取消、停止核验、后继或改投入口，不等待 T187。后续接入评估时，薄适配独立透传参数并在普通 reservation 消费时拒绝此类结果，T187 复用同一算法后另核验立即运行、从未运行且排队六小时、无 chk、归属租约及取消消费等条件。此扩展无新 CLI 参数或警告界面，不执行真实操作。
-条件、能力过滤与真实验证缺口见 [CLI 说明](../ag/README.md#提交阶梯与整节点t185)；本单没有提交授权接线或现场验证证据。
+路由示例与能力过滤见 [CLI 说明](../ag/README.md#提交阶梯与整节点t185)。2026-10-31 发布的 v4.8.0 记录了 T185/T186 的集成、真实验证及其范围。[发布说明](../CHANGELOG.md#v480)
 
 ### Gaussian 放宽输入的冻结与复核
 
@@ -145,7 +145,7 @@ Geom=Check/AllCheck、Opt=ReadFC/RCFC 只能使用同 Attempt 的可追溯 chk �
 不能作为该机制的父来源；严格父 Attempt 可以被放宽子 Attempt 显式声明。
 旧 `approval.policies` / `--policy` 不绑定本轮计划和方法例外，因此拒绝带放宽标记的 Attempt；
 一次性批准与人工对话框继续使用现有字节核验、摘要和单次提交流程，不添加授权回退。
-T186 放宽接口已接入开发代码：计划和有效规则均须允许例外，`verified_files` 重验实际主输入、
+T186 放宽接口已接入：计划和有效规则均须允许例外，`verified_files` 重验实际主输入、
 sidecar 与附件；每个 Link1 段仍核验获批收敛下限，方法继续为未核验而非自动匹配。
 Stable 的 relaxed 语法不作本轮扩展；自主 policy 已有的 Stable 拒绝保持原样。
 这不启用自主运行；最终组合验证、敏感审阅、非研究试点和负责人显式启用仍未被文档替代，
@@ -154,16 +154,18 @@ Stable 的 relaxed 语法不作本轮扩展；自主 policy 已有的 Stable 拒
 
 ## 自主运行的实现边界
 
-[AGENTS 自主运行规则](../AGENTS.md#自主运行)是唯一规则正文；T182 统一文档，T184 实现 `ag autonomy` 的本地计划、租约、暂停、日志和意图计数。手动计算入口仍保留下文流程：`approval.authorize` 的旧长期规则只核对 study、模板、集群、核数和 walltime；`submit.submit` 拒绝具名 PBS 的长期规则；`cancel.cancel` 仍调用 Mac 人工确认。旧 `--policy` 不能据新文档获得自主权限，单独的 autonomy 本地记录也不能授权这些入口。T186 的独立自主参数已接入开发实现，细节与尚未完成的验证见下节。
+[AGENTS 自主运行规则](../AGENTS.md#自主运行)是唯一规则正文；T182 统一文档，T184 实现 `ag autonomy` 的本地计划、租约、暂停、日志和意图计数。手动计算入口仍保留下文流程：`approval.authorize` 的旧长期规则只核对 study、模板、集群、核数和 walltime；`submit.submit` 拒绝具名 PBS 的长期规则；`cancel.cancel` 仍调用 Mac 人工确认。旧 `--policy` 不能据新文档获得自主权限，单独的 autonomy 本地记录也不能授权这些入口。v4.8.2 包含 T186 独立自主参数，调用前须核实本轮显式启用、计划和有效规则。
 
 下节 T186 实现已在动作前核验计划哈希及版本、有效期与实际消费、方法口径、节点与路由选择、唯一运行锁和状态，并保留逐 Attempt 摘要、授权来源、输入字节和上传后哈希核对。具名 PBS 仅放行有效规则中列出的节点；本版关闭自主取消、取消停止证明和改投，取消来源须先显式人工解除；提交批准参数不能用于现有人工 cancel。后端观察发布保护已接入，前端运行中拒绝写操作的接入仍须由对应工单核验。
 
 放宽输入的受控例外同样以 [AGENTS](../AGENTS.md#自主运行)为准；T188 组合保存跳过检查及方法口径未核验的事实，仍须逐次提醒。不能把可提交当作科学支持，也不能把本单文档当作启用开关。
 
-启动前逐项核对相关工具实现、敏感路径的合并前验证、非研究试点及本轮显式启用；缺任何一项都不能运行自主计算。本地状态工具的合成验证不代替这些证据。90% 实际提交阈值已接入；本次审阅补齐提交路径派发前 SSH 跨唤醒和对象拒绝，跨唤醒快照过期、其他全局运行条件及现场验证仍待完成。开发会话的真实意外仍按 AGENTS 第 5 节立即停止；自主运行的暂停、补救和科学待确认事项按其专节，不把开发授权当运行授权。
+启动前按 AGENTS 核对工具与验证依据，确认本轮计划、有效规则和唯一租约。达到 90% 实际提交阈值会暂停。2026-10-31 的 v4.8.0 已纳入 T185/T186/T188，并记录了先合并后验证的经过、监督确认和 T198 的调整。每个研究的启用与暂停状态由该研究的正式记录确定。[v4.8.0 验证记录](../CHANGELOG.md#v480)
 
 
-### T186 绑定计划的提交接线（开发验证中，未启用）
+<a id="t186-绑定计划的提交接线开发验证中未启用"></a>
+
+### T186 绑定计划的提交接线
 
 `approval.autonomous_policies.<name>` 与旧 `approval.policies.<name>` 分开。
 自主 prepare/submit 使用 `--autonomous-policy`，并同时要求 `--run`、`--token`、
@@ -348,7 +350,7 @@ A 失败 → B 豁免 → C 成功 → D 失败时不暂停，成功的非豁免
 跨唤醒快照过期和其他全局运行条件仍按后续入口范围核对。手动 cancel 的每次本地
 声明、journal 和状态发布共用配置锁 → 全机锁 → study 锁；Mac 弹框和网络在短锁外。
 状态观察以最初读取的 status 为发布基线，拒绝慢查询覆盖后来取消/完成状态；
-取消晚到也保留更新的完成或不确定状态。验证按
+取消晚到也保留更新的完成或不确定状态。以下为 v4.8.0 发布前的开发验证记录，验证按
 [T186 工单](redesign-tasks/T186-plan-bound-submission.md)留存：本地只跑受影响流程，
 全量交 CI，真实验证前对最终组合另跑一次；不做 AST 比对。旧含 T187 组合仅为历史证据。
 首轮审阅回应只交绑定新 head 的增量 diff、逐项答复、红绿证据及修订的未执行真实验证
@@ -402,7 +404,7 @@ study/Attempt。局部损坏会列出拒绝原因并继续后续记录；顶层�
 临时副本上的模式导出使用 `ag mode-review ATTEMPT --study STUDY_DIR --pair 1-2 --offline --json`。
 每次产生一个新的本机 `~/.local/state/ag-offline/mode-reviews/` 子目录。以完整
 `registration.json` 和它绑定的三份产物核对导出；中断时可留有未登记的文件。
-该操作只读取来源研究。对研究本身的写入继续走原有写锁与授权。
+该操作只读取来源研究。正式研究使用 `ag mode-review ATTEMPT --study STUDY_DIR --pair 1-2 --out analyses/review.json --json`，沿用原有写锁与授权。离线模式与 `--out` 及自主归属参数互斥。
 
 从日常安装的解释器执行 `python -B -m ag.cli autonomy audit-reservations --cluster ENTRY --json`。
 此检查可以在集群不可达时运行。按 `source=manual_writer_group` 找到对应的
@@ -417,7 +419,7 @@ study/Attempt。局部损坏会列出拒绝原因并继续后续记录；顶层�
 不能证明历史预留为零。该诊断不提供导入结算资料或人工清零的入口。证据不足时继续待核。
 
 完整性失败时保留非零退出码及 `coverage.errors`，`pbs.local_placements` 为 `null`。
-成功时列表给出本地已核条目和账号绑定情况，`unmapped` 表示原账号未能映射。
+诊断逐一核对共享入口与所选 PBS 账号的身份。成功时列表给出本地已核条目和账号绑定情况，`unmapped` 表示原账号未能映射。
 只有日常 PBS 入口能结合实时清单确定未回显核数。待新监控快照写出后，
 执行 `ag nodes --cluster ENTRY --json` 和 `ag capacity --cluster ENTRY --tier TIER --target-node NODE --json`，
 其中 TIER、NODE 取本次作业的原档位与节点。若 PBS 本人作业号与可见明细不一致，

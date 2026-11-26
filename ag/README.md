@@ -1,6 +1,6 @@
 # Auto-Gaussian CLI
 
-`ag/` 是独立 Python 项目，负责作业生命周期的安全控制和确定性本地工具。**CLI 和配套前端版本均为 4.8.1。** 普通严格 Gaussian 输入会检查坐标、连接表与父 checkpoint。具名 PBS 入口按本机策略核对原申请与单节点余量，提交前复查账号作业和预留。[v4.8.1 发布说明](../CHANGELOG.md#v481)
+`ag/` 是独立 Python 项目，负责作业生命周期的安全控制和确定性本地工具。**CLI 和配套前端版本均为 4.8.2。** 在临时副本上审阅振动模式可用独立离线目录；排查具名 PBS 入口时可只读核验本地预留来源。[v4.8.2 发布说明](../CHANGELOG.md#v482) · [命令和输出](#临时验收和-pbs-预留排查)
 
 按[根目录安装步骤](../README.md#安装)为当前 worktree 创建独立 `.venv`，
 从仓库根目录在 Python 3.11+ 环境运行 `python -m pip install -e 'ag[test,chem]' 'rdkit==2026.3.3'`，
@@ -667,7 +667,7 @@ ag autonomy start --study '<STUDY>' --plan '<PLAN_ID>' --owner '<NEW_SESSION_ID>
 不能缓存为以后提交的许可证；后续入口须在各动作边界重新检查，并独立满足现有提交、取消及证据要求。
 T186 的 submission_guard 在可核验的版本/计划失效时原子记录暂停；不得在持锁的
 `action_guard` 内嵌套调用 `pause()`。实际字段、提交/观察参数和 writer 恢复步骤见
-[开发手册](../docs/DEVELOPING.md#t186-绑定计划的提交接线开发验证中未启用)。
+[开发手册](../docs/DEVELOPING.md#t186-绑定计划的提交接线)。
 
 ## 临时验收和 PBS 预留排查
 
@@ -680,7 +680,13 @@ ag mode-review '<ATTEMPT>' --study '<研究副本目录>' --pair 1-2 --offline -
 结果中的 `offline_review` 给出本次新目录，其中有报告、两份位移坐标及登记
 `registration.json`。登记保存来源研究、Attempt、manifest 和产物哈希。
 移走临时研究副本后，离线导出不会给日常 PBS 核算留下待核登记。正式研究要把
-结果写回 `analyses/` 时继续使用 `--out analyses/review.json`，它会取得研究写入权限。
+结果写回 `analyses/` 时，使用新的输出名，照常核验研究写入权限：
+
+```sh
+ag mode-review '<ATTEMPT>' --study '<研究目录>' --pair 1-2 --out analyses/review.json --json
+```
+
+`--offline` 和 `--out` 须二选一。离线导出不接受自主归属参数 `--run`、`--token`、`--plan-sha256`。
 
 具名 PBS 入口因本地预留无法核验而停用时，在日常安装的 Python 环境中运行：
 
@@ -696,7 +702,7 @@ python -B -m ag.cli autonomy audit-reservations --cluster '<入口名>' --json
 ## 本地开发与验证
 
 从仓库根目录运行 `python -m pytest ag/tests`，测试通过替身模拟远程操作。
-提交前仅暂存本次改动，再运行 `python ag/tools/scan_sensitive.py --staged`。
+提交前仅暂存本次改动，再运行 `python scripts/scan_public.py --staged`。私有词表与全仓核对见[运维说明](../docs/OPERATIONS.md#9-公开仓库保护)。
 不要把真实配置、SSH 输出、主机公钥记录、私钥或 study 产物用作公开测试数据。
 
 CLI 子命令模块通过 `register(subparsers)` 注册，用 `set_defaults(func=handler)`

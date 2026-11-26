@@ -128,6 +128,7 @@ CalcFC 与 Freq 均有 Hessian 成本；每个 TS 构象分别估计，不把加
   缺该行或无法区分模式则写缺证据。它不是 `facts.json` 的 `frequencies_low`（cclib 提取的最低几个振动频率），不能用该字段代替。
 - **振动方向对应目标键变化**：逐项核对 `facts.json` 的 `imag_modes[].pairs[].atoms`、`elements`、`distance`、`distance_change_rate` 与目标原子对。全局振动正负号任意，须查看同一方向上成键缩短/断键伸长等协调变化，不能仅靠频率大小或单个符号判断。
 - 当前 `imag_modes` 只列距离小于 3.5 Å 的原子对中变化率绝对值最大的五对；缺目标对并不证明它不动。先用 `ag mode-review <attempt> --study <dir> --pair 1-2 --pair 2-3 --mode 1 --amplitude 0.3 --out analyses/mode-review.json`（替换为目标原子编号，输出须为新文件）报告目标对距离变化并导出正负位移 XYZ，再人工审核协调方向；振幅为最大原子位移 Å，模式按频率升序编号。取向或频率段证据不足时写不通过并停下，命令不判定反应坐标是否正确。
+- 只在临时副本上核对模式时，用 `ag mode-review <attempt> --study <dir> --pair 1-2 --offline --json`。从 `offline_review` 打开独立的报告与位移文件；要在正式研究中保存审阅证据，使用上一条的 `--out`。
 - 出现长键、断键、强电荷转移、SCF 多个解或近简并迹象时，审查电子态并提出独立 Stable 诊断，按 [失败诊断](failure-diagnosis.md#电子态与-stable-诊断) 审阅 T30 的 `wavefunction_stability` 及原文行；未诊断不算稳定，稳定也不证明闭壳层方法足够。需要非限制性或多参考方法时明确超出本卡范围。
 - 确认最终身份与预期一致；柔性 TS 列出审阅过的构象和未覆盖部分，不将单个 TS 的能量直接当作唯一反应能垒。
 - 可用 [TS 立体标签](../../auto-g16-structures/SKILL.md#ts-立体标签) 按已签参照产物与原子映射标注构型并核对催化剂，通道建议须人工确认，不替代本节判据。
