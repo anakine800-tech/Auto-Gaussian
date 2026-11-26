@@ -1,6 +1,6 @@
 # 本机运维：更新、监控与恢复
 
-本页提供已获准维护时的通用步骤。**两仓同号 v4.8.0 于 2026-10-31 正式发布，发布当天仅部署开发机并完成验收。** 11 月 1 日负责人确认研究机已部署。研究首轮是否运行由研究主会话记录。两仓固定 tag 与 CI 见 [发布说明](../CHANGELOG.md#v480)，开发机验收与后续维护见 [本版部署记录](#v480-published)。
+本页提供已获准维护时的通用步骤。v4.8.1 使用同号后端和前端，安装与验收按两仓各自的发布提交核对。[版本说明](../CHANGELOG.md#v481) · [v4.8.1 配对](#v481-pair)
 
 尖括号均为占位符，执行前逐项替换；未替换的示例不能直接执行。`<ENTRY>` 是本机配置里的入口标识，`<UID>` 是 `id -u` 的输出，所有文件位置使用本机核对过的规范路径。命令输出只保存在私有记录中，不贴进公开仓库。这里只操作本机服务，不提交、取消或改动远程计算文件。
 
@@ -34,10 +34,18 @@
    ```
 
    每个仓库的这两个哈希必须相同；不以当时 main 的位置代替 tag。单次获准部署合并提交时，记录并核对获准完整 SHA 与实际 HEAD，不能机械运行上述 tag 示例。记录每步开始、结束和耗时。
-4. 分别按 [后端 README](../README.md#安装) 与 [前端 README](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/blob/main/README.md#run-locally) 从获准检出更新各自依赖、构建前端。运行 `'<AG_EXECUTABLE>' --version`；后端与前端分别用各自服务所用 Python 核对实际导入来源、包元数据和运行时 `__version__`，再核对前端网页包版本，均须对应所选目标。本轮 v4.8.0 核对值为 4.8.0，不能仅凭版本号推断某个提交或某台机器已部署；同时记录两仓完整 HEAD。核对 Skills 链接实际指向获准后端的 skills-next，以及前端 --ag 指向该环境。来源或版本不一致时停止核对。
+4. 分别按 [后端 README](../README.md#安装) 与 [前端 README](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/blob/v4.8.1/README.md#run-locally) 从获准检出更新各自依赖、构建前端。运行 `'<AG_EXECUTABLE>' --version`；后端与前端分别用各自服务所用 Python 核对实际导入来源、包元数据和运行时 `__version__`，再核对前端网页包版本，均须对应所选目标。部署 v4.8.1 时，上述版本应均为 4.8.1，并须同时记录两仓完整 HEAD。核对 Skills 链接实际指向获准后端的 skills-next，以及前端 --ag 指向该环境。来源或版本不一致时停止核对。
 5. 如需修改配置，先按第 2 节保留原件及变更记录，再按第 6 节设置采样间隔；其他具体配置只依据负责人私用指示。按第 9 节核对两个检出的 hook 和本机词表，全量扫描零命中。
 6. 按第 3 节安装两个 LaunchAgent。先核对 plist 与路径，加载新服务并记录加载时刻；按配置入口逐一执行 `'<AG_EXECUTABLE>' doctor --cluster '<ENTRY>'` 并保存结果，同时开始第 4 节首轮快照计时。出现真实连接错误时停止并报告，不循环重试。
 7. 按第 4 节完成首轮核对；观察时长由负责人在每次部署消息中指定（可以不设），首轮核对与指定的观察期均适用第 5 节停止条件。开发机首轮、指定观察期、原入口回归及私有部署计划中的全部必要验收通过后，负责人再安排无研究写入的研究机维护窗口；研究机也须独立完成 doctor、首轮、观察与前端核对。记录“通过/未通过”，不得把 PR 合并或 tag 创建记为部署完成；新写入格式另按第 11 节启用。
+
+<a id="v481-pair"></a>
+
+### v4.8.1 配对与部署核对
+
+两仓使用各自的 `v4.8.1` 发布提交。后端保留同提交的程序模板和 Skills，前端从同号源码构建。按上表记录每台机器实际采用的两仓提交、版本和验收日期。[发布交接](handoff-v4.md#v481-发布交接)
+
+2026-11-25 的开发机部署和非研究实投针对共享节点功能基线，详情见[验收单 #405](https://github.com/anakine800-tech/Auto-Gaussian/issues/405)。2026-10-31 的开发机以及 11 月 1 日负责人确认的研究机部署归入下方 v4.8.0 记录。
 
 <a id="v471-发布准备配对与回退草稿"></a>
 <a id="v480-发布准备配对与回退"></a>
@@ -119,7 +127,7 @@ shasum -a 256 '<RETIRED_BACKUP_FILE>'
 每台电脑保留一个监控 LaunchAgent 和一个操作模式前端 LaunchAgent：
 
 - 监控按 [后端 plist 样例](ops/launchd/local.autogaussian.monitor.plist.example)，直接运行 `ag monitor --watch 30`；旧包装脚本和旧 plist 移入带日期的私有备份目录，不另写包装脚本。
-- 前端按 [前端 plist 样例](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/blob/main/docs/ops/launchd/local.autogaussian.frontend.plist.example)，显式启用操作模式，`--ag` 指向获准目标的后端。按样例填写本机 Python、检出、已有 study 根目录与日志位置；只绑定回环地址。其他前端实例先备份启动方式和恢复脚本，再停用。只读模式仍可按需临时使用，不常驻第二个实例。操作模式不代替计算授权：提交按一次性批准/明确长期规则/Mac 点击核对，具体入口的更窄要求仍有效；取消始终由人点击。
+- 前端按 [前端 plist 样例](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/blob/v4.8.1/docs/ops/launchd/local.autogaussian.frontend.plist.example)，显式启用操作模式，`--ag` 指向获准目标的后端。按样例填写本机 Python、检出、已有 study 根目录与日志位置；只绑定回环地址。其他前端实例先备份启动方式和恢复脚本，再停用。只读模式仍可按需临时使用，不常驻第二个实例。操作模式不代替计算授权：提交按一次性批准/明确长期规则/Mac 点击核对，具体入口的更窄要求仍有效；取消始终由人点击。
 
 在临时副本中填写占位符并检查，日志目录事先在本机创建好。日志位置记作 `<MONITOR_STDOUT>`、`<MONITOR_STDERR>`、`<FRONTEND_STDOUT>`、`<FRONTEND_STDERR>`；监控样例虽把 stdout 命名为 jsonl，默认内容是逐行摘要，只有 `--json` 才是完整快照。
 

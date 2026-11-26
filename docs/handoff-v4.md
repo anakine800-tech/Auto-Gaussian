@@ -1,5 +1,11 @@
 # 当前开发与运维交接
 
+## v4.8.1 发布交接
+
+后端 T231 和前端 T232 配套版本均为 4.8.1。两仓以各自的发布 tag 确定源码提交，后端保留完整模板与 Skills，前端从同号源码构建。改动与许可见[v4.8.1 发布说明](../CHANGELOG.md#v481)。[后端 Release](https://github.com/anakine800-tech/Auto-Gaussian/releases/tag/v4.8.1) · [前端 Release](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/releases/tag/v4.8.1)
+
+共享节点功能基线已于 2026-11-25 在开发机完成非研究实投验收。具体机器采用的前后端提交分别在部署时核对。[共享节点验收](https://github.com/anakine800-tech/Auto-Gaussian/issues/405) · [运维步骤](OPERATIONS.md#v481-pair)
+
 ## v4.8.0 发布交接
 
 2026-10-31 后端与配套前端同号正式发布。两仓的 `v4.8.0` tag 分别指向以下提交。发布 PR 和版本 CI 见 [v4.8.0 发布说明](../CHANGELOG.md#v480)。

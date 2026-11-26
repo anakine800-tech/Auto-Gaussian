@@ -1,8 +1,15 @@
 # Changelog
 
-## Unreleased
+## v4.8.1
 
-- License changed from MIT to All Rights Reserved (Copyright (c) 2026 Deli Sun). Versions up to and including v4.8.0 remain under the MIT License.
+后端 CLI 与前端均为 4.8.1。后端功能基线为 `d2750ba28752269be4b5758cc594f140c4565d39`。安装时使用所选发布提交的完整源码，其中包含 `ag/templates/` 与 `skills-next/`。发布来源按版本核对。[后端 Release](https://github.com/anakine800-tech/Auto-Gaussian/releases/tag/v4.8.1) · [前端 Release](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/releases/tag/v4.8.1)
+
+- **严格 Gaussian 输入。** 普通严格输入遇到裸整数坐标会提示原文件中的行号与坐标轴。单段显式几何支持完整的 `Geom=Connectivity` 连接表。读取力常数时须有绑定且符合要求的父 checkpoint。未声明的旧提交包在提交前重验，已声明的历史包仍可按原字节核对回执。[坐标 #399](https://github.com/anakine800-tech/Auto-Gaussian/pull/399) · [连接表 #401](https://github.com/anakine800-tech/Auto-Gaussian/pull/401) · [力常数来源 #400](https://github.com/anakine800-tech/Auto-Gaussian/pull/400)
+- **共享 PBS 节点。** 本机策略允许按余量申请时，按原申请核数检查同一节点的剩余核位，并核对内存、完整本人作业和跨入口预留。已知剩余内存不足或核位、账号证据不全时拒绝。有经核实的已用内存下界而完整分配量未知时，仍标记即时容量未知，由 PBS 决定排队和启动。仅准空节点的策略另核对占用和等待作业。[具名节点准入 #404](https://github.com/anakine800-tech/Auto-Gaussian/pull/404)
+- **预留与目录核算。** 缺少原账号身份的历史手动预留继续计占。人工核清 UNKNOWN 后，只有新鲜、一致的只读证据才能延续核算结果，出现冲突即恢复计占。APFS 重新挂载后可用新登记的卷与目录凭据，或核实过的旧生产者原件与系统事件恢复 PBS 核算。缺失或冲突的证据仍会阻断核算。[历史预留 #403](https://github.com/anakine800-tech/Auto-Gaussian/pull/403) · [UNKNOWN #402](https://github.com/anakine800-tech/Auto-Gaussian/pull/402) · [新登记 #408](https://github.com/anakine800-tech/Auto-Gaussian/pull/408) · [旧登记 #409](https://github.com/anakine800-tech/Auto-Gaussian/pull/409)
+- **许可。** v4.8.1 采用 All Rights Reserved，Python 包元数据标记为 `LicenseRef-Proprietary`。v4.8.0 及之前发布的版本继续适用 MIT 许可证。[LICENSE](LICENSE) · [许可变更 #397](https://github.com/anakine800-tech/Auto-Gaussian/pull/397)
+
+2026-11-25，开发机在上述功能基线上完成了一次共享节点的非研究实投。PBS 核实作业在目标节点取得原申请核位，与其他账号同时运行，Gaussian 正常结束。该次验收的对象、经过和覆盖范围见 [#405](https://github.com/anakine800-tech/Auto-Gaussian/issues/405)。具体机器采用的版本及部署验收应查对应维护记录。[v4.8.1 运维交接](docs/OPERATIONS.md#v481-pair)
 
 <a id="v480发布准备"></a>
 
