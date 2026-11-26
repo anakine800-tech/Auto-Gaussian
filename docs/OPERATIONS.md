@@ -43,7 +43,7 @@
 
 ### v4.8.2 配对与 PBS 预留诊断
 
-部署时分别核对后端和前端的 `v4.8.2` tag、完整提交及运行时版本。从后端完整源码取得同提交的 `ag/templates/` 和 `skills-next/`。[发布交接](handoff-v4.md#v482-发布交接)
+部署时分别核对后端和前端的 `v4.8.2` tag、完整提交及运行时版本。后端从该 tag 的完整 Git 检出以 editable 方式安装，保留同提交的 `ag/templates/` 和 `skills-next/`，并核对实际导入来源。[发布交接](handoff-v4.md#v482-发布交接)
 
 临时副本上的振动模式验收用 `ag mode-review '<ATTEMPT>' --study '<STUDY_COPY>' --pair 1-2 --offline --json`，按结果中的 `offline_review` 查报告、位移与登记。正式研究继续用 `--out analyses/review.json`，选择新的文件名。
 

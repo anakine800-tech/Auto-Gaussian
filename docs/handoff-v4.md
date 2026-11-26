@@ -2,7 +2,7 @@
 
 ## v4.8.2 发布交接
 
-后端 T234 与前端 T235 同号配对。从各仓的 `v4.8.2` tag 取得发布源码；后端模板和 Skills 均随完整源码提供。[后端 Release](https://github.com/anakine800-tech/Auto-Gaussian/releases/tag/v4.8.2) · [前端 Release](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/releases/tag/v4.8.2)
+后端 T234 与前端 T235 同号配对。分别检出各仓的 `v4.8.2` tag。后端从完整 Git 检出以 editable 方式安装，供自主计划核验实际导入的提交与源码状态；模板和 Skills 随检出提供。[后端 Release](https://github.com/anakine800-tech/Auto-Gaussian/releases/tag/v4.8.2) · [前端 Release](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/releases/tag/v4.8.2)
 
 临时研究副本使用 `mode-review --offline` 独立导出，正式研究继续用 `--out` 保存分析。历史预留阻塞时按 PBS 入口只读排查，将缺失原件与同级研究列为待核；机器部署、接单与恢复情况另查对应现场记录。[发布说明](../CHANGELOG.md#v482) · [运维核对](OPERATIONS.md#v482-pair)
 

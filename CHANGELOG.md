@@ -2,7 +2,7 @@
 
 ## v4.8.2
 
-后端 CLI 与前端配套版本均为 4.8.2。本版收入 v4.8.1 之后合并的 T233。后端从本版完整源码安装，以取得同一提交的程序模板和 Skills。许可沿用 All Rights Reserved。[后端 Release](https://github.com/anakine800-tech/Auto-Gaussian/releases/tag/v4.8.2) · [前端 Release](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/releases/tag/v4.8.2) · [LICENSE](LICENSE)
+后端 CLI 与前端配套版本均为 4.8.2。本版收入 v4.8.1 之后合并的 T233。后端从固定 tag 的完整 Git 检出以 editable 方式安装，保留同一提交的程序模板、Skills 和计划版本核验所需的 Git 元数据。许可沿用 All Rights Reserved。[后端 Release](https://github.com/anakine800-tech/Auto-Gaussian/releases/tag/v4.8.2) · [前端 Release](https://github.com/anakine800-tech/Auto-Gaussian-Frontend/releases/tag/v4.8.2) · [LICENSE](LICENSE)
 
 - **临时副本上的振动模式审阅。** `ag mode-review --offline` 只读取来源研究，在独立的本机目录生成报告、正负位移 XYZ 和登记。移走副本后，这次导出不会给日常 PBS 核算留下待核登记。正式研究继续用 `--out` 在写入保护下保存到 `analyses/`。[CLI 用法](ag/README.md#临时验收和-pbs-预留排查)
 - **按 PBS 入口排查历史预留。** `python -B -m ag.cli autonomy audit-reservations --cluster ENTRY --json` 只读核对本地登记、研究根及共享入口的账号绑定。完整性失败时命令返回非零，`pbs.local_placements` 为 `null`。目录名、单条完成回执或一次队列快照均不足以解除旧预留。现场能否接单仍取决于原始资料及日常提交时的实时核验。[T233 实现 #411](https://github.com/anakine800-tech/Auto-Gaussian/pull/411) · [运维核对](docs/OPERATIONS.md#v482-pair)
