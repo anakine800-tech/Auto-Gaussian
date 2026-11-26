@@ -18,7 +18,7 @@ from ag import __version__
 from ag import _parse_outputs as outputs
 from ag.facts import ag_provenance, gaussian_log
 from ag.facts import (_publication_recheck, _local_review_write, _attempt_publication_sources,
-                      _publication_pin, _publication_unchanged, _publication_stage)
+                      _publication_pin, _publication_read, _publication_unchanged, _publication_stage)
 from ag.study import identifier, local_path
 
 
@@ -206,14 +206,30 @@ def read_modes(block):
     return elements, coords, data.vibfreqs, data.vibdisps, orientation.lower()
 
 
-def create(attempt, study, pairs, out, mode=1, amplitude=0.3, *,
-           run_id=None, token=None, plan_sha256=None):
+def create(attempt, study, pairs, out=None, mode=1, amplitude=0.3, *,
+           offline=False, run_id=None, token=None, plan_sha256=None):
+    if offline and (out is not None or any(v is not None for v in (run_id, token, plan_sha256))):
+        raise ValueError('--offline cannot be combined with --out, --run, --token or --plan-sha256')
+    if not offline and out is None:
+        raise ValueError('Choose --out or --offline')
     root = Path(study).expanduser().absolute()
     root = local_path(root, root)
     directory = local_path(root, root / 'attempts' / identifier(attempt))
+    if offline:
+        from ag._offline_mode_review import publish
+        with ExitStack() as sources:
+            report, payloads, manifest_hash, verify = _render(
+                attempt, root, directory, pairs, mode, amplitude, 'report', sources)
+
+            def verify_offline_source():
+                verify()
+                if gaussian_log(directory) != root / report['source']['log']:
+                    raise ValueError('Selected Gaussian mode log changed before offline registration')
+
+            destination = publish(root, attempt, manifest_hash, payloads, verify_offline_source)
+        return dict(report, offline_review=str(destination))
     with _local_review_write(root, run_id=run_id, token=token,
                              plan_sha256=plan_sha256) as publication, ExitStack() as sources:
-        verify = _attempt_publication_sources(directory, sources)
         target = Path(out).expanduser()
         if not target.is_absolute():
             target = root / target
@@ -221,26 +237,22 @@ def create(attempt, study, pairs, out, mode=1, amplitude=0.3, *,
         parents = [_publication_pin(p, sources) for p in
                    (target.parent, *target.parent.parents) if p.is_relative_to(root)]
         return _create(attempt, root, directory, pairs, target, mode, amplitude,
-                       publication, verify, parents)
+                       publication, sources, parents)
 
 
-def _create(attempt, root, directory, pairs, out, mode, amplitude, publication, verify, parents):
-    manifest = json.loads(local_path(root, directory / 'manifest.json').read_text())
+def _render(attempt, root, directory, pairs, mode, amplitude, stem, sources):
+    verify_sources = _attempt_publication_sources(directory, sources)
+    manifest_path = local_path(root, directory / 'manifest.json')
+    manifest_raw, manifest_proof = _publication_read(manifest_path, sources)
+    if manifest_raw is None:
+        raise FileNotFoundError('Missing Gaussian Attempt manifest')
+    manifest = json.loads(manifest_raw)
     if manifest.get('template') != 'gaussian':
         raise ValueError('mode-review requires a Gaussian Attempt')
-    target = Path(out).expanduser()
-    if not target.is_absolute():
-        target = root / target
-    target = local_path(root / 'analyses', target)
-    if target.suffix != '.json':
-        raise ValueError('--out must be a new .json file under the study analyses directory')
-    paths = [target, target.with_suffix('.plus.xyz'), target.with_suffix('.minus.xyz')]
-    for path in paths:
-        local_path(root / 'analyses', path)
-        if path.exists():
-            raise FileExistsError(f'Output already exists: {path.name}')
     log = local_path(directory / 'outputs', gaussian_log(directory))
-    raw = log.read_bytes()
+    raw, log_proof = _publication_read(log, sources)
+    if raw is None:
+        raise FileNotFoundError('Missing selected Gaussian log')
     section, block = frequency_section(raw)
     elements, coords, frequencies, vectors, orientation = read_modes(block)
     report, plus, minus = displace(elements, coords, frequencies, vectors, pairs, mode, amplitude)
@@ -248,20 +260,41 @@ def _create(attempt, root, directory, pairs, out, mode, amplitude, publication, 
                   attempt=attempt, orientation=orientation,
                   source=dict(log=log.relative_to(root).as_posix(), log_sha256=sha256(raw).hexdigest(),
                               section=section, section_sha256=sha256(block).hexdigest()),
-                  geometries=dict(plus=paths[1].name, minus=paths[2].name))
+                  geometries=dict(plus=stem + '.plus.xyz', minus=stem + '.minus.xyz'))
     content = json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False) + '\n'
     def xyz(coordinates, side):
         comment = f'Attempt {attempt}; mode {mode}; {side}; max displacement {amplitude:g} angstrom'
         return (f'{len(elements)}\n{comment}\n' + ''.join(
             f'{element:2s} {x: .10f} {y: .10f} {z: .10f}\n'
             for element, (x, y, z) in zip(elements, coordinates)))
+    payloads = {stem + '.json': content.encode('utf-8'),
+                report['geometries']['plus']: xyz(plus, '+').encode('utf-8'),
+                report['geometries']['minus']: xyz(minus, '-').encode('utf-8')}
+    def verify():
+        verify_sources()
+        # Bind the handles actually read to the names that passed the inventory
+        # check, even if an ancestor was temporarily replaced during reading.
+        _publication_unchanged(manifest_proof)
+        _publication_unchanged(log_proof)
+
+    return report, payloads, sha256(manifest_raw).hexdigest(), verify
+
+
+def _create(attempt, root, directory, pairs, target, mode, amplitude, publication, sources, parents):
+    if target.suffix != '.json':
+        raise ValueError('--out must be a new .json file under the study analyses directory')
+    paths = [target, target.with_suffix('.plus.xyz'), target.with_suffix('.minus.xyz')]
+    for path in paths:
+        local_path(root / 'analyses', path)
+        if path.exists():
+            raise FileExistsError(f'Output already exists: {path.name}')
+    report, payloads, _, verify = _render(attempt, root, directory, pairs, mode, amplitude, target.stem, sources)
     # Payload IO and fsync precede the shared guard. Exclusive links never
     # replace bytes; a partial set and its stages remain inspectable on failure.
-    payloads = (content, xyz(plus, '+'), xyz(minus, '-'))
     staged = []
     with ExitStack() as stack:
-        prepared = [_publication_stage(target.parent, payload.encode('utf-8'), stack, staged,
-                                       prefix='.mode-review-stage-') for payload in payloads]
+        prepared = [_publication_stage(target.parent, payloads[path.name], stack, staged,
+                                       prefix='.mode-review-stage-') for path in paths]
         with publication() as recheck:
             verify()
             for proof in parents + [proof for _, proof in prepared]:
@@ -279,7 +312,7 @@ def _create(attempt, root, directory, pairs, out, mode, amplitude, publication, 
 def run(args):
     try:
         result = create(args.attempt, args.study, [pair_argument(pair) for pair in args.pair],
-                        args.out, args.mode, args.amplitude, run_id=args.run,
+                        args.out, args.mode, args.amplitude, offline=args.offline, run_id=args.run,
                         token=args.token, plan_sha256=args.plan_sha256)
     except ImportError as exc:
         print(f'mode-review chemistry dependency unavailable: {exc}', file=sys.stderr)
@@ -293,7 +326,8 @@ def run(args):
                   f'- {row["minus_distance"]:.6f}; rate {row["distance_change_rate"]:+.6f}; '
                   f'rank {row["absolute_rate_rank"]}/{result["total_pairs"]}; '
                   f'shorter: {row["shortened_sides"]}')
-        print(f'报告：{args.out}\n{NOTICE}')
+        destination = Path(result['offline_review']) / 'report.json' if args.offline else args.out
+        print(f'报告：{destination}\n{NOTICE}')
     return 0
 
 
@@ -304,7 +338,9 @@ def register(subparsers):
     parser.add_argument('--pair', action='append', required=True, help='1-based atom indices, e.g. 1-2; repeatable')
     parser.add_argument('--mode', type=int, default=1, help='1-based mode in ascending frequency order')
     parser.add_argument('--amplitude', type=float, default=0.3, help='Maximum atomic Cartesian displacement in angstrom')
-    parser.add_argument('--out', type=Path, required=True, help='New JSON under analyses/; relative to study')
+    where = parser.add_mutually_exclusive_group(required=True)
+    where.add_argument('--offline', action='store_true', help='Export to a new independent local review directory')
+    where.add_argument('--out', type=Path, help='New JSON under analyses/; relative to study')
     parser.add_argument('--json', action='store_true')
     parser.add_argument('--run', help='Current autonomous review wake')
     parser.add_argument('--token', help='Current owner lease token')

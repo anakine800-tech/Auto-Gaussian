@@ -669,6 +669,30 @@ T186 的 submission_guard 在可核验的版本/计划失效时原子记录暂�
 `action_guard` 内嵌套调用 `pause()`。实际字段、提交/观察参数和 writer 恢复步骤见
 [开发手册](../docs/DEVELOPING.md#t186-绑定计划的提交接线开发验证中未启用)。
 
+## 临时验收和 PBS 预留排查
+
+在临时研究副本上核对振动模式时，可把全部产物写入本机独立的离线目录：
+
+```sh
+ag mode-review '<ATTEMPT>' --study '<研究副本目录>' --pair 1-2 --offline --json
+```
+
+结果中的 `offline_review` 给出本次新目录，其中有报告、两份位移坐标及登记
+`registration.json`。登记保存来源研究、Attempt、manifest 和产物哈希。
+移走临时研究副本后，离线导出不会给日常 PBS 核算留下待核登记。正式研究要把
+结果写回 `analyses/` 时继续使用 `--out analyses/review.json`，它会取得研究写入权限。
+
+具名 PBS 入口因本地预留无法核验而停用时，在日常安装的 Python 环境中运行：
+
+```sh
+python -B -m ag.cli autonomy audit-reservations --cluster '<入口名>' --json
+```
+
+查看 `manual_writer_group` 中的登记组、首条 claim 给出的原路径、需要覆盖的父研究目录
+和失败原因。失败时命令非零退出，`pbs.local_placements` 为 `null`。本地核算成功后，
+仍须用新鲜监控核对 PBS 的本人作业清单、作业明细及原申请的节点余量。
+复验步骤见[开发手册](../docs/DEVELOPING.md#临时验收和-pbs-历史预留维护)。
+
 ## 本地开发与验证
 
 从仓库根目录运行 `python -m pytest ag/tests`，测试通过替身模拟远程操作。

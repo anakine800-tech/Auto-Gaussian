@@ -397,6 +397,32 @@ study/Attempt。局部损坏会列出拒绝原因并继续后续记录；顶层�
 按原流程重新核验。重启自主试点前在开发机运行，研究机启用前也须运行，结果可代替
 手工整理本地预留，但不代替调度器全账号实时容量检查。
 
+### 临时验收和 PBS 历史预留维护
+
+临时副本上的模式导出使用 `ag mode-review ATTEMPT --study STUDY_DIR --pair 1-2 --offline --json`。
+每次产生一个新的本机 `~/.local/state/ag-offline/mode-reviews/` 子目录。以完整
+`registration.json` 和它绑定的三份产物核对导出；中断时可留有未登记的文件。
+该操作只读取来源研究。对研究本身的写入继续走原有写锁与授权。
+
+从日常安装的解释器执行 `python -B -m ag.cli autonomy audit-reservations --cluster ENTRY --json`。
+此检查可以在集群不可达时运行。按 `source=manual_writer_group` 找到对应的
+`registration_group`、`seed_claim`、`claimed_study_path`、`required_studies_root` 和 `reasons`。
+若在 `study_identity` 阶段失败，原路径来自首条登记，`claim_count` 是文件数；
+此时逐条登记及作业均有待核验。没有完成或释放回执的写入也会报告待核，体检不获取写锁。
+若首条登记损坏，`location_hint_claim` 可给出同组其他原件记录的位置线索，整组继续报错。
+
+历史预留核查须覆盖原父研究根及可能早于登记机制的同级研究。保留原台账；
+若能找回整个原目录，复核身份并重跑体检。副本和单条完成回执只覆盖各自的内容。
+采用站点接单资料核查时，需与全部可能的本地未回显提交逐笔核对；队列的一次可见清单
+不能证明历史预留为零。该诊断不提供导入结算资料或人工清零的入口。证据不足时继续待核。
+
+完整性失败时保留非零退出码及 `coverage.errors`，`pbs.local_placements` 为 `null`。
+成功时列表给出本地已核条目和账号绑定情况，`unmapped` 表示原账号未能映射。
+只有日常 PBS 入口能结合实时清单确定未回显核数。待新监控快照写出后，
+执行 `ag nodes --cluster ENTRY --json` 和 `ag capacity --cluster ENTRY --tier TIER --target-node NODE --json`，
+其中 TIER、NODE 取本次作业的原档位与节点。若 PBS 本人作业号与可见明细不一致，
+保留采样时间和两份清单的差异，在后续完整采样中复核。维护记录只保存在本机。
+
 ## 提交流程：规范顺序
 
 本节描述当前手动模式的 CLI 行为；自主模式的启用条件见上节。

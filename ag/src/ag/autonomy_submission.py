@@ -2183,8 +2183,60 @@ def read_pbs_reservations(cfg):
         return _read_pbs_account(cfg, reads)
 
 
-def _read_pbs_account(cfg, reads, *, event_index=None):
+def _claimed_study_path(raw):
+    seed = disk.decode(raw)
+    _require(isinstance(seed, dict) and isinstance(seed.get('study_path'), str),
+             'Missing manual study location')
+    path = Path(seed['study_path'])
+    _require(path.is_absolute() and '..' not in path.parts, 'Invalid manual study location')
+    study.identifier(path.name)
+    return path
+
+
+def _pbs_manual_study(writers, location, key, pbs_dirs, group, *, diagnostic_only):
     from ag.autonomy import _manual_writer_records
+    _require(writers is not None, 'Manual writer registration disappeared')
+    _CAPTURE_READS.get().directory(location, writers.fd)
+    claims = sorted(name for name in os.listdir(writers.fd) if name.endswith('.claim.json'))
+    _require(claims, 'Manual study registration has no claim')
+    group.update(seed_claim=claims[0], claim_count=len(claims))
+    try:
+        path = _claimed_study_path(_read_file(location / claims[0]))
+        group['claimed_study_path'] = str(path)
+        _require(sha256(str(path).encode()).hexdigest() == key, 'Manual study location does not match its registry key')
+    except (ValueError, OSError):
+        if diagnostic_only:
+            # A later readable claim can locate the missing evidence without
+            # replacing the rejected seed or making a damaged group acceptable.
+            for name in claims[1:]:
+                try:
+                    hint = _claimed_study_path(_read_file(location / name))
+                except (ValueError, OSError):
+                    continue
+                if sha256(str(hint).encode()).hexdigest() == key:
+                    group.update(location_hint_claim=name, location_hint_study_path=str(hint),
+                                 required_studies_root=str(hint.parent))
+                    break
+        raise
+    group.update(required_studies_root=str(path.parent), stage='study_identity')
+    identity = study_identity(path)
+    group['stage'] = 'writer_evidence'
+    writers_here = _manual_writer_records(writers, path, identity, pbs_dirs=pbs_dirs,
+                                         diagnostic_only=diagnostic_only)
+    group['stage'] = 'attempt_directories'
+    os.close(disk.directory(path / 'attempts'))
+    for row in writers_here.values():
+        claim = row['claim']
+        if claim.get('action') == 'submit':
+            _require(bool(claim['attempt_ids']), 'Manual submit has no Attempt identities')
+            for aid in claim['attempt_ids']:
+                group['attempt_id'] = aid
+                os.close(disk.directory(path / 'attempts' / aid))
+    group.update(stage='registered_study_verified', attempt_id=None)
+    return path
+
+
+def _read_pbs_account(cfg, reads, *, event_index=None, diagnostic=None):
     studies = set()
     pbs_dirs = _PbsDirectories()
     if event_index is not None:
@@ -2200,35 +2252,25 @@ def _read_pbs_account(cfg, reads, *, event_index=None):
         else:
             reads.directory(writer_root, registry.fd)
         for key in sorted(os.listdir(registry.fd)) if registry is not None else ():
-            with disk.manual_writers(key) as writers:
-                _require(writers is not None, 'Manual writer registration disappeared')
-                reads.directory(writer_root / key, writers.fd)
-                first = next((n for n in sorted(os.listdir(writers.fd)) if n.endswith('.claim.json')), None)
-                _require(first is not None, 'Manual study registration has no claim')
-                seed = disk.decode(writers.read(first))
-                _require(isinstance(seed, dict) and isinstance(seed.get('study_path'), str),
-                         'Missing manual study location')
-                path = Path(seed['study_path'])
-                _require(path.is_absolute() and '..' not in path.parts, 'Invalid manual study location')
-                study.identifier(path.name)
-                identity = study_identity(path)
-                _require(identity['study_key'] == key, 'Manual study location does not match its registry key')
-                writers_here = _manual_writer_records(writers, path, identity, pbs_dirs=pbs_dirs)
-                os.close(disk.directory(path / 'attempts'))
-                for row in writers_here.values():
-                    claim = row['claim']
-                    if claim.get('action') == 'submit':
-                        _require(bool(claim['attempt_ids']), 'Manual submit has no Attempt identities')
-                        for aid in claim['attempt_ids']:
-                            fd = disk.directory(path / 'attempts' / aid)
-                            os.close(fd)
-                studies.add(path)
-    result = _scan_reservations(cfg, manual_studies=studies, pbs_dirs=pbs_dirs)
+            location = writer_root / key
+            with _reservation_check(diagnostic, 'manual_writer_group', location, coverage=True,
+                                    registration_group=key, stage='registration') as group:
+                with disk.manual_writers(key) as writers:
+                    studies.add(_pbs_manual_study(writers, location, key, pbs_dirs, group,
+                                                  diagnostic_only=diagnostic is not None))
+    if diagnostic is not None:
+        if any(row['source'] == 'manual_writer_group' for row in diagnostic.coverage_errors):
+            raise ValueError('Incomplete manual writer coverage: verify the original studies root, '
+                             'including sibling studies that predate the writer registry')
+        reads.directory(Path(cfg['local']['studies_root']).absolute())
+    result = _scan_reservations(cfg, manual_studies=studies, pbs_dirs=pbs_dirs,
+                                include_accounts=diagnostic is not None)
     pbs_dirs.verify()
     return result
 
 
-def _scan_reservations(cfg, *, states=None, diagnostic=None, manual_studies=None, pbs_dirs=None):
+def _scan_reservations(cfg, *, states=None, diagnostic=None, manual_studies=None, pbs_dirs=None,
+                       include_accounts=False):
     records = _read_global_records(diagnostic, pbs_dirs=pbs_dirs)
     registered = _registered_studies(diagnostic, pbs_dirs=pbs_dirs)
     supplied = {str(Path(key).absolute()): value for key, value in (states or {}).items()}
@@ -2356,10 +2398,44 @@ def _scan_reservations(cfg, *, states=None, diagnostic=None, manual_studies=None
             if names[key] != 1 or placement['scheduler_job_name'] in unmapped_names:
                 del placement['unknown_release']
                 placement['state'] = row['accounting_state'] = 'unknown'
-    return dict(records=records, placements=placements, batch_inputs=batch_inputs, warnings=warnings)
+    result = dict(records=records, placements=placements, batch_inputs=batch_inputs, warnings=warnings)
+    if include_accounts:
+        result['verified_accounts'] = identities
+    return result
 
 
-def audit_reservations(cfg, *, configuration_error=None):
+def _audit_pbs_account(cfg, report, diagnostic):
+    from ag import config, route
+    _require(cfg is not None, 'Configured PBS entry is unavailable')
+    selected = config.select_cluster(cfg, report['cluster'])
+    _require(config.scheduler_kind(selected) == 'pbs', 'Expected a configured PBS entry')
+    peers = config.shared_clusters(selected)
+    report['shared_entries'] = sorted(peers)
+    lock = Path.home() / '.config/ag/autonomy-submit.lock'
+    with diagnostic.check('machine_mutex', lock, coverage=True):
+        _read_file(lock)
+    with diagnostic.check('pbs_account', cluster=report['cluster'], coverage=True):
+        report['account_sha256'] = account_identity(selected)
+    result = _read_pbs_account(cfg, _CAPTURE_READS.get(), diagnostic=diagnostic)
+    _require(all(result['verified_accounts'][name] == report.get('account_sha256') for name in peers),
+             'Configured PBS account identity changed during the reservation audit')
+    mapped = []
+    unverified = []
+    for placement in result['placements']:
+        if placement.get('unmapped_manual_account'):
+            unverified.append(placement)
+        else:
+            mapped.append(placement)
+    configured = [item for item in route._placement_records(cfg, mapped) if item['cluster'] in peers]
+    fields = ('study_key', 'study_id', 'attempt_id', 'cluster', 'job_id', 'state', 'cores')
+    report['local_placements'] = [
+        {**{key: item[key] for key in fields}, 'account_binding': binding}
+        for binding, placements in (('configured', configured), ('unmapped', unverified))
+        for item in placements
+    ]
+
+
+def audit_reservations(cfg, *, configuration_error=None, pbs_cluster=None):
     """Read-only whole-machine report; never a reservation or submission permit.
 
     No machine/study mutex or persistent record is opened for writing. Only
@@ -2369,8 +2445,13 @@ def audit_reservations(cfg, *, configuration_error=None):
     if configuration_error:
         with diagnostic.check('configuration_input', coverage=True):
             raise ValueError(configuration_error)
+    pbs_report = None
     with diagnostic.check('scan', coverage=True):
-        _scan_reservations(cfg, diagnostic=diagnostic)
+        if pbs_cluster is None:
+            _scan_reservations(cfg, diagnostic=diagnostic)
+        else:
+            pbs_report = dict(cluster=pbs_cluster, scheduler_queried=False, local_placements=None)
+            _audit_pbs_account(cfg, pbs_report, diagnostic)
     # Keep every earlier row, but reject an observation changed later in the
     # scan. This is optimistic verification, not a lock or action guarantee.
     for source, location, reads in list(diagnostic.reads):
@@ -2381,11 +2462,16 @@ def audit_reservations(cfg, *, configuration_error=None):
                 row['observed_source'] = source
                 raise ValueError(str(exc)) from exc
     failed = [row for row in diagnostic.records if row['classification'] == 'refused']
-    return dict(schema='ag-reservation-audit/1', ok=not failed,
-                coverage=dict(complete=not diagnostic.coverage_errors, errors=diagnostic.coverage_errors),
-                records=diagnostic.records, failed_count=len(failed),
-                warning_count=sum(len(row['warnings']) for row in diagnostic.records),
-                action_permitted=False)
+    report = dict(schema='ag-reservation-audit/1', ok=not failed,
+                  coverage=dict(complete=not diagnostic.coverage_errors, errors=diagnostic.coverage_errors),
+                  records=diagnostic.records, failed_count=len(failed),
+                  warning_count=sum(len(row['warnings']) for row in diagnostic.records),
+                  action_permitted=False)
+    if pbs_report is not None:
+        if failed:
+            pbs_report['local_placements'] = None
+        report['pbs'] = pbs_report
+    return report
 
 
 def write_waiting(cfg, study_id, selection, *, batch_inputs=None):
