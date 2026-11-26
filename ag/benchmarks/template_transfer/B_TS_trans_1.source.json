@@ -1,0 +1,32 @@
+{
+  "template_id": "B-trans-outward",
+  "reactant": "[C:5](=[O:6])([OH:7])[C@H:1]1[C@H:2]([C:8]#[CH:9])[CH:3]=[CH:4]1",
+  "sha256": "8299872ed06d57d8e9c13529395c54f497211c6feaa0e24f0eff988bc16d7cdb",
+  "row_by_atom": [
+    8,
+    9,
+    10,
+    4,
+    3,
+    13,
+    14,
+    1,
+    2,
+    11,
+    7,
+    12,
+    15,
+    6,
+    5
+  ],
+  "source": {
+    "status": "unvalidated-source-geometry",
+    "doi": "10.1002/ejoc.201801243",
+    "location": "EJOC-2019-338-s001.pdf, printed S17 (PDF page 18), B_TS_trans_1",
+    "url": "https://www.ebi.ac.uk/biostudies/files/S-EPMC6472590/EJOC-2019-338-s001.pdf",
+    "pdf_sha256": "e3655680791f915c7e57466569f5d07f976880b0ab1fc8b0f264c61285ea45da",
+    "license": "CC BY 4.0: article XML includes this SI media; no contrary SI notice found",
+    "attribution": "Boris Maryasin and Nuno Maulide, Eur. J. Org. Chem. 2019, 338-341. Extracted coordinates, unchanged order and precision; mapping is our addition.",
+    "limitations": "Main text SMD(THF) conflicts with SI S1/S13 DCM. Full route, imaginary mode and bidirectional IRC/endpoint evidence absent. Not a validated TS."
+  }
+}
